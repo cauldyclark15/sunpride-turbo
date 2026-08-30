@@ -1,21 +1,38 @@
 {
   "$schema": "https://turborepo.dev/schema.json",
   "ui": "tui",
+  "globalEnv": [
+    "CONVEX_SITE_URL",
+    "WEB_SITE_URL",
+    "PWA_SITE_URL",
+    "CONNECTOR_SIGNING_SECRET",
+    "CONVEX_INTEGRATION_URL",
+    "CONNECTOR_ID",
+    "SAP_ADAPTER",
+    "SAP_BASE_URL",
+    "SAP_USERNAME",
+    "SAP_PASSWORD",
+    "SAP_POLL_INTERVAL_MS",
+    "CONNECTOR_PORT"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
-      "outputs": [".next/**", "!.next/cache/**", "!.next/dev/**"]
+      "env": [
+        "NEXT_PUBLIC_CONVEX_URL",
+        "NEXT_PUBLIC_CONVEX_SITE_URL",
+        "VITE_CONVEX_URL",
+        "VITE_CONVEX_SITE_URL"
+      ],
+      "outputs": [".next/**", "!.next/cache/**", "!.next/dev/**", "dist/**"]
     },
-    "lint": {
-      "dependsOn": ["^lint"]
-    },
-    "check-types": {
-      "dependsOn": ["^check-types"]
-    },
-    "dev": {
-      "cache": false,
-      "persistent": true
-    }
+    "lint": { "dependsOn": ["^lint"] },
+    "typecheck": { "dependsOn": ["^typecheck", "^codegen"] },
+    "test": { "dependsOn": ["^build"] },
+    "test:e2e": { "cache": false },
+    "codegen": { "cache": false, "outputs": ["convex/_generated/**"] },
+    "dev": { "cache": false, "persistent": true },
+    "deploy": { "cache": false }
   }
 }

@@ -1,0 +1,46 @@
+{
+  "name": "@sunpride/pwa",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "eslint . --max-warnings 0",
+    "preview": "vite preview",
+    "typecheck": "tsc -b --pretty false",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@convex-dev/better-auth": "^0.12.0",
+    "@heroui/react": ">=3.2.2",
+    "@sunpride/backend": "workspace:*",
+    "@sunpride/ui": "workspace:*",
+    "better-auth": "~1.6.15",
+    "convex": "^1.27.3",
+    "dexie": "^4.2.1",
+    "dexie-react-hooks": "^4.2.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router": "^7.13.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@tailwindcss/vite": "^4.1.14",
+    "@vitejs/plugin-react": "^6.1.0",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.4",
+    "globals": "^17.11.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "^8.67.0",
+    "vite": "^8.2.2",
+    "vite-plugin-pwa": "^1.2.0",
+    "workbox-window": "^7.3.0",
+    "vitest": "^4.1.0"
+  }
+}

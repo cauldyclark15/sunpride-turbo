@@ -1,0 +1,54 @@
+@import "@fontsource-variable/jetbrains-mono";
+@import "tailwindcss";
+@import "@heroui/styles";
+@import "@heroui-pro/react/css";
+@import "./sunpride.css";
+
+@source "../src/**/*.{ts,tsx}";
+
+:root {
+  color-scheme: light;
+  --font-sans:
+    "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SFMono-Regular",
+    Consolas, monospace;
+  --workspace-sidebar-width: 16.25rem;
+  --sunpride-red: #ee1c25;
+  --sunpride-yellow: #fef200;
+  --sunpride-success: #2e9d59;
+  --sunpride-danger: #c8102e;
+  --sunpride-ink: #18181b;
+  --sunpride-muted: #71717a;
+  --sunpride-canvas: #fafafa;
+}
+
+* {
+  box-sizing: border-box;
+}
+html {
+  background: var(--sunpride-canvas);
+}
+body {
+  margin: 0;
+  color: var(--sunpride-ink);
+  background: var(--sunpride-canvas);
+  font-family: var(--font-sans);
+  font-optical-sizing: auto;
+  font-size: 0.875rem;
+  line-height: 1.5715;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

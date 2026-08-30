@@ -1,0 +1,55 @@
+/*
+ * HeroUI Pro Theme
+ * Add this to your globals.css after importing @heroui/styles
+ * Only includes variables customized from the selected theme
+ * @see https://heroui.com/docs/react/getting-started/theming
+ */
+
+/*
+ * Font: JetBrains Mono Variable, self-hosted by @fontsource-variable.
+ */
+:root,
+.light,
+.default,
+[data-theme="light"],
+[data-theme="default"] {
+  /* Theme Colors */
+  --accent: oklch(60.5% 0.2354 26.83);
+  --success: oklch(61.76% 0.142 152.21);
+  --success-foreground: var(--snow);
+  --warning: oklch(94.03% 0.2005 106.02);
+  --danger: oklch(53.04% 0.2074 22.31);
+  --focus: oklch(60.5% 0.2354 26.83);
+  --accent-hover: color-mix(
+    in oklab,
+    oklch(60.5% 0.2354 26.83) 90%,
+    var(--snow) 10%
+  );
+  --accent-soft: color-mix(
+    in oklab,
+    oklch(60.5% 0.2354 26.83) 15%,
+    transparent
+  );
+}
+
+.dark,
+[data-theme="dark"] {
+  color-scheme: dark;
+  /* Theme Colors */
+  --accent: oklch(60.5% 0.2354 26.83);
+  --success: oklch(61.76% 0.142 152.21);
+  --success-foreground: var(--snow);
+  --warning: oklch(80.59% 0.1254 52.82);
+  --danger: oklch(59.32% 0.1962 357.35);
+  --focus: oklch(60.5% 0.2354 26.83);
+  --accent-hover: color-mix(
+    in oklab,
+    oklch(60.5% 0.2354 26.83) 90%,
+    var(--snow) 10%
+  );
+  --accent-soft: color-mix(
+    in oklab,
+    oklch(60.5% 0.2354 26.83) 15%,
+    transparent
+  );
+}

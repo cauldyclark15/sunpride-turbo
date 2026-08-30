@@ -1,0 +1,21 @@
+{
+  "name": "@sunpride/sap-connector",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/index.js",
+    "start": "bun src/index.js",
+    "lint": "eslint . --max-warnings 0",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@sunpride/integration-contracts": "workspace:*",
+    "ajv": "^8.18.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "eslint": "^9.39.1",
+    "globals": "^17.11.0"
+  }
+}

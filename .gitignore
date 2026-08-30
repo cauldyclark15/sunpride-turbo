@@ -36,3 +36,18 @@ yarn-error.log*
 # Misc
 .DS_Store
 *.pem
+
+# Runtime state and local integration data
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+apps/sap-connector/data/
+
+# Generated PWA artifacts
+apps/pwa/public/sw.js
+apps/pwa/public/workbox-*.js
+
+# Never allow alternate package-manager lockfiles
+package-lock.json
+pnpm-lock.yaml
+yarn.lock

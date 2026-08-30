@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sunpride.local/contracts/sap/inventory.v1.json",
+  "title": "Inventory Snapshot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["productCode", "warehouseCode", "onHand", "available", "asOf"],
+  "properties": {
+    "productCode": { "type": "string", "minLength": 1 },
+    "warehouseCode": { "type": "string", "minLength": 1 },
+    "onHand": { "type": "number" },
+    "available": { "type": "number" },
+    "reserved": { "type": "number", "minimum": 0 },
+    "asOf": { "type": "string", "format": "date-time" }
+  }
+}

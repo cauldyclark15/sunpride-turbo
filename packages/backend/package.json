@@ -1,0 +1,34 @@
+{
+  "name": "@sunpride/backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./api": "./convex/_generated/api.js",
+    "./data-model": "./convex/_generated/dataModel.d.ts"
+  },
+  "scripts": {
+    "dev": "convex dev",
+    "codegen": "convex codegen",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint convex --max-warnings 0",
+    "test": "vitest run --passWithNoTests",
+    "deploy": "convex deploy"
+  },
+  "dependencies": {
+    "@convex-dev/better-auth": "^0.12.0",
+    "better-auth": "~1.6.15",
+    "convex": "^1.27.3",
+    "convex-helpers": "^0.1.111"
+  },
+  "devDependencies": {
+    "@edge-runtime/vm": "^5.0.0",
+    "@sunpride/eslint-config": "workspace:*",
+    "@sunpride/typescript-config": "workspace:*",
+    "@types/node": "26.3.0",
+    "convex-test": "^0.0.56",
+    "eslint": "9.39.1",
+    "typescript": "5.9.3",
+    "vitest": "^4.1.0"
+  }
+}

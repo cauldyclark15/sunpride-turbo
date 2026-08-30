@@ -1,18 +1,21 @@
 {
-  "extends": "@repo/typescript-config/nextjs.json",
+  "extends": "@sunpride/typescript-config/nextjs.json",
   "compilerOptions": {
+    "declaration": false,
+    "declarationMap": false,
     "plugins": [
       {
         "name": "next"
       }
     ],
-    "strictNullChecks": true
+    "strictNullChecks": true,
+    "paths": { "@/*": ["./src/*"] }
   },
   "include": [
     "**/*.ts",
     "**/*.tsx",
     "next-env.d.ts",
-    "next.config.js",
+    "next.config.ts",
     ".next/types/**/*.ts"
   ],
   "exclude": ["node_modules"]

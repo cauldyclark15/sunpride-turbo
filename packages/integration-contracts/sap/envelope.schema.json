@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sunpride.local/contracts/sap/envelope.v1.json",
+  "title": "Sunpride SAP Integration Envelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "eventId",
+    "eventType",
+    "occurredAt",
+    "source",
+    "payload"
+  ],
+  "properties": {
+    "contractVersion": { "const": "1.0" },
+    "eventId": { "type": "string", "minLength": 8, "maxLength": 128 },
+    "eventType": {
+      "type": "string",
+      "enum": [
+        "master-data.upsert",
+        "inventory.snapshot",
+        "sales-order.submit",
+        "delivery.update"
+      ]
+    },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "source": { "type": "string", "enum": ["sap", "sunpride"] },
+    "correlationId": { "type": "string", "maxLength": 128 },
+    "payload": { "type": "object" }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sunpride.local/contracts/sap/master-data.v1.json",
+  "title": "Master Data Upsert v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["entity", "externalId", "code", "name", "active"],
+  "properties": {
+    "entity": { "enum": ["product", "customer", "warehouse"] },
+    "externalId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "code": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "name": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "active": { "type": "boolean" },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  }
+}

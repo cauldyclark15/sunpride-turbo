@@ -1,0 +1,12 @@
+@import "@sunpride/ui/styles.css";
+
+html {
+  min-width: 320px;
+}
+body {
+  min-height: 100vh;
+}
+::selection {
+  background: #fef200;
+  color: #18181b;
+}
