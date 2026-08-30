@@ -10,6 +10,7 @@
     "dev:pwa": "turbo run dev --filter=@sunpride/pwa",
     "dev:sap": "turbo run dev --filter=@sunpride/sap-connector",
     "dev:backend": "turbo run dev --filter=@sunpride/backend",
+    "setup:env": "bun scripts/setup-local-env.ts",
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{js,json,md,ts,tsx,css}\"",
     "format:check": "prettier --check \"**/*.{js,json,md,ts,tsx,css}\"",

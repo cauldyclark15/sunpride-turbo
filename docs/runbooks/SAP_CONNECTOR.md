@@ -2,10 +2,14 @@
 
 ## Configure
 
-1. Copy `apps/sap-connector/.env.example` to `apps/sap-connector/.env.local`.
-2. Set `CONVEX_INTEGRATION_URL` to the deployment `.convex.site` URL.
-3. Set `CONNECTOR_SIGNING_SECRET` to the same value configured in Convex.
-4. Use `SAP_ADAPTER=mock` for acceptance testing. For SAP OData, switch to `odata` and provide the base URL and service account.
+1. Run `bun run setup:env` from the repository root. This copies every local
+   environment example and retrieves the existing connector signing secret from
+   Convex without printing it.
+2. If configuring manually, copy `apps/sap-connector/.env.example` to
+   `apps/sap-connector/.env.local`, then set `CONNECTOR_SIGNING_SECRET` to the
+   same value configured in Convex.
+3. Use `SAP_ADAPTER=mock` for acceptance testing. For SAP OData, switch to
+   `odata` and provide the base URL and service account.
 
 ## Operate
 

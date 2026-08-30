@@ -18,8 +18,10 @@ Sunpride’s integrated operations platform: a Next.js management web app, an of
 Prerequisites: Bun 1.3.14 or newer and access to the configured Convex and HeroUI Pro accounts.
 
 ```bash
-cd /Users/jc/cnc/sunpride-turbo
+git clone git@github.com:cauldyclark15/sunpride-turbo.git
+cd sunpride-turbo
 bun install
+bun run setup:env
 bun run dev:backend
 ```
 
@@ -40,7 +42,27 @@ Access is invitation-only. The bootstrap migration reserves `jcing.jc@gmail.com`
 
 ## Environment
 
-Public app URLs are in each app’s ignored `.env.local`. Convex deployment selection is in `packages/backend/.env.local`. Copy `apps/sap-connector/.env.example` to `.env.local` and use the same signing secret stored as `CONNECTOR_SIGNING_SECRET` in the Convex deployment.
+Every runtime has a colocated, copy-ready `.env.example` containing the current
+local development values:
+
+```bash
+cp packages/backend/.env.example packages/backend/.env.local
+cp apps/web/.env.example apps/web/.env.local
+cp apps/pwa/.env.example apps/pwa/.env.local
+cp apps/sap-connector/.env.example apps/sap-connector/.env.local
+```
+
+Running `bun run setup:env` performs those copies without overwriting existing
+files. It also retrieves `CONNECTOR_SIGNING_SECRET` from the configured Convex
+deployment without displaying or committing it. Use `bun run setup:env --force`
+only when you intentionally want to replace all four local files from the
+examples.
+
+The copied values connect both apps and the connector to the shared
+`perceptive-grasshopper-340` development deployment. The
+[`packages/backend/.env.deployment.example`](packages/backend/.env.deployment.example)
+file lists the Convex-hosted settings needed when creating a different
+deployment; its secret fields intentionally remain blank.
 
 Better Auth uses email and password. Registration is blocked unless the email has a pending access invitation; the bootstrap email is always eligible. Run `bunx convex run migrations:bootstrapSuperAdmin` from `packages/backend` after pushing backend changes; it is idempotent.
 
