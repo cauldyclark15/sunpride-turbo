@@ -145,7 +145,6 @@ export function ModuleWorkspace({ module }: { module: string }) {
         eyebrow={config.eyebrow}
         title={config.title}
         description={config.description}
-        actions={<StatusPill tone="success">Live</StatusPill>}
       />
       <WorkspaceModuleTabs
         activeHref={pathname}

@@ -6,6 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
+import { PasswordInput } from "@sunpride/ui";
 import { LoadingScreen } from "@/components/auth-gate";
 import { authClient } from "@/lib/auth-client";
 import { safeAuthDestination } from "@/lib/auth-routing";
@@ -98,16 +99,18 @@ export function AuthScreen({ mode, next }: { mode: AuthMode; next?: string }) {
             Email address
             <Input name="email" type="email" autoComplete="email" required />
           </label>
-          <label className="grid gap-1.5 text-sm font-medium">
-            Password
-            <Input
+          <div className="grid gap-1.5">
+            <label htmlFor="password" className="text-sm font-medium">
+              Password
+            </label>
+            <PasswordInput
+              id="password"
               name="password"
-              type="password"
               minLength={8}
               autoComplete={isLogin ? "current-password" : "new-password"}
               required
             />
-          </label>
+          </div>
           {error ? (
             <p
               role="alert"

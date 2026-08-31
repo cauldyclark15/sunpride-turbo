@@ -1,7 +1,7 @@
 "use client";
 
 import { api } from "@sunpride/backend/api";
-import { StatusPill, WorkspaceShell } from "@sunpride/ui";
+import { WorkspaceShell } from "@sunpride/ui";
 import { useQuery } from "convex/react";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
@@ -44,7 +44,6 @@ export function OperationsShell({ children }: { children: ReactNode }) {
       navGroups={navigation.navGroups}
       onNavigate={(href) => router.push(href)}
       onSignOut={signOut}
-      status={<StatusPill tone="success">Live</StatusPill>}
       user={
         current
           ? {

@@ -1,6 +1,8 @@
 "use client";
 
 import { Button } from "@heroui/react/button";
+import { Dropdown } from "@heroui/react/dropdown";
+import { Label } from "@heroui/react/label";
 import { Sidebar } from "@heroui-pro/react/sidebar";
 import type { CSSProperties, ReactNode } from "react";
 import { Heading } from "react-aria-components";
@@ -104,29 +106,44 @@ function UserFooter({
         </div>
       ) : null}
       {user ? (
-        <div className="flex min-w-0 items-center gap-3 px-2 py-2">
-          <div className="grid size-9 shrink-0 place-items-center rounded-full bg-surface-secondary text-sm font-semibold text-foreground">
-            {user.name.slice(0, 1).toUpperCase()}
-          </div>
-          <div className="min-w-0" data-sidebar="label">
-            <p className="truncate text-sm font-medium text-foreground">
-              {user.name}
-            </p>
-            <p className="truncate text-xs capitalize text-muted">
-              {user.role.replaceAll("_", " ")}
-            </p>
-          </div>
-        </div>
+        <Dropdown>
+          <Button
+            fullWidth
+            variant="ghost"
+            aria-label="Open account menu"
+            className="h-auto min-h-0 justify-start gap-3 px-2 py-2 text-left"
+          >
+            <span className="grid size-9 shrink-0 place-items-center rounded-full bg-surface-secondary text-sm font-semibold text-foreground">
+              {user.name.slice(0, 1).toUpperCase()}
+            </span>
+            <span className="min-w-0" data-sidebar="label">
+              <span className="block truncate text-sm font-medium text-foreground">
+                {user.name}
+              </span>
+              <span className="block truncate text-xs capitalize text-muted">
+                {user.role.replaceAll("_", " ")}
+              </span>
+            </span>
+          </Button>
+          <Dropdown.Popover placement="top start" className="min-w-48">
+            <Dropdown.Menu
+              aria-label="Account actions"
+              onAction={(key: string | number) => {
+                if (key === "sign-out") void onSignOut();
+              }}
+            >
+              <Dropdown.Item
+                id="sign-out"
+                textValue="Sign out"
+                variant="danger"
+              >
+                <WorkspaceIcon name="logout" />
+                <Label>Sign out</Label>
+              </Dropdown.Item>
+            </Dropdown.Menu>
+          </Dropdown.Popover>
+        </Dropdown>
       ) : null}
-      <Button
-        fullWidth
-        variant="ghost"
-        className="justify-start"
-        onPress={() => void onSignOut()}
-      >
-        <WorkspaceIcon name="logout" />
-        <span data-sidebar="label">Sign out</span>
-      </Button>
     </Sidebar.Footer>
   );
 }
