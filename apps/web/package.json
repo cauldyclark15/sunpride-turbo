@@ -17,7 +17,7 @@
     "@sunpride/ui": "workspace:*",
     "@heroui/react": ">=3.2.2",
     "better-auth": "~1.6.15",
-    "convex": "^1.27.3",
+    "convex": "^1.45.0",
     "next": "16.3.2",
     "react": "19.2.8",
     "react-dom": "19.2.8"

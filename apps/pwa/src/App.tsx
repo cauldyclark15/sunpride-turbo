@@ -1,5 +1,6 @@
 import { Button, Input } from "@heroui/react";
 import { api } from "@sunpride/backend/api";
+import type { Id } from "@sunpride/backend/data-model";
 import {
   MetricCard,
   PageHeader,
@@ -24,7 +25,15 @@ import {
   getFieldNavigation,
 } from "./config/navigation";
 import { authClient } from "./lib/auth-client";
-import { db, queueOrder, type LocalOrder } from "./lib/database";
+import {
+  db,
+  getOrCreateDeviceState,
+  queueOrder,
+  replaceInventoryProjection,
+  saveRoute,
+  type LocalInventory,
+  type LocalOrder,
+} from "./lib/database";
 import { syncOutbox } from "./lib/sync";
 
 function Surface({ children }: { children: ReactNode }) {
@@ -122,11 +131,15 @@ function NewOrder({
   products,
   saving,
   onSubmit,
+  inventory,
+  routeReady,
 }: {
   customers: Customer[];
   products: Product[];
   saving: boolean;
   onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  inventory: LocalInventory[];
+  routeReady: boolean;
 }) {
   return (
     <div className="grid max-w-4xl gap-7">
@@ -159,11 +172,25 @@ function NewOrder({
               required
               className="h-10 rounded-md border border-border bg-surface px-3 outline-none focus:border-accent"
             >
-              {products.map((product) => (
-                <option key={product._id} value={product.code}>
-                  {product.name}
-                </option>
-              ))}
+              {products
+                .filter((product) =>
+                  inventory.some(
+                    (stock) =>
+                      stock.productCode === product.code &&
+                      BigInt(stock.projectedAvailableBase) > 0n,
+                  ),
+                )
+                .map((product) => (
+                  <option key={product._id} value={product.code}>
+                    {product.name} ·{" "}
+                    {Number(
+                      inventory.find(
+                        (stock) => stock.productCode === product.code,
+                      )?.projectedAvailableBase ?? 0,
+                    ) / 1_000}{" "}
+                    left
+                  </option>
+                ))}
             </select>
           </label>
           <label className="grid gap-2 text-sm font-medium text-foreground">
@@ -190,12 +217,76 @@ function NewOrder({
             type="submit"
             variant="primary"
             isPending={saving}
+            isDisabled={!routeReady || inventory.length === 0}
             className="sm:col-span-2"
           >
-            Save order locally
+            {routeReady
+              ? "Save sale and issue truck stock"
+              : "Open a truck route first"}
           </Button>
         </form>
       </Surface>
+    </div>
+  );
+}
+
+function TruckInventory({
+  inventory,
+  routeCode,
+}: {
+  inventory: LocalInventory[];
+  routeCode?: string;
+}) {
+  return (
+    <div className="grid gap-7">
+      <PageHeader
+        eyebrow="Rolling truck custody"
+        title="Truck inventory"
+        description="This device projection includes queued offline sales, so available stock is conservative until synchronization completes."
+      />
+      <div className="rounded-lg border border-border bg-foreground p-5 text-background">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] opacity-60">
+          Active route
+        </p>
+        <p className="mt-1 text-xl font-semibold">
+          {routeCode ?? "No route opened"}
+        </p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {inventory.map((row) => {
+          const projected =
+            Number(row.projectedAvailableBase) / Number(row.scale);
+          const remote = Number(row.remoteAvailableBase) / Number(row.scale);
+          return (
+            <article key={row.id} className="truck-stock-card">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+                {row.productCode}
+              </p>
+              <h2 className="mt-1 font-semibold text-foreground">
+                {row.productName}
+              </h2>
+              <div className="mt-5 flex items-end justify-between gap-4">
+                <div>
+                  <strong className="text-3xl text-foreground">
+                    {projected.toLocaleString("en-PH")}
+                  </strong>
+                  <span className="ml-1 text-sm text-muted">cases</span>
+                </div>
+                <StatusPill tone={projected > 0 ? "success" : "danger"}>
+                  {remote === projected
+                    ? "synced"
+                    : `${remote - projected} queued`}
+                </StatusPill>
+              </div>
+            </article>
+          );
+        })}
+        {inventory.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-border bg-surface p-8 text-center text-sm text-muted sm:col-span-2">
+            Open a route while online to cache its truck inventory.
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -361,17 +452,38 @@ function FieldWorkspace({ user }: { user: { name: string; role: string } }) {
   const location = useLocation();
   const products = useQuery(api.domains.masterData.products, { limit: 20 });
   const customers = useQuery(api.domains.masterData.customers, { limit: 20 });
+  const truckLocations = useQuery(api.inventory.queries.locations, {
+    type: "truck",
+  });
   const localOrders =
     useLiveQuery(
       () => db.orders.orderBy("createdAt").reverse().toArray(),
       [],
     ) ?? [];
+  const deviceState = useLiveQuery(() => db.deviceState.get("primary"), []);
+  const localInventory =
+    useLiveQuery(() => db.inventory.orderBy("productCode").toArray(), []) ?? [];
+  const currentRoute = useQuery(
+    api.inventory.pos.currentRoute,
+    deviceState?.deviceId ? { deviceId: deviceState.deviceId } : "skip",
+  );
+  const remoteInventory = useQuery(
+    api.inventory.queries.overview,
+    deviceState?.truckLocationId
+      ? {
+          locationId: deviceState.truckLocationId as Id<"inventoryLocations">,
+          limit: 100,
+        }
+      : "skip",
+  );
+  const openRoute = useMutation(api.inventory.pos.openRoute);
   const queued = localOrders.filter(
     (item) => item.syncState !== "synced",
   ).length;
   const [online, setOnline] = useState(() => window.navigator.onLine);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [routeBusy, setRouteBusy] = useState(false);
   const navigation = getFieldNavigation(location.pathname);
 
   async function syncNow() {
@@ -382,6 +494,28 @@ function FieldWorkspace({ user }: { user: { name: string; role: string } }) {
       setSyncing(false);
     }
   }
+
+  useEffect(() => {
+    void getOrCreateDeviceState();
+  }, []);
+
+  useEffect(() => {
+    if (!currentRoute) return;
+    void saveRoute({
+      truckLocationId: currentRoute.truckLocationId,
+      routeSessionId: currentRoute._id,
+      routeCode: currentRoute.routeCode,
+      lastAcknowledgedSequence: currentRoute.lastAcknowledgedSequence,
+    });
+  }, [currentRoute]);
+
+  useEffect(() => {
+    if (!deviceState?.truckLocationId || !remoteInventory) return;
+    void replaceInventoryProjection(
+      deviceState.truckLocationId,
+      remoteInventory,
+    );
+  }, [deviceState?.truckLocationId, remoteInventory]);
 
   useEffect(() => {
     const update = () => {
@@ -399,12 +533,34 @@ function FieldWorkspace({ user }: { user: { name: string; role: string } }) {
     };
   }, [convex]);
 
+  async function activateRoute() {
+    const truck = truckLocations?.[0];
+    if (!truck || !deviceState) return;
+    setRouteBusy(true);
+    try {
+      const routeSessionId = await openRoute({
+        truckLocationId: truck._id,
+        deviceId: deviceState.deviceId,
+      });
+      await saveRoute({
+        truckLocationId: truck._id,
+        routeSessionId,
+        routeCode: `ROUTE-${new Date().toISOString().slice(0, 10)}`,
+        lastAcknowledgedSequence: 0,
+      });
+    } finally {
+      setRouteBusy(false);
+    }
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
     try {
       const data = new FormData(event.currentTarget);
       const productCode = String(data.get("productCode"));
+      if (!deviceState?.truckLocationId || !deviceState.routeSessionId)
+        throw new Error("Open a truck route before recording a sale");
       await queueOrder({
         customerCode: String(data.get("customerCode")),
         productCode,
@@ -412,7 +568,10 @@ function FieldWorkspace({ user }: { user: { name: string; role: string } }) {
           products?.find((product) => product.code === productCode)?.name ??
           "Sunpride product",
         quantity: Number(data.get("quantity")),
+        quantityBase: String(Math.round(Number(data.get("quantity")) * 1_000)),
         unitPrice: Number(data.get("unitPrice")),
+        truckLocationId: deviceState.truckLocationId,
+        routeSessionId: deviceState.routeSessionId,
       });
       event.currentTarget.reset();
       if (window.navigator.onLine) await syncOutbox(convex);
@@ -447,6 +606,27 @@ function FieldWorkspace({ user }: { user: { name: string; role: string } }) {
       }
       user={user}
     >
+      {!deviceState?.routeSessionId ? (
+        <div className="mb-5 flex flex-col gap-3 rounded-lg border border-warning/40 bg-warning/10 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-semibold text-foreground">
+              Truck custody is not active
+            </p>
+            <p className="mt-1 text-sm text-muted">
+              Open the assigned truck route online before accepting offline
+              sales.
+            </p>
+          </div>
+          <Button
+            variant="primary"
+            isPending={routeBusy}
+            isDisabled={!online || !truckLocations?.length || !deviceState}
+            onPress={() => void activateRoute()}
+          >
+            Open assigned route
+          </Button>
+        </div>
+      ) : null}
       <Routes>
         <Route
           index
@@ -467,6 +647,17 @@ function FieldWorkspace({ user }: { user: { name: string; role: string } }) {
               products={products ?? []}
               saving={saving}
               onSubmit={submit}
+              inventory={localInventory}
+              routeReady={Boolean(deviceState?.routeSessionId)}
+            />
+          }
+        />
+        <Route
+          path="inventory"
+          element={
+            <TruckInventory
+              inventory={localInventory}
+              routeCode={deviceState?.routeCode}
             />
           }
         />

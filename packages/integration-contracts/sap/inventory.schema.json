@@ -1,16 +1,35 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sunpride.local/contracts/sap/inventory.v1.json",
-  "title": "Inventory Snapshot v1",
+  "title": "Inventory Quantity Payload v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["productCode", "warehouseCode", "onHand", "available", "asOf"],
+  "required": ["productCode", "warehouseCode", "asOf"],
   "properties": {
     "productCode": { "type": "string", "minLength": 1 },
     "warehouseCode": { "type": "string", "minLength": 1 },
+    "quantityScale": { "type": "string", "pattern": "^[1-9][0-9]*$" },
     "onHand": { "type": "number" },
+    "onHandBase": { "type": "string", "pattern": "^-?[0-9]+$" },
     "available": { "type": "number" },
+    "availableBase": { "type": "string", "pattern": "^-?[0-9]+$" },
     "reserved": { "type": "number", "minimum": 0 },
+    "reservedBase": { "type": "string", "pattern": "^[0-9]+$" },
+    "stockStatus": {
+      "enum": [
+        "available",
+        "quality_hold",
+        "blocked",
+        "rejected",
+        "expired",
+        "damaged"
+      ]
+    },
+    "lotNumber": { "type": "string" },
+    "movementId": { "type": "string" },
+    "movementNumber": { "type": "string" },
+    "movementType": { "type": "string" },
+    "sourceDocumentId": { "type": "string" },
     "asOf": { "type": "string", "format": "date-time" }
   }
 }

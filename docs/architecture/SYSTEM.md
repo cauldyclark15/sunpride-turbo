@@ -15,7 +15,7 @@ Local SAP ◄── Bun connector + SQLite queue ──┘
 ## Charter module coverage
 
 1. Master Data — products, customers, warehouses, territories, pricing references.
-2. Inventory — warehouse balances and available-to-promise snapshots.
+2. Inventory — lot-aware receiving, reservations, transfers, manufacturing, counts, rolling-truck custody, POS issues/reversals, operational balances, and reconciliation.
 3. Sales Force Automation — assignments, planned visits, completion and notes.
 4. Mobile/PWA — offline storage, transactional outbox, retry and conflict states.
 5. Orders — idempotent order creation, lines, status lifecycle, SAP document number.
@@ -28,14 +28,15 @@ The UI additionally exposes Analytics as its own navigation surface, while it re
 
 ## Data ownership
 
-- SAP is authoritative for ERP master data, stock, and final SAP document outcomes.
-- Convex is authoritative for application identity/profile, field drafts after sync, approval state, integration tracking, and audit events.
+- SAP is authoritative for approved ERP master data, accounting/financial inventory outcomes, closed-period policy, and final SAP document identifiers.
+- Convex is authoritative for operational physical inventory, exact lot allocation, application identity/profile, approval state, integration tracking, and audit events. See ADR-003.
 - IndexedDB is a device-local working store. It is not an independent system of record.
 - Bun SQLite is connector delivery state. Completed records are retained for deduplication and operations evidence.
 
 ## Write paths
 
 - Online web order: authenticated Convex mutation → workflow + approval → outbound integration event.
-- Offline PWA order: IndexedDB transaction writes order + outbox → authenticated idempotent Convex mutation → same workflow.
-- SAP inbound event: connector queue → signed Convex HTTP action → event-id deduplication → domain upsert.
+- Offline rolling-truck sale: IndexedDB transaction validates/decrements the cached truck projection and writes sale + sequenced outbox → authenticated idempotent Convex mutation → POS order + exact FEFO issue movement.
+- SAP inbound event: connector queue → signed Convex HTTP action → event-id and payload deduplication → master projection, explicit movement command, or reconciliation snapshot.
 - Approved order: Convex event → connector SQLite queue → SAP adapter → signed acknowledgement → order marked `sent_to_sap`.
+- Inventory posting: Convex document + movement + allocations + ledger + summaries + command + audit + integration effect in one transaction → connector retry queue → SAP movement acknowledgement.

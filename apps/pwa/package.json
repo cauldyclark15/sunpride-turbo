@@ -17,7 +17,7 @@
     "@sunpride/backend": "workspace:*",
     "@sunpride/ui": "workspace:*",
     "better-auth": "~1.6.15",
-    "convex": "^1.27.3",
+    "convex": "^1.45.0",
     "dexie": "^4.2.1",
     "dexie-react-hooks": "^4.2.0",
     "react": "^19.2.8",

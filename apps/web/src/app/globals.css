@@ -7,3 +7,110 @@ body {
   background: #fef200;
   color: #18181b;
 }
+
+.inventory-command-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--color-accent) 10%, transparent),
+      transparent 48%
+    ),
+    var(--color-surface);
+  padding: 1rem 1.25rem;
+}
+
+.inventory-tally {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  background: var(--color-surface);
+  padding: 1rem;
+}
+
+.inventory-tally::after {
+  position: absolute;
+  right: -1rem;
+  bottom: -1.6rem;
+  width: 5rem;
+  height: 5rem;
+  border: 1rem solid color-mix(in srgb, var(--color-accent) 14%, transparent);
+  border-radius: 999px;
+  content: "";
+}
+
+.inventory-tally span,
+.inventory-tally small,
+.inventory-table small,
+.inventory-document-row small {
+  display: block;
+  color: var(--color-muted);
+  font-size: 0.72rem;
+}
+
+.inventory-tally strong {
+  display: block;
+  margin-block: 0.4rem 0.2rem;
+  font-size: 1.65rem;
+  line-height: 1;
+}
+
+.inventory-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.inventory-table th {
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 0.7rem 0.8rem;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.inventory-table td {
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--color-border) 70%, transparent);
+  padding: 0.8rem;
+}
+
+.inventory-table tbody tr:hover {
+  background: color-mix(in srgb, var(--color-accent) 5%, transparent);
+}
+
+.inventory-document-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.6rem;
+  background: var(--color-background);
+  padding: 0.75rem 0.9rem;
+}
+
+@media (max-width: 640px) {
+  .inventory-command-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .inventory-document-row {
+    grid-template-columns: 1fr auto;
+  }
+
+  .inventory-document-row > :last-child:nth-child(3) {
+    grid-column: 1 / -1;
+  }
+}

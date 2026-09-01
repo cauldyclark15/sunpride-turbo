@@ -39,7 +39,7 @@ export class ConnectorService {
         });
       for (const item of this.queue.due("outbound")) {
         try {
-          const result = await this.sap.submitOrder(item.payload);
+          const result = await this.sap.submitEvent(item.payload);
           await this.convex.acknowledge({
             eventId: item.id,
             success: true,

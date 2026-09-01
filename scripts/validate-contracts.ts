@@ -5,6 +5,7 @@ const contractDirectory = new URL(
 const files = [
   "envelope.schema.json",
   "inventory.schema.json",
+  "inventory-movement.schema.json",
   "master-data.schema.json",
   "sales-order.schema.json",
 ];

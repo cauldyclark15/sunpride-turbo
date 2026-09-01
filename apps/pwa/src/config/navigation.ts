@@ -7,6 +7,12 @@ import type {
 const primaryItems: WorkspaceNavGroup["items"] = [
   { id: "home", label: "Home", href: "/", icon: "home" },
   { id: "orders", label: "Orders", href: "/orders/new", icon: "order" },
+  {
+    id: "inventory",
+    label: "Truck stock",
+    href: "/inventory",
+    icon: "inventory",
+  },
   { id: "catalog", label: "Catalog", href: "/catalog", icon: "catalog" },
   { id: "sync", label: "Sync", href: "/sync", icon: "sync" },
 ];
@@ -30,11 +36,13 @@ export const fieldMobileItems: WorkspaceNavItem[] = [
 export function getFieldNavigation(pathname: string) {
   const activePrimaryId = pathname.startsWith("/orders")
     ? "orders"
-    : pathname.startsWith("/catalog")
-      ? "catalog"
-      : pathname.startsWith("/sync")
-        ? "sync"
-        : "home";
+    : pathname.startsWith("/inventory")
+      ? "inventory"
+      : pathname.startsWith("/catalog")
+        ? "catalog"
+        : pathname.startsWith("/sync")
+          ? "sync"
+          : "home";
 
   return {
     activePrimaryId,

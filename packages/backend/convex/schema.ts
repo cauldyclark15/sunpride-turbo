@@ -1,5 +1,19 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import {
+  allocationPolicyValidator,
+  approvalStatusValidator,
+  commandStatusValidator,
+  costingMethodValidator,
+  locationTypeValidator,
+  movementTypeValidator,
+  productionStatusValidator,
+  receiptStatusValidator,
+  reservationStatusValidator,
+  stockStatusValidator,
+  trackingModeValidator,
+  transferStatusValidator,
+} from "./inventory/validators";
 
 const role = v.union(
   v.literal("super_admin"),
@@ -17,6 +31,11 @@ const orderStatus = v.union(
   v.literal("rejected"),
   v.literal("sent_to_sap"),
   v.literal("fulfilled"),
+  v.literal("posted"),
+  v.literal("partially_voided"),
+  v.literal("voided"),
+  v.literal("returned"),
+  v.literal("review_required"),
 );
 
 export default defineSchema({
@@ -56,6 +75,12 @@ export default defineSchema({
     unitPrice: v.number(),
     active: v.boolean(),
     externalId: v.optional(v.string()),
+    organizationId: v.optional(v.string()),
+    baseUomId: v.optional(v.id("unitsOfMeasure")),
+    quantityScale: v.optional(v.int64()),
+    trackingMode: v.optional(trackingModeValidator),
+    allocationPolicy: v.optional(allocationPolicyValidator),
+    policyVersion: v.optional(v.number()),
     updatedAt: v.number(),
   })
     .index("by_code", ["code"])
@@ -78,6 +103,7 @@ export default defineSchema({
     location: v.string(),
     active: v.boolean(),
     externalId: v.optional(v.string()),
+    organizationId: v.optional(v.string()),
     updatedAt: v.number(),
   }).index("by_code", ["code"]),
   inventoryBalances: defineTable({
@@ -87,9 +113,919 @@ export default defineSchema({
     reserved: v.number(),
     available: v.number(),
     asOf: v.number(),
+    organizationId: v.optional(v.string()),
+    productId: v.optional(v.id("products")),
+    locationId: v.optional(v.id("inventoryLocations")),
+    physicalBase: v.optional(v.int64()),
+    availableStockBase: v.optional(v.int64()),
+    reservedBase: v.optional(v.int64()),
+    availableBase: v.optional(v.int64()),
+    qualityHoldBase: v.optional(v.int64()),
+    quarantineBase: v.optional(v.int64()),
+    damagedBase: v.optional(v.int64()),
+    expiredBase: v.optional(v.int64()),
+    rejectedBase: v.optional(v.int64()),
+    wipBase: v.optional(v.int64()),
+    inTransitBase: v.optional(v.int64()),
+    weightedAverageCostMinor: v.optional(v.int64()),
+    inventoryValueMinor: v.optional(v.int64()),
+    version: v.optional(v.number()),
+    lastMovementId: v.optional(v.id("inventoryMovements")),
   })
     .index("by_product_warehouse", ["productCode", "warehouseCode"])
-    .index("by_warehouse", ["warehouseCode"]),
+    .index("by_warehouse", ["warehouseCode"])
+    .index("by_organizationId_and_productId_and_locationId", [
+      "organizationId",
+      "productId",
+      "locationId",
+    ])
+    .index("by_organizationId_and_locationId_and_productId", [
+      "organizationId",
+      "locationId",
+      "productId",
+    ]),
+  unitsOfMeasure: defineTable({
+    organizationId: v.string(),
+    code: v.string(),
+    name: v.string(),
+    dimension: v.union(
+      v.literal("count"),
+      v.literal("mass"),
+      v.literal("volume"),
+      v.literal("length"),
+      v.literal("area"),
+    ),
+    decimalPlaces: v.number(),
+    active: v.boolean(),
+    externalCode: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_code", ["organizationId", "code"])
+    .index("by_organizationId_and_dimension_and_active", [
+      "organizationId",
+      "dimension",
+      "active",
+    ]),
+  uomConversions: defineTable({
+    organizationId: v.string(),
+    productId: v.optional(v.id("products")),
+    fromUomId: v.id("unitsOfMeasure"),
+    toUomId: v.id("unitsOfMeasure"),
+    numerator: v.int64(),
+    denominator: v.int64(),
+    roundingMode: v.union(
+      v.literal("exact"),
+      v.literal("half_up"),
+      v.literal("floor"),
+      v.literal("ceiling"),
+    ),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    active: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_productId_and_fromUomId_and_toUomId", [
+      "organizationId",
+      "productId",
+      "fromUomId",
+      "toUomId",
+    ])
+    .index("by_organizationId_and_fromUomId_and_toUomId", [
+      "organizationId",
+      "fromUomId",
+      "toUomId",
+    ]),
+  productInventoryPolicies: defineTable({
+    organizationId: v.string(),
+    productId: v.id("products"),
+    baseUomId: v.id("unitsOfMeasure"),
+    quantityScale: v.int64(),
+    quantityPrecision: v.number(),
+    trackingMode: trackingModeValidator,
+    allocationPolicy: allocationPolicyValidator,
+    allowMixedLotsPerLine: v.boolean(),
+    allowNegativeStock: v.boolean(),
+    qualityReleaseRequired: v.boolean(),
+    shelfLifeDays: v.optional(v.number()),
+    expiryDateRequired: v.boolean(),
+    manufactureDateRequired: v.boolean(),
+    minimumRemainingShelfLifeDays: v.number(),
+    costingMethod: costingMethodValidator,
+    version: v.number(),
+    active: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_productId", ["organizationId", "productId"])
+    .index("by_organizationId_and_trackingMode_and_active", [
+      "organizationId",
+      "trackingMode",
+      "active",
+    ]),
+  replenishmentPolicies: defineTable({
+    organizationId: v.string(),
+    productId: v.id("products"),
+    locationId: v.optional(v.id("inventoryLocations")),
+    enabled: v.boolean(),
+    reorderPointBase: v.int64(),
+    targetLevelBase: v.int64(),
+    safetyStockBase: v.int64(),
+    leadTimeDays: v.optional(v.number()),
+    alertCooldownMs: v.number(),
+    lastAlertState: v.optional(v.union(v.literal("ok"), v.literal("low"))),
+    lastAlertedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_productId_and_locationId", [
+      "organizationId",
+      "productId",
+      "locationId",
+    ])
+    .index("by_organizationId_and_enabled", ["organizationId", "enabled"]),
+  inventoryLocations: defineTable({
+    organizationId: v.string(),
+    siteCode: v.string(),
+    warehouseId: v.optional(v.id("warehouses")),
+    parentLocationId: v.optional(v.id("inventoryLocations")),
+    code: v.string(),
+    name: v.string(),
+    type: locationTypeValidator,
+    active: v.boolean(),
+    allowsPicking: v.boolean(),
+    allowsReceiving: v.boolean(),
+    allowsSale: v.boolean(),
+    allowsProduction: v.boolean(),
+    externalId: v.optional(v.string()),
+    truckCode: v.optional(v.string()),
+    assignedDeviceId: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_code", ["organizationId", "code"])
+    .index("by_organizationId_and_siteCode_and_type_and_active", [
+      "organizationId",
+      "siteCode",
+      "type",
+      "active",
+    ])
+    .index("by_organizationId_and_warehouseId_and_parentLocationId", [
+      "organizationId",
+      "warehouseId",
+      "parentLocationId",
+    ])
+    .index("by_organizationId_and_truckCode", ["organizationId", "truckCode"]),
+  inventoryLots: defineTable({
+    organizationId: v.string(),
+    productId: v.id("products"),
+    lotNumber: v.string(),
+    normalizedLotNumber: v.string(),
+    supplierLotNumber: v.optional(v.string()),
+    sourceType: v.string(),
+    sourceDocumentId: v.optional(v.string()),
+    sourceLineId: v.optional(v.string()),
+    manufacturedAt: v.optional(v.number()),
+    receivedAt: v.number(),
+    expiresAt: v.optional(v.number()),
+    qualityStatus: v.union(
+      v.literal("pending"),
+      v.literal("released"),
+      v.literal("quarantined"),
+      v.literal("rejected"),
+      v.literal("expired"),
+    ),
+    unitCostMinor: v.optional(v.int64()),
+    closedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_productId_and_normalizedLotNumber", [
+      "organizationId",
+      "productId",
+      "normalizedLotNumber",
+    ])
+    .index("by_organizationId_and_productId_and_expiresAt", [
+      "organizationId",
+      "productId",
+      "expiresAt",
+    ])
+    .index("by_organizationId_and_qualityStatus_and_expiresAt", [
+      "organizationId",
+      "qualityStatus",
+      "expiresAt",
+    ])
+    .index("by_organizationId_and_sourceType_and_sourceDocumentId", [
+      "organizationId",
+      "sourceType",
+      "sourceDocumentId",
+    ]),
+  inventoryLotBalances: defineTable({
+    organizationId: v.string(),
+    productId: v.id("products"),
+    lotId: v.id("inventoryLots"),
+    locationId: v.id("inventoryLocations"),
+    stockStatus: stockStatusValidator,
+    physicalBase: v.int64(),
+    reservedBase: v.int64(),
+    availableBase: v.int64(),
+    expirySortKey: v.number(),
+    receiptSequence: v.number(),
+    version: v.number(),
+    lastMovementId: v.optional(v.id("inventoryMovements")),
+    updatedAt: v.number(),
+  })
+    .index("by_org_product_location_status_expiry", [
+      "organizationId",
+      "productId",
+      "locationId",
+      "stockStatus",
+      "expirySortKey",
+    ])
+    .index("by_organizationId_and_lotId_and_locationId_and_stockStatus", [
+      "organizationId",
+      "lotId",
+      "locationId",
+      "stockStatus",
+    ])
+    .index("by_organizationId_and_lotId", ["organizationId", "lotId"])
+    .index("by_organizationId_and_locationId_and_productId", [
+      "organizationId",
+      "locationId",
+      "productId",
+    ]),
+  inventoryCommands: defineTable({
+    organizationId: v.string(),
+    idempotencyKey: v.string(),
+    commandType: v.string(),
+    schemaVersion: v.number(),
+    payloadHash: v.string(),
+    actorSubject: v.string(),
+    deviceId: v.optional(v.string()),
+    status: commandStatusValidator,
+    sourceDocumentId: v.optional(v.string()),
+    movementId: v.optional(v.id("inventoryMovements")),
+    result: v.optional(v.any()),
+    errorCode: v.optional(v.string()),
+    createdAt: v.number(),
+    committedAt: v.optional(v.number()),
+  }).index("by_organizationId_and_idempotencyKey", [
+    "organizationId",
+    "idempotencyKey",
+  ]),
+  inventoryMovements: defineTable({
+    organizationId: v.string(),
+    movementNumber: v.string(),
+    movementType: movementTypeValidator,
+    sourceType: v.string(),
+    sourceDocumentId: v.optional(v.string()),
+    status: v.union(v.literal("posted"), v.literal("reversed")),
+    effectiveAt: v.number(),
+    postedAt: v.number(),
+    postedBy: v.string(),
+    deviceId: v.optional(v.string()),
+    idempotencyKey: v.string(),
+    reasonCode: v.optional(v.string()),
+    note: v.optional(v.string()),
+    reversesMovementId: v.optional(v.id("inventoryMovements")),
+    reversedByMovementId: v.optional(v.id("inventoryMovements")),
+    schemaVersion: v.number(),
+  })
+    .index("by_organizationId_and_movementNumber", [
+      "organizationId",
+      "movementNumber",
+    ])
+    .index("by_organizationId_and_sourceType_and_sourceDocumentId", [
+      "organizationId",
+      "sourceType",
+      "sourceDocumentId",
+    ])
+    .index("by_organizationId_and_movementType_and_effectiveAt", [
+      "organizationId",
+      "movementType",
+      "effectiveAt",
+    ])
+    .index("by_organizationId_and_postedAt", ["organizationId", "postedAt"])
+    .index("by_organizationId_and_reversesMovementId", [
+      "organizationId",
+      "reversesMovementId",
+    ]),
+  inventoryMovementLines: defineTable({
+    organizationId: v.string(),
+    movementId: v.id("inventoryMovements"),
+    lineNumber: v.number(),
+    productId: v.id("products"),
+    baseUomId: v.optional(v.id("unitsOfMeasure")),
+    quantityBase: v.int64(),
+    enteredQuantity: v.optional(v.string()),
+    enteredUomCode: v.optional(v.string()),
+    fromLocationId: v.optional(v.id("inventoryLocations")),
+    toLocationId: v.optional(v.id("inventoryLocations")),
+    fromStockStatus: v.optional(stockStatusValidator),
+    toStockStatus: v.optional(stockStatusValidator),
+    sourceLineId: v.optional(v.string()),
+    unitCostMinor: v.optional(v.int64()),
+    totalCostMinor: v.optional(v.int64()),
+    reasonCode: v.optional(v.string()),
+    effectiveAt: v.number(),
+  })
+    .index("by_organizationId_and_movementId_and_lineNumber", [
+      "organizationId",
+      "movementId",
+      "lineNumber",
+    ])
+    .index("by_organizationId_and_productId_and_effectiveAt", [
+      "organizationId",
+      "productId",
+      "effectiveAt",
+    ])
+    .index("by_organizationId_and_sourceLineId", [
+      "organizationId",
+      "sourceLineId",
+    ]),
+  inventoryAllocations: defineTable({
+    organizationId: v.string(),
+    movementId: v.id("inventoryMovements"),
+    movementLineId: v.id("inventoryMovementLines"),
+    productId: v.id("products"),
+    lotId: v.id("inventoryLots"),
+    quantityBase: v.int64(),
+    fromLocationId: v.optional(v.id("inventoryLocations")),
+    toLocationId: v.optional(v.id("inventoryLocations")),
+    fromStockStatus: v.optional(stockStatusValidator),
+    toStockStatus: v.optional(stockStatusValidator),
+    allocationSequence: v.number(),
+    allocationPolicy: allocationPolicyValidator,
+    userSelected: v.boolean(),
+    reversesAllocationId: v.optional(v.id("inventoryAllocations")),
+    effectiveAt: v.number(),
+  })
+    .index("by_organizationId_and_movementLineId", [
+      "organizationId",
+      "movementLineId",
+    ])
+    .index("by_organizationId_and_lotId_and_effectiveAt", [
+      "organizationId",
+      "lotId",
+      "effectiveAt",
+    ])
+    .index("by_organizationId_and_reversesAllocationId", [
+      "organizationId",
+      "reversesAllocationId",
+    ]),
+  inventoryLedgerEntries: defineTable({
+    organizationId: v.string(),
+    movementId: v.id("inventoryMovements"),
+    movementLineId: v.id("inventoryMovementLines"),
+    allocationId: v.optional(v.id("inventoryAllocations")),
+    productId: v.id("products"),
+    lotId: v.optional(v.id("inventoryLots")),
+    locationId: v.id("inventoryLocations"),
+    stockStatus: stockStatusValidator,
+    quantityDeltaBase: v.int64(),
+    reservedDeltaBase: v.int64(),
+    valueDeltaMinor: v.optional(v.int64()),
+    balanceVersion: v.number(),
+    quantityBeforeBase: v.int64(),
+    quantityAfterBase: v.int64(),
+    effectiveAt: v.number(),
+    postedAt: v.number(),
+    reversesEntryId: v.optional(v.id("inventoryLedgerEntries")),
+  })
+    .index("by_organizationId_and_movementId", ["organizationId", "movementId"])
+    .index("by_organizationId_and_productId_and_locationId_and_effectiveAt", [
+      "organizationId",
+      "productId",
+      "locationId",
+      "effectiveAt",
+    ])
+    .index("by_organizationId_and_lotId_and_locationId_and_effectiveAt", [
+      "organizationId",
+      "lotId",
+      "locationId",
+      "effectiveAt",
+    ]),
+  inventoryReservations: defineTable({
+    organizationId: v.string(),
+    reservationNumber: v.string(),
+    reservationType: v.string(),
+    sourceType: v.string(),
+    sourceDocumentId: v.string(),
+    status: reservationStatusValidator,
+    expiresAt: v.optional(v.number()),
+    createdBy: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_sourceType_and_sourceDocumentId", [
+      "organizationId",
+      "sourceType",
+      "sourceDocumentId",
+    ])
+    .index("by_organizationId_and_status_and_expiresAt", [
+      "organizationId",
+      "status",
+      "expiresAt",
+    ]),
+  inventoryReservationLines: defineTable({
+    organizationId: v.string(),
+    reservationId: v.id("inventoryReservations"),
+    productId: v.id("products"),
+    locationId: v.id("inventoryLocations"),
+    lotId: v.optional(v.id("inventoryLots")),
+    requestedBase: v.int64(),
+    reservedBase: v.int64(),
+    consumedBase: v.int64(),
+    releasedBase: v.int64(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_reservationId", [
+      "organizationId",
+      "reservationId",
+    ])
+    .index("by_organizationId_and_productId_and_locationId", [
+      "organizationId",
+      "productId",
+      "locationId",
+    ]),
+  goodsReceipts: defineTable({
+    organizationId: v.string(),
+    receiptNumber: v.string(),
+    receiptType: v.union(
+      v.literal("purchase_order"),
+      v.literal("transfer"),
+      v.literal("return"),
+      v.literal("production"),
+      v.literal("unplanned"),
+    ),
+    sourceDocumentId: v.optional(v.string()),
+    receivingLocationId: v.id("inventoryLocations"),
+    status: receiptStatusValidator,
+    deliveryReference: v.optional(v.string()),
+    receivedBy: v.string(),
+    movementId: v.optional(v.id("inventoryMovements")),
+    note: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_receiptNumber", [
+      "organizationId",
+      "receiptNumber",
+    ])
+    .index("by_organizationId_and_status_and_createdAt", [
+      "organizationId",
+      "status",
+      "createdAt",
+    ])
+    .index("by_organizationId_and_sourceDocumentId", [
+      "organizationId",
+      "sourceDocumentId",
+    ]),
+  goodsReceiptLines: defineTable({
+    organizationId: v.string(),
+    receiptId: v.id("goodsReceipts"),
+    sourceLineId: v.optional(v.string()),
+    productId: v.id("products"),
+    acceptedBase: v.int64(),
+    rejectedBase: v.int64(),
+    lotId: v.optional(v.id("inventoryLots")),
+    destinationStatus: stockStatusValidator,
+    unitCostMinor: v.optional(v.int64()),
+    movementLineId: v.optional(v.id("inventoryMovementLines")),
+    createdAt: v.number(),
+  })
+    .index("by_organizationId_and_receiptId", ["organizationId", "receiptId"])
+    .index("by_organizationId_and_sourceLineId", [
+      "organizationId",
+      "sourceLineId",
+    ]),
+  stockTransfers: defineTable({
+    organizationId: v.string(),
+    transferNumber: v.string(),
+    sourceLocationId: v.id("inventoryLocations"),
+    destinationLocationId: v.id("inventoryLocations"),
+    inTransitLocationId: v.id("inventoryLocations"),
+    status: transferStatusValidator,
+    requestedBy: v.string(),
+    approvedBy: v.optional(v.string()),
+    shippedBy: v.optional(v.string()),
+    receivedBy: v.optional(v.string()),
+    routeSessionId: v.optional(v.id("truckRouteSessions")),
+    outboundMovementId: v.optional(v.id("inventoryMovements")),
+    receiptMovementId: v.optional(v.id("inventoryMovements")),
+    note: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_transferNumber", [
+      "organizationId",
+      "transferNumber",
+    ])
+    .index("by_organizationId_and_status_and_createdAt", [
+      "organizationId",
+      "status",
+      "createdAt",
+    ])
+    .index("by_organizationId_and_sourceLocationId_and_status", [
+      "organizationId",
+      "sourceLocationId",
+      "status",
+    ])
+    .index("by_organizationId_and_destinationLocationId_and_status", [
+      "organizationId",
+      "destinationLocationId",
+      "status",
+    ]),
+  stockTransferLines: defineTable({
+    organizationId: v.string(),
+    transferId: v.id("stockTransfers"),
+    productId: v.id("products"),
+    requestedBase: v.int64(),
+    approvedBase: v.int64(),
+    shippedBase: v.int64(),
+    receivedBase: v.int64(),
+    rejectedBase: v.int64(),
+    shortBase: v.int64(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_organizationId_and_transferId", [
+    "organizationId",
+    "transferId",
+  ]),
+  stockCountSessions: defineTable({
+    organizationId: v.string(),
+    countNumber: v.string(),
+    countType: v.union(
+      v.literal("cycle"),
+      v.literal("full"),
+      v.literal("spot"),
+      v.literal("route_close"),
+    ),
+    locationId: v.id("inventoryLocations"),
+    status: v.union(
+      v.literal("draft"),
+      v.literal("frozen"),
+      v.literal("counting"),
+      v.literal("submitted"),
+      v.literal("reviewed"),
+      v.literal("approved"),
+      v.literal("posted"),
+      v.literal("cancelled"),
+    ),
+    blindCount: v.boolean(),
+    snapshotAt: v.number(),
+    createdBy: v.string(),
+    approvedBy: v.optional(v.string()),
+    adjustmentId: v.optional(v.id("inventoryAdjustments")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_countNumber", [
+      "organizationId",
+      "countNumber",
+    ])
+    .index("by_organizationId_and_locationId_and_status", [
+      "organizationId",
+      "locationId",
+      "status",
+    ]),
+  stockCountLines: defineTable({
+    organizationId: v.string(),
+    sessionId: v.id("stockCountSessions"),
+    productId: v.id("products"),
+    lotId: v.optional(v.id("inventoryLots")),
+    stockStatus: stockStatusValidator,
+    systemBase: v.int64(),
+    countedBase: v.optional(v.int64()),
+    varianceBase: v.optional(v.int64()),
+    finding: v.optional(
+      v.union(
+        v.literal("over"),
+        v.literal("missing"),
+        v.literal("damaged"),
+        v.literal("expired"),
+        v.literal("wrong_lot"),
+        v.literal("wrong_location"),
+      ),
+    ),
+    note: v.optional(v.string()),
+    countedBy: v.optional(v.string()),
+    countedAt: v.optional(v.number()),
+  }).index("by_organizationId_and_sessionId", ["organizationId", "sessionId"]),
+  inventoryAdjustments: defineTable({
+    organizationId: v.string(),
+    adjustmentNumber: v.string(),
+    adjustmentType: v.string(),
+    reasonCode: v.string(),
+    sourceCountId: v.optional(v.id("stockCountSessions")),
+    status: approvalStatusValidator,
+    requestedBy: v.string(),
+    approvedBy: v.optional(v.string()),
+    movementId: v.optional(v.id("inventoryMovements")),
+    note: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_adjustmentNumber", [
+      "organizationId",
+      "adjustmentNumber",
+    ])
+    .index("by_organizationId_and_status_and_createdAt", [
+      "organizationId",
+      "status",
+      "createdAt",
+    ]),
+  inventoryAdjustmentLines: defineTable({
+    organizationId: v.string(),
+    adjustmentId: v.id("inventoryAdjustments"),
+    productId: v.id("products"),
+    lotId: v.optional(v.id("inventoryLots")),
+    locationId: v.id("inventoryLocations"),
+    stockStatus: stockStatusValidator,
+    varianceBase: v.int64(),
+    unitCostMinor: v.optional(v.int64()),
+    reasonCode: v.string(),
+  }).index("by_organizationId_and_adjustmentId", [
+    "organizationId",
+    "adjustmentId",
+  ]),
+  billOfMaterials: defineTable({
+    organizationId: v.string(),
+    productId: v.id("products"),
+    code: v.string(),
+    name: v.string(),
+    active: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_code", ["organizationId", "code"])
+    .index("by_organizationId_and_productId", ["organizationId", "productId"]),
+  billOfMaterialVersions: defineTable({
+    organizationId: v.string(),
+    bomId: v.id("billOfMaterials"),
+    version: v.number(),
+    outputQuantityBase: v.int64(),
+    status: v.union(
+      v.literal("draft"),
+      v.literal("approved"),
+      v.literal("active"),
+      v.literal("obsolete"),
+    ),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    yieldTargetBps: v.number(),
+    createdBy: v.optional(v.string()),
+    approvedBy: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_organizationId_and_bomId_and_version", [
+    "organizationId",
+    "bomId",
+    "version",
+  ]),
+  billOfMaterialComponents: defineTable({
+    organizationId: v.string(),
+    bomVersionId: v.id("billOfMaterialVersions"),
+    componentProductId: v.id("products"),
+    quantityBase: v.int64(),
+    issuePolicy: v.union(
+      v.literal("backflush"),
+      v.literal("manual_issue"),
+      v.literal("staged"),
+    ),
+    scrapAllowanceBps: v.number(),
+    optional: v.boolean(),
+    preferredLocationId: v.optional(v.id("inventoryLocations")),
+    createdAt: v.number(),
+  }).index("by_organizationId_and_bomVersionId", [
+    "organizationId",
+    "bomVersionId",
+  ]),
+  productionOrders: defineTable({
+    organizationId: v.string(),
+    productionOrderNumber: v.string(),
+    productId: v.id("products"),
+    bomVersionId: v.id("billOfMaterialVersions"),
+    plannedBase: v.int64(),
+    completedBase: v.int64(),
+    scrappedBase: v.int64(),
+    sourceLocationId: v.id("inventoryLocations"),
+    wipLocationId: v.id("inventoryLocations"),
+    outputLocationId: v.id("inventoryLocations"),
+    status: productionStatusValidator,
+    createdBy: v.string(),
+    releasedBy: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_productionOrderNumber", [
+      "organizationId",
+      "productionOrderNumber",
+    ])
+    .index("by_organizationId_and_status_and_createdAt", [
+      "organizationId",
+      "status",
+      "createdAt",
+    ]),
+  productionMaterialIssues: defineTable({
+    organizationId: v.string(),
+    productionOrderId: v.id("productionOrders"),
+    movementId: v.id("inventoryMovements"),
+    issueType: v.union(v.literal("issue"), v.literal("return")),
+    postedBy: v.string(),
+    postedAt: v.number(),
+  }).index("by_organizationId_and_productionOrderId", [
+    "organizationId",
+    "productionOrderId",
+  ]),
+  productionOutputReceipts: defineTable({
+    organizationId: v.string(),
+    productionOrderId: v.id("productionOrders"),
+    outputLotId: v.id("inventoryLots"),
+    quantityBase: v.int64(),
+    movementId: v.id("inventoryMovements"),
+    qualityStatus: stockStatusValidator,
+    postedBy: v.string(),
+    postedAt: v.number(),
+  }).index("by_organizationId_and_productionOrderId", [
+    "organizationId",
+    "productionOrderId",
+  ]),
+  lotGenealogyLinks: defineTable({
+    organizationId: v.string(),
+    productionOrderId: v.id("productionOrders"),
+    outputLotId: v.id("inventoryLots"),
+    componentLotId: v.id("inventoryLots"),
+    componentProductId: v.id("products"),
+    quantityBase: v.int64(),
+    movementId: v.id("inventoryMovements"),
+    movementLineId: v.id("inventoryMovementLines"),
+  })
+    .index("by_organizationId_and_outputLotId", [
+      "organizationId",
+      "outputLotId",
+    ])
+    .index("by_organizationId_and_componentLotId", [
+      "organizationId",
+      "componentLotId",
+    ])
+    .index("by_organizationId_and_productionOrderId", [
+      "organizationId",
+      "productionOrderId",
+    ]),
+  truckRouteSessions: defineTable({
+    organizationId: v.string(),
+    routeCode: v.string(),
+    truckLocationId: v.id("inventoryLocations"),
+    salespersonSubject: v.string(),
+    assignedDeviceId: v.string(),
+    status: v.union(
+      v.literal("planned"),
+      v.literal("loading"),
+      v.literal("open"),
+      v.literal("closing"),
+      v.literal("reconciling"),
+      v.literal("closed"),
+      v.literal("review_required"),
+    ),
+    openedAt: v.optional(v.number()),
+    closedAt: v.optional(v.number()),
+    lastAcknowledgedSequence: v.number(),
+    leaseExpiresAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_salespersonSubject_and_status", [
+      "organizationId",
+      "salespersonSubject",
+      "status",
+    ])
+    .index("by_organizationId_and_assignedDeviceId_and_status", [
+      "organizationId",
+      "assignedDeviceId",
+      "status",
+    ])
+    .index("by_organizationId_and_truckLocationId_and_status", [
+      "organizationId",
+      "truckLocationId",
+      "status",
+    ]),
+  truckInventoryCheckpoints: defineTable({
+    organizationId: v.string(),
+    routeSessionId: v.id("truckRouteSessions"),
+    checkpointNumber: v.number(),
+    serverSequence: v.number(),
+    checksum: v.string(),
+    createdAt: v.number(),
+  }).index("by_organizationId_and_routeSessionId_and_checkpointNumber", [
+    "organizationId",
+    "routeSessionId",
+    "checkpointNumber",
+  ]),
+  truckInventoryCheckpointLines: defineTable({
+    organizationId: v.string(),
+    checkpointId: v.id("truckInventoryCheckpoints"),
+    productId: v.id("products"),
+    lotId: v.optional(v.id("inventoryLots")),
+    quantityBase: v.int64(),
+    balanceVersion: v.number(),
+  }).index("by_organizationId_and_checkpointId", [
+    "organizationId",
+    "checkpointId",
+  ]),
+  sapInventorySnapshots: defineTable({
+    organizationId: v.string(),
+    productCode: v.string(),
+    warehouseCode: v.string(),
+    productId: v.optional(v.id("products")),
+    locationId: v.optional(v.id("inventoryLocations")),
+    onHandBase: v.int64(),
+    reservedBase: v.int64(),
+    availableBase: v.int64(),
+    asOf: v.number(),
+    sourceEventId: v.string(),
+    sourceSequence: v.optional(v.string()),
+    payloadHash: v.optional(v.string()),
+    resolutionStatus: v.union(
+      v.literal("pending"),
+      v.literal("matched"),
+      v.literal("different"),
+      v.literal("unmapped"),
+    ),
+    receivedAt: v.number(),
+  })
+    .index("by_organizationId_and_productCode_and_warehouseCode_and_asOf", [
+      "organizationId",
+      "productCode",
+      "warehouseCode",
+      "asOf",
+    ])
+    .index("by_organizationId_and_sourceEventId", [
+      "organizationId",
+      "sourceEventId",
+    ])
+    .index("by_organizationId_and_resolutionStatus_and_asOf", [
+      "organizationId",
+      "resolutionStatus",
+      "asOf",
+    ]),
+  inventoryReconciliationRuns: defineTable({
+    organizationId: v.string(),
+    scope: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("running"),
+      v.literal("completed"),
+      v.literal("failed"),
+    ),
+    convexCutoff: v.number(),
+    sapCutoff: v.number(),
+    comparedCount: v.number(),
+    differenceCount: v.number(),
+    startedBy: v.string(),
+    startedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  }).index("by_organizationId_and_status_and_startedAt", [
+    "organizationId",
+    "status",
+    "startedAt",
+  ]),
+  inventoryReconciliationDifferences: defineTable({
+    organizationId: v.string(),
+    runId: v.id("inventoryReconciliationRuns"),
+    productId: v.optional(v.id("products")),
+    locationId: v.optional(v.id("inventoryLocations")),
+    productCode: v.string(),
+    warehouseCode: v.string(),
+    convexBase: v.int64(),
+    sapBase: v.int64(),
+    differenceBase: v.int64(),
+    classification: v.union(
+      v.literal("mapping"),
+      v.literal("timing"),
+      v.literal("missing_inbound"),
+      v.literal("missing_outbound"),
+      v.literal("duplicate"),
+      v.literal("unauthorized_adjustment"),
+      v.literal("unresolved"),
+    ),
+    resolutionStatus: v.union(
+      v.literal("open"),
+      v.literal("resolved"),
+      v.literal("accepted"),
+    ),
+    note: v.optional(v.string()),
+    createdAt: v.number(),
+    resolvedAt: v.optional(v.number()),
+  })
+    .index("by_organizationId_and_runId", ["organizationId", "runId"])
+    .index("by_organizationId_and_resolutionStatus_and_createdAt", [
+      "organizationId",
+      "resolutionStatus",
+      "createdAt",
+    ]),
   salesAssignments: defineTable({
     salespersonSubject: v.string(),
     customerCode: v.string(),
@@ -114,8 +1050,10 @@ export default defineSchema({
     .index("by_salesperson_time", ["salespersonSubject", "scheduledAt"])
     .index("by_customer", ["customerCode"]),
   orders: defineTable({
+    organizationId: v.optional(v.string()),
     clientRequestId: v.string(),
     orderNumber: v.string(),
+    orderType: v.optional(v.string()),
     customerCode: v.string(),
     salespersonSubject: v.string(),
     status: orderStatus,
@@ -123,6 +1061,16 @@ export default defineSchema({
     total: v.number(),
     offlineCreatedAt: v.optional(v.number()),
     sapDocumentNumber: v.optional(v.string()),
+    sourceLocationId: v.optional(v.id("inventoryLocations")),
+    routeSessionId: v.optional(v.id("truckRouteSessions")),
+    deviceId: v.optional(v.string()),
+    inventoryMovementId: v.optional(v.id("inventoryMovements")),
+    requestPayloadHash: v.optional(v.string()),
+    deviceSequence: v.optional(v.number()),
+    voidMovementId: v.optional(v.id("inventoryMovements")),
+    originalOrderId: v.optional(v.id("orders")),
+    voidedAt: v.optional(v.number()),
+    voidedBy: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -183,6 +1131,16 @@ export default defineSchema({
     receivedAt: v.number(),
     processedAt: v.optional(v.number()),
     lastError: v.optional(v.string()),
+    organizationId: v.optional(v.string()),
+    schemaVersion: v.optional(v.number()),
+    payloadHash: v.optional(v.string()),
+    correlationId: v.optional(v.string()),
+    causationId: v.optional(v.string()),
+    sourceDocumentId: v.optional(v.string()),
+    movementId: v.optional(v.id("inventoryMovements")),
+    nextAttemptAt: v.optional(v.number()),
+    acknowledgedAt: v.optional(v.number()),
+    externalDocumentNumber: v.optional(v.string()),
   })
     .index("by_event_id", ["eventId"])
     .index("by_direction_status", ["direction", "status"])

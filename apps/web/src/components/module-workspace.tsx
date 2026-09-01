@@ -16,6 +16,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { getWebModuleTabs } from "@/config/navigation";
 import { AdminWorkspace } from "./admin-workspace";
+import { InventoryWorkspace } from "./inventory-workspace";
 
 const modules = {
   dashboard: {
@@ -31,10 +32,10 @@ const modules = {
       "Product, customer, warehouse, territory, and price references synchronized with SAP.",
   },
   inventory: {
-    eyebrow: "Available-to-promise",
-    title: "Inventory",
+    eyebrow: "Operational inventory authority",
+    title: "Inventory control",
     description:
-      "Warehouse-level on-hand, reserved, and available quantities from the latest SAP snapshot.",
+      "Lot-aware stock, receiving, transfers, counts, manufacturing, rolling trucks, and an immutable movement ledger.",
   },
   "sales-force": {
     eyebrow: "Field execution",
@@ -176,10 +177,6 @@ function ModuleContent({
     api.domains.masterData.customers,
     needsCommercialData ? { limit: 50 } : "skip",
   );
-  const inventory = useQuery(
-    api.domains.inventory.list,
-    module === "inventory" ? {} : "skip",
-  );
   const orders = useQuery(
     api.domains.orders.list,
     module === "orders" || module === "workflows" ? {} : "skip",
@@ -194,10 +191,6 @@ function ModuleContent({
 
   const productRows = (products ?? []).map((row) => ({ ...row, id: row._id }));
   const customerRows = (customers ?? []).map((row) => ({
-    ...row,
-    id: row._id,
-  }));
-  const inventoryRows = (inventory ?? []).map((row) => ({
     ...row,
     id: row._id,
   }));
@@ -356,62 +349,7 @@ function ModuleContent({
   }
 
   if (module === "inventory") {
-    const columns: DataColumn<(typeof inventoryRows)[number]>[] = [
-      {
-        key: "product",
-        label: "Product",
-        render: (row) => (
-          <span className="font-semibold text-foreground">
-            {row.productCode}
-          </span>
-        ),
-      },
-      {
-        key: "warehouse",
-        label: "Warehouse",
-        render: (row) => row.warehouseCode,
-      },
-      {
-        key: "onhand",
-        label: "On hand",
-        align: "right",
-        render: (row) => row.onHand,
-      },
-      {
-        key: "reserved",
-        label: "Reserved",
-        align: "right",
-        render: (row) => row.reserved,
-      },
-      {
-        key: "available",
-        label: "Available",
-        align: "right",
-        render: (row) => (
-          <span
-            className={
-              row.available < 100
-                ? "font-semibold text-danger"
-                : "font-semibold text-success"
-            }
-          >
-            {row.available}
-          </span>
-        ),
-      },
-    ];
-    return (
-      <DataTable
-        rows={inventoryRows}
-        columns={columns}
-        empty={
-          <EmptyPanel
-            title="No inventory snapshot"
-            description="Run the SAP connector to receive the first stock snapshot."
-          />
-        }
-      />
-    );
+    return <InventoryWorkspace setupMessage={setupMessage} />;
   }
 
   if (module === "orders" || module === "workflows") {

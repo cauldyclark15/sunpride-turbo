@@ -24,9 +24,9 @@ export class MockSapAdapter {
       },
     ];
   }
-  async submitOrder(task) {
+  async submitEvent(task) {
     return {
-      sapDocumentNumber: `MOCK-${task.eventId.slice(-8).toUpperCase()}`,
+      sapDocumentNumber: `MOCK-${task.eventType.toUpperCase().slice(0, 12)}-${task.eventId.slice(-8).toUpperCase()}`,
     };
   }
 }

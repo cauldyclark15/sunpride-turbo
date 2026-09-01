@@ -6,6 +6,7 @@ describe("field navigation", () => {
     ["/", "home"],
     ["/orders/new", "orders"],
     ["/orders/queue", "orders"],
+    ["/inventory", "inventory"],
     ["/catalog", "catalog"],
     ["/sync", "sync"],
   ])("maps %s to the %s sidebar module", (pathname, expected) => {

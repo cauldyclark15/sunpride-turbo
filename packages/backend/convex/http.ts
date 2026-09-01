@@ -16,6 +16,9 @@ const json = (body: unknown, status = 200) =>
     },
   });
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
 async function verifyRequest(request: Request, body: string) {
   const secret = env.CONNECTOR_SIGNING_SECRET;
   const timestamp = request.headers.get("x-sunpride-timestamp");
@@ -66,14 +69,11 @@ http.route({
   path: "/api/sap/events",
   method: "POST",
   handler: withAuth(async (ctx, _request, body) => {
-    const envelope = JSON.parse(body) as {
-      eventId?: string;
-      eventType?: string;
-      payload?: unknown;
-    };
+    const envelope: unknown = JSON.parse(body);
     if (
-      !envelope.eventId ||
-      !envelope.eventType ||
+      !isRecord(envelope) ||
+      typeof envelope.eventId !== "string" ||
+      typeof envelope.eventType !== "string" ||
       envelope.payload === undefined
     )
       return json({ error: "invalid_envelope" }, 400);
@@ -83,6 +83,26 @@ http.route({
         eventId: envelope.eventId,
         eventType: envelope.eventType,
         payload: envelope.payload,
+        contractVersion:
+          typeof envelope.contractVersion === "string"
+            ? envelope.contractVersion
+            : undefined,
+        occurredAt:
+          typeof envelope.occurredAt === "string"
+            ? Date.parse(envelope.occurredAt)
+            : undefined,
+        sourceSequence:
+          typeof envelope.sourceSequence === "string"
+            ? envelope.sourceSequence
+            : undefined,
+        correlationId:
+          typeof envelope.correlationId === "string"
+            ? envelope.correlationId
+            : undefined,
+        payloadHash:
+          typeof envelope.payloadHash === "string"
+            ? envelope.payloadHash
+            : undefined,
       },
     );
     return json({ ok: true, ...result }, result.duplicate ? 200 : 202);
@@ -96,6 +116,7 @@ http.route({
     json({
       tasks: await ctx.runQuery(internal.integration.sap.pendingTasks, {
         limit: 20,
+        now: Date.now(),
       }),
     }),
   ),
@@ -105,19 +126,21 @@ http.route({
   path: "/api/sap/tasks/ack",
   method: "POST",
   handler: withAuth(async (ctx, _request, body) => {
-    const ack = JSON.parse(body) as {
-      eventId?: string;
-      success?: boolean;
-      sapDocumentNumber?: string;
-      error?: string;
-    };
-    if (!ack.eventId || typeof ack.success !== "boolean")
+    const ack: unknown = JSON.parse(body);
+    if (
+      !isRecord(ack) ||
+      typeof ack.eventId !== "string" ||
+      typeof ack.success !== "boolean"
+    )
       return json({ error: "invalid_ack" }, 400);
     await ctx.runMutation(internal.integration.sap.acknowledgeTask, {
       eventId: ack.eventId,
       success: ack.success,
-      sapDocumentNumber: ack.sapDocumentNumber,
-      error: ack.error,
+      sapDocumentNumber:
+        typeof ack.sapDocumentNumber === "string"
+          ? ack.sapDocumentNumber
+          : undefined,
+      error: typeof ack.error === "string" ? ack.error : undefined,
     });
     return json({ ok: true });
   }),
@@ -127,19 +150,19 @@ http.route({
   path: "/api/sap/heartbeat",
   method: "POST",
   handler: withAuth(async (ctx, _request, body) => {
-    const beat = JSON.parse(body) as {
-      connectorId?: string;
-      status?: "online" | "degraded" | "offline";
-      adapter?: string;
-      details?: string;
-    };
-    if (!beat.connectorId || !beat.status || !beat.adapter)
+    const beat: unknown = JSON.parse(body);
+    if (
+      !isRecord(beat) ||
+      typeof beat.connectorId !== "string" ||
+      !["online", "degraded", "offline"].includes(String(beat.status)) ||
+      typeof beat.adapter !== "string"
+    )
       return json({ error: "invalid_heartbeat" }, 400);
     await ctx.runMutation(internal.integration.sap.heartbeat, {
       connectorId: beat.connectorId,
-      status: beat.status,
+      status: beat.status as "online" | "degraded" | "offline",
       adapter: beat.adapter,
-      details: beat.details,
+      details: typeof beat.details === "string" ? beat.details : undefined,
     });
     return json({ ok: true });
   }),

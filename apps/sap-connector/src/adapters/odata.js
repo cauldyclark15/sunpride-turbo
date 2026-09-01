@@ -41,11 +41,29 @@ export class ODataSapAdapter {
       },
     }));
   }
-  async submitOrder(task) {
-    const result = await this.call("/SalesOrderSet", {
+  async submitEvent(task) {
+    const path =
+      task.eventType === "sales-order.submit"
+        ? "/SalesOrderSet"
+        : task.eventType.startsWith("inventory.")
+          ? "/InventoryMovementSet"
+          : null;
+    if (!path)
+      throw new Error(`Unsupported outbound SAP event: ${task.eventType}`);
+    const result = await this.call(path, {
       method: "POST",
-      body: JSON.stringify(task.payload),
+      body: JSON.stringify({
+        ...task.payload,
+        externalEventId: task.eventId,
+        eventType: task.eventType,
+      }),
     });
-    return { sapDocumentNumber: result.SalesOrder ?? result.d?.SalesOrder };
+    return {
+      sapDocumentNumber:
+        result.SalesOrder ??
+        result.MaterialDocument ??
+        result.d?.SalesOrder ??
+        result.d?.MaterialDocument,
+    };
   }
 }

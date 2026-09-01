@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sunpride.local/contracts/sap/inventory-movement.v1.json",
+  "title": "Approved SAP Inventory Movement v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["movementType", "documentId", "lines"],
+  "properties": {
+    "movementType": {
+      "enum": [
+        "goods_receipt",
+        "inventory_issue",
+        "inventory_adjustment",
+        "status_change"
+      ]
+    },
+    "documentId": { "type": "string", "minLength": 1 },
+    "reasonCode": { "type": "string" },
+    "lines": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["productCode", "quantityBase"],
+        "properties": {
+          "productCode": { "type": "string", "minLength": 1 },
+          "quantityBase": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+          "fromLocationCode": { "type": "string" },
+          "toLocationCode": { "type": "string" },
+          "fromStatus": {
+            "enum": [
+              "available",
+              "quality_hold",
+              "quarantine",
+              "damaged",
+              "expired",
+              "rejected",
+              "wip",
+              "in_transit"
+            ]
+          },
+          "toStatus": {
+            "enum": [
+              "available",
+              "quality_hold",
+              "quarantine",
+              "damaged",
+              "expired",
+              "rejected",
+              "wip",
+              "in_transit"
+            ]
+          },
+          "lotNumber": { "type": "string" },
+          "manufacturedAt": { "type": "string", "format": "date-time" },
+          "expiresAt": { "type": "string", "format": "date-time" },
+          "unitCostMinor": { "type": "string", "pattern": "^[0-9]+$" }
+        },
+        "anyOf": [
+          { "required": ["fromLocationCode"] },
+          { "required": ["toLocationCode"] }
+        ]
+      }
+    }
+  }
+}

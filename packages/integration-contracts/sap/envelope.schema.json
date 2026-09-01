@@ -13,20 +13,21 @@
     "payload"
   ],
   "properties": {
-    "contractVersion": { "const": "1.0" },
+    "contractVersion": { "enum": ["1.0", "1.1"] },
     "eventId": { "type": "string", "minLength": 8, "maxLength": 128 },
     "eventType": {
       "type": "string",
-      "enum": [
-        "master-data.upsert",
-        "inventory.snapshot",
-        "sales-order.submit",
-        "delivery.update"
-      ]
+      "pattern": "^(master-data\\.|inventory\\.|sales-order\\.|delivery\\.).+"
     },
     "occurredAt": { "type": "string", "format": "date-time" },
     "source": { "type": "string", "enum": ["sap", "sunpride"] },
+    "organizationCode": { "type": "string", "minLength": 1 },
+    "sourceSequence": { "type": "string", "maxLength": 128 },
+    "sentAt": { "type": "string", "format": "date-time" },
+    "idempotencyKey": { "type": "string", "maxLength": 160 },
+    "payloadHash": { "type": "string", "maxLength": 128 },
     "correlationId": { "type": "string", "maxLength": 128 },
+    "causationId": { "type": "string", "maxLength": 128 },
     "payload": { "type": "object" }
   }
 }
