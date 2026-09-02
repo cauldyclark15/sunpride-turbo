@@ -1,4 +1,4 @@
-@import "@fontsource-variable/jetbrains-mono";
+@import "@fontsource-variable/mulish/index.css";
 @import "tailwindcss";
 @import "@heroui/styles";
 @import "@heroui-pro/react/css";
@@ -9,8 +9,7 @@
 :root {
   color-scheme: light;
   --font-sans:
-    "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SFMono-Regular",
-    Consolas, monospace;
+    "Mulish Variable", "Mulish", ui-sans-serif, system-ui, sans-serif;
   --workspace-sidebar-width: 16.25rem;
   --sunpride-red: #ee1c25;
   --sunpride-yellow: #fef200;

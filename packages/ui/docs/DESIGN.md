@@ -153,55 +153,55 @@ colors:
     warning-soft-hover: "rgba(254, 242, 0, 0.2)"
 typography:
   xs:
-    fontFamily: "JetBrains Mono"
+    fontFamily: "Mulish"
     fontSize: "12px"
     lineHeight: "16px"
   sm:
-    fontFamily: "JetBrains Mono"
+    fontFamily: "Mulish"
     fontSize: "14px"
     lineHeight: "20px"
   base:
-    fontFamily: "JetBrains Mono"
+    fontFamily: "Mulish"
     fontSize: "16px"
     lineHeight: "24px"
   lg:
-    fontFamily: "JetBrains Mono"
+    fontFamily: "Mulish"
     fontSize: "18px"
     lineHeight: "28px"
   xl:
-    fontFamily: "JetBrains Mono"
+    fontFamily: "Mulish"
     fontSize: "20px"
     lineHeight: "28px"
   2xl:
-    fontFamily: "JetBrains Mono"
+    fontFamily: "Mulish"
     fontSize: "24px"
     lineHeight: "32px"
   3xl:
-    fontFamily: "JetBrains Mono"
+    fontFamily: "Mulish"
     fontSize: "30px"
     lineHeight: "36px"
   4xl:
-    fontFamily: "JetBrains Mono"
+    fontFamily: "Mulish"
     fontSize: "36px"
     lineHeight: "40px"
   5xl:
-    fontFamily: "JetBrains Mono"
+    fontFamily: "Mulish"
     fontSize: "48px"
     lineHeight: "48px"
   6xl:
-    fontFamily: "JetBrains Mono"
+    fontFamily: "Mulish"
     fontSize: "60px"
     lineHeight: "60px"
   7xl:
-    fontFamily: "JetBrains Mono"
+    fontFamily: "Mulish"
     fontSize: "72px"
     lineHeight: "72px"
   8xl:
-    fontFamily: "JetBrains Mono"
+    fontFamily: "Mulish"
     fontSize: "96px"
     lineHeight: "96px"
   9xl:
-    fontFamily: "JetBrains Mono"
+    fontFamily: "Mulish"
     fontSize: "128px"
     lineHeight: "128px"
 spacing:
@@ -258,7 +258,7 @@ Use Sunpride red for primary actions and active emphasis. Use yellow for warning
 states or small brand accents. Keep the overall canvas, tables, cards, and forms
 neutral so status and operational data stay readable.
 
-The default typeface is the bundled JetBrains Mono Variable family. Use semibold weights for
+The default typeface is the bundled Mulish Variable family. Use semibold weights for
 headings and active navigation; reserve bold weights for genuinely exceptional
 emphasis. Quantities and currency should use tabular numerals.
 shadow: "0 2px 4px 0 rgba(0, 0, 0, 0.04), 0 1px 2px 0 rgba(0, 0, 0, 0.06), 0 0 1px 0 rgba(0, 0, 0, 0.06)"
@@ -357,33 +357,33 @@ Use semantic HeroUI tokens and Tailwind utilities in product code. The raw value
 
 Use the generated font and text scale through HeroUI components and Tailwind text utilities. The raw values below are normalized to px for design handoff.
 
-| Token  | Font family    | Font size | Line height | HeroUI variable | Tailwind equivalent |
-| ------ | -------------- | --------- | ----------- | --------------- | ------------------- |
-| `xs`   | JetBrains Mono | `12px`    | `16px`      | `--text-xs`     | `text-xs`           |
-| `sm`   | JetBrains Mono | `14px`    | `20px`      | `--text-sm`     | `text-sm`           |
-| `base` | JetBrains Mono | `16px`    | `24px`      | `--text-base`   | `text-base`         |
-| `lg`   | JetBrains Mono | `18px`    | `28px`      | `--text-lg`     | `text-lg`           |
-| `xl`   | JetBrains Mono | `20px`    | `28px`      | `--text-xl`     | `text-xl`           |
-| `2xl`  | JetBrains Mono | `24px`    | `32px`      | `--text-2xl`    | `text-2xl`          |
-| `3xl`  | JetBrains Mono | `30px`    | `36px`      | `--text-3xl`    | `text-3xl`          |
-| `4xl`  | JetBrains Mono | `36px`    | `40px`      | `--text-4xl`    | `text-4xl`          |
-| `5xl`  | JetBrains Mono | `48px`    | `48px`      | `--text-5xl`    | `text-5xl`          |
-| `6xl`  | JetBrains Mono | `60px`    | `60px`      | `--text-6xl`    | `text-6xl`          |
-| `7xl`  | JetBrains Mono | `72px`    | `72px`      | `--text-7xl`    | `text-7xl`          |
-| `8xl`  | JetBrains Mono | `96px`    | `96px`      | `--text-8xl`    | `text-8xl`          |
-| `9xl`  | JetBrains Mono | `128px`   | `128px`     | `--text-9xl`    | `text-9xl`          |
+| Token  | Font family | Font size | Line height | HeroUI variable | Tailwind equivalent |
+| ------ | ----------- | --------- | ----------- | --------------- | ------------------- |
+| `xs`   | Mulish      | `12px`    | `16px`      | `--text-xs`     | `text-xs`           |
+| `sm`   | Mulish      | `14px`    | `20px`      | `--text-sm`     | `text-sm`           |
+| `base` | Mulish      | `16px`    | `24px`      | `--text-base`   | `text-base`         |
+| `lg`   | Mulish      | `18px`    | `28px`      | `--text-lg`     | `text-lg`           |
+| `xl`   | Mulish      | `20px`    | `28px`      | `--text-xl`     | `text-xl`           |
+| `2xl`  | Mulish      | `24px`    | `32px`      | `--text-2xl`    | `text-2xl`          |
+| `3xl`  | Mulish      | `30px`    | `36px`      | `--text-3xl`    | `text-3xl`          |
+| `4xl`  | Mulish      | `36px`    | `40px`      | `--text-4xl`    | `text-4xl`          |
+| `5xl`  | Mulish      | `48px`    | `48px`      | `--text-5xl`    | `text-5xl`          |
+| `6xl`  | Mulish      | `60px`    | `60px`      | `--text-6xl`    | `text-6xl`          |
+| `7xl`  | Mulish      | `72px`    | `72px`      | `--text-7xl`    | `text-7xl`          |
+| `8xl`  | Mulish      | `96px`    | `96px`      | `--text-8xl`    | `text-8xl`          |
+| `9xl`  | Mulish      | `128px`   | `128px`     | `--text-9xl`    | `text-9xl`          |
 
 ### Font and Letter Spacing
 
-| Token              | Raw value                   | Formula / source | HeroUI variable      | Tailwind / component equivalent                                                 | Purpose                                                                 |
-| ------------------ | --------------------------- | ---------------- | -------------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `font sans`        | `"JetBrains Mono Variable"` |                  | `--font-sans`        | Prefer inherited typography from HeroUI components and Tailwind font utilities. | Primary application font family used by HeroUI components.              |
-| `tracking tighter` | `-0.05em`                   |                  | `--tracking-tighter` | Use `tracking-tighter` for compact display text.                                | Tailwind tighter tracking token derived from the normal tracking base.  |
-| `tracking tight`   | `-0.025em`                  |                  | `--tracking-tight`   | Use `tracking-tight` when headings need slightly denser letter spacing.         | Tailwind tight tracking token derived from the normal tracking base.    |
-| `tracking normal`  | `0em`                       |                  | `--tracking-normal`  | Default inherited tracking for generated theme previews and app typography.     | Editable base tracking token for the generated Tailwind tracking scale. |
-| `tracking wide`    | `0.025em`                   |                  | `--tracking-wide`    | Use `tracking-wide` for labels, badges, and small uppercase text.               | Tailwind wide tracking token derived from the normal tracking base.     |
-| `tracking wider`   | `0.05em`                    |                  | `--tracking-wider`   | Use `tracking-wider` for stronger label emphasis.                               | Tailwind wider tracking token derived from the normal tracking base.    |
-| `tracking widest`  | `0.1em`                     |                  | `--tracking-widest`  | Use `tracking-widest` sparingly for highly stylized display text.               | Tailwind widest tracking token derived from the normal tracking base.   |
+| Token              | Raw value           | Formula / source | HeroUI variable      | Tailwind / component equivalent                                                 | Purpose                                                                 |
+| ------------------ | ------------------- | ---------------- | -------------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `font sans`        | `"Mulish Variable"` |                  | `--font-sans`        | Prefer inherited typography from HeroUI components and Tailwind font utilities. | Primary application font family used by HeroUI components.              |
+| `tracking tighter` | `-0.05em`           |                  | `--tracking-tighter` | Use `tracking-tighter` for compact display text.                                | Tailwind tighter tracking token derived from the normal tracking base.  |
+| `tracking tight`   | `-0.025em`          |                  | `--tracking-tight`   | Use `tracking-tight` when headings need slightly denser letter spacing.         | Tailwind tight tracking token derived from the normal tracking base.    |
+| `tracking normal`  | `0em`               |                  | `--tracking-normal`  | Default inherited tracking for generated theme previews and app typography.     | Editable base tracking token for the generated Tailwind tracking scale. |
+| `tracking wide`    | `0.025em`           |                  | `--tracking-wide`    | Use `tracking-wide` for labels, badges, and small uppercase text.               | Tailwind wide tracking token derived from the normal tracking base.     |
+| `tracking wider`   | `0.05em`            |                  | `--tracking-wider`   | Use `tracking-wider` for stronger label emphasis.                               | Tailwind wider tracking token derived from the normal tracking base.    |
+| `tracking widest`  | `0.1em`             |                  | `--tracking-widest`  | Use `tracking-widest` sparingly for highly stylized display text.               | Tailwind widest tracking token derived from the normal tracking base.   |
 
 ## Layout
 

@@ -41,6 +41,21 @@ function formatTime(value: number) {
   }).format(value);
 }
 
+function operationErrorMessage(error: unknown) {
+  const fallback =
+    "We couldn't complete that action. Please try again or contact an administrator.";
+  if (!(error instanceof Error)) return fallback;
+  const message = error.message.trim();
+  if (
+    !message ||
+    message.startsWith("[CONVEX") ||
+    message.includes("Server Error") ||
+    message.length > 180
+  )
+    return fallback;
+  return message;
+}
+
 function OperationPanel({
   title,
   description,
@@ -63,7 +78,7 @@ function OperationPanel({
 
 export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
   const [tab, setTab] = useState<(typeof tabs)[number][0]>("stock");
-  const [notice, setNotice] = useState(setupMessage);
+  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [locationFilter, setLocationFilter] = useState("");
   const [receipt, setReceipt] = useState({
@@ -121,6 +136,22 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
   const approveCount = useMutation(api.inventory.counts.approveAndPost);
   const runReconciliation = useMutation(api.inventory.reconciliation.run);
 
+  const inventoryReady =
+    Boolean(locations?.length) &&
+    Boolean(products?.length) &&
+    products!.every(
+      (product) =>
+        product.baseUomId !== undefined &&
+        product.quantityScale !== undefined &&
+        product.trackingMode !== undefined &&
+        product.allocationPolicy !== undefined,
+    );
+  const displayedNotice =
+    notice ??
+    (inventoryReady
+      ? "Inventory is ready. Locations, units, and product rules are configured."
+      : setupMessage);
+
   const inTransit = locations?.find(
     (location) => location.type === "in_transit",
   );
@@ -144,7 +175,28 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
       await action();
       setNotice(success);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Operation failed");
+      console.error(error);
+      setNotice(operationErrorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function setupInventory() {
+    setBusy(true);
+    setNotice("Setting up inventory locations, units, and product rules…");
+    try {
+      const result = await provision();
+      setNotice(
+        result.seeded
+          ? `Inventory setup is complete. ${result.locationCount} locations and ${result.policyCount} product ${result.policyCount === 1 ? "rule" : "rules"} are ready.`
+          : "Inventory setup was already complete. No changes were needed.",
+      );
+    } catch (error) {
+      console.error(error);
+      setNotice(
+        "Inventory setup couldn't be completed. Please try again or contact an administrator.",
+      );
     } finally {
       setBusy(false);
     }
@@ -155,22 +207,18 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
       <div className="inventory-command-bar">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">
-            Operational stock authority
+            Inventory setup
           </p>
-          <p className="mt-1 text-sm text-foreground">{notice}</p>
+          <p className="mt-1 text-sm text-foreground">{displayedNotice}</p>
         </div>
         <Button
           size="sm"
           variant="secondary"
           isPending={busy}
-          onPress={() =>
-            void execute(
-              () => provision(),
-              "Inventory UOMs, locations, and product policies are ready. Opening stock still requires an approved cutover posting.",
-            )
-          }
+          isDisabled={busy || inventoryReady}
+          onPress={() => void setupInventory()}
         >
-          Provision inventory foundation
+          {inventoryReady ? "Inventory ready" : "Set up inventory"}
         </Button>
       </div>
 
