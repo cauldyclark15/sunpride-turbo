@@ -1,5 +1,5 @@
 import { convexTest } from "convex-test";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import schema from "../schema";
@@ -284,6 +284,156 @@ const read = (f: Fixture, planId: Id<"coveragePlans">) =>
   f.sales.actor.query(api.coverage.plans.detail, { planId });
 
 describe("MCP authoring and approval", () => {
+  it("starts the current Manila month today for a mid-day hire, but refuses an unassigned service midnight atomically", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-26T02:00:00+08:00"));
+    try {
+      const f = await setup();
+      const hiredAt = Date.now();
+      await f.t.run(async (ctx) => {
+        const assignment = await ctx.db
+          .query("employeeAssignments")
+          .withIndex("by_profileId_and_effectiveFrom", (q) =>
+            q.eq("profileId", f.sales.id),
+          )
+          .first();
+        await ctx.db.patch(assignment!._id, { effectiveFrom: hiredAt });
+      });
+      const create = () =>
+        f.sales.actor.mutation(api.coverage.plans.create, {
+          assigneeProfileId: f.sales.id,
+          localMonth: "2026-09",
+        });
+      // The window starts at Manila midnight, not at the 02:00 hire instant.
+      const plan = await create();
+      expect(plan.effectiveFrom).toBe(localDate("2026-09-26"));
+      expect(plan.requestedFrom).toBe(plan.effectiveFrom);
+      expect(plan.effectiveTo).toBe(monthBounds("2026-09").to);
+      const detail = await read(f, plan._id);
+      expect(detail.assignments).toHaveLength(1);
+      expect(detail.assignments[0]?.effectiveFrom).toBe(plan.effectiveFrom);
+      await f.sales.actor.mutation(api.coverage.plans.saveSlots, {
+        planId: plan._id,
+        slots: [{ ...f.slot(), serviceDate: "2026-09-27" }],
+      });
+      await f.sales.actor.mutation(api.coverage.plans.submit, {
+        planId: plan._id,
+      });
+
+      const today = await create();
+      await f.sales.actor.mutation(api.coverage.plans.saveSlots, {
+        planId: today._id,
+        slots: [{ ...f.slot(), serviceDate: "2026-09-26" }],
+      });
+      await f.sales.actor.mutation(api.coverage.plans.submit, {
+        planId: today._id,
+      });
+      const state = () =>
+        f.t.run(async (ctx) => ({
+          plan: await ctx.db.get(today._id),
+          slots: await ctx.db
+            .query("coveragePlanSlots")
+            .withIndex("by_planId_and_serviceDate", (q) =>
+              q.eq("planId", today._id),
+            )
+            .collect(),
+          audit: await ctx.db
+            .query("coverageAuditEvents")
+            .withIndex("by_planId_and_createdAt", (q) =>
+              q.eq("planId", today._id),
+            )
+            .collect(),
+        }));
+      const before = await state();
+      await expect(
+        f.manager.actor.mutation(api.coverage.plans.approve, {
+          planId: today._id,
+        }),
+      ).rejects.toThrow(/Assignee not assigned on 2026-09-26/);
+      expect(await state()).toEqual(before);
+      expect(before.plan?.status).toBe("submitted");
+      expect(
+        (
+          await f.manager.actor.mutation(api.coverage.plans.approve, {
+            planId: plan._id,
+          })
+        ).status,
+      ).toBe("approved");
+      expect(
+        (await read(f, plan._id)).slots[0]?.approvedSnapshot,
+      ).toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("retains next-month boundaries and refuses a past month", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-26T02:00:00+08:00"));
+    try {
+      const f = await setup();
+      const next = await f.sales.actor.mutation(api.coverage.plans.create, {
+        assigneeProfileId: f.sales.id,
+        localMonth: "2026-10",
+      });
+      expect(next.effectiveFrom).toBe(localDate("2026-10-01"));
+      expect(next.effectiveTo).toBe(monthBounds("2026-10").to);
+      await expect(
+        f.sales.actor.mutation(api.coverage.plans.create, {
+          assigneeProfileId: f.sales.id,
+          localMonth: "2026-08",
+        }),
+      ).rejects.toThrow(/past-month/);
+      expect(
+        await f.sales.actor.query(api.coverage.plans.list, {
+          assigneeProfileId: f.sales.id,
+          localMonth: "2026-08",
+        }),
+      ).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("allows today's day-boundary coverage assignment for a mid-day hire, not yesterday's", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-26T02:00:00+08:00"));
+    try {
+      const f = await setup();
+      await f.t.run(async (ctx) => {
+        const assignment = await ctx.db
+          .query("employeeAssignments")
+          .withIndex("by_profileId_and_effectiveFrom", (q) =>
+            q.eq("profileId", f.sales.id),
+          )
+          .first();
+        await ctx.db.patch(assignment!._id, { effectiveFrom: Date.now() });
+      });
+      const plan = await f.sales.actor.mutation(api.coverage.plans.create, {
+        assigneeProfileId: f.sales.id,
+        localMonth: "2026-09",
+      });
+      const assignment = await f.sales.actor.mutation(
+        api.coverage.plans.setAssignment,
+        {
+          planId: plan._id,
+          effectiveFrom: localDate("2026-09-26"),
+          effectiveTo: plan.effectiveTo,
+          reason: "Confirm current assignment",
+        },
+      );
+      expect(assignment.effectiveFrom).toBe(plan.effectiveFrom);
+      await expect(
+        f.sales.actor.mutation(api.coverage.plans.setAssignment, {
+          planId: plan._id,
+          effectiveFrom: localDate("2026-09-25"),
+          effectiveTo: plan.effectiveTo,
+          reason: "Backdate",
+        }),
+      ).rejects.toThrow(/cannot be backdated/);
+      expect((await read(f, plan._id)).assignments).toEqual([assignment]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("allocates monotonic versions under concurrent creates and rejects sales preparing for another person", async () => {
     const f = await setup();
     await expect(

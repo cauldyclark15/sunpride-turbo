@@ -85,6 +85,7 @@ export async function employeeAt(
   ctx: Ctx,
   profileId: Id<"profiles">,
   instant: number,
+  missingAssignmentMessage = "Assignee has no effective employee assignment with unit",
 ) {
   const profile = await ctx.db.get(profileId);
   if (!profile || profile.status !== "active")
@@ -99,10 +100,7 @@ export async function employeeAt(
     "Employee assignment history",
   );
   const assignment = at(rows, instant);
-  if (!assignment?.orgUnitId)
-    throw new ConvexError(
-      "Assignee has no effective employee assignment with unit",
-    );
+  if (!assignment?.orgUnitId) throw new ConvexError(missingAssignmentMessage);
   return assignment;
 }
 export async function planAccess(
@@ -211,7 +209,12 @@ export async function snapshotSlot(
   )
     throw new ConvexError("Territory inactive on service date");
   await requireCapability(ctx, "mcp.approve", orgUnitId);
-  const employee = await employeeAt(ctx, plan.assigneeProfileId, instant);
+  const employee = await employeeAt(
+    ctx,
+    plan.assigneeProfileId,
+    instant,
+    `Assignee not assigned on ${slot.serviceDate}`,
+  );
   await requireCapability(ctx, "mcp.approve", employee.orgUnitId!);
   if (employee.orgUnitId !== plan.orgUnitId)
     throw new ConvexError("Assignee unit changed; revise plan");

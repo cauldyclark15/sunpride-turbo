@@ -119,7 +119,8 @@ async function make(
   reason?: string,
 ) {
   planWindow(month, from, to);
-  const assignment = await employeeAt(ctx, person, from);
+  // A Manila day boundary can precede a mid-day employee assignment.
+  const assignment = await employeeAt(ctx, person, Math.max(from, Date.now()));
   const current = await employeeAt(ctx, person, Date.now());
   const access = await requireCapability(
     ctx,
@@ -235,10 +236,11 @@ export const detail = query({
       "mcp.read",
     );
     const warnings: string[] = [];
+    const effectiveInstant = Math.max(plan.effectiveFrom, Date.now());
     const employee = await employeeAt(
       ctx,
       plan.assigneeProfileId,
-      plan.effectiveFrom,
+      effectiveInstant,
     );
     if (!employee.positionId)
       warnings.push("No position assigned; weekly routine unavailable");
@@ -255,8 +257,8 @@ export const detail = query({
       if (
         !routines.some(
           (r) =>
-            r.effectiveFrom <= plan.effectiveFrom &&
-            (r.effectiveTo === undefined || r.effectiveTo > plan.effectiveFrom),
+            r.effectiveFrom <= effectiveInstant &&
+            (r.effectiveTo === undefined || r.effectiveTo > effectiveInstant),
         )
       )
         warnings.push("No weekly routine for position; no routine inferred");
@@ -269,7 +271,7 @@ export const detail = query({
           .take(MAX_PLAN_ROWS + 1),
         "Position standards",
       );
-      const standard = at(standards, plan.effectiveFrom);
+      const standard = at(standards, effectiveInstant);
       if (standard?.dailyCallsTarget)
         for (const date of monthDates(plan.localMonth)) {
           if (
@@ -294,9 +296,12 @@ export const create = mutation({
   returns: planDoc,
   handler: async (ctx, args) => {
     const { from, to } = monthBounds(args.localMonth);
-    if (to <= Date.now())
-      throw new ConvexError("Cannot create a past-month plan");
-    return make(ctx, args.assigneeProfileId, args.localMonth, from, to);
+    const now = Date.now();
+    if (to <= now) throw new ConvexError("Cannot create a past-month plan");
+    // Keep the plan on Manila day boundaries; today's early hours may not yet
+    // be covered by a mid-day hire and are checked per slot at approval.
+    const start = from <= now ? localDate(manilaDate(now)) : from;
+    return make(ctx, args.assigneeProfileId, args.localMonth, start, to);
   },
 });
 export const createRevision = mutation({
@@ -531,6 +536,8 @@ export const setAssignment = mutation({
     const { plan, actor } = await draft(ctx, args.planId);
     const reason = required(args.reason, "Assignment reason");
     planWindow(plan.localMonth, args.effectiveFrom, args.effectiveTo);
+    if (args.effectiveFrom < localDate(manilaDate(Date.now())))
+      throw new ConvexError("Coverage assignment cannot be backdated");
     if (
       localDate(manilaDate(args.effectiveFrom)) !== args.effectiveFrom ||
       localDate(manilaDate(args.effectiveTo)) !== args.effectiveTo
@@ -541,7 +548,7 @@ export const setAssignment = mutation({
     const employee = await employeeAt(
       ctx,
       plan.assigneeProfileId,
-      args.effectiveFrom,
+      Math.max(args.effectiveFrom, Date.now()),
     );
     await requireCapability(ctx, "mcp.plan", employee.orgUnitId!);
     if (employee.orgUnitId !== plan.orgUnitId)
@@ -700,7 +707,12 @@ export const approve = mutation({
         throw new ConvexError("Cannot approve elapsed service date");
       if (instant < plan.effectiveFrom || instant >= plan.effectiveTo)
         throw new ConvexError("Slot outside plan period");
-      const staff = await employeeAt(ctx, plan.assigneeProfileId, instant);
+      const staff = await employeeAt(
+        ctx,
+        plan.assigneeProfileId,
+        instant,
+        `Assignee not assigned on ${slot.serviceDate}`,
+      );
       await requireCapability(ctx, "mcp.approve", staff.orgUnitId!);
       if (staff.orgUnitId !== plan.orgUnitId)
         throw new ConvexError("Assignee unit changed on service date");
