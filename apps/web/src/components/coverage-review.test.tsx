@@ -24,10 +24,39 @@ vi.mock("convex/react", () => ({
     const name = getFunctionName(ref as never);
     state.calls.push({ name, args });
     if (args === "skip") return undefined;
-    if (name === "people/queries:history")
-      return (args as { profileId: string }).profileId === "manager"
-        ? []
-        : [{ effectiveFrom: 0 }];
+    if (
+      name === "coverage/history:list" &&
+      (args as { planId: string }).planId === "plan-2"
+    )
+      return {
+        page: [
+          {
+            _id: "audit-2",
+            action: "plan.approved",
+            createdAt: 20,
+            reason: "Second version",
+          },
+        ],
+        isDone: true,
+        continueCursor: "",
+      };
+    if (
+      name === "coverage/discovery:attribution" &&
+      (args as { planId: string }).planId === "plan-2"
+    )
+      return {
+        preparedByName: "Sales One",
+        eventsActorNames: { "audit-2": "Manager" },
+      };
+    if (
+      name === "coverage/plans:detail" &&
+      (args as { planId: string }).planId === "plan-2"
+    )
+      return {
+        plan: { ...plan, _id: id<"coveragePlans">("plan-2"), version: 1 },
+        slots: [],
+        warnings: [],
+      };
     return state.values[name];
   },
   useMutation: (ref: unknown) => {
@@ -174,24 +203,27 @@ beforeEach(() => {
   state.hooks = [];
   state.writes = [];
   state.values = {
-    "people/queries:list": {
+    "coverage/discovery:list": {
       page: [
         {
-          _id: id<"profiles">("seller"),
-          name: "Sales One",
-          orgUnitId: id<"orgUnits">("unit"),
-          status: "active",
-        },
-        {
-          _id: id<"profiles">("other"),
-          name: "Outsider",
-          orgUnitId: id<"orgUnits">("outside"),
-          status: "active",
+          planId: plan._id,
+          assigneeProfileId: plan.assigneeProfileId,
+          assigneeName: "Sales One",
+          localMonth: "2026-10",
+          version: 2,
+          status: "submitted",
         },
       ],
       isDone: true,
+      continueCursor: "",
     },
-    "coverage/plans:list": [plan],
+    "coverage/discovery:attribution": {
+      preparedByName: "Sales One",
+      submittedByName: "Sales One",
+      approvedByName: "Manager",
+      latestReturnReason: "Missing objective",
+      eventsActorNames: { "audit-1": "Manager" },
+    },
     "coverage/plans:detail": {
       plan,
       slots: [slot],
@@ -213,11 +245,20 @@ beforeEach(() => {
         {
           _id: "audit-1",
           action: "plan.returned",
-          actorSubject: "manager-subject",
+          actorSubject: "issuer|manager-subject",
           createdAt: 10,
           reason: "Missing objective",
-          before: { status: "submitted" },
-          after: { status: "draft" },
+          planVersion: 2,
+          before: {
+            status: "submitted",
+            reviewer: "issuer|manager-subject",
+            detail: { owner: "issuer|orphan" },
+          },
+          after: {
+            status: "draft",
+            reviewer: "issuer|manager-subject",
+            detail: { owner: "issuer|orphan" },
+          },
           affectedEntity: "coveragePlan",
           approvalSignatureRef: "signed:v1",
         },
@@ -235,27 +276,34 @@ describe("coverage review", () => {
     expect(queue).toContain("Sales One");
     expect(queue).not.toContain("Outsider");
     expect(
-      state.calls
-        .filter((c) => c.name === "coverage/plans:list")
-        .map((c) => c.args),
-    ).toEqual(["skip", { assigneeProfileId: "seller", localMonth: "2026-10" }]);
-    state.hooks[1] = id<"profiles">("seller");
-    state.hooks[2] = plan._id;
+      state.calls.find((c) => c.name === "coverage/discovery:list")?.args,
+    ).toEqual({
+      localMonth: "2026-10",
+      status: "submitted",
+      paginationOpts: { numItems: 20, cursor: null },
+    });
+    state.hooks[1] = plan._id;
     const opened = render();
     expect(opened).toContain("Frozen Market");
     expect(opened).toContain("customer-1");
     expect(opened).toContain("R-1");
     expect(opened).toContain("Five-store target");
-    expect(opened).toContain("seller-subject");
+    expect(opened).toContain("Prepared by Sales One");
     expect(opened).toContain("version 2");
+    expect(opened).not.toContain("seller-subject");
     expect(
       state.calls.find((c) => c.name === "coverage/plans:detail")?.args,
-    ).toEqual({ planId: "plan-1" });
+    ).toEqual({ planId: plan._id });
+    expect(
+      state.calls.find((c) => c.name === "outlets/queries:detail")?.args,
+    ).toBe("skip");
+    expect(
+      state.calls.find((c) => c.name === "territories/routes:detail")?.args,
+    ).toBe("skip");
   });
   it("inspects submitted slots against service-date outlet, customer, and route projections", () => {
     state.hooks[0] = "2026-10";
-    state.hooks[1] = id<"profiles">("seller");
-    state.hooks[2] = plan._id;
+    state.hooks[1] = plan._id;
     state.values["coverage/plans:detail"] = {
       plan,
       slots: [{ ...slot, approvedSnapshot: undefined }],
@@ -281,6 +329,12 @@ describe("coverage review", () => {
       outletId: "outlet-1",
       asOf: Date.parse("2026-10-02T16:00:00Z"),
     });
+    expect(
+      state.calls.find((c) => c.name === "territories/routes:detail")?.args,
+    ).toEqual({
+      routeId: "route-1",
+      asOf: Date.parse("2026-10-02T16:00:00Z"),
+    });
   });
   it("validates return reason and sends trimmed return/approve payloads", async () => {
     const run = vi.fn(async () => ({}));
@@ -290,30 +344,30 @@ describe("coverage review", () => {
     await returnCoveragePlan(plan._id, "  needs route  ", run);
     await approveCoveragePlan(plan._id, run);
     expect(run.mock.calls).toEqual([
-      [{ planId: "plan-1", reason: "needs route" }],
-      [{ planId: "plan-1" }],
+      [{ planId: plan._id, reason: "needs route" }],
+      [{ planId: plan._id }],
     ]);
     state.hooks[0] = "2026-10";
-    state.hooks[1] = id<"profiles">("seller");
-    state.hooks[2] = plan._id;
-    state.hooks[4] = "Fix objective";
+    state.hooks[1] = plan._id;
+    state.hooks[5] = "Fix objective";
     render();
     await state.handlers["Return with reason"]!();
+    await vi.waitFor(() => expect(state.hooks[6]).toBe(false));
     await state.handlers["Approve"]!();
+    await vi.waitFor(() => expect(state.writes).toHaveLength(2));
     expect(state.writes).toEqual([
       {
         name: "coverage/plans:returnPlan",
-        args: { planId: "plan-1", reason: "Fix objective" },
+        args: { planId: plan._id, reason: "Fix objective" },
       },
-      { name: "coverage/plans:approve", args: { planId: "plan-1" } },
+      { name: "coverage/plans:approve", args: { planId: plan._id } },
     ]);
   });
   it.each(["preparedBy", "submittedBy", "assigneeProfileId"] as const)(
     "disables independent approval for %s",
     (field) => {
       state.hooks[0] = "2026-10";
-      state.hooks[1] = id<"profiles">("seller");
-      state.hooks[2] = plan._id;
+      state.hooks[1] = plan._id;
       state.values["coverage/plans:detail"] = {
         plan: {
           ...plan,
@@ -329,10 +383,124 @@ describe("coverage review", () => {
       expect(html).toMatch(/disabled=""[^>]*>Return with reason/);
     },
   );
+  it("uses scoped discovery without people.read and shows attributed names", () => {
+    state.hooks[0] = "2026-10";
+    expect(render()).toContain("Sales One");
+    expect(
+      state.calls.some(
+        (c) =>
+          c.name.startsWith("people/queries") ||
+          c.name === "coverage/plans:list",
+      ),
+    ).toBe(false);
+    expect(
+      state.calls.find((c) => c.name === "coverage/discovery:list")?.args,
+    ).toEqual({
+      localMonth: "2026-10",
+      status: "submitted",
+      paginationOpts: { numItems: 20, cursor: null },
+    });
+    state.hooks[1] = plan._id;
+    const html = render();
+    expect(html).toContain("Prepared by Sales One");
+    expect(html).toContain("Five-store target");
+    expect(html).not.toContain("seller-subject");
+  });
+  it("selects a version and renders that plan's own action timeline", () => {
+    state.hooks[0] = "2026-10";
+    render("history");
+    const select = Object.values(state.handlers).find((fn) =>
+      String(fn).includes("setSelected(p.planId)"),
+    );
+    expect(select).toBeDefined();
+    select!();
+    const html = render("history");
+    expect(
+      state.calls.find((c) => c.name === "coverage/history:list")?.args,
+    ).toEqual({
+      planId: plan._id,
+      paginationOpts: { numItems: 20, cursor: null },
+    });
+    expect(html).toContain("plan.returned");
+    expect(html).toContain("Missing objective");
+    expect(html).toContain("Manager");
+    expect(html).not.toContain("manager-subject");
+    state.values["coverage/discovery:list"] = {
+      page: [
+        {
+          planId: "plan-2",
+          assigneeProfileId: plan.assigneeProfileId,
+          assigneeName: "Sales One",
+          localMonth: "2026-10",
+          version: 1,
+          status: "approved",
+        },
+        {
+          planId: plan._id,
+          assigneeProfileId: plan.assigneeProfileId,
+          assigneeName: "Sales One",
+          localMonth: "2026-10",
+          version: 2,
+          status: "submitted",
+        },
+      ],
+      isDone: true,
+      continueCursor: "",
+    };
+    state.hooks[1] = id<"coveragePlans">("plan-2");
+    const oldVersion = render("history");
+    expect(oldVersion).toContain("plan.approved");
+    expect(oldVersion).toContain("Second version");
+    expect(oldVersion).not.toContain("Missing objective");
+    expect(
+      state.calls.find((c) => c.name === "coverage/history:list")?.args,
+    ).toMatchObject({ planId: "plan-2" });
+  });
+  it("resets selection and cursor when month changes", () => {
+    state.hooks[0] = "2026-10";
+    state.hooks[1] = plan._id;
+    state.hooks[3] = "old-cursor";
+    render("history");
+    state.handlers["Coverage month"]!({
+      target: { value: "2026-11" },
+    } as never);
+    expect(state.hooks[0]).toBe("2026-11");
+    expect(state.hooks[1]).toBe(null);
+    expect(state.hooks[3]).toBe(null);
+  });
+  it("restricts sales to own visit picker and doesn't subscribe to people", () => {
+    state.hooks[0] = "2026-10";
+    const html = render(
+      "visits",
+      {
+        _id: id<"profiles">("seller"),
+        name: "Seller",
+        authSubject: "seller-subject",
+      },
+      {
+        role: "sales",
+        capabilities: ["mcp.read", "mcp.plan"],
+        scopeUnitIds: [id<"orgUnits">("unit")],
+      },
+    );
+    expect(html).toContain("visit-1");
+    expect(state.calls.some((c) => c.name.startsWith("people/queries"))).toBe(
+      false,
+    );
+  });
+  it("validates trimmed return payloads", async () => {
+    const run = vi.fn(async () => ({}));
+    expect(() => returnCoveragePlan(plan._id, " ", run)).toThrow();
+    await returnCoveragePlan(plan._id, " fix route ", run);
+    await approveCoveragePlan(plan._id, run);
+    expect(run.mock.calls).toEqual([
+      [{ planId: plan._id, reason: "fix route" }],
+      [{ planId: plan._id }],
+    ]);
+  });
   it("generates visits and displays stable IDs/count on repeated activation", async () => {
     state.hooks[0] = "2026-10";
-    state.hooks[1] = id<"profiles">("seller");
-    state.hooks[2] = plan._id;
+    state.hooks[1] = plan._id;
     state.values["coverage/plans:detail"] = {
       plan: { ...plan, status: "active", effectiveFrom: 0 },
       slots: [slot],
@@ -340,28 +508,31 @@ describe("coverage review", () => {
     };
     render();
     await state.handlers["Generate / reconcile planned visits"]!();
-    await vi.waitFor(() => expect(state.hooks[5]).toBe(false));
+    await vi.waitFor(() => expect(state.hooks[6]).toBe(false));
     const html = render();
     expect(html).toContain("1 planned visit(s): visit-1");
     expect(html).toContain("Frozen Market");
     expect(html).toContain("v2");
-    expect(state.hooks[5]).toBe(false);
+    expect(state.hooks[6]).toBe(false);
     await state.handlers["Generate / reconcile planned visits"]!();
+    await vi.waitFor(() => expect(state.writes).toHaveLength(2));
     expect(state.writes).toEqual([
-      { name: "coverage/activation:activate", args: { planId: "plan-1" } },
-      { name: "coverage/activation:activate", args: { planId: "plan-1" } },
+      { name: "coverage/activation:activate", args: { planId: plan._id } },
+      { name: "coverage/activation:activate", args: { planId: plan._id } },
     ]);
     expect(
       await activateCoveragePlan(
         plan._id,
         vi.fn(async () => ({ count: 1, visitIds: ["visit-1"] })),
       ),
-    ).toEqual({ count: 1, visitIds: ["visit-1"] });
+    ).toEqual({
+      count: 1,
+      visitIds: ["visit-1"],
+    });
   });
   it("marks future approval distinctly, disallows premature generation, and shows automatic activation", () => {
     state.hooks[0] = "2026-10";
-    state.hooks[1] = id<"profiles">("seller");
-    state.hooks[2] = plan._id;
+    state.hooks[1] = plan._id;
     state.values["coverage/plans:detail"] = {
       plan: {
         ...plan,
@@ -374,6 +545,7 @@ describe("coverage review", () => {
     const html = render();
     expect(html).toContain("Approved · future");
     expect(html).toContain("not yet effective");
+    expect(html).toContain("scheduled activation will generate visits");
     expect(html).toMatch(
       /disabled=""[^>]*>Generate \/ reconcile planned visits/,
     );
@@ -383,23 +555,39 @@ describe("coverage review", () => {
   });
   it("paginates history with actor, reason, before/after and version provenance", () => {
     state.hooks[0] = "2026-10";
-    state.hooks[1] = id<"profiles">("seller");
-    state.hooks[2] = plan._id;
+    state.hooks[1] = plan._id;
     let html = render("history");
     expect(html).toContain("Missing objective");
-    expect(html).toContain("manager-subject");
+    expect(html).toContain("Manager");
+    expect(html).toContain("Version 2");
     expect(html).toContain("signed:v1");
-    expect(html).toContain("submitted");
-    expect(html).toContain("draft");
+    expect(html).toContain("Before → After");
+    expect(html).toContain("status: submitted → draft");
+    expect(html).toContain("reviewer: Manager → Manager");
+    expect(html).toContain("Former user");
+    expect(html).not.toContain("issuer|manager-subject");
+    expect(html).not.toContain("issuer|orphan");
     state.handlers["More history"]!();
     html = render("history");
     expect(
       state.calls.find((c) => c.name === "coverage/history:list")?.args,
     ).toEqual({
-      planId: "plan-1",
+      planId: plan._id,
       paginationOpts: { numItems: 20, cursor: "next" },
     });
     expect(html).toContain("Missing objective");
+  });
+  it("falls back to Former user when an audit actor has no attribution", () => {
+    state.hooks[0] = "2026-10";
+    state.hooks[1] = plan._id;
+    state.values["coverage/discovery:attribution"] = {
+      preparedByName: "Sales One",
+      eventsActorNames: {},
+    };
+    const html = render("history");
+    expect(html).toContain("plan.returned</strong> · Former user");
+    expect(html).toContain("reviewer: Former user → Former user");
+    expect(html).not.toContain("issuer|manager-subject");
   });
   it("restricts sales to own planned visits and skips people and denied reads", () => {
     const sales = {
@@ -413,17 +601,62 @@ describe("coverage review", () => {
       scopeUnitIds: [id<"orgUnits">("unit")],
     };
     state.hooks[0] = "2026-10";
-    expect(render("visits", sales, grants)).toContain("visit-1");
-    expect(
-      state.calls.find((c) => c.name === "people/queries:list")?.args,
-    ).toBe("skip");
+    state.values["coverage/discovery:list"] = {
+      page: [
+        {
+          planId: plan._id,
+          assigneeProfileId: sales._id,
+          assigneeName: "Seller",
+          localMonth: "2026-10",
+          version: 2,
+          status: "active",
+        },
+        {
+          planId: id<"coveragePlans">("other-plan"),
+          assigneeProfileId: id<"profiles">("other"),
+          assigneeName: "Outsider",
+          localMonth: "2026-10",
+          version: 1,
+          status: "active",
+        },
+      ],
+      isDone: true,
+      continueCursor: "",
+    };
+    const visits = render("visits", sales, grants);
+    expect(visits).toContain("visit-1");
+    expect(visits).toContain("Seller");
+    expect(visits).not.toContain("Outsider");
     expect(
       state.calls.find((c) => c.name === "coverage/activation:plannedForMonth")
         ?.args,
-    ).toEqual({ assigneeProfileId: "seller", localMonth: "2026-10" });
-    render("review", sales, grants);
-    expect(state.calls.some((c) => c.name === "coverage/plans:list")).toBe(
+    ).toEqual({
+      assigneeProfileId: sales._id,
+      localMonth: "2026-10",
+    });
+    expect(state.calls.some((c) => c.name.startsWith("people/queries"))).toBe(
       false,
+    );
+    expect(render("review", sales, grants)).toContain("MCP access required");
+    expect(
+      state.calls.find((c) => c.name === "coverage/discovery:list")?.args,
+    ).toBe("skip");
+    expect(state.calls.some((c) => c.name === "coverage/plans:detail")).toBe(
+      false,
+    );
+    expect(render("visits", sales, { ...grants, capabilities: [] })).toContain(
+      "MCP access required",
+    );
+    expect(
+      state.calls.find((c) => c.name === "coverage/activation:plannedForMonth"),
+    ).toBeUndefined();
+  });
+  it("retains activation helper", async () => {
+    expect(
+      await activateCoveragePlan(plan._id, async () => ({ count: 1 })),
+    ).toEqual({ count: 1 });
+    expect(coverageStatus({ status: "superseded", effectiveFrom: 0 })).toBe(
+      "Superseded",
     );
   });
 });

@@ -178,6 +178,29 @@ describe("standalone coverage planner", () => {
       state.calls.filter((c) => c.name === "people/queries:list").at(-1)?.args,
     ).toBe("skip");
   });
+  it("shows the returned reason to the salesperson without exposing preparer auth ID", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-01T12:00:00+08:00"));
+    try {
+      state.selected = plan._id;
+      state.values["lib/capabilities:currentPermissions"] = {
+        role: "sales",
+        capabilities: ["mcp.read", "mcp.plan"],
+        scopeUnitIds: ["unit-1"],
+      };
+      state.values["coverage/discovery:attribution"] = {
+        preparedByName: "Sales One",
+        latestReturnReason: "Fix missing route",
+      };
+      const html = render(createElement(CoveragePlanner));
+      expect(html).toContain("Returned for changes");
+      expect(html).toContain("Fix missing route");
+      expect(html).toContain("History tab");
+      expect(html).not.toContain("prepared by seller");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("renders versions and denied permissions without writes or leaking denied queries", () => {
     state.values["lib/capabilities:currentPermissions"] = {
       role: "analyst",

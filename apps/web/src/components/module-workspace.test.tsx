@@ -122,9 +122,9 @@ describe("sales force coverage module", () => {
     state.tab = "visits";
     const html = render();
     expect(html).toContain("Planned visits");
-    expect(
-      state.calls.find((c) => c.name === "people/queries:list")?.args,
-    ).toBe("skip");
+    expect(state.calls.some((c) => c.name === "people/queries:list")).toBe(
+      false,
+    );
     expect(
       state.calls.find((c) => c.name === "coverage/activation:plannedForMonth")
         ?.args,
@@ -142,9 +142,12 @@ describe("sales force coverage module", () => {
     expect(html).not.toContain(">Review</button>");
     state.tab = "history";
     expect(render()).toContain("Plan versions");
-    expect(
-      state.calls.find((c) => c.name === "people/queries:list")?.args,
-    ).not.toBe("skip");
+    expect(state.calls.some((c) => c.name === "people/queries:list")).toBe(
+      false,
+    );
+    expect(state.calls.some((c) => c.name === "coverage/discovery:list")).toBe(
+      true,
+    );
   });
   it("viewer with mcp.read sees read-only coverage, denied profile never mounts queries", () => {
     state.profile.role = "viewer";

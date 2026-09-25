@@ -24,6 +24,7 @@ import { ImportsWorkspace } from "./imports-workspace";
 import { InventoryWorkspace } from "./inventory-workspace";
 import { CoveragePlanner } from "./coverage-planner";
 import { CoverageReview } from "./coverage-review";
+import { PanelErrorBoundary } from "./panel-error-boundary";
 
 const modules = {
   dashboard: {
@@ -224,16 +225,21 @@ function SalesForcePanels() {
             ))}
           </div>
           <div role="tabpanel">
-            {coverageTab === "plan" ? (
-              <CoveragePlanner />
-            ) : (
-              <CoverageReview
-                key={coverageTab}
-                mode={coverageTab}
-                permissions={permissions}
-                profile={profile}
-              />
-            )}
+            <PanelErrorBoundary
+              key={coverageTab}
+              label={`Coverage ${coverageTab}`}
+            >
+              {coverageTab === "plan" ? (
+                <CoveragePlanner />
+              ) : (
+                <CoverageReview
+                  key={coverageTab}
+                  mode={coverageTab}
+                  permissions={permissions}
+                  profile={profile}
+                />
+              )}
+            </PanelErrorBoundary>
           </div>
         </section>
       )}
@@ -242,9 +248,21 @@ function SalesForcePanels() {
       ) : (
         <h2 className="text-lg font-semibold">Scoped route and outlet lists</h2>
       )}
-      {panels.routes && <RouteAdmin />}
-      {panels.outlets && <OutletAdmin />}
-      {panels.assignments && <OutletAssignments />}
+      {panels.routes && (
+        <PanelErrorBoundary label="Territory and route editor">
+          <RouteAdmin />
+        </PanelErrorBoundary>
+      )}
+      {panels.outlets && (
+        <PanelErrorBoundary label="Outlet editor">
+          <OutletAdmin />
+        </PanelErrorBoundary>
+      )}
+      {panels.assignments && (
+        <PanelErrorBoundary label="Assignment editor">
+          <OutletAssignments />
+        </PanelErrorBoundary>
+      )}
       {panels.verification && !panels.editing && (
         <p>Verification: select an outlet above to review pending pins.</p>
       )}

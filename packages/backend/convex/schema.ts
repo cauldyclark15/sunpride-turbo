@@ -1446,6 +1446,7 @@ export default defineSchema({
       "localMonth",
       "version",
     ])
+    .index("by_org_month_status", ["organizationId", "localMonth", "status"])
     .index("by_assigneeProfileId_and_localMonth_and_status", [
       "assigneeProfileId",
       "localMonth",

@@ -189,6 +189,10 @@ export function CoveragePlanner() {
     api.coverage.plans.detail,
     canRead && selected ? { planId: selected } : "skip",
   );
+  const attribution = useQuery(
+    api.coverage.discovery.attribution,
+    canRead && selected ? { planId: selected } : "skip",
+  );
   const create = useMutation(api.coverage.plans.create);
   const revise = useMutation(api.coverage.plans.createRevision);
   async function action(run: () => Promise<Doc<"coveragePlans">>) {
@@ -307,8 +311,19 @@ export function CoveragePlanner() {
                   v{detail.plan.version} · {detail.plan.status} ·{" "}
                   {formatManilaDate(detail.plan.effectiveFrom)} to{" "}
                   {formatManilaDate(detail.plan.effectiveTo - 1)} · prepared by{" "}
-                  {detail.plan.preparedBy}
+                  {attribution?.preparedByName ?? "—"}
                 </p>
+                {detail.plan.status === "draft" &&
+                  attribution?.latestReturnReason && (
+                    <aside
+                      role="status"
+                      className="rounded border border-warning p-3"
+                    >
+                      <strong>Returned for changes</strong>
+                      <p>{attribution.latestReturnReason}</p>
+                      <p>Open the History tab for the full plan timeline.</p>
+                    </aside>
+                  )}
                 {(detail.plan.status === "approved" ||
                   detail.plan.status === "active") && (
                   <div className="flex flex-wrap items-end gap-2">

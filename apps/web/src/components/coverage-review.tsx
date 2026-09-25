@@ -14,12 +14,6 @@ type Permissions = {
   capabilities: string[];
   scopeUnitIds: Id<"orgUnits">[];
 };
-type Person = {
-  _id: Id<"profiles">;
-  name: string;
-  orgUnitId?: Id<"orgUnits">;
-  status: string;
-};
 const field = "rounded border border-border bg-surface px-2 py-1 text-sm";
 const stamp = (ms?: number) =>
   ms
@@ -65,60 +59,35 @@ export function activateCoveragePlan(
   return run({ planId });
 }
 
-const hasEffectiveAssignment = (assignments: Doc<"employeeAssignments">[]) => {
-  const now = Date.now();
-  return assignments.some(
-    (row) =>
-      row.effectiveFrom <= now &&
-      (row.effectiveTo === undefined || row.effectiveTo > now),
-  );
-};
-function Candidate({
-  person,
-  month,
-  selected,
-  onSelect,
-  submittedOnly,
-  checkAssignment,
-}: {
-  person: Person;
-  month: string;
-  selected: Id<"coveragePlans"> | null;
-  onSelect: (id: Id<"coveragePlans">, person: Id<"profiles">) => void;
-  submittedOnly: boolean;
-  checkAssignment: boolean;
-}) {
-  // An active profile is not necessarily an effective employee assignment.
-  // plans.list rejects empty histories without one, so never subscribe blindly.
-  const assignments = useQuery(
-    api.people.queries.history,
-    checkAssignment ? { profileId: person._id } : "skip",
-  );
-  const hasAssignment =
-    !checkAssignment || (assignments && hasEffectiveAssignment(assignments));
-  const plans = useQuery(
-    api.coverage.plans.list,
-    hasAssignment && /^\d{4}-(0[1-9]|1[0-2])$/.test(month)
-      ? { assigneeProfileId: person._id, localMonth: month }
-      : "skip",
-  );
-  return (
-    <>
-      {plans
-        ?.filter((p) => !submittedOnly || p.status === "submitted")
-        .map((p) => (
-          <button
-            key={p._id}
-            type="button"
-            className={field}
-            aria-pressed={selected === p._id}
-            onClick={() => onSelect(p._id, person._id)}
-          >
-            {person.name} · {month} · v{p.version} · {coverageStatus(p)}
-          </button>
-        ))}
-    </>
-  );
+function auditValue(
+  value: unknown,
+  actorToken: string,
+  actorName: string,
+): string {
+  if (value === undefined) return "—";
+  if (typeof value === "string")
+    return value.includes("|")
+      ? value === actorToken
+        ? actorName
+        : "Former user"
+      : value;
+  if (value !== null && typeof value === "object") {
+    const safe = (entry: unknown): unknown => {
+      if (typeof entry === "string")
+        return auditValue(entry, actorToken, actorName);
+      if (Array.isArray(entry)) return entry.map(safe);
+      if (entry && typeof entry === "object")
+        return Object.fromEntries(
+          Object.entries(entry).map(([key, item]) => [
+            auditValue(key, actorToken, actorName),
+            safe(item),
+          ]),
+        );
+      return entry;
+    };
+    return JSON.stringify(safe(value));
+  }
+  return String(value);
 }
 
 function PlanHistory({ planId }: { planId: Id<"coveragePlans"> }) {
@@ -128,33 +97,88 @@ function PlanHistory({ planId }: { planId: Id<"coveragePlans"> }) {
     planId,
     paginationOpts: { numItems: 20, cursor },
   });
+  const attribution = useQuery(api.coverage.discovery.attribution, { planId });
   const rows = [...pages, ...(events?.page ?? [])];
   return (
     <section aria-label="Plan history" className="grid gap-2">
       <h3 className="font-semibold">Plan history</h3>
       {!rows.length && <p>No history yet.</p>}
       <ol className="grid gap-2">
-        {rows.map((event) => (
-          <li
-            key={event._id}
-            className="rounded border border-border p-2 text-sm"
-          >
-            <strong>{event.action}</strong> · {event.actorSubject} ·{" "}
-            {stamp(event.createdAt)}
-            {event.reason && <p>Reason: {event.reason}</p>}
-            <p>Before: {JSON.stringify(event.before ?? {})}</p>
-            <p>After: {JSON.stringify(event.after ?? {})}</p>
-            {event.diff && <p>Changes: {JSON.stringify(event.diff)}</p>}
-            {event.affectedRowId && (
-              <p>
-                {event.affectedEntity}: {event.affectedRowId}
-              </p>
-            )}
-            {event.approvalSignatureRef && (
-              <p>Signed version: {event.approvalSignatureRef}</p>
-            )}
-          </li>
-        ))}
+        {rows.map((event) => {
+          const actorName =
+            attribution?.eventsActorNames[event._id] ?? "Former user";
+          const before = event.before ?? {};
+          const after = event.after ?? {};
+          const keys = [
+            ...new Set([...Object.keys(before), ...Object.keys(after)]),
+          ];
+          return (
+            <li
+              key={event._id}
+              className="rounded border border-border p-2 text-sm"
+            >
+              <strong>
+                {auditValue(event.action, event.actorSubject, actorName)}
+              </strong>{" "}
+              · {actorName} · {stamp(event.createdAt)}
+              <p>Version {event.planVersion}</p>
+              {event.reason && (
+                <p>
+                  Reason:{" "}
+                  {auditValue(event.reason, event.actorSubject, actorName)}
+                </p>
+              )}
+              <div>
+                <p>Before → After</p>
+                {keys.length ? (
+                  <ul className="list-inside list-disc">
+                    {keys.map((key) => (
+                      <li key={key}>
+                        {auditValue(key, event.actorSubject, actorName)}:{" "}
+                        {auditValue(before[key], event.actorSubject, actorName)}{" "}
+                        →{" "}
+                        {auditValue(after[key], event.actorSubject, actorName)}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>No recorded before/after values.</p>
+                )}
+              </div>
+              {event.diff && (
+                <p>
+                  Changes:{" "}
+                  {auditValue(event.diff, event.actorSubject, actorName)}
+                </p>
+              )}
+              {event.affectedRowId && (
+                <p>
+                  {auditValue(
+                    event.affectedEntity,
+                    event.actorSubject,
+                    actorName,
+                  )}
+                  :{" "}
+                  {auditValue(
+                    event.affectedRowId,
+                    event.actorSubject,
+                    actorName,
+                  )}
+                </p>
+              )}
+              {event.approvalSignatureRef && (
+                <p>
+                  Signed version:{" "}
+                  {auditValue(
+                    event.approvalSignatureRef,
+                    event.actorSubject,
+                    actorName,
+                  )}
+                </p>
+              )}
+            </li>
+          );
+        })}
       </ol>
       {events && !events.isDone && (
         <button
@@ -175,24 +199,13 @@ function PlanHistory({ planId }: { planId: Id<"coveragePlans"> }) {
 function PlannedVisits({
   personId,
   month,
-  checkAssignment,
-  ownSales,
 }: {
   personId: Id<"profiles">;
   month: string;
-  checkAssignment: boolean;
-  ownSales: boolean;
 }) {
-  const assignments = useQuery(
-    api.people.queries.history,
-    checkAssignment ? { profileId: personId } : "skip",
-  );
-  const canList =
-    ownSales ||
-    (checkAssignment && assignments && hasEffectiveAssignment(assignments));
   const visits = useQuery(
     api.coverage.activation.plannedForMonth,
-    canList && /^\d{4}-(0[1-9]|1[0-2])$/.test(month)
+    /^\d{4}-(0[1-9]|1[0-2])$/.test(month)
       ? { assigneeProfileId: personId, localMonth: month }
       : "skip",
   );
@@ -304,6 +317,7 @@ function SelectedPlan({
   canRouteRead: boolean;
 }) {
   const detail = useQuery(api.coverage.plans.detail, { planId });
+  const attribution = useQuery(api.coverage.discovery.attribution, { planId });
   const returned = useMutation(api.coverage.plans.returnPlan);
   const approve = useMutation(api.coverage.plans.approve);
   const activate = useMutation(api.coverage.activation.activate);
@@ -352,12 +366,14 @@ function SelectedPlan({
         </span>
       </h3>
       <p>
-        Prepared by {plan.preparedBy} · {stamp(plan.preparedAt)}; submitted by{" "}
-        {plan.submittedBy ?? "—"} · {stamp(plan.submittedAt)}
+        Prepared by {attribution?.preparedByName ?? "—"} ·{" "}
+        {stamp(plan.preparedAt)}; submitted by{" "}
+        {attribution?.submittedByName ?? "—"} · {stamp(plan.submittedAt)}
       </p>
       {plan.approvedBy && (
         <p>
-          Approved by {plan.approvedBy} · {stamp(plan.approvedAt)}
+          Approved by {attribution?.approvedByName ?? "—"} ·{" "}
+          {stamp(plan.approvedAt)}
         </p>
       )}
       {plan.basedOnPlanId && (
@@ -474,19 +490,14 @@ function SelectedPlan({
         (plan.status === "approved" ||
           plan.status === "active" ||
           plan.status === "superseded") && (
-          <PlannedVisits
-            personId={personId}
-            month={month}
-            checkAssignment
-            ownSales={false}
-          />
+          <PlannedVisits personId={personId} month={month} />
         )}
       {mode === "history" && <PlanHistory key={planId} planId={planId} />}
     </section>
   );
 }
 
-/** Backend has person/month list, not a global queue. Query each scoped person on the visible page. */
+/** Scoped plan discovery is the only picker; people.read is not required. */
 export function CoverageReview({
   mode,
   permissions,
@@ -499,42 +510,42 @@ export function CoverageReview({
   const canRead = permissions.capabilities.includes("mcp.read");
   const canApprove = permissions.capabilities.includes("mcp.approve");
   const [month, setMonth] = useState(currentManilaMonth);
-  const [personId, setPersonId] = useState<Id<"profiles"> | null>(null);
   const [selected, setSelected] = useState<Id<"coveragePlans"> | null>(null);
-  const [peopleCursor, setPeopleCursor] = useState<string | null>(null);
-  const people = useQuery(
-    api.people.queries.list,
+  const [personId, setPersonId] = useState<Id<"profiles"> | null>(null);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [prior, setPrior] = useState<
+    NonNullable<
+      ReturnType<typeof useQuery<typeof api.coverage.discovery.list>>
+    >["page"]
+  >([]);
+  const discovery = useQuery(
+    api.coverage.discovery.list,
     canRead &&
-      permissions.capabilities.includes("people.read") &&
-      permissions.role !== "sales"
-      ? { paginationOpts: { numItems: 100, cursor: peopleCursor } }
+      !(mode === "review" && !canApprove) &&
+      /^\d{4}-(0[1-9]|1[0-2])$/.test(month)
+      ? {
+          localMonth: month,
+          ...(mode === "review" ? { status: "submitted" as const } : {}),
+          paginationOpts: { numItems: 20, cursor },
+        }
       : "skip",
   );
   if (!canRead || (mode === "review" && !canApprove))
     return <p>MCP access required.</p>;
-  const self: Person = {
-    _id: profile._id,
-    name: profile.name,
-    status: "active",
-  };
-  const choices = [
-    self,
-    ...(people?.page.filter(
-      (p) =>
-        p._id !== profile._id &&
-        p.status === "active" &&
-        !!p.orgUnitId &&
-        permissions.scopeUnitIds.includes(p.orgUnitId),
-    ) ?? []),
+  const plans = [...prior, ...(discovery?.page ?? [])].filter(
+    (p) => permissions.role !== "sales" || p.assigneeProfileId === profile._id,
+  );
+  const people = [
+    ...new Map(
+      plans.map((p) => [p.assigneeProfileId, p.assigneeName]),
+    ).entries(),
   ];
   const selectedPerson =
-    personId ??
-    (permissions.role === "sales"
-      ? profile._id
-      : (choices.find((p) => p._id !== profile._id)?._id ?? null));
-  const checkAssignment =
-    permissions.capabilities.includes("people.read") &&
-    permissions.role !== "sales";
+    permissions.role === "sales" ? profile._id : (personId ?? people[0]?.[0]);
+  const visible =
+    mode === "review"
+      ? plans
+      : plans.filter((p) => p.assigneeProfileId === selectedPerson);
   return (
     <section aria-label={`Coverage ${mode}`} className="grid gap-3">
       <div className="flex flex-wrap items-end gap-2">
@@ -548,6 +559,9 @@ export function CoverageReview({
             onChange={(e) => {
               setMonth(e.target.value);
               setSelected(null);
+              setPersonId(null);
+              setPrior([]);
+              setCursor(null);
             }}
           />
         </label>
@@ -563,81 +577,62 @@ export function CoverageReview({
                 setSelected(null);
               }}
             >
-              {choices.map((p) => (
-                <option key={p._id} value={p._id}>
-                  {p.name}
+              {people.map(([id, name]) => (
+                <option key={id} value={id}>
+                  {name}
                 </option>
               ))}
             </select>
           </label>
         )}
-        {people && !people.isDone && (
-          <button
-            type="button"
-            className={field}
-            onClick={() => setPeopleCursor(people.continueCursor)}
-          >
-            More scoped people
-          </button>
-        )}
       </div>
-      {mode === "review" ? (
+      {mode !== "visits" && (
         <>
-          <h3 className="font-semibold">Submitted plans in scope</h3>
+          <h3 className="font-semibold">
+            {mode === "history" ? "Plan versions" : "Submitted plans in scope"}
+          </h3>
           <div className="flex flex-wrap gap-2">
-            {choices.map((p) => (
-              <Candidate
-                key={`${p._id}:${month}`}
-                person={p}
-                month={month}
-                selected={selected}
-                submittedOnly
-                checkAssignment={checkAssignment}
-                onSelect={(id, person) => {
-                  setSelected(id);
-                  setPersonId(person);
+            {visible.map((p) => (
+              <button
+                key={p.planId}
+                type="button"
+                className={field}
+                aria-pressed={selected === p.planId}
+                onClick={() => {
+                  setSelected(p.planId);
+                  setPersonId(p.assigneeProfileId);
                 }}
-              />
+              >
+                {p.assigneeName} · {p.localMonth} · v{p.version} · {p.status}
+              </button>
             ))}
           </div>
         </>
-      ) : mode === "history" ? (
-        <>
-          <h3 className="font-semibold">Plan versions</h3>
-          <div className="flex flex-wrap gap-2">
-            {selectedPerson && (
-              <Candidate
-                person={choices.find((p) => p._id === selectedPerson) ?? self}
-                month={month}
-                selected={selected}
-                submittedOnly={false}
-                checkAssignment={checkAssignment}
-                onSelect={(id) => setSelected(id)}
-              />
-            )}
-          </div>
-        </>
-      ) : null}
+      )}
+      {discovery && !discovery.isDone && (
+        <button
+          type="button"
+          className={field}
+          onClick={() => {
+            setPrior(plans);
+            setCursor(discovery.continueCursor);
+          }}
+        >
+          More plans
+        </button>
+      )}
       {mode === "visits" && selectedPerson && (
-        <PlannedVisits
-          personId={selectedPerson}
-          month={month}
-          checkAssignment={checkAssignment}
-          ownSales={permissions.role === "sales"}
-        />
+        <PlannedVisits personId={selectedPerson} month={month} />
       )}
       {!selectedPerson && mode !== "review" && (
-        <p>
-          No scoped assignee available. Ask an administrator to provision a
-          current employee assignment.
-        </p>
+        <p>No scoped assignee available.</p>
       )}
-      {selected && selectedPerson && mode !== "visits" && (
+      {selected && mode !== "visits" && (
         <SelectedPlan
           key={selected}
           planId={selected}
           mode={mode}
-          personId={selectedPerson}
+          personId={plans.find((p) => p.planId === selected)!.assigneeProfileId}
           month={month}
           actor={profile.authSubject}
           reviewerId={profile._id}
