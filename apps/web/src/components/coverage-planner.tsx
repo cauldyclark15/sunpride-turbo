@@ -408,6 +408,8 @@ export function PlanEditor({
     manilaInstantDate(plan.effectiveTo),
   );
   const [assignmentReason, setAssignmentReason] = useState("");
+  // Roster as of the plan's first live instant: midnight can precede a same-day assignment.
+  const [rosterAsOf] = useState(() => Math.max(plan.effectiveFrom, Date.now()));
   const readPermissions = useQuery(api.lib.capabilities.currentPermissions, {});
   const canOutletRead =
     readPermissions?.capabilities.includes("outlet.read") ?? false;
@@ -421,9 +423,7 @@ export function PlanEditor({
   );
   const roster = useQuery(
     api.outlets.assignments.territoryRoster,
-    canOutletRead && territoryId
-      ? { territoryId, asOf: plan.effectiveFrom }
-      : "skip",
+    canOutletRead && territoryId ? { territoryId, asOf: rosterAsOf } : "skip",
   );
   const routes = useQuery(
     api.territories.routes.list,
