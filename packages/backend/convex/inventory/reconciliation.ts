@@ -1,7 +1,11 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "../_generated/server";
 import { requireCapability } from "../lib/capabilities";
-import { requireNationalScope } from "../lib/scope";
+import {
+  collectScopeUnitIds,
+  requireNationalScope,
+  rootOrgUnitId,
+} from "../lib/scope";
 import { readableLocationIds } from "./location_scope";
 import { SUNPRIDE_ORGANIZATION_ID } from "./constants";
 
@@ -96,7 +100,16 @@ export const runs = query({
   args: { limit: v.optional(v.number()) },
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
-    await requireNationalScope(ctx, ["admin", "analyst"]);
+    const { profile } = await requireCapability(ctx, "inventory.read");
+    if (profile.role !== "super_admin") {
+      if (!["admin", "analyst"].includes(profile.role) || !profile.orgUnitId)
+        return [];
+      const root = await rootOrgUnitId(ctx);
+      if (!root || profile.orgUnitId !== root) return [];
+      // A national reader's own subtree must include the national root.
+      if (!(await collectScopeUnitIds(ctx, profile.orgUnitId)).includes(root))
+        return [];
+    }
     return ctx.db
       .query("inventoryReconciliationRuns")
       .withIndex("by_organizationId_and_status_and_startedAt", (q) =>
