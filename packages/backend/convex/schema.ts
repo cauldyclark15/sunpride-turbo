@@ -708,6 +708,8 @@ export default defineSchema({
     lotId: v.optional(v.id("inventoryLots")),
     stockStatus: stockStatusValidator,
     systemBase: v.int64(),
+    snapshotBalanceVersion: v.optional(v.number()),
+    snapshotMovementId: v.optional(v.id("inventoryMovements")),
     countedBase: v.optional(v.int64()),
     varianceBase: v.optional(v.int64()),
     finding: v.optional(
@@ -1318,7 +1320,12 @@ export default defineSchema({
     .index("by_organizationId_and_productId", ["organizationId", "productId"]),
   importRuns: defineTable({
     organizationId: v.string(),
-    importType: v.union(v.literal("products"), v.literal("opening_stock")),
+    importType: v.union(
+      v.literal("products"),
+      v.literal("opening_stock"),
+      v.literal("stock_adjustment"),
+      v.literal("cycle_count"),
+    ),
     runKey: v.string(),
     chunkIndex: v.number(),
     fileHash: v.string(),
@@ -1330,8 +1337,17 @@ export default defineSchema({
       v.literal("committing"),
       v.literal("completed"),
       v.literal("failed"),
+      v.literal("submitted"),
     ),
+    sourceReference: v.optional(v.string()),
+    rowKeys: v.optional(v.array(v.string())),
+    adjustmentType: v.optional(v.string()),
+    reasonCode: v.optional(v.string()),
+    locationIds: v.optional(v.array(v.id("inventoryLocations"))),
+    adjustmentId: v.optional(v.id("inventoryAdjustments")),
+    sessionId: v.optional(v.id("stockCountSessions")),
     rowCount: v.number(),
+    fileRowCount: v.optional(v.number()),
     createdCount: v.number(),
     updatedCount: v.number(),
     skippedCount: v.number(),
@@ -1345,6 +1361,11 @@ export default defineSchema({
       "idempotencyKey",
     ])
     .index("by_organizationId_and_runKey", ["organizationId", "runKey"])
+    .index("by_organizationId_and_type_and_fileHash", [
+      "organizationId",
+      "importType",
+      "fileHash",
+    ])
     .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
   importRunErrors: defineTable({
     organizationId: v.string(),

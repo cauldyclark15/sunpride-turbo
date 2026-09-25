@@ -103,3 +103,55 @@ and for opening stock a row whose lot already carries stock at that location is 
 6. Re-upload the same file. The Run history tab shows a duplicate and no additional stock is
    posted. Opening stock whose lot already carries stock at that location is refused with
    `duplicate_stock`.
+
+## Operational CSV adapters (server only)
+
+The adjustment and count CSV adapters are available as `imports.adjustments.preview/commit`
+and `imports.counts.preview/commit`; the Web import interface and downloadable templates are
+**not yet implemented**. Pass parsed rows with original `rowNumber` and exact column keys,
+plus the optional `header` string array from the uploaded CSV. When supplied, the header must
+match the template **exactly in order**: missing, extra, or reordered columns produce a
+file-level `invalid_format` error (row 1, `header`), and commit stages nothing. Existing
+row-only clients remain supported. No Web callers of these operational adapters exist yet.
+Pass `runKey`, `chunkIndex`, `<type>:<runKey>:<chunkIndex>` idempotency key, `fileHash`, and
+`rowCount` (whole-file count). A chunk has at most 100 rows; a file at most 5,000.
+An identical type/file hash under a different run key returns the original run ID.
+A changed payload under a used key is rejected. The server hashes each chunk and its
+source reference. Operational chunks fail as a unit and retain row errors in run history.
+
+### Stock adjustment
+
+`source_reference,line_key,adjustment_type,reason_code,product_code,location_code,stock_status,lot_number,quantity_delta,unit_cost_minor,note`
+
+A nonzero signed delta is scaled by 1,000. Product, active location, policy, and existing
+lot (when tracked) are resolved on the server; each location requires the request capability
+and current organizational scope. One source reference/type/reason per chunk, unique line keys.
+A successful commit creates **one submitted adjustment request**, not stock movement. A
+separate authorized person uses `inventory.adjustments.decide` to approve/post, or reject;
+requesters cannot approve themselves. `unit_cost_minor` must be empty:
+`cost_override_not_allowed` rejects a populated cell. `adjustment_type` and `reason_code`
+are provisionally required free text, uppercase-normalized and limited to 40 characters;
+there is no approved catalog or threshold exemption. This policy needs client confirmation.
+Preview returns each product/location/status/lot partition with separate positive/negative
+base quantities, net delta, current eligible balance, projected balance, and request chunk
+count. These figures are provisional until approval.
+
+### Cycle count
+
+`count_reference,location_code,product_code,stock_status,lot_number,counted_quantity,finding,note`
+
+The reference must resolve an existing **cycle** session in `counting` state. Every expected
+line must appear exactly once; missing/unknown/duplicate lines block submission. Counts are
+nonnegative absolute base quantities, including zero. A session over 100 lines is rejected
+atomically (`session_too_large`) rather than split. Preview never writes or reveals the
+expected/variance in a blind count. Submission calls the inventory count workflow, posting
+nothing; approval by a different authorized user invokes `approveAndPost`, which posts only
+nonzero variance. A changed live balance since the frozen snapshot returns `stale_snapshot`
+and requires a recount (no rebase or automatic correction). Only available-status cycle
+snapshots are supported. Preview exposes counted quantities and row status to a blind
+counter, never expected/variance before submission even for a non-creator with approval
+capability. After submission a separate authorized approver reviews expected quantities
+and variance in `inventory.counts.detail`. Count lines freeze the balance version and
+latest movement ID at snapshot creation, so a
++5 then -5 posting still returns `stale_snapshot` even when the quantity is restored.
+These policies and blind disclosure need client confirmation.

@@ -19,7 +19,8 @@ export const rowErrorValidator = v.object({
   message: v.string(),
 });
 
-export type ImportType = "products" | "opening_stock";
+export type ImportType =
+  "products" | "opening_stock" | "stock_adjustment" | "cycle_count";
 
 export type ImportRow = {
   rowNumber: number;
