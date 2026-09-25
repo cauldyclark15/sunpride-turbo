@@ -59,6 +59,18 @@ export function activateCoveragePlan(
   return run({ planId });
 }
 
+/**
+ * Approval signatures are `planId:version:approverToken:approvedAt:contentHash`;
+ * the approver token itself contains ':' and '|', so read only the stable ends.
+ */
+export function signatureLabel(signature: string): string {
+  const parts = signature.split(":");
+  const version = parts[1];
+  const hash = parts[parts.length - 1] ?? "";
+  if (parts.length < 5 || !/^\d+$/.test(version ?? "")) return "signed";
+  return `v${version} · ${hash.slice(0, 12)}`;
+}
+
 function auditValue(
   value: unknown,
   actorToken: string,
@@ -168,12 +180,7 @@ function PlanHistory({ planId }: { planId: Id<"coveragePlans"> }) {
               )}
               {event.approvalSignatureRef && (
                 <p>
-                  Signed version:{" "}
-                  {auditValue(
-                    event.approvalSignatureRef,
-                    event.actorSubject,
-                    actorName,
-                  )}
+                  Signed version: {signatureLabel(event.approvalSignatureRef)}
                 </p>
               )}
             </li>

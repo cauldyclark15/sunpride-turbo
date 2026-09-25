@@ -9,6 +9,7 @@ import {
   returnCoveragePlan,
   approveCoveragePlan,
   activateCoveragePlan,
+  signatureLabel,
 } from "./coverage-review";
 
 const state = vi.hoisted(() => ({
@@ -260,7 +261,8 @@ beforeEach(() => {
             detail: { owner: "issuer|orphan" },
           },
           affectedEntity: "coveragePlan",
-          approvalSignatureRef: "signed:v1",
+          approvalSignatureRef:
+            "plan-1:1:https://issuer.example|approver:1790360100000:feedface0123456789",
         },
       ],
       isDone: false,
@@ -560,7 +562,8 @@ describe("coverage review", () => {
     expect(html).toContain("Missing objective");
     expect(html).toContain("Manager");
     expect(html).toContain("Version 2");
-    expect(html).toContain("signed:v1");
+    expect(html).toContain("Signed version: v1 · feedface0123");
+    expect(html).not.toContain("issuer.example");
     expect(html).toContain("Before → After");
     expect(html).toContain("status: submitted → draft");
     expect(html).toContain("reviewer: Manager → Manager");
@@ -658,5 +661,19 @@ describe("coverage review", () => {
     expect(coverageStatus({ status: "superseded", effectiveFrom: 0 })).toBe(
       "Superseded",
     );
+  });
+});
+
+describe("approval signature label", () => {
+  it("shows version and hash, never the approver token", () => {
+    const label = signatureLabel(
+      "vn7plan:1:https://example.convex.site|k17subject:1790360100000:abcdef0123456789",
+    );
+    expect(label).toBe("v1 · abcdef012345");
+    expect(label).not.toMatch(/\||convex\.site|Former user/);
+  });
+
+  it("falls back for an unexpected shape", () => {
+    expect(signatureLabel("opaque")).toBe("signed");
   });
 });
