@@ -151,10 +151,10 @@ export const list = query({
 
 async function actorName(ctx: QueryCtx, token?: string) {
   if (!token) return undefined;
-  const subject = token.slice(token.indexOf("|") + 1);
+  // Actor fields store the full auth token identifier, as profiles.authSubject does.
   const person = await ctx.db
     .query("profiles")
-    .withIndex("by_subject", (q) => q.eq("authSubject", subject))
+    .withIndex("by_subject", (q) => q.eq("authSubject", token))
     .unique();
   return person?.name || "Former user";
 }
