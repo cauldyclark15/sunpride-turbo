@@ -1,5 +1,10 @@
 import { ConvexError, v } from "convex/values";
-import { mutation, query } from "../_generated/server";
+import {
+  mutation,
+  query,
+  type MutationCtx,
+  type QueryCtx,
+} from "../_generated/server";
 import { requireCapability } from "../lib/capabilities";
 import {
   readableLocationIds,
@@ -77,6 +82,10 @@ export const start = mutation({
             lotId: lotRow.lotId,
             stockStatus: lotRow.stockStatus,
             systemBase: lotRow.physicalBase,
+            snapshotBalanceVersion: lotRow.version,
+            ...(lotRow.lastMovementId
+              ? { snapshotMovementId: lotRow.lastMovementId }
+              : {}),
           });
       } else
         await ctx.db.insert("stockCountLines", {
@@ -85,11 +94,140 @@ export const start = mutation({
           productId: balance.productId,
           stockStatus: "available",
           systemBase: balance.availableStockBase ?? 0n,
+          ...(balance.version !== undefined
+            ? { snapshotBalanceVersion: balance.version }
+            : {}),
+          ...(balance.lastMovementId
+            ? { snapshotMovementId: balance.lastMovementId }
+            : {}),
         });
     }
     return sessionId;
   },
 });
+
+type Observation = {
+  lineId: import("../_generated/dataModel").Id<"stockCountLines">;
+  countedBase: bigint;
+  finding?:
+    "over" | "missing" | "damaged" | "expired" | "wrong_lot" | "wrong_location";
+  note?: string;
+};
+
+export async function snapshotIsStale(
+  ctx: QueryCtx | MutationCtx,
+  session: import("../_generated/dataModel").Doc<"stockCountSessions">,
+  lines: import("../_generated/dataModel").Doc<"stockCountLines">[],
+): Promise<boolean> {
+  for (const line of lines) {
+    if (line.lotId) {
+      const live = await ctx.db
+        .query("inventoryLotBalances")
+        .withIndex(
+          "by_organizationId_and_lotId_and_locationId_and_stockStatus",
+          (q) =>
+            q
+              .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
+              .eq("lotId", line.lotId!)
+              .eq("locationId", session.locationId)
+              .eq("stockStatus", line.stockStatus),
+        )
+        .unique();
+      if (
+        (live?.physicalBase ?? 0n) !== line.systemBase ||
+        (line.snapshotBalanceVersion !== undefined &&
+          live?.version !== line.snapshotBalanceVersion) ||
+        (line.snapshotMovementId !== undefined &&
+          live?.lastMovementId !== line.snapshotMovementId)
+      )
+        return true;
+    } else {
+      const live = await ctx.db
+        .query("inventoryBalances")
+        .withIndex("by_organizationId_and_productId_and_locationId", (q) =>
+          q
+            .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
+            .eq("productId", line.productId)
+            .eq("locationId", session.locationId),
+        )
+        .unique();
+      if (
+        (live?.availableStockBase ?? 0n) !== line.systemBase ||
+        (line.snapshotBalanceVersion !== undefined &&
+          live?.version !== line.snapshotBalanceVersion) ||
+        (line.snapshotMovementId !== undefined &&
+          live?.lastMovementId !== line.snapshotMovementId)
+      )
+        return true;
+    }
+  }
+  return false;
+}
+
+export async function assertFreshSnapshot(
+  ctx: MutationCtx,
+  session: import("../_generated/dataModel").Doc<"stockCountSessions">,
+  lines: import("../_generated/dataModel").Doc<"stockCountLines">[],
+) {
+  if (lines.length > 100) throw new ConvexError("session_too_large");
+  if (await snapshotIsStale(ctx, session, lines))
+    throw new ConvexError("stale_snapshot: recount required");
+}
+
+export async function submitCount(
+  ctx: MutationCtx,
+  args: {
+    sessionId: import("../_generated/dataModel").Id<"stockCountSessions">;
+    lines: Observation[];
+  },
+) {
+  await requireCapability(ctx, "inventory.count.submit");
+  const session = await ctx.db.get(args.sessionId);
+  if (!session || session.status !== "counting")
+    throw new ConvexError("Count is not accepting entries");
+  const { identity } = await requireLocationCapability(
+    ctx,
+    "inventory.count.submit",
+    session.locationId,
+  );
+  const expected = await ctx.db
+    .query("stockCountLines")
+    .withIndex("by_organizationId_and_sessionId", (q) =>
+      q
+        .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
+        .eq("sessionId", session._id),
+    )
+    .take(501);
+  const ids = new Set(args.lines.map((line) => line.lineId));
+  if (expected.length > 100) throw new ConvexError("session_too_large");
+  if (args.lines.length !== expected.length)
+    throw new ConvexError("All count lines must be counted exactly once");
+  await assertFreshSnapshot(ctx, session, expected);
+  if (
+    expected.length > 500 ||
+    ids.size !== args.lines.length ||
+    expected.some((line) => !ids.has(line._id))
+  )
+    throw new ConvexError("All count lines must be counted exactly once");
+  const now = Date.now();
+  for (const input of args.lines) {
+    if (input.countedBase < 0n)
+      throw new ConvexError("Count cannot be negative");
+    const line = await ctx.db.get(input.lineId);
+    if (!line || line.sessionId !== session._id)
+      throw new ConvexError("Count line does not belong to this session");
+    await ctx.db.patch(line._id, {
+      countedBase: input.countedBase,
+      varianceBase: input.countedBase - line.systemBase,
+      ...(input.finding ? { finding: input.finding } : {}),
+      ...(input.note ? { note: input.note } : {}),
+      countedBy: identity.tokenIdentifier,
+      countedAt: now,
+    });
+  }
+  await ctx.db.patch(session._id, { status: "submitted", updatedAt: now });
+  return null;
+}
 
 export const submit = mutation({
   args: {
@@ -113,50 +251,7 @@ export const submit = mutation({
     ),
   },
   returns: v.null(),
-  handler: async (ctx, args) => {
-    await requireCapability(ctx, "inventory.count.submit");
-    const session = await ctx.db.get(args.sessionId);
-    if (!session || session.status !== "counting")
-      throw new ConvexError("Count is not accepting entries");
-    const { identity } = await requireLocationCapability(
-      ctx,
-      "inventory.count.submit",
-      session.locationId,
-    );
-    const expected = await ctx.db
-      .query("stockCountLines")
-      .withIndex("by_organizationId_and_sessionId", (q) =>
-        q
-          .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
-          .eq("sessionId", session._id),
-      )
-      .take(501);
-    const ids = new Set(args.lines.map((line) => line.lineId));
-    if (
-      expected.length > 500 ||
-      ids.size !== args.lines.length ||
-      expected.some((line) => !ids.has(line._id))
-    )
-      throw new ConvexError("All count lines must be counted exactly once");
-    const now = Date.now();
-    for (const input of args.lines) {
-      if (input.countedBase < 0n)
-        throw new ConvexError("Count cannot be negative");
-      const line = await ctx.db.get(input.lineId);
-      if (!line || line.sessionId !== session._id)
-        throw new ConvexError("Count line does not belong to this session");
-      await ctx.db.patch(line._id, {
-        countedBase: input.countedBase,
-        varianceBase: input.countedBase - line.systemBase,
-        ...(input.finding ? { finding: input.finding } : {}),
-        ...(input.note ? { note: input.note } : {}),
-        countedBy: identity.tokenIdentifier,
-        countedAt: now,
-      });
-    }
-    await ctx.db.patch(session._id, { status: "submitted", updatedAt: now });
-    return null;
-  },
+  handler: submitCount,
 });
 
 export const approveAndPost = mutation({
@@ -185,7 +280,11 @@ export const approveAndPost = mutation({
           .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
           .eq("sessionId", session._id),
       )
-      .take(500);
+      .take(101);
+    if (countLines.length > 100) throw new ConvexError("session_too_large");
+    await assertFreshSnapshot(ctx, session, countLines);
+    if (countLines.some((line) => line.countedBy === identity.tokenIdentifier))
+      throw new ConvexError("Counter cannot approve their own stock count");
     if (countLines.some((line) => line.countedBase === undefined))
       throw new ConvexError("All count lines must be counted");
     const now = Date.now();
@@ -313,12 +412,6 @@ export const detail = query({
     const session = await ctx.db.get(args.sessionId);
     if (!session) throw new ConvexError("Stock count not found");
     await requireLocationCapability(ctx, "inventory.read", session.locationId);
-    const hideExpected =
-      session.blindCount &&
-      (session.status === "draft" ||
-        session.status === "frozen" ||
-        session.status === "counting") &&
-      session.createdBy === identity.tokenIdentifier;
     const rows = await ctx.db
       .query("stockCountLines")
       .withIndex("by_organizationId_and_sessionId", (q) =>
@@ -327,6 +420,10 @@ export const detail = query({
           .eq("sessionId", session._id),
       )
       .take(500);
+    const hideExpected =
+      session.blindCount &&
+      (session.createdBy === identity.tokenIdentifier ||
+        rows.some((row) => row.countedBy === identity.tokenIdentifier));
     const lines = [];
     for (const row of rows) {
       const [product, lot] = await Promise.all([

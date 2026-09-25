@@ -1,5 +1,5 @@
 import { ConvexError, v } from "convex/values";
-import { mutation, query } from "../_generated/server";
+import { mutation, query, type MutationCtx } from "../_generated/server";
 import { requireCapability } from "../lib/capabilities";
 import {
   readableLocationIds,
@@ -23,6 +23,79 @@ const lineInput = v.object({
   unitCostMinor: v.optional(v.int64()),
 });
 
+type RequestInput = {
+  adjustmentType: string;
+  reasonCode: string;
+  note?: string;
+  lines: Array<{
+    productId: import("../_generated/dataModel").Id<"products">;
+    locationId: import("../_generated/dataModel").Id<"inventoryLocations">;
+    lotId?: import("../_generated/dataModel").Id<"inventoryLots">;
+    stockStatus: import("./validators").StockStatus;
+    varianceBase: bigint;
+    unitCostMinor?: bigint;
+  }>;
+};
+
+/** Single request writer shared by manual and CSV submission. */
+export async function requestAdjustment(ctx: MutationCtx, args: RequestInput) {
+  const { identity } = await requireCapability(
+    ctx,
+    "inventory.adjustment.request",
+  );
+  if (args.lines.length === 0)
+    throw new ConvexError("Adjustment needs at least one line");
+  if (args.lines.length > 100)
+    throw new ConvexError("Too many adjustment lines");
+  for (const line of args.lines)
+    await requireLocationCapability(
+      ctx,
+      "inventory.adjustment.request",
+      line.locationId,
+    );
+  const now = Date.now();
+  const adjustmentId = await ctx.db.insert("inventoryAdjustments", {
+    organizationId: SUNPRIDE_ORGANIZATION_ID,
+    adjustmentNumber: `ADJ-${now.toString(36).toUpperCase()}`,
+    adjustmentType: args.adjustmentType,
+    reasonCode: args.reasonCode,
+    status: "submitted",
+    requestedBy: identity.tokenIdentifier,
+    ...(args.note ? { note: args.note } : {}),
+    createdAt: now,
+    updatedAt: now,
+  });
+  for (const line of args.lines) {
+    if (line.varianceBase === 0n)
+      throw new ConvexError("Adjustment variance cannot be zero");
+    const policy = await ctx.db
+      .query("productInventoryPolicies")
+      .withIndex("by_organizationId_and_productId", (q) =>
+        q
+          .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
+          .eq("productId", line.productId),
+      )
+      .unique();
+    if (policy?.trackingMode === "lot" && !line.lotId)
+      throw new ConvexError("Lot-tracked adjustments require a lot");
+    await ctx.db.insert("inventoryAdjustmentLines", {
+      organizationId: SUNPRIDE_ORGANIZATION_ID,
+      adjustmentId,
+      ...line,
+      reasonCode: args.reasonCode,
+    });
+  }
+  await ctx.db.insert("auditLogs", {
+    subject: identity.tokenIdentifier,
+    action: "inventory.adjustment.requested",
+    entityType: "inventoryAdjustment",
+    entityId: adjustmentId,
+    details: args.reasonCode,
+    createdAt: now,
+  });
+  return adjustmentId;
+}
+
 export const request = mutation({
   args: {
     adjustmentType: v.string(),
@@ -31,63 +104,7 @@ export const request = mutation({
     lines: v.array(lineInput),
   },
   returns: v.id("inventoryAdjustments"),
-  handler: async (ctx, args) => {
-    const { identity } = await requireCapability(
-      ctx,
-      "inventory.adjustment.request",
-    );
-    if (args.lines.length === 0)
-      throw new ConvexError("Adjustment needs at least one line");
-    if (args.lines.length > 100)
-      throw new ConvexError("Too many adjustment lines");
-    for (const line of args.lines)
-      await requireLocationCapability(
-        ctx,
-        "inventory.adjustment.request",
-        line.locationId,
-      );
-    const now = Date.now();
-    const adjustmentId = await ctx.db.insert("inventoryAdjustments", {
-      organizationId: SUNPRIDE_ORGANIZATION_ID,
-      adjustmentNumber: `ADJ-${now.toString(36).toUpperCase()}`,
-      adjustmentType: args.adjustmentType,
-      reasonCode: args.reasonCode,
-      status: "submitted",
-      requestedBy: identity.tokenIdentifier,
-      ...(args.note ? { note: args.note } : {}),
-      createdAt: now,
-      updatedAt: now,
-    });
-    for (const line of args.lines) {
-      if (line.varianceBase === 0n)
-        throw new ConvexError("Adjustment variance cannot be zero");
-      const policy = await ctx.db
-        .query("productInventoryPolicies")
-        .withIndex("by_organizationId_and_productId", (q) =>
-          q
-            .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
-            .eq("productId", line.productId),
-        )
-        .unique();
-      if (policy?.trackingMode === "lot" && !line.lotId)
-        throw new ConvexError("Lot-tracked adjustments require a lot");
-      await ctx.db.insert("inventoryAdjustmentLines", {
-        organizationId: SUNPRIDE_ORGANIZATION_ID,
-        adjustmentId,
-        ...line,
-        reasonCode: args.reasonCode,
-      });
-    }
-    await ctx.db.insert("auditLogs", {
-      subject: identity.tokenIdentifier,
-      action: "inventory.adjustment.requested",
-      entityType: "inventoryAdjustment",
-      entityId: adjustmentId,
-      details: args.reasonCode,
-      createdAt: now,
-    });
-    return adjustmentId;
-  },
+  handler: requestAdjustment,
 });
 
 export const decide = mutation({

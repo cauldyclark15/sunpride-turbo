@@ -63,6 +63,8 @@ export const list = query({
     const groups = new Map<string, RunGroup>();
 
     for (const run of runs) {
+      if (run.importType !== "products" && run.importType !== "opening_stock")
+        continue;
       const key = `${run.importType}:${run.runKey}`;
       const existing = groups.get(key);
       if (!existing) {
