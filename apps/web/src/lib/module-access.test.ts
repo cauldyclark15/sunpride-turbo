@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { CAPABILITIES } from "../../../../packages/backend/convex/lib/capabilities";
 import {
   canAccessWebModule,
+  MCP_PANEL_ROLES,
   MODULE_ROLES,
   OUTLET_PANEL_ROLES,
   salesForcePanels,
@@ -28,7 +29,7 @@ const expectedCapabilities = {
     "inventory.count.submit",
   ],
   inventory: ["inventory.read"],
-  "sales-force": ["visit.read"],
+  "sales-force": ["mcp.read"],
   orders: ["order.create", "order.approve"],
   "sap-integration": ["integration.read"],
   workflows: ["order.approve"],
@@ -123,6 +124,17 @@ describe("web module access", () => {
       expect(new Set(granted)).toEqual(
         new Set(CAPABILITIES[key as keyof typeof CAPABILITIES]),
       );
+  });
+  it("mirrors MCP read, plan, and independent review roles", () => {
+    for (const [key, granted] of Object.entries(MCP_PANEL_ROLES))
+      expect(new Set(granted)).toEqual(
+        new Set(CAPABILITIES[key as keyof typeof CAPABILITIES]),
+      );
+    for (const role of roles)
+      expect(canAccessWebModule("sales-force", role)).toBe(
+        CAPABILITIES["mcp.read"].includes(role),
+      );
+    expect(canAccessWebModule("sales-force", "unprovisioned")).toBe(false);
   });
   it("matches the backend capability role sets for each module", () => {
     for (const [module, capabilities] of Object.entries(expectedCapabilities)) {

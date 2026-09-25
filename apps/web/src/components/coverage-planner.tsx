@@ -156,7 +156,6 @@ export function CoveragePlanner() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const self = profile?._id;
-  const assignee = permissions?.role === "sales" ? self : (person ?? self);
   const people = useQuery(
     api.people.queries.list,
     canRead &&
@@ -165,6 +164,21 @@ export function CoveragePlanner() {
       ? { paginationOpts: { numItems: 100, cursor: peopleCursor } }
       : "skip",
   );
+  const choices =
+    people?.page.filter(
+      (p) =>
+        p.status === "active" &&
+        p.orgUnitId &&
+        permissions?.scopeUnitIds.includes(p.orgUnitId),
+    ) ?? [];
+  // A read-only analyst's own profile may have no employee assignment. Wait for
+  // scoped people instead of querying an unassigned self by default.
+  const assignee =
+    permissions?.role === "sales"
+      ? self
+      : (person ??
+        choices.find((p) => p.role === "sales")?._id ??
+        (permissions?.capabilities.includes("people.read") ? undefined : self));
   const plans = useQuery(
     api.coverage.plans.list,
     canRead && assignee
@@ -177,13 +191,6 @@ export function CoveragePlanner() {
   );
   const create = useMutation(api.coverage.plans.create);
   const revise = useMutation(api.coverage.plans.createRevision);
-  const choices =
-    people?.page.filter(
-      (p) =>
-        p.status === "active" &&
-        p.orgUnitId &&
-        permissions?.scopeUnitIds.includes(p.orgUnitId),
-    ) ?? [];
   async function action(run: () => Promise<Doc<"coveragePlans">>) {
     if (!canPlan || busy) return;
     setBusy(true);

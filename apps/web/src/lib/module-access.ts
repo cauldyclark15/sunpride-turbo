@@ -47,6 +47,12 @@ const integrationReaders = [
   "operations",
 ] as const satisfies readonly AppRole[];
 
+export const MCP_PANEL_ROLES = {
+  "mcp.read": allReaders,
+  "mcp.plan": ["super_admin", "admin", "manager", "sales"],
+  "mcp.approve": ["super_admin", "manager"],
+} as const satisfies Record<string, readonly AppRole[]>;
+
 export const OUTLET_PANEL_ROLES = {
   "territory.read": allReaders,
   "route.read": allReaders,
@@ -80,7 +86,7 @@ export const MODULE_ROLES = {
   "master-data": masterDataManagers, // masterdata.manage
   imports: importActors, // union of masterdata.manage, inventory.adjustment.request, inventory.count.submit
   inventory: allReaders, // inventory.read
-  "sales-force": allReaders, // visit.read
+  "sales-force": MCP_PANEL_ROLES["mcp.read"], // all roles with MCP read
   orders: orderActors, // union of order.create and order.approve
   "sap-integration": integrationReaders, // integration.read
   workflows: orderApprovers, // order.approve

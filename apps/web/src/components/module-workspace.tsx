@@ -14,14 +14,16 @@ import {
 import { useMutation, useQuery } from "convex/react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { getWebModuleTabs, type WebModuleSlug } from "@/config/navigation";
-import { canAccessWebModule, salesForcePanels } from "@/lib/module-access";
+import { getWebModuleTabs, type WebModuleSlug } from "../config/navigation";
+import { canAccessWebModule, salesForcePanels } from "../lib/module-access";
 import { AdminWorkspace } from "./admin-workspace";
 import { RouteAdmin } from "./route-admin";
 import { OutletAdmin } from "./outlet-admin";
 import { OutletAssignments } from "./outlet-assignments";
 import { ImportsWorkspace } from "./imports-workspace";
 import { InventoryWorkspace } from "./inventory-workspace";
+import { CoveragePlanner } from "./coverage-planner";
+import { CoverageReview } from "./coverage-review";
 
 const modules = {
   dashboard: {
@@ -181,10 +183,60 @@ function AllowedModuleWorkspace({ module }: { module: WebModuleSlug }) {
 
 function SalesForcePanels() {
   const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
-  if (!permissions) return <p>Loading sales force permissions…</p>;
+  const profile = useQuery(api.domains.profiles.current, {});
+  const [coverageTab, setCoverageTab] = useState<
+    "plan" | "review" | "visits" | "history"
+  >("plan");
+  if (!permissions || !profile) return <p>Loading sales force permissions…</p>;
   const panels = salesForcePanels(permissions.capabilities);
+  const canRead = permissions.capabilities.includes("mcp.read");
+  const canApprove = permissions.capabilities.includes("mcp.approve");
+  const coverageTabs = [
+    ["plan", "Plan"],
+    ...(canApprove ? [["review", "Review"]] : []),
+    ["visits", "Planned visits"],
+    ["history", "History"],
+  ] as ["plan" | "review" | "visits" | "history", string][];
   return (
     <div className="grid gap-6">
+      {canRead && (
+        <section
+          aria-label="Coverage plans"
+          className="grid gap-4 rounded border border-border p-4"
+        >
+          <h2 className="text-lg font-semibold">Coverage plans</h2>
+          <div
+            role="tablist"
+            aria-label="Master Coverage Plans"
+            className="flex flex-wrap gap-2"
+          >
+            {coverageTabs.map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={coverageTab === key}
+                className="rounded border border-border px-3 py-1"
+                onClick={() => setCoverageTab(key)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div role="tabpanel">
+            {coverageTab === "plan" ? (
+              <CoveragePlanner />
+            ) : (
+              <CoverageReview
+                key={coverageTab}
+                mode={coverageTab}
+                permissions={permissions}
+                profile={profile}
+              />
+            )}
+          </div>
+        </section>
+      )}
       {panels.editing ? (
         <h2 className="text-lg font-semibold">Territory coverage editors</h2>
       ) : (
