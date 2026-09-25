@@ -9,6 +9,7 @@ import { resolveOutletScopeAt } from "../outlets/validation";
 import { at } from "../territories/route_validation";
 import { frequency, slotKind, weekday } from "./validators";
 import { auditPlan, planState } from "./audit";
+import { assertNoBlockingExceptions } from "./exceptions";
 import {
   MAX_PLAN_ROWS,
   assertOutletsScoped,
@@ -735,6 +736,7 @@ export const approve = mutation({
       sequences.add(key);
       snapshots.push({ slot, snapshot: await snapshotSlot(ctx, plan, slot) });
     }
+    await assertNoBlockingExceptions(ctx, planId);
     // Web Crypto is available in Convex's V8 runtime; hash the exact signed sorted payload.
     const signedContent = JSON.stringify({
       plan: {

@@ -284,6 +284,168 @@ const read = (f: Fixture, planId: Id<"coveragePlans">) =>
   f.sales.actor.query(api.coverage.plans.detail, { planId });
 
 describe("MCP authoring and approval", () => {
+  it("maps only effective verified pins, keeps pending/absent unmapped, and hides cross-unit roster", async () => {
+    const f = await setup();
+    const plan = await f.create();
+    await f.sales.actor.mutation(api.coverage.plans.saveSlots, {
+      planId: plan._id,
+      slots: [f.slot()],
+    });
+    const pin = await f.t.run(async (ctx) => {
+      const second = await ctx.db.insert("outlets", {
+        organizationId: "sunpride",
+        code: "O2",
+        name: "Second",
+        status: "active",
+        custodianOrgUnitId: f.east,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        createdBy: "fixture",
+      });
+      await ctx.db.insert("outletAssignments", {
+        outletId: second,
+        territoryId: f.territory,
+        routeId: f.route,
+        sequence: 2,
+        effectiveFrom: Date.now() - 10000,
+        actorSubject: "fixture",
+        reason: "fixture",
+        createdAt: Date.now(),
+      });
+      await ctx.db.insert("outletPins", {
+        outletId: second,
+        latitude: 14.5,
+        longitude: 121,
+        radiusMeters: 50,
+        source: "test",
+        status: "pending",
+        effectiveFrom: Date.now() - 10000,
+        proposedBy: "fixture",
+        proposedAt: Date.now(),
+        createdAt: Date.now(),
+      });
+      return ctx.db.insert("outletPins", {
+        outletId: f.outlet,
+        latitude: 14.6,
+        longitude: 121,
+        radiusMeters: 50,
+        source: "test",
+        status: "verified",
+        effectiveFrom: Date.now() - 10000,
+        proposedBy: "fixture",
+        proposedAt: Date.now(),
+        createdAt: Date.now(),
+      });
+    });
+    const args = {
+      planId: plan._id,
+      paginationOpts: { numItems: 20, cursor: null },
+    };
+    const page = await f.manager.actor.query(api.coverage.map.forPlan, args);
+    expect(page.page.find((r) => r.outletId === f.outlet)?.pinStatus).toBe(
+      "verified",
+    );
+    expect(page.page.find((r) => r.outletCode === "O2")?.pinStatus).toBe(
+      "unmapped",
+    );
+    expect(page.page.some((r) => r.outletId === f.foreign)).toBe(false);
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch(pin, { status: "rejected" });
+    });
+    expect(
+      (await f.manager.actor.query(api.coverage.map.forPlan, args)).page.find(
+        (r) => r.outletId === f.outlet,
+      )?.latitude,
+    ).toBeUndefined();
+    await expect(
+      f.westManager.actor.query(api.coverage.map.forPlan, args),
+    ).rejects.toThrow();
+    await f.sales.actor.mutation(api.coverage.plans.submit, {
+      planId: plan._id,
+    });
+    await f.manager.actor.mutation(api.coverage.plans.approve, {
+      planId: plan._id,
+    });
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch(f.outlet, { name: "Changed after signature" });
+    });
+    expect(
+      (await f.manager.actor.query(api.coverage.map.forPlan, args)).page.find(
+        (r) => r.outletId === f.outlet,
+      )?.outletName,
+    ).toBe("Outlet");
+  });
+  it("rejects a blocking cadence row in the shared full preflight without any writes", async () => {
+    const f = await setup();
+    const plan = await f.create();
+    await f.schedule(plan._id);
+    await f.t.run(async (ctx) => {
+      await ctx.db.insert("coveragePlanOutlets", {
+        planId: plan._id,
+        outletId: f.outlet,
+        territoryId: f.territory,
+        routeId: f.route,
+        frequency: "custom",
+        preferredWeekdays: [],
+        customLocalDates: [],
+        priority: 1,
+        expectedDurationMinutes: 30,
+        requiredObjectives: [],
+        contentRevision: 1,
+        updatedBy: "fixture",
+        updatedAt: Date.now(),
+      });
+    });
+    const before = await read(f, plan._id);
+    await expect(
+      f.manager.actor.mutation(api.coverage.plans.approve, {
+        planId: plan._id,
+      }),
+    ).rejects.toThrow(/Blocking coverage exception: invalid_cadence/);
+    expect(await read(f, plan._id)).toEqual(before);
+  });
+
+  it("preflights every row atomically while territory-only and absent GPS remain advisory", async () => {
+    const f = await setup();
+    const plan = await f.create();
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch(f.outletAssignment, { routeId: undefined });
+    });
+    await f.sales.actor.mutation(api.coverage.plans.saveSlots, {
+      planId: plan._id,
+      slots: [{ ...f.slot(), routeId: undefined }],
+    });
+    await f.sales.actor.mutation(api.coverage.plans.submit, {
+      planId: plan._id,
+    });
+    const preview = await f.manager.actor.query(
+      api.coverage.exceptions.forPlan,
+      {
+        planId: plan._id,
+        paginationOpts: { numItems: 20, cursor: null },
+      },
+    );
+    expect(preview.page.map((row) => row.code)).toContain("territory_only");
+    expect(
+      preview.page.find((row) => row.code === "territory_only")?.severity,
+    ).toBe("advisory");
+    expect(
+      (
+        await f.manager.actor.mutation(api.coverage.plans.approve, {
+          planId: plan._id,
+        })
+      ).status,
+    ).toBe("approved");
+
+    const bad = await f.create();
+    await f.schedule(bad._id, f.badRoute);
+    const before = await read(f, bad._id);
+    await expect(
+      f.manager.actor.mutation(api.coverage.plans.approve, { planId: bad._id }),
+    ).rejects.toThrow();
+    const after = await read(f, bad._id);
+    expect(after).toEqual(before);
+  });
   it("reads and applies current-month routines for a hire after the plan's Manila midnight", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-26T02:09:00+08:00"));
