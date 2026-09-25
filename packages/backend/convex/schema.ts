@@ -1,5 +1,15 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import {
+  approvedOutletSnapshot,
+  cycleType,
+  frequency,
+  planStatus,
+  plannedVisitStatus,
+  routineDayKind,
+  slotKind,
+  weekday,
+} from "./coverage/validators";
 import { employmentTypeValidator, roleValidator } from "./lib/roles";
 import { positionCategoryValidator } from "./sfa/constants";
 import {
@@ -1395,6 +1405,197 @@ export default defineSchema({
     .index("by_outletId_and_effectiveFrom", ["outletId", "effectiveFrom"])
     .index("by_territoryId_and_effectiveFrom", ["territoryId", "effectiveFrom"])
     .index("by_routeId_and_effectiveFrom", ["routeId", "effectiveFrom"]),
+  // Group-05 MCP: localMonth/serviceDate are Asia/Manila calendar strings;
+  // all effective intervals are half-open UTC instants. Signed rows are versioned,
+  // never folded into the legacy salesAssignments or visits tables.
+  coveragePlans: defineTable({
+    organizationId: v.string(),
+    assigneeProfileId: v.id("profiles"),
+    localMonth: v.string(), // YYYY-MM
+    version: v.number(), // positive, allocated under the person/month index
+    cycleType,
+    orgUnitId: v.id("orgUnits"),
+    territoryIds: v.array(v.id("territories")), // display, not an access grant
+    requestedFrom: v.number(),
+    requestedTo: v.number(),
+    effectiveFrom: v.number(),
+    effectiveTo: v.number(),
+    status: planStatus,
+    basedOnPlanId: v.optional(v.id("coveragePlans")),
+    revisionReason: v.optional(v.string()),
+    preparedBy: v.string(),
+    preparedAt: v.number(),
+    submittedBy: v.optional(v.string()),
+    submittedAt: v.optional(v.number()),
+    approvedBy: v.optional(v.string()),
+    approvedAt: v.optional(v.number()),
+    approvalSignature: v.optional(v.string()),
+    activatedAt: v.optional(v.number()),
+    supersededAt: v.optional(v.number()),
+    activeThrough: v.optional(v.number()),
+    contentRevision: v.number(),
+    contentHash: v.optional(v.string()),
+    createdBy: v.string(),
+    createdAt: v.number(),
+    updatedBy: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_org_assignee_month_version", [
+      "organizationId",
+      "assigneeProfileId",
+      "localMonth",
+      "version",
+    ])
+    .index("by_assigneeProfileId_and_localMonth_and_status", [
+      "assigneeProfileId",
+      "localMonth",
+      "status",
+    ])
+    .index("by_orgUnitId_and_localMonth_and_status", [
+      "orgUnitId",
+      "localMonth",
+      "status",
+    ])
+    .index("by_status_and_effectiveFrom", ["status", "effectiveFrom"]),
+  coverageAssignments: defineTable({
+    planId: v.id("coveragePlans"),
+    assigneeProfileId: v.id("profiles"),
+    orgUnitId: v.id("orgUnits"),
+    primary: v.boolean(),
+    effectiveFrom: v.number(),
+    effectiveTo: v.number(),
+    actorSubject: v.string(),
+    reason: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_planId_and_effectiveFrom", ["planId", "effectiveFrom"])
+    .index("by_assigneeProfileId_and_effectiveFrom", [
+      "assigneeProfileId",
+      "effectiveFrom",
+    ]),
+  coveragePlanOutlets: defineTable({
+    planId: v.id("coveragePlans"),
+    outletId: v.id("outlets"),
+    routeId: v.optional(v.id("routes")),
+    territoryId: v.id("territories"),
+    frequency,
+    anchorLocalDate: v.optional(v.string()), // YYYY-MM-DD, Manila
+    weekOrdinal: v.optional(v.number()), // monthly occurrence (1–5), validated by writer
+    preferredWeekdays: v.array(weekday), // Sunday=0 … Saturday=6
+    customLocalDates: v.array(v.string()), // explicit YYYY-MM-DD Manila dates
+    sequence: v.optional(v.number()),
+    priority: v.number(),
+    expectedDurationMinutes: v.number(),
+    requiredObjectives: v.array(v.string()),
+    visitWindow: v.optional(v.string()),
+    contentRevision: v.number(),
+    updatedBy: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_planId_and_outletId", ["planId", "outletId"])
+    .index("by_outletId_and_planId", ["outletId", "planId"]),
+  coveragePlanSlots: defineTable({
+    slotKey: v.string(), // stable across draft edits and generation retries
+    planId: v.id("coveragePlans"),
+    assigneeProfileId: v.id("profiles"),
+    serviceDate: v.string(), // YYYY-MM-DD, Manila
+    kind: slotKind,
+    outletId: v.optional(v.id("outlets")),
+    routeId: v.optional(v.id("routes")),
+    activityKind: v.optional(v.string()),
+    namedTruckRef: v.optional(v.string()), // business reference, not a POS session
+    requiredObjectives: v.array(v.string()),
+    intents: v.array(v.string()),
+    sequence: v.number(),
+    expectedDurationMinutes: v.number(),
+    approvedSnapshot: v.optional(approvedOutletSnapshot),
+    contentRevision: v.number(),
+    updatedBy: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_planId_and_serviceDate", ["planId", "serviceDate"])
+    .index("by_planId_and_serviceDate_and_slotKey", [
+      "planId",
+      "serviceDate",
+      "slotKey",
+    ])
+    .index("by_outletId_and_serviceDate", ["outletId", "serviceDate"])
+    .index("by_routeId_and_serviceDate", ["routeId", "serviceDate"]),
+  positionRoutineTemplates: defineTable({
+    organizationId: v.string(),
+    positionId: v.id("positions"),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    weekday,
+    dayKind: routineDayKind,
+    activities: v.array(
+      v.object({
+        sequence: v.number(),
+        name: v.string(),
+        kind: slotKind,
+      }),
+    ),
+    sourceRef: v.string(),
+    provisional: v.boolean(),
+    actorSubject: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_positionId_and_effectiveFrom", ["positionId", "effectiveFrom"])
+    .index("by_positionId_and_weekday_and_effectiveFrom", [
+      "positionId",
+      "weekday",
+      "effectiveFrom",
+    ]),
+  plannedVisits: defineTable({
+    generationKey: v.string(),
+    planId: v.id("coveragePlans"),
+    planVersion: v.number(),
+    planSlotId: v.id("coveragePlanSlots"),
+    assigneeProfileId: v.id("profiles"),
+    outletId: v.id("outlets"), // indexed projection of approvedSnapshot.outletId
+    serviceDate: v.string(), // YYYY-MM-DD, Manila
+    status: plannedVisitStatus,
+    approvedSnapshot: approvedOutletSnapshot,
+    requiredObjectives: v.array(v.string()),
+    intents: v.array(v.string()),
+    expectedDurationMinutes: v.number(),
+    generatedAt: v.number(),
+    replacedByVisitId: v.optional(v.id("plannedVisits")),
+    replacementOfVisitId: v.optional(v.id("plannedVisits")),
+    cancellationReason: v.optional(v.string()),
+    cancelledAt: v.optional(v.number()),
+  })
+    .index("by_generationKey", ["generationKey"])
+    .index("by_planId_and_serviceDate", ["planId", "serviceDate"])
+    .index("by_assigneeProfileId_and_serviceDate", [
+      "assigneeProfileId",
+      "serviceDate",
+    ])
+    .index("by_outletId_and_serviceDate", ["outletId", "serviceDate"]),
+  coverageAuditEvents: defineTable({
+    planId: v.id("coveragePlans"),
+    assigneeProfileId: v.id("profiles"),
+    orgUnitId: v.id("orgUnits"),
+    localMonth: v.string(),
+    createdAt: v.number(),
+    actorSubject: v.string(),
+    action: v.string(),
+    reason: v.optional(v.string()),
+    affectedEntity: v.string(),
+    affectedRowId: v.optional(v.string()),
+    before: v.optional(v.record(v.string(), v.any())),
+    after: v.optional(v.record(v.string(), v.any())),
+    diff: v.optional(v.record(v.string(), v.any())),
+    planVersion: v.number(),
+    approvalSignatureRef: v.optional(v.string()),
+  })
+    .index("by_planId_and_createdAt", ["planId", "createdAt"])
+    .index("by_assigneeProfileId_and_createdAt", [
+      "assigneeProfileId",
+      "createdAt",
+    ])
+    .index("by_orgUnitId_and_createdAt", ["orgUnitId", "createdAt"]),
   teams: defineTable({
     code: v.string(),
     name: v.string(),

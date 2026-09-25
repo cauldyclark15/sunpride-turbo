@@ -10,6 +10,7 @@
 
 import type * as auth from "../auth.js";
 import type * as authPolicy from "../authPolicy.js";
+import type * as coverage_validators from "../coverage/validators.js";
 import type * as crons from "../crons.js";
 import type * as domains_admin from "../domains/admin.js";
 import type * as domains_dashboard from "../domains/dashboard.js";
@@ -87,6 +88,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   authPolicy: typeof authPolicy;
+  "coverage/validators": typeof coverage_validators;
   crons: typeof crons;
   "domains/admin": typeof domains_admin;
   "domains/dashboard": typeof domains_dashboard;
