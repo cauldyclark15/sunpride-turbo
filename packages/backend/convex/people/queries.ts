@@ -51,6 +51,15 @@ export const supervisorOptions = query({
     const parents = new Map(nodes.map((node) => [node._id, node.parentId]));
     if (!parents.has(args.orgUnitId))
       throw new ConvexError("Inactive organization unit");
+    const { profile } = await requireCapability(ctx, "people.read");
+    const scope =
+      profile.role === "super_admin" || profile.role === "analyst"
+        ? null
+        : new Set(
+            profile.orgUnitId
+              ? await collectScopeUnitIds(ctx, profile.orgUnitId)
+              : [],
+          );
     const ancestors = new Set<string>();
     let cursor = args.orgUnitId;
     while (cursor) {
@@ -71,6 +80,7 @@ export const supervisorOptions = query({
             person.role === "super_admin") &&
           person.orgUnitId !== undefined &&
           ancestors.has(person.orgUnitId) &&
+          (!scope || scope.has(person.orgUnitId)) &&
           (!prefix ||
             [person.name, person.email, person.employeeCode ?? ""].some(
               (value) => value.toLocaleLowerCase().startsWith(prefix),
@@ -95,11 +105,23 @@ export const history = query({
           "Requested scope is outside your organizational scope",
         );
     }
-    return ctx.db
+    const { profile } = await requireCapability(ctx, "people.read");
+    const scope =
+      profile.role === "super_admin" || profile.role === "analyst"
+        ? null
+        : new Set(
+            profile.orgUnitId
+              ? await collectScopeUnitIds(ctx, profile.orgUnitId)
+              : [],
+          );
+    const rows = await ctx.db
       .query("employeeAssignments")
       .withIndex("by_profileId_and_effectiveFrom", (q) =>
         q.eq("profileId", target._id),
       )
       .take(500);
+    return rows.filter(
+      (row) => !scope || (row.orgUnitId && scope.has(row.orgUnitId)),
+    );
   },
 });

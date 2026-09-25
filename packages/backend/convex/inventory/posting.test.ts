@@ -40,7 +40,7 @@ async function provisionInventory() {
     name: "Inventory Admin",
   });
   await admin.mutation(api.domains.profiles.ensure);
-  await admin.mutation(api.seed.demo);
+  await t.mutation(internal.seed.demo);
   await admin.mutation(api.inventory.setup.foundation);
   const state = await t.run(async (ctx) => ({
     product: await ctx.db

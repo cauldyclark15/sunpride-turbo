@@ -77,6 +77,17 @@ export const memberHistory = query({
     const team = await ctx.db.get(args.teamId);
     if (!team) throw new ConvexError("Team not found");
     await requireCapability(ctx, "people.read", team.orgUnitId);
+    const person = await ctx.db.get(args.profileId);
+    if (!person) throw new ConvexError("Profile not found");
+    if (person.orgUnitId)
+      await requireCapability(ctx, "people.read", person.orgUnitId);
+    else {
+      const { profile } = await requireCapability(ctx, "people.read");
+      if (profile.role !== "super_admin")
+        throw new ConvexError(
+          "Requested scope is outside your organizational scope",
+        );
+    }
     return (await teamMemberships(ctx, team._id)).filter(
       (membership) => membership.profileId === args.profileId,
     );

@@ -17,7 +17,7 @@ async function fixture() {
     name: "Root",
   });
   await superAdmin.mutation(api.domains.profiles.ensure, {});
-  await superAdmin.mutation(api.seed.demo, {});
+  await t.mutation(internal.seed.demo, {});
   await superAdmin.mutation(api.inventory.setup.foundation, {});
   const unitA = await t.run((ctx) =>
     ctx.db.insert("orgUnits", {

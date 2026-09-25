@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { query } from "../_generated/server";
-import { requireIdentity } from "../lib/auth";
+import { requireCapability } from "../lib/capabilities";
+import { rootOrgUnitId } from "../lib/scope";
 
 export const summary = query({
   args: {},
@@ -12,9 +13,26 @@ export const summary = query({
     pendingApprovalCount: v.number(),
     salesToday: v.number(),
     updatedAt: v.number(),
+    restricted: v.boolean(),
   }),
   handler: async (ctx) => {
-    await requireIdentity(ctx);
+    const { profile } = await requireCapability(ctx, "report.read");
+    const rootId = await rootOrgUnitId(ctx);
+    const restricted =
+      profile.role !== "super_admin" &&
+      profile.role !== "analyst" &&
+      (!rootId || profile.orgUnitId !== rootId);
+    if (restricted)
+      return {
+        productCount: 0,
+        customerCount: 0,
+        lowStockCount: 0,
+        openOrderCount: 0,
+        pendingApprovalCount: 0,
+        salesToday: 0,
+        updatedAt: 0,
+        restricted: true,
+      };
     const metrics = await ctx.db
       .query("metrics")
       .withIndex("by_key", (q) => q.eq("key", "global"))
@@ -28,6 +46,7 @@ export const summary = query({
           pendingApprovalCount: metrics.pendingApprovalCount,
           salesToday: metrics.salesToday,
           updatedAt: metrics.updatedAt,
+          restricted: false,
         }
       : {
           productCount: 0,
@@ -37,6 +56,7 @@ export const summary = query({
           pendingApprovalCount: 0,
           salesToday: 0,
           updatedAt: 0,
+          restricted: false,
         };
   },
 });

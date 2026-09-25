@@ -239,6 +239,11 @@ function ModuleContent({
     return (
       <>
         <p className="text-xs font-medium text-muted">{setupMessage}</p>
+        {metrics?.restricted ? (
+          <p className="text-sm text-muted">
+            Company-wide totals are visible to national users only.
+          </p>
+        ) : null}
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
           <MetricCard
             label="Products"

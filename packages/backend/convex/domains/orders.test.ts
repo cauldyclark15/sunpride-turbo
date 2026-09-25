@@ -47,7 +47,8 @@ describe("authenticated operational workflow", () => {
       profiles.find((profile) => profile.email === "jcing.jc@gmail.com")?.role,
     ).toBe("super_admin");
     expect(
-      profiles.find((profile) => profile.email === "viewer@sunpride.local")?.role,
+      profiles.find((profile) => profile.email === "viewer@sunpride.local")
+        ?.role,
     ).toBe("viewer");
   });
 
@@ -69,7 +70,36 @@ describe("authenticated operational workflow", () => {
         updatedAt: now,
       });
     });
+    await t.mutation(internal.migrations.bootstrapSuperAdmin, {});
+    const root = await t.mutation(
+      internal.migrations.seedOrganizationFoundation,
+      {},
+    );
     await user.mutation(api.domains.profiles.ensure);
+    await t.run(async (ctx) => {
+      const profile = await ctx.db
+        .query("profiles")
+        .withIndex("by_email", (q) => q.eq("email", "sales@sunpride.local"))
+        .unique();
+      if (!profile) throw new Error("Missing sales profile");
+      await ctx.db.patch(profile._id, { orgUnitId: root.rootUnitId });
+      await ctx.db.insert("customers", {
+        code: "CUS-001",
+        name: "Customer",
+        channel: "Retail",
+        territory: "NCR",
+        creditLimit: 1000,
+        active: true,
+        updatedAt: 1,
+      });
+      await ctx.db.insert("salesAssignments", {
+        salespersonSubject: profile.authSubject,
+        customerCode: "CUS-001",
+        territory: "NCR",
+        active: true,
+        updatedAt: 1,
+      });
+    });
     const args = {
       clientRequestId: "device-order-001",
       customerCode: "CUS-001",
