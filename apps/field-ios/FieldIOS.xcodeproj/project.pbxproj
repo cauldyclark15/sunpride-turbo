@@ -1,0 +1,695 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0635E1F51801CA375D10E1E5 /* SignInShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3982CC5A0CA421700FA09534 /* SignInShell.swift */; };
+		1DAC6BDA3CA11057321C149D /* FieldIOSTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AD00CE0DB5536F7ED709072 /* FieldIOSTests.swift */; };
+		4E5E84FFA3CC0B9FB9204B61 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDE9BD20A693C17022A70C2E /* AppEnvironment.swift */; };
+		6E5A9E4B38E07C096089674E /* FieldIOSUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B785ABDBB42BD392458A68C0 /* FieldIOSUITests.swift */; };
+		733E9950FCD06E634516E78E /* FieldIOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 643649FC187291287C83F0BA /* FieldIOSApp.swift */; };
+		75A7C263CA07E65AEF6DD1D1 /* DesignTokensPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20A2E27FA2580A5F7FD421D1 /* DesignTokensPreview.swift */; };
+		A5D4C22D5AAF13BD6E131095 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = A1D7CDEBC506E1AB5A7378A1 /* README.md */; };
+		D0ECAFE17CE94651ED173031 /* SunprideTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2692CA1C06F882E746AF973 /* SunprideTokens.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		063944738B2FCD3900B1524A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = BFF5B8D29BCC2F927E2332E5 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = EF18BFCEB53EA34520D005BE;
+			remoteInfo = FieldIOS;
+		};
+		E1567C725C90403A29C0821C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = BFF5B8D29BCC2F927E2332E5 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = EF18BFCEB53EA34520D005BE;
+			remoteInfo = FieldIOS;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		1137443AA8CB19695F43F19E /* Dev.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Dev.xcconfig; sourceTree = "<group>"; };
+		20A2E27FA2580A5F7FD421D1 /* DesignTokensPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignTokensPreview.swift; sourceTree = "<group>"; };
+		2A61F2253C7ADE1EFCA16D50 /* FieldIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = FieldIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		3982CC5A0CA421700FA09534 /* SignInShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInShell.swift; sourceTree = "<group>"; };
+		643649FC187291287C83F0BA /* FieldIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FieldIOSApp.swift; sourceTree = "<group>"; };
+		6AD00CE0DB5536F7ED709072 /* FieldIOSTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FieldIOSTests.swift; sourceTree = "<group>"; };
+		A1D7CDEBC506E1AB5A7378A1 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		B785ABDBB42BD392458A68C0 /* FieldIOSUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FieldIOSUITests.swift; sourceTree = "<group>"; };
+		CB35C09814D6360660C64B8D /* FieldIOSTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = FieldIOSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		D753F93483B737E31248F64A /* FieldIOSUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = FieldIOSUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		EDE9BD20A693C17022A70C2E /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
+		F2692CA1C06F882E746AF973 /* SunprideTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SunprideTokens.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		106B1D5DCCE6766B43799673 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				EDE9BD20A693C17022A70C2E /* AppEnvironment.swift */,
+				643649FC187291287C83F0BA /* FieldIOSApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		4676AE00E28C23855873447B = {
+			isa = PBXGroup;
+			children = (
+				9585BADF164508B23BC159F8 /* Config */,
+				733496D32000AFE351CB69D9 /* FieldIOS */,
+				63CD728C04E8B9F002293A22 /* FieldIOSTests */,
+				57589BF18D89A7CEFB0A74FD /* FieldIOSUITests */,
+				B54F63CC658DE52485D50D15 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		57589BF18D89A7CEFB0A74FD /* FieldIOSUITests */ = {
+			isa = PBXGroup;
+			children = (
+				B785ABDBB42BD392458A68C0 /* FieldIOSUITests.swift */,
+			);
+			path = FieldIOSUITests;
+			sourceTree = "<group>";
+		};
+		63CD728C04E8B9F002293A22 /* FieldIOSTests */ = {
+			isa = PBXGroup;
+			children = (
+				6AD00CE0DB5536F7ED709072 /* FieldIOSTests.swift */,
+			);
+			path = FieldIOSTests;
+			sourceTree = "<group>";
+		};
+		6DF8240E71F35F8354888604 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				A1D7CDEBC506E1AB5A7378A1 /* README.md */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		733496D32000AFE351CB69D9 /* FieldIOS */ = {
+			isa = PBXGroup;
+			children = (
+				74344EDEC720F8941F15E2E3 /* Resources */,
+				F4BABDD70B9888C4B2CAB0F4 /* Sources */,
+			);
+			path = FieldIOS;
+			sourceTree = "<group>";
+		};
+		74344EDEC720F8941F15E2E3 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				6DF8240E71F35F8354888604 /* Config */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		7ED1588637F297CF94CEBB5B /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				20A2E27FA2580A5F7FD421D1 /* DesignTokensPreview.swift */,
+				3982CC5A0CA421700FA09534 /* SignInShell.swift */,
+				F2692CA1C06F882E746AF973 /* SunprideTokens.swift */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		9585BADF164508B23BC159F8 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				1137443AA8CB19695F43F19E /* Dev.xcconfig */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		B54F63CC658DE52485D50D15 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				2A61F2253C7ADE1EFCA16D50 /* FieldIOS.app */,
+				CB35C09814D6360660C64B8D /* FieldIOSTests.xctest */,
+				D753F93483B737E31248F64A /* FieldIOSUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		F4BABDD70B9888C4B2CAB0F4 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				106B1D5DCCE6766B43799673 /* App */,
+				7ED1588637F297CF94CEBB5B /* UI */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		061C61F21454511030229B40 /* FieldIOSTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AFA6055B6DFECE75D8D63AC4 /* Build configuration list for PBXNativeTarget "FieldIOSTests" */;
+			buildPhases = (
+				1F2D702DC703C35261553747 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				95B5879B19A0094166FE9207 /* PBXTargetDependency */,
+			);
+			name = FieldIOSTests;
+			packageProductDependencies = (
+			);
+			productName = FieldIOSTests;
+			productReference = CB35C09814D6360660C64B8D /* FieldIOSTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		2737A7A91EF26217732350A2 /* FieldIOSUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9A74C3BEC7A110A9B6B292A3 /* Build configuration list for PBXNativeTarget "FieldIOSUITests" */;
+			buildPhases = (
+				1173510A60A29AB8D4D53D4B /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				8C40C87D0AF5502022828327 /* PBXTargetDependency */,
+			);
+			name = FieldIOSUITests;
+			packageProductDependencies = (
+			);
+			productName = FieldIOSUITests;
+			productReference = D753F93483B737E31248F64A /* FieldIOSUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		EF18BFCEB53EA34520D005BE /* FieldIOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E9A2C34F9D3BD1FE398B2473 /* Build configuration list for PBXNativeTarget "FieldIOS" */;
+			buildPhases = (
+				B917D41B40CCFAF795260225 /* Sources */,
+				1775D140ADDBF83248227833 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = FieldIOS;
+			packageProductDependencies = (
+			);
+			productName = FieldIOS;
+			productReference = 2A61F2253C7ADE1EFCA16D50 /* FieldIOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		BFF5B8D29BCC2F927E2332E5 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					2737A7A91EF26217732350A2 = {
+						TestTargetID = EF18BFCEB53EA34520D005BE;
+					};
+				};
+			};
+			buildConfigurationList = F75AFA05993C2DCD1463EEED /* Build configuration list for PBXProject "FieldIOS" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 4676AE00E28C23855873447B;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = B54F63CC658DE52485D50D15 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				EF18BFCEB53EA34520D005BE /* FieldIOS */,
+				061C61F21454511030229B40 /* FieldIOSTests */,
+				2737A7A91EF26217732350A2 /* FieldIOSUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		1775D140ADDBF83248227833 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A5D4C22D5AAF13BD6E131095 /* README.md in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		1173510A60A29AB8D4D53D4B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6E5A9E4B38E07C096089674E /* FieldIOSUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1F2D702DC703C35261553747 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1DAC6BDA3CA11057321C149D /* FieldIOSTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B917D41B40CCFAF795260225 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4E5E84FFA3CC0B9FB9204B61 /* AppEnvironment.swift in Sources */,
+				75A7C263CA07E65AEF6DD1D1 /* DesignTokensPreview.swift in Sources */,
+				733E9950FCD06E634516E78E /* FieldIOSApp.swift in Sources */,
+				0635E1F51801CA375D10E1E5 /* SignInShell.swift in Sources */,
+				D0ECAFE17CE94651ED173031 /* SunprideTokens.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		8C40C87D0AF5502022828327 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = EF18BFCEB53EA34520D005BE /* FieldIOS */;
+			targetProxy = 063944738B2FCD3900B1524A /* PBXContainerItemProxy */;
+		};
+		95B5879B19A0094166FE9207 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = EF18BFCEB53EA34520D005BE /* FieldIOS */;
+			targetProxy = E1567C725C90403A29C0821C /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		1DA6486B2EF8A251B1D721A9 /* Debug-Dev */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1137443AA8CB19695F43F19E /* Dev.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = FieldIOS/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sunpride.field.dev;
+				PRODUCT_MODULE_NAME = FieldIOS;
+				PRODUCT_NAME = "Sunpride Field (Dev)";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = "Debug-Dev";
+		};
+		31F59AA41E5312EA6D505914 /* Debug-Dev */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sunpride.field.dev.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Sunpride Field (Dev).app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Sunpride Field (Dev)";
+			};
+			name = "Debug-Dev";
+		};
+		39515563CF0984CE2A94EDE5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1137443AA8CB19695F43F19E /* Dev.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = FieldIOS/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sunpride.field.dev;
+				PRODUCT_MODULE_NAME = FieldIOS;
+				PRODUCT_NAME = "Sunpride Field (Dev)";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		3AC3B0C9627C635A5C68ECF5 /* Debug-Dev */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sunpride.field.dev.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = FieldIOS;
+			};
+			name = "Debug-Dev";
+		};
+		6046E8E61E885FB9DD5A0E11 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGNING_ALLOWED = NO;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		7626C958DF44B34F2BADE164 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sunpride.field.dev.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Sunpride Field (Dev).app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Sunpride Field (Dev)";
+			};
+			name = Debug;
+		};
+		7A6B14E26812BABDCCB3822B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sunpride.field.dev.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = FieldIOS;
+			};
+			name = Debug;
+		};
+		9523DA115C037F51B7BE64F0 /* Debug-Dev */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGNING_ALLOWED = NO;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = "Debug-Dev";
+		};
+		AB4EBAA909B8DD89E66CF99C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGNING_ALLOWED = NO;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		C432E9D4A5C3EBF78BA20492 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sunpride.field.dev.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = FieldIOS;
+			};
+			name = Release;
+		};
+		FB756428F35C5D1A1F2E67E4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1137443AA8CB19695F43F19E /* Dev.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = FieldIOS/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sunpride.field.dev;
+				PRODUCT_MODULE_NAME = FieldIOS;
+				PRODUCT_NAME = "Sunpride Field (Dev)";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		FE0BC703AD0C7898C4B13E71 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sunpride.field.dev.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Sunpride Field (Dev).app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Sunpride Field (Dev)";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		9A74C3BEC7A110A9B6B292A3 /* Build configuration list for PBXNativeTarget "FieldIOSUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7A6B14E26812BABDCCB3822B /* Debug */,
+				3AC3B0C9627C635A5C68ECF5 /* Debug-Dev */,
+				C432E9D4A5C3EBF78BA20492 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		AFA6055B6DFECE75D8D63AC4 /* Build configuration list for PBXNativeTarget "FieldIOSTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7626C958DF44B34F2BADE164 /* Debug */,
+				31F59AA41E5312EA6D505914 /* Debug-Dev */,
+				FE0BC703AD0C7898C4B13E71 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		E9A2C34F9D3BD1FE398B2473 /* Build configuration list for PBXNativeTarget "FieldIOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				39515563CF0984CE2A94EDE5 /* Debug */,
+				1DA6486B2EF8A251B1D721A9 /* Debug-Dev */,
+				FB756428F35C5D1A1F2E67E4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F75AFA05993C2DCD1463EEED /* Build configuration list for PBXProject "FieldIOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6046E8E61E885FB9DD5A0E11 /* Debug */,
+				9523DA115C037F51B7BE64F0 /* Debug-Dev */,
+				AB4EBAA909B8DD89E66CF99C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = BFF5B8D29BCC2F927E2332E5 /* Project object */;
+}
