@@ -201,7 +201,8 @@ export async function applySummaryDelta(
         .eq("productId", args.product._id),
     )
     .unique();
-  if (availableAfter < ZERO && !policy?.allowNegativeStock)
+  // ADR-003 / CVX-016: negative availability is forbidden even when a legacy policy allows negative stock.
+  if (availableAfter < ZERO)
     throw new ConvexError("Insufficient available stock");
   const scale = Number(
     policy?.quantityScale ?? args.product.quantityScale ?? 1n,
@@ -308,6 +309,8 @@ export async function allocateTrackedSource(
   ctx: MutationCtx,
   line: PostingLine,
   policy: Doc<"productInventoryPolicies">,
+  movementType: MovementType = "reservation",
+  now = Date.now(),
 ) {
   if (line.allocations?.length) {
     const total = line.allocations.reduce(
@@ -318,6 +321,23 @@ export async function allocateTrackedSource(
       throw new ConvexError(
         "Explicit lot allocations must equal line quantity",
       );
+    // Only outbound sale/issue selections using FEFO are expiry-gated. Exact
+    // returns, reversals, adjustments and disposition must retain their lots.
+    if (
+      policy.allocationPolicy === "fefo" &&
+      line.fromLocationId &&
+      (movementType === "pos_sale" ||
+        movementType === "inventory_issue" ||
+        movementType === "production_issue")
+    ) {
+      for (const allocation of line.allocations) {
+        const lot = await ctx.db.get(allocation.lotId);
+        if (lot?.expiresAt !== undefined && lot.expiresAt <= now)
+          throw new ConvexError(
+            "Cannot select an expired lot for sale or issue",
+          );
+      }
+    }
     return line.allocations;
   }
   if (!line.fromLocationId)
@@ -346,6 +366,18 @@ export async function allocateTrackedSource(
   for (const candidate of ordered) {
     if (remaining <= ZERO) break;
     if (candidate.availableBase <= ZERO) continue;
+    if (policy.allocationPolicy === "fefo") {
+      const lot = await ctx.db.get(candidate.lotId);
+      const expiresAt = lot?.expiresAt;
+      const minimumShelfLifeMs =
+        policy.minimumRemainingShelfLifeDays * 86_400_000;
+      if (
+        (expiresAt !== undefined && expiresAt <= now) ||
+        (minimumShelfLifeMs > 0 &&
+          (expiresAt === undefined || expiresAt - now < minimumShelfLifeMs))
+      )
+        continue;
+    }
     const quantityBase =
       candidate.availableBase < remaining ? candidate.availableBase : remaining;
     allocations.push({ lotId: candidate.lotId, quantityBase });
@@ -506,7 +538,7 @@ export async function postMovement(ctx: MutationCtx, input: PostMovementInput) {
 
     const isTracked = policy?.trackingMode === "lot";
     const allocations = isTracked
-      ? await allocateTrackedSource(ctx, line, policy)
+      ? await allocateTrackedSource(ctx, line, policy, input.movementType, now)
       : [];
     if (!isTracked && line.allocations?.length)
       throw new ConvexError("Non-lot product cannot receive lot allocations");
