@@ -23,6 +23,13 @@ const masterDataManagers = [
   "admin",
   "operations",
 ] as const satisfies readonly AppRole[];
+// Union of masterdata.manage, inventory.adjustment.request, and inventory.count.submit.
+const importActors = [
+  "super_admin",
+  "admin",
+  "operations",
+  "manager",
+] as const satisfies readonly AppRole[];
 const orderActors = [
   "super_admin",
   "manager",
@@ -43,7 +50,7 @@ const integrationReaders = [
 export const MODULE_ROLES = {
   dashboard: allReaders, // report.read
   "master-data": masterDataManagers, // masterdata.manage
-  imports: masterDataManagers, // masterdata.manage; server enforces national scope
+  imports: importActors, // union of masterdata.manage, inventory.adjustment.request, inventory.count.submit
   inventory: allReaders, // inventory.read
   "sales-force": allReaders, // visit.read
   orders: orderActors, // union of order.create and order.approve

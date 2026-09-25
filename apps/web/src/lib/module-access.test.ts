@@ -17,7 +17,11 @@ const roles = [
 const expectedCapabilities = {
   dashboard: ["report.read"],
   "master-data": ["masterdata.manage"],
-  imports: ["masterdata.manage"],
+  imports: [
+    "masterdata.manage",
+    "inventory.adjustment.request",
+    "inventory.count.submit",
+  ],
   inventory: ["inventory.read"],
   "sales-force": ["visit.read"],
   orders: ["order.create", "order.approve"],
@@ -50,6 +54,7 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
   ],
   manager: [
     "dashboard",
+    "imports",
     "inventory",
     "sales-force",
     "orders",
