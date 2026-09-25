@@ -60,6 +60,72 @@ async function person(
   return actor;
 }
 
+describe("current-scope people history reads", () => {
+  it("hides out-of-area ancestors from supervisor picker and historical assignments", async () => {
+    const { t, root, a, b } = await setup();
+    const regional = await person(t, root, "regional@example.test", "admin");
+    const outsider = await person(t, root, "outside@example.test", "manager");
+    const target = await person(t, root, "target@example.test", "viewer");
+    const regionalId = (await regional.query(api.domains.profiles.current, {}))!
+      ._id;
+    const outsiderId = (await outsider.query(api.domains.profiles.current, {}))!
+      ._id;
+    const targetId = (await target.query(api.domains.profiles.current, {}))!
+      ._id;
+    await root.mutation(api.people.mutations.assign, {
+      profileId: regionalId,
+      orgUnitId: a,
+      role: "admin",
+      reason: "scope",
+    });
+    await root.mutation(api.people.mutations.assign, {
+      profileId: outsiderId,
+      orgUnitId: b,
+      role: "manager",
+      reason: "scope",
+    });
+    await root.mutation(api.people.mutations.assign, {
+      profileId: targetId,
+      orgUnitId: b,
+      role: "viewer",
+      reason: "first",
+    });
+    await root.mutation(api.people.mutations.assign, {
+      profileId: targetId,
+      orgUnitId: a,
+      role: "viewer",
+      reason: "move",
+    });
+    const history = await regional.query(api.people.queries.history, {
+      profileId: targetId,
+    });
+    expect(history.length).toBeGreaterThan(0);
+    expect(history.every((row) => row.orgUnitId === a)).toBe(true);
+    await t.run(async (ctx) => {
+      const national = await ctx.db
+        .query("profiles")
+        .withIndex("by_email", (q) => q.eq("email", "jcing.jc@gmail.com"))
+        .unique();
+      if (!national) throw new Error("Missing national profile");
+      const rootUnit = await ctx.db
+        .query("orgUnits")
+        .withIndex("by_organizationId_and_code", (q) =>
+          q.eq("organizationId", "sunpride").eq("code", "SUNPRIDE"),
+        )
+        .unique();
+      if (!rootUnit) throw new Error("Missing root unit");
+      await ctx.db.patch(national._id, { orgUnitId: rootUnit._id });
+    });
+    const options = await regional.query(api.people.queries.supervisorOptions, {
+      orgUnitId: a,
+      paginationOpts: { cursor: null, numItems: 50 },
+    });
+    expect(options.page.map((row) => row._id)).toContain(regionalId);
+    expect(options.page.map((row) => row._id)).not.toContain(outsiderId);
+    expect(options.page.every((row) => row.orgUnitId === a)).toBe(true);
+  });
+});
+
 describe("person assignment history and scope", () => {
   it("moves atomically and retains half-open history, actor and audit", async () => {
     const { t, root, a, b } = await setup();

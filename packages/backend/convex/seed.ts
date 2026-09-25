@@ -1,12 +1,10 @@
 import { v } from "convex/values";
-import { mutation } from "./_generated/server";
-import { requireRole } from "./lib/auth";
+import { internalMutation } from "./_generated/server";
 
-export const demo = mutation({
+export const demo = internalMutation({
   args: {},
   returns: v.object({ seeded: v.boolean() }),
   handler: async (ctx) => {
-    await requireRole(ctx, ["admin"]);
     const existing = await ctx.db.query("products").take(1);
     if (existing.length > 0) return { seeded: false };
     const now = Date.now();

@@ -175,6 +175,29 @@ export const ensure = mutation({
         profileId: existing._id,
         updatedAt: now,
       });
+      if (
+        existing.status !== "active" ||
+        existing.authSubject !== identityKey ||
+        rootUnitId
+      )
+        await ctx.db.insert("auditLogs", {
+          subject: identityKey,
+          action: "profile.reactivated_or_rebound",
+          entityType: "profile",
+          entityId: existing._id,
+          details: JSON.stringify({
+            reason:
+              existing.status !== "active"
+                ? "invitation reactivation"
+                : existing.authSubject !== identityKey
+                  ? "verified email subject rebind"
+                  : "bootstrap root assignment",
+            previousSubject: existing.authSubject,
+            previousStatus: existing.status,
+            assignedRootUnitId: rootUnitId,
+          }),
+          createdAt: now,
+        });
       return existing._id;
     }
 

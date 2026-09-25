@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { query } from "../_generated/server";
 import schema from "../schema";
 import { requireCapability } from "../lib/capabilities";
@@ -28,6 +28,9 @@ export const standards = query({
   returns: v.array(standardValue),
   handler: async (ctx, args) => {
     await requireCapability(ctx, "admin.manage");
+    const position = await ctx.db.get(args.positionId);
+    if (!position || position.organizationId !== SUNPRIDE_ORGANIZATION_ID)
+      throw new ConvexError("Position not found");
     return ctx.db
       .query("positionStandards")
       .withIndex("by_positionId_and_effectiveFrom", (q) =>

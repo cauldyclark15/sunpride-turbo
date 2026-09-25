@@ -86,6 +86,61 @@ async function team(
   });
 }
 
+describe("member history target scope", () => {
+  it("refuses an out-of-region profile even when an in-scope team has historical membership", async () => {
+    const f = await setup();
+    const eastAdmin = await person(
+      f.t,
+      f.root,
+      "east-history@example.test",
+      "admin",
+      f.east,
+    );
+    const member = await person(
+      f.t,
+      f.root,
+      "member-history@example.test",
+      "viewer",
+      f.east,
+    );
+    const id = await team(f);
+    await f.t.run((ctx) =>
+      ctx.db.insert("teamMemberships", {
+        teamId: id,
+        profileId: member.id,
+        effectiveFrom: 1,
+        createdAt: 1,
+        actorSubject: "test",
+        reason: "historical member",
+      }),
+    );
+    expect(
+      await eastAdmin.actor.query(api.teams.queries.memberHistory, {
+        teamId: id,
+        profileId: member.id,
+      }),
+    ).toHaveLength(1);
+    await f.root.mutation(api.people.mutations.assign, {
+      profileId: member.id,
+      orgUnitId: f.west,
+      role: "viewer",
+      reason: "reassigned",
+    });
+    await expect(
+      eastAdmin.actor.query(api.teams.queries.memberHistory, {
+        teamId: id,
+        profileId: member.id,
+      }),
+    ).rejects.toThrow(/scope/);
+    expect(
+      await f.root.query(api.teams.queries.memberHistory, {
+        teamId: id,
+        profileId: member.id,
+      }),
+    ).toHaveLength(1);
+  });
+});
+
 describe("effective-dated teams and scoped access", () => {
   it("creates and lists by current subtree; other region is invisible to list and detail", async () => {
     const f = await setup();
