@@ -17,7 +17,7 @@ async function fixture() {
     name: "Root",
   });
   await superAdmin.mutation(api.domains.profiles.ensure, {});
-  await superAdmin.mutation(api.seed.demo, {});
+  await superAdmin.mutation(internal.seed.demo, {});
   await superAdmin.mutation(api.inventory.setup.foundation, {});
   const [aUnit, bUnit, product, locations] = await t.run(async (ctx) => {
     const unit = (code: string) =>
