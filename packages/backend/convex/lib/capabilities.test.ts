@@ -136,6 +136,29 @@ describe("capability table", () => {
     expect(denied.capabilities).not.toContain("admin.manage");
   });
 
+  it("grants only operational inventory workflow roles", () => {
+    for (const capability of [
+      "inventory.adjustment.request",
+      "inventory.count.submit",
+    ] as const)
+      expect(CAPABILITIES[capability]).toEqual([
+        "super_admin",
+        "admin",
+        "operations",
+        "manager",
+      ]);
+    for (const capability of [
+      "inventory.adjustment.approve",
+      "inventory.count.approve",
+    ] as const)
+      expect(CAPABILITIES[capability]).toEqual([
+        "super_admin",
+        "admin",
+        "manager",
+        "approver",
+      ]);
+  });
+
   it("keeps cross-scope analyst access read-only", () => {
     const analystCapabilities = Object.entries(CAPABILITIES)
       .filter(([, roles]) => (roles as readonly string[]).includes("analyst"))
@@ -150,7 +173,7 @@ describe("capability table", () => {
   it("defines at least one role for every capability", () => {
     for (const [capability, roles] of Object.entries(CAPABILITIES)) {
       expect(roles.length).toBeGreaterThan(0);
-      expect(capability).toMatch(/^[a-z]+\.[a-z]+$/);
+      expect(capability).toMatch(/^[a-z]+(?:\.[a-z]+)+$/);
     }
   });
 });

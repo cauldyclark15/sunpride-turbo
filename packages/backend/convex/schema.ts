@@ -255,6 +255,7 @@ export default defineSchema({
     .index("by_organizationId_and_enabled", ["organizationId", "enabled"]),
   inventoryLocations: defineTable({
     organizationId: v.string(),
+    orgUnitId: v.optional(v.id("orgUnits")),
     siteCode: v.string(),
     warehouseId: v.optional(v.id("warehouses")),
     parentLocationId: v.optional(v.id("inventoryLocations")),
@@ -272,6 +273,7 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
+    .index("by_orgUnitId", ["orgUnitId"])
     .index("by_organizationId_and_code", ["organizationId", "code"])
     .index("by_organizationId_and_siteCode_and_type_and_active", [
       "organizationId",

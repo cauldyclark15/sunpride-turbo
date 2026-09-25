@@ -1,6 +1,10 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "../_generated/server";
-import { requireIdentity, requireRole } from "../lib/auth";
+import { requireCapability } from "../lib/capabilities";
+import {
+  readableLocationIds,
+  requireLocationCapability,
+} from "./location_scope";
 import { SUNPRIDE_ORGANIZATION_ID } from "./constants";
 import {
   hashPayload,
@@ -28,9 +32,20 @@ export const request = mutation({
   },
   returns: v.id("inventoryAdjustments"),
   handler: async (ctx, args) => {
-    const identity = await requireIdentity(ctx);
+    const { identity } = await requireCapability(
+      ctx,
+      "inventory.adjustment.request",
+    );
     if (args.lines.length === 0)
       throw new ConvexError("Adjustment needs at least one line");
+    if (args.lines.length > 100)
+      throw new ConvexError("Too many adjustment lines");
+    for (const line of args.lines)
+      await requireLocationCapability(
+        ctx,
+        "inventory.adjustment.request",
+        line.locationId,
+      );
     const now = Date.now();
     const adjustmentId = await ctx.db.insert("inventoryAdjustments", {
       organizationId: SUNPRIDE_ORGANIZATION_ID,
@@ -84,16 +99,31 @@ export const decide = mutation({
   },
   returns: v.union(v.id("inventoryMovements"), v.null()),
   handler: async (ctx, args) => {
-    const { identity } = await requireRole(ctx, [
-      "admin",
-      "manager",
-      "approver",
-    ]);
+    const { identity } = await requireCapability(
+      ctx,
+      "inventory.adjustment.approve",
+    );
     const adjustment = await ctx.db.get(args.adjustmentId);
     if (!adjustment || adjustment.status !== "submitted")
       throw new ConvexError("Adjustment is not awaiting a decision");
     if (adjustment.requestedBy === identity.tokenIdentifier)
       throw new ConvexError("Requester cannot approve their own adjustment");
+    const lines = await ctx.db
+      .query("inventoryAdjustmentLines")
+      .withIndex("by_organizationId_and_adjustmentId", (q) =>
+        q
+          .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
+          .eq("adjustmentId", adjustment._id),
+      )
+      .take(101);
+    if (lines.length === 0 || lines.length > 100)
+      throw new ConvexError("Invalid adjustment line count");
+    for (const line of lines)
+      await requireLocationCapability(
+        ctx,
+        "inventory.adjustment.approve",
+        line.locationId,
+      );
     if (args.decision === "rejected") {
       await ctx.db.patch(adjustment._id, {
         status: "rejected",
@@ -105,14 +135,6 @@ export const decide = mutation({
     }
     if (!args.idempotencyKey)
       throw new ConvexError("Approved adjustment needs an idempotency key");
-    const lines = await ctx.db
-      .query("inventoryAdjustmentLines")
-      .withIndex("by_organizationId_and_adjustmentId", (q) =>
-        q
-          .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
-          .eq("adjustmentId", adjustment._id),
-      )
-      .take(100);
     const postingLines: PostingLine[] = lines.map((line) => ({
       productId: line.productId,
       quantityBase:
@@ -170,10 +192,35 @@ export const reverse = mutation({
   },
   returns: v.id("inventoryMovements"),
   handler: async (ctx, args) => {
-    const { identity } = await requireRole(ctx, ["admin", "manager"]);
+    const { identity, profile } = await requireCapability(
+      ctx,
+      "inventory.adjustment.approve",
+    );
+    if (
+      profile.role !== "super_admin" &&
+      profile.role !== "admin" &&
+      profile.role !== "manager"
+    )
+      throw new ConvexError("Insufficient permission");
     const adjustment = await ctx.db.get(args.adjustmentId);
     if (!adjustment || adjustment.status !== "posted" || !adjustment.movementId)
       throw new ConvexError("Only a posted adjustment can be reversed");
+    const lines = await ctx.db
+      .query("inventoryAdjustmentLines")
+      .withIndex("by_organizationId_and_adjustmentId", (q) =>
+        q
+          .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
+          .eq("adjustmentId", adjustment._id),
+      )
+      .take(101);
+    if (lines.length === 0 || lines.length > 100)
+      throw new ConvexError("Invalid adjustment line count");
+    for (const line of lines)
+      await requireLocationCapability(
+        ctx,
+        "inventory.adjustment.approve",
+        line.locationId,
+      );
     const movement = await reverseMovement(ctx, {
       originalMovementId: adjustment.movementId,
       idempotencyKey: args.idempotencyKey,
@@ -198,20 +245,42 @@ export const list = query({
   },
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
-    await requireIdentity(ctx);
-    if (args.status)
-      return ctx.db
-        .query("inventoryAdjustments")
-        .withIndex("by_organizationId_and_status_and_createdAt", (q) =>
+    const canRead = await readableLocationIds(ctx);
+    const rows = args.status
+      ? await ctx.db
+          .query("inventoryAdjustments")
+          .withIndex("by_organizationId_and_status_and_createdAt", (q) =>
+            q
+              .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
+              .eq("status", args.status!),
+          )
+          .order("desc")
+          .take(250)
+      : await ctx.db.query("inventoryAdjustments").order("desc").take(250);
+    const visible = [];
+    for (const row of rows) {
+      const lines = await ctx.db
+        .query("inventoryAdjustmentLines")
+        .withIndex("by_organizationId_and_adjustmentId", (q) =>
           q
             .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
-            .eq("status", args.status!),
+            .eq("adjustmentId", row._id),
         )
-        .order("desc")
-        .take(Math.min(args.limit ?? 100, 250));
-    return ctx.db
-      .query("inventoryAdjustments")
-      .order("desc")
-      .take(Math.min(args.limit ?? 100, 250));
+        .take(101);
+      if (lines.length > 100) continue;
+      if (lines.length === 0 && row.sourceCountId) {
+        const session = await ctx.db.get(row.sourceCountId);
+        if (session && (await canRead(session.locationId))) visible.push(row);
+      } else if (
+        lines.length > 0 &&
+        (
+          await Promise.all(lines.map((line) => canRead(line.locationId)))
+        ).every(Boolean)
+      )
+        visible.push(row);
+      if (visible.length >= Math.max(0, Math.min(args.limit ?? 100, 250)))
+        break;
+    }
+    return visible;
   },
 });

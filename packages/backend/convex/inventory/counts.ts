@@ -1,6 +1,10 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "../_generated/server";
-import { requireIdentity, requireRole } from "../lib/auth";
+import { requireCapability } from "../lib/capabilities";
+import {
+  readableLocationIds,
+  requireLocationCapability,
+} from "./location_scope";
 import { SUNPRIDE_ORGANIZATION_ID } from "./constants";
 import { hashPayload, postMovement, type PostingLine } from "./posting";
 import { stockStatusValidator } from "./validators";
@@ -18,7 +22,11 @@ export const start = mutation({
   },
   returns: v.id("stockCountSessions"),
   handler: async (ctx, args) => {
-    const identity = await requireIdentity(ctx);
+    const { identity } = await requireLocationCapability(
+      ctx,
+      "inventory.count.submit",
+      args.locationId,
+    );
     const now = Date.now();
     const sessionId = await ctx.db.insert("stockCountSessions", {
       organizationId: SUNPRIDE_ORGANIZATION_ID,
@@ -106,10 +114,30 @@ export const submit = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const identity = await requireIdentity(ctx);
+    await requireCapability(ctx, "inventory.count.submit");
     const session = await ctx.db.get(args.sessionId);
     if (!session || session.status !== "counting")
       throw new ConvexError("Count is not accepting entries");
+    const { identity } = await requireLocationCapability(
+      ctx,
+      "inventory.count.submit",
+      session.locationId,
+    );
+    const expected = await ctx.db
+      .query("stockCountLines")
+      .withIndex("by_organizationId_and_sessionId", (q) =>
+        q
+          .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
+          .eq("sessionId", session._id),
+      )
+      .take(501);
+    const ids = new Set(args.lines.map((line) => line.lineId));
+    if (
+      expected.length > 500 ||
+      ids.size !== args.lines.length ||
+      expected.some((line) => !ids.has(line._id))
+    )
+      throw new ConvexError("All count lines must be counted exactly once");
     const now = Date.now();
     for (const input of args.lines) {
       if (input.countedBase < 0n)
@@ -139,14 +167,15 @@ export const approveAndPost = mutation({
   },
   returns: v.id("inventoryAdjustments"),
   handler: async (ctx, args) => {
-    const { identity } = await requireRole(ctx, [
-      "admin",
-      "manager",
-      "approver",
-    ]);
+    await requireCapability(ctx, "inventory.count.approve");
     const session = await ctx.db.get(args.sessionId);
     if (!session || session.status !== "submitted")
       throw new ConvexError("Count is not ready for approval");
+    const { identity } = await requireLocationCapability(
+      ctx,
+      "inventory.count.approve",
+      session.locationId,
+    );
     if (session.createdBy === identity.tokenIdentifier)
       throw new ConvexError("Counter cannot approve their own stock count");
     const countLines = await ctx.db
@@ -247,11 +276,18 @@ export const list = query({
   args: { limit: v.optional(v.number()) },
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
-    await requireIdentity(ctx);
-    return ctx.db
+    const canRead = await readableLocationIds(ctx);
+    const rows = await ctx.db
       .query("stockCountSessions")
       .order("desc")
-      .take(Math.min(args.limit ?? 100, 250));
+      .take(250);
+    const visible = [];
+    for (const row of rows) {
+      if (await canRead(row.locationId)) visible.push(row);
+      if (visible.length >= Math.max(0, Math.min(args.limit ?? 100, 250)))
+        break;
+    }
+    return visible;
   },
 });
 
@@ -273,9 +309,16 @@ export const detail = query({
     ),
   }),
   handler: async (ctx, args) => {
-    await requireIdentity(ctx);
+    const { identity } = await requireCapability(ctx, "inventory.read");
     const session = await ctx.db.get(args.sessionId);
     if (!session) throw new ConvexError("Stock count not found");
+    await requireLocationCapability(ctx, "inventory.read", session.locationId);
+    const hideExpected =
+      session.blindCount &&
+      (session.status === "draft" ||
+        session.status === "frozen" ||
+        session.status === "counting") &&
+      session.createdBy === identity.tokenIdentifier;
     const rows = await ctx.db
       .query("stockCountLines")
       .withIndex("by_organizationId_and_sessionId", (q) =>
@@ -297,13 +340,11 @@ export const detail = query({
         productName: product.name,
         ...(lot ? { lotNumber: lot.lotNumber } : {}),
         stockStatus: row.stockStatus,
-        ...(!session.blindCount || session.status !== "counting"
-          ? { systemBase: row.systemBase }
-          : {}),
+        ...(!hideExpected ? { systemBase: row.systemBase } : {}),
         ...(row.countedBase !== undefined
           ? { countedBase: row.countedBase }
           : {}),
-        ...(row.varianceBase !== undefined
+        ...(!hideExpected && row.varianceBase !== undefined
           ? { varianceBase: row.varianceBase }
           : {}),
       });

@@ -29,6 +29,7 @@ import type * as integration_sap from "../integration/sap.js";
 import type * as inventory_adjustments from "../inventory/adjustments.js";
 import type * as inventory_constants from "../inventory/constants.js";
 import type * as inventory_counts from "../inventory/counts.js";
+import type * as inventory_location_scope from "../inventory/location_scope.js";
 import type * as inventory_manufacturing from "../inventory/manufacturing.js";
 import type * as inventory_policies from "../inventory/policies.js";
 import type * as inventory_pos from "../inventory/pos.js";
@@ -91,6 +92,7 @@ declare const fullApi: ApiFromModules<{
   "inventory/adjustments": typeof inventory_adjustments;
   "inventory/constants": typeof inventory_constants;
   "inventory/counts": typeof inventory_counts;
+  "inventory/location_scope": typeof inventory_location_scope;
   "inventory/manufacturing": typeof inventory_manufacturing;
   "inventory/policies": typeof inventory_policies;
   "inventory/pos": typeof inventory_pos;

@@ -4,9 +4,36 @@ import {
 } from "convex/server";
 import { v } from "convex/values";
 import { query } from "../_generated/server";
-import { requireIdentity } from "../lib/auth";
+import type { Id } from "../_generated/dataModel";
+import type { QueryCtx } from "../_generated/server";
+import { readableLocationIds } from "./location_scope";
 import { displayQuantity, SUNPRIDE_ORGANIZATION_ID } from "./constants";
 import { stockStatusValidator } from "./validators";
+
+async function movementVisible(
+  ctx: QueryCtx,
+  movementId: Id<"inventoryMovements">,
+  canRead: (id: Id<"inventoryLocations">) => Promise<boolean>,
+) {
+  const lines = await ctx.db
+    .query("inventoryMovementLines")
+    .withIndex("by_organizationId_and_movementId_and_lineNumber", (q) =>
+      q
+        .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
+        .eq("movementId", movementId),
+    )
+    .take(101);
+  if (lines.length === 0 || lines.length > 100) return false;
+  const locations = lines.flatMap((line) =>
+    [line.fromLocationId, line.toLocationId].filter(
+      (id): id is Id<"inventoryLocations"> => !!id,
+    ),
+  );
+  return (
+    locations.length > 0 &&
+    (await Promise.all(locations.map(canRead))).every(Boolean)
+  );
+}
 
 const operationalBalance = v.object({
   id: v.id("inventoryBalances"),
@@ -33,7 +60,7 @@ export const overview = query({
   },
   returns: v.array(operationalBalance),
   handler: async (ctx, args) => {
-    await requireIdentity(ctx);
+    const canRead = await readableLocationIds(ctx);
     const rows = args.locationId
       ? await ctx.db
           .query("inventoryBalances")
@@ -51,7 +78,8 @@ export const overview = query({
           .take(Math.min(args.limit ?? 100, 250));
     const result = [];
     for (const row of rows) {
-      if (!row.productId || !row.locationId) continue;
+      if (!row.productId || !row.locationId || !(await canRead(row.locationId)))
+        continue;
       const [product, location] = await Promise.all([
         ctx.db.get(row.productId),
         ctx.db.get(row.locationId),
@@ -84,6 +112,7 @@ const location = v.object({
   _id: v.id("inventoryLocations"),
   _creationTime: v.number(),
   organizationId: v.string(),
+  orgUnitId: v.optional(v.id("orgUnits")),
   siteCode: v.string(),
   warehouseId: v.optional(v.id("warehouses")),
   parentLocationId: v.optional(v.id("inventoryLocations")),
@@ -106,14 +135,21 @@ export const locations = query({
   args: { type: v.optional(v.string()) },
   returns: v.array(location),
   handler: async (ctx, args) => {
-    await requireIdentity(ctx);
+    const canRead = await readableLocationIds(ctx);
     const rows = await ctx.db
       .query("inventoryLocations")
       .withIndex("by_organizationId_and_code", (q) =>
         q.eq("organizationId", SUNPRIDE_ORGANIZATION_ID),
       )
       .take(100);
-    return args.type ? rows.filter((row) => row.type === args.type) : rows;
+    const visible = (
+      await Promise.all(
+        rows.map(async (row) => ((await canRead(row._id)) ? row : null)),
+      )
+    ).filter((row): row is NonNullable<typeof row> => row !== null);
+    return args.type
+      ? visible.filter((row) => row.type === args.type)
+      : visible;
   },
 });
 
@@ -142,14 +178,24 @@ export const movements = query({
   args: { paginationOpts: paginationOptsValidator },
   returns: paginationResultValidator(movement),
   handler: async (ctx, args) => {
-    await requireIdentity(ctx);
-    return ctx.db
+    const canRead = await readableLocationIds(ctx);
+    const page = await ctx.db
       .query("inventoryMovements")
       .withIndex("by_organizationId_and_postedAt", (q) =>
         q.eq("organizationId", SUNPRIDE_ORGANIZATION_ID),
       )
       .order("desc")
       .paginate(args.paginationOpts);
+    return {
+      ...page,
+      page: (
+        await Promise.all(
+          page.page.map(async (row) =>
+            (await movementVisible(ctx, row._id, canRead)) ? row : null,
+          ),
+        )
+      ).filter((row): row is NonNullable<typeof row> => row !== null),
+    };
   },
 });
 
@@ -160,7 +206,7 @@ export const lots = query({
   },
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
-    await requireIdentity(ctx);
+    const canRead = await readableLocationIds(ctx);
     const rows = args.productId
       ? await ctx.db
           .query("inventoryLots")
@@ -174,7 +220,26 @@ export const lots = query({
           .query("inventoryLots")
           .order("desc")
           .take(Math.min(args.limit ?? 100, 250));
-    return rows;
+    const visible = [];
+    for (const row of rows) {
+      const balances = await ctx.db
+        .query("inventoryLotBalances")
+        .withIndex("by_organizationId_and_lotId", (q) =>
+          q.eq("organizationId", SUNPRIDE_ORGANIZATION_ID).eq("lotId", row._id),
+        )
+        .take(101);
+      if (
+        balances.length > 0 &&
+        balances.length <= 100 &&
+        (
+          await Promise.all(
+            balances.map((balance) => canRead(balance.locationId)),
+          )
+        ).every(Boolean)
+      )
+        visible.push(row);
+    }
+    return visible;
   },
 });
 
@@ -185,7 +250,7 @@ export const lotBalances = query({
   },
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
-    await requireIdentity(ctx);
+    const canRead = await readableLocationIds(ctx);
     const rows = await ctx.db
       .query("inventoryLotBalances")
       .withIndex("by_organizationId_and_lotId", (q) =>
@@ -194,9 +259,14 @@ export const lotBalances = query({
           .eq("lotId", args.lotId),
       )
       .take(100);
+    const visible = (
+      await Promise.all(
+        rows.map(async (row) => ((await canRead(row.locationId)) ? row : null)),
+      )
+    ).filter((row): row is NonNullable<typeof row> => row !== null);
     return args.stockStatus
-      ? rows.filter((row) => row.stockStatus === args.stockStatus)
-      : rows;
+      ? visible.filter((row) => row.stockStatus === args.stockStatus)
+      : visible;
   },
 });
 
@@ -211,9 +281,10 @@ export const trace = query({
     integrationEvents: v.array(v.any()),
   }),
   handler: async (ctx, args) => {
-    await requireIdentity(ctx);
+    const canRead = await readableLocationIds(ctx);
     const movement = await ctx.db.get(args.movementId);
-    if (!movement) throw new Error("Movement not found");
+    if (!movement || !(await movementVisible(ctx, args.movementId, canRead)))
+      throw new Error("Movement not found");
     const [lines, entries, integrationEvents] = await Promise.all([
       ctx.db
         .query("inventoryMovementLines")

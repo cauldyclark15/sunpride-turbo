@@ -46,6 +46,20 @@ export const CAPABILITIES = {
   ],
   "inventory.write": ["super_admin", "admin", "operations"],
   "inventory.approve": ["super_admin", "approver"],
+  "inventory.adjustment.request": [
+    "super_admin",
+    "admin",
+    "operations",
+    "manager",
+  ],
+  "inventory.count.submit": ["super_admin", "admin", "operations", "manager"],
+  "inventory.adjustment.approve": [
+    "super_admin",
+    "admin",
+    "manager",
+    "approver",
+  ],
+  "inventory.count.approve": ["super_admin", "admin", "manager", "approver"],
   "mcp.read": [
     "super_admin",
     "admin",
