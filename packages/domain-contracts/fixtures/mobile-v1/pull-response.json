@@ -1,0 +1,26 @@
+{
+  "type": "pull.response",
+  "contractVersion": 1,
+  "serverTime": 1790380800001,
+  "changes": [
+    {
+      "seq": 1,
+      "entity": "visit",
+      "id": "visit-1",
+      "revision": 1,
+      "op": "upsert",
+      "value": {
+        "state": "checked-in"
+      }
+    },
+    {
+      "seq": 2,
+      "entity": "visit",
+      "id": "visit-2",
+      "revision": 2,
+      "op": "tombstone"
+    }
+  ],
+  "nextCursor": "opaque-next",
+  "hasMore": false
+}

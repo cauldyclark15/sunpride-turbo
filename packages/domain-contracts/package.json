@@ -4,10 +4,11 @@
   "private": true,
   "type": "module",
   "exports": {
+    ".": "./src/index.ts",
     "./schemas/mobile-v1.schema.json": "./schemas/mobile-v1.schema.json"
   },
   "scripts": {
-    "lint": "eslint test --max-warnings 0",
+    "lint": "eslint src test --max-warnings 0",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },

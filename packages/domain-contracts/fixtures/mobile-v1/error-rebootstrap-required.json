@@ -1,0 +1,10 @@
+{
+  "type": "error.response",
+  "contractVersion": 1,
+  "serverTime": 1790380800000,
+  "error": {
+    "code": "rebootstrap_required",
+    "message": "Request cannot continue",
+    "retryable": false
+  }
+}
