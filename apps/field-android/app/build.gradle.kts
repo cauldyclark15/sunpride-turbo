@@ -50,6 +50,10 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     testOptions { unitTests.isReturnDefaultValues = true }
+    // Frozen cross-language P-256 vectors are read in place; never hand-copied into this project.
+    sourceSets.getByName("test").resources.srcDir(
+        rootProject.file("../../packages/domain-contracts/fixtures/mobile-v1/crypto")
+    )
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 }
 
@@ -60,9 +64,13 @@ dependencies {
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
+    implementation(libs.coroutines.android)
+    implementation(libs.okhttp)
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.test.manifest)
     testImplementation(libs.junit)
+    testImplementation(libs.okhttp.mockwebserver)
+    testImplementation(libs.org.json) // real org.json on the JVM; android.jar only has stubs
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.test.junit4)
     androidTestImplementation(libs.androidx.test.runner)

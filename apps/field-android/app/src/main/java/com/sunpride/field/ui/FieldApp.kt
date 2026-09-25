@@ -1,95 +1,243 @@
 package com.sunpride.field.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.os.Build
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
 import com.sunpride.field.AppEnvironment
+import com.sunpride.field.BuildConfig
+import com.sunpride.field.auth.EnrollmentState
+import com.sunpride.field.device.DeviceSigner
+import kotlinx.coroutines.delay
 
-@Composable
-fun FieldApp(environment: AppEnvironment, dark: Boolean, debug: Boolean) {
-    MaterialTheme(
-        colorScheme = if (dark) SunprideTokens.darkColors else SunprideTokens.lightColors,
-        shapes = SunprideTokens.shapes,
-        typography = SunprideTokens.typography
-    ) {
-        var preview by remember { mutableStateOf(false) }
-        Scaffold(topBar = {
-            Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 2.dp,
-                modifier = Modifier.statusBarsPadding()) {
-                Column(Modifier.fillMaxWidth().padding(SunprideTokens.spacing4),
-                    verticalArrangement = Arrangement.spacedBy(SunprideTokens.spacing2)) {
-                    Text("Sunpride Field", style = MaterialTheme.typography.titleLarge)
-                    SyncStatusPill()
-                }
-            }
-        }) { padding ->
-            if (preview && debug) TokenPreview(onBack = { preview = false }, Modifier.padding(padding))
-            else SignInShell(environment, dark, debug, onPreview = { preview = true }, Modifier.padding(padding))
+/** Pill style for each state; the text carries the meaning, colour only reinforces it. */
+enum class StatusPill(val label: String, val marker: String) {
+    OFFLINE("Offline — not signed in", "!"),
+    UNREGISTERED("Signed in — phone not registered", "!"),
+    READY("Ready", "✓"),
+    REMOVED("Phone removed", "✕");
+
+    val background: Color get() = when (this) {
+        OFFLINE, UNREGISTERED -> SunprideTokens.yellow
+        READY -> SunprideTokens.success
+        REMOVED -> SunprideTokens.danger
+    }
+    val foreground: Color get() = if (this == REMOVED) SunprideTokens.snow else SunprideTokens.ink
+
+    companion object {
+        fun of(state: EnrollmentState) = when (state) {
+            EnrollmentState.SignedOut -> OFFLINE
+            EnrollmentState.Unregistered -> UNREGISTERED
+            is EnrollmentState.Ready -> READY
+            EnrollmentState.Removed -> REMOVED
         }
     }
 }
 
 @Composable
-private fun SyncStatusPill() {
-    Surface(
-        shape = SunprideTokens.shapes.small,
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        modifier = Modifier.testTag("sync-status")
+fun FieldApp(
+    environment: AppEnvironment,
+    dark: Boolean,
+    debug: Boolean,
+    backend: FieldBackend? = null,
+    onKeyLoaded: (DeviceKeyInfo) -> Unit = {}
+) {
+    val scope = rememberCoroutineScope()
+    val controller = remember(backend) {
+        FieldController(backend ?: UnconfiguredBackend, scope, onKeyLoaded = onKeyLoaded)
+    }
+    var preview by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(controller) { controller.start(configured = environment.isReady) }
+    // Auto-poll `mine` every 10 s while signed in and waiting for an admin to register the phone.
+    LaunchedEffect(controller, controller.state) {
+        while (controller.state == EnrollmentState.Unregistered) {
+            delay(com.sunpride.field.auth.Enrollment.POLL_INTERVAL_MS)
+            controller.refresh(quiet = true)
+        }
+    }
+    MaterialTheme(
+        colorScheme = if (dark) SunprideTokens.darkColors else SunprideTokens.lightColors,
+        shapes = SunprideTokens.shapes, typography = SunprideTokens.typography
     ) {
-        Text("Offline — not signed in", color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(horizontal = SunprideTokens.spacing2, vertical = SunprideTokens.spacing1))
+        Scaffold(topBar = {
+            Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 2.dp,
+                modifier = Modifier.statusBarsPadding()) {
+                Column(Modifier.fillMaxWidth().padding(SunprideTokens.spacing4),
+                    verticalArrangement = Arrangement.spacedBy(SunprideTokens.spacing2)) {
+                    Text("Sunpride Field", style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurface)
+                    SyncStatusPill(StatusPill.of(controller.state))
+                }
+            }
+        }) { padding ->
+            val modifier = Modifier.padding(padding)
+            when {
+                preview && debug -> TokenPreview(onBack = { preview = false }, modifier)
+                controller.state == EnrollmentState.SignedOut -> SignInScreen(
+                    environment, dark, debug, controller.busy, controller.error,
+                    onPreview = { preview = true }, onSignIn = controller::signIn, modifier = modifier)
+                else -> EnrollmentScreen(controller.state, controller.key, controller.busy, controller.error,
+                    onCheck = { controller.checkAgain() }, onSignOut = { controller.signOut() }, modifier = modifier)
+            }
+        }
+    }
+}
+
+/** Used only when no backend is wired (previews); every call fails closed. */
+private object UnconfiguredBackend : FieldBackend {
+    override val isSignedIn = false
+    override fun loadSigner(): DeviceSigner = error("No device key in preview")
+    override fun signIn(email: String, password: String) =
+        throw com.sunpride.field.auth.AuthFailure(com.sunpride.field.auth.AuthFailure.Kind.NOT_CONFIGURED)
+    override fun signOut() = Unit
+    override fun refreshEnrollment(signer: DeviceSigner) = EnrollmentState.SignedOut
+}
+
+@Composable
+fun SyncStatusPill(pill: StatusPill) {
+    Surface(shape = SunprideTokens.shapes.small, color = pill.background,
+        modifier = Modifier.testTag("sync-status").semantics(mergeDescendants = true) {}) {
+        Text("${pill.marker}  ${pill.label}", color = pill.foreground, style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.padding(horizontal = SunprideTokens.spacing3, vertical = SunprideTokens.spacing1))
     }
 }
 
 @Composable
-private fun SignInShell(environment: AppEnvironment, dark: Boolean, debug: Boolean, onPreview: () -> Unit, modifier: Modifier = Modifier) {
-    var email by remember { mutableStateOf("") }
+private fun SignInScreen(
+    environment: AppEnvironment, dark: Boolean, debug: Boolean, busy: Boolean, error: String?,
+    onPreview: () -> Unit, onSignIn: (String, String) -> Unit, modifier: Modifier = Modifier
+) {
+    var email by rememberSaveable { mutableStateOf("") }
+    // Deliberately not rememberSaveable: the password must not enter the saved-instance-state bundle.
     var password by remember { mutableStateOf("") }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(SunprideTokens.spacing6),
         verticalArrangement = Arrangement.spacedBy(SunprideTokens.spacing4)) {
         Spacer(Modifier.height(SunprideTokens.spacing4))
         Text("Ready for the field", style = MaterialTheme.typography.headlineMedium,
             color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.testTag("shell-title"))
-        Text("Sign in to see your assigned work when this app connects to Sunpride.",
-            color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.bodyLarge)
-        if (!environment.isReady) {
-            Surface(color = MaterialTheme.colorScheme.surface, shape = SunprideTokens.shapes.medium,
-                modifier = Modifier.fillMaxWidth().testTag("environment-error")) {
-                Column(Modifier.padding(SunprideTokens.spacing4)) {
-                    Text("Configuration required", color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.titleLarge)
-                    environment.errors.forEach { Text(it, color = MaterialTheme.colorScheme.onSurface) }
-                }
+        Text("Sign in with the account your administrator invited.",
+            color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.testTag("sign-in-note"))
+        if (!environment.isReady) Surface(color = MaterialTheme.colorScheme.surface, shape = SunprideTokens.shapes.medium,
+            modifier = Modifier.fillMaxWidth().testTag("environment-error")) {
+            Column(Modifier.padding(SunprideTokens.spacing4)) {
+                Text("Configuration required", color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.titleLarge)
+                environment.errors.forEach { Text(it, color = MaterialTheme.colorScheme.onSurface) }
             }
         }
-        OutlinedTextField(email, { email = it }, label = { Text("Email") }, singleLine = true,
+        OutlinedTextField(email, { email = it }, label = { Text("Email") }, singleLine = true, enabled = !busy,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
             modifier = Modifier.fillMaxWidth().testTag("email"), shape = SunprideTokens.shapes.medium)
-        OutlinedTextField(password, { password = it }, label = { Text("Password") },
+        OutlinedTextField(password, { password = it }, label = { Text("Password") }, enabled = !busy,
             visualTransformation = PasswordVisualTransformation(), singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             modifier = Modifier.fillMaxWidth().testTag("password"), shape = SunprideTokens.shapes.medium)
-        val tokens = SunprideTokens
-        Button(onClick = {}, enabled = false,
+        if (error != null) Text(error, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("auth-error"))
+        Button(onClick = { val secret = password; password = ""; onSignIn(email.trim(), secret) },
+            enabled = environment.isReady && !busy && email.isNotBlank() && password.isNotEmpty(),
             colors = ButtonDefaults.buttonColors(
-                disabledContainerColor = if (dark) tokens.disabledDark else tokens.disabledLight,
-                disabledContentColor = if (dark) tokens.snow else tokens.muted
-            ),
+                disabledContainerColor = if (dark) SunprideTokens.disabledDark else SunprideTokens.disabledLight,
+                disabledContentColor = if (dark) SunprideTokens.snow else SunprideTokens.muted),
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("sign-in")) {
-            Text("Sign in")
+            if (busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text("Sign in")
         }
-        Text("Sign-in arrives in the next build", style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.testTag("sign-in-note"))
-        if (debug) TextButton(onClick = onPreview, modifier = Modifier.testTag("design-tokens-link")) {
-            Text("Design tokens")
+        if (debug) TextButton(onClick = onPreview, modifier = Modifier.testTag("design-tokens-link")) { Text("Design tokens") }
+    }
+}
+
+@Composable
+fun EnrollmentScreen(
+    state: EnrollmentState, key: DeviceKeyInfo?, busy: Boolean, error: String?,
+    onCheck: () -> Unit, onSignOut: () -> Unit, modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(SunprideTokens.spacing6),
+        verticalArrangement = Arrangement.spacedBy(SunprideTokens.spacing4)) {
+        Text(when (state) {
+            EnrollmentState.Removed -> "This phone was removed — ask your admin"
+            is EnrollmentState.Ready -> "Phone ready"
+            else -> "This phone isn't registered yet"
+        }, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.testTag("enrollment-title"))
+        if (state == EnrollmentState.Unregistered) {
+            Text("Send this key to your administrator. Registration is done by an admin; this screen checks every 10 seconds.",
+                color = MaterialTheme.colorScheme.onBackground)
+            if (key != null) Surface(color = MaterialTheme.colorScheme.surface, shape = SunprideTokens.shapes.medium,
+                modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(SunprideTokens.spacing4), verticalArrangement = Arrangement.spacedBy(SunprideTokens.spacing2)) {
+                    Text("Device public key", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
+                    SelectionContainer {
+                        Text(key.publicKey, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.testTag("public-key"))
+                    }
+                    Text("Fingerprint ${key.fingerprint}", fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.testTag("key-fingerprint"))
+                    OutlinedButton(onClick = {
+                        (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
+                            .setPrimaryClip(ClipData.newPlainText("Sunpride device public key", key.publicKey))
+                    }, modifier = Modifier.testTag("copy-key")) { Text("Copy key") }
+                }
+            } else if (busy) CircularProgressIndicator(Modifier.testTag("key-loading"))
+            Text("${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE} · app ${BuildConfig.VERSION_NAME}" +
+                (key?.let { " · key ${it.protection}" } ?: ""),
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.testTag("device-info"))
+            Button(onClick = onCheck, enabled = !busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("check-again")) {
+                Text(if (busy) "Checking…" else "Check again")
+            }
         }
+        if (state is EnrollmentState.Ready) Text("This phone is bound to your account.",
+            color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.testTag("ready-note"))
+        if (state == EnrollmentState.Removed) Text("It can no longer sync. Your administrator can register a replacement.",
+            color = MaterialTheme.colorScheme.onBackground)
+        if (error != null) Text(error, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("auth-error"))
+        TextButton(onClick = onSignOut, enabled = !busy, modifier = Modifier.testTag("sign-out")) { Text("Sign out") }
     }
 }
 
@@ -99,27 +247,19 @@ private fun TokenPreview(onBack: () -> Unit, modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(SunprideTokens.spacing3)) {
         TextButton(onClick = onBack) { Text("Back to sign in") }
         Text("Design tokens", style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.testTag("design-tokens-screen"))
+            color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.testTag("design-tokens-screen"))
         Surface(color = MaterialTheme.colorScheme.surface, shape = SunprideTokens.shapes.medium) {
             Row(Modifier.fillMaxWidth()) {
                 Box(Modifier.size(48.dp).background(SunprideTokens.red))
                 Text("Brand red", color = MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.padding(SunprideTokens.spacing4))
+                    style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(SunprideTokens.spacing4))
             }
         }
-        listOf(
-            Triple("Yellow / caution", SunprideTokens.yellow, SunprideTokens.ink),
-            Triple("Success", SunprideTokens.success, SunprideTokens.ink),
-            Triple("Danger", SunprideTokens.danger, SunprideTokens.snow),
-            Triple("Surface", MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.onSurface)
-        ).forEach { (label, background, foreground) ->
-            Surface(color = background, shape = SunprideTokens.shapes.medium, modifier = Modifier.fillMaxWidth()) {
-                Text(label, color = foreground, style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.padding(SunprideTokens.spacing4))
-            }
+        StatusPill.entries.forEach { SyncStatusPill(it) }
+        Surface(color = MaterialTheme.colorScheme.surface, shape = SunprideTokens.shapes.medium, modifier = Modifier.fillMaxWidth()) {
+            Text("Surface", color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(SunprideTokens.spacing4))
         }
-        Text("4 dp spacing · 8/12 dp radii · system font", style = MaterialTheme.typography.bodyMedium)
+        Text("4 dp spacing · 8/12 dp radii · system font", color = MaterialTheme.colorScheme.onBackground)
     }
 }
 
