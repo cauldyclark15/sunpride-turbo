@@ -7,6 +7,7 @@ import {
   SUNPRIDE_ORGANIZATION_ID,
 } from "../inventory/constants";
 import { requireActiveProfile } from "./auth";
+import { topology } from "../org/validation";
 
 /**
  * Organizational scope helpers (ADR-005).
@@ -16,7 +17,7 @@ import { requireActiveProfile } from "./auth";
  * authenticated profile on the server and can never be widened by client input.
  */
 
-const MAX_SCOPE_UNITS = 500;
+// As-of topology is capped in org/validation.ts.
 
 /** The active national root, if seeded. Never treat an arbitrary parentless unit as root. */
 export async function rootOrgUnitId(ctx: QueryCtx | MutationCtx) {
@@ -54,26 +55,13 @@ export async function collectScopeUnitIds(
   ctx: QueryCtx | MutationCtx,
   rootUnitId: Id<"orgUnits">,
 ): Promise<Id<"orgUnits">[]> {
+  const tree = await topology(ctx, Date.now());
+  if (!tree.some((unit) => unit._id === rootUnitId))
+    throw new ConvexError("Your access has no organizational scope");
   const ids: Id<"orgUnits">[] = [rootUnitId];
-  const queue: Id<"orgUnits">[] = [rootUnitId];
-  while (queue.length > 0) {
-    const parent = queue.shift();
-    if (!parent) break;
-    const children = await ctx.db
-      .query("orgUnits")
-      .withIndex("by_organizationId_and_parentId", (q) =>
-        q.eq("organizationId", SUNPRIDE_ORGANIZATION_ID).eq("parentId", parent),
-      )
-      .take(MAX_SCOPE_UNITS);
-    for (const child of children) {
-      if (child.status !== "active") continue;
-      ids.push(child._id);
-      queue.push(child._id);
-    }
-    if (ids.length > MAX_SCOPE_UNITS)
-      throw new ConvexError(
-        "Organizational scope exceeds the supported hierarchy size",
-      );
+  for (let i = 0; i < ids.length; i++) {
+    for (const child of tree)
+      if (child.parentId === ids[i]) ids.push(child._id);
   }
   return ids;
 }

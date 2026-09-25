@@ -24,6 +24,7 @@ import {
   rootOrgUnitId,
 } from "../lib/scope";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
+import { writeAssignment } from "../people/validation";
 import { CHANNEL_SCOPE_CODES } from "../sfa/constants";
 
 const assignableRoleValue = assignableRoleValidator;
@@ -158,7 +159,7 @@ export const ensure = mutation({
         authSubject: identityKey,
         name,
         email,
-        role,
+        role: existing.role,
         status: "active",
         ...(existing.orgUnitId || !rootUnitId
           ? {}
@@ -166,9 +167,6 @@ export const ensure = mutation({
               orgUnitId: rootUnitId,
               effectiveFrom: existing.effectiveFrom ?? now,
             }),
-        ...(invitation.positionId && !existing.positionId
-          ? { positionId: invitation.positionId }
-          : {}),
         updatedAt: now,
       });
       await ctx.db.patch(invitation._id, {
@@ -189,6 +187,16 @@ export const ensure = mutation({
       ...(rootUnitId ? { orgUnitId: rootUnitId, effectiveFrom: now } : {}),
       ...(invitation.positionId ? { positionId: invitation.positionId } : {}),
       updatedAt: now,
+    });
+    await ctx.db.insert("employeeAssignments", {
+      profileId,
+      orgUnitId: rootUnitId ?? undefined,
+      role,
+      positionId: invitation.positionId,
+      effectiveFrom: now,
+      actorSubject: identityKey,
+      reason: "provisioned",
+      createdAt: now,
     });
     await ctx.db.patch(invitation._id, {
       status: "accepted",
@@ -212,8 +220,17 @@ export const list = query({
   args: {},
   returns: v.array(profileValue),
   handler: async (ctx) => {
-    await requireRole(ctx, ["admin"]);
-    return ctx.db.query("profiles").take(100);
+    const { profile } = await requireCapability(ctx, "people.read");
+    const scope =
+      profile.role === "super_admin" || profile.role === "analyst"
+        ? null
+        : profile.orgUnitId
+          ? new Set(await collectScopeUnitIds(ctx, profile.orgUnitId))
+          : new Set();
+    const rows = await ctx.db.query("profiles").take(100);
+    return rows.filter(
+      (person) => !scope || (person.orgUnitId && scope.has(person.orgUnitId)),
+    );
   },
 });
 
@@ -239,10 +256,15 @@ export const listAssignableOrgUnits = query({
       .withIndex("by_organizationId_and_code", (q) =>
         q.eq("organizationId", SUNPRIDE_ORGANIZATION_ID),
       )
-      .take(200);
-    const scopeUnitIds = profile.orgUnitId
-      ? new Set(await collectScopeUnitIds(ctx, profile.orgUnitId))
-      : null;
+      .take(501);
+    if (units.length > 500)
+      throw new ConvexError("Organization hierarchy exceeds 500 units");
+    if (profile.role !== "super_admin" && !profile.orgUnitId)
+      throw new ConvexError("Your access has no organizational scope");
+    const scopeUnitIds =
+      profile.role === "super_admin"
+        ? null
+        : new Set(await collectScopeUnitIds(ctx, profile.orgUnitId!));
     return units
       .filter((unit) => !scopeUnitIds || scopeUnitIds.has(unit._id))
       .map((unit) => ({
@@ -250,7 +272,10 @@ export const listAssignableOrgUnits = query({
         code: unit.code,
         name: unit.name,
         typeCode: unit.typeCode,
-        parentId: unit.parentId ?? null,
+        parentId:
+          unit.parentId && (!scopeUnitIds || scopeUnitIds.has(unit.parentId))
+            ? unit.parentId
+            : null,
       }))
       .sort((left, right) => left.code.localeCompare(right.code));
   },
@@ -260,7 +285,7 @@ export const listInvitations = query({
   args: {},
   returns: v.array(invitationValue),
   handler: async (ctx) => {
-    await requireRole(ctx, ["admin"]);
+    await requireNationalScope(ctx, ["admin"]);
     return ctx.db
       .query("accessInvitations")
       .withIndex("by_status")
@@ -278,7 +303,9 @@ export const invite = mutation({
   },
   returns: v.id("accessInvitations"),
   handler: async (ctx, args) => {
-    const { identity, profile: actor } = await requireRole(ctx, ["admin"]);
+    const { identity, profile: actor } = await requireNationalScope(ctx, [
+      "admin",
+    ]);
     assertCanAssignRole(actor.role, args.role);
     const positionId = await assertActivePosition(ctx, args.positionId);
     const email = normalizeEmail(args.email);
@@ -297,14 +324,19 @@ export const invite = mutation({
     if (actor.role !== "super_admin" && existingProfile?.role === "admin")
       throw new ConvexError("Only the super admin can manage administrators");
 
-    if (existingProfile)
+    if (existingProfile) {
+      await writeAssignment(
+        ctx,
+        existingProfile,
+        { role: args.role, positionId },
+        "invitation updated",
+      );
       await ctx.db.patch(existingProfile._id, {
         name: args.name?.trim() || existingProfile.name,
-        role: args.role,
         status: "active",
-        ...(positionId ? { positionId } : {}),
         updatedAt: now,
       });
+    }
 
     const invitation = await ctx.db
       .query("accessInvitations")
@@ -361,7 +393,9 @@ export const revoke = mutation({
   args: { invitationId: v.id("accessInvitations") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { identity, profile: actor } = await requireRole(ctx, ["admin"]);
+    const { identity, profile: actor } = await requireNationalScope(ctx, [
+      "admin",
+    ]);
     const invitation = await ctx.db.get(args.invitationId);
     if (!invitation) throw new ConvexError("Invitation not found");
     if (invitation.role === "super_admin")
@@ -405,7 +439,7 @@ export const setRole = mutation({
       throw new ConvexError("Only the super admin can manage administrators");
 
     const now = Date.now();
-    await ctx.db.patch(args.profileId, { role: args.role, updatedAt: now });
+    await writeAssignment(ctx, target, { role: args.role }, "role changed");
     const invitation = await ctx.db
       .query("accessInvitations")
       .withIndex("by_email", (q) => q.eq("email", target.email))
@@ -472,12 +506,15 @@ export const assignPersona = mutation({
       );
 
     const now = Date.now();
+    await writeAssignment(
+      ctx,
+      target,
+      { orgUnitId: args.orgUnitId, positionId },
+      "persona changed",
+    );
     await ctx.db.patch(args.profileId, {
-      ...(args.orgUnitId ? { orgUnitId: args.orgUnitId } : {}),
-      ...(positionId ? { positionId } : {}),
       ...(args.employmentType ? { employmentType: args.employmentType } : {}),
       ...(channelScope ? { channelScope } : {}),
-      effectiveFrom: target.effectiveFrom ?? now,
       updatedAt: now,
     });
     await ctx.db.insert("auditLogs", {

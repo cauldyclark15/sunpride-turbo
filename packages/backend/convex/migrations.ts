@@ -158,3 +158,85 @@ export const bootstrapSuperAdmin = internalMutation({
     };
   },
 });
+
+/** Bounded, idempotent legacy projection backfill. Repeat with returned cursor until done. */
+export const backfillOrganizationEdges = internalMutation({
+  args: { cursor: v.union(v.string(), v.null()) },
+  returns: v.object({
+    count: v.number(),
+    cursor: v.string(),
+    isDone: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("orgUnits")
+      .paginate({ cursor: args.cursor, numItems: 100 });
+    let count = 0;
+    for (const unit of page.page) {
+      if (!unit.parentId) continue;
+      const edge = await ctx.db
+        .query("orgUnitParentEdges")
+        .withIndex("by_unitId_and_effectiveFrom", (q) =>
+          q.eq("unitId", unit._id),
+        )
+        .first();
+      if (edge) continue;
+      await ctx.db.insert("orgUnitParentEdges", {
+        unitId: unit._id,
+        parentId: unit.parentId,
+        effectiveFrom: unit.effectiveFrom,
+        effectiveTo: unit.effectiveTo,
+        actorSubject: "system:backfill",
+        reason: "legacy projection",
+        createdAt: Date.now(),
+      });
+      count++;
+    }
+    return { count, cursor: page.continueCursor, isDone: page.isDone };
+  },
+});
+
+export const backfillEmployeeAssignments = internalMutation({
+  args: { cursor: v.union(v.string(), v.null()) },
+  returns: v.object({
+    count: v.number(),
+    cursor: v.string(),
+    isDone: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("profiles")
+      .paginate({ cursor: args.cursor, numItems: 100 });
+    let count = 0;
+    for (const profile of page.page) {
+      const row = await ctx.db
+        .query("employeeAssignments")
+        .withIndex("by_profileId_and_effectiveFrom", (q) =>
+          q.eq("profileId", profile._id),
+        )
+        .first();
+      if (row) continue;
+      const supervisor = profile.supervisorSubject
+        ? await ctx.db
+            .query("profiles")
+            .withIndex("by_subject", (q) =>
+              q.eq("authSubject", profile.supervisorSubject!),
+            )
+            .unique()
+        : null;
+      await ctx.db.insert("employeeAssignments", {
+        profileId: profile._id,
+        orgUnitId: profile.orgUnitId,
+        role: profile.role,
+        positionId: profile.positionId,
+        supervisorId: supervisor?._id,
+        effectiveFrom: profile.effectiveFrom ?? profile._creationTime,
+        actorSubject: "system:backfill",
+        reason: "legacy projection",
+        createdAt: Date.now(),
+      });
+      count++;
+    }
+    return { count, cursor: page.continueCursor, isDone: page.isDone };
+  },
+});

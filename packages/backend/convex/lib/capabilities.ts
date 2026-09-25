@@ -1,8 +1,9 @@
 import { ConvexError, v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import { internalMutation } from "../_generated/server";
+import { internalMutation, query } from "../_generated/server";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
+import { topology } from "../org/validation";
 import { requireActiveProfile } from "./auth";
 import { collectScopeUnitIds } from "./scope";
 import type { AppRole } from "./roles";
@@ -21,6 +22,17 @@ import type { AppRole } from "./roles";
  */
 export const CAPABILITIES = {
   "admin.manage": ["super_admin", "admin"],
+  "org.read": [
+    "super_admin",
+    "admin",
+    "operations",
+    "manager",
+    "approver",
+    "sales",
+    "analyst",
+    "viewer",
+  ],
+  "people.read": ["super_admin", "admin", "manager", "analyst", "viewer"],
   "masterdata.manage": ["super_admin", "admin", "operations"],
   "inventory.read": [
     "super_admin",
@@ -124,6 +136,44 @@ export async function requireCapability(
     );
   return { identity, profile };
 }
+
+export const currentPermissions = query({
+  args: {},
+  returns: v.object({
+    version: v.literal(1),
+    role: v.string(),
+    orgUnitId: v.union(v.id("orgUnits"), v.null()),
+    scopeUnitIds: v.array(v.id("orgUnits")),
+    capabilities: v.array(v.string()),
+  }),
+  handler: async (ctx) => {
+    const { profile } = await requireActiveProfile(ctx);
+    const capabilities = Object.entries(CAPABILITIES)
+      .filter(
+        ([, roles]) =>
+          profile.role === "super_admin" ||
+          (roles as readonly string[]).includes(profile.role),
+      )
+      .map(([name]) => name);
+    const scopeUnitIds =
+      profile.role === "super_admin" || profile.role === "analyst"
+        ? (await topology(ctx, Date.now())).map((u) => u._id)
+        : profile.orgUnitId
+          ? await collectScopeUnitIds(ctx, profile.orgUnitId)
+          : [];
+    if (scopeUnitIds.length > 500)
+      throw new ConvexError(
+        "Organizational scope exceeds the supported hierarchy size",
+      );
+    return {
+      version: 1 as const,
+      role: profile.role,
+      orgUnitId: profile.orgUnitId ?? null,
+      scopeUnitIds,
+      capabilities,
+    };
+  },
+});
 
 /**
  * Diagnostic entry point for the capability contract, exercised by `capabilities.test.ts`

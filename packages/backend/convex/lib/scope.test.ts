@@ -461,4 +461,21 @@ describe("organizational scope", () => {
     );
     expect(outside.role).toBe("super_admin");
   });
+  it("filters historical tree by current scope and redacts outside parent ids", async () => {
+    const t = convexTest(schema, modules);
+    const { superAdmin, area, territory, otherArea, rootUnitId } =
+      await seedHierarchy(t);
+    const admin = await provisionProfile(
+      t,
+      superAdmin,
+      "tree-admin@sunpride.local",
+      "admin",
+    );
+    await assignOrgUnit(t, "tree-admin@sunpride.local", area);
+    const nodes = await admin.query(api.org.queries.tree, { asOf: Date.now() });
+    expect(nodes.map((node) => node._id)).toContain(territory);
+    expect(nodes.map((node) => node._id)).not.toContain(otherArea);
+    expect(nodes.map((node) => node._id)).not.toContain(rootUnitId);
+    expect(nodes.find((node) => node._id === area)?.parentId).toBeUndefined();
+  });
 });
