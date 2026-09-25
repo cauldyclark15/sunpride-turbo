@@ -2004,6 +2004,20 @@ export default defineSchema({
   })
     .index("by_visitId_and_serverTime", ["visitId", "serverTime"])
     .index("by_customerId_and_serverTime", ["customerId", "serverTime"]),
+  evidenceUploadClaims: defineTable({
+    organizationId: v.string(),
+    visitId: v.id("visitExecutions"),
+    profileId: v.id("profiles"),
+    deviceId: v.optional(v.id("registeredDevices")),
+    subject: v.string(), // full identity.tokenIdentifier
+    issuedAt: v.number(),
+    expiresAt: v.number(),
+    consumedAt: v.optional(v.number()),
+    storageId: v.optional(v.id("_storage")),
+  })
+    .index("by_visitId_and_profileId", ["visitId", "profileId"])
+    .index("by_storageId", ["storageId"])
+    .index("by_expiresAt", ["expiresAt"]),
   fieldEvidenceFiles: defineTable({
     organizationId: v.string(),
     orgUnitId: v.id("orgUnits"),

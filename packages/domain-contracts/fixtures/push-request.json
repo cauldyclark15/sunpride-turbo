@@ -8,7 +8,8 @@
       "clientRequestId": "018f5800-1234-7000-8000-000000000001",
       "payload": {
         "clientVisitId": "018f5800-1234-7000-8000-000000000002",
-        "plannedVisitId": "planned-1",
+        "plannedVisitId": null,
+        "unplannedReason": "Unscheduled prospect call",
         "outletId": "outlet-1",
         "serviceDate": "2026-09-26",
         "deviceTime": 1790380800000,
