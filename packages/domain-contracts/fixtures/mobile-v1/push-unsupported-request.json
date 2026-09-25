@@ -1,0 +1,23 @@
+{
+  "type": "push.request",
+  "contractVersion": 1,
+  "deviceId": "device-1",
+  "operations": [
+    {
+      "kind": "task.complete",
+      "clientRequestId": "018f5800-1234-7000-8000-000000000005",
+      "payload": {
+        "referenceId": "task-1",
+        "deviceTime": 1790380800000
+      }
+    },
+    {
+      "kind": "collection.record",
+      "clientRequestId": "018f5800-1234-7000-8000-000000000006",
+      "payload": {
+        "referenceId": "intent-1",
+        "deviceTime": 1790380800000
+      }
+    }
+  ]
+}

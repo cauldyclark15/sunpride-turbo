@@ -1,0 +1,13 @@
+{
+  "type": "push.response",
+  "contractVersion": 1,
+  "serverTime": 1790380800000,
+  "results": [
+    {
+      "kind": "visit.checkIn",
+      "clientRequestId": "018f5800-1234-7000-8000-000000000001",
+      "status": "conflict",
+      "code": "conflict"
+    }
+  ]
+}

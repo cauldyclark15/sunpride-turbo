@@ -1,0 +1,7 @@
+{
+  "type": "pull.request",
+  "contractVersion": 1,
+  "deviceId": "device-1",
+  "cursor": "opaque-start",
+  "limit": 10
+}

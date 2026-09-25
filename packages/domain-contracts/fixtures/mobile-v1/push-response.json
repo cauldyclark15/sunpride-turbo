@@ -1,0 +1,23 @@
+{
+  "type": "push.response",
+  "contractVersion": 1,
+  "serverTime": 1790380800003,
+  "results": [
+    {
+      "kind": "visit.checkIn",
+      "clientRequestId": "018f5800-1234-7000-8000-000000000001",
+      "status": "accepted",
+      "ack": {
+        "entityId": "visit-1",
+        "eventIds": ["event-1"],
+        "serverTime": 1790380800001
+      }
+    },
+    {
+      "kind": "collection.record",
+      "clientRequestId": "018f5800-1234-7000-8000-000000000002",
+      "status": "rejected",
+      "code": "unsupported_operation"
+    }
+  ]
+}
