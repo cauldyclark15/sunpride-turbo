@@ -1,68 +1,68 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
+import schema from "../schema";
 import {
   BOOTSTRAP_SUPER_ADMIN_EMAIL,
   isBootstrapSuperAdminEmail,
   normalizeEmail,
 } from "../lib/access";
 import {
+  requireActiveProfile,
   requireAuthenticatedIdentity,
   requireRole,
 } from "../lib/auth";
+import { requireCapability } from "../lib/capabilities";
+import {
+  assignableRoleValidator,
+  employmentTypeValidator,
+  type AssignableRole,
+} from "../lib/roles";
+import { collectScopeUnitIds } from "../lib/scope";
+import {
+  ORG_ROOT_UNIT_CODE,
+  SUNPRIDE_ORGANIZATION_ID,
+} from "../inventory/constants";
+import { CHANNEL_SCOPE_CODES } from "../sfa/constants";
 
-const roleValue = v.union(
-  v.literal("super_admin"),
-  v.literal("admin"),
-  v.literal("manager"),
-  v.literal("approver"),
-  v.literal("sales"),
-  v.literal("viewer"),
-);
+/** Root organizational unit, assigned to every profile that has no scope yet (ADR-005). */
+async function rootOrgUnitId(ctx: Parameters<typeof collectScopeUnitIds>[0]) {
+  const root = await ctx.db
+    .query("orgUnits")
+    .withIndex("by_organizationId_and_code", (q) =>
+      q
+        .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
+        .eq("code", ORG_ROOT_UNIT_CODE),
+    )
+    .unique();
+  return root?._id ?? null;
+}
 
-const assignableRoleValue = v.union(
-  v.literal("admin"),
-  v.literal("manager"),
-  v.literal("approver"),
-  v.literal("sales"),
-  v.literal("viewer"),
-);
+const assignableRoleValue = assignableRoleValidator;
 
-const profileValue = v.object({
-  _id: v.id("profiles"),
-  _creationTime: v.number(),
-  authSubject: v.string(),
-  name: v.string(),
-  email: v.string(),
-  role: roleValue,
-  status: v.union(v.literal("active"), v.literal("disabled")),
-  updatedAt: v.number(),
-});
+// Return validators are derived from the schema (schema.doc) rather than re-declared by
+// hand: a hand-written shape silently breaks every reader the moment a column is added.
+const profileValue = schema.doc("profiles");
+const invitationValue = schema.doc("accessInvitations");
 
-const invitationValue = v.object({
-  _id: v.id("accessInvitations"),
-  _creationTime: v.number(),
-  email: v.string(),
-  name: v.optional(v.string()),
-  role: roleValue,
-  status: v.union(
-    v.literal("pending"),
-    v.literal("accepted"),
-    v.literal("revoked"),
-  ),
-  invitedBy: v.string(),
-  invitedAt: v.number(),
-  acceptedAt: v.optional(v.number()),
-  profileId: v.optional(v.id("profiles")),
-  updatedAt: v.number(),
-});
-
-const assertCanAssignRole = (
-  actorRole: string,
-  targetRole: "admin" | "manager" | "approver" | "sales" | "viewer",
-) => {
+const assertCanAssignRole = (actorRole: string, targetRole: AssignableRole) => {
   if (targetRole === "admin" && actorRole !== "super_admin")
-    throw new ConvexError("Only the super admin can grant administrator access");
+    throw new ConvexError(
+      "Only the super admin can grant administrator access",
+    );
 };
+
+/** A position may only be attached if it exists and is active (ADR-009). */
+async function assertActivePosition(
+  ctx: Parameters<typeof rootOrgUnitId>[0],
+  positionId: Id<"positions"> | undefined,
+) {
+  if (!positionId) return undefined;
+  const position = await ctx.db.get(positionId);
+  if (!position || !position.active)
+    throw new ConvexError("Unknown or inactive position");
+  return positionId;
+}
 
 export const current = query({
   args: {},
@@ -76,6 +76,38 @@ export const current = query({
         q.eq("authSubject", identity.tokenIdentifier),
       )
       .unique();
+  },
+});
+
+/** The caller's own organizational scope (ADR-005). Used by scoped UI and tests. */
+export const myScope = query({
+  args: {},
+  returns: v.object({
+    profileId: v.id("profiles"),
+    role: v.string(),
+    orgUnitId: v.union(v.id("orgUnits"), v.null()),
+    orgUnitCode: v.union(v.string(), v.null()),
+    scopeUnitIds: v.array(v.id("orgUnits")),
+  }),
+  handler: async (ctx) => {
+    const { profile } = await requireActiveProfile(ctx);
+    if (!profile.orgUnitId)
+      return {
+        profileId: profile._id,
+        role: profile.role,
+        orgUnitId: null,
+        orgUnitCode: null,
+        scopeUnitIds: [],
+      };
+    const unit = await ctx.db.get(profile.orgUnitId);
+    const scopeUnitIds = await collectScopeUnitIds(ctx, profile.orgUnitId);
+    return {
+      profileId: profile._id,
+      role: profile.role,
+      orgUnitId: profile.orgUnitId,
+      orgUnitCode: unit?.code ?? null,
+      scopeUnitIds,
+    };
   },
 });
 
@@ -128,6 +160,7 @@ export const ensure = mutation({
       .unique();
     const existing = bySubject ?? byEmail;
     const name = identity.name ?? invitation.name ?? email;
+    const rootUnitId = existing?.orgUnitId ? null : await rootOrgUnitId(ctx);
 
     if (existing) {
       await ctx.db.patch(existing._id, {
@@ -136,6 +169,15 @@ export const ensure = mutation({
         email,
         role,
         status: "active",
+        ...(existing.orgUnitId || !rootUnitId
+          ? {}
+          : {
+              orgUnitId: rootUnitId,
+              effectiveFrom: existing.effectiveFrom ?? now,
+            }),
+        ...(invitation.positionId && !existing.positionId
+          ? { positionId: invitation.positionId }
+          : {}),
         updatedAt: now,
       });
       await ctx.db.patch(invitation._id, {
@@ -153,6 +195,8 @@ export const ensure = mutation({
       email,
       role,
       status: "active",
+      ...(rootUnitId ? { orgUnitId: rootUnitId, effectiveFrom: now } : {}),
+      ...(invitation.positionId ? { positionId: invitation.positionId } : {}),
       updatedAt: now,
     });
     await ctx.db.patch(invitation._id, {
@@ -182,6 +226,45 @@ export const list = query({
   },
 });
 
+/**
+ * Organization units the caller may assign a person into (ADR-009): their own subtree, or
+ * the whole organization for an unscoped platform administrator.
+ */
+export const listAssignableOrgUnits = query({
+  args: {},
+  returns: v.array(
+    v.object({
+      _id: v.id("orgUnits"),
+      code: v.string(),
+      name: v.string(),
+      typeCode: v.string(),
+      parentId: v.union(v.id("orgUnits"), v.null()),
+    }),
+  ),
+  handler: async (ctx) => {
+    const { profile } = await requireCapability(ctx, "admin.manage");
+    const units = await ctx.db
+      .query("orgUnits")
+      .withIndex("by_organizationId_and_code", (q) =>
+        q.eq("organizationId", SUNPRIDE_ORGANIZATION_ID),
+      )
+      .take(200);
+    const scopeUnitIds = profile.orgUnitId
+      ? new Set(await collectScopeUnitIds(ctx, profile.orgUnitId))
+      : null;
+    return units
+      .filter((unit) => !scopeUnitIds || scopeUnitIds.has(unit._id))
+      .map((unit) => ({
+        _id: unit._id,
+        code: unit.code,
+        name: unit.name,
+        typeCode: unit.typeCode,
+        parentId: unit.parentId ?? null,
+      }))
+      .sort((left, right) => left.code.localeCompare(right.code));
+  },
+});
+
 export const listInvitations = query({
   args: {},
   returns: v.array(invitationValue),
@@ -200,13 +283,16 @@ export const invite = mutation({
     email: v.string(),
     name: v.optional(v.string()),
     role: assignableRoleValue,
+    positionId: v.optional(v.id("positions")),
   },
   returns: v.id("accessInvitations"),
   handler: async (ctx, args) => {
     const { identity, profile: actor } = await requireRole(ctx, ["admin"]);
     assertCanAssignRole(actor.role, args.role);
+    const positionId = await assertActivePosition(ctx, args.positionId);
     const email = normalizeEmail(args.email);
-    if (!email.includes("@")) throw new ConvexError("Enter a valid email address");
+    if (!email.includes("@"))
+      throw new ConvexError("Enter a valid email address");
     if (isBootstrapSuperAdminEmail(email))
       throw new ConvexError("The bootstrap super admin role cannot be changed");
 
@@ -225,6 +311,7 @@ export const invite = mutation({
         name: args.name?.trim() || existingProfile.name,
         role: args.role,
         status: "active",
+        ...(positionId ? { positionId } : {}),
         updatedAt: now,
       });
 
@@ -237,6 +324,7 @@ export const invite = mutation({
       await ctx.db.patch(invitation._id, {
         ...(invitedName ? { name: invitedName } : {}),
         role: args.role,
+        ...(positionId ? { positionId } : {}),
         status: existingProfile ? "accepted" : "pending",
         invitedBy: identity.tokenIdentifier,
         invitedAt: now,
@@ -259,6 +347,7 @@ export const invite = mutation({
       email,
       ...(invitedName ? { name: invitedName } : {}),
       role: args.role,
+      ...(positionId ? { positionId } : {}),
       status: existingProfile ? "accepted" : "pending",
       invitedBy: identity.tokenIdentifier,
       invitedAt: now,
@@ -338,6 +427,81 @@ export const setRole = mutation({
       entityType: "profile",
       entityId: args.profileId,
       details: args.role,
+      createdAt: now,
+    });
+    return null;
+  },
+});
+
+/**
+ * Assigns the persona attributes that are not access roles (ADR-009): organizational unit,
+ * position, employment type, channel scope. Gated by the `admin.manage` capability and by
+ * organizational scope against BOTH the person's current unit and the unit they are moving
+ * to, so a scoped administrator can never pull someone in from, or push someone into, a
+ * subtree they do not own.
+ */
+export const assignPersona = mutation({
+  args: {
+    profileId: v.id("profiles"),
+    orgUnitId: v.optional(v.id("orgUnits")),
+    positionId: v.optional(v.id("positions")),
+    employmentType: v.optional(employmentTypeValidator),
+    channelScope: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const target = await ctx.db.get(args.profileId);
+    if (!target) throw new ConvexError("Profile not found");
+
+    const { identity, profile: actor } = await requireCapability(
+      ctx,
+      "admin.manage",
+      args.orgUnitId ?? target.orgUnitId,
+    );
+    if (target.role === "super_admin")
+      throw new ConvexError("The super admin cannot be reassigned");
+    if (actor.role !== "super_admin" && target.role === "admin")
+      throw new ConvexError("Only the super admin can manage administrators");
+
+    const positionId = await assertActivePosition(ctx, args.positionId);
+    if (args.orgUnitId) {
+      const unit = await ctx.db.get(args.orgUnitId);
+      if (!unit) throw new ConvexError("Organization unit not found");
+    }
+
+    const channelScope = args.channelScope?.trim().toUpperCase();
+    if (
+      channelScope &&
+      !CHANNEL_SCOPE_CODES.includes(
+        channelScope as (typeof CHANNEL_SCOPE_CODES)[number],
+      )
+    )
+      throw new ConvexError(
+        `Channel scope must be one of ${CHANNEL_SCOPE_CODES.join(", ")}`,
+      );
+
+    const now = Date.now();
+    await ctx.db.patch(args.profileId, {
+      ...(args.orgUnitId ? { orgUnitId: args.orgUnitId } : {}),
+      ...(positionId ? { positionId } : {}),
+      ...(args.employmentType ? { employmentType: args.employmentType } : {}),
+      ...(channelScope ? { channelScope } : {}),
+      effectiveFrom: target.effectiveFrom ?? now,
+      updatedAt: now,
+    });
+    await ctx.db.insert("auditLogs", {
+      subject: identity.tokenIdentifier,
+      action: "profile.persona_changed",
+      entityType: "profile",
+      entityId: args.profileId,
+      details: [
+        args.orgUnitId ? "orgUnit" : null,
+        positionId ? "position" : null,
+        args.employmentType ?? null,
+        channelScope ?? null,
+      ]
+        .filter((part): part is string => part !== null)
+        .join(","),
       createdAt: now,
     });
     return null;

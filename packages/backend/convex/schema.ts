@@ -1,5 +1,7 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { employmentTypeValidator, roleValidator } from "./lib/roles";
+import { positionCategoryValidator } from "./sfa/constants";
 import {
   allocationPolicyValidator,
   approvalStatusValidator,
@@ -15,14 +17,7 @@ import {
   transferStatusValidator,
 } from "./inventory/validators";
 
-const role = v.union(
-  v.literal("super_admin"),
-  v.literal("admin"),
-  v.literal("manager"),
-  v.literal("approver"),
-  v.literal("sales"),
-  v.literal("viewer"),
-);
+const role = roleValidator;
 const orderStatus = v.union(
   v.literal("draft"),
   v.literal("submitted"),
@@ -45,15 +40,24 @@ export default defineSchema({
     email: v.string(),
     role,
     status: v.union(v.literal("active"), v.literal("disabled")),
+    orgUnitId: v.optional(v.id("orgUnits")),
+    employeeCode: v.optional(v.string()),
+    positionId: v.optional(v.id("positions")),
+    employmentType: v.optional(employmentTypeValidator),
+    channelScope: v.optional(v.string()),
+    supervisorSubject: v.optional(v.string()),
+    effectiveFrom: v.optional(v.number()),
     updatedAt: v.number(),
   })
     .index("by_subject", ["authSubject"])
     .index("by_email", ["email"])
-    .index("by_role", ["role"]),
+    .index("by_role", ["role"])
+    .index("by_orgUnitId", ["orgUnitId"]),
   accessInvitations: defineTable({
     email: v.string(),
     name: v.optional(v.string()),
     role,
+    positionId: v.optional(v.id("positions")),
     status: v.union(
       v.literal("pending"),
       v.literal("accepted"),
@@ -81,6 +85,9 @@ export default defineSchema({
     trackingMode: v.optional(trackingModeValidator),
     allocationPolicy: v.optional(allocationPolicyValidator),
     policyVersion: v.optional(v.number()),
+    sellingUomIds: v.optional(v.array(v.id("unitsOfMeasure"))),
+    catalogSource: v.optional(v.string()),
+    catalogUpdatedAt: v.optional(v.number()),
     updatedAt: v.number(),
   })
     .index("by_code", ["code"])
@@ -1176,4 +1183,127 @@ export default defineSchema({
     salesToday: v.number(),
     updatedAt: v.number(),
   }).index("by_key", ["key"]),
+  orgUnitTypes: defineTable({
+    organizationId: v.string(),
+    code: v.string(),
+    label: v.string(),
+    level: v.number(),
+    active: v.boolean(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_code", ["organizationId", "code"])
+    .index("by_organizationId_and_level", ["organizationId", "level"]),
+  orgUnits: defineTable({
+    organizationId: v.string(),
+    code: v.string(),
+    name: v.string(),
+    typeCode: v.string(),
+    parentId: v.optional(v.id("orgUnits")),
+    status: v.union(v.literal("active"), v.literal("inactive")),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    externalId: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_code", ["organizationId", "code"])
+    .index("by_organizationId_and_parentId", ["organizationId", "parentId"])
+    .index("by_organizationId_and_typeCode_and_status", [
+      "organizationId",
+      "typeCode",
+      "status",
+    ]),
+  /**
+   * Sunpride's job titles as data (ADR-009). A position is what the memo attaches standards
+   * to — never a role, and never a code literal at an endpoint.
+   */
+  positions: defineTable({
+    organizationId: v.string(),
+    code: v.string(),
+    label: v.string(),
+    category: positionCategoryValidator,
+    active: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_code", ["organizationId", "code"])
+    .index("by_organizationId_and_active", ["organizationId", "active"]),
+  /**
+   * Effective-dated standards per position, sourced from the client memo. History is kept:
+   * a revised memo adds a row with a later `effectiveFrom` instead of overwriting.
+   */
+  positionStandards: defineTable({
+    organizationId: v.string(),
+    positionId: v.id("positions"),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    dailyCallsTarget: v.optional(v.number()),
+    productiveCallTargetPct: v.optional(v.number()),
+    workWithWeeklyMin: v.optional(v.number()),
+    workWithMonthlyMin: v.optional(v.number()),
+    sourceRef: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_positionId_and_effectiveFrom", ["positionId", "effectiveFrom"])
+    .index("by_positionId_and_sourceRef", ["positionId", "sourceRef"])
+    .index("by_organizationId_and_effectiveFrom", [
+      "organizationId",
+      "effectiveFrom",
+    ]),
+  productBarcodes: defineTable({
+    organizationId: v.string(),
+    productId: v.id("products"),
+    barcode: v.string(),
+    uomId: v.id("unitsOfMeasure"),
+    active: v.boolean(),
+    source: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_barcode", ["organizationId", "barcode"])
+    .index("by_organizationId_and_productId", ["organizationId", "productId"]),
+  importRuns: defineTable({
+    organizationId: v.string(),
+    importType: v.union(v.literal("products"), v.literal("opening_stock")),
+    runKey: v.string(),
+    chunkIndex: v.number(),
+    fileHash: v.string(),
+    idempotencyKey: v.string(),
+    actorSubject: v.string(),
+    status: v.union(
+      v.literal("previewed"),
+      v.literal("committing"),
+      v.literal("completed"),
+      v.literal("failed"),
+    ),
+    rowCount: v.number(),
+    createdCount: v.number(),
+    updatedCount: v.number(),
+    skippedCount: v.number(),
+    failedCount: v.number(),
+    movementId: v.optional(v.id("inventoryMovements")),
+    createdAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_organizationId_and_idempotencyKey", [
+      "organizationId",
+      "idempotencyKey",
+    ])
+    .index("by_organizationId_and_runKey", ["organizationId", "runKey"])
+    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
+  importRunErrors: defineTable({
+    organizationId: v.string(),
+    runId: v.id("importRuns"),
+    rowNumber: v.number(),
+    column: v.optional(v.string()),
+    code: v.string(),
+    message: v.string(),
+    rawRow: v.string(),
+    createdAt: v.number(),
+  }).index("by_organizationId_and_runId_and_rowNumber", [
+    "organizationId",
+    "runId",
+    "rowNumber",
+  ]),
 });

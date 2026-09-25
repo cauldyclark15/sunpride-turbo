@@ -20,6 +20,11 @@ import type * as domains_profiles from "../domains/profiles.js";
 import type * as domains_salesForce from "../domains/salesForce.js";
 import type * as domains_workflows from "../domains/workflows.js";
 import type * as http from "../http.js";
+import type * as imports_openingStock from "../imports/openingStock.js";
+import type * as imports_products from "../imports/products.js";
+import type * as imports_runs from "../imports/runs.js";
+import type * as imports_shared from "../imports/shared.js";
+import type * as imports_test_helpers from "../imports/test_helpers.js";
 import type * as integration_sap from "../integration/sap.js";
 import type * as inventory_adjustments from "../inventory/adjustments.js";
 import type * as inventory_constants from "../inventory/constants.js";
@@ -39,9 +44,15 @@ import type * as inventory_transfers from "../inventory/transfers.js";
 import type * as inventory_validators from "../inventory/validators.js";
 import type * as lib_access from "../lib/access.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as lib_capabilities from "../lib/capabilities.js";
 import type * as lib_metrics from "../lib/metrics.js";
+import type * as lib_roles from "../lib/roles.js";
+import type * as lib_scope from "../lib/scope.js";
 import type * as migrations from "../migrations.js";
 import type * as seed from "../seed.js";
+import type * as sfa_constants from "../sfa/constants.js";
+import type * as sfa_positions from "../sfa/positions.js";
+import type * as sfa_setup from "../sfa/setup.js";
 
 import type {
   ApiFromModules,
@@ -62,6 +73,11 @@ declare const fullApi: ApiFromModules<{
   "domains/salesForce": typeof domains_salesForce;
   "domains/workflows": typeof domains_workflows;
   http: typeof http;
+  "imports/openingStock": typeof imports_openingStock;
+  "imports/products": typeof imports_products;
+  "imports/runs": typeof imports_runs;
+  "imports/shared": typeof imports_shared;
+  "imports/test_helpers": typeof imports_test_helpers;
   "integration/sap": typeof integration_sap;
   "inventory/adjustments": typeof inventory_adjustments;
   "inventory/constants": typeof inventory_constants;
@@ -81,9 +97,15 @@ declare const fullApi: ApiFromModules<{
   "inventory/validators": typeof inventory_validators;
   "lib/access": typeof lib_access;
   "lib/auth": typeof lib_auth;
+  "lib/capabilities": typeof lib_capabilities;
   "lib/metrics": typeof lib_metrics;
+  "lib/roles": typeof lib_roles;
+  "lib/scope": typeof lib_scope;
   migrations: typeof migrations;
   seed: typeof seed;
+  "sfa/constants": typeof sfa_constants;
+  "sfa/positions": typeof sfa_positions;
+  "sfa/setup": typeof sfa_setup;
 }>;
 
 /**

@@ -1,5 +1,8 @@
 export const SUNPRIDE_ORGANIZATION_ID = "sunpride";
 
+/** Code of the root organization unit every provisioned profile inherits (ADR-005). */
+export const ORG_ROOT_UNIT_CODE = "SUNPRIDE";
+
 export const DEFAULT_QUANTITY_SCALE = 1_000n;
 export const DEFAULT_QUANTITY_SCALE_NUMBER = 1_000;
 

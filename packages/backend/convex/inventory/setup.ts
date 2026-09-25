@@ -1,5 +1,7 @@
 import { ConvexError, v } from "convex/values";
+import type { Id } from "../_generated/dataModel";
 import { mutation } from "../_generated/server";
+import type { MutationCtx } from "../_generated/server";
 import { requireRole } from "../lib/auth";
 import { DEFAULT_QUANTITY_SCALE, SUNPRIDE_ORGANIZATION_ID } from "./constants";
 import {
@@ -225,21 +227,143 @@ export const foundation = mutation({
   },
 });
 
+export const openingBalanceLineInput = v.object({
+  productId: v.id("products"),
+  locationId: v.id("inventoryLocations"),
+  quantityBase: v.int64(),
+  lotNumber: v.optional(v.string()),
+  manufacturedAt: v.optional(v.number()),
+  expiresAt: v.optional(v.number()),
+  unitCostMinor: v.optional(v.int64()),
+});
+
+export type OpeningBalanceLineInput = {
+  productId: Id<"products">;
+  locationId: Id<"inventoryLocations">;
+  quantityBase: bigint;
+  lotNumber?: string;
+  manufacturedAt?: number;
+  expiresAt?: number;
+  unitCostMinor?: bigint;
+};
+
+/**
+ * A row-level failure with a machine-readable code, so the CSV import can report per row
+ * while the single-document mutation keeps rethrowing the same human message it always has.
+ */
+export class OpeningBalanceLineError extends Error {
+  code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "OpeningBalanceLineError";
+    this.code = code;
+  }
+}
+
+/**
+ * Validates one opening-balance line and resolves or creates its lot. Shared by
+ * `postOpeningBalances` and the opening-stock CSV import so both apply identical rules
+ * (ADR-007: opening stock is explicit, lot-tracked, and never implicit).
+ */
+export async function buildOpeningBalanceLine(
+  ctx: MutationCtx,
+  args: { sourceReference: string; line: OpeningBalanceLineInput },
+): Promise<PostingLine> {
+  const { line, sourceReference } = args;
+  if (line.quantityBase <= 0n)
+    throw new OpeningBalanceLineError(
+      "not_positive",
+      "Opening quantity must be positive",
+    );
+  const policy = await ctx.db
+    .query("productInventoryPolicies")
+    .withIndex("by_organizationId_and_productId", (q) =>
+      q
+        .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
+        .eq("productId", line.productId),
+    )
+    .unique();
+  const now = Date.now();
+  let lotId;
+  if (policy?.trackingMode === "lot") {
+    if (!line.lotNumber)
+      throw new OpeningBalanceLineError(
+        "required_missing",
+        "Lot-tracked opening balance requires a lot",
+      );
+    if (policy.expiryDateRequired && !line.expiresAt)
+      throw new OpeningBalanceLineError(
+        "required_missing",
+        "Opening lot requires an expiry date",
+      );
+    if (policy.manufactureDateRequired && !line.manufacturedAt)
+      throw new OpeningBalanceLineError(
+        "required_missing",
+        "Opening lot requires a manufacture date",
+      );
+    const normalizedLotNumber = line.lotNumber.trim().toUpperCase();
+    let lot = await ctx.db
+      .query("inventoryLots")
+      .withIndex(
+        "by_organizationId_and_productId_and_normalizedLotNumber",
+        (q) =>
+          q
+            .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
+            .eq("productId", line.productId)
+            .eq("normalizedLotNumber", normalizedLotNumber),
+      )
+      .unique();
+    if (!lot) {
+      const id = await ctx.db.insert("inventoryLots", {
+        organizationId: SUNPRIDE_ORGANIZATION_ID,
+        productId: line.productId,
+        lotNumber: line.lotNumber,
+        normalizedLotNumber,
+        sourceType: "opening_balance",
+        sourceDocumentId: sourceReference,
+        ...(line.manufacturedAt ? { manufacturedAt: line.manufacturedAt } : {}),
+        receivedAt: now,
+        ...(line.expiresAt ? { expiresAt: line.expiresAt } : {}),
+        qualityStatus: "released",
+        ...(line.unitCostMinor ? { unitCostMinor: line.unitCostMinor } : {}),
+        createdAt: now,
+        updatedAt: now,
+      });
+      lot = await ctx.db.get(id);
+    }
+    if (!lot)
+      throw new OpeningBalanceLineError(
+        "internal",
+        "Could not create opening lot",
+      );
+    lotId = lot._id;
+  }
+  return {
+    productId: line.productId,
+    quantityBase: line.quantityBase,
+    toLocationId: line.locationId,
+    toStockStatus: "available",
+    ...(lotId
+      ? {
+          allocations: [
+            {
+              lotId,
+              quantityBase: line.quantityBase,
+              userSelected: true,
+            },
+          ],
+        }
+      : {}),
+    unitCostMinor: line.unitCostMinor,
+    reasonCode: "approved_opening_balance",
+  };
+}
+
 export const postOpeningBalances = mutation({
   args: {
     idempotencyKey: v.string(),
     sourceReference: v.string(),
-    lines: v.array(
-      v.object({
-        productId: v.id("products"),
-        locationId: v.id("inventoryLocations"),
-        quantityBase: v.int64(),
-        lotNumber: v.optional(v.string()),
-        manufacturedAt: v.optional(v.number()),
-        expiresAt: v.optional(v.number()),
-        unitCostMinor: v.optional(v.int64()),
-      }),
-    ),
+    lines: v.array(openingBalanceLineInput),
   },
   returns: movementResultValidator,
   handler: async (ctx, args) => {
@@ -261,83 +385,20 @@ export const postOpeningBalances = mutation({
     }
     if (args.lines.length === 0)
       throw new ConvexError("Opening balance needs at least one line");
-    const now = Date.now();
     const postingLines: PostingLine[] = [];
     for (const line of args.lines) {
-      if (line.quantityBase <= 0n)
-        throw new ConvexError("Opening quantity must be positive");
-      const policy = await ctx.db
-        .query("productInventoryPolicies")
-        .withIndex("by_organizationId_and_productId", (q) =>
-          q
-            .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
-            .eq("productId", line.productId),
-        )
-        .unique();
-      let lotId;
-      if (policy?.trackingMode === "lot") {
-        if (!line.lotNumber)
-          throw new ConvexError("Lot-tracked opening balance requires a lot");
-        if (policy.expiryDateRequired && !line.expiresAt)
-          throw new ConvexError("Opening lot requires an expiry date");
-        if (policy.manufactureDateRequired && !line.manufacturedAt)
-          throw new ConvexError("Opening lot requires a manufacture date");
-        const normalizedLotNumber = line.lotNumber.trim().toUpperCase();
-        let lot = await ctx.db
-          .query("inventoryLots")
-          .withIndex(
-            "by_organizationId_and_productId_and_normalizedLotNumber",
-            (q) =>
-              q
-                .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
-                .eq("productId", line.productId)
-                .eq("normalizedLotNumber", normalizedLotNumber),
-          )
-          .unique();
-        if (!lot) {
-          const id = await ctx.db.insert("inventoryLots", {
-            organizationId: SUNPRIDE_ORGANIZATION_ID,
-            productId: line.productId,
-            lotNumber: line.lotNumber,
-            normalizedLotNumber,
-            sourceType: "opening_balance",
-            sourceDocumentId: args.sourceReference,
-            ...(line.manufacturedAt
-              ? { manufacturedAt: line.manufacturedAt }
-              : {}),
-            receivedAt: now,
-            ...(line.expiresAt ? { expiresAt: line.expiresAt } : {}),
-            qualityStatus: "released",
-            ...(line.unitCostMinor
-              ? { unitCostMinor: line.unitCostMinor }
-              : {}),
-            createdAt: now,
-            updatedAt: now,
-          });
-          lot = await ctx.db.get(id);
-        }
-        if (!lot) throw new ConvexError("Could not create opening lot");
-        lotId = lot._id;
+      try {
+        postingLines.push(
+          await buildOpeningBalanceLine(ctx, {
+            sourceReference: args.sourceReference,
+            line,
+          }),
+        );
+      } catch (error) {
+        if (error instanceof OpeningBalanceLineError)
+          throw new ConvexError(error.message);
+        throw error;
       }
-      postingLines.push({
-        productId: line.productId,
-        quantityBase: line.quantityBase,
-        toLocationId: line.locationId,
-        toStockStatus: "available",
-        ...(lotId
-          ? {
-              allocations: [
-                {
-                  lotId,
-                  quantityBase: line.quantityBase,
-                  userSelected: true,
-                },
-              ],
-            }
-          : {}),
-        unitCostMinor: line.unitCostMinor,
-        reasonCode: "approved_opening_balance",
-      });
     }
     return postMovement(ctx, {
       idempotencyKey: args.idempotencyKey,

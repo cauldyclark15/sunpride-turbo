@@ -2,6 +2,11 @@ import { v } from "convex/values";
 import { query } from "../_generated/server";
 import { requireIdentity } from "../lib/auth";
 
+// Frozen for growth (tracker CVX-002). New SFA capability belongs in dedicated
+// packages/backend/convex/<domain>/ modules — coverage, visits, customers, vanSales,
+// mobile, analytics — never here. This file keeps only the legacy visit projection and
+// is deleted when the coverage and visit domains replace it.
+
 const visit = v.object({
   _id: v.id("visits"),
   _creationTime: v.number(),
