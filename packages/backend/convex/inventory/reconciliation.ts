@@ -1,17 +1,15 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation, query } from "../_generated/server";
-import { requireIdentity, requireRole } from "../lib/auth";
+import { requireCapability } from "../lib/capabilities";
+import { requireNationalScope } from "../lib/scope";
+import { readableLocationIds } from "./location_scope";
 import { SUNPRIDE_ORGANIZATION_ID } from "./constants";
 
 export const run = mutation({
   args: { sapCutoff: v.number(), scope: v.optional(v.string()) },
   returns: v.id("inventoryReconciliationRuns"),
   handler: async (ctx, args) => {
-    const { identity } = await requireRole(ctx, [
-      "admin",
-      "manager",
-      "approver",
-    ]);
+    const { identity } = await requireNationalScope(ctx, ["admin"]);
     const now = Date.now();
     const runId = await ctx.db.insert("inventoryReconciliationRuns", {
       organizationId: SUNPRIDE_ORGANIZATION_ID,
@@ -98,7 +96,7 @@ export const runs = query({
   args: { limit: v.optional(v.number()) },
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
-    await requireIdentity(ctx);
+    await requireNationalScope(ctx, ["admin", "analyst"]);
     return ctx.db
       .query("inventoryReconciliationRuns")
       .withIndex("by_organizationId_and_status_and_startedAt", (q) =>
@@ -116,8 +114,12 @@ export const differences = query({
   },
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
-    await requireIdentity(ctx);
-    return ctx.db
+    await requireCapability(ctx, "inventory.read");
+    const run = await ctx.db.get(args.runId);
+    if (!run || run.organizationId !== SUNPRIDE_ORGANIZATION_ID)
+      throw new ConvexError("Reconciliation run not found");
+    const canRead = await readableLocationIds(ctx);
+    const rows = await ctx.db
       .query("inventoryReconciliationDifferences")
       .withIndex("by_organizationId_and_runId", (q) =>
         q
@@ -125,5 +127,20 @@ export const differences = query({
           .eq("runId", args.runId),
       )
       .take(Math.min(args.limit ?? 100, 250));
+    const visible = [];
+    for (const row of rows) {
+      if (row.locationId) {
+        if (await canRead(row.locationId)) visible.push(row);
+      } else {
+        // Mapping failures have no trusted location boundary.
+        try {
+          await requireNationalScope(ctx, ["admin"]);
+          visible.push(row);
+        } catch {
+          // No national access: omit unmapped reconciliation details.
+        }
+      }
+    }
+    return visible;
   },
 });

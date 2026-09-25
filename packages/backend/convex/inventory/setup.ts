@@ -2,7 +2,7 @@ import { ConvexError, v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { mutation } from "../_generated/server";
 import type { MutationCtx } from "../_generated/server";
-import { requireRole } from "../lib/auth";
+import { requireNationalScope } from "../lib/scope";
 import { DEFAULT_QUANTITY_SCALE, SUNPRIDE_ORGANIZATION_ID } from "./constants";
 import {
   findExistingCommand,
@@ -65,7 +65,7 @@ export const foundation = mutation({
     policyCount: v.number(),
   }),
   handler: async (ctx) => {
-    await requireRole(ctx, ["admin"]);
+    const { identity } = await requireNationalScope(ctx, ["admin"]);
     const now = Date.now();
     let caseUom = await ctx.db
       .query("unitsOfMeasure")
@@ -219,6 +219,14 @@ export const foundation = mutation({
         policyCount += 1;
       }
     }
+    await ctx.db.insert("auditLogs", {
+      subject: identity.tokenIdentifier,
+      action: "inventory.setup.foundation",
+      entityType: "inventoryFoundation",
+      entityId: SUNPRIDE_ORGANIZATION_ID,
+      details: JSON.stringify({ policyCount }),
+      createdAt: now,
+    });
     return {
       seeded: policyCount > 0,
       locationCount: 7,
@@ -367,7 +375,7 @@ export const postOpeningBalances = mutation({
   },
   returns: movementResultValidator,
   handler: async (ctx, args) => {
-    const { identity } = await requireRole(ctx, ["admin"]);
+    const { identity } = await requireNationalScope(ctx, ["admin"]);
     const payloadHash = hashPayload(args);
     const duplicate = await findExistingCommand(
       ctx,

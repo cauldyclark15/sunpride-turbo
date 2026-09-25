@@ -1,7 +1,11 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "../_generated/server";
-import { requireIdentity, requireRole } from "../lib/auth";
+import { requireNationalScope } from "../lib/scope";
 import { SUNPRIDE_ORGANIZATION_ID } from "./constants";
+import {
+  readableLocationIds,
+  requireLocationCapability,
+} from "./location_scope";
 import { hashPayload, postMovement, type PostingLine } from "./posting";
 import { productionStatusValidator } from "./validators";
 
@@ -30,7 +34,7 @@ export const createBomVersion = mutation({
   },
   returns: v.id("billOfMaterialVersions"),
   handler: async (ctx, args) => {
-    const { identity } = await requireRole(ctx, ["admin", "manager"]);
+    const { identity } = await requireNationalScope(ctx, ["admin"]);
     if (args.outputQuantityBase <= 0n || args.components.length === 0)
       throw new ConvexError("BOM needs positive output and components");
     const now = Date.now();
@@ -104,11 +108,7 @@ export const approveBomVersion = mutation({
   args: { bomVersionId: v.id("billOfMaterialVersions") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { identity } = await requireRole(ctx, [
-      "admin",
-      "manager",
-      "approver",
-    ]);
+    const { identity } = await requireNationalScope(ctx, ["admin", "approver"]);
     const version = await ctx.db.get(args.bomVersionId);
     if (!version || !["draft", "approved"].includes(version.status))
       throw new ConvexError("BOM version is not approvable");
@@ -157,7 +157,17 @@ export const createProductionOrder = mutation({
   },
   returns: v.id("productionOrders"),
   handler: async (ctx, args) => {
-    const { identity } = await requireRole(ctx, ["admin", "manager"]);
+    const { identity } = await requireLocationCapability(
+      ctx,
+      "inventory.write",
+      args.sourceLocationId,
+    );
+    await requireLocationCapability(ctx, "inventory.write", args.wipLocationId);
+    await requireLocationCapability(
+      ctx,
+      "inventory.write",
+      args.outputLocationId,
+    );
     const version = await ctx.db.get(args.bomVersionId);
     if (!version || version.status !== "active")
       throw new ConvexError("Active BOM version required");
@@ -166,6 +176,21 @@ export const createProductionOrder = mutation({
       throw new ConvexError("BOM does not produce the selected product");
     if (args.plannedBase <= 0n)
       throw new ConvexError("Planned quantity must be positive");
+    const components = await ctx.db
+      .query("billOfMaterialComponents")
+      .withIndex("by_organizationId_and_bomVersionId", (q) =>
+        q
+          .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
+          .eq("bomVersionId", version._id),
+      )
+      .take(100);
+    for (const component of components)
+      if (component.preferredLocationId)
+        await requireLocationCapability(
+          ctx,
+          "inventory.write",
+          component.preferredLocationId,
+        );
     const now = Date.now();
     return ctx.db.insert("productionOrders", {
       organizationId: SUNPRIDE_ORGANIZATION_ID,
@@ -201,10 +226,25 @@ export const complete = mutation({
     outputLotId: v.id("inventoryLots"),
   }),
   handler: async (ctx, args) => {
-    const { identity } = await requireRole(ctx, ["admin", "manager"]);
     const order = await ctx.db.get(args.productionOrderId);
+    if (!order || order.organizationId !== SUNPRIDE_ORGANIZATION_ID)
+      throw new ConvexError("Production order not found");
+    const { identity } = await requireLocationCapability(
+      ctx,
+      "inventory.write",
+      order.sourceLocationId,
+    );
+    await requireLocationCapability(
+      ctx,
+      "inventory.write",
+      order.wipLocationId,
+    );
+    await requireLocationCapability(
+      ctx,
+      "inventory.write",
+      order.outputLocationId,
+    );
     if (
-      !order ||
       ![
         "released",
         "material_staged",
@@ -228,6 +268,13 @@ export const complete = mutation({
           .eq("bomVersionId", version._id),
       )
       .take(100);
+    for (const component of components)
+      if (component.preferredLocationId)
+        await requireLocationCapability(
+          ctx,
+          "inventory.write",
+          component.preferredLocationId,
+        );
     const outputPolicy = await ctx.db
       .query("productInventoryPolicies")
       .withIndex("by_organizationId_and_productId", (q) =>
@@ -387,8 +434,24 @@ export const recordScrap = mutation({
   },
   returns: v.id("inventoryMovements"),
   handler: async (ctx, args) => {
-    const { identity } = await requireRole(ctx, ["admin", "manager"]);
     const order = await ctx.db.get(args.productionOrderId);
+    if (!order || order.organizationId !== SUNPRIDE_ORGANIZATION_ID)
+      throw new ConvexError("Production order not found");
+    const { identity } = await requireLocationCapability(
+      ctx,
+      "inventory.write",
+      order.sourceLocationId,
+    );
+    await requireLocationCapability(
+      ctx,
+      "inventory.write",
+      order.wipLocationId,
+    );
+    await requireLocationCapability(
+      ctx,
+      "inventory.write",
+      order.outputLocationId,
+    );
     const lot = await ctx.db.get(args.lotId);
     if (!order || !lot || lot.productId !== order.productId)
       throw new ConvexError("Production order or output lot not found");
@@ -436,20 +499,30 @@ export const list = query({
   },
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
-    await requireIdentity(ctx);
-    if (args.status)
-      return ctx.db
-        .query("productionOrders")
-        .withIndex("by_organizationId_and_status_and_createdAt", (q) =>
-          q
-            .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
-            .eq("status", args.status!),
-        )
-        .order("desc")
-        .take(Math.min(args.limit ?? 100, 250));
-    return ctx.db
-      .query("productionOrders")
-      .order("desc")
-      .take(Math.min(args.limit ?? 100, 250));
+    const canRead = await readableLocationIds(ctx);
+    const rows = args.status
+      ? await ctx.db
+          .query("productionOrders")
+          .withIndex("by_organizationId_and_status_and_createdAt", (q) =>
+            q
+              .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
+              .eq("status", args.status!),
+          )
+          .order("desc")
+          .take(Math.min(args.limit ?? 100, 250))
+      : await ctx.db
+          .query("productionOrders")
+          .order("desc")
+          .take(Math.min(args.limit ?? 100, 250));
+    const visible = [];
+    for (const row of rows)
+      if (
+        row.organizationId === SUNPRIDE_ORGANIZATION_ID &&
+        (await canRead(row.sourceLocationId)) &&
+        (await canRead(row.wipLocationId)) &&
+        (await canRead(row.outputLocationId))
+      )
+        visible.push(row);
+    return visible;
   },
 });

@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "../_generated/server";
-import { requireIdentity, requireRole } from "../lib/auth";
+import { requireCapability } from "../lib/capabilities";
+import { requireNationalScope } from "../lib/scope";
 import { SUNPRIDE_ORGANIZATION_ID } from "./constants";
 import {
   allocationPolicyValidator,
@@ -26,7 +27,7 @@ export const upsertProductPolicy = mutation({
   },
   returns: v.id("productInventoryPolicies"),
   handler: async (ctx, args) => {
-    const { identity } = await requireRole(ctx, ["admin"]);
+    const { identity } = await requireNationalScope(ctx, ["admin"]);
     if (args.quantityScale <= 0n || args.quantityPrecision < 0)
       throw new ConvexError("Invalid quantity scale or precision");
     const [product, uom, existing] = await Promise.all([
@@ -111,7 +112,7 @@ export const addUomConversion = mutation({
   },
   returns: v.id("uomConversions"),
   handler: async (ctx, args) => {
-    const { identity } = await requireRole(ctx, ["admin"]);
+    const { identity } = await requireNationalScope(ctx, ["admin"]);
     if (
       args.fromUomId === args.toUomId ||
       args.numerator <= 0n ||
@@ -153,7 +154,7 @@ export const convert = query({
   },
   returns: v.int64(),
   handler: async (ctx, args) => {
-    await requireIdentity(ctx);
+    await requireCapability(ctx, "inventory.read");
     const at = args.at ?? Date.now();
     const rows = args.productId
       ? await ctx.db
@@ -202,7 +203,7 @@ export const list = query({
   args: {},
   returns: v.array(v.any()),
   handler: async (ctx) => {
-    await requireIdentity(ctx);
+    await requireCapability(ctx, "inventory.read");
     return ctx.db
       .query("productInventoryPolicies")
       .withIndex("by_organizationId_and_trackingMode_and_active", (q) =>
