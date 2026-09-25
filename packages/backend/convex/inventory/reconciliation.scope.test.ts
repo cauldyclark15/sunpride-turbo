@@ -63,7 +63,7 @@ async function fixture() {
   });
   async function actor(
     email: string,
-    role: "admin" | "operations" | "approver" | "viewer" | "sales",
+    role: "admin" | "operations" | "manager" | "approver" | "viewer" | "sales",
     unit = aUnit,
   ) {
     await root.mutation(api.domains.profiles.invite, {
@@ -100,10 +100,16 @@ async function fixture() {
 }
 
 describe("reconciliation scope", () => {
-  it("national-gates full runs/history and filters differences after parent validation", async () => {
+  it("keeps writes national, returns empty history to regional readers, and filters differences", async () => {
     const f = await fixture();
     const regional = await f.actor("regional-recon@test.local", "admin");
+    const manager = await f.actor("manager-recon@test.local", "manager");
     const viewer = await f.actor("viewer-recon@test.local", "viewer");
+    const nationalAdmin = await f.actor(
+      "national-recon@test.local",
+      "admin",
+      f.rootUnit,
+    );
     await expect(
       regional.mutation(api.inventory.reconciliation.run, {
         sapCutoff: Date.now(),
@@ -117,9 +123,23 @@ describe("reconciliation scope", () => {
     const runId = await f.root.mutation(api.inventory.reconciliation.run, {
       sapCutoff: Date.now(),
     });
+    expect(await regional.query(api.inventory.reconciliation.runs, {})).toEqual(
+      [],
+    );
+    expect(await manager.query(api.inventory.reconciliation.runs, {})).toEqual(
+      [],
+    );
+    expect(await viewer.query(api.inventory.reconciliation.runs, {})).toEqual(
+      [],
+    );
     await expect(
-      regional.query(api.inventory.reconciliation.runs, {}),
+      f.t.query(api.inventory.reconciliation.runs, {}),
     ).rejects.toThrow();
+    expect(
+      (await nationalAdmin.query(api.inventory.reconciliation.runs, {})).map(
+        (row) => row._id,
+      ),
+    ).toContain(runId);
     expect(
       (await f.root.query(api.inventory.reconciliation.runs, {})).map(
         (row) => row._id,
