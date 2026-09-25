@@ -102,6 +102,13 @@ export const start = mutation({
             : {}),
         });
     }
+    await ctx.db.insert("auditLogs", {
+      subject: identity.tokenIdentifier,
+      action: "inventory.count.started",
+      entityType: "stockCountSession",
+      entityId: sessionId,
+      createdAt: now,
+    });
     return sessionId;
   },
 });
@@ -226,6 +233,13 @@ export async function submitCount(
     });
   }
   await ctx.db.patch(session._id, { status: "submitted", updatedAt: now });
+  await ctx.db.insert("auditLogs", {
+    subject: identity.tokenIdentifier,
+    action: "inventory.count.submitted",
+    entityType: "stockCountSession",
+    entityId: session._id,
+    createdAt: now,
+  });
   return null;
 }
 
@@ -366,6 +380,13 @@ export const approveAndPost = mutation({
       approvedBy: identity.tokenIdentifier,
       adjustmentId,
       updatedAt: Date.now(),
+    });
+    await ctx.db.insert("auditLogs", {
+      subject: identity.tokenIdentifier,
+      action: "inventory.count.approved_and_posted",
+      entityType: "stockCountSession",
+      entityId: session._id,
+      createdAt: Date.now(),
     });
     return adjustmentId;
   },

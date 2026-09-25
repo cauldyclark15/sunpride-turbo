@@ -70,6 +70,64 @@ async function fixture() {
 }
 
 describe("stock count session location scope", () => {
+  it("audits start, submit, and approval once with server-derived actors and no blind quantities", async () => {
+    const f = await fixture();
+    const counter = await f.actor("audit-counter@example.test", "manager");
+    const approver = await f.actor("audit-approver@example.test", "approver");
+    const counterSubject = (await counter.query(
+      api.domains.profiles.current,
+      {},
+    ))!.authSubject;
+    const approverSubject = (await approver.query(
+      api.domains.profiles.current,
+      {},
+    ))!.authSubject;
+    const sessionId = await counter.mutation(api.inventory.counts.start, {
+      locationId: f.a._id,
+      countType: "cycle",
+      blindCount: true,
+    });
+    const reviewerView = await approver.query(api.inventory.counts.detail, {
+      sessionId,
+    });
+    await counter.mutation(api.inventory.counts.submit, {
+      sessionId,
+      lines: reviewerView.lines.map((line) => ({
+        lineId: line.lineId,
+        countedBase: line.systemBase!,
+      })),
+    });
+    await approver.mutation(api.inventory.counts.approveAndPost, {
+      sessionId,
+      idempotencyKey: "audit-count-post",
+      reasonCode: "CYCLE",
+    });
+    const audits = await f.t.run(async (ctx) =>
+      (await ctx.db.query("auditLogs").collect()).filter(
+        (row) =>
+          row.entityType === "stockCountSession" && row.entityId === sessionId,
+      ),
+    );
+    expect(audits.map(({ action, subject }) => ({ action, subject }))).toEqual([
+      {
+        action: "inventory.count.started",
+        subject: counterSubject,
+      },
+      {
+        action: "inventory.count.submitted",
+        subject: counterSubject,
+      },
+      {
+        action: "inventory.count.approved_and_posted",
+        subject: approverSubject,
+      },
+    ]);
+    expect(audits.every((row) => row.details === undefined)).toBe(true);
+    expect(JSON.stringify(audits)).not.toMatch(
+      /systemBase|expectedBase|varianceBase|countedBase/,
+    );
+  });
+
   it("denies viewer/sales start and submit, manager outside region, and forged location", async () => {
     const f = await fixture();
     const viewer = await f.actor("viewer-count@example.test", "viewer");

@@ -117,6 +117,18 @@ describe("cycle count CSV", () => {
       args(rows),
     );
     expect(submitted.sessionId).toBe(sessionId);
+    const countAudits = await t.run(async (ctx) =>
+      (await ctx.db.query("auditLogs").collect()).filter(
+        (entry) => entry.entityId === sessionId,
+      ),
+    );
+    expect(countAudits.map((entry) => entry.action)).toEqual([
+      "inventory.count.started",
+      "inventory.count.submitted",
+    ]);
+    expect(JSON.stringify(countAudits)).not.toMatch(
+      /240000|239000|systemBase|expectedBase|varianceBase|countedBase/,
+    );
     const detail = await superAdmin.query(api.inventory.counts.detail, {
       sessionId,
     });
@@ -236,6 +248,16 @@ describe("cycle count CSV", () => {
       (await admin.mutation(api.imports.counts.commit, args(rows, "again")))
         .runId,
     ).toBe(first.runId);
+    expect(
+      await t.run(
+        async (ctx) =>
+          (await ctx.db.query("auditLogs").collect()).filter(
+            (entry) =>
+              entry.entityId === sessionId &&
+              entry.action === "inventory.count.submitted",
+          ).length,
+      ),
+    ).toBe(1);
     await expect(
       admin.mutation(api.inventory.counts.approveAndPost, {
         sessionId,
