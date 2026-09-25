@@ -1,6 +1,11 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "../_generated/server";
-import { requireIdentity, requireRole } from "../lib/auth";
+import { requireCapability } from "../lib/capabilities";
+import { requireNationalScope } from "../lib/scope";
+import {
+  readableLocationIds,
+  requireLocationCapability,
+} from "./location_scope";
 import { SUNPRIDE_ORGANIZATION_ID } from "./constants";
 
 export const upsertPolicy = mutation({
@@ -16,7 +21,9 @@ export const upsertPolicy = mutation({
   },
   returns: v.id("replenishmentPolicies"),
   handler: async (ctx, args) => {
-    const { identity } = await requireRole(ctx, ["admin", "manager"]);
+    const { identity } = args.locationId
+      ? await requireLocationCapability(ctx, "inventory.write", args.locationId)
+      : await requireNationalScope(ctx, ["admin"]);
     if (
       args.reorderPointBase < 0n ||
       args.targetLevelBase <= args.reorderPointBase ||
@@ -34,16 +41,24 @@ export const upsertPolicy = mutation({
       .unique();
     const now = Date.now();
     if (existing) {
+      if (existing.locationId)
+        await requireLocationCapability(
+          ctx,
+          "inventory.write",
+          existing.locationId,
+        );
+      else await requireNationalScope(ctx, ["admin"]);
       await ctx.db.patch(existing._id, { ...args, updatedAt: now });
-      return existing._id;
     }
-    const id = await ctx.db.insert("replenishmentPolicies", {
-      organizationId: SUNPRIDE_ORGANIZATION_ID,
-      ...args,
-      lastAlertState: "ok",
-      createdAt: now,
-      updatedAt: now,
-    });
+    const id =
+      existing?._id ??
+      (await ctx.db.insert("replenishmentPolicies", {
+        organizationId: SUNPRIDE_ORGANIZATION_ID,
+        ...args,
+        lastAlertState: "ok",
+        createdAt: now,
+        updatedAt: now,
+      }));
     await ctx.db.insert("auditLogs", {
       subject: identity.tokenIdentifier,
       action: "inventory.replenishment_policy.updated",
@@ -72,7 +87,15 @@ export const suggestions = query({
     }),
   ),
   handler: async (ctx) => {
-    await requireIdentity(ctx);
+    await requireCapability(ctx, "inventory.read");
+    const canRead = await readableLocationIds(ctx);
+    let national = false;
+    try {
+      await requireNationalScope(ctx, ["admin", "analyst"]);
+      national = true;
+    } catch {
+      // Global policies have no location boundary for scoped readers.
+    }
     const policies = await ctx.db
       .query("replenishmentPolicies")
       .withIndex("by_organizationId_and_enabled", (q) =>
@@ -81,6 +104,9 @@ export const suggestions = query({
       .take(100);
     const result = [];
     for (const policy of policies) {
+      if (policy.locationId) {
+        if (!(await canRead(policy.locationId))) continue;
+      } else if (!national) continue;
       const [product, location] = await Promise.all([
         ctx.db.get(policy.productId),
         policy.locationId ? ctx.db.get(policy.locationId) : null,
