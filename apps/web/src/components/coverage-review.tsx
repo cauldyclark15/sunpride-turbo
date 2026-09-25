@@ -509,10 +509,16 @@ export function CoverageReview({
   mode,
   permissions,
   profile,
+  scopedSelection,
 }: {
   mode: Mode;
   permissions: Permissions;
   profile: Pick<Doc<"profiles">, "_id" | "name" | "authSubject">;
+  scopedSelection?: {
+    planId: Id<"coveragePlans">;
+    assigneeProfileId: Id<"profiles">;
+    localMonth: string;
+  };
 }) {
   const canRead = permissions.capabilities.includes("mcp.read");
   const canApprove = permissions.capabilities.includes("mcp.approve");
@@ -528,6 +534,7 @@ export function CoverageReview({
   const discovery = useQuery(
     api.coverage.discovery.list,
     canRead &&
+      !scopedSelection &&
       !(mode === "review" && !canApprove) &&
       /^\d{4}-(0[1-9]|1[0-2])$/.test(month)
       ? {
@@ -539,6 +546,30 @@ export function CoverageReview({
   );
   if (!canRead || (mode === "review" && !canApprove))
     return <p>MCP access required.</p>;
+  if (scopedSelection)
+    return (
+      <section aria-label={`Coverage ${mode}`}>
+        {mode === "visits" ? (
+          <PlannedVisits
+            personId={scopedSelection.assigneeProfileId}
+            month={scopedSelection.localMonth}
+          />
+        ) : (
+          <SelectedPlan
+            key={scopedSelection.planId}
+            planId={scopedSelection.planId}
+            mode={mode}
+            personId={scopedSelection.assigneeProfileId}
+            month={scopedSelection.localMonth}
+            actor={profile.authSubject}
+            reviewerId={profile._id}
+            canApprove={canApprove}
+            canOutletRead={permissions.capabilities.includes("outlet.read")}
+            canRouteRead={permissions.capabilities.includes("route.read")}
+          />
+        )}
+      </section>
+    );
   const plans = [...prior, ...(discovery?.page ?? [])].filter(
     (p) => permissions.role !== "sales" || p.assigneeProfileId === profile._id,
   );
