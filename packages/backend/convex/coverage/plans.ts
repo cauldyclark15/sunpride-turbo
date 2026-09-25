@@ -421,10 +421,11 @@ export const saveOutlets = mutation({
     for (const row of previous) await ctx.db.delete(row._id);
     const result = [];
     for (const o of args.outlets) {
+      // Today's plan boundary can precede a mid-day outlet assignment.
       const source = await resolveOutletScopeAt(
         ctx,
         o.outletId,
-        plan.effectiveFrom,
+        Math.max(plan.effectiveFrom, Date.now()),
       );
       if (source.assignment?.territoryId !== o.territoryId)
         throw new ConvexError(

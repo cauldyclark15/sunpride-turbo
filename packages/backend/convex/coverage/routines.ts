@@ -182,19 +182,20 @@ async function forPlan(
   const plan = await ctx.db.get(planId);
   if (!plan) throw new ConvexError("Plan not found");
   await planAccess(ctx, plan, "mcp.read");
-  // Plan day boundaries may precede a same-day mid-day hire.
+  // The position and its templates must be read at the same first live instant.
+  const effectiveInstant = Math.max(plan.effectiveFrom, Date.now());
   const assignment = await employeeAt(
     ctx,
     plan.assigneeProfileId,
-    Math.max(plan.effectiveFrom, Date.now()),
+    effectiveInstant,
   );
   const rows = assignment.positionId
     ? await templates(ctx, assignment.positionId)
     : [];
   const active = rows.filter(
     (row) =>
-      row.effectiveFrom <= plan.effectiveFrom &&
-      (row.effectiveTo === undefined || row.effectiveTo > plan.effectiveFrom),
+      row.effectiveFrom <= effectiveInstant &&
+      (row.effectiveTo === undefined || row.effectiveTo > effectiveInstant),
   );
   if (new Set(active.map((row) => row.weekday)).size !== active.length)
     throw new ConvexError("Overlapping routine templates");
