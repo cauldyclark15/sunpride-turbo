@@ -441,6 +441,18 @@ describe("coverage activation", () => {
       expect(
         (await f.t.run((ctx) => ctx.db.get(first._id)))?.activeThrough,
       ).toBe(revision.effectiveFrom);
+      const invalidations = await f.t.run((ctx) =>
+        ctx.db.query("mobileChanges").collect(),
+      );
+      expect(
+        invalidations.filter(
+          (row) =>
+            row.entity === "coveragePlan" &&
+            [first._id, revision._id].includes(
+              row.entityId as typeof first._id,
+            ),
+        ),
+      ).toHaveLength(3);
     } finally {
       vi.useRealTimers();
     }
@@ -497,6 +509,90 @@ describe("coverage activation", () => {
         (await f.t.run((ctx) => ctx.db.get(result.visitIds[0]!)))?.serviceDate,
       ).toBe(lastDay);
       expect(manilaDate(monthBounds(f.month).to)).not.toBe(lastDay);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("refuses supersession of an in-progress executed visit without partial plan or feed writes", async () => {
+    const f = await setup();
+    const first = await f.create();
+    const firstDay = manilaDate(localDate(f.date) - 86400000);
+    await f.sales.actor.mutation(api.coverage.plans.saveSlots, {
+      planId: first._id,
+      slots: [
+        { ...f.slot(), serviceDate: firstDay, slotKey: "past" },
+        { ...f.slot(), sequence: 2, slotKey: "future" },
+      ],
+    });
+    await f.sales.actor.mutation(api.coverage.plans.submit, {
+      planId: first._id,
+    });
+    await f.manager.actor.mutation(api.coverage.plans.approve, {
+      planId: first._id,
+    });
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(localDate(firstDay));
+      const initial = await f.manager.actor.mutation(
+        api.coverage.activation.activate,
+        { planId: first._id },
+      );
+      const old = (await f.t.run((ctx) => ctx.db.get(initial.visitIds[1]!)))!;
+      await f.t.run((ctx) =>
+        ctx.db.insert("visitExecutions", {
+          organizationId: first.organizationId,
+          clientVisitId: crypto.randomUUID(),
+          plannedVisitId: old._id,
+          planId: first._id,
+          slotId: old.planSlotId,
+          planVersion: first.version,
+          assigneeProfileId: first.assigneeProfileId,
+          outletId: old.outletId,
+          orgUnitId: first.orgUnitId,
+          serviceDate: old.serviceDate,
+          source: "planned",
+          intents: [],
+          state: "in-progress",
+          productivity: "pending",
+          createdAt: Date.now(),
+          lastServerTime: Date.now(),
+        }),
+      );
+      const revision = await f.sales.actor.mutation(
+        api.coverage.plans.createRevision,
+        {
+          planId: first._id,
+          effectiveFromDate: f.date,
+          reason: "New route",
+        },
+      );
+      await f.sales.actor.mutation(api.coverage.plans.submit, {
+        planId: revision._id,
+      });
+      await f.manager.actor.mutation(api.coverage.plans.approve, {
+        planId: revision._id,
+      });
+      vi.setSystemTime(localDate(f.date));
+      const before = await f.t.run((ctx) =>
+        ctx.db.query("mobileChanges").collect(),
+      );
+      await expect(
+        f.manager.actor.mutation(api.coverage.activation.activate, {
+          planId: revision._id,
+        }),
+      ).rejects.toThrow(/Cannot replace or cancel an executed planned visit/);
+      expect((await f.t.run((ctx) => ctx.db.get(old._id)))?.status).toBe(
+        "planned",
+      );
+      expect((await f.t.run((ctx) => ctx.db.get(first._id)))?.status).toBe(
+        "active",
+      );
+      expect((await f.t.run((ctx) => ctx.db.get(revision._id)))?.status).toBe(
+        "approved",
+      );
+      expect(
+        await f.t.run((ctx) => ctx.db.query("mobileChanges").collect()),
+      ).toEqual(before);
     } finally {
       vi.useRealTimers();
     }

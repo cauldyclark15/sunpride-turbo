@@ -28,6 +28,37 @@ const result = v.object({
 });
 const SYSTEM_ACTOR = "system:coverage-due";
 
+async function signalPlan(
+  ctx: MutationCtx,
+  plan: Doc<"coveragePlans">,
+  now: number,
+): Promise<void> {
+  const latest = await ctx.db
+    .query("mobileChanges")
+    .withIndex("by_organizationId_and_sequence", (q) =>
+      q.eq("organizationId", plan.organizationId),
+    )
+    .order("desc")
+    .first();
+  const sequence = (latest?.sequence ?? 0) + 1;
+  if (!Number.isSafeInteger(sequence))
+    throw new ConvexError("change_sequence_exhausted");
+  // MCP auditPlan is the actor-attributed audit; this unsupported feed entity invalidates
+  // the salesperson's cursor even if the changed visit is outside today's manifest.
+  await ctx.db.insert("mobileChanges", {
+    organizationId: plan.organizationId,
+    orgUnitId: plan.orgUnitId,
+    sequence,
+    entity: "coveragePlan",
+    entityId: plan._id,
+    revision: sequence,
+    op: "upsert",
+    ownerProfileId: plan.assigneeProfileId,
+    serverAt: now,
+    payloadVersion: 1,
+  });
+}
+
 async function reconcile(
   ctx: MutationCtx,
   plan: Doc<"coveragePlans">,
@@ -120,7 +151,15 @@ async function reconcile(
         localDate(old.serviceDate) < plan.effectiveFrom
       )
         continue;
-      // Future execution tables must be checked here before adding an actual-visit writer (group 07).
+      // No replacement or cancellation of a visit with any execution attempt, including in-progress.
+      const executions = await ctx.db
+        .query("visitExecutions")
+        .withIndex("by_plannedVisitId", (q) => q.eq("plannedVisitId", old._id))
+        .take(1);
+      if (executions.length)
+        throw new ConvexError(
+          "Cannot replace or cancel an executed planned visit",
+        );
       const candidate =
         newBySlot.get(`${old.serviceDate}|${keys.get(old.planSlotId)}`) ??
         newByOutlet.get(`${old.serviceDate}|${old.outletId}`);
@@ -150,6 +189,7 @@ async function reconcile(
       );
       displaced++;
     }
+    await signalPlan(ctx, predecessor, now);
     await ctx.db.patch(predecessor._id, {
       status: "superseded",
       supersededAt: now,
@@ -176,6 +216,7 @@ async function reconcile(
     );
   }
   if (isNew) {
+    await signalPlan(ctx, plan, now);
     await ctx.db.patch(plan._id, {
       status: "active",
       activatedAt: now,

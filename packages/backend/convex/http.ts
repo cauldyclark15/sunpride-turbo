@@ -2,6 +2,7 @@ import { httpRouter } from "convex/server";
 import { env, httpAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { authComponent, createAuth } from "./auth";
+import * as mobileHandlers from "./mobile/http_handlers";
 
 const http = httpRouter();
 authComponent.registerRoutes(http, createAuth, { cors: true });
@@ -166,6 +167,22 @@ http.route({
     });
     return json({ ok: true });
   }),
+});
+
+http.route({
+  path: "/mobile/v1/bootstrap",
+  method: "POST",
+  handler: mobileHandlers.bootstrap,
+});
+http.route({
+  path: "/mobile/v1/pull",
+  method: "POST",
+  handler: mobileHandlers.pull,
+});
+http.route({
+  path: "/mobile/v1/push",
+  method: "POST",
+  handler: mobileHandlers.push,
 });
 
 export default http;

@@ -12,6 +12,7 @@ import {
 } from "../_generated/server";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
 import { assertNotLockedByApprovedPlan } from "../coverage/lock";
+import { manilaDate } from "../coverage/validation";
 import { requireCapability } from "../lib/capabilities";
 import { activeAt, audit, interval, prospective } from "../org/validation";
 import schema from "../schema";
@@ -244,6 +245,45 @@ async function write(
     reason.trim(),
     now,
   );
+  // A changed assignment cannot be represented as a visit delta: invalidate each
+  // affected salesperson's cursor and require a newly scoped signed snapshot.
+  const visits = await ctx.db
+    .query("plannedVisits")
+    .withIndex("by_outletId_and_serviceDate", (q) =>
+      q.eq("outletId", target.outletId).gte("serviceDate", manilaDate(now)),
+    )
+    .take(MAX_ROWS + 1);
+  if (visits.length > MAX_ROWS)
+    throw new ConvexError("Mobile outlet scope exceeds limit");
+  const owners = new Map(
+    visits
+      .filter((v) => v.status === "planned")
+      .map((v) => [v.assigneeProfileId, v.approvedSnapshot.orgUnitId]),
+  );
+  for (const [ownerProfileId, orgUnitId] of owners) {
+    const latest = await ctx.db
+      .query("mobileChanges")
+      .withIndex("by_organizationId_and_sequence", (q) =>
+        q.eq("organizationId", SUNPRIDE_ORGANIZATION_ID),
+      )
+      .order("desc")
+      .first();
+    const sequence = (latest?.sequence ?? 0) + 1;
+    if (!Number.isSafeInteger(sequence))
+      throw new ConvexError("change_sequence_exhausted");
+    await ctx.db.insert("mobileChanges", {
+      organizationId: SUNPRIDE_ORGANIZATION_ID,
+      orgUnitId,
+      sequence,
+      entity: "outletAssignment",
+      entityId: id,
+      revision: sequence,
+      op: "upsert",
+      ownerProfileId,
+      serverAt: now,
+      payloadVersion: 1,
+    });
+  }
   return id;
 }
 async function checkSequences(

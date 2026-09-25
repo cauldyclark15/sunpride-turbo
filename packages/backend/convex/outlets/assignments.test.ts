@@ -115,6 +115,111 @@ const args = (
 });
 
 describe("effective-dated outlet assignments", () => {
+  it("appends a scoped mobile invalidation for an affected planned-visit owner", async () => {
+    const f = await setup();
+    const outletId = await f.outlet("D-FEED");
+    const firstAssignment = await f.root.mutation(
+      api.outlets.assignments.assign,
+      {
+        outletId,
+        territoryId: f.eastTerritory,
+        effectiveFrom: f.from + 1000,
+        reason: "first",
+      },
+    );
+    const owner = (await f.root.query(api.domains.profiles.current, {}))!._id;
+    await f.t.run(async (ctx) => {
+      const now = Date.now();
+      const planId = await ctx.db.insert("coveragePlans", {
+        organizationId: "sunpride",
+        assigneeProfileId: owner,
+        localMonth: "2026-09",
+        version: 1,
+        cycleType: "monthly",
+        orgUnitId: f.east,
+        territoryIds: [f.eastTerritory],
+        requestedFrom: now,
+        requestedTo: now + 86400000,
+        effectiveFrom: now,
+        effectiveTo: now + 86400000,
+        status: "draft",
+        preparedBy: "issuer|root",
+        preparedAt: now,
+        contentRevision: 1,
+        createdBy: "issuer|root",
+        createdAt: now,
+        updatedBy: "issuer|root",
+        updatedAt: now,
+      });
+      const slotId = await ctx.db.insert("coveragePlanSlots", {
+        slotKey: "feed",
+        planId,
+        assigneeProfileId: owner,
+        serviceDate: "2026-09-30",
+        kind: "outlet_visit",
+        outletId,
+        requiredObjectives: [],
+        intents: [],
+        sequence: 1,
+        expectedDurationMinutes: 30,
+        contentRevision: 1,
+        updatedBy: "issuer|root",
+        updatedAt: now,
+      });
+      const assignment = await ctx.db.get(firstAssignment);
+      const ownership = await ctx.db
+        .query("territoryOwnerships")
+        .withIndex("by_territoryId_and_effectiveFrom", (q) =>
+          q.eq("territoryId", f.eastTerritory),
+        )
+        .first();
+      const employee = await ctx.db
+        .query("employeeAssignments")
+        .withIndex("by_profileId_and_effectiveFrom", (q) =>
+          q.eq("profileId", owner),
+        )
+        .first();
+      await ctx.db.insert("plannedVisits", {
+        generationKey: "feed",
+        planId,
+        planVersion: 1,
+        planSlotId: slotId,
+        assigneeProfileId: owner,
+        outletId,
+        serviceDate: "2026-09-30",
+        status: "planned",
+        approvedSnapshot: {
+          outletId,
+          outletCode: "D-FEED",
+          outletName: "D-FEED",
+          territoryId: f.eastTerritory,
+          territoryCode: "D-E",
+          outletAssignmentId: assignment!._id,
+          territoryOwnershipId: ownership!._id,
+          employeeAssignmentId: employee!._id,
+          orgUnitId: f.east,
+          activityKind: "outlet_visit",
+          approvedAssigneeProfileId: owner,
+        },
+        requiredObjectives: [],
+        intents: [],
+        expectedDurationMinutes: 30,
+        generatedAt: now,
+      });
+    });
+    await f.root.mutation(api.outlets.assignments.assign, {
+      outletId,
+      territoryId: f.westTerritory,
+      effectiveFrom: f.from + 2000,
+      reason: "transfer",
+    });
+    const changes = await f.t.run((ctx) =>
+      ctx.db.query("mobileChanges").collect(),
+    );
+    expect(changes).toMatchObject([
+      { entity: "outletAssignment", ownerProfileId: owner, orgUnitId: f.east },
+    ]);
+  });
   it("gates the source owner at the effective date as well as current custodian scope", async () => {
     const f = await setup();
     const id = await f.outlet("D-OWNER");
