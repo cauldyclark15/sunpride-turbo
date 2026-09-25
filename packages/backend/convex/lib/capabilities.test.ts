@@ -220,7 +220,64 @@ describe("capability table", () => {
   it("defines at least one role for every capability", () => {
     for (const [capability, roles] of Object.entries(CAPABILITIES)) {
       expect(roles.length).toBeGreaterThan(0);
-      expect(capability).toMatch(/^[a-z]+(?:\.[a-z]+)+$/);
+      expect(capability).toMatch(/^[a-z]+(?:\.[a-z][A-Za-z]*)+$/);
+    }
+  });
+});
+
+describe("location exception approval", () => {
+  it("grants only super_admin and manager in the permission table", () => {
+    expect(CAPABILITIES["visit.locationException.approve"]).toEqual([
+      "super_admin",
+      "manager",
+    ]);
+  });
+
+  it("enforces role and organizational scope", async () => {
+    const t = convexTest(schema, modules);
+    const { superAdmin, area, territory, otherArea } = await seedHierarchy(t);
+    await expect(
+      superAdmin.mutation(internal.lib.capabilities.assertCapability, {
+        capability: "visit.locationException.approve",
+        targetUnitId: otherArea,
+      }),
+    ).resolves.toMatchObject({ role: "super_admin" });
+    const manager = await provisionProfile(
+      t,
+      superAdmin,
+      "exception-manager@example.test",
+      "manager",
+    );
+    await assignOrgUnit(t, "exception-manager@example.test", area);
+    await expect(
+      manager.mutation(internal.lib.capabilities.assertCapability, {
+        capability: "visit.locationException.approve",
+        targetUnitId: territory,
+      }),
+    ).resolves.toMatchObject({ role: "manager" });
+    await expect(
+      manager.mutation(internal.lib.capabilities.assertCapability, {
+        capability: "visit.locationException.approve",
+        targetUnitId: otherArea,
+      }),
+    ).rejects.toThrow(/outside your organizational scope/);
+    for (const role of [
+      "sales",
+      "analyst",
+      "admin",
+      "operations",
+      "approver",
+      "viewer",
+    ] as const) {
+      const email = `exception-${role}@example.test`;
+      const caller = await provisionProfile(t, superAdmin, email, role);
+      await assignOrgUnit(t, email, area);
+      await expect(
+        caller.mutation(internal.lib.capabilities.assertCapability, {
+          capability: "visit.locationException.approve",
+          targetUnitId: area,
+        }),
+      ).rejects.toThrow(/Insufficient permission/);
     }
   });
 });

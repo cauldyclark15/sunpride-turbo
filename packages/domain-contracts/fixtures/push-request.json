@@ -1,0 +1,33 @@
+{
+  "type": "push.request",
+  "contractVersion": 1,
+  "deviceId": "device-1",
+  "operations": [
+    {
+      "kind": "visit.checkIn",
+      "clientRequestId": "018f5800-1234-7000-8000-000000000001",
+      "payload": {
+        "clientVisitId": "018f5800-1234-7000-8000-000000000002",
+        "plannedVisitId": "planned-1",
+        "outletId": "outlet-1",
+        "serviceDate": "2026-09-26",
+        "deviceTime": 1790380800000,
+        "location": null,
+        "intents": ["merchandise"]
+      }
+    },
+    {
+      "kind": "visit.activity",
+      "clientRequestId": "018f5800-1234-7000-8000-000000000003",
+      "dependsOn": ["018f5800-1234-7000-8000-000000000001"],
+      "payload": {
+        "visitId": "visit-1",
+        "activity": {
+          "kind": "merchandising",
+          "displayCondition": "compliant"
+        },
+        "deviceTime": 1790380800002
+      }
+    }
+  ]
+}

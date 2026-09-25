@@ -1,0 +1,11 @@
+{
+  "extends": "@sunpride/typescript-config/base.json",
+  "compilerOptions": {
+    "types": ["bun"],
+    "resolveJsonModule": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true
+  },
+  "include": ["test/**/*.ts"]
+}

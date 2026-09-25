@@ -108,6 +108,7 @@ export const CAPABILITIES = {
   "mcp.plan": ["super_admin", "admin", "manager", "sales"],
   "mcp.approve": ["super_admin", "manager"],
   "visit.record": ["super_admin", "manager", "sales"],
+  "visit.locationException.approve": ["super_admin", "manager"],
   "visit.read": [
     "super_admin",
     "admin",

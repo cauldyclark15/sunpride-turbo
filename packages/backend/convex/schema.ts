@@ -1737,6 +1737,384 @@ export default defineSchema({
       "fileHash",
     ])
     .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
+  // Mobile v1 is additive: the legacy `visits` table retains its original meaning.
+  registeredDevices: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.optional(v.id("orgUnits")),
+    inventoryTag: v.string(),
+    profileId: v.optional(v.id("profiles")),
+    boundSubject: v.optional(v.string()), // full identity.tokenIdentifier
+    allowedApp: v.union(
+      v.literal("IOS"),
+      v.literal("ANDROID"),
+      v.literal("VAN_ANDROID"),
+    ),
+    platform: v.string(),
+    model: v.string(),
+    osVersion: v.string(),
+    appVersion: v.string(),
+    publicKey: v.optional(v.string()),
+    credentialId: v.optional(v.string()),
+    attestation: v.optional(
+      v.object({
+        format: v.string(),
+        keyId: v.optional(v.string()),
+        verifiedAt: v.optional(v.number()),
+      }),
+    ),
+    registeredAt: v.number(),
+    lastSeenAt: v.optional(v.number()),
+    status: v.union(
+      v.literal("active"),
+      v.literal("suspended"),
+      v.literal("revoked"),
+    ),
+    statusActor: v.optional(v.string()),
+    statusReason: v.optional(v.string()),
+    statusAt: v.optional(v.number()),
+  })
+    .index("by_organizationId_and_inventoryTag", [
+      "organizationId",
+      "inventoryTag",
+    ])
+    .index("by_profileId_and_status", ["profileId", "status"])
+    .index("by_credentialId", ["credentialId"]),
+  deviceChallenges: defineTable({
+    organizationId: v.string(),
+    deviceId: v.id("registeredDevices"),
+    nonce: v.string(),
+    expiresAt: v.number(),
+    consumedAt: v.optional(v.number()),
+    issuedAt: v.number(),
+  })
+    .index("by_deviceId_and_nonce", ["deviceId", "nonce"])
+    .index("by_expiresAt", ["expiresAt"]),
+  visitExecutions: defineTable({
+    organizationId: v.string(),
+    clientVisitId: v.string(),
+    plannedVisitId: v.optional(v.id("plannedVisits")),
+    planId: v.optional(v.id("coveragePlans")),
+    slotId: v.optional(v.id("coveragePlanSlots")),
+    planVersion: v.optional(v.number()),
+    assigneeProfileId: v.id("profiles"),
+    outletId: v.id("outlets"),
+    orgUnitId: v.id("orgUnits"),
+    routeId: v.optional(v.id("routes")),
+    customerId: v.optional(v.id("customers")),
+    serviceDate: v.string(), // Asia/Manila YYYY-MM-DD; writer validates calendar and lineage
+    source: v.union(v.literal("planned"), v.literal("unplanned")),
+    intents: v.array(
+      v.union(
+        v.literal("sell"),
+        v.literal("collect"),
+        v.literal("merchandise"),
+        v.literal("audit"),
+        v.literal("deliver"),
+        v.literal("promotion"),
+        v.literal("complaint"),
+        v.literal("follow-up"),
+      ),
+    ),
+    state: v.union(
+      v.literal("planned"),
+      v.literal("arrived"),
+      v.literal("checked-in"),
+      v.literal("in-progress"),
+      v.literal("checked-out"),
+      v.literal("completed"),
+      v.literal("skipped"),
+      v.literal("rescheduled"),
+      v.literal("missed"),
+    ),
+    outcome: v.optional(v.string()),
+    reasonCode: v.optional(v.string()),
+    productivity: v.union(
+      v.literal("pending"),
+      v.literal("verified"),
+      v.literal("nonproductive"),
+    ),
+    ruleVersion: v.optional(v.string()),
+    createdAt: v.number(),
+    lastServerTime: v.number(),
+    arrivedAt: v.optional(v.number()),
+    checkedInAt: v.optional(v.number()),
+    checkedOutAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    skippedAt: v.optional(v.number()),
+    rescheduledAt: v.optional(v.number()),
+    missedAt: v.optional(v.number()),
+  })
+    .index("by_organizationId_and_assigneeProfileId_and_serviceDate", [
+      "organizationId",
+      "assigneeProfileId",
+      "serviceDate",
+    ])
+    .index("by_plannedVisitId", ["plannedVisitId"])
+    .index("by_organizationId_and_clientVisitId", [
+      "organizationId",
+      "clientVisitId",
+    ]),
+  visitActivities: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    visitId: v.id("visitExecutions"),
+    assigneeProfileId: v.id("profiles"),
+    outletId: v.id("outlets"),
+    activity: v.union(
+      v.object({
+        kind: v.literal("inventory_check"),
+        productId: v.id("products"),
+        observedQuantity: v.optional(v.number()),
+        uomId: v.optional(v.id("unitsOfMeasure")),
+        icoFinding: v.union(
+          v.literal("present"),
+          v.literal("absent"),
+          v.literal("unknown"),
+        ),
+      }),
+      v.object({
+        kind: v.literal("merchandising"),
+        displayCondition: v.union(
+          v.literal("compliant"),
+          v.literal("needs_action"),
+          v.literal("not_present"),
+        ),
+        actionTaken: v.optional(v.string()),
+      }),
+      v.object({
+        kind: v.literal("price_check"),
+        productId: v.id("products"),
+        observedPriceMinor: v.int64(),
+        currency: v.string(),
+        compliant: v.optional(v.boolean()),
+      }),
+      v.object({
+        kind: v.literal("promotion"),
+        programRef: v.string(),
+        finding: v.union(
+          v.literal("executed"),
+          v.literal("not_executed"),
+          v.literal("not_applicable"),
+        ),
+      }),
+      v.object({
+        kind: v.literal("order_intent"),
+        clientOrderId: v.string(),
+        note: v.optional(v.string()),
+      }),
+      v.object({ kind: v.literal("note"), text: v.string() }),
+    ),
+    evidenceIds: v.array(v.id("fieldEvidenceFiles")),
+    deviceTime: v.number(),
+    serverTime: v.number(),
+  }).index("by_visitId_and_serverTime", ["visitId", "serverTime"]),
+  visitLocationEvidence: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    visitId: v.id("visitExecutions"),
+    event: v.union(v.literal("check_in"), v.literal("check_out")),
+    latitude: v.optional(v.number()),
+    longitude: v.optional(v.number()),
+    provider: v.union(
+      v.literal("gps"),
+      v.literal("network"),
+      v.literal("fused"),
+      v.literal("unknown"),
+    ),
+    accuracyMeters: v.optional(v.number()),
+    mockSignal: v.optional(v.boolean()),
+    integritySignal: v.optional(v.string()),
+    pinId: v.optional(v.id("outletPins")),
+    pinVersion: v.optional(v.string()),
+    policyVersion: v.string(),
+    radiusMeters: v.optional(v.number()),
+    distanceMeters: v.optional(v.number()),
+    result: v.union(
+      v.literal("within_radius"),
+      v.literal("outside_radius"),
+      v.literal("unavailable"),
+      v.literal("unreliable"),
+    ),
+    reviewStatus: v.union(
+      v.literal("pending_review"),
+      v.literal("verified"),
+      v.literal("approved_exception"),
+      v.literal("rejected"),
+    ),
+    deviceTime: v.number(),
+    serverTime: v.number(),
+    retentionDueAt: v.optional(v.number()),
+  })
+    .index("by_visitId_and_serverTime", ["visitId", "serverTime"])
+    .index("by_orgUnitId_and_reviewStatus_and_serverTime", [
+      "orgUnitId",
+      "reviewStatus",
+      "serverTime",
+    ])
+    .index("by_retentionDueAt", ["retentionDueAt"]),
+  fieldTasks: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    assigneeProfileId: v.id("profiles"),
+    planId: v.optional(v.id("coveragePlans")),
+    outletId: v.optional(v.id("outlets")),
+    visitId: v.optional(v.id("visitExecutions")),
+    kind: v.union(
+      v.literal("inventory_check"),
+      v.literal("merchandising"),
+      v.literal("price_check"),
+      v.literal("promotion"),
+      v.literal("follow_up"),
+    ),
+    required: v.boolean(),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    status: v.union(
+      v.literal("open"),
+      v.literal("completed"),
+      v.literal("cancelled"),
+    ),
+    evidenceIds: v.array(v.id("fieldEvidenceFiles")),
+    createdAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_assigneeProfileId_and_effectiveFrom", [
+      "assigneeProfileId",
+      "effectiveFrom",
+    ])
+    .index("by_visitId", ["visitId"]),
+  fieldCollections: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    customerId: v.id("customers"),
+    outletId: v.id("outlets"),
+    visitId: v.id("visitExecutions"),
+    assigneeProfileId: v.id("profiles"),
+    amountMinor: v.int64(), // writer enforces positive amount; never a financial posting
+    currency: v.string(),
+    method: v.string(),
+    reference: v.string(),
+    status: v.union(
+      v.literal("recorded"),
+      v.literal("pending_review"),
+      v.literal("rejected"),
+    ),
+    deviceTime: v.number(),
+    serverTime: v.number(),
+  })
+    .index("by_visitId_and_serverTime", ["visitId", "serverTime"])
+    .index("by_customerId_and_serverTime", ["customerId", "serverTime"]),
+  fieldEvidenceFiles: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    storageId: v.id("_storage"),
+    visitId: v.id("visitExecutions"),
+    activityId: v.optional(v.id("visitActivities")),
+    taskId: v.optional(v.id("fieldTasks")),
+    ownerProfileId: v.id("profiles"),
+    outletId: v.id("outlets"),
+    mime: v.string(),
+    sizeBytes: v.number(),
+    checksum: v.string(),
+    capturedAt: v.number(),
+    uploadedAt: v.number(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("verified"),
+      v.literal("rejected"),
+    ),
+    retentionDueAt: v.optional(v.number()),
+    redactedAt: v.optional(v.number()),
+  })
+    .index("by_visitId_and_uploadedAt", ["visitId", "uploadedAt"])
+    .index("by_orgUnitId_and_uploadedAt", ["orgUnitId", "uploadedAt"]),
+  executionEvents: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    entityType: v.union(
+      v.literal("visit"),
+      v.literal("activity"),
+      v.literal("task"),
+      v.literal("collection"),
+      v.literal("device"),
+      v.literal("order"),
+      v.literal("inventory"),
+    ),
+    entityId: v.string(),
+    kind: v.string(),
+    actorSubject: v.string(), // full identity.tokenIdentifier
+    actorRole: role,
+    actorOrgUnitId: v.id("orgUnits"),
+    deviceId: v.optional(v.id("registeredDevices")),
+    source: v.union(v.literal("mobile"), v.literal("web"), v.literal("system")),
+    operationKey: v.optional(v.string()),
+    correlationId: v.optional(v.string()),
+    occurredAt: v.number(),
+    serverAt: v.number(),
+    summary: v.object({
+      before: v.optional(v.string()),
+      after: v.optional(v.string()),
+      reasonCode: v.optional(v.string()),
+    }),
+    schemaVersion: v.number(),
+    policyVersion: v.optional(v.string()),
+  })
+    .index("by_entityType_and_entityId_and_serverAt", [
+      "entityType",
+      "entityId",
+      "serverAt",
+    ])
+    .index("by_orgUnitId_and_serverAt", ["orgUnitId", "serverAt"])
+    .index("by_organizationId_and_serverAt", ["organizationId", "serverAt"]),
+  processedMobileOperations: defineTable({
+    organizationId: v.string(),
+    kind: v.union(
+      v.literal("visit.checkIn"),
+      v.literal("visit.activity"),
+      v.literal("visit.checkOut"),
+      v.literal("task.complete"),
+      v.literal("collection.record"),
+    ),
+    clientRequestId: v.string(),
+    profileId: v.id("profiles"),
+    deviceId: v.id("registeredDevices"),
+    payloadHash: v.string(),
+    result: v.object({
+      entityId: v.string(),
+      eventIds: v.array(v.id("executionEvents")),
+      serverTime: v.number(),
+    }),
+    serverAt: v.number(),
+  }).index("by_organizationId_and_kind_and_clientRequestId", [
+    "organizationId",
+    "kind",
+    "clientRequestId",
+  ]),
+  mobileChanges: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    sequence: v.number(), // monotonic per organization, allocated transactionally by writer
+    entity: v.string(),
+    entityId: v.string(),
+    revision: v.number(),
+    op: v.union(v.literal("upsert"), v.literal("tombstone")),
+    ownerProfileId: v.optional(v.id("profiles")),
+    ownerSubject: v.optional(v.string()), // full identity.tokenIdentifier
+    serverAt: v.number(),
+    payloadVersion: v.number(),
+  })
+    .index("by_organizationId_and_sequence", ["organizationId", "sequence"])
+    .index("by_orgUnitId_and_sequence", ["orgUnitId", "sequence"]),
+  mobileSyncState: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    deviceId: v.id("registeredDevices"),
+    watermark: v.number(),
+    scopeFingerprint: v.string(),
+    leaseIssuedAt: v.number(),
+    leaseExpiresAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_deviceId", ["deviceId"]),
   importRunErrors: defineTable({
     organizationId: v.string(),
     runId: v.id("importRuns"),

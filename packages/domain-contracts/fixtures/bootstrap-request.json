@@ -1,0 +1,6 @@
+{
+  "type": "bootstrap.request",
+  "contractVersion": 1,
+  "deviceId": "device-1",
+  "limit": 50
+}

@@ -1,0 +1,1072 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sunpride.local/contracts/mobile/v1",
+  "title": "Mobile SFA v1 HTTP envelopes",
+  "description": "Versioned transport envelopes; domain constraints and proof-of-possession are enforced by the server.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/bootstrapRequest"
+    },
+    {
+      "$ref": "#/$defs/bootstrapResponse"
+    },
+    {
+      "$ref": "#/$defs/pullRequest"
+    },
+    {
+      "$ref": "#/$defs/pullResponse"
+    },
+    {
+      "$ref": "#/$defs/pushRequest"
+    },
+    {
+      "$ref": "#/$defs/pushResponse"
+    },
+    {
+      "$ref": "#/$defs/errorResponse"
+    }
+  ],
+  "$defs": {
+    "bootstrapRequest": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "bootstrap.request"
+        },
+        "contractVersion": {
+          "const": 1
+        },
+        "deviceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dayFrom": {
+          "type": "string",
+          "format": "date"
+        },
+        "pageCursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "required": ["type", "contractVersion", "deviceId"],
+      "additionalProperties": false
+    },
+    "bootstrapResponse": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "bootstrap.response"
+        },
+        "contractVersion": {
+          "const": 1
+        },
+        "serverTime": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "permissions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "employee": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "role": {
+              "type": "string"
+            },
+            "orgUnitId": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": ["id", "role", "orgUnitId"],
+          "additionalProperties": false
+        },
+        "scope": {
+          "type": "object",
+          "properties": {
+            "fingerprint": {
+              "type": "string",
+              "minLength": 1
+            },
+            "orgUnitIds": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": ["fingerprint", "orgUnitIds"],
+          "additionalProperties": false
+        },
+        "appConfig": {
+          "type": "object",
+          "properties": {
+            "offlineLeaseExpiresAt": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "cacheExpiresAt": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "orderCaptureEnabled": {
+              "type": "boolean"
+            },
+            "priceAvailability": {
+              "const": "unavailable"
+            },
+            "promotionsAvailability": {
+              "const": "unavailable"
+            }
+          },
+          "required": [
+            "offlineLeaseExpiresAt",
+            "cacheExpiresAt",
+            "orderCaptureEnabled",
+            "priceAvailability",
+            "promotionsAvailability"
+          ],
+          "additionalProperties": false
+        },
+        "plannedVisits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "outletId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "serviceDate": {
+                "type": "string",
+                "format": "date"
+              },
+              "planId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "planVersion": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "intents": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "outletId",
+              "serviceDate",
+              "planId",
+              "planVersion",
+              "intents"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "outlets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string"
+              },
+              "routeId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["id", "name", "routeId"],
+            "additionalProperties": false
+          }
+        },
+        "localCustomers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "code": {
+                "type": "string"
+              }
+            },
+            "required": ["id", "code"],
+            "additionalProperties": false
+          }
+        },
+        "route": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "code": {
+                  "type": "string"
+                }
+              },
+              "required": ["id", "code"],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "type": "string"
+              },
+              "required": {
+                "type": "boolean"
+              }
+            },
+            "required": ["id", "kind", "required"],
+            "additionalProperties": false
+          }
+        },
+        "productCatalog": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "code": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "uom": {
+                "type": "string"
+              }
+            },
+            "required": ["id", "code", "name", "uom"],
+            "additionalProperties": false
+          }
+        },
+        "page": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "nextPageCursor": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "syncCursor": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "contractVersion",
+        "serverTime",
+        "permissions",
+        "employee",
+        "scope",
+        "appConfig",
+        "plannedVisits",
+        "outlets",
+        "localCustomers",
+        "route",
+        "tasks",
+        "productCatalog",
+        "page",
+        "nextPageCursor",
+        "syncCursor"
+      ],
+      "additionalProperties": false
+    },
+    "pullRequest": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "pull.request"
+        },
+        "contractVersion": {
+          "const": 1
+        },
+        "deviceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        }
+      },
+      "required": ["type", "contractVersion", "deviceId", "cursor", "limit"],
+      "additionalProperties": false
+    },
+    "pullResponse": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "pull.response"
+        },
+        "contractVersion": {
+          "const": 1
+        },
+        "serverTime": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "changes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "seq": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "entity": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "op": {
+                "enum": ["upsert", "tombstone"]
+              },
+              "value": {
+                "type": "object"
+              }
+            },
+            "required": ["seq", "entity", "id", "revision", "op"],
+            "additionalProperties": false
+          }
+        },
+        "nextCursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "hasMore": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type",
+        "contractVersion",
+        "serverTime",
+        "changes",
+        "nextCursor",
+        "hasMore"
+      ],
+      "additionalProperties": false
+    },
+    "pushRequest": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "push.request"
+        },
+        "contractVersion": {
+          "const": 1
+        },
+        "deviceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operations": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "visit.checkIn"
+                  },
+                  "clientRequestId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "dependsOn": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "payload": {
+                    "type": "object",
+                    "properties": {
+                      "clientVisitId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "plannedVisitId": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "outletId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "serviceDate": {
+                        "type": "string",
+                        "format": "date"
+                      },
+                      "deviceTime": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "location": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "latitude": {
+                                "type": "number",
+                                "minimum": -90,
+                                "maximum": 90
+                              },
+                              "longitude": {
+                                "type": "number",
+                                "minimum": -180,
+                                "maximum": 180
+                              },
+                              "accuracyMeters": {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              "provider": {
+                                "enum": ["gps", "network", "fused", "unknown"]
+                              },
+                              "mockSignal": {
+                                "type": "boolean"
+                              },
+                              "fixTime": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            },
+                            "required": [
+                              "latitude",
+                              "longitude",
+                              "accuracyMeters",
+                              "provider",
+                              "fixTime"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "intents": {
+                        "type": "array",
+                        "items": {
+                          "enum": [
+                            "sell",
+                            "collect",
+                            "merchandise",
+                            "audit",
+                            "deliver",
+                            "promotion",
+                            "complaint",
+                            "follow-up"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "clientVisitId",
+                      "plannedVisitId",
+                      "outletId",
+                      "serviceDate",
+                      "deviceTime",
+                      "location",
+                      "intents"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["kind", "clientRequestId", "payload"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "visit.activity"
+                  },
+                  "clientRequestId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "dependsOn": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "payload": {
+                    "type": "object",
+                    "properties": {
+                      "visitId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "activity": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "const": "inventory_check"
+                              },
+                              "productId": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "icoFinding": {
+                                "enum": ["present", "absent", "unknown"]
+                              },
+                              "observedQuantity": {
+                                "anyOf": [
+                                  {
+                                    "type": "number",
+                                    "minimum": 0
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": ["kind", "productId", "icoFinding"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "const": "merchandising"
+                              },
+                              "displayCondition": {
+                                "enum": [
+                                  "compliant",
+                                  "needs_action",
+                                  "not_present"
+                                ]
+                              },
+                              "actionTaken": {
+                                "type": "string"
+                              }
+                            },
+                            "required": ["kind", "displayCondition"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "const": "price_check"
+                              },
+                              "productId": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "observedPriceMinor": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "currency": {
+                                "type": "string"
+                              },
+                              "compliant": {
+                                "anyOf": [
+                                  {
+                                    "type": "boolean"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "productId",
+                              "observedPriceMinor",
+                              "currency"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "const": "promotion"
+                              },
+                              "programRef": {
+                                "type": "string"
+                              },
+                              "finding": {
+                                "enum": [
+                                  "executed",
+                                  "not_executed",
+                                  "not_applicable"
+                                ]
+                              }
+                            },
+                            "required": ["kind", "programRef", "finding"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "const": "order_intent"
+                              },
+                              "clientOrderId": {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              "note": {
+                                "type": "string"
+                              }
+                            },
+                            "required": ["kind", "clientOrderId"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "const": "note"
+                              },
+                              "text": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 2000
+                              }
+                            },
+                            "required": ["kind", "text"],
+                            "additionalProperties": false
+                          }
+                        ]
+                      },
+                      "deviceTime": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "required": ["visitId", "activity", "deviceTime"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["kind", "clientRequestId", "payload"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "visit.checkOut"
+                  },
+                  "clientRequestId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "dependsOn": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "payload": {
+                    "type": "object",
+                    "properties": {
+                      "visitId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "outcome": {
+                        "enum": ["completed", "nonproductive"]
+                      },
+                      "reasonCode": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "deviceTime": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "location": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "latitude": {
+                                "type": "number",
+                                "minimum": -90,
+                                "maximum": 90
+                              },
+                              "longitude": {
+                                "type": "number",
+                                "minimum": -180,
+                                "maximum": 180
+                              },
+                              "accuracyMeters": {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              "provider": {
+                                "enum": ["gps", "network", "fused", "unknown"]
+                              },
+                              "mockSignal": {
+                                "type": "boolean"
+                              },
+                              "fixTime": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            },
+                            "required": [
+                              "latitude",
+                              "longitude",
+                              "accuracyMeters",
+                              "provider",
+                              "fixTime"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "visitId",
+                      "outcome",
+                      "reasonCode",
+                      "deviceTime",
+                      "location"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["kind", "clientRequestId", "payload"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "task.complete"
+                  },
+                  "clientRequestId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "dependsOn": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "payload": {
+                    "type": "object",
+                    "properties": {
+                      "referenceId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "deviceTime": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "required": ["referenceId", "deviceTime"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["kind", "clientRequestId", "payload"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "collection.record"
+                  },
+                  "clientRequestId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "dependsOn": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "payload": {
+                    "type": "object",
+                    "properties": {
+                      "referenceId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "deviceTime": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "required": ["referenceId", "deviceTime"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["kind", "clientRequestId", "payload"],
+                "additionalProperties": false
+              }
+            ]
+          }
+        }
+      },
+      "required": ["type", "contractVersion", "deviceId", "operations"],
+      "additionalProperties": false
+    },
+    "pushResponse": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "push.response"
+        },
+        "contractVersion": {
+          "const": 1
+        },
+        "serverTime": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "visit.checkIn",
+                  "visit.activity",
+                  "visit.checkOut",
+                  "task.complete",
+                  "collection.record"
+                ]
+              },
+              "clientRequestId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "status": {
+                "enum": ["accepted", "rejected", "conflict"]
+              },
+              "code": {
+                "enum": [
+                  "conflict",
+                  "unsupported_operation",
+                  "dependency_missing",
+                  "out_of_scope",
+                  "evidence_pending_review",
+                  "invalid_request"
+                ]
+              },
+              "ack": {
+                "type": "object",
+                "properties": {
+                  "entityId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "eventIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "serverTime": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": ["entityId", "eventIds", "serverTime"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["kind", "clientRequestId", "status"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["type", "contractVersion", "serverTime", "results"],
+      "additionalProperties": false
+    },
+    "errorResponse": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "error.response"
+        },
+        "contractVersion": {
+          "const": 1
+        },
+        "serverTime": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "error": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "enum": [
+                "rebootstrap_required",
+                "conflict",
+                "unsupported_operation",
+                "device_revoked",
+                "scope_changed",
+                "version_unsupported",
+                "unauthorized",
+                "invalid_request",
+                "invalid_cursor",
+                "dependency_missing",
+                "out_of_scope",
+                "evidence_pending_review",
+                "temporarily_unavailable"
+              ]
+            },
+            "message": {
+              "type": "string"
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "details": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "field": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["field"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": ["code", "message", "retryable"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["type", "contractVersion", "serverTime", "error"],
+      "additionalProperties": false
+    }
+  }
+}
