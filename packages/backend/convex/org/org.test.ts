@@ -17,6 +17,66 @@ async function fixture() {
 }
 
 describe("effective organization tree", () => {
+  it("catalogs active unit types by configured level and records create/edit reasons", async () => {
+    const { t, root, rootUnitId } = await fixture();
+    const types = await root.query(api.org.queries.types, {});
+    expect(types.length).toBeGreaterThan(1);
+    expect(types.every((type) => type.active)).toBe(true);
+    expect(types.map((type) => type.level)).toEqual(
+      [...types.map((type) => type.level)].sort((a, b) => a - b),
+    );
+    const from = Date.now() + 100_000;
+    await expect(
+      root.mutation(api.org.mutations.create, {
+        code: "BAD",
+        name: "Bad",
+        typeCode: "REGION",
+        parentId: rootUnitId,
+        effectiveFrom: from,
+        reason: "  ",
+      }),
+    ).rejects.toThrow(/Reason required/);
+    const unitId = await root.mutation(api.org.mutations.create, {
+      code: "NEW",
+      name: "New",
+      typeCode: "REGION",
+      parentId: rootUnitId,
+      effectiveFrom: from,
+      reason: "  Expansion  ",
+    });
+    await expect(
+      root.mutation(api.org.mutations.edit, {
+        unitId,
+        name: "Changed",
+        reason: "  ",
+      }),
+    ).rejects.toThrow(/Reason required/);
+    await root.mutation(api.org.mutations.edit, {
+      unitId,
+      name: "Changed",
+      reason: "  Renamed  ",
+    });
+    const audit = await t.run((ctx) =>
+      ctx.db
+        .query("auditLogs")
+        .withIndex("by_entity", (q) =>
+          q.eq("entityType", "orgUnit").eq("entityId", unitId),
+        )
+        .collect(),
+    );
+    expect(audit.map((entry) => [entry.action, entry.details])).toEqual([
+      ["org.created", "Expansion"],
+      ["org.edited", "Renamed"],
+    ]);
+    await t.run((ctx) =>
+      ctx.db.patch(types[types.length - 1]!._id, { active: false }),
+    );
+    expect(
+      (await root.query(api.org.queries.types, {})).some(
+        (type) => type._id === types[types.length - 1]!._id,
+      ),
+    ).toBe(false);
+  });
   it("reparents prospectively without changing an earlier as-of tree", async () => {
     const { root, rootUnitId } = await fixture();
     const from = Date.now() + 100_000;
@@ -26,6 +86,7 @@ describe("effective organization tree", () => {
       typeCode: "REGION",
       parentId: rootUnitId,
       effectiveFrom: from,
+      reason: "New unit",
     });
     const b = await root.mutation(api.org.mutations.create, {
       code: "B",
@@ -33,6 +94,7 @@ describe("effective organization tree", () => {
       typeCode: "REGION",
       parentId: rootUnitId,
       effectiveFrom: from,
+      reason: "New unit",
     });
     const c = await root.mutation(api.org.mutations.create, {
       code: "C",
@@ -40,6 +102,7 @@ describe("effective organization tree", () => {
       typeCode: "AREA",
       parentId: a,
       effectiveFrom: from,
+      reason: "New unit",
     });
     await root.mutation(api.org.mutations.reparent, {
       unitId: c,
@@ -66,6 +129,7 @@ describe("effective organization tree", () => {
         typeCode: "AREA",
         parentId: a,
         effectiveFrom: from,
+        reason: "Duplicate unit",
       }),
     ).rejects.toThrow(/code/);
   });
@@ -144,6 +208,7 @@ describe("effective organization tree", () => {
       typeCode: "REGION",
       parentId: rootUnitId,
       effectiveFrom: from,
+      reason: "New unit",
     });
     const to = from + 1000;
     await root.mutation(api.org.mutations.deactivate, {

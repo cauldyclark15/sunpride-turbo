@@ -8,6 +8,7 @@ import { useMutation, useQuery } from "convex/react";
 import { useState, type FormEvent } from "react";
 import { OrgAdmin } from "./org-admin";
 import { PeopleAdmin } from "./people-admin";
+import { TeamsAdmin } from "./teams-admin";
 
 type AssignableRole =
   | "admin"
@@ -40,7 +41,7 @@ const roleLabel = (role: string) => {
 const readableError = (error: unknown) =>
   error instanceof Error ? error.message : "The access update failed.";
 
-type AdminTab = "organization" | "people" | "invitations";
+type AdminTab = "organization" | "people" | "teams" | "invitations";
 
 export function AdminWorkspace() {
   const [tab, setTab] = useState<AdminTab>("organization");
@@ -50,25 +51,31 @@ export function AdminWorkspace() {
         aria-label="Administration sections"
         className="flex gap-2 border-b border-border pb-2"
       >
-        {(["organization", "people", "invitations"] as const).map((item) => (
-          <Button
-            key={item}
-            variant={tab === item ? "primary" : "secondary"}
-            aria-current={tab === item ? "page" : undefined}
-            onPress={() => setTab(item)}
-          >
-            {item === "organization"
-              ? "Organization"
-              : item === "people"
-                ? "People"
-                : "Invitations"}
-          </Button>
-        ))}
+        {(["organization", "people", "teams", "invitations"] as const).map(
+          (item) => (
+            <Button
+              key={item}
+              variant={tab === item ? "primary" : "secondary"}
+              aria-current={tab === item ? "page" : undefined}
+              onPress={() => setTab(item)}
+            >
+              {item === "organization"
+                ? "Organization"
+                : item === "people"
+                  ? "People"
+                  : item === "teams"
+                    ? "Teams"
+                    : "Invitations"}
+            </Button>
+          ),
+        )}
       </nav>
       {tab === "organization" ? (
         <OrgAdmin />
       ) : tab === "people" ? (
         <PeopleAdmin />
+      ) : tab === "teams" ? (
+        <TeamsAdmin />
       ) : (
         <InvitationsAdmin />
       )}

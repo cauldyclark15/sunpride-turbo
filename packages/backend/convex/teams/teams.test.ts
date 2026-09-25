@@ -23,6 +23,7 @@ async function setup() {
     typeCode: "REGION",
     parentId: rootUnitId,
     effectiveFrom: from,
+    reason: "test fixture",
   });
   const west = await root.mutation(api.org.mutations.create, {
     code: "WEST",
@@ -30,6 +31,7 @@ async function setup() {
     typeCode: "REGION",
     parentId: rootUnitId,
     effectiveFrom: from,
+    reason: "test fixture",
   });
   await t.run(async (ctx) => {
     for (const id of [east, west]) {

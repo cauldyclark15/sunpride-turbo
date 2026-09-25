@@ -19,6 +19,7 @@ export const create = mutation({
     typeCode: v.string(),
     parentId: v.id("orgUnits"),
     effectiveFrom: v.number(),
+    reason: v.string(),
   },
   returns: v.id("orgUnits"),
   handler: async (ctx, args) => {
@@ -47,6 +48,8 @@ export const create = mutation({
       throw new ConvexError("Duplicate organization code");
     const name = args.name.trim();
     if (!name) throw new ConvexError("Name required");
+    const reason = args.reason.trim();
+    if (!reason) throw new ConvexError("Reason required");
     const now = Date.now();
     const id = await ctx.db.insert("orgUnits", {
       organizationId: SUNPRIDE_ORGANIZATION_ID,
@@ -64,7 +67,7 @@ export const create = mutation({
       parentId: args.parentId,
       effectiveFrom: args.effectiveFrom,
       actorSubject: identity.tokenIdentifier,
-      reason: "created",
+      reason,
       createdAt: now,
     });
     await ctx.scheduler.runAt(
@@ -78,7 +81,7 @@ export const create = mutation({
       "org.created",
       "orgUnit",
       id,
-      code,
+      reason,
       now,
     );
     return id;
@@ -86,7 +89,7 @@ export const create = mutation({
 });
 
 export const edit = mutation({
-  args: { unitId: v.id("orgUnits"), name: v.string() },
+  args: { unitId: v.id("orgUnits"), name: v.string(), reason: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => {
     const unit = await ctx.db.get(args.unitId);
@@ -94,6 +97,8 @@ export const edit = mutation({
     const { identity } = await requireCapability(ctx, "admin.manage", unit._id);
     const name = args.name.trim();
     if (!name) throw new ConvexError("Name required");
+    const reason = args.reason.trim();
+    if (!reason) throw new ConvexError("Reason required");
     const now = Date.now();
     await ctx.db.patch(unit._id, { name, updatedAt: now });
     await audit(
@@ -102,7 +107,7 @@ export const edit = mutation({
       "org.edited",
       "orgUnit",
       unit._id,
-      name,
+      reason,
       now,
     );
     return null;

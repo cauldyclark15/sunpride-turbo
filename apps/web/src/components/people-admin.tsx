@@ -69,12 +69,28 @@ export function PeopleAdmin() {
   const [asOf] = useState(() => Date.now());
   const units = useQuery(api.org.queries.tree, { asOf });
   const positions = useQuery(api.sfa.positions.list, canManage ? {} : "skip");
+  const [selectedId, setSelectedId] = useState<Id<"profiles"> | null>(null);
+  const [supervisorUnitId, setSupervisorUnitId] =
+    useState<Id<"orgUnits"> | null>(null);
+  const [supervisorSearch, setSupervisorSearch] = useState("");
+  const [chosenSupervisorId, setChosenSupervisorId] = useState("");
+  const [supervisorCursors, setSupervisorCursors] = useState<(string | null)[]>(
+    [null],
+  );
   const supervisorOptions = useQuery(
-    api.domains.profiles.list,
-    canManage ? {} : "skip",
+    api.people.queries.supervisorOptions,
+    canManage && selectedId && supervisorUnitId
+      ? {
+          orgUnitId: supervisorUnitId,
+          search: supervisorSearch || undefined,
+          paginationOpts: {
+            numItems: 50,
+            cursor: supervisorCursors[supervisorCursors.length - 1] ?? null,
+          },
+        }
+      : "skip",
   );
   const assign = useMutation(api.people.mutations.assign);
-  const [selectedId, setSelectedId] = useState<Id<"profiles"> | null>(null);
   const [historyId, setHistoryId] = useState<Id<"profiles"> | null>(null);
   const history = useQuery(
     api.people.queries.history,
@@ -86,7 +102,8 @@ export function PeopleAdmin() {
   const people = result?.page ?? [];
   const selected = people.find((person) => person._id === selectedId);
   const nameOf = (id?: Id<"profiles">) =>
-    (supervisorOptions ?? people).find((person) => person._id === id)?.name ??
+    (supervisorOptions?.page ?? people).find((person) => person._id === id)
+      ?.name ??
     id ??
     "—";
   const unitOf = (id?: Id<"orgUnits">) =>
@@ -96,7 +113,7 @@ export function PeopleAdmin() {
     positions?.find((position) => position._id === id)?.label ??
     (id ? "Position unavailable" : "—");
   const supervisorOf = (subject?: string) =>
-    (supervisorOptions ?? people).find(
+    (supervisorOptions?.page ?? people).find(
       (person) => person.authSubject === subject,
     )?.name ??
     subject ??
@@ -178,6 +195,10 @@ export function PeopleAdmin() {
             }
             onPress={() => {
               setSelectedId(row._id);
+              setSupervisorUnitId(row.orgUnitId ?? null);
+              setSupervisorSearch("");
+              setChosenSupervisorId("");
+              setSupervisorCursors([null]);
               setError("");
               setNotice("");
             }}
@@ -252,6 +273,12 @@ export function PeopleAdmin() {
               className={selectClass}
               name="orgUnitId"
               defaultValue={selected.orgUnitId ?? ""}
+              onChange={(event) => {
+                setSupervisorUnitId(event.target.value as Id<"orgUnits">);
+                setSupervisorSearch("");
+                setChosenSupervisorId("");
+                setSupervisorCursors([null]);
+              }}
               required
             >
               <option value="" disabled>
@@ -306,29 +333,66 @@ export function PeopleAdmin() {
             </select>
           </label>
           <label className="grid gap-1 text-sm">
+            Search supervisors (name, email or employee code)
+            <Input
+              value={supervisorSearch}
+              onChange={(event) => {
+                setSupervisorSearch(event.target.value);
+                setSupervisorCursors([null]);
+              }}
+              placeholder="Search by prefix"
+            />
+          </label>
+          <label className="grid gap-1 text-sm">
             Supervisor (optional)
             <select
               className={selectClass}
               name="supervisorId"
-              defaultValue={
-                (supervisorOptions ?? people).find(
-                  (person) => person.authSubject === selected.supervisorSubject,
-                )?._id ?? ""
-              }
+              value={chosenSupervisorId}
+              onChange={(event) => setChosenSupervisorId(event.target.value)}
             >
               <option value="">Keep current supervisor</option>
-              {(supervisorOptions ?? people)
-                .filter(
-                  (person) =>
-                    person._id !== selected._id && person.status === "active",
-                )
+              {chosenSupervisorId &&
+              !supervisorOptions?.page.some(
+                (person) => person._id === chosenSupervisorId,
+              ) ? (
+                <option value={chosenSupervisorId}>Selected supervisor</option>
+              ) : null}
+              {(supervisorOptions?.page ?? [])
+                .filter((person) => person._id !== selected._id)
                 .map((person) => (
                   <option key={person._id} value={person._id}>
-                    {person.name}
+                    {person.name} · {person.email}
                   </option>
                 ))}
             </select>
           </label>
+          <div className="flex items-center gap-2 text-sm">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              isDisabled={supervisorCursors.length === 1}
+              onPress={() => setSupervisorCursors((old) => old.slice(0, -1))}
+            >
+              Previous supervisors
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              isDisabled={!supervisorOptions || supervisorOptions.isDone}
+              onPress={() => {
+                if (supervisorOptions && !supervisorOptions.isDone)
+                  setSupervisorCursors((old) => [
+                    ...old,
+                    supervisorOptions.continueCursor,
+                  ]);
+              }}
+            >
+              Next supervisors
+            </Button>
+          </div>
           <label className="grid gap-1 text-sm">
             Employee code (set once)
             <Input

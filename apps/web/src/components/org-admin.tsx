@@ -15,7 +15,6 @@ import {
 
 type Unit = Doc<"orgUnits">;
 type Action = "create" | "edit" | "reparent" | "deactivate";
-const unitTypes = ["NATIONAL", "REGION", "AREA", "TERRITORY"];
 const typeLabel = (code: string) =>
   code
     .toLowerCase()
@@ -55,12 +54,14 @@ export async function performOrgAction(
       effectiveFrom: futureManilaDateToUtcMs(
         String(data.get("effectiveDate") ?? ""),
       ),
+      reason,
     });
   }
   if (choice.action === "edit")
     return actions.edit({
       unitId,
       name: String(data.get("name") ?? "").trim(),
+      reason,
     });
   if (choice.action === "reparent")
     return actions.reparent({
@@ -86,6 +87,7 @@ export function OrgAdmin() {
   const [asOf, setAsOf] = useState(() => Date.now());
   const [previewDate, setPreviewDate] = useState("");
   const units = useQuery(api.org.queries.tree, { asOf });
+  const unitTypes = useQuery(api.org.queries.types, {});
   const create = useMutation(api.org.mutations.create);
   const edit = useMutation(api.org.mutations.edit);
   const reparent = useMutation(api.org.mutations.reparent);
@@ -126,6 +128,8 @@ export function OrgAdmin() {
 
   const children = (parentId?: Id<"orgUnits">) =>
     (units ?? []).filter((unit) => unit.parentId === parentId);
+  const levelOf = (code: string) =>
+    unitTypes?.find((type) => type.code === code)?.level;
   function renderBranch(unit: Unit, depth: number) {
     return (
       <li key={unit._id} className="list-none">
@@ -161,7 +165,12 @@ export function OrgAdmin() {
                     !!previewDate ||
                     !(permissions?.scopeUnitIds.includes(unit._id) ?? false) ||
                     unit.status !== "active" ||
-                    (action === "create" && unit.typeCode === "TERRITORY") ||
+                    (action === "create" &&
+                      !(unitTypes ?? []).some(
+                        (type) =>
+                          levelOf(unit.typeCode) !== undefined &&
+                          type.level > levelOf(unit.typeCode)!,
+                      )) ||
                     ((action === "reparent" || action === "deactivate") &&
                       unit.code === "SUNPRIDE")
                   }
@@ -264,15 +273,15 @@ export function OrgAdmin() {
                   <option value="" disabled>
                     Select a type
                   </option>
-                  {unitTypes
+                  {(unitTypes ?? [])
                     .filter(
                       (type) =>
-                        unitTypes.indexOf(type) >
-                        unitTypes.indexOf(choice.unit.typeCode),
+                        levelOf(choice.unit.typeCode) !== undefined &&
+                        type.level > levelOf(choice.unit.typeCode)!,
                     )
                     .map((type) => (
-                      <option key={type} value={type}>
-                        {typeLabel(type)}
+                      <option key={type._id} value={type.code}>
+                        {type.label}
                       </option>
                     ))}
                 </select>
@@ -301,8 +310,9 @@ export function OrgAdmin() {
                       unit._id !== choice.unit._id &&
                       unit._id !== choice.unit.parentId &&
                       unit.status === "active" &&
-                      unitTypes.indexOf(unit.typeCode) <
-                        unitTypes.indexOf(choice.unit.typeCode),
+                      levelOf(unit.typeCode) !== undefined &&
+                      levelOf(choice.unit.typeCode) !== undefined &&
+                      levelOf(unit.typeCode)! < levelOf(choice.unit.typeCode)!,
                   )
                   .map((unit) => (
                     <option key={unit._id} value={unit._id}>
@@ -333,8 +343,7 @@ export function OrgAdmin() {
             />
           </label>
           <p className="text-xs text-muted">
-            The server records the reason for reparenting and deactivation.
-            Create and edit do not yet accept a reason in the backend API.
+            The reason is recorded with this organization change.
           </p>
           {error ? (
             <p role="alert" className="text-sm text-danger">

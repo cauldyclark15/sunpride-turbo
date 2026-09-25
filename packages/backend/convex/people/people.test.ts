@@ -20,6 +20,7 @@ async function setup() {
     typeCode: "REGION",
     parentId: rootUnitId,
     effectiveFrom: from,
+    reason: "New unit",
   });
   const b = await root.mutation(api.org.mutations.create, {
     code: "WEST",
@@ -27,6 +28,7 @@ async function setup() {
     typeCode: "REGION",
     parentId: rootUnitId,
     effectiveFrom: from,
+    reason: "New unit",
   });
   // Current projections are needed for authorization now; advance insertion's start in the test fixture.
   await t.run(async (ctx) => {
@@ -50,7 +52,7 @@ async function person(
   t: Awaited<ReturnType<typeof setup>>["t"],
   root: Awaited<ReturnType<typeof setup>>["root"],
   email: string,
-  role: "admin" | "viewer" | "sales",
+  role: "admin" | "manager" | "viewer" | "sales",
 ) {
   await root.mutation(api.domains.profiles.invite, { email, role });
   const actor = t.withIdentity({ subject: email, email });
@@ -193,5 +195,71 @@ describe("person assignment history and scope", () => {
         reason: "rename",
       }),
     ).rejects.toThrow(/immutable/);
+  });
+  it("limits supervisor options to the current ancestor chain, role and prefix", async () => {
+    const { t, root, a, b } = await setup();
+    const east = await person(t, root, "east.manager@example.test", "manager");
+    const west = await person(t, root, "west.manager@example.test", "manager");
+    const viewer = await person(t, root, "east.viewer@example.test", "viewer");
+    const sales = await person(t, root, "east.sales@example.test", "sales");
+    const eastId = (await east.query(api.domains.profiles.current, {}))!._id;
+    const westId = (await west.query(api.domains.profiles.current, {}))!._id;
+    for (const [id, unit, role] of [
+      [eastId, a, "manager"],
+      [westId, b, "manager"],
+      [
+        (await viewer.query(api.domains.profiles.current, {}))!._id,
+        a,
+        "viewer",
+      ],
+      [(await sales.query(api.domains.profiles.current, {}))!._id, a, "sales"],
+    ] as const)
+      await root.mutation(api.people.mutations.assign, {
+        profileId: id,
+        orgUnitId: unit,
+        role,
+        reason: "placement",
+      });
+    await t.run((ctx) => ctx.db.patch(eastId, { employeeCode: "MGR-001" }));
+    const page = { cursor: null, numItems: 50 };
+    const all = await root.query(api.people.queries.supervisorOptions, {
+      orgUnitId: a,
+      paginationOpts: page,
+    });
+    expect(all.page.map((p) => p._id)).toContain(eastId);
+    const rootProfile = (await root.query(api.domains.profiles.current, {}))!;
+    expect(all.page.map((p) => p._id)).toContain(rootProfile._id);
+    expect(all.page.map((p) => p._id)).not.toContain(westId);
+    expect(
+      all.page.every((p) =>
+        ["manager", "admin", "super_admin"].includes(p.role),
+      ),
+    ).toBe(true);
+    for (const search of ["EAST.MAN", "east.manager@", "mgr-"]) {
+      const matches = await root.query(api.people.queries.supervisorOptions, {
+        orgUnitId: a,
+        search,
+        paginationOpts: page,
+      });
+      expect(matches.page.map((p) => p._id)).toEqual([eastId]);
+    }
+    await expect(
+      east.query(api.people.queries.supervisorOptions, {
+        orgUnitId: b,
+        paginationOpts: page,
+      }),
+    ).rejects.toThrow(/scope/);
+    await expect(
+      sales.query(api.people.queries.supervisorOptions, {
+        orgUnitId: a,
+        paginationOpts: page,
+      }),
+    ).rejects.toThrow(/permission/);
+    await expect(
+      root.query(api.people.queries.supervisorOptions, {
+        orgUnitId: a,
+        paginationOpts: { cursor: null, numItems: 51 },
+      }),
+    ).rejects.toThrow(/Page size/);
   });
 });

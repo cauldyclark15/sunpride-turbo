@@ -10,6 +10,23 @@ import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
 import schema from "../schema";
 import { topology } from "./validation";
 
+export const types = query({
+  args: {},
+  returns: v.array(schema.doc("orgUnitTypes")),
+  handler: async (ctx) => {
+    await requireCapability(ctx, "org.read");
+    const rows = await ctx.db
+      .query("orgUnitTypes")
+      .withIndex("by_organizationId_and_level", (q) =>
+        q.eq("organizationId", SUNPRIDE_ORGANIZATION_ID),
+      )
+      .take(501);
+    if (rows.length > 500)
+      throw new ConvexError("Too many organization unit types");
+    return rows.filter((row) => row.active);
+  },
+});
+
 export const tree = query({
   args: { asOf: v.number() },
   returns: v.array(schema.doc("orgUnits")),

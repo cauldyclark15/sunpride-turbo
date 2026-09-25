@@ -6,18 +6,27 @@ import type { Doc, Id } from "@sunpride/backend/data-model";
 import { AdminWorkspace } from "./admin-workspace";
 import { OrgAdmin, performOrgAction } from "./org-admin";
 import { PeopleAdmin, performPeopleAssignment } from "./people-admin";
+import { TeamsAdmin, performTeamAction } from "./teams-admin";
 
 const state = vi.hoisted(() => ({
   values: {} as Record<string, unknown>,
   historyId: null as string | null,
+  selectedOverride: null as string | null,
+  unitOverride: null as string | null,
+  searchOverride: null as string | null,
+  emptyIndex: 0,
+  queryCalls: [] as { name: string; args: unknown }[],
   orgChoice: null as { unit: unknown; action: string } | null,
   orgError: "",
   tabOverride: "" as string,
   nullIndex: 0,
 }));
 vi.mock("convex/react", () => ({
-  useQuery: (reference: unknown) =>
-    state.values[getFunctionName(reference as never)],
+  useQuery: (reference: unknown, args: unknown) => {
+    const name = getFunctionName(reference as never);
+    state.queryCalls.push({ name, args });
+    return state.values[name];
+  },
   useMutation: () => vi.fn(),
 }));
 vi.mock("react", async (importOriginal) => {
@@ -31,11 +40,27 @@ vi.mock("react", async (importOriginal) => {
         state.nullIndex += 1;
         if (state.nullIndex === 1 && state.orgChoice)
           return [state.orgChoice, vi.fn()];
-        if (state.nullIndex === 2 && state.historyId)
+        if (state.nullIndex === 1 && state.selectedOverride)
+          return [state.selectedOverride, vi.fn()];
+        if (state.nullIndex === 2 && state.unitOverride)
+          return [state.unitOverride, vi.fn()];
+        if (
+          state.historyId &&
+          state.nullIndex === (state.selectedOverride ? 2 : 3)
+        )
           return [state.historyId, vi.fn()];
       }
-      if (initial === "" && state.orgChoice && state.orgError)
-        return [state.orgError, vi.fn()];
+      if (initial === "") {
+        state.emptyIndex += 1;
+        if (
+          state.selectedOverride &&
+          state.unitOverride &&
+          state.searchOverride &&
+          state.emptyIndex === 1
+        )
+          return [state.searchOverride, vi.fn()];
+        if (state.orgChoice && state.orgError) return [state.orgError, vi.fn()];
+      }
       return [
         typeof initial === "function" ? (initial as () => unknown)() : initial,
         vi.fn(),
@@ -165,17 +190,51 @@ const form = (values: Record<string, string>) =>
   ({ get: (name: string) => values[name] ?? null }) as Pick<FormData, "get">;
 const html = (component: React.ReactNode) => {
   state.nullIndex = 0;
+  state.emptyIndex = 0;
   return renderToStaticMarkup(component);
 };
 
 beforeEach(() => {
   state.historyId = null;
+  state.selectedOverride = null;
+  state.unitOverride = null;
+  state.searchOverride = null;
+  state.queryCalls = [];
   state.orgChoice = null;
   state.orgError = "";
   state.tabOverride = "";
   state.values = {
     "lib/capabilities:currentPermissions": permissions,
     "org/queries:tree": [root, region, area],
+    "org/queries:types": [
+      {
+        _id: "type-national",
+        code: "NATIONAL",
+        label: "National",
+        level: 0,
+        active: true,
+      },
+      {
+        _id: "type-region",
+        code: "REGION",
+        label: "Region",
+        level: 1,
+        active: true,
+      },
+      {
+        _id: "type-area",
+        code: "AREA",
+        label: "Area from catalog",
+        level: 2,
+        active: true,
+      },
+    ],
+    "people/queries:supervisorOptions": {
+      page: [manager],
+      continueCursor: "",
+      isDone: true,
+    },
+    "teams/queries:list": { page: [], continueCursor: "", isDone: true },
     "people/queries:list": {
       page: [person, manager],
       continueCursor: "next",
@@ -194,6 +253,7 @@ describe("Admin workspace tabs", () => {
     const view = html(createElement(AdminWorkspace));
     expect(view).toContain("Organization");
     expect(view).toContain("People");
+    expect(view).toContain("Teams");
     expect(view).toContain("Invitations");
     expect(view).toContain("Organization hierarchy");
   });
@@ -262,6 +322,7 @@ describe("Organization admin", () => {
       name: "Manila",
       typeCode: "AREA",
       effectiveFrom: Date.parse("2098-12-31T16:00:00Z"),
+      reason: "Expansion",
     });
     await performOrgAction(
       { unit: area, action: "reparent" },
@@ -277,6 +338,26 @@ describe("Organization admin", () => {
       parentId: root._id,
       effectiveFrom: Date.parse("2098-12-31T16:00:00Z"),
       reason: "Realign coverage",
+    });
+  });
+  it("renders catalog-backed type choices and sends edit reason", async () => {
+    state.orgChoice = { unit: region, action: "create" };
+    const view = html(createElement(OrgAdmin));
+    expect(view).toContain('value="AREA">Area from catalog');
+    expect(view).not.toContain('value="TERRITORY"');
+    expect(
+      state.queryCalls.some((call) => call.name === "org/queries:types"),
+    ).toBe(true);
+    const edit = vi.fn();
+    await performOrgAction(
+      { unit: region, action: "edit" },
+      form({ name: "Updated", reason: "  Correction  " }),
+      { create: vi.fn(), edit, reparent: vi.fn(), deactivate: vi.fn() },
+    );
+    expect(edit).toHaveBeenCalledWith({
+      unitId: region._id,
+      name: "Updated",
+      reason: "Correction",
     });
   });
   it("refuses empty reasons and propagates server errors verbatim", async () => {
@@ -317,6 +398,25 @@ describe("Organization admin", () => {
 });
 
 describe("People admin", () => {
+  it("loads supervisor options for the chosen unit rather than the legacy profiles list", () => {
+    state.selectedOverride = person._id;
+    state.unitOverride = region._id;
+    state.searchOverride = "Mar";
+    const view = html(createElement(PeopleAdmin));
+    expect(view).toContain("Search supervisors");
+    expect(view).toContain('value="p2">Maria Santos');
+    expect(state.queryCalls).toContainEqual({
+      name: "people/queries:supervisorOptions",
+      args: {
+        orgUnitId: region._id,
+        search: "Mar",
+        paginationOpts: { numItems: 50, cursor: null },
+      },
+    });
+    expect(
+      state.queryCalls.some((call) => call.name === "domains/profiles:list"),
+    ).toBe(false);
+  });
   it("renders the paginated people list with role, position, unit, supervisor, and employee code", () => {
     const view = html(createElement(PeopleAdmin));
     expect(view).toContain("Ana Reyes");
@@ -386,5 +486,136 @@ describe("People admin", () => {
       capabilities: ["people.read"],
     };
     expect(html(createElement(PeopleAdmin))).toMatch(/disabled=""[^>]*>Assign/);
+  });
+});
+
+describe("Teams admin", () => {
+  const teamId = "team-1" as Id<"teams">;
+  const team = {
+    _id: teamId,
+    code: "NCR-1",
+    name: "NCR team",
+    orgUnitId: region._id,
+    status: "active",
+    effectiveFrom: 0,
+  };
+  it("lists scoped teams and shows detail, members, and history", () => {
+    state.tabOverride = "teams";
+    state.values["teams/queries:list"] = {
+      page: [team],
+      continueCursor: "",
+      isDone: true,
+    };
+    state.values["teams/queries:detail"] = {
+      team,
+      members: [
+        {
+          membership: { _id: "membership", effectiveFrom: 0 },
+          profile: person,
+        },
+      ],
+    };
+    const tab = html(createElement(AdminWorkspace));
+    expect(tab).toContain("NCR team");
+    expect(state.queryCalls).toContainEqual({
+      name: "teams/queries:list",
+      args: { paginationOpts: { numItems: 25, cursor: null } },
+    });
+    state.selectedOverride = teamId;
+    state.historyId = person._id;
+    state.values["teams/queries:memberHistory"] = [
+      { _id: "membership", effectiveFrom: 0, reason: "join" },
+    ];
+    const detail = html(createElement(TeamsAdmin));
+    expect(detail).toContain("Current members");
+    expect(detail).toContain("Ana Reyes");
+    expect(detail).toContain("join");
+    expect(state.queryCalls).toContainEqual({
+      name: "teams/queries:memberHistory",
+      args: { teamId, profileId: person._id },
+    });
+  });
+  it("passes Manila effective dates and trimmed reasons for create/add/remove/deactivate", async () => {
+    const actions = {
+      create: vi.fn(),
+      addMember: vi.fn(),
+      removeMember: vi.fn(),
+      deactivate: vi.fn(),
+    };
+    const date = "2099-01-01";
+    const effective = Date.parse("2098-12-31T16:00:00Z");
+    await performTeamAction(
+      "create",
+      form({
+        code: "NCR-1",
+        name: "NCR team",
+        orgUnitId: region._id,
+        effectiveDate: date,
+        reason: "  Formed  ",
+      }),
+      actions,
+    );
+    expect(actions.create).toHaveBeenCalledWith({
+      code: "NCR-1",
+      name: "NCR team",
+      orgUnitId: region._id,
+      effectiveFrom: effective,
+      reason: "Formed",
+    });
+    await performTeamAction(
+      "add",
+      form({ profileId: person._id, effectiveDate: date, reason: "  Join  " }),
+      actions,
+      teamId,
+    );
+    expect(actions.addMember).toHaveBeenCalledWith({
+      teamId,
+      profileId: person._id,
+      effectiveFrom: effective,
+      reason: "Join",
+    });
+    await performTeamAction(
+      "remove",
+      form({
+        profileId: person._id,
+        effectiveDate: date,
+        reason: "  Transfer  ",
+      }),
+      actions,
+      teamId,
+    );
+    expect(actions.removeMember).toHaveBeenCalledWith({
+      teamId,
+      profileId: person._id,
+      effectiveTo: effective,
+      reason: "Transfer",
+    });
+    await performTeamAction(
+      "deactivate",
+      form({ effectiveDate: date, reason: "  Closed  " }),
+      actions,
+      teamId,
+    );
+    expect(actions.deactivate).toHaveBeenCalledWith({
+      teamId,
+      effectiveTo: effective,
+      reason: "Closed",
+    });
+  });
+  it("hides management controls without admin.manage", () => {
+    state.values["lib/capabilities:currentPermissions"] = {
+      ...permissions,
+      capabilities: ["people.read"],
+    };
+    state.values["teams/queries:list"] = {
+      page: [team],
+      continueCursor: "",
+      isDone: true,
+    };
+    state.selectedOverride = teamId;
+    state.values["teams/queries:detail"] = { team, members: [] };
+    const view = html(createElement(TeamsAdmin));
+    expect(view).not.toContain("Create team</button>");
+    expect(view).not.toContain("Add member</button>");
   });
 });
