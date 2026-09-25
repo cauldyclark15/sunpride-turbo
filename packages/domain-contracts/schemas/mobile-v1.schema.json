@@ -544,6 +544,12 @@
                           }
                         ]
                       },
+                      "unplannedReason": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 500,
+                        "description": "Required by the server when plannedVisitId is null; omitted for planned visits."
+                      },
                       "intents": {
                         "type": "array",
                         "items": {

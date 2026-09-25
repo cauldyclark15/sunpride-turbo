@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values";
-import { mutation } from "../_generated/server";
+import { mutation, type MutationCtx } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
 import { requireCapability } from "../lib/capabilities";
 import { append } from "./events";
@@ -22,16 +23,80 @@ async function owner(
     throw new ConvexError("out_of_scope");
   return { visit, profile };
 }
+export const UPLOAD_CLAIM_TTL_MS = 10 * 60_000;
 export const generateUploadUrl = mutation({
   args: { visitId: v.id("visitExecutions") },
   returns: v.object({ url: v.string(), uploadTokenRef: v.string() }),
   handler: async (ctx, { visitId }) => {
-    await owner(ctx, visitId);
+    const { profile } = await owner(ctx, visitId);
+    const { identity } = await requireCapability(ctx, "visit.record");
     const url = await ctx.storage.generateUploadUrl();
-    // The reference is advisory: Convex storage has no per-URL attachment ownership table in v1 schema.
-    return { url, uploadTokenRef: visitId };
+    const now = Date.now();
+    const claimId = await ctx.db.insert("evidenceUploadClaims", {
+      organizationId: SUNPRIDE_ORGANIZATION_ID,
+      visitId,
+      profileId: profile._id,
+      subject: identity.tokenIdentifier,
+      issuedAt: now,
+      expiresAt: now + UPLOAD_CLAIM_TTL_MS,
+    });
+    return { url, uploadTokenRef: claimId };
   },
 });
+
+/** Must run in the attachment transaction. A failed downstream check rolls this patch back. */
+export async function consumeUploadClaim(
+  ctx: MutationCtx,
+  args: {
+    claimId: Id<"evidenceUploadClaims">;
+    visitId: Id<"visitExecutions">;
+    profileId: Id<"profiles">;
+    subject: string;
+    storageId: Id<"_storage">;
+    now: number;
+  },
+): Promise<void> {
+  const claim = await ctx.db.get(args.claimId);
+  if (
+    !claim ||
+    claim.organizationId !== SUNPRIDE_ORGANIZATION_ID ||
+    claim.visitId !== args.visitId ||
+    claim.profileId !== args.profileId ||
+    claim.subject !== args.subject ||
+    claim.issuedAt > args.now ||
+    claim.expiresAt <= args.now ||
+    claim.consumedAt !== undefined ||
+    claim.storageId !== undefined
+  )
+    throw new ConvexError("invalid_evidence");
+  const used = await ctx.db
+    .query("evidenceUploadClaims")
+    .withIndex("by_storageId", (q) => q.eq("storageId", args.storageId))
+    .take(1);
+  if (used.length) throw new ConvexError("conflict");
+  await ctx.db.patch(claim._id, {
+    consumedAt: args.now,
+    storageId: args.storageId,
+  });
+}
+
+/** Isolated because convex-test does not implement getMetadata. */
+export async function verifyStoredEvidence(
+  storage: Pick<MutationCtx["storage"], "getMetadata">,
+  storageId: Id<"_storage">,
+  size: number,
+  mime: string,
+  checksum: string,
+): Promise<void> {
+  const stored = await storage.getMetadata(storageId);
+  if (
+    !stored ||
+    stored.size !== size ||
+    stored.contentType !== mime ||
+    !matchesChecksum(stored.sha256, checksum)
+  )
+    throw new ConvexError("invalid_evidence");
+}
 export function matchesChecksum(storedBase64: string, suppliedHex: string) {
   if (!/^[0-9a-f]{64}$/i.test(suppliedHex)) return false;
   try {
@@ -49,6 +114,7 @@ export function matchesChecksum(storedBase64: string, suppliedHex: string) {
 
 export const attach = mutation({
   args: {
+    uploadTokenRef: v.optional(v.string()),
     visitId: v.id("visitExecutions"),
     storageId: v.id("_storage"),
     mime: v.string(),
@@ -71,14 +137,32 @@ export const attach = mutation({
       args.capturedAt > Date.now() + 60000
     )
       throw new ConvexError("invalid_request");
-    const stored = await ctx.storage.getMetadata(args.storageId);
-    if (
-      !stored ||
-      stored.size !== args.size ||
-      stored.contentType !== args.mime ||
-      !matchesChecksum(stored.sha256, args.checksum)
-    )
-      throw new ConvexError("invalid_evidence");
+    const { identity } = await requireCapability(
+      ctx,
+      "visit.record",
+      visit.orgUnitId,
+    );
+    if (!args.uploadTokenRef) throw new ConvexError("invalid_evidence");
+    const claimId = ctx.db.normalizeId(
+      "evidenceUploadClaims",
+      args.uploadTokenRef,
+    );
+    if (!claimId) throw new ConvexError("invalid_evidence");
+    await consumeUploadClaim(ctx, {
+      claimId,
+      visitId: visit._id,
+      profileId: profile._id,
+      subject: identity.tokenIdentifier,
+      storageId: args.storageId,
+      now: Date.now(),
+    });
+    await verifyStoredEvidence(
+      ctx.storage,
+      args.storageId,
+      args.size,
+      args.mime,
+      args.checksum,
+    );
     if (args.activityId) {
       const activity = await ctx.db.get(args.activityId);
       if (
@@ -115,11 +199,6 @@ export const attach = mutation({
       uploadedAt: Date.now(),
       status: "pending",
     });
-    const { identity } = await requireCapability(
-      ctx,
-      "visit.record",
-      visit.orgUnitId,
-    );
     await append(ctx, {
       orgUnitId: visit.orgUnitId,
       entityType: "visit",
