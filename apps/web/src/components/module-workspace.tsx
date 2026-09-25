@@ -16,6 +16,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { getWebModuleTabs } from "@/config/navigation";
 import { AdminWorkspace } from "./admin-workspace";
+import { ImportsWorkspace } from "./imports-workspace";
 import { InventoryWorkspace } from "./inventory-workspace";
 
 const modules = {
@@ -30,6 +31,12 @@ const modules = {
     title: "Master data",
     description:
       "Product, customer, warehouse, territory, and price references synchronized with SAP.",
+  },
+  imports: {
+    eyebrow: "Governed data entry",
+    title: "Data imports",
+    description:
+      "Load the approved product master and opening stock through validated CSV operations with preview, row-level errors, and an auditable run history.",
   },
   inventory: {
     eyebrow: "Operational inventory authority",
@@ -350,6 +357,10 @@ function ModuleContent({
 
   if (module === "inventory") {
     return <InventoryWorkspace setupMessage={setupMessage} />;
+  }
+
+  if (module === "imports") {
+    return <ImportsWorkspace setupMessage={setupMessage} />;
   }
 
   if (module === "orders" || module === "workflows") {

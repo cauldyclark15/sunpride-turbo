@@ -6,6 +6,7 @@ describe("web navigation", () => {
     ["/dashboard", "home"],
     ["/orders", "commercial"],
     ["/master-data", "commercial"],
+    ["/imports", "commercial"],
     ["/inventory", "inventory"],
     ["/sales-force", "field"],
     ["/mobile", "field"],
@@ -31,6 +32,12 @@ describe("web navigation", () => {
     expect(getWebModuleTabs("/orders").map((item) => item.href)).toEqual([
       "/orders",
       "/master-data",
+      "/imports",
+    ]);
+    expect(getWebModuleTabs("/imports").map((item) => item.href)).toEqual([
+      "/orders",
+      "/master-data",
+      "/imports",
     ]);
     expect(getWebModuleTabs("/mobile").map((item) => item.href)).toEqual([
       "/sales-force",

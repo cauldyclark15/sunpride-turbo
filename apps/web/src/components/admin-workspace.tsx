@@ -7,21 +7,33 @@ import { StatusPill } from "@sunpride/ui";
 import { useMutation, useQuery } from "convex/react";
 import { useState, type FormEvent } from "react";
 
-type AssignableRole = "admin" | "manager" | "approver" | "sales" | "viewer";
+type AssignableRole =
+  | "admin"
+  | "operations"
+  | "manager"
+  | "approver"
+  | "sales"
+  | "analyst"
+  | "viewer";
 
 const roles: { value: AssignableRole; label: string }[] = [
   { value: "admin", label: "Administrator" },
-  { value: "manager", label: "Manager" },
+  { value: "operations", label: "Operations" },
+  { value: "manager", label: "Sales manager" },
   { value: "approver", label: "Approver" },
   { value: "sales", label: "Sales" },
-  { value: "viewer", label: "Viewer" },
+  { value: "analyst", label: "Analyst (read-only, all areas)" },
+  { value: "viewer", label: "Viewer (read-only, own area)" },
 ];
 
-const roleLabel = (role: string) =>
-  role
+const roleLabel = (role: string) => {
+  const known = roles.find((option) => option.value === role);
+  if (known) return known.label;
+  return role
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+};
 
 const readableError = (error: unknown) =>
   error instanceof Error ? error.message : "The access update failed.";
@@ -40,8 +52,21 @@ export function AdminWorkspace() {
   );
   const invite = useMutation(api.domains.profiles.invite);
   const revoke = useMutation(api.domains.profiles.revoke);
+  const assignPersona = useMutation(api.domains.profiles.assignPersona);
+  const positions = useQuery(
+    api.sfa.positions.list,
+    canAdminister ? {} : "skip",
+  );
+  const orgUnits = useQuery(
+    api.domains.profiles.listAssignableOrgUnits,
+    canAdminister ? {} : "skip",
+  );
   const [role, setRole] = useState<AssignableRole>("viewer");
+  const [positionId, setPositionId] = useState("");
   const [pending, setPending] = useState(false);
+  const [assignments, setAssignments] = useState<
+    Record<string, { positionId: string; orgUnitId: string }>
+  >({});
   const [message, setMessage] = useState<{
     tone: "success" | "error";
     text: string;
@@ -70,17 +95,68 @@ export function AdminWorkspace() {
     const email = String(data.get("email") ?? "");
     const name = String(data.get("name") ?? "").trim();
     try {
-      await invite({ email, role, ...(name ? { name } : {}) });
+      await invite({
+        email,
+        role,
+        ...(name ? { name } : {}),
+        ...(positionId ? { positionId: positionId as Id<"positions"> } : {}),
+      });
       setMessage({
         tone: "success",
         text: `${email.toLowerCase()} can now create an account and sign in.`,
       });
       form.reset();
       setRole("viewer");
+      setPositionId("");
     } catch (error) {
       setMessage({ tone: "error", text: readableError(error) });
     } finally {
       setPending(false);
+    }
+  }
+
+  const positionLabel = (id: string | undefined) =>
+    (positions ?? []).find((position) => position._id === id)?.label ??
+    "No position set";
+
+  const assignmentFor = (
+    profileId: string,
+    fallback?: { positionId?: string; orgUnitId?: string },
+  ) =>
+    assignments[profileId] ?? {
+      positionId: fallback?.positionId ?? "",
+      orgUnitId: fallback?.orgUnitId ?? "",
+    };
+
+  const setAssignment = (
+    profileId: string,
+    patch: Partial<{ positionId: string; orgUnitId: string }>,
+    fallback?: { positionId?: string; orgUnitId?: string },
+  ) =>
+    setAssignments((current) => ({
+      ...current,
+      [profileId]: { ...assignmentFor(profileId, fallback), ...patch },
+    }));
+
+  async function savePersona(
+    profileId: Id<"profiles">,
+    fallback?: { positionId?: string; orgUnitId?: string },
+  ) {
+    const choice = assignmentFor(profileId, fallback);
+    setMessage(null);
+    try {
+      await assignPersona({
+        profileId,
+        ...(choice.positionId
+          ? { positionId: choice.positionId as Id<"positions"> }
+          : {}),
+        ...(choice.orgUnitId
+          ? { orgUnitId: choice.orgUnitId as Id<"orgUnits"> }
+          : {}),
+      });
+      setMessage({ tone: "success", text: "Position and area updated." });
+    } catch (error) {
+      setMessage({ tone: "error", text: readableError(error) });
     }
   }
 
@@ -142,6 +218,21 @@ export function AdminWorkspace() {
                 ))}
             </select>
           </label>
+          <label className="grid gap-1.5 text-sm font-medium text-foreground">
+            Position (optional)
+            <select
+              value={positionId}
+              onChange={(event) => setPositionId(event.target.value)}
+              className="h-10 rounded-md border border-border bg-surface px-3 text-sm outline-none focus:border-accent"
+            >
+              <option value="">No position set</option>
+              {(positions ?? []).map((position) => (
+                <option key={position._id} value={position._id}>
+                  {position.label}
+                </option>
+              ))}
+            </select>
+          </label>
           {message ? (
             <p
               role="status"
@@ -172,29 +263,101 @@ export function AdminWorkspace() {
             </StatusPill>
           </div>
           <div className="mt-5 grid gap-3">
-            {(profiles ?? []).map((profile) => (
-              <article
-                key={profile._id}
-                className="flex flex-col gap-3 rounded-md border border-border p-4 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div>
-                  <p className="font-medium text-foreground">{profile.name}</p>
-                  <p className="mt-1 text-xs text-muted">{profile.email}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <StatusPill
-                    tone={profile.status === "active" ? "success" : "neutral"}
-                  >
-                    {profile.status}
-                  </StatusPill>
-                  <StatusPill
-                    tone={profile.role === "super_admin" ? "danger" : "neutral"}
-                  >
-                    {roleLabel(profile.role)}
-                  </StatusPill>
-                </div>
-              </article>
-            ))}
+            {(profiles ?? []).map((profile) => {
+              const persona = {
+                ...(profile.positionId
+                  ? { positionId: profile.positionId }
+                  : {}),
+                ...(profile.orgUnitId ? { orgUnitId: profile.orgUnitId } : {}),
+              };
+              const choice = assignmentFor(profile._id, persona);
+              return (
+                <article
+                  key={profile._id}
+                  className="grid gap-3 rounded-md border border-border p-4"
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="font-medium text-foreground">
+                        {profile.name}
+                      </p>
+                      <p className="mt-1 text-xs text-muted">
+                        {profile.email} · {positionLabel(profile.positionId)}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <StatusPill
+                        tone={
+                          profile.status === "active" ? "success" : "neutral"
+                        }
+                      >
+                        {profile.status}
+                      </StatusPill>
+                      <StatusPill
+                        tone={
+                          profile.role === "super_admin" ? "danger" : "neutral"
+                        }
+                      >
+                        {roleLabel(profile.role)}
+                      </StatusPill>
+                    </div>
+                  </div>
+                  {profile.role !== "super_admin" ? (
+                    <div className="flex flex-wrap items-end gap-3 border-t border-border pt-3">
+                      <label className="grid gap-1.5 text-xs font-medium text-muted">
+                        Position
+                        <select
+                          value={choice.positionId}
+                          onChange={(event) =>
+                            setAssignment(
+                              profile._id,
+                              { positionId: event.target.value },
+                              persona,
+                            )
+                          }
+                          className="h-9 rounded-md border border-border bg-surface px-2 text-sm text-foreground outline-none focus:border-accent"
+                        >
+                          <option value="">No position set</option>
+                          {(positions ?? []).map((position) => (
+                            <option key={position._id} value={position._id}>
+                              {position.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="grid gap-1.5 text-xs font-medium text-muted">
+                        Area
+                        <select
+                          value={choice.orgUnitId}
+                          onChange={(event) =>
+                            setAssignment(
+                              profile._id,
+                              { orgUnitId: event.target.value },
+                              persona,
+                            )
+                          }
+                          className="h-9 rounded-md border border-border bg-surface px-2 text-sm text-foreground outline-none focus:border-accent"
+                        >
+                          <option value="">Keep current area</option>
+                          {(orgUnits ?? []).map((unit) => (
+                            <option key={unit._id} value={unit._id}>
+                              {unit.code} · {unit.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onPress={() => void savePersona(profile._id, persona)}
+                      >
+                        Save
+                      </Button>
+                    </div>
+                  ) : null}
+                </article>
+              );
+            })}
             {profiles?.length === 0 ? (
               <p className="rounded-md bg-surface-secondary p-5 text-center text-sm text-muted">
                 No provisioned users yet.

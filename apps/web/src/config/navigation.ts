@@ -3,6 +3,7 @@ import type { WorkspaceModuleTab, WorkspaceNavGroup } from "@sunpride/ui";
 const routeToPrimary: Record<string, string> = {
   "/dashboard": "home",
   "/master-data": "commercial",
+  "/imports": "commercial",
   "/orders": "commercial",
   "/inventory": "inventory",
   "/sales-force": "field",
@@ -57,6 +58,7 @@ const moduleTabs: Partial<Record<string, WorkspaceModuleTab[]>> = {
   commercial: [
     { id: "sales-orders", label: "Sales orders", href: "/orders" },
     { id: "master-data", label: "Master data", href: "/master-data" },
+    { id: "imports", label: "Imports", href: "/imports" },
   ],
   field: [
     { id: "sales-force", label: "Sales force", href: "/sales-force" },

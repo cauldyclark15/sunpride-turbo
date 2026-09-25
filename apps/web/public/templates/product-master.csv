@@ -1,0 +1,2 @@
+product_code,name,category,base_uom,selling_uoms,barcode,tracking_mode,allocation_policy,shelf_life_days,expiry_required,manufacture_date_required,minimum_remaining_shelf_life_days,external_id
+SP-PJ-1L,Sunpride Pineapple Juice 1L,Juice,CASE,CASE;EACH,4801234567890,lot,fefo,365,Y,N,7,SP-PJ-1L
