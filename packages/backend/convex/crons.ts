@@ -2,6 +2,12 @@ import { cronJobs } from "convex/server";
 import { internal } from "./_generated/api";
 
 const crons = cronJobs();
+crons.interval(
+  "activate due coverage plans",
+  { minutes: 1 },
+  internal.coverage.activation.activateDue,
+  {},
+);
 crons.cron(
   "expire inventory lots",
   "15 0 * * *",

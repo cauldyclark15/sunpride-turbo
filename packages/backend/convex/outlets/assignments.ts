@@ -11,6 +11,7 @@ import {
   type QueryCtx,
 } from "../_generated/server";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
+import { assertNotLockedByApprovedPlan } from "../coverage/lock";
 import { requireCapability } from "../lib/capabilities";
 import { activeAt, audit, interval, prospective } from "../org/validation";
 import schema from "../schema";
@@ -158,31 +159,51 @@ async function prepare(
   );
   assertActiveOutlet(access.outlet);
   const rows = await outletRows(ctx, "outletAssignments", target.outletId);
-  const previous = currentRow(rows, from);
+  const current = currentRow(rows, from);
+  const previous = current && current.effectiveFrom < from ? current : null;
+  const future = rows.filter(
+    (row) => row.effectiveFrom >= from && row.effectiveTo !== row.effectiveFrom,
+  );
   if (
-    rows.some((row) => row.effectiveFrom >= from) ||
-    (previous && previous.effectiveFrom >= from) ||
-    (!previous && rows.some((row) => overlaps(row, from)))
+    future.length > 1 ||
+    future.some((row) => row.effectiveFrom <= Date.now()) ||
+    (previous && previous.effectiveFrom >= from && previous !== future[0]) ||
+    (!previous &&
+      rows.some((row) => overlaps(row, from) && !future.includes(row)))
   )
     throw new ConvexError("Overlapping or future outlet assignment");
-  if (previous) {
+  const pending = future[0] ?? null;
+  for (const source of [previous, pending]) {
+    if (!source) continue;
     const sourceOwner = await resolveTerritoryOwnerAt(
       ctx,
-      previous.territoryId,
-      from,
+      source.territoryId,
+      Math.max(from, source.effectiveFrom),
     );
     if (!sourceOwner) throw new ConvexError("Source territory owner missing");
     await requireCapability(ctx, "outlet.assign", sourceOwner.orgUnitId);
   }
   if (
+    !pending &&
     previous &&
     previous.territoryId === target.territoryId &&
     previous.routeId === target.routeId &&
     previous.sequence === target.sequence
   )
     throw new ConvexError("Assignment unchanged");
+  await assertNotLockedByApprovedPlan(ctx, {
+    outletIds: [target.outletId],
+    routeIds: [
+      ...new Set(
+        [target.routeId, previous?.routeId, pending?.routeId].filter(
+          (id): id is Id<"routes"> => !!id,
+        ),
+      ),
+    ],
+    from,
+  });
   await destination(ctx, target, from);
-  return { previous, actor: access.identity.tokenIdentifier };
+  return { previous, pending, actor: access.identity.tokenIdentifier };
 }
 async function write(
   ctx: MutationCtx,
@@ -191,9 +212,22 @@ async function write(
   reason: string,
   previous: Doc<"outletAssignments"> | null,
   actor: string,
+  pending: Doc<"outletAssignments"> | null = null,
 ) {
   const now = Date.now();
   if (previous) await ctx.db.patch(previous._id, { effectiveTo: from });
+  if (pending) {
+    await ctx.db.patch(pending._id, { effectiveTo: pending.effectiveFrom });
+    await audit(
+      ctx,
+      actor,
+      "outlet.pending_assignment_replaced",
+      "outletAssignment",
+      pending._id,
+      reason.trim(),
+      now,
+    );
+  }
   const id = await ctx.db.insert("outletAssignments", {
     ...target,
     effectiveFrom: from,
@@ -253,6 +287,7 @@ export const assign = mutation({
       reason,
       prepared.previous,
       prepared.actor,
+      prepared.pending,
     );
   },
 });
@@ -287,6 +322,7 @@ export const batchAssign = mutation({
           args.reason,
           prepared[i]!.previous,
           prepared[i]!.actor,
+          prepared[i]!.pending,
         ),
       );
     return ids;
@@ -311,6 +347,11 @@ export const reorder = mutation({
       throw new ConvexError("Invalid reorder selection");
     await requireRoute(ctx, "route.read", args.routeId);
     const rows = await indexedRows(ctx, "routeId", args.routeId);
+    await assertNotLockedByApprovedPlan(ctx, {
+      outletIds: args.outletIds,
+      routeIds: [args.routeId],
+      from: args.effectiveFrom,
+    });
     const active = rows.filter((row) =>
       activeAt(row.effectiveFrom, row.effectiveTo, args.effectiveFrom),
     );

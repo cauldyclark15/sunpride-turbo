@@ -10,7 +10,10 @@
 
 import type * as auth from "../auth.js";
 import type * as authPolicy from "../authPolicy.js";
+import type * as coverage_activation from "../coverage/activation.js";
 import type * as coverage_audit from "../coverage/audit.js";
+import type * as coverage_history from "../coverage/history.js";
+import type * as coverage_lock from "../coverage/lock.js";
 import type * as coverage_plans from "../coverage/plans.js";
 import type * as coverage_routines from "../coverage/routines.js";
 import type * as coverage_validation from "../coverage/validation.js";
@@ -92,7 +95,10 @@ import type {
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   authPolicy: typeof authPolicy;
+  "coverage/activation": typeof coverage_activation;
   "coverage/audit": typeof coverage_audit;
+  "coverage/history": typeof coverage_history;
+  "coverage/lock": typeof coverage_lock;
   "coverage/plans": typeof coverage_plans;
   "coverage/routines": typeof coverage_routines;
   "coverage/validation": typeof coverage_validation;

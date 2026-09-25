@@ -4,6 +4,7 @@ import {
 } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
+import { assertNotLockedByApprovedPlan } from "../coverage/lock";
 import { internalMutation, mutation, query } from "../_generated/server";
 import type { MutationCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
@@ -366,6 +367,12 @@ export const move = mutation({
     );
     if (!oldOwner) throw new ConvexError("Source territory owner missing");
     await requireCapability(ctx, "route.manage", oldOwner.orgUnitId);
+    await assertNotLockedByApprovedPlan(ctx, {
+      outletIds: [],
+      routeIds: [route._id],
+      from: args.effectiveFrom,
+      to: route.effectiveTo,
+    });
     const stops = await ctx.db
       .query("outletAssignments")
       .withIndex("by_routeId_and_effectiveFrom", (q) =>
@@ -436,6 +443,11 @@ export const deactivate = mutation({
       last = rows.at(-1);
     if (!last || last.effectiveFrom >= args.effectiveTo)
       throw new ConvexError("Invalid route end");
+    await assertNotLockedByApprovedPlan(ctx, {
+      outletIds: [],
+      routeIds: [route._id],
+      from: args.effectiveTo,
+    });
     const stops = await ctx.db
       .query("outletAssignments")
       .withIndex("by_routeId_and_effectiveFrom", (q) =>
@@ -588,6 +600,12 @@ export const assignSalesperson = mutation({
       args.effectiveFrom,
       args.effectiveTo,
     );
+    await assertNotLockedByApprovedPlan(ctx, {
+      outletIds: [],
+      routeIds: [route._id],
+      from: args.effectiveFrom,
+      to: args.effectiveTo,
+    });
     if (
       (await routeSalespeople(ctx, route._id)).some(
         (row) =>
@@ -652,6 +670,12 @@ export const endSalespersonAssignment = mutation({
       (row.effectiveTo !== undefined && row.effectiveTo <= args.effectiveTo)
     )
       throw new ConvexError("Invalid assignment end");
+    await assertNotLockedByApprovedPlan(ctx, {
+      outletIds: [],
+      routeIds: [row.routeId],
+      from: args.effectiveTo,
+      to: row.effectiveTo,
+    });
     const reason = required(args.reason, "Reason"),
       now = Date.now();
     await ctx.db.patch(row._id, { effectiveTo: args.effectiveTo });
