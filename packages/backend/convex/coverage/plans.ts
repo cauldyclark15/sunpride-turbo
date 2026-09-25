@@ -367,6 +367,150 @@ export const createRevision = mutation({
     return plan;
   },
 });
+export type DraftImportRow = {
+  outletId: Id<"outlets">;
+  territoryId: Id<"territories">;
+  routeId?: Id<"routes">;
+  serviceDate?: string;
+  frequency: "weekly" | "biweekly" | "monthly" | "custom";
+  sequence: number;
+  durationMinutes: number;
+  objectives: string[];
+};
+
+/** Append validated import rows without replacing existing draft content. Caller resolves codes. */
+export async function mergeDraftImport(
+  ctx: MutationCtx,
+  plan: Doc<"coveragePlans">,
+  actor: string,
+  rows: DraftImportRow[],
+) {
+  if (plan.status !== "draft")
+    throw new ConvexError("Only draft plans can change");
+  await planAccess(ctx, plan, "mcp.plan");
+  const previous = await planRows(ctx, plan._id);
+  await assertOutletsScoped(
+    ctx,
+    [
+      ...previous.outlets.map((row) => row.outletId),
+      ...previous.slots.flatMap((row) => (row.outletId ? [row.outletId] : [])),
+      ...rows.map((row) => row.outletId),
+    ],
+    "mcp.plan",
+  );
+  const newOutlets = new Set(rows.map((row) => row.outletId));
+  if (
+    previous.outlets.length + newOutlets.size > MAX_PLAN_ROWS ||
+    previous.slots.length + rows.filter((row) => row.serviceDate).length >
+      MAX_PLAN_ROWS
+  )
+    throw new ConvexError("too_many_rows: plan exceeds 500 rows");
+  const existingOutlets = new Set(previous.outlets.map((row) => row.outletId));
+  const existingSlots = new Set(
+    previous.slots.map((row) =>
+      row.outletId ? `${row.serviceDate}:${row.outletId}` : "",
+    ),
+  );
+  const now = Date.now();
+  for (const row of rows) {
+    positive(row.sequence, "Sequence");
+    positive(row.durationMinutes, "Duration");
+    for (const objective of row.objectives) required(objective, "Objective");
+    if (row.serviceDate) {
+      const instant = localDate(row.serviceDate);
+      if (instant < plan.effectiveFrom || instant >= plan.effectiveTo)
+        throw new ConvexError("Slot outside plan period");
+      const key = `${row.serviceDate}:${row.outletId}`;
+      if (existingSlots.has(key)) throw new ConvexError("Duplicate plan visit");
+      existingSlots.add(key);
+    }
+    if (!existingOutlets.has(row.outletId)) {
+      const source = await resolveOutletScopeAt(
+        ctx,
+        row.outletId,
+        Math.max(plan.effectiveFrom, now),
+      );
+      if (
+        source.assignment?.territoryId !== row.territoryId ||
+        source.assignment.routeId !== row.routeId ||
+        source.outlet.status === "inactive"
+      )
+        throw new ConvexError("Outlet assignment changed; preview again");
+      await ctx.db.insert("coveragePlanOutlets", {
+        planId: plan._id,
+        outletId: row.outletId,
+        territoryId: row.territoryId,
+        routeId: row.routeId,
+        frequency: row.frequency,
+        preferredWeekdays:
+          source.outlet.preferredWeekday === undefined
+            ? []
+            : [source.outlet.preferredWeekday as 0 | 1 | 2 | 3 | 4 | 5 | 6],
+        customLocalDates:
+          row.frequency === "custom" && row.serviceDate
+            ? [row.serviceDate]
+            : [],
+        sequence: row.sequence,
+        priority: 0,
+        expectedDurationMinutes: row.durationMinutes,
+        requiredObjectives: row.objectives,
+        contentRevision: plan.contentRevision + 1,
+        updatedBy: actor,
+        updatedAt: now,
+      });
+      existingOutlets.add(row.outletId);
+    } else if (row.serviceDate && row.frequency === "custom") {
+      const prior = await ctx.db
+        .query("coveragePlanOutlets")
+        .withIndex("by_planId_and_outletId", (q) =>
+          q.eq("planId", plan._id).eq("outletId", row.outletId),
+        )
+        .unique();
+      if (
+        prior?.frequency === "custom" &&
+        !prior.customLocalDates.includes(row.serviceDate)
+      )
+        await ctx.db.patch(prior._id, {
+          customLocalDates: [...prior.customLocalDates, row.serviceDate].sort(),
+          contentRevision: plan.contentRevision + 1,
+          updatedBy: actor,
+          updatedAt: now,
+        });
+    }
+    if (row.serviceDate) {
+      await ctx.db.insert("coveragePlanSlots", {
+        planId: plan._id,
+        slotKey: `import:${row.serviceDate}:${row.outletId}`,
+        assigneeProfileId: plan.assigneeProfileId,
+        serviceDate: row.serviceDate,
+        kind: "outlet_visit",
+        outletId: row.outletId,
+        routeId: row.routeId,
+        requiredObjectives: row.objectives,
+        intents: [],
+        sequence: row.sequence,
+        expectedDurationMinutes: row.durationMinutes,
+        contentRevision: plan.contentRevision + 1,
+        updatedBy: actor,
+        updatedAt: now,
+      });
+    }
+  }
+  if (rows.length) {
+    await ctx.db.patch(plan._id, {
+      territoryIds: [
+        ...new Set([
+          ...plan.territoryIds,
+          ...rows.map((row) => row.territoryId),
+        ]),
+      ],
+    });
+    await bump(ctx, plan, actor, "import.merged", {
+      importedRows: rows.length,
+    });
+  }
+}
+
 export const saveOutlets = mutation({
   args: { planId: v.id("coveragePlans"), outlets: v.array(outletInput) },
   returns: v.array(outletDoc),

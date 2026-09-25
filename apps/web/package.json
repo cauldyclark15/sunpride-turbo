@@ -13,15 +13,16 @@
   },
   "dependencies": {
     "@convex-dev/better-auth": "^0.12.0",
+    "@heroui/react": ">=3.2.2",
     "@sunpride/backend": "workspace:*",
     "@sunpride/ui": "workspace:*",
-    "@heroui/react": ">=3.2.2",
     "better-auth": "~1.6.15",
     "convex": "^1.45.0",
     "leaflet": "^1.9.4",
     "next": "16.3.2",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "read-excel-file": "^9.3.10"
   },
   "devDependencies": {
     "@sunpride/eslint-config": "workspace:*",

@@ -11,6 +11,8 @@ const state = vi.hoisted(() => ({
   values: {} as Record<string, unknown>,
   calls: [] as { name: string; args: unknown }[],
   buttons: {} as Record<string, () => void>,
+  selects: {} as Record<string, (value: string) => void>,
+  selectIndex: 0,
   fileInput: null as
     | null
     | ((event: {
@@ -119,6 +121,7 @@ vi.mock("@sunpride/ui", () => ({
 function render() {
   state.index = 0;
   state.buttons = {};
+  state.selectIndex = 0;
   return renderToStaticMarkup(
     createElement(ImportsWorkspace, { setupMessage: "Ready" }),
   );
@@ -148,10 +151,31 @@ vi.mock("react/jsx-runtime", async (importOriginal) => {
         props?.children === "Download template"
       )
         state.buttons["Download template"] = props.onClick as () => void;
+      if (type === "select" && typeof props?.onChange === "function") {
+        const key = state.selectIndex++ === 0 ? "plan" : "format";
+        state.selects[key] = (value) =>
+          (props.onChange as (event: { target: { value: string } }) => void)({
+            target: { value },
+          });
+      }
+      if (
+        type === "button" &&
+        typeof props?.onClick === "function" &&
+        typeof props?.children === "string"
+      )
+        state.buttons[props.children] = props.onClick as () => void;
       return actual.jsx(type as never, props, key);
     },
-    jsxs: (type: unknown, props: Record<string, unknown>, key?: string) =>
-      actual.jsxs(type as never, props, key),
+    jsxs: (type: unknown, props: Record<string, unknown>, key?: string) => {
+      if (type === "select" && typeof props?.onChange === "function") {
+        const name = state.selectIndex++ === 0 ? "plan" : "format";
+        state.selects[name] = (value) =>
+          (props.onChange as (event: { target: { value: string } }) => void)({
+            target: { value },
+          });
+      }
+      return actual.jsxs(type as never, props, key);
+    },
   };
 });
 
@@ -175,6 +199,19 @@ vi.mock("react/jsx-dev-runtime", async (importOriginal) => {
         props?.children === "Download template"
       )
         state.buttons["Download template"] = props.onClick as () => void;
+      if (type === "select" && typeof props?.onChange === "function") {
+        const name = state.selectIndex++ === 0 ? "plan" : "format";
+        state.selects[name] = (value) =>
+          (props.onChange as (event: { target: { value: string } }) => void)({
+            target: { value },
+          });
+      }
+      if (
+        type === "button" &&
+        typeof props?.onClick === "function" &&
+        typeof props?.children === "string"
+      )
+        state.buttons[props.children] = props.onClick as () => void;
       return actual.jsxDEV(
         type as never,
         props,
@@ -465,5 +502,149 @@ describe("ImportsWorkspace", () => {
     expect(html).toContain("Adjustment and count runs · scoped");
     expect(html).toContain("national");
     expect(html).toContain("scoped");
+  });
+  it("shows scoped MCP import, previews mixed CSV and merges accepted rows", async () => {
+    state.values["lib/capabilities:currentPermissions"] = {
+      role: "manager",
+      orgUnitId: "region",
+      capabilities: ["mcp.plan", "mcp.read"],
+    };
+    state.values["coverage/discovery:list"] = {
+      page: [
+        {
+          planId: "plan1",
+          assigneeName: "Sales",
+          version: 1,
+          localMonth: "2026-10",
+          status: "draft",
+        },
+      ],
+      isDone: true,
+      continueCursor: "1",
+    };
+    state.values["imports/mcp:history"] = {
+      page: [],
+      isDone: true,
+      continueCursor: "0",
+    };
+    render();
+    state.buttons["MCP / route sheets"]!();
+    expect(render()).toContain("Draft plan");
+    expect(state.calls).toContainEqual({
+      name: "imports/mcp:history",
+      args: "skip",
+    });
+    state.selects.plan!("plan1");
+    render();
+    const header =
+      "employee_code,territory_code,route_code,outlet_code,customer_code,service_date,frequency,sequence,duration_minutes,objectives";
+    state.fileInput!({
+      target: {
+        files: [
+          {
+            name: "sheet.csv",
+            text: async () =>
+              `${header}\n0007,T,R,0009,,2026-10-15,weekly,1,30,Visit\n0007,T,R,NO-SUCH-OUTLET,,2026-10-15,weekly,2,30,Visit\n`,
+          },
+        ],
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    state.query.mockResolvedValue({
+      accepted: [
+        { rowNumber: 2, employeeId: "p", outletId: "o", territoryId: "t" },
+      ],
+      rejected: [
+        {
+          rowNumber: 3,
+          column: "outlet_code",
+          code: "unknown_reference",
+          message: "Unknown local code",
+        },
+      ],
+      fileHash: "hash",
+      rowCount: 2,
+    });
+    state.mutation.mockResolvedValue({
+      acceptedCount: 1,
+      rejectedCount: 1,
+      errors: [],
+      duplicate: false,
+      runId: "run",
+    });
+    await vi.waitFor(() => expect(render()).toContain("sheet.csv"));
+    await state.buttons["Preview MCP"]!();
+    expect(render()).toContain("1 accepted");
+    expect(render()).toContain("unknown_reference");
+    await state.buttons["Merge accepted rows"]!();
+    expect(state.query.mock.calls[0]?.[1]).toMatchObject({
+      planId: "plan1",
+      rows: [{ rowNumber: 2 }, { rowNumber: 3 }],
+    });
+    expect(state.mutation.mock.calls[0]?.[1]).toMatchObject({
+      planId: "plan1",
+      chunkIndex: 0,
+      rowCount: 2,
+    });
+    expect(render()).toContain("rows merged into the draft");
+  });
+  it("hides MCP without mcp.plan and disables commit for all rejected", async () => {
+    state.values["lib/capabilities:currentPermissions"] = {
+      role: "manager",
+      orgUnitId: "region",
+      capabilities: ["inventory.count.submit"],
+    };
+    expect(render()).not.toContain("MCP / route sheets");
+    state.values["lib/capabilities:currentPermissions"] = {
+      role: "manager",
+      orgUnitId: "region",
+      capabilities: ["mcp.plan"],
+    };
+    state.values["coverage/discovery:list"] = {
+      page: [
+        {
+          planId: "plan1",
+          assigneeName: "Sales",
+          version: 1,
+          localMonth: "2026-10",
+        },
+      ],
+      isDone: true,
+      continueCursor: "",
+    };
+    render();
+    state.buttons["MCP / route sheets"]!();
+    state.hooks.splice(3);
+    render();
+    state.selects.plan!("plan1");
+    render();
+    state.fileInput!({
+      target: {
+        files: [
+          {
+            name: "sheet.csv",
+            text: async () =>
+              "employee_code,territory_code,route_code,outlet_code,customer_code,service_date,frequency,sequence,duration_minutes,objectives\n0007,T,R,X,,2026-10-15,weekly,1,30,Visit\n",
+          },
+        ],
+      },
+    });
+    await vi.waitFor(() => expect(render()).toContain("sheet.csv"));
+    state.query.mockResolvedValue({
+      accepted: [],
+      rejected: [
+        {
+          rowNumber: 2,
+          code: "unknown_reference",
+          column: "outlet_code",
+          message: "Unknown",
+        },
+      ],
+      fileHash: "hash",
+      rowCount: 1,
+    });
+    await state.buttons["Preview MCP"]!();
+    render();
+    expect(state.buttons["Merge accepted rows"]).toBeUndefined();
   });
 });

@@ -9,8 +9,15 @@ import {
   type DataColumn,
 } from "@sunpride/ui";
 import { useConvex, useQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { hashText, parseCsv } from "../lib/csv";
+import {
+  MCP_HEADERS,
+  parseMcpFile,
+  type McpFormat,
+} from "../lib/mcp-import-format";
+import type { Id } from "../../../../packages/backend/convex/_generated/dataModel";
 import {
   downloadCsv,
   errorCsv,
@@ -917,6 +924,250 @@ function RunHistory({
   );
 }
 
+function McpSection() {
+  const convex = useConvex();
+  const [month, setMonth] = useState(() =>
+    new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 7),
+  );
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [planId, setPlanId] = useState<Id<"coveragePlans"> | null>(null);
+  const [format, setFormat] = useState<McpFormat>("mcp_visits");
+  const [file, setFile] = useState<Awaited<
+    ReturnType<typeof parseMcpFile>
+  > | null>(null);
+  const [name, setName] = useState("");
+  const [preview, setPreview] = useState<FunctionReturnType<
+    typeof api.imports.mcp.preview
+  > | null>(null);
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
+  const discovery = useQuery(api.coverage.discovery.list, {
+    localMonth: month,
+    status: "draft",
+    paginationOpts: { numItems: 20, cursor },
+  });
+  const history = useQuery(
+    api.imports.mcp.history,
+    planId
+      ? { planId, paginationOpts: { numItems: 20, cursor: historyCursor } }
+      : "skip",
+  );
+  const selected = discovery?.page.find((row) => row.planId === planId);
+  async function select(upload: File) {
+    setPreview(null);
+    setMessage("");
+    try {
+      setFile(await parseMcpFile(upload, format));
+      setName(upload.name);
+    } catch (error) {
+      setFile(null);
+      setMessage(operationErrorMessage(error));
+    }
+  }
+  async function check() {
+    if (!planId || !file || file.errors.length) return;
+    setBusy(true);
+    try {
+      const result = await convex.query(api.imports.mcp.preview, {
+        planId,
+        format,
+        header: file.header,
+        rows: file.rows,
+        fileHash: file.fileHash,
+        rowCount: file.rows.length,
+      });
+      setPreview(result);
+      setMessage(
+        `${result.accepted.length} accepted · ${new Set(result.rejected.map((error) => error.rowNumber)).size} rejected`,
+      );
+    } catch (error) {
+      setPreview(null);
+      setMessage(operationErrorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function commit() {
+    if (!planId || !file || !preview?.accepted.length) return;
+    setBusy(true);
+    try {
+      const accepted = new Set(preview.accepted.map((row) => row.rowNumber));
+      let total = 0;
+      for (let index = 0; index < file.rows.length; index += 100) {
+        const rows = file.rows.slice(index, index + 100);
+        if (!rows.some((row) => accepted.has(row.rowNumber))) continue;
+        const result = await convex.mutation(api.imports.mcp.commit, {
+          planId,
+          format,
+          header: file.header,
+          rows,
+          fileHash: file.fileHash,
+          rowCount: file.rows.length,
+          chunkIndex: Math.floor(index / 100),
+          sourceReference: name,
+        });
+        total += result.acceptedCount;
+      }
+      setMessage(
+        `${total} rows merged into the draft. Retry of this file is a no-op.`,
+      );
+      setPreview(null);
+    } catch (error) {
+      setMessage(operationErrorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+  const errors: ImportError[] = [
+    ...(file?.errors ?? []),
+    ...(preview?.rejected ?? []),
+  ];
+  return (
+    <section className="grid gap-4 rounded-xl border border-border bg-surface p-5">
+      <h2 className="font-semibold">MCP / route-sheet import · draft only</h2>
+      <p className="text-sm text-muted">
+        Codes resolve to local employees, territories, routes, outlets and
+        customers; no SAP lookup. Maximum 500 rows per file/plan, in 100-row
+        chunks. Only accepted rows merge.
+      </p>
+      <label>
+        Plan month (Manila){" "}
+        <input
+          type="month"
+          value={month}
+          onChange={(event) => {
+            setMonth(event.target.value);
+            setCursor(null);
+            setPlanId(null);
+            setPreview(null);
+          }}
+        />
+      </label>
+      <label>
+        Draft plan{" "}
+        <select
+          value={planId ?? ""}
+          onChange={(event) => {
+            setPlanId((event.target.value as Id<"coveragePlans">) || null);
+            setHistoryCursor(null);
+            setPreview(null);
+          }}
+        >
+          <option value="">Select a scoped draft</option>
+          {discovery?.page.map((plan) => (
+            <option key={plan.planId} value={plan.planId}>
+              {plan.assigneeName} · v{plan.version} · {plan.localMonth}
+            </option>
+          ))}
+        </select>
+      </label>
+      {discovery && !discovery.isDone && (
+        <Button size="sm" onPress={() => setCursor(discovery.continueCursor)}>
+          More draft plans
+        </Button>
+      )}
+      {selected && (
+        <p className="text-xs text-muted">
+          Selected: {selected.assigneeName} · draft v{selected.version}
+        </p>
+      )}
+      <label>
+        Sheet type{" "}
+        <select
+          value={format}
+          onChange={(event) => {
+            setFormat(event.target.value as McpFormat);
+            setFile(null);
+            setPreview(null);
+          }}
+        >
+          <option value="mcp_visits">Dated MCP visits</option>
+          <option value="route_sheet">Route-sheet outlet defaults</option>
+        </select>
+      </label>
+      <button
+        type="button"
+        className="text-left text-sm underline"
+        onClick={() =>
+          downloadCsv(`${format}-template.csv`, `${MCP_HEADERS[format]}\r\n`)
+        }
+      >
+        Download MCP template
+      </button>
+      <input
+        type="file"
+        accept=".csv,.xlsx"
+        onChange={(event) => {
+          const upload = event.target.files?.[0];
+          if (upload) void select(upload);
+        }}
+      />
+      {file && (
+        <p className="text-sm">
+          {name} · {file.rows.length} rows · {file.interpretation}
+        </p>
+      )}
+      {errors.length > 0 && (
+        <>
+          <ErrorTable errors={errors} title="Rejected spreadsheet rows" />
+          <button
+            type="button"
+            className="text-sm underline"
+            onClick={() => downloadCsv("mcp-errors.csv", errorCsv(errors))}
+          >
+            Download MCP errors
+          </button>
+        </>
+      )}
+      {message && <p role="status">{message}</p>}
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          isDisabled={
+            !planId || !file?.rows.length || !!file.errors.length || busy
+          }
+          onPress={() => void check()}
+        >
+          Preview MCP
+        </Button>
+        <Button
+          size="sm"
+          isDisabled={!preview?.accepted.length || busy}
+          onPress={() => void commit()}
+        >
+          Merge accepted rows
+        </Button>
+      </div>
+      {preview?.accepted.length ? (
+        <p>{preview.accepted.length} matching local rows ready to merge</p>
+      ) : null}
+      {planId && (
+        <div className="grid gap-2">
+          <h3 className="font-semibold">Scoped MCP import history</h3>
+          {history?.page.map((run) => (
+            <div key={run.runId} className="text-sm">
+              {run.sourceReference ?? run.fileHash} · chunk {run.chunkIndex} ·{" "}
+              {run.acceptedCount} accepted · {run.rejectedCount} rejected
+              {run.errors.length > 0 && (
+                <ErrorTable errors={run.errors} title="Recorded row errors" />
+              )}
+            </div>
+          ))}
+          {history && !history.isDone && (
+            <Button
+              size="sm"
+              onPress={() => setHistoryCursor(history.continueCursor)}
+            >
+              More MCP history
+            </Button>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function ImportsWorkspace({ setupMessage }: { setupMessage: string }) {
   const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
   const [asOf] = useState(() => Date.now());
@@ -935,7 +1186,8 @@ export function ImportsWorkspace({ setupMessage }: { setupMessage: string }) {
   const canCount =
     permissions?.capabilities.includes("inventory.count.submit") ?? false;
   const canOperational = canAdjust || canCount;
-  const [tab, setTab] = useState<WorkspaceKind | "history">("products");
+  const canMcp = permissions?.capabilities.includes("mcp.plan") ?? false;
+  const [tab, setTab] = useState<WorkspaceKind | "mcp" | "history">("products");
   const [files, setFiles] = useState<Record<WorkspaceKind, FileState>>({
     products: emptyFileState(),
     opening_stock: emptyFileState(),
@@ -943,7 +1195,7 @@ export function ImportsWorkspace({ setupMessage }: { setupMessage: string }) {
     cycle_count: emptyFileState(),
   });
 
-  const tabs: { key: WorkspaceKind | "history"; label: string }[] = [
+  const tabs: { key: WorkspaceKind | "mcp" | "history"; label: string }[] = [
     ...(canNational
       ? [
           { key: "products" as const, label: CONFIG.products.label },
@@ -961,6 +1213,7 @@ export function ImportsWorkspace({ setupMessage }: { setupMessage: string }) {
     ...(canCount
       ? [{ key: "cycle_count" as const, label: CONFIG.cycle_count.label }]
       : []),
+    ...(canMcp ? [{ key: "mcp" as const, label: "MCP / route sheets" }] : []),
     { key: "history", label: "Run history" },
   ];
   // A permission or organizational reassignment must immediately unmount a now-forbidden section.
@@ -983,6 +1236,8 @@ export function ImportsWorkspace({ setupMessage }: { setupMessage: string }) {
       </div>
       {activeTab === "history" ? (
         <RunHistory canNational={canNational} canOperational={canOperational} />
+      ) : activeTab === "mcp" ? (
+        <McpSection />
       ) : (
         <ImportSection
           kind={activeTab}
