@@ -69,6 +69,8 @@ import type * as teams_queries from "../teams/queries.js";
 import type * as teams_validation from "../teams/validation.js";
 import type * as territories_mutations from "../territories/mutations.js";
 import type * as territories_queries from "../territories/queries.js";
+import type * as territories_route_validation from "../territories/route_validation.js";
+import type * as territories_routes from "../territories/routes.js";
 import type * as territories_validation from "../territories/validation.js";
 
 import type {
@@ -139,6 +141,8 @@ declare const fullApi: ApiFromModules<{
   "teams/validation": typeof teams_validation;
   "territories/mutations": typeof territories_mutations;
   "territories/queries": typeof territories_queries;
+  "territories/route_validation": typeof territories_route_validation;
+  "territories/routes": typeof territories_routes;
   "territories/validation": typeof territories_validation;
 }>;
 
