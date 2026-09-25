@@ -1,18 +1,27 @@
 import type { WorkspaceModuleTab, WorkspaceNavGroup } from "@sunpride/ui";
 
-const routeToPrimary: Record<string, string> = {
+const routeToPrimary = {
   "/dashboard": "home",
   "/master-data": "commercial",
   "/imports": "commercial",
   "/orders": "commercial",
   "/inventory": "inventory",
   "/sales-force": "field",
-  "/mobile": "field",
   "/sap-integration": "operations",
   "/workflows": "approvals",
   "/analytics": "reports",
   "/admin": "admin",
 };
+
+export type WebModuleSlug = keyof typeof routeToPrimary extends infer Path
+  ? Path extends `/${infer Slug}`
+    ? Slug
+    : never
+  : never;
+
+export function isWebModuleSlug(slug: string): slug is WebModuleSlug {
+  return Object.hasOwn(routeToPrimary, `/${slug}`);
+}
 
 const workspaceItems: WorkspaceNavGroup["items"] = [
   { id: "home", label: "Home", href: "/dashboard", icon: "home" },
@@ -60,14 +69,12 @@ const moduleTabs: Partial<Record<string, WorkspaceModuleTab[]>> = {
     { id: "master-data", label: "Master data", href: "/master-data" },
     { id: "imports", label: "Imports", href: "/imports" },
   ],
-  field: [
-    { id: "sales-force", label: "Sales force", href: "/sales-force" },
-    { id: "mobile-pwa", label: "Mobile / PWA", href: "/mobile" },
-  ],
+  field: [{ id: "sales-force", label: "Sales force", href: "/sales-force" }],
 };
 
 export function getWebNavigation(pathname: string, canAdminister: boolean) {
-  const activePrimaryId = routeToPrimary[pathname] ?? "home";
+  const activePrimaryId =
+    (routeToPrimary as Record<string, string>)[pathname] ?? "home";
   const navGroups: WorkspaceNavGroup[] = [
     { id: "workspace", label: "Workspace", items: workspaceItems },
   ];
@@ -95,6 +102,7 @@ export function getWebNavigation(pathname: string, canAdminister: boolean) {
 }
 
 export function getWebModuleTabs(pathname: string) {
-  const activePrimaryId = routeToPrimary[pathname] ?? "home";
+  const activePrimaryId =
+    (routeToPrimary as Record<string, string>)[pathname] ?? "home";
   return moduleTabs[activePrimaryId] ?? [];
 }

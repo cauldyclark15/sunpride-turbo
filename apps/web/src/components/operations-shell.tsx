@@ -8,13 +8,13 @@ import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { getWebNavigation } from "@/config/navigation";
 import { authClient } from "@/lib/auth-client";
+import { canAccessWebModule } from "@/lib/module-access";
 
 export function OperationsShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const current = useQuery(api.domains.profiles.current, {});
-  const canAdminister =
-    current?.role === "super_admin" || current?.role === "admin";
+  const canAdminister = canAccessWebModule("admin", current?.role);
   const navigation = getWebNavigation(pathname, canAdminister);
   const fullWidth = [
     "/inventory",

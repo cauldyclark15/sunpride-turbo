@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { getWebModuleTabs, getWebNavigation } from "./navigation";
+import {
+  getWebModuleTabs,
+  getWebNavigation,
+  isWebModuleSlug,
+} from "./navigation";
 
 describe("web navigation", () => {
   it.each([
@@ -9,7 +13,6 @@ describe("web navigation", () => {
     ["/imports", "commercial"],
     ["/inventory", "inventory"],
     ["/sales-force", "field"],
-    ["/mobile", "field"],
     ["/sap-integration", "operations"],
     ["/workflows", "approvals"],
     ["/analytics", "reports"],
@@ -39,10 +42,18 @@ describe("web navigation", () => {
       "/master-data",
       "/imports",
     ]);
-    expect(getWebModuleTabs("/mobile").map((item) => item.href)).toEqual([
+    expect(getWebModuleTabs("/sales-force").map((item) => item.href)).toEqual([
       "/sales-force",
-      "/mobile",
     ]);
+    expect(getWebModuleTabs("/mobile")).toEqual([]);
     expect(getWebModuleTabs("/dashboard")).toEqual([]);
+  });
+
+  it("recognizes only configured module slugs", () => {
+    expect(isWebModuleSlug("orders")).toBe(true);
+    expect(isWebModuleSlug("admin")).toBe(true);
+    expect(isWebModuleSlug("mobile")).toBe(false);
+    expect(isWebModuleSlug("not-a-module")).toBe(false);
+    expect(isWebModuleSlug("toString")).toBe(false);
   });
 });
