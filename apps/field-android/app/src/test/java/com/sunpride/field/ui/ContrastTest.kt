@@ -26,4 +26,11 @@ class ContrastTest {
             assertTrue("$label: $ratio", ratio >= 4.5)
         }
     }
+
+    @Test fun everyStatusPillMeetsNormalTextThreshold() {
+        StatusPill.entries.forEach { pill ->
+            val ratio = contrastRatio(pill.foreground, pill.background)
+            assertTrue("${pill.label}: $ratio", ratio >= 4.5)
+        }
+    }
 }

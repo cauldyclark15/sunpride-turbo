@@ -1,6 +1,11 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Session ciphertext is useless without this install's Keystore key; still, never back it up or migrate it. -->
     <application android:label="@string/app_name" android:theme="@android:style/Theme.Material.Light.NoActionBar"
-        android:allowBackup="false" android:supportsRtl="true">
+        android:allowBackup="false" android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules" android:supportsRtl="true"
+        tools:targetApi="31">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
