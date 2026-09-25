@@ -22,6 +22,7 @@ import type * as coverage_plans from "../coverage/plans.js";
 import type * as coverage_routines from "../coverage/routines.js";
 import type * as coverage_validation from "../coverage/validation.js";
 import type * as coverage_validators from "../coverage/validators.js";
+import type * as coverage_views from "../coverage/views.js";
 import type * as crons from "../crons.js";
 import type * as domains_admin from "../domains/admin.js";
 import type * as domains_dashboard from "../domains/dashboard.js";
@@ -111,6 +112,7 @@ declare const fullApi: ApiFromModules<{
   "coverage/routines": typeof coverage_routines;
   "coverage/validation": typeof coverage_validation;
   "coverage/validators": typeof coverage_validators;
+  "coverage/views": typeof coverage_views;
   crons: typeof crons;
   "domains/admin": typeof domains_admin;
   "domains/dashboard": typeof domains_dashboard;
