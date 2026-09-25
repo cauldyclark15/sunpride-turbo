@@ -108,6 +108,34 @@ async function seedHierarchy(t: Test) {
 }
 
 describe("capability table", () => {
+  it("serves a versioned server-derived permission view", async () => {
+    const t = convexTest(schema, modules);
+    const superAdmin = await bootstrapSuperAdmin(t);
+    const root = await t.mutation(
+      internal.migrations.seedOrganizationFoundation,
+      {},
+    );
+    const view = await superAdmin.query(
+      api.lib.capabilities.currentPermissions,
+      {},
+    );
+    expect(view.version).toBe(1);
+    expect(view.scopeUnitIds).toContain(root.rootUnitId);
+    expect(view.capabilities).toContain("admin.manage");
+    const viewer = await provisionProfile(
+      t,
+      superAdmin,
+      "view-permission@sunpride.local",
+      "viewer",
+    );
+    const denied = await viewer.query(
+      api.lib.capabilities.currentPermissions,
+      {},
+    );
+    expect(denied.scopeUnitIds).toEqual([]);
+    expect(denied.capabilities).not.toContain("admin.manage");
+  });
+
   it("keeps cross-scope analyst access read-only", () => {
     const analystCapabilities = Object.entries(CAPABILITIES)
       .filter(([, roles]) => (roles as readonly string[]).includes("analyst"))

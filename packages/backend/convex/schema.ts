@@ -52,6 +52,7 @@ export default defineSchema({
     .index("by_subject", ["authSubject"])
     .index("by_email", ["email"])
     .index("by_role", ["role"])
+    .index("by_employeeCode", ["employeeCode"])
     .index("by_orgUnitId", ["orgUnitId"]),
   accessInvitations: defineTable({
     email: v.string(),
@@ -1213,6 +1214,31 @@ export default defineSchema({
       "typeCode",
       "status",
     ]),
+  orgUnitParentEdges: defineTable({
+    unitId: v.id("orgUnits"),
+    parentId: v.id("orgUnits"),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    actorSubject: v.string(),
+    reason: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_unitId_and_effectiveFrom", ["unitId", "effectiveFrom"])
+    .index("by_parentId_and_effectiveFrom", ["parentId", "effectiveFrom"]),
+  employeeAssignments: defineTable({
+    profileId: v.id("profiles"),
+    orgUnitId: v.optional(v.id("orgUnits")),
+    role,
+    positionId: v.optional(v.id("positions")),
+    supervisorId: v.optional(v.id("profiles")),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    actorSubject: v.string(),
+    reason: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_profileId_and_effectiveFrom", ["profileId", "effectiveFrom"])
+    .index("by_orgUnitId_and_effectiveFrom", ["orgUnitId", "effectiveFrom"]),
   /**
    * Sunpride's job titles as data (ADR-009). A position is what the memo attaches standards
    * to — never a role, and never a code literal at an endpoint.

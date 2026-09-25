@@ -1,0 +1,197 @@
+import { convexTest } from "convex-test";
+import { describe, expect, it } from "vitest";
+import { api, internal } from "../_generated/api";
+import schema from "../schema";
+import { modules } from "../test.setup";
+
+async function setup() {
+  const t = convexTest(schema, modules);
+  await t.mutation(internal.migrations.bootstrapSuperAdmin, {});
+  const root = t.withIdentity({ subject: "root", email: "jcing.jc@gmail.com" });
+  await root.mutation(api.domains.profiles.ensure, {});
+  const { rootUnitId } = await t.mutation(
+    internal.migrations.seedOrganizationFoundation,
+    {},
+  );
+  const from = Date.now() + 10000;
+  const a = await root.mutation(api.org.mutations.create, {
+    code: "EAST",
+    name: "East",
+    typeCode: "REGION",
+    parentId: rootUnitId,
+    effectiveFrom: from,
+  });
+  const b = await root.mutation(api.org.mutations.create, {
+    code: "WEST",
+    name: "West",
+    typeCode: "REGION",
+    parentId: rootUnitId,
+    effectiveFrom: from,
+  });
+  // Current projections are needed for authorization now; advance insertion's start in the test fixture.
+  await t.run(async (ctx) => {
+    for (const id of [a, b]) {
+      await ctx.db.patch(id, {
+        effectiveFrom: Date.now() - 10,
+        parentId: rootUnitId,
+      });
+      const edge = await ctx.db
+        .query("orgUnitParentEdges")
+        .withIndex("by_unitId_and_effectiveFrom", (q) => q.eq("unitId", id))
+        .first();
+      if (edge)
+        await ctx.db.patch(edge._id, { effectiveFrom: Date.now() - 10 });
+    }
+  });
+  return { t, root, a, b };
+}
+
+async function person(
+  t: Awaited<ReturnType<typeof setup>>["t"],
+  root: Awaited<ReturnType<typeof setup>>["root"],
+  email: string,
+  role: "admin" | "viewer" | "sales",
+) {
+  await root.mutation(api.domains.profiles.invite, { email, role });
+  const actor = t.withIdentity({ subject: email, email });
+  await actor.mutation(api.domains.profiles.ensure, {});
+  return actor;
+}
+
+describe("person assignment history and scope", () => {
+  it("moves atomically and retains half-open history, actor and audit", async () => {
+    const { t, root, a, b } = await setup();
+    const employee = await person(t, root, "employee@example.test", "viewer");
+    const id = (await employee.query(api.domains.profiles.current, {}))!._id;
+    await root.mutation(api.people.mutations.assign, {
+      profileId: id,
+      orgUnitId: a,
+      role: "viewer",
+      reason: "hire",
+    });
+    await root.mutation(api.people.mutations.assign, {
+      profileId: id,
+      orgUnitId: b,
+      role: "sales",
+      reason: "move",
+    });
+    const history = await root.query(api.people.queries.history, {
+      profileId: id,
+    });
+    expect(history).toHaveLength(3);
+    expect(history[1]!.effectiveTo).toBe(history[2]!.effectiveFrom);
+    expect(history[2]!.orgUnitId).toBe(b);
+    expect(history[2]!.actorSubject).toBeTruthy();
+    expect(
+      (await employee.query(api.domains.profiles.current, {}))?.orgUnitId,
+    ).toBe(b);
+    const audit = await t.run((ctx) =>
+      ctx.db
+        .query("auditLogs")
+        .withIndex("by_entity", (q) =>
+          q.eq("entityType", "profile").eq("entityId", id),
+        )
+        .collect(),
+    );
+    expect(audit.some((e) => e.action === "person.assigned")).toBe(true);
+  });
+  it("rejects cross-region pulls, unassigned admins, and viewer writes", async () => {
+    const { t, root, a, b } = await setup();
+    const admin = await person(t, root, "east@example.test", "admin");
+    const viewer = await person(t, root, "west@example.test", "viewer");
+    const adminId = (await admin.query(api.domains.profiles.current, {}))!._id;
+    const viewerId = (await viewer.query(api.domains.profiles.current, {}))!
+      ._id;
+    await expect(
+      admin.mutation(api.people.mutations.assign, {
+        profileId: viewerId,
+        orgUnitId: a,
+        role: "viewer",
+        reason: "pull",
+      }),
+    ).rejects.toThrow(/scope/);
+    await root.mutation(api.people.mutations.assign, {
+      profileId: adminId,
+      orgUnitId: a,
+      role: "admin",
+      reason: "assign",
+    });
+    await root.mutation(api.people.mutations.assign, {
+      profileId: viewerId,
+      orgUnitId: b,
+      role: "viewer",
+      reason: "assign",
+    });
+    await expect(
+      admin.mutation(api.people.mutations.assign, {
+        profileId: viewerId,
+        orgUnitId: a,
+        role: "viewer",
+        reason: "pull",
+      }),
+    ).rejects.toThrow(/scope/);
+    await expect(
+      viewer.mutation(api.people.mutations.assign, {
+        profileId: viewerId,
+        orgUnitId: b,
+        role: "viewer",
+        reason: "write",
+      }),
+    ).rejects.toThrow(/permission/);
+    expect(
+      (
+        await admin.query(api.people.queries.list, {
+          paginationOpts: { cursor: null, numItems: 20 },
+        })
+      ).page.map((p) => p._id),
+    ).not.toContain(viewerId);
+  });
+  it("rejects supervisor loops and immutable or duplicate employee codes", async () => {
+    const { t, root, a } = await setup();
+    const first = await person(t, root, "first@example.test", "viewer");
+    const second = await person(t, root, "second@example.test", "viewer");
+    const firstId = (await first.query(api.domains.profiles.current, {}))!._id;
+    const secondId = (await second.query(api.domains.profiles.current, {}))!
+      ._id;
+    await root.mutation(api.people.mutations.assign, {
+      profileId: firstId,
+      orgUnitId: a,
+      role: "viewer",
+      employeeCode: "E-001",
+      reason: "hire",
+    });
+    await root.mutation(api.people.mutations.assign, {
+      profileId: secondId,
+      orgUnitId: a,
+      role: "viewer",
+      reason: "hire",
+    });
+    await expect(
+      root.mutation(api.people.mutations.assign, {
+        profileId: firstId,
+        orgUnitId: a,
+        role: "viewer",
+        supervisorId: firstId,
+        reason: "loop",
+      }),
+    ).rejects.toThrow(/cycle/);
+    await expect(
+      root.mutation(api.people.mutations.assign, {
+        profileId: secondId,
+        orgUnitId: a,
+        role: "viewer",
+        employeeCode: "E-001",
+        reason: "duplicate",
+      }),
+    ).rejects.toThrow(/Duplicate/);
+    await expect(
+      root.mutation(api.people.mutations.assign, {
+        profileId: firstId,
+        orgUnitId: a,
+        role: "viewer",
+        employeeCode: "E-002",
+        reason: "rename",
+      }),
+    ).rejects.toThrow(/immutable/);
+  });
+});
