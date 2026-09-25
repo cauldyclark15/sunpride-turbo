@@ -56,9 +56,26 @@ describe("mobile signed cursor", () => {
   });
   it("rejects altered MAC, expiry and missing key without fallback", async () => {
     const token = await signCursor(payload());
+    const [body = "", mac = ""] = token.split(".");
+    const alphabet =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    const last = alphabet.indexOf(mac.at(-1)!);
+    // Every other spelling of the final MAC character — including ones that
+    // differ only in unused padding bits — must be rejected.
+    for (const other of alphabet) {
+      if (alphabet.indexOf(other) === last) continue;
+      await expect(
+        readCursor(
+          `${body}.${mac.slice(0, -1)}${other}`,
+          "pull",
+          actor,
+          Date.now(),
+        ),
+      ).rejects.toThrow("rebootstrap_required");
+    }
     await expect(
       readCursor(
-        token.slice(0, -1) + (token.endsWith("A") ? "B" : "A"),
+        `${body.slice(0, -1)}${body.endsWith("A") ? "B" : "A"}.${mac}`,
         "pull",
         actor,
         Date.now(),

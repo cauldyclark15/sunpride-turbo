@@ -72,15 +72,20 @@ export async function readCursor(
   try {
     if (token.length > 4096) throw new Error("length");
     const [body, mac, extra] = token.split(".");
+    const macBytes = mac ? unb64(mac) : undefined;
     if (
       !body ||
       !mac ||
       extra ||
-      unb64(mac).length !== 32 ||
+      !macBytes ||
+      macBytes.length !== 32 ||
+      // Reject non-canonical base64url: the unused low bits of the final
+      // character must not let two spellings of one MAC both verify.
+      b64(macBytes) !== mac ||
       !(await crypto.subtle.verify(
         "HMAC",
         signingKey,
-        unb64(mac),
+        macBytes,
         enc.encode(body),
       ))
     )
