@@ -73,6 +73,7 @@ import type * as mobile_bootstrap from "../mobile/bootstrap.js";
 import type * as mobile_cursor from "../mobile/cursor.js";
 import type * as mobile_device_auth from "../mobile/device_auth.js";
 import type * as mobile_devices from "../mobile/devices.js";
+import type * as mobile_http_handlers from "../mobile/http_handlers.js";
 import type * as mobile_idempotency from "../mobile/idempotency.js";
 import type * as mobile_projection from "../mobile/projection.js";
 import type * as mobile_pull from "../mobile/pull.js";
@@ -180,6 +181,7 @@ declare const fullApi: ApiFromModules<{
   "mobile/cursor": typeof mobile_cursor;
   "mobile/device_auth": typeof mobile_device_auth;
   "mobile/devices": typeof mobile_devices;
+  "mobile/http_handlers": typeof mobile_http_handlers;
   "mobile/idempotency": typeof mobile_idempotency;
   "mobile/projection": typeof mobile_projection;
   "mobile/pull": typeof mobile_pull;
