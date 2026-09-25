@@ -1,6 +1,9 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "../_generated/server";
-import { requireIdentity, requireRole } from "../lib/auth";
+import {
+  readableLocationIds,
+  requireLocationCapability,
+} from "./location_scope";
 import { SUNPRIDE_ORGANIZATION_ID } from "./constants";
 import { hashPayload, postMovement, type PostingLine } from "./posting";
 import { transferStatusValidator } from "./validators";
@@ -21,7 +24,21 @@ export const request = mutation({
   },
   returns: v.id("stockTransfers"),
   handler: async (ctx, args) => {
-    const identity = await requireIdentity(ctx);
+    const { identity } = await requireLocationCapability(
+      ctx,
+      "inventory.write",
+      args.sourceLocationId,
+    );
+    await requireLocationCapability(
+      ctx,
+      "inventory.write",
+      args.destinationLocationId,
+    );
+    await requireLocationCapability(
+      ctx,
+      "inventory.write",
+      args.inTransitLocationId,
+    );
     if (args.lines.length === 0)
       throw new ConvexError("Transfer needs at least one line");
     if (args.sourceLocationId === args.destinationLocationId)
@@ -73,14 +90,24 @@ export const approve = mutation({
   args: { transferId: v.id("stockTransfers") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { identity } = await requireRole(ctx, [
-      "admin",
-      "manager",
-      "approver",
-    ]);
     const transfer = await ctx.db.get(args.transferId);
     if (!transfer || transfer.status !== "requested")
       throw new ConvexError("Transfer is not awaiting approval");
+    const { identity } = await requireLocationCapability(
+      ctx,
+      "inventory.approve",
+      transfer.sourceLocationId,
+    );
+    await requireLocationCapability(
+      ctx,
+      "inventory.approve",
+      transfer.destinationLocationId,
+    );
+    await requireLocationCapability(
+      ctx,
+      "inventory.approve",
+      transfer.inTransitLocationId,
+    );
     if (transfer.requestedBy === identity.tokenIdentifier)
       throw new ConvexError(
         "Transfer requester cannot approve the same transfer",
@@ -115,7 +142,6 @@ export const ship = mutation({
   },
   returns: v.id("inventoryMovements"),
   handler: async (ctx, args) => {
-    const { identity } = await requireRole(ctx, ["admin", "manager", "sales"]);
     const transfer = await ctx.db.get(args.transferId);
     if (
       !transfer ||
@@ -124,6 +150,21 @@ export const ship = mutation({
       throw new ConvexError(
         "Transfer cannot be shipped from its current state",
       );
+    const { identity } = await requireLocationCapability(
+      ctx,
+      "inventory.write",
+      transfer.sourceLocationId,
+    );
+    await requireLocationCapability(
+      ctx,
+      "inventory.write",
+      transfer.destinationLocationId,
+    );
+    await requireLocationCapability(
+      ctx,
+      "inventory.write",
+      transfer.inTransitLocationId,
+    );
     const transferLines = await ctx.db
       .query("stockTransferLines")
       .withIndex("by_organizationId_and_transferId", (q) =>
@@ -175,7 +216,6 @@ export const receive = mutation({
   },
   returns: v.id("inventoryMovements"),
   handler: async (ctx, args) => {
-    const { identity } = await requireRole(ctx, ["admin", "manager", "sales"]);
     const transfer = await ctx.db.get(args.transferId);
     if (
       !transfer ||
@@ -183,6 +223,21 @@ export const receive = mutation({
       !transfer.outboundMovementId
     )
       throw new ConvexError("Transfer is not ready to receive");
+    const { identity } = await requireLocationCapability(
+      ctx,
+      "inventory.write",
+      transfer.sourceLocationId,
+    );
+    await requireLocationCapability(
+      ctx,
+      "inventory.write",
+      transfer.destinationLocationId,
+    );
+    await requireLocationCapability(
+      ctx,
+      "inventory.write",
+      transfer.inTransitLocationId,
+    );
     const outboundLines = await ctx.db
       .query("inventoryMovementLines")
       .withIndex("by_organizationId_and_movementId_and_lineNumber", (q) =>
@@ -261,11 +316,6 @@ export const cancel = mutation({
   args: { transferId: v.id("stockTransfers"), note: v.optional(v.string()) },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { identity } = await requireRole(ctx, [
-      "admin",
-      "manager",
-      "approver",
-    ]);
     const transfer = await ctx.db.get(args.transferId);
     if (
       !transfer ||
@@ -274,6 +324,21 @@ export const cancel = mutation({
       throw new ConvexError(
         "A shipped transfer must be returned, not cancelled",
       );
+    const { identity } = await requireLocationCapability(
+      ctx,
+      "inventory.approve",
+      transfer.sourceLocationId,
+    );
+    await requireLocationCapability(
+      ctx,
+      "inventory.approve",
+      transfer.destinationLocationId,
+    );
+    await requireLocationCapability(
+      ctx,
+      "inventory.approve",
+      transfer.inTransitLocationId,
+    );
     await ctx.db.patch(transfer._id, {
       status: "cancelled",
       ...(args.note ? { note: args.note } : {}),
@@ -298,20 +363,30 @@ export const list = query({
   },
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
-    await requireIdentity(ctx);
-    if (args.status)
-      return ctx.db
-        .query("stockTransfers")
-        .withIndex("by_organizationId_and_status_and_createdAt", (q) =>
-          q
-            .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
-            .eq("status", args.status!),
-        )
-        .order("desc")
-        .take(Math.min(args.limit ?? 100, 250));
-    return ctx.db
-      .query("stockTransfers")
-      .order("desc")
-      .take(Math.min(args.limit ?? 100, 250));
+    const canRead = await readableLocationIds(ctx);
+    const rows = args.status
+      ? await ctx.db
+          .query("stockTransfers")
+          .withIndex("by_organizationId_and_status_and_createdAt", (q) =>
+            q
+              .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
+              .eq("status", args.status!),
+          )
+          .order("desc")
+          .take(250)
+      : await ctx.db.query("stockTransfers").order("desc").take(250);
+    const visible = [];
+    for (const row of rows) {
+      if (row.organizationId !== SUNPRIDE_ORGANIZATION_ID) continue;
+      if (
+        (await canRead(row.sourceLocationId)) &&
+        (await canRead(row.destinationLocationId)) &&
+        (await canRead(row.inTransitLocationId))
+      )
+        visible.push(row);
+      if (visible.length >= Math.max(0, Math.min(args.limit ?? 100, 250)))
+        break;
+    }
+    return visible;
   },
 });

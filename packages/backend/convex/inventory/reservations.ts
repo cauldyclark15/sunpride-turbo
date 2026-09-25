@@ -1,6 +1,9 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "../_generated/server";
-import { requireIdentity } from "../lib/auth";
+import {
+  readableLocationIds,
+  requireLocationCapability,
+} from "./location_scope";
 import { SUNPRIDE_ORGANIZATION_ID } from "./constants";
 import {
   allocateTrackedSource,
@@ -31,7 +34,17 @@ export const create = mutation({
   },
   returns: v.id("inventoryReservations"),
   handler: async (ctx, args) => {
-    const identity = await requireIdentity(ctx);
+    if (args.lines.length === 0)
+      throw new ConvexError("Reservation needs lines");
+    if (args.lines.length > 100)
+      throw new ConvexError("Too many reservation lines");
+    const { identity } = await requireLocationCapability(
+      ctx,
+      "inventory.write",
+      args.lines[0]!.locationId,
+    );
+    for (const line of args.lines.slice(1))
+      await requireLocationCapability(ctx, "inventory.write", line.locationId);
     const payloadHash = hashPayload(args);
     const duplicateCommand = await ctx.db
       .query("inventoryCommands")
@@ -52,8 +65,6 @@ export const create = mutation({
         : null;
       if (id) return id;
     }
-    if (args.lines.length === 0)
-      throw new ConvexError("Reservation needs lines");
     const now = Date.now();
     const reservationId = await ctx.db.insert("inventoryReservations", {
       organizationId: SUNPRIDE_ORGANIZATION_ID,
@@ -250,19 +261,9 @@ export const release = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const identity = await requireIdentity(ctx);
     const payloadHash = hashPayload(args);
-    const duplicate = await findExistingCommand(
-      ctx,
-      args.idempotencyKey,
-      payloadHash,
-    );
-    if (duplicate) return null;
     const reservation = await ctx.db.get(args.reservationId);
-    if (
-      !reservation ||
-      !["active", "partially_consumed"].includes(reservation.status)
-    )
+    if (!reservation || reservation.organizationId !== SUNPRIDE_ORGANIZATION_ID)
       throw new ConvexError("Reservation is not releasable");
     const lines = await ctx.db
       .query("inventoryReservationLines")
@@ -271,7 +272,24 @@ export const release = mutation({
           .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
           .eq("reservationId", reservation._id),
       )
-      .take(100);
+      .take(101);
+    if (lines.length === 0 || lines.length > 100)
+      throw new ConvexError("Invalid reservation line count");
+    const { identity } = await requireLocationCapability(
+      ctx,
+      "inventory.write",
+      lines[0]!.locationId,
+    );
+    for (const line of lines.slice(1))
+      await requireLocationCapability(ctx, "inventory.write", line.locationId);
+    const duplicate = await findExistingCommand(
+      ctx,
+      args.idempotencyKey,
+      payloadHash,
+    );
+    if (duplicate) return null;
+    if (!["active", "partially_consumed"].includes(reservation.status))
+      throw new ConvexError("Reservation is not releasable");
     const now = Date.now();
     const movementId = await ctx.db.insert("inventoryMovements", {
       organizationId: SUNPRIDE_ORGANIZATION_ID,
@@ -376,19 +394,9 @@ export const consume = mutation({
   },
   returns: v.id("inventoryMovements"),
   handler: async (ctx, args) => {
-    const identity = await requireIdentity(ctx);
     const payloadHash = hashPayload(args);
-    const duplicate = await findExistingCommand(
-      ctx,
-      args.idempotencyKey,
-      payloadHash,
-    );
-    if (duplicate?.movementId) return duplicate.movementId;
     const reservation = await ctx.db.get(args.reservationId);
-    if (
-      !reservation ||
-      !["active", "partially_consumed"].includes(reservation.status)
-    )
+    if (!reservation || reservation.organizationId !== SUNPRIDE_ORGANIZATION_ID)
       throw new ConvexError("Reservation is not consumable");
     const lines = await ctx.db
       .query("inventoryReservationLines")
@@ -397,7 +405,24 @@ export const consume = mutation({
           .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
           .eq("reservationId", reservation._id),
       )
-      .take(100);
+      .take(101);
+    if (lines.length === 0 || lines.length > 100)
+      throw new ConvexError("Invalid reservation line count");
+    const { identity } = await requireLocationCapability(
+      ctx,
+      "inventory.write",
+      lines[0]!.locationId,
+    );
+    for (const line of lines.slice(1))
+      await requireLocationCapability(ctx, "inventory.write", line.locationId);
+    const duplicate = await findExistingCommand(
+      ctx,
+      args.idempotencyKey,
+      payloadHash,
+    );
+    if (duplicate?.movementId) return duplicate.movementId;
+    if (!["active", "partially_consumed"].includes(reservation.status))
+      throw new ConvexError("Reservation is not consumable");
     const postingLines: PostingLine[] = [];
     for (const line of lines) {
       const outstanding =
@@ -459,19 +484,38 @@ export const list = query({
   },
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
-    await requireIdentity(ctx);
-    if (args.status)
-      return ctx.db
-        .query("inventoryReservations")
-        .withIndex("by_organizationId_and_status_and_expiresAt", (q) =>
+    const canRead = await readableLocationIds(ctx);
+    const rows = args.status
+      ? await ctx.db
+          .query("inventoryReservations")
+          .withIndex("by_organizationId_and_status_and_expiresAt", (q) =>
+            q
+              .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
+              .eq("status", args.status!),
+          )
+          .take(250)
+      : await ctx.db.query("inventoryReservations").order("desc").take(250);
+    const visible = [];
+    for (const row of rows) {
+      if (row.organizationId !== SUNPRIDE_ORGANIZATION_ID) continue;
+      const lines = await ctx.db
+        .query("inventoryReservationLines")
+        .withIndex("by_organizationId_and_reservationId", (q) =>
           q
             .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
-            .eq("status", args.status!),
+            .eq("reservationId", row._id),
         )
-        .take(Math.min(args.limit ?? 100, 250));
-    return ctx.db
-      .query("inventoryReservations")
-      .order("desc")
-      .take(Math.min(args.limit ?? 100, 250));
+        .take(101);
+      if (lines.length === 0 || lines.length > 100) continue;
+      if (
+        (
+          await Promise.all(lines.map((line) => canRead(line.locationId)))
+        ).every(Boolean)
+      )
+        visible.push(row);
+      if (visible.length >= Math.max(0, Math.min(args.limit ?? 100, 250)))
+        break;
+    }
+    return visible;
   },
 });

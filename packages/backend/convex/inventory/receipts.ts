@@ -1,7 +1,10 @@
 import { ConvexError, v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { mutation, query } from "../_generated/server";
-import { requireIdentity, requireRole } from "../lib/auth";
+import {
+  readableLocationIds,
+  requireLocationCapability,
+} from "./location_scope";
 import { SUNPRIDE_ORGANIZATION_ID } from "./constants";
 import {
   findExistingCommand,
@@ -32,10 +35,14 @@ export const reverse = mutation({
   },
   returns: v.id("inventoryMovements"),
   handler: async (ctx, args) => {
-    const { identity } = await requireRole(ctx, ["admin", "manager"]);
     const receipt = await ctx.db.get(args.receiptId);
     if (!receipt || receipt.status !== "posted" || !receipt.movementId)
       throw new ConvexError("Only a posted receipt can be reversed");
+    const { identity } = await requireLocationCapability(
+      ctx,
+      "inventory.write",
+      receipt.receivingLocationId,
+    );
     const movement = await reverseMovement(ctx, {
       originalMovementId: receipt.movementId,
       idempotencyKey: args.idempotencyKey,
@@ -74,7 +81,11 @@ export const post = mutation({
     movement: movementResultValidator,
   }),
   handler: async (ctx, args) => {
-    const { identity } = await requireRole(ctx, ["admin", "manager"]);
+    const { identity } = await requireLocationCapability(
+      ctx,
+      "inventory.write",
+      args.receivingLocationId,
+    );
     if (args.lines.length === 0)
       throw new ConvexError("Receipt needs at least one line");
     const payloadHash = hashPayload(args);
@@ -249,20 +260,28 @@ export const list = query({
   },
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
-    await requireIdentity(ctx);
-    if (args.status)
-      return ctx.db
-        .query("goodsReceipts")
-        .withIndex("by_organizationId_and_status_and_createdAt", (q) =>
-          q
-            .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
-            .eq("status", args.status!),
-        )
-        .order("desc")
-        .take(Math.min(args.limit ?? 100, 250));
-    return ctx.db
-      .query("goodsReceipts")
-      .order("desc")
-      .take(Math.min(args.limit ?? 100, 250));
+    const canRead = await readableLocationIds(ctx);
+    const rows = args.status
+      ? await ctx.db
+          .query("goodsReceipts")
+          .withIndex("by_organizationId_and_status_and_createdAt", (q) =>
+            q
+              .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
+              .eq("status", args.status!),
+          )
+          .order("desc")
+          .take(250)
+      : await ctx.db.query("goodsReceipts").order("desc").take(250);
+    const visible = [];
+    for (const row of rows) {
+      if (
+        row.organizationId === SUNPRIDE_ORGANIZATION_ID &&
+        (await canRead(row.receivingLocationId))
+      )
+        visible.push(row);
+      if (visible.length >= Math.max(0, Math.min(args.limit ?? 100, 250)))
+        break;
+    }
+    return visible;
   },
 });

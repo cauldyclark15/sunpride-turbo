@@ -1,6 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import { internalMutation, mutation } from "../_generated/server";
-import { requireRole } from "../lib/auth";
+import { requireLocationCapability } from "./location_scope";
 import { SUNPRIDE_ORGANIZATION_ID } from "./constants";
 import { hashPayload, postMovement } from "./posting";
 import { stockStatusValidator } from "./validators";
@@ -18,11 +18,12 @@ export const changeStatus = mutation({
   },
   returns: v.id("inventoryMovements"),
   handler: async (ctx, args) => {
-    const { identity } = await requireRole(ctx, [
-      "admin",
-      "manager",
-      "approver",
-    ]);
+    // Releasing held stock requires approval; moving stock into a hold is a write.
+    const { identity } = await requireLocationCapability(
+      ctx,
+      args.toStatus === "available" ? "inventory.approve" : "inventory.write",
+      args.locationId,
+    );
     const lot = await ctx.db.get(args.lotId);
     if (!lot) throw new ConvexError("Lot not found");
     const movement = await postMovement(ctx, {
