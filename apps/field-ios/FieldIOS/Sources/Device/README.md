@@ -1,3 +1,5 @@
 # Device
 
-Device registration and key binding are intentionally not implemented in this scaffold.
+- `DeviceKey` — P-256 signing key: `SecureEnclave.P256.Signing.PrivateKey` when `SecureEnclave.isAvailable`; otherwise (simulator only, `#if targetEnvironment(simulator)`) a CryptoKit software key in the Keychain, labelled **TEST ONLY**. A real phone without an enclave refuses rather than falling back. Public key is exported as base64 DER SPKI (91 bytes, identical to WebCrypto `exportKey("spki")`); signatures are IEEE P1363 raw `r||s` (64 bytes).
+- `RequestSigner` — `POST|<path>|<sha256 hex of raw body>|<nonce>|<epoch ms>` and the `x-mobile-*` headers verified by `convex/mobile/http_handlers.ts` + `device_auth.ts`; proven against `packages/domain-contracts/fixtures/mobile-v1/crypto/request-proof.json` in `FieldIOSTests/RequestSignerTests`.
+- `Enrollment` — `mobile/devices:mine` lookup (auto-poll every 10 s while not registered) → `challenge` → sign `BIND|deviceId|credentialId|nonce|timestamp` → `bind`. `revoked`/`suspended`, or a previously known device disappearing, is **removed**. The persisted `deviceId` is non-secret and re-verified with the server on every launch; offline launch shows "checking", never "Ready".

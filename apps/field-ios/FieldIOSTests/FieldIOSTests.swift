@@ -29,7 +29,11 @@ final class FieldIOSTests: XCTestCase {
             (.init(hex: 0x595959), SunprideTokens.surface),
             (.init(hex: 0xA0A0A0), SunprideTokens.darkSurface),
             (SunprideTokens.ink, .init(hex: 0xEBEBEB)),
-            (SunprideTokens.snow, .init(hex: 0x272727))
+            (SunprideTokens.snow, .init(hex: 0x272727)),
+            (SunprideTokens.dangerLight, SunprideTokens.surface),
+            (SunprideTokens.dangerLight, SunprideTokens.canvas),
+            (SunprideTokens.dangerDark, SunprideTokens.darkSurface),
+            (SunprideTokens.dangerDark, SunprideTokens.darkCanvas)
         ]
         for (foreground, background) in pairs {
             XCTAssertGreaterThanOrEqual(foreground.contrast(with: background), 4.5)

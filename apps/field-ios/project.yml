@@ -13,6 +13,12 @@ settings:
     SWIFT_VERSION: '6.0'
     TARGETED_DEVICE_FAMILY: '1,2'
     CODE_SIGNING_ALLOWED: 'NO'
+    # Simulator builds are ad-hoc signed ("Sign to Run Locally", no team) so the app gets its
+    # application-identifier entitlement; without it every Keychain call fails with -34018.
+    CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]: 'YES'
+    CODE_SIGN_IDENTITY[sdk=iphonesimulator*]: '-'
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: ''
 targets:
   FieldIOS:
     type: application
@@ -38,7 +44,12 @@ targets:
   FieldIOSTests:
     type: bundle.unit-test
     platform: iOS
-    sources: [FieldIOSTests]
+    sources:
+      - path: FieldIOSTests
+      # Frozen cross-language vectors, referenced in place (never hand-copied).
+      - path: ../../packages/domain-contracts/fixtures/mobile-v1/crypto/request-proof.json
+        buildPhase: resources
+        group: FieldIOSTests/Fixtures
     dependencies:
       - target: FieldIOS
     settings:

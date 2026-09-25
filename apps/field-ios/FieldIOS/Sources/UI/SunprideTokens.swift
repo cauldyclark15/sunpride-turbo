@@ -47,6 +47,10 @@ enum SunprideTokens {
     static let warningText = Color(uiColor: ink.uiColor)
     static let actionBackground = Color(uiColor: action.uiColor)
     static let actionText = Color.white
+    /// Error text: danger red on light surfaces, lightened red on dark surfaces (>=4.5:1 on both).
+    static let dangerLight = RGB(hex: 0xC8102E)
+    static let dangerDark = RGB(hex: 0xFF7A85)
+    static let dangerText = adaptive(dangerLight, dangerDark)
 
     enum Space {
         static let one: CGFloat = 4
