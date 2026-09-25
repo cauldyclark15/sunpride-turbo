@@ -176,7 +176,7 @@ async function post(
 }
 try {
   const registered = await admin.mutation(api.mobile.devices.register, {
-    inventoryTag: `FAKE-${crypto.randomUUID()}`,
+    inventoryTag: `FAKE-${crypto.randomUUID().replaceAll("-", "").slice(0, 24).toUpperCase()}`,
     allowedApp: "IOS",
     platform: "iOS",
     model: "DEV fake phone",

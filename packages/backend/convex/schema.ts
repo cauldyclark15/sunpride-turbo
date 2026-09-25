@@ -1828,6 +1828,7 @@ export default defineSchema({
     ),
     outcome: v.optional(v.string()),
     reasonCode: v.optional(v.string()),
+    unplannedReason: v.optional(v.string()),
     productivity: v.union(
       v.literal("pending"),
       v.literal("verified"),

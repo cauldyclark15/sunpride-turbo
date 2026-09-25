@@ -216,6 +216,11 @@ describe("ordered push", () => {
       },
     };
     const b = await f.apply(out);
+    const stored = await f.t.run((ctx) =>
+      ctx.db.get(check.ack.entityId as Id<"visitExecutions">),
+    );
+    expect(stored?.unplannedReason).toBe("Prospect call");
+    expect(stored?.reasonCode).toBeUndefined();
     const counts = await f.counts();
     vi.setSystemTime(now + 1000);
     expect(await f.apply(first)).toEqual(check);

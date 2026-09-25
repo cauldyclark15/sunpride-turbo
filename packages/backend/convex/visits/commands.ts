@@ -223,6 +223,7 @@ export async function applyVisitOperation(
       slotId: Id<"coveragePlanSlots"> | undefined,
       planVersion: number | undefined;
     let intents = p.intents;
+    let unplannedReason: string | undefined;
     if (p.plannedVisitId) {
       const planned = await ctx.db.get(p.plannedVisitId);
       if (
@@ -276,7 +277,7 @@ export async function applyVisitOperation(
         throw new ConvexError("invalid_plan");
       intents = planned.intents as typeof intents;
     } else {
-      boundedText(p.unplannedReason ?? "", 500);
+      unplannedReason = boundedText(p.unplannedReason ?? "", 500);
     }
     const visitId = await ctx.db.insert("visitExecutions", {
       organizationId: SUNPRIDE_ORGANIZATION_ID,
@@ -294,7 +295,7 @@ export async function applyVisitOperation(
       source: p.plannedVisitId ? "planned" : "unplanned",
       intents,
       state: "checked-in",
-      reasonCode: p.unplannedReason?.trim(),
+      unplannedReason,
       productivity: "pending",
       ruleVersion: VISIT_LOCATION_POLICY.version,
       createdAt: now,
@@ -390,7 +391,7 @@ export async function applyVisitOperation(
   await ctx.db.patch(visit._id, {
     state: "checked-out",
     outcome: p.outcome,
-    reasonCode: p.reasonCode ?? undefined,
+    ...(p.reasonCode != null ? { reasonCode: p.reasonCode } : {}),
     checkedOutAt: now,
     lastServerTime: now,
     productivity: p.outcome === "nonproductive" ? "nonproductive" : "pending",
@@ -423,6 +424,7 @@ const visitDTO = v.object({
   state: v.string(),
   source: v.string(),
   productivity: v.string(),
+  unplannedReason: v.union(v.string(), v.null()),
   plannedVisitId: v.union(v.id("plannedVisits"), v.null()),
   checkedInAt: v.union(v.number(), v.null()),
   checkedOutAt: v.union(v.number(), v.null()),
@@ -434,6 +436,7 @@ function dto(row: {
   state: string;
   source: string;
   productivity: string;
+  unplannedReason?: string;
   plannedVisitId?: Id<"plannedVisits">;
   checkedInAt?: number;
   checkedOutAt?: number;
@@ -445,6 +448,7 @@ function dto(row: {
     state: row.state,
     source: row.source,
     productivity: row.productivity,
+    unplannedReason: row.unplannedReason ?? null,
     plannedVisitId: row.plannedVisitId ?? null,
     checkedInAt: row.checkedInAt ?? null,
     checkedOutAt: row.checkedOutAt ?? null,

@@ -473,6 +473,59 @@ describe("visit execution", () => {
       vi.useRealTimers();
     }
   });
+  it.each([
+    { outcome: "completed", reasonCode: null, expectedCode: undefined },
+    {
+      outcome: "nonproductive",
+      reasonCode: "store_closed",
+      expectedCode: "store_closed",
+    },
+  ] as const)(
+    "retains the unplanned check-in reason after $outcome check-out",
+    async ({ outcome, reasonCode, expectedCode }) => {
+      const f = await fixture();
+      try {
+        const ack = await f.apply({
+          ...f.check(),
+          payload: {
+            ...f.check().payload,
+            plannedVisitId: null,
+            unplannedReason: "  urgent_follow_up  ",
+          },
+        });
+        const visitId = ack.entityId as Id<"visitExecutions">;
+        await f.apply({
+          kind: "visit.checkOut",
+          clientRequestId: uuid(2),
+          payload: {
+            visitId,
+            outcome,
+            reasonCode,
+            deviceTime: now,
+            location: f.fix,
+          },
+        });
+        const row = await f.t.run((ctx) => ctx.db.get(visitId));
+        expect(row?.unplannedReason).toBe("urgent_follow_up");
+        expect(row?.reasonCode).toBe(expectedCode);
+        expect(
+          await f.manager.query(api.visits.commands.detail, { visitId }),
+        ).toMatchObject({
+          unplannedReason: "urgent_follow_up",
+        });
+        expect(
+          (
+            await f.sales.query(api.visits.commands.forDay, {
+              serviceDate: f.ids.date,
+              paginationOpts: { numItems: 10, cursor: null },
+            })
+          ).page[0]?.unplannedReason,
+        ).toBe("urgent_follow_up");
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
   it("approves an exception independently, never self-approves, retaining original proof", async () => {
     const f = await fixture();
     try {
