@@ -1,5 +1,5 @@
 import { ConvexError, v } from "convex/values";
-import { mutation } from "../_generated/server";
+import { mutation, query } from "../_generated/server";
 import { employeeAt } from "../coverage/validation";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
 import { requireCapability } from "../lib/capabilities";
@@ -18,6 +18,7 @@ const appValidator = v.union(
   v.literal("ANDROID"),
   v.literal("VAN_ANDROID"),
 );
+const fieldAppValidator = v.union(v.literal("IOS"), v.literal("ANDROID"));
 const bounded = (value: string, max: number): string => {
   const text = value.trim();
   if (
@@ -127,6 +128,55 @@ export const register = mutation({
       now,
     );
     return { deviceId, status: "active" as const };
+  },
+});
+
+/** Employee-only key lookup; never disclose another profile's device. */
+export const mine = query({
+  args: { publicKey: v.string(), app: fieldAppValidator },
+  returns: v.union(
+    v.null(),
+    v.object({
+      deviceId: v.id("registeredDevices"),
+      status: v.string(),
+      bound: v.boolean(),
+      allowedApp: fieldAppValidator,
+    }),
+  ),
+  handler: async (ctx, { publicKey, app }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return null;
+    const profile = await ctx.db
+      .query("profiles")
+      .withIndex("by_subject", (q) =>
+        q.eq("authSubject", identity.tokenIdentifier),
+      )
+      .unique();
+    if (!profile || profile.status !== "active") return null;
+
+    // Prefer the current enrollment if an old, revoked row reused this key.
+    for (const status of ["active", "suspended", "revoked"] as const) {
+      const device = await ctx.db
+        .query("registeredDevices")
+        .withIndex("by_profileId_and_status", (q) =>
+          q.eq("profileId", profile._id).eq("status", status),
+        )
+        .filter((q) =>
+          q.and(
+            q.eq(q.field("publicKey"), publicKey),
+            q.eq(q.field("allowedApp"), app),
+          ),
+        )
+        .first();
+      if (device && device.organizationId === SUNPRIDE_ORGANIZATION_ID)
+        return {
+          deviceId: device._id,
+          status: device.status,
+          bound: Boolean(device.boundSubject && device.credentialId),
+          allowedApp: app,
+        };
+    }
+    return null;
   },
 });
 

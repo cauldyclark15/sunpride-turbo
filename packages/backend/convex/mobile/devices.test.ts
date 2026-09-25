@@ -151,6 +151,49 @@ async function fixture() {
 }
 
 describe("registered device lifecycle", () => {
+  it("looks up only the signed-in employee's exact key and app, including revoked and bound state", async () => {
+    const f = await fixture();
+    const { deviceId } = await f.register();
+    const args = {
+      publicKey: f.registration.publicKey,
+      app: "ANDROID" as const,
+    };
+    const mine = () => f.sales.actor.query(api.mobile.devices.mine, args);
+
+    expect(await mine()).toEqual({
+      deviceId,
+      status: "active",
+      bound: false,
+      allowedApp: "ANDROID",
+    });
+    expect(await f.other.actor.query(api.mobile.devices.mine, args)).toBeNull();
+    expect(await f.t.query(api.mobile.devices.mine, args)).toBeNull();
+    expect(
+      await f.sales.actor.query(api.mobile.devices.mine, {
+        ...args,
+        app: "IOS",
+      }),
+    ).toBeNull();
+    expect(
+      await f.sales.actor.query(api.mobile.devices.mine, {
+        ...args,
+        publicKey: `${args.publicKey} `,
+      }),
+    ).toBeNull();
+
+    await f.bind(deviceId);
+    expect(await mine()).toMatchObject({ deviceId, bound: true });
+    await f.admin.mutation(api.mobile.devices.revoke, {
+      deviceId,
+      reason: "lost",
+    });
+    expect(await mine()).toEqual({
+      deviceId,
+      status: "revoked",
+      bound: true,
+      allowedApp: "ANDROID",
+    });
+  });
   it("requires an administrator in the employee's stored unit, not a sales or foreign administrator", async () => {
     const f = await fixture();
     await expect(
