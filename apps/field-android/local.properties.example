@@ -1,0 +1,8 @@
+# Copy to local.properties and set non-secret deployment endpoints.
+# Never put passwords, session tokens, JWTs, or signing material here.
+SUNPRIDE_DEV_CONVEX_SITE_URL=https://your-dev.convex.site
+SUNPRIDE_DEV_CONVEX_URL=https://your-dev.convex.cloud
+SUNPRIDE_STAGING_CONVEX_SITE_URL=https://your-staging.convex.site
+SUNPRIDE_STAGING_CONVEX_URL=https://your-staging.convex.cloud
+SUNPRIDE_PROD_CONVEX_SITE_URL=https://your-prod.convex.site
+SUNPRIDE_PROD_CONVEX_URL=https://your-prod.convex.cloud
