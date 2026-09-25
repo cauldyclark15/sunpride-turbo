@@ -1,0 +1,41 @@
+@media print {
+  body:has(.coverage-print-view) * {
+    visibility: hidden !important;
+  }
+  body:has(.coverage-print-view) .coverage-print-view,
+  body:has(.coverage-print-view) .coverage-print-view * {
+    visibility: visible !important;
+  }
+  .coverage-print-view {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    padding: 0;
+    color: #000;
+    background: #fff;
+  }
+  .coverage-print-view .coverage-print-controls {
+    display: none;
+  }
+  .coverage-print-view table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .coverage-print-view th,
+  .coverage-print-view td {
+    border: 1px solid #777;
+    padding: 4px;
+    text-align: left;
+  }
+  .coverage-print-view thead {
+    display: table-header-group;
+  }
+  .coverage-print-view tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  @page {
+    size: A4 landscape;
+    margin: 12mm;
+  }
+}

@@ -19,6 +19,7 @@ const state = vi.hoisted(() => ({
   },
   calls: [] as { name: string; args: unknown }[],
   tab: "plan",
+  hookCalls: 0,
 }));
 vi.mock("convex/react", () => ({
   useQuery: (ref: unknown, args: unknown) => {
@@ -29,6 +30,21 @@ vi.mock("convex/react", () => ({
     if (name === "lib/capabilities:currentPermissions")
       return state.permissions;
     if (name === "coverage/plans:list") return [];
+    if (name === "coverage/plans:detail")
+      return {
+        plan: {
+          _id: "selected-plan",
+          version: 1,
+          status: "draft",
+          preparedBy: "someone",
+          preparedAt: 1,
+          assigneeProfileId: "manager",
+        },
+        slots: [],
+        warnings: [],
+      };
+    if (name === "coverage/discovery:list")
+      return { page: [], continueCursor: "0", isDone: true };
     if (name === "coverage/activation:plannedForMonth") return [];
     if (name === "people/queries:list")
       return {
@@ -47,14 +63,33 @@ vi.mock("react", async (original) => {
   return {
     ...actual,
     useEffect: () => {},
-    useState: (initial: unknown) => [
-      initial === "plan"
-        ? state.tab
-        : typeof initial === "function"
-          ? (initial as () => unknown)()
-          : initial,
-      vi.fn(),
-    ],
+    useState: (initial: unknown) => {
+      state.hookCalls++;
+      return [
+        state.hookCalls === 5 &&
+        [
+          "visits",
+          "history",
+          "review",
+          "calendar",
+          "route",
+          "map",
+          "exceptions",
+          "export",
+        ].includes(state.tab)
+          ? {
+              id: "selected-plan",
+              assigneeId: "manager",
+              assigneeName: "Sales",
+            }
+          : initial === "plan"
+            ? state.tab
+            : typeof initial === "function"
+              ? (initial as () => unknown)()
+              : initial,
+        vi.fn(),
+      ];
+    },
     useRef: () => ({ current: false }),
   };
 });
@@ -83,6 +118,7 @@ vi.mock("./coverage-planner", () => ({
 }));
 const render = () => {
   state.calls = [];
+  state.hookCalls = 0;
   return renderToStaticMarkup(
     createElement(ModuleWorkspace, { module: "sales-force" }),
   );
@@ -141,7 +177,7 @@ describe("sales force coverage module", () => {
     expect(html).toContain("Mounted planner");
     expect(html).not.toContain(">Review</button>");
     state.tab = "history";
-    expect(render()).toContain("Plan versions");
+    expect(render()).toContain("Plan history");
     expect(state.calls.some((c) => c.name === "people/queries:list")).toBe(
       false,
     );
@@ -176,5 +212,45 @@ describe("sales force coverage module", () => {
           c.name.startsWith("coverage/") || c.name === "people/queries:list",
       ),
     ).toBe(false);
+  });
+  it("offers new scoped tabs to mcp.read operations without people.read", () => {
+    state.profile.role = "operations";
+    state.permissions = {
+      role: "operations",
+      capabilities: ["mcp.read"],
+      scopeUnitIds: ["unit"],
+    };
+    const html = render();
+    for (const tab of [
+      "Calendar",
+      "Territory / route",
+      "Map",
+      "Workload",
+      "Exceptions",
+      "Export / print",
+    ])
+      expect(html).toContain(`>${tab}</button>`);
+    expect(html).not.toContain(">Review</button>");
+    expect(state.calls.some((c) => c.name === "coverage/discovery:list")).toBe(
+      true,
+    );
+    expect(state.calls.some((c) => c.name.startsWith("people/"))).toBe(false);
+  });
+  it("mounts selected history only and keeps other view subscriptions unmounted", () => {
+    state.tab = "history";
+    const html = render();
+    expect(html).toContain("Plan history");
+    expect(state.calls.some((c) => c.name === "coverage/history:list")).toBe(
+      true,
+    );
+    for (const name of [
+      "coverage/views:calendar",
+      "coverage/views:byRoute",
+      "coverage/views:workload",
+      "coverage/map:forPlan",
+      "coverage/exceptions:forPlan",
+      "coverage/exports:schedule",
+    ])
+      expect(state.calls.some((c) => c.name === name)).toBe(false);
   });
 });
