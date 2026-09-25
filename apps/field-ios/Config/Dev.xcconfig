@@ -1,0 +1,5 @@
+// Local-only endpoints. Never store tokens or credentials here.
+// Replace via gitignored Local.xcconfig or CI build settings for a real DEV endpoint.
+CONVEX_SITE_URL = http:/$()/localhost:3000
+CONVEX_URL = http:/$()/localhost:3001
+#include? "Local.xcconfig"

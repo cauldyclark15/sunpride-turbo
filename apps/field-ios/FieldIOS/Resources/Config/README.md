@@ -1,0 +1,1 @@
+This resource directory is reserved for future non-secret runtime configuration. DEV endpoint values are injected from `../../../../Config/Dev.xcconfig` into Info.plist; do not place credentials here.
