@@ -15,8 +15,11 @@ import { useMutation, useQuery } from "convex/react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { getWebModuleTabs, type WebModuleSlug } from "@/config/navigation";
-import { canAccessWebModule } from "@/lib/module-access";
+import { canAccessWebModule, salesForcePanels } from "@/lib/module-access";
 import { AdminWorkspace } from "./admin-workspace";
+import { RouteAdmin } from "./route-admin";
+import { OutletAdmin } from "./outlet-admin";
+import { OutletAssignments } from "./outlet-assignments";
 import { ImportsWorkspace } from "./imports-workspace";
 import { InventoryWorkspace } from "./inventory-workspace";
 
@@ -172,6 +175,27 @@ function AllowedModuleWorkspace({ module }: { module: WebModuleSlug }) {
         onNavigate={(href) => router.push(href)}
       />
       <ModuleContent module={module} setupMessage={setupMessage} />
+    </div>
+  );
+}
+
+function SalesForcePanels() {
+  const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
+  if (!permissions) return <p>Loading sales force permissions…</p>;
+  const panels = salesForcePanels(permissions.capabilities);
+  return (
+    <div className="grid gap-6">
+      {panels.editing ? (
+        <h2 className="text-lg font-semibold">Territory coverage editors</h2>
+      ) : (
+        <h2 className="text-lg font-semibold">Scoped route and outlet lists</h2>
+      )}
+      {panels.routes && <RouteAdmin />}
+      {panels.outlets && <OutletAdmin />}
+      {panels.assignments && <OutletAssignments />}
+      {panels.verification && !panels.editing && (
+        <p>Verification: select an outlet above to review pending pins.</p>
+      )}
     </div>
   );
 }
@@ -487,14 +511,10 @@ function ModuleContent({
   }
 
   if (module === "admin") return <AdminWorkspace />;
+  if (module === "sales-force") return <SalesForcePanels />;
 
   const content =
     {
-      "sales-force": [
-        "Territory & account assignments",
-        "Planned customer visits",
-        "Field notes and completion history",
-      ],
       "sap-integration": [
         "Outbound-only local connector",
         "HMAC signed requests with replay window",
@@ -505,7 +525,7 @@ function ModuleContent({
         "Role-based authorization in Convex",
         "Server-derived identity and immutable audit events",
       ],
-    }[module as "sales-force" | "sap-integration" | "admin"] ?? [];
+    }[module as "sap-integration" | "admin"] ?? [];
   return (
     <div className="grid gap-4 md:grid-cols-3">
       <SectionCard

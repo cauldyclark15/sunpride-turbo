@@ -7,6 +7,10 @@ import { StatusPill } from "@sunpride/ui";
 import { useMutation, useQuery } from "convex/react";
 import { useState, type FormEvent } from "react";
 import { OrgAdmin } from "./org-admin";
+import { TerritoryAdmin } from "./territory-admin";
+import { RouteAdmin } from "./route-admin";
+import { OutletAdmin } from "./outlet-admin";
+import { OutletAssignments } from "./outlet-assignments";
 import { PeopleAdmin } from "./people-admin";
 import { TeamsAdmin } from "./teams-admin";
 
@@ -41,7 +45,15 @@ const roleLabel = (role: string) => {
 const readableError = (error: unknown) =>
   error instanceof Error ? error.message : "The access update failed.";
 
-type AdminTab = "organization" | "people" | "teams" | "invitations";
+type AdminTab =
+  | "organization"
+  | "people"
+  | "teams"
+  | "invitations"
+  | "territories"
+  | "routes"
+  | "outlets"
+  | "assignments";
 
 export function AdminWorkspace() {
   const [tab, setTab] = useState<AdminTab>("organization");
@@ -51,24 +63,27 @@ export function AdminWorkspace() {
         aria-label="Administration sections"
         className="flex gap-2 border-b border-border pb-2"
       >
-        {(["organization", "people", "teams", "invitations"] as const).map(
-          (item) => (
-            <Button
-              key={item}
-              variant={tab === item ? "primary" : "secondary"}
-              aria-current={tab === item ? "page" : undefined}
-              onPress={() => setTab(item)}
-            >
-              {item === "organization"
-                ? "Organization"
-                : item === "people"
-                  ? "People"
-                  : item === "teams"
-                    ? "Teams"
-                    : "Invitations"}
-            </Button>
-          ),
-        )}
+        {(
+          [
+            "organization",
+            "people",
+            "teams",
+            "invitations",
+            "territories",
+            "routes",
+            "outlets",
+            "assignments",
+          ] as const
+        ).map((item) => (
+          <Button
+            key={item}
+            variant={tab === item ? "primary" : "secondary"}
+            aria-current={tab === item ? "page" : undefined}
+            onPress={() => setTab(item)}
+          >
+            {item.charAt(0).toUpperCase() + item.slice(1)}
+          </Button>
+        ))}
       </nav>
       {tab === "organization" ? (
         <OrgAdmin />
@@ -76,6 +91,14 @@ export function AdminWorkspace() {
         <PeopleAdmin />
       ) : tab === "teams" ? (
         <TeamsAdmin />
+      ) : tab === "territories" ? (
+        <TerritoryAdmin />
+      ) : tab === "routes" ? (
+        <RouteAdmin />
+      ) : tab === "outlets" ? (
+        <OutletAdmin />
+      ) : tab === "assignments" ? (
+        <OutletAssignments />
       ) : (
         <InvitationsAdmin />
       )}

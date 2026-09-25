@@ -47,6 +47,34 @@ const integrationReaders = [
   "operations",
 ] as const satisfies readonly AppRole[];
 
+export const OUTLET_PANEL_ROLES = {
+  "territory.read": allReaders,
+  "route.read": allReaders,
+  "outlet.read": allReaders,
+  "territory.manage": administrators,
+  "route.manage": masterDataManagers,
+  "outlet.manage": masterDataManagers,
+  "outlet.assign": masterDataManagers,
+  "outlet.verify": ["super_admin", "admin", "manager"],
+} as const satisfies Record<string, readonly AppRole[]>;
+
+export function salesForcePanels(capabilities: readonly string[]) {
+  const has = (key: string) => capabilities.includes(key);
+  const editing =
+    has("route.manage") || has("outlet.manage") || has("outlet.assign");
+  return {
+    editing,
+    routes: has("route.read"),
+    outlets: has("outlet.read"),
+    assignments:
+      editing &&
+      has("outlet.assign") &&
+      has("route.read") &&
+      has("outlet.read"),
+    verification: has("outlet.verify"),
+  };
+}
+
 export const MODULE_ROLES = {
   dashboard: allReaders, // report.read
   "master-data": masterDataManagers, // masterdata.manage

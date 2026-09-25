@@ -1,7 +1,12 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { CAPABILITIES } from "../../../../packages/backend/convex/lib/capabilities";
-import { canAccessWebModule, MODULE_ROLES } from "./module-access";
+import {
+  canAccessWebModule,
+  MODULE_ROLES,
+  OUTLET_PANEL_ROLES,
+  salesForcePanels,
+} from "./module-access";
 
 const roles = [
   "super_admin",
@@ -75,6 +80,50 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
 };
 
 describe("web module access", () => {
+  it("mounts operations editors, manager verification, and read-only sales-force lists", () => {
+    const panels = (role: (typeof roles)[number]) =>
+      salesForcePanels(
+        Object.entries(CAPABILITIES)
+          .filter(([, granted]) =>
+            (granted as readonly string[]).includes(role),
+          )
+          .map(([key]) => key),
+      );
+    expect(panels("operations")).toMatchObject({
+      editing: true,
+      routes: true,
+      outlets: true,
+      assignments: true,
+      verification: false,
+    });
+    expect(panels("manager")).toMatchObject({
+      editing: false,
+      routes: true,
+      outlets: true,
+      assignments: false,
+      verification: true,
+    });
+    for (const role of ["sales", "approver", "viewer", "analyst"] as const)
+      expect(panels(role)).toMatchObject({
+        editing: false,
+        routes: true,
+        outlets: true,
+        assignments: false,
+        verification: false,
+      });
+    expect(salesForcePanels([])).toMatchObject({
+      routes: false,
+      outlets: false,
+      assignments: false,
+      verification: false,
+    });
+  });
+  it("mirrors every operational territory, route, and outlet capability", () => {
+    for (const [key, granted] of Object.entries(OUTLET_PANEL_ROLES))
+      expect(new Set(granted)).toEqual(
+        new Set(CAPABILITIES[key as keyof typeof CAPABILITIES]),
+      );
+  });
   it("matches the backend capability role sets for each module", () => {
     for (const [module, capabilities] of Object.entries(expectedCapabilities)) {
       const expected = new Set(

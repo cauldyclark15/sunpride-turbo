@@ -249,6 +249,23 @@ beforeEach(() => {
 });
 
 describe("Admin workspace tabs", () => {
+  it("mounts territories, routes, outlets and assignments as administrator sections", () => {
+    const view = html(createElement(AdminWorkspace));
+    for (const title of ["Territories", "Routes", "Outlets", "Assignments"])
+      expect(view).toContain(title);
+    state.tabOverride = "assignments";
+    expect(html(createElement(AdminWorkspace))).toContain(
+      "Outlet assignments and ordered stops",
+    );
+    state.tabOverride = "routes";
+    expect(html(createElement(AdminWorkspace))).toContain("Routes / beats");
+    state.tabOverride = "outlets";
+    expect(html(createElement(AdminWorkspace))).toContain("Outlet");
+    state.tabOverride = "territories";
+    expect(html(createElement(AdminWorkspace))).toContain(
+      "Operational territories",
+    );
+  });
   it("keeps organization, people, and invitation sections inside the existing admin module", () => {
     const view = html(createElement(AdminWorkspace));
     expect(view).toContain("Organization");
