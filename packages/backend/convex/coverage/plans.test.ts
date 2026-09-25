@@ -284,6 +284,72 @@ const read = (f: Fixture, planId: Id<"coveragePlans">) =>
   f.sales.actor.query(api.coverage.plans.detail, { planId });
 
 describe("MCP authoring and approval", () => {
+  it("reads and applies current-month routines for a hire after the plan's Manila midnight", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-26T02:09:00+08:00"));
+    try {
+      const f = await setup();
+      await f.t.run(async (ctx) => {
+        const assignment = await ctx.db
+          .query("employeeAssignments")
+          .withIndex("by_profileId_and_effectiveFrom", (q) =>
+            q.eq("profileId", f.sales.id),
+          )
+          .first();
+        await ctx.db.patch(assignment!._id, { effectiveFrom: Date.now() });
+      });
+      // No plan yet: the empty-list scope check must use a live instant.
+      expect(
+        await f.sales.actor.query(api.coverage.activation.plannedForMonth, {
+          assigneeProfileId: f.sales.id,
+          localMonth: "2026-09",
+        }),
+      ).toEqual([]);
+      await f.t.mutation(internal.coverage.routines.seedProvisional, {});
+      const plan = await f.sales.actor.mutation(api.coverage.plans.create, {
+        assigneeProfileId: f.sales.id,
+        localMonth: "2026-09",
+      });
+      expect(plan.effectiveFrom).toBe(localDate("2026-09-26"));
+      const routine = await f.sales.actor.query(
+        api.coverage.routines.listForPosition,
+        { planId: plan._id },
+      );
+      expect(routine.warning).toBeNull();
+      expect(routine.templates).toHaveLength(7);
+      const applied = await f.sales.actor.mutation(
+        api.coverage.routines.applyToDraft,
+        { planId: plan._id },
+      );
+      expect(applied.warning).toBeNull();
+      expect(applied.created).toBeGreaterThan(0);
+      const detail = await read(f, plan._id);
+      expect(detail.assignments).toHaveLength(1);
+      expect(detail.slots).toHaveLength(applied.created);
+      expect(
+        detail.slots.every(
+          (slot) =>
+            localDate(slot.serviceDate) >= plan.effectiveFrom &&
+            localDate(slot.serviceDate) < plan.effectiveTo,
+        ),
+      ).toBe(true);
+      expect(
+        detail.slots.every(
+          (slot) =>
+            slot.serviceDate >= "2026-09-26" &&
+            slot.serviceDate <= "2026-09-30",
+        ),
+      ).toBe(true);
+      expect(
+        await f.sales.actor.query(api.coverage.activation.plannedForMonth, {
+          assigneeProfileId: f.sales.id,
+          localMonth: "2026-09",
+        }),
+      ).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("starts the current Manila month today for a mid-day hire, but refuses an unassigned service midnight atomically", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-26T02:00:00+08:00"));

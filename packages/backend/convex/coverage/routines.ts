@@ -182,10 +182,11 @@ async function forPlan(
   const plan = await ctx.db.get(planId);
   if (!plan) throw new ConvexError("Plan not found");
   await planAccess(ctx, plan, "mcp.read");
+  // Plan day boundaries may precede a same-day mid-day hire.
   const assignment = await employeeAt(
     ctx,
     plan.assigneeProfileId,
-    plan.effectiveFrom,
+    Math.max(plan.effectiveFrom, Date.now()),
   );
   const rows = assignment.positionId
     ? await templates(ctx, assignment.positionId)

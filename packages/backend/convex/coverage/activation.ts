@@ -256,7 +256,11 @@ export const plannedForMonth = query({
       "Coverage plans",
     );
     if (!plans.length) {
-      const assignment = await employeeAt(ctx, args.assigneeProfileId, from);
+      const assignment = await employeeAt(
+        ctx,
+        args.assigneeProfileId,
+        Math.max(from, Date.now()),
+      );
       await requireCapability(ctx, "mcp.read", assignment.orgUnitId!);
     }
     for (const plan of plans) await planAccess(ctx, plan, "mcp.read");
