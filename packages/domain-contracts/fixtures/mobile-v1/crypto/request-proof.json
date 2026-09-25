@@ -1,0 +1,60 @@
+{
+  "warning": "TEST-ONLY generated key and signatures. Never use for DEV, production, or enrollment.",
+  "algorithm": "ECDSA P-256 / SHA-256 / IEEE P1363 raw r||s",
+  "publicKeySpkiBase64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEpHrznHM1WG/ZqaPlinuliqRLpMETNWQJtCI4Yb4A3iIlrEHFzlu9NwLRnCsRXY0sqw2dKTg7Vo50HnhMAA2YwA==",
+  "privateKeyJwkTEST_ONLY": {
+    "crv": "P-256",
+    "d": "YZuPqPWKsWfVNE-qRNmx9XK5DX7csOhrPF7ZiD2cN10",
+    "ext": true,
+    "key_ops": ["sign"],
+    "kty": "EC",
+    "x": "pHrznHM1WG_ZqaPlinuliqRLpMETNWQJtCI4Yb4A3iI",
+    "y": "JaxBxc5bvTcC0ZwrEV2NLKsNnSk4O1aOdB54TAANmMA"
+  },
+  "vectors": [
+    {
+      "name": "high-bit-DER-sign-byte",
+      "method": "POST",
+      "path": "/mobile/v1/bootstrap",
+      "bodyUtf8": "{\"type\":\"bootstrap.request\",\"contractVersion\":1,\"deviceId\":\"test-device\",\"limit\":100}",
+      "nonce": "10000000-0000-4000-8000-000000000001",
+      "timestamp": 1780000000000,
+      "bodyBase64": "eyJ0eXBlIjoiYm9vdHN0cmFwLnJlcXVlc3QiLCJjb250cmFjdFZlcnNpb24iOjEsImRldmljZUlkIjoidGVzdC1kZXZpY2UiLCJsaW1pdCI6MTAwfQ==",
+      "bodyDigestHex": "b3849aea3e3208a20d16f21fcd29ce90e0c7d399887f56c3176052898fec8a3e",
+      "canonical": "POST|/mobile/v1/bootstrap|b3849aea3e3208a20d16f21fcd29ce90e0c7d399887f56c3176052898fec8a3e|10000000-0000-4000-8000-000000000001|1780000000000",
+      "signatureP1363Base64": "5O4zoFD2h5btC96c1Motoj8AW3PTbthcQ6su9OA6/FLfMwDJ+unOiTu3qRBVr0+sG0QB+Np8FSSjiAto3yWB4A==",
+      "signatureDerBase64": "MEYCIQDk7jOgUPaHlu0L3pzUyi2iPwBbc9Nu2FxDqy704Dr8UgIhAN8zAMn66c6JO7epEFWvT6wbRAH42nwVJKOIC2jfJYHg"
+    },
+    {
+      "name": "short-scalar-DER-leading-zero",
+      "method": "POST",
+      "path": "/mobile/v1/pull",
+      "bodyUtf8": "{\"type\":\"pull.request\",\"contractVersion\":1,\"deviceId\":\"test-device\",\"cursor\":\"test-only\",\"limit\":50}",
+      "nonce": "20000000-0000-4000-8000-000000000002",
+      "timestamp": 1780000000123,
+      "bodyBase64": "eyJ0eXBlIjoicHVsbC5yZXF1ZXN0IiwiY29udHJhY3RWZXJzaW9uIjoxLCJkZXZpY2VJZCI6InRlc3QtZGV2aWNlIiwiY3Vyc29yIjoidGVzdC1vbmx5IiwibGltaXQiOjUwfQ==",
+      "bodyDigestHex": "c8acb65ffbfe47bf8a2c034a3f0882732f3acd5beaae0a44e88e73a5e27c0746",
+      "canonical": "POST|/mobile/v1/pull|c8acb65ffbfe47bf8a2c034a3f0882732f3acd5beaae0a44e88e73a5e27c0746|20000000-0000-4000-8000-000000000002|1780000000123",
+      "signatureP1363Base64": "AIkpq3nJQa5xBFDzHr3onBnrF7HUccOF8Y+yUMyZ2DP0NhJYrGTwWMLUEB3JRbVV4jAQpaqqA/SxYAUJJztSog==",
+      "signatureDerBase64": "MEUCIACJKat5yUGucQRQ8x696JwZ6xex1HHDhfGPslDMmdgzAiEA9DYSWKxk8FjC1BAdyUW1VeIwEKWqqgP0sWAFCSc7UqI="
+    },
+    {
+      "name": "utf8-body",
+      "method": "POST",
+      "path": "/mobile/v1/push",
+      "bodyUtf8": "{\"type\":\"push.request\",\"contractVersion\":1,\"deviceId\":\"test-device\",\"note\":\"café | 東京\",\"operations\":[]}",
+      "nonce": "30000000-0000-4000-8000-000000000003",
+      "timestamp": 1780000000456,
+      "bodyBase64": "eyJ0eXBlIjoicHVzaC5yZXF1ZXN0IiwiY29udHJhY3RWZXJzaW9uIjoxLCJkZXZpY2VJZCI6InRlc3QtZGV2aWNlIiwibm90ZSI6ImNhZsOpIHwg5p2x5LqsIiwib3BlcmF0aW9ucyI6W119",
+      "bodyDigestHex": "6c177684ca1a992948c7360535faa07f102a87b7e3ce9e0c8eee010a19cfca10",
+      "canonical": "POST|/mobile/v1/push|6c177684ca1a992948c7360535faa07f102a87b7e3ce9e0c8eee010a19cfca10|30000000-0000-4000-8000-000000000003|1780000000456",
+      "signatureP1363Base64": "yPiricQ3XCnw0P4VO6yrFxfbJGy4kOwi0Ko5vnGLJ+3G9FvCyHihT2s4ntrWPDxJEh+6u+QIe0gQpsa5KgjBsw==",
+      "signatureDerBase64": "MEYCIQDI+KuJxDdcKfDQ/hU7rKsXF9skbLiQ7CLQqjm+cYsn7QIhAMb0W8LIeKFPazie2tY8PEkSH7q75Ah7SBCmxrkqCMGz"
+    }
+  ],
+  "tampered": {
+    "sourceVector": "utf8-body",
+    "bodyUtf8": "{\"type\":\"push.request\",\"contractVersion\":1,\"deviceId\":\"test-device\",\"note\":\"cafe | 東京\",\"operations\":[]}",
+    "expected": "reject: body digest and original signature do not match altered body"
+  }
+}

@@ -17,6 +17,8 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "test:e2e": "turbo run test:e2e",
+    "native:ios": "bash scripts/native-ios-check.sh",
+    "native:android": "bash scripts/native-android-check.sh",
     "check": "turbo run lint typecheck test build",
     "codegen": "turbo run codegen --filter=@sunpride/backend"
   },
