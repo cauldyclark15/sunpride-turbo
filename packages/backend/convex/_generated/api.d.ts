@@ -69,6 +69,9 @@ import type * as lib_metrics from "../lib/metrics.js";
 import type * as lib_roles from "../lib/roles.js";
 import type * as lib_scope from "../lib/scope.js";
 import type * as migrations from "../migrations.js";
+import type * as mobile_device_auth from "../mobile/device_auth.js";
+import type * as mobile_devices from "../mobile/devices.js";
+import type * as mobile_types from "../mobile/types.js";
 import type * as org_mutations from "../org/mutations.js";
 import type * as org_queries from "../org/queries.js";
 import type * as org_validation from "../org/validation.js";
@@ -92,6 +95,12 @@ import type * as territories_queries from "../territories/queries.js";
 import type * as territories_route_validation from "../territories/route_validation.js";
 import type * as territories_routes from "../territories/routes.js";
 import type * as territories_validation from "../territories/validation.js";
+import type * as visits_commands from "../visits/commands.js";
+import type * as visits_events from "../visits/events.js";
+import type * as visits_evidence from "../visits/evidence.js";
+import type * as visits_location from "../visits/location.js";
+import type * as visits_policy from "../visits/policy.js";
+import type * as visits_validation from "../visits/validation.js";
 
 import type {
   ApiFromModules,
@@ -161,6 +170,9 @@ declare const fullApi: ApiFromModules<{
   "lib/roles": typeof lib_roles;
   "lib/scope": typeof lib_scope;
   migrations: typeof migrations;
+  "mobile/device_auth": typeof mobile_device_auth;
+  "mobile/devices": typeof mobile_devices;
+  "mobile/types": typeof mobile_types;
   "org/mutations": typeof org_mutations;
   "org/queries": typeof org_queries;
   "org/validation": typeof org_validation;
@@ -184,6 +196,12 @@ declare const fullApi: ApiFromModules<{
   "territories/route_validation": typeof territories_route_validation;
   "territories/routes": typeof territories_routes;
   "territories/validation": typeof territories_validation;
+  "visits/commands": typeof visits_commands;
+  "visits/events": typeof visits_events;
+  "visits/evidence": typeof visits_evidence;
+  "visits/location": typeof visits_location;
+  "visits/policy": typeof visits_policy;
+  "visits/validation": typeof visits_validation;
 }>;
 
 /**
