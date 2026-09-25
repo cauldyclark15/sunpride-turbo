@@ -1,0 +1,390 @@
+import React, { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { getFunctionName } from "convex/server";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Doc, Id } from "@sunpride/backend/data-model";
+import { AdminWorkspace } from "./admin-workspace";
+import { OrgAdmin, performOrgAction } from "./org-admin";
+import { PeopleAdmin, performPeopleAssignment } from "./people-admin";
+
+const state = vi.hoisted(() => ({
+  values: {} as Record<string, unknown>,
+  historyId: null as string | null,
+  orgChoice: null as { unit: unknown; action: string } | null,
+  orgError: "",
+  tabOverride: "" as string,
+  nullIndex: 0,
+}));
+vi.mock("convex/react", () => ({
+  useQuery: (reference: unknown) =>
+    state.values[getFunctionName(reference as never)],
+  useMutation: () => vi.fn(),
+}));
+vi.mock("react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react")>();
+  return {
+    ...actual,
+    useState: (initial: unknown) => {
+      if (initial === "organization" && state.tabOverride)
+        return [state.tabOverride, vi.fn()];
+      if (initial === null) {
+        state.nullIndex += 1;
+        if (state.nullIndex === 1 && state.orgChoice)
+          return [state.orgChoice, vi.fn()];
+        if (state.nullIndex === 2 && state.historyId)
+          return [state.historyId, vi.fn()];
+      }
+      if (initial === "" && state.orgChoice && state.orgError)
+        return [state.orgError, vi.fn()];
+      return [
+        typeof initial === "function" ? (initial as () => unknown)() : initial,
+        vi.fn(),
+      ];
+    },
+  };
+});
+vi.mock("@heroui/react", () => ({
+  Button: ({
+    children,
+    isDisabled,
+    isPending,
+    onPress,
+    ...props
+  }: {
+    children: React.ReactNode;
+    isDisabled?: boolean;
+    isPending?: boolean;
+    onPress?: () => void;
+    [key: string]: unknown;
+  }) => {
+    void onPress;
+    return createElement(
+      "button",
+      { ...props, disabled: isDisabled || isPending },
+      children,
+    );
+  },
+  Input: (props: Record<string, unknown>) => createElement("input", props),
+}));
+vi.mock("@sunpride/ui", () => ({
+  StatusPill: ({ children }: { children: React.ReactNode }) =>
+    createElement("span", null, children),
+  EmptyPanel: ({ title }: { title: string }) => createElement("p", null, title),
+  DataTable: ({
+    rows,
+    columns,
+    empty,
+  }: {
+    rows: Record<string, unknown>[];
+    columns: {
+      key: string;
+      label: string;
+      render: (row: Record<string, unknown>) => React.ReactNode;
+    }[];
+    empty: React.ReactNode;
+  }) => {
+    if (!rows.length) return empty;
+    const headers = columns.map((column) =>
+      createElement("th", { key: column.key }, column.label),
+    );
+    const body = rows.map((row) =>
+      createElement(
+        "tr",
+        { key: String(row.id) },
+        columns.map((column) =>
+          createElement("td", { key: column.key }, column.render(row)),
+        ),
+      ),
+    );
+    return createElement(
+      "table",
+      null,
+      createElement("thead", null, createElement("tr", null, headers)),
+      createElement("tbody", null, body),
+    );
+  },
+}));
+
+const id = <T extends "orgUnits" | "profiles" | "positions">(value: string) =>
+  value as Id<T>;
+const root = {
+  _id: id<"orgUnits">("root"),
+  code: "SUNPRIDE",
+  name: "Sunpride",
+  typeCode: "NATIONAL",
+  status: "active",
+  effectiveFrom: 0,
+} as Doc<"orgUnits">;
+const region = {
+  ...root,
+  _id: id<"orgUnits">("region"),
+  code: "NCR",
+  name: "Metro Region",
+  typeCode: "REGION",
+  parentId: root._id,
+} as Doc<"orgUnits">;
+const area = {
+  ...root,
+  _id: id<"orgUnits">("area"),
+  code: "MNL",
+  name: "Manila Area",
+  typeCode: "AREA",
+  parentId: region._id,
+  status: "inactive",
+  effectiveTo: 9999999999999,
+} as Doc<"orgUnits">;
+const person = {
+  _id: id<"profiles">("p1"),
+  name: "Ana Reyes",
+  email: "ana@example.com",
+  authSubject: "subject-ana",
+  role: "sales",
+  status: "active",
+  orgUnitId: region._id,
+  positionId: id<"positions">("position"),
+  supervisorSubject: "subject-manager",
+  updatedAt: 0,
+} as Doc<"profiles">;
+const manager = {
+  ...person,
+  _id: id<"profiles">("p2"),
+  name: "Maria Santos",
+  authSubject: "subject-manager",
+  role: "manager",
+  employeeCode: "EMP-002",
+  supervisorSubject: undefined,
+} as Doc<"profiles">;
+const permissions = {
+  version: 1,
+  role: "admin",
+  capabilities: ["admin.manage", "org.read", "people.read"],
+  scopeUnitIds: [root._id, region._id, area._id],
+  orgUnitId: root._id,
+};
+const form = (values: Record<string, string>) =>
+  ({ get: (name: string) => values[name] ?? null }) as Pick<FormData, "get">;
+const html = (component: React.ReactNode) => {
+  state.nullIndex = 0;
+  return renderToStaticMarkup(component);
+};
+
+beforeEach(() => {
+  state.historyId = null;
+  state.orgChoice = null;
+  state.orgError = "";
+  state.tabOverride = "";
+  state.values = {
+    "lib/capabilities:currentPermissions": permissions,
+    "org/queries:tree": [root, region, area],
+    "people/queries:list": {
+      page: [person, manager],
+      continueCursor: "next",
+      isDone: false,
+    },
+    "domains/profiles:list": [person, manager],
+    "people/queries:history": [],
+    "sfa/positions:list": [
+      { _id: id<"positions">("position"), label: "Field Rep" },
+    ],
+  };
+});
+
+describe("Admin workspace tabs", () => {
+  it("keeps organization, people, and invitation sections inside the existing admin module", () => {
+    const view = html(createElement(AdminWorkspace));
+    expect(view).toContain("Organization");
+    expect(view).toContain("People");
+    expect(view).toContain("Invitations");
+    expect(view).toContain("Organization hierarchy");
+  });
+  it("preserves the invitation form and authorized accounts in their tab", () => {
+    state.tabOverride = "invitations";
+    state.values["domains/profiles:current"] = {
+      role: "admin",
+      status: "active",
+    };
+    state.values["domains/profiles:list"] = [person];
+    state.values["domains/profiles:listInvitations"] = [
+      {
+        _id: "invite",
+        email: "new@example.com",
+        role: "viewer",
+        status: "pending",
+      },
+    ];
+    const view = html(createElement(AdminWorkspace));
+    expect(view).toContain("Add a Sunpride user");
+    expect(view).toContain("new@example.com");
+    expect(view).toContain("Authorize email address");
+  });
+});
+
+describe("Organization admin", () => {
+  it("renders three hierarchy levels, type labels, effective dates, and inactive state", () => {
+    const view = html(createElement(OrgAdmin));
+    expect(view).toContain("Metro Region");
+    expect(view).toContain("Manila Area");
+    expect(view).toContain('data-depth="2"');
+    expect(view).toContain("inactive");
+    expect(view).toContain("Region");
+  });
+  it("disables management controls without admin.manage", () => {
+    state.values["lib/capabilities:currentPermissions"] = {
+      ...permissions,
+      capabilities: ["org.read"],
+    };
+    expect(html(createElement(OrgAdmin))).toMatch(
+      /disabled=""[^>]*>Create child/,
+    );
+  });
+  it("routes create and reparent to their mutations with future Manila instants and reparent reason", async () => {
+    const actions = {
+      create: vi.fn(),
+      edit: vi.fn(),
+      reparent: vi.fn(),
+      deactivate: vi.fn(),
+    };
+    const date = "2099-01-01";
+    await performOrgAction(
+      { unit: region, action: "create" },
+      form({
+        code: "MNL",
+        name: "Manila",
+        typeCode: "AREA",
+        effectiveDate: date,
+        reason: "Expansion",
+      }),
+      actions,
+    );
+    expect(actions.create).toHaveBeenCalledWith({
+      parentId: region._id,
+      code: "MNL",
+      name: "Manila",
+      typeCode: "AREA",
+      effectiveFrom: Date.parse("2098-12-31T16:00:00Z"),
+    });
+    await performOrgAction(
+      { unit: area, action: "reparent" },
+      form({
+        parentId: root._id,
+        effectiveDate: date,
+        reason: "  Realign coverage  ",
+      }),
+      actions,
+    );
+    expect(actions.reparent).toHaveBeenCalledWith({
+      unitId: area._id,
+      parentId: root._id,
+      effectiveFrom: Date.parse("2098-12-31T16:00:00Z"),
+      reason: "Realign coverage",
+    });
+  });
+  it("refuses empty reasons and propagates server errors verbatim", async () => {
+    const actions = {
+      create: vi.fn(),
+      edit: vi.fn(),
+      reparent: vi
+        .fn()
+        .mockRejectedValue(new Error("Parent interval does not cover child")),
+      deactivate: vi.fn(),
+    };
+    await expect(
+      performOrgAction(
+        { unit: region, action: "edit" },
+        form({ reason: "  ", name: "New" }),
+        actions,
+      ),
+    ).rejects.toThrow("Reason required");
+    await expect(
+      performOrgAction(
+        { unit: area, action: "reparent" },
+        form({
+          parentId: root._id,
+          effectiveDate: "2099-01-01",
+          reason: "Move",
+        }),
+        actions,
+      ),
+    ).rejects.toThrow("Parent interval does not cover child");
+  });
+  it("shows the verbatim server error inline", () => {
+    state.orgChoice = { unit: region, action: "edit" };
+    state.orgError = "Parent interval does not cover child";
+    expect(html(createElement(OrgAdmin))).toContain(
+      'role="alert" class="text-sm text-danger">Parent interval does not cover child',
+    );
+  });
+});
+
+describe("People admin", () => {
+  it("renders the paginated people list with role, position, unit, supervisor, and employee code", () => {
+    const view = html(createElement(PeopleAdmin));
+    expect(view).toContain("Ana Reyes");
+    expect(view).toContain("Field Rep");
+    expect(view).toContain("Metro Region");
+    expect(view).toContain("Maria Santos");
+    expect(view).toContain("EMP-002");
+    expect(view).toContain("Employee code");
+    expect(view).toContain("Page 1");
+  });
+  it("submits assignment axes, code once, and reason", async () => {
+    const assign = vi.fn();
+    await performPeopleAssignment(
+      person,
+      form({
+        orgUnitId: region._id,
+        role: "manager",
+        positionId: "position",
+        supervisorId: "p2",
+        employeeCode: "EMP-1",
+        reason: "  Promotion  ",
+      }),
+      assign,
+    );
+    expect(assign).toHaveBeenCalledWith({
+      profileId: person._id,
+      orgUnitId: region._id,
+      role: "manager",
+      positionId: "position",
+      supervisorId: "p2",
+      employeeCode: "EMP-1",
+      reason: "Promotion",
+    });
+    assign.mockClear();
+    await performPeopleAssignment(
+      { ...person, employeeCode: "EMP-1" },
+      form({
+        orgUnitId: region._id,
+        role: "sales",
+        employeeCode: "EMP-2",
+        reason: "Transfer",
+      }),
+      assign,
+    );
+    expect(assign.mock.calls[0]?.[0]).not.toHaveProperty("employeeCode");
+  });
+  it("renders assignment history with effective interval and reason", () => {
+    state.historyId = person._id;
+    state.values["people/queries:history"] = [
+      {
+        _id: "assignment",
+        role: "sales",
+        orgUnitId: region._id,
+        positionId: "position",
+        effectiveFrom: Date.parse("2026-09-25T16:00:00Z"),
+        reason: "Initial placement",
+      },
+    ];
+    const view = html(createElement(PeopleAdmin));
+    expect(view).toContain("Assignment history");
+    expect(view).toContain("Initial placement");
+    expect(view).toContain("Field Rep");
+  });
+  it("disables assignment without admin.manage", () => {
+    state.values["lib/capabilities:currentPermissions"] = {
+      ...permissions,
+      capabilities: ["people.read"],
+    };
+    expect(html(createElement(PeopleAdmin))).toMatch(/disabled=""[^>]*>Assign/);
+  });
+});

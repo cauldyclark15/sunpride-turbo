@@ -6,6 +6,8 @@ import type { Id } from "@sunpride/backend/data-model";
 import { StatusPill } from "@sunpride/ui";
 import { useMutation, useQuery } from "convex/react";
 import { useState, type FormEvent } from "react";
+import { OrgAdmin } from "./org-admin";
+import { PeopleAdmin } from "./people-admin";
 
 type AssignableRole =
   | "admin"
@@ -38,35 +40,59 @@ const roleLabel = (role: string) => {
 const readableError = (error: unknown) =>
   error instanceof Error ? error.message : "The access update failed.";
 
+type AdminTab = "organization" | "people" | "invitations";
+
 export function AdminWorkspace() {
+  const [tab, setTab] = useState<AdminTab>("organization");
+  return (
+    <div className="grid gap-5">
+      <nav
+        aria-label="Administration sections"
+        className="flex gap-2 border-b border-border pb-2"
+      >
+        {(["organization", "people", "invitations"] as const).map((item) => (
+          <Button
+            key={item}
+            variant={tab === item ? "primary" : "secondary"}
+            aria-current={tab === item ? "page" : undefined}
+            onPress={() => setTab(item)}
+          >
+            {item === "organization"
+              ? "Organization"
+              : item === "people"
+                ? "People"
+                : "Invitations"}
+          </Button>
+        ))}
+      </nav>
+      {tab === "organization" ? (
+        <OrgAdmin />
+      ) : tab === "people" ? (
+        <PeopleAdmin />
+      ) : (
+        <InvitationsAdmin />
+      )}
+    </div>
+  );
+}
+
+function InvitationsAdmin() {
   const current = useQuery(api.domains.profiles.current, {});
   const canAdminister =
     current?.role === "super_admin" || current?.role === "admin";
-  const profiles = useQuery(
-    api.domains.profiles.list,
-    canAdminister ? {} : "skip",
-  );
   const invitations = useQuery(
     api.domains.profiles.listInvitations,
     canAdminister ? {} : "skip",
   );
   const invite = useMutation(api.domains.profiles.invite);
   const revoke = useMutation(api.domains.profiles.revoke);
-  const assignPersona = useMutation(api.domains.profiles.assignPersona);
   const positions = useQuery(
     api.sfa.positions.list,
-    canAdminister ? {} : "skip",
-  );
-  const orgUnits = useQuery(
-    api.domains.profiles.listAssignableOrgUnits,
     canAdminister ? {} : "skip",
   );
   const [role, setRole] = useState<AssignableRole>("viewer");
   const [positionId, setPositionId] = useState("");
   const [pending, setPending] = useState(false);
-  const [assignments, setAssignments] = useState<
-    Record<string, { positionId: string; orgUnitId: string }>
-  >({});
   const [message, setMessage] = useState<{
     tone: "success" | "error";
     text: string;
@@ -112,51 +138,6 @@ export function AdminWorkspace() {
       setMessage({ tone: "error", text: readableError(error) });
     } finally {
       setPending(false);
-    }
-  }
-
-  const positionLabel = (id: string | undefined) =>
-    (positions ?? []).find((position) => position._id === id)?.label ??
-    "No position set";
-
-  const assignmentFor = (
-    profileId: string,
-    fallback?: { positionId?: string; orgUnitId?: string },
-  ) =>
-    assignments[profileId] ?? {
-      positionId: fallback?.positionId ?? "",
-      orgUnitId: fallback?.orgUnitId ?? "",
-    };
-
-  const setAssignment = (
-    profileId: string,
-    patch: Partial<{ positionId: string; orgUnitId: string }>,
-    fallback?: { positionId?: string; orgUnitId?: string },
-  ) =>
-    setAssignments((current) => ({
-      ...current,
-      [profileId]: { ...assignmentFor(profileId, fallback), ...patch },
-    }));
-
-  async function savePersona(
-    profileId: Id<"profiles">,
-    fallback?: { positionId?: string; orgUnitId?: string },
-  ) {
-    const choice = assignmentFor(profileId, fallback);
-    setMessage(null);
-    try {
-      await assignPersona({
-        profileId,
-        ...(choice.positionId
-          ? { positionId: choice.positionId as Id<"positions"> }
-          : {}),
-        ...(choice.orgUnitId
-          ? { orgUnitId: choice.orgUnitId as Id<"orgUnits"> }
-          : {}),
-      });
-      setMessage({ tone: "success", text: "Position and area updated." });
-    } catch (error) {
-      setMessage({ tone: "error", text: readableError(error) });
     }
   }
 
@@ -248,124 +229,6 @@ export function AdminWorkspace() {
       </section>
 
       <div className="grid content-start gap-6">
-        <section className="rounded-lg border border-border bg-surface p-6 shadow-none">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <h2 className="text-lg font-semibold text-foreground">
-                Active users
-              </h2>
-              <p className="mt-1 text-sm text-muted">
-                Provisioned identities and their effective roles.
-              </p>
-            </div>
-            <StatusPill tone="success">
-              {profiles?.length ?? 0} users
-            </StatusPill>
-          </div>
-          <div className="mt-5 grid gap-3">
-            {(profiles ?? []).map((profile) => {
-              const persona = {
-                ...(profile.positionId
-                  ? { positionId: profile.positionId }
-                  : {}),
-                ...(profile.orgUnitId ? { orgUnitId: profile.orgUnitId } : {}),
-              };
-              const choice = assignmentFor(profile._id, persona);
-              return (
-                <article
-                  key={profile._id}
-                  className="grid gap-3 rounded-md border border-border p-4"
-                >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="font-medium text-foreground">
-                        {profile.name}
-                      </p>
-                      <p className="mt-1 text-xs text-muted">
-                        {profile.email} · {positionLabel(profile.positionId)}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <StatusPill
-                        tone={
-                          profile.status === "active" ? "success" : "neutral"
-                        }
-                      >
-                        {profile.status}
-                      </StatusPill>
-                      <StatusPill
-                        tone={
-                          profile.role === "super_admin" ? "danger" : "neutral"
-                        }
-                      >
-                        {roleLabel(profile.role)}
-                      </StatusPill>
-                    </div>
-                  </div>
-                  {profile.role !== "super_admin" ? (
-                    <div className="flex flex-wrap items-end gap-3 border-t border-border pt-3">
-                      <label className="grid gap-1.5 text-xs font-medium text-muted">
-                        Position
-                        <select
-                          value={choice.positionId}
-                          onChange={(event) =>
-                            setAssignment(
-                              profile._id,
-                              { positionId: event.target.value },
-                              persona,
-                            )
-                          }
-                          className="h-9 rounded-md border border-border bg-surface px-2 text-sm text-foreground outline-none focus:border-accent"
-                        >
-                          <option value="">No position set</option>
-                          {(positions ?? []).map((position) => (
-                            <option key={position._id} value={position._id}>
-                              {position.label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="grid gap-1.5 text-xs font-medium text-muted">
-                        Area
-                        <select
-                          value={choice.orgUnitId}
-                          onChange={(event) =>
-                            setAssignment(
-                              profile._id,
-                              { orgUnitId: event.target.value },
-                              persona,
-                            )
-                          }
-                          className="h-9 rounded-md border border-border bg-surface px-2 text-sm text-foreground outline-none focus:border-accent"
-                        >
-                          <option value="">Keep current area</option>
-                          {(orgUnits ?? []).map((unit) => (
-                            <option key={unit._id} value={unit._id}>
-                              {unit.code} · {unit.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onPress={() => void savePersona(profile._id, persona)}
-                      >
-                        Save
-                      </Button>
-                    </div>
-                  ) : null}
-                </article>
-              );
-            })}
-            {profiles?.length === 0 ? (
-              <p className="rounded-md bg-surface-secondary p-5 text-center text-sm text-muted">
-                No provisioned users yet.
-              </p>
-            ) : null}
-          </div>
-        </section>
-
         <section className="rounded-lg border border-border bg-surface p-6 shadow-none">
           <h2 className="text-lg font-semibold text-foreground">
             Authorized accounts
