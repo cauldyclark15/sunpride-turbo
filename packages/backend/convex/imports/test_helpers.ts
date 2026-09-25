@@ -26,14 +26,21 @@ export async function provisionAdmin(t: Test, email = "admin@sunpride.local") {
     name: "JC",
   });
   await superAdmin.mutation(api.domains.profiles.ensure);
-  await t.mutation(internal.migrations.seedOrganizationFoundation, {});
+  const root = await t.mutation(
+    internal.migrations.seedOrganizationFoundation,
+    {},
+  );
   await superAdmin.mutation(api.domains.profiles.invite, {
     email,
     name: email,
     role: "admin",
   });
   const admin = t.withIdentity({ subject: email, email, name: email });
-  await admin.mutation(api.domains.profiles.ensure);
+  const adminProfileId = await admin.mutation(api.domains.profiles.ensure);
+  await superAdmin.mutation(api.domains.profiles.assignPersona, {
+    profileId: adminProfileId,
+    orgUnitId: root.rootUnitId,
+  });
   return { superAdmin, admin };
 }
 

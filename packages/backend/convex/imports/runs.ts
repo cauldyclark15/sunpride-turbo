@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
-import { requireIdentity } from "../lib/auth";
+import { requireNationalScope } from "../lib/scope";
 
 const importTypeValidator = v.union(
   v.literal("products"),
@@ -51,7 +51,7 @@ export const list = query({
     }),
   ),
   handler: async (ctx, args) => {
-    await requireIdentity(ctx);
+    await requireNationalScope(ctx, ["admin", "analyst"]);
     const runs = await ctx.db
       .query("importRuns")
       .withIndex("by_organizationId_and_createdAt", (q) =>
@@ -113,7 +113,7 @@ export const detail = query({
     movements: v.array(v.any()),
   }),
   handler: async (ctx, args) => {
-    await requireIdentity(ctx);
+    await requireNationalScope(ctx, ["admin", "analyst"]);
     const runs = await ctx.db
       .query("importRuns")
       .withIndex("by_organizationId_and_runKey", (q) =>

@@ -134,6 +134,39 @@ describe("organization foundation", () => {
     );
     expect(units).toHaveLength(1);
   });
+
+  it("seeds national scope only for unscoped super admins", async () => {
+    const t = convexTest(schema, modules);
+    const superAdmin = await bootstrapSuperAdmin(t);
+    const manager = await provisionProfile(
+      t,
+      superAdmin,
+      "foundation-manager@sunpride.local",
+      "manager",
+    );
+
+    const first = await t.mutation(
+      internal.migrations.seedOrganizationFoundation,
+      {},
+    );
+    expect(first.scopedProfileCount).toBe(1);
+
+    const superAdminProfile = await superAdmin.query(
+      api.domains.profiles.current,
+    );
+    const managerProfile = await manager.query(api.domains.profiles.current);
+    expect(superAdminProfile?.orgUnitId).toBe(first.rootUnitId);
+    expect(managerProfile?.orgUnitId).toBeUndefined();
+
+    const second = await t.mutation(
+      internal.migrations.seedOrganizationFoundation,
+      {},
+    );
+    expect(second.scopedProfileCount).toBe(0);
+    expect(
+      (await manager.query(api.domains.profiles.current))?.orgUnitId,
+    ).toBeUndefined();
+  });
 });
 
 describe("organizational scope", () => {
@@ -247,27 +280,13 @@ describe("organizational scope", () => {
 
   it("refuses a scoped target when the profile has no organizational scope", async () => {
     const t = convexTest(schema, modules);
-    const { superAdmin, area, rootUnitId } = await seedHierarchy(t);
+    const { superAdmin, area } = await seedHierarchy(t);
     const admin = await provisionProfile(
       t,
       superAdmin,
       "branch-admin@sunpride.local",
       "admin",
     );
-
-    await t.run(async (ctx) => {
-      const profile = await ctx.db
-        .query("profiles")
-        .withIndex("by_email", (q) =>
-          q.eq("email", "branch-admin@sunpride.local"),
-        )
-        .unique();
-      if (!profile) throw new Error("profile not found");
-      await ctx.db.patch(profile._id, {
-        orgUnitId: undefined,
-        updatedAt: Date.now(),
-      });
-    });
 
     await expect(
       admin.mutation(internal.lib.scope.assertScopeAccess, {
@@ -279,7 +298,138 @@ describe("organizational scope", () => {
     const unscoped = await admin.query(api.domains.profiles.myScope);
     expect(unscoped.orgUnitId).toBeNull();
     expect(unscoped.scopeUnitIds).toHaveLength(0);
-    expect(rootUnitId).toBeDefined();
+  });
+
+  it("provisions an invited manager without national scope and refuses scoped access", async () => {
+    const t = convexTest(schema, modules);
+    const { superAdmin, area } = await seedHierarchy(t);
+    const manager = await provisionProfile(
+      t,
+      superAdmin,
+      "new-manager@sunpride.local",
+      "manager",
+    );
+    const scope = await manager.query(api.domains.profiles.myScope);
+    expect(scope.orgUnitId).toBeNull();
+    await expect(
+      manager.mutation(internal.lib.scope.assertScopeAccess, {
+        roles: ["manager"],
+        targetUnitId: area,
+      }),
+    ).rejects.toThrow(/no organizational scope/);
+    // Re-provisioning must not silently assign the root either.
+    await manager.mutation(api.domains.profiles.ensure);
+    expect(
+      (await manager.query(api.domains.profiles.myScope)).orgUnitId,
+    ).toBeNull();
+  });
+
+  it("checks both current and destination scope on persona moves", async () => {
+    const t = convexTest(schema, modules);
+    const { superAdmin, area, territory, otherArea, rootUnitId } =
+      await seedHierarchy(t);
+    const admin = await provisionProfile(
+      t,
+      superAdmin,
+      "scoped-admin@sunpride.local",
+      "admin",
+    );
+    await assignOrgUnit(t, "scoped-admin@sunpride.local", area);
+    const outsider = await provisionProfile(
+      t,
+      superAdmin,
+      "outsider@sunpride.local",
+      "viewer",
+    );
+    const outsiderId = (await outsider.query(api.domains.profiles.current))!
+      ._id;
+    await assignOrgUnit(t, "outsider@sunpride.local", otherArea);
+    await expect(
+      admin.mutation(api.domains.profiles.assignPersona, {
+        profileId: outsiderId,
+        orgUnitId: territory,
+      }),
+    ).rejects.toThrow(/outside your organizational scope/);
+
+    const insider = await provisionProfile(
+      t,
+      superAdmin,
+      "insider@sunpride.local",
+      "viewer",
+    );
+    const insiderId = (await insider.query(api.domains.profiles.current))!._id;
+    await assignOrgUnit(t, "insider@sunpride.local", territory);
+    await expect(
+      admin.mutation(api.domains.profiles.assignPersona, {
+        profileId: insiderId,
+        orgUnitId: otherArea,
+      }),
+    ).rejects.toThrow(/outside your organizational scope/);
+    await admin.mutation(api.domains.profiles.assignPersona, {
+      profileId: insiderId,
+      orgUnitId: area,
+    });
+    expect((await insider.query(api.domains.profiles.myScope)).orgUnitId).toBe(
+      area,
+    );
+
+    const unassigned = await provisionProfile(
+      t,
+      superAdmin,
+      "unassigned@sunpride.local",
+      "viewer",
+    );
+    const unassignedId = (await unassigned.query(api.domains.profiles.current))!
+      ._id;
+    await expect(
+      admin.mutation(api.domains.profiles.assignPersona, {
+        profileId: unassignedId,
+        orgUnitId: area,
+      }),
+    ).rejects.toThrow(/outside your organizational scope/);
+    const rootAdmin = await provisionProfile(
+      t,
+      superAdmin,
+      "root-admin@sunpride.local",
+      "admin",
+    );
+    await assignOrgUnit(t, "root-admin@sunpride.local", rootUnitId);
+    await rootAdmin.mutation(api.domains.profiles.assignPersona, {
+      profileId: unassignedId,
+      orgUnitId: territory,
+    });
+    expect(
+      (await unassigned.query(api.domains.profiles.myScope)).orgUnitId,
+    ).toBe(territory);
+  });
+
+  it("allows only root-scoped admins or super admins to read national data", async () => {
+    const t = convexTest(schema, modules);
+    const { superAdmin, area, rootUnitId } = await seedHierarchy(t);
+    const regional = await provisionProfile(
+      t,
+      superAdmin,
+      "regional@sunpride.local",
+      "admin",
+    );
+    await assignOrgUnit(t, "regional@sunpride.local", area);
+    const rootAdmin = await provisionProfile(
+      t,
+      superAdmin,
+      "national@sunpride.local",
+      "admin",
+    );
+    await assignOrgUnit(t, "national@sunpride.local", rootUnitId);
+    await expect(
+      regional.query(api.imports.products.validateProducts, { rows: [] }),
+    ).rejects.toThrow(/outside your organizational scope/);
+    expect(
+      (
+        await rootAdmin.query(api.imports.products.validateProducts, {
+          rows: [],
+        })
+      ).rowCount,
+    ).toBe(0);
   });
 
   it("lets the super admin reach any unit without a scope assignment", async () => {

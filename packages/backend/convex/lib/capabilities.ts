@@ -98,7 +98,8 @@ export function capabilityRoles(capability: Capability): readonly AppRole[] {
 /**
  * Throws unless the caller's role holds the capability AND, when a target unit is given,
  * that unit sits inside the caller's organizational subtree (ADR-005). Client input can
- * never widen either check.
+ * never widen either check. Omitting targetUnitId checks the capability ONLY; national
+ * data must use requireNationalScope instead.
  */
 export async function requireCapability(
   ctx: QueryCtx | MutationCtx,

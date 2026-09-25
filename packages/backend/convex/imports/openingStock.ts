@@ -12,9 +12,10 @@ import {
   buildOpeningBalanceLine,
   OpeningBalanceLineError,
 } from "../inventory/setup";
-import { requireScopedRole } from "../lib/scope";
+import { requireNationalScope } from "../lib/scope";
 import {
   cell,
+  chunkHashOf,
   ERROR_CODES,
   IMPORT_CHUNK_ROWS,
   importRowValidator,
@@ -79,6 +80,7 @@ function optionalDateCell(
 export async function validateOpeningStockRows(
   ctx: QueryCtx | MutationCtx,
   rows: ImportRow[],
+  expectedSourceReference?: string,
 ): Promise<OpeningStockValidation> {
   const errors: RowError[] = [];
   const valid: ResolvedOpeningRow[] = [];
@@ -101,6 +103,18 @@ export async function validateOpeningStockRows(
           ),
         );
       sourceReferences.add(sourceReference);
+      if (
+        expectedSourceReference !== undefined &&
+        sourceReference !== expectedSourceReference
+      )
+        rowErrors.push(
+          rowError(
+            row.rowNumber,
+            ERROR_CODES.invalidFormat,
+            "source_reference must match the cutover source reference",
+            "source_reference",
+          ),
+        );
     }
 
     const rawCode = requiredCell(row, "product_code", rowErrors);
@@ -257,8 +271,8 @@ export async function validateOpeningStockRows(
       else unitCostMinor = BigInt(parsed);
     }
 
-    if (product && location && lotNumber) {
-      const key = `${product._id}:${location._id}:${lotNumber}`;
+    if (product && location && (policy?.trackingMode !== "lot" || lotNumber)) {
+      const key = `${product._id}:${location._id}:${policy?.trackingMode === "lot" ? lotNumber : ""}`;
       if (seenKeys.has(key))
         rowErrors.push(
           rowError(
@@ -270,40 +284,61 @@ export async function validateOpeningStockRows(
         );
       else seenKeys.add(key);
 
-      // Opening stock is posted once. A lot that already carries stock at this location must
-      // be corrected through a stock count and an approved adjustment (ADR-007), never by
-      // importing the file again under a new run key.
-      const lot = await ctx.db
-        .query("inventoryLots")
-        .withIndex(
-          "by_organizationId_and_productId_and_normalizedLotNumber",
-          (q) =>
-            q
-              .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
-              .eq("productId", product._id)
-              .eq("normalizedLotNumber", lotNumber),
-        )
-        .unique();
-      if (lot) {
-        const lotBalance = await ctx.db
-          .query("inventoryLotBalances")
+      // Opening stock may not be re-posted over any existing physical status.
+      if (policy?.trackingMode === "lot" && lotNumber) {
+        const lot = await ctx.db
+          .query("inventoryLots")
           .withIndex(
-            "by_organizationId_and_lotId_and_locationId_and_stockStatus",
+            "by_organizationId_and_productId_and_normalizedLotNumber",
             (q) =>
               q
                 .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
-                .eq("lotId", lot._id)
-                .eq("locationId", location._id)
-                .eq("stockStatus", "available"),
+                .eq("productId", product._id)
+                .eq("normalizedLotNumber", lotNumber),
           )
           .unique();
-        if (lotBalance && lotBalance.physicalBase > 0n)
+        if (lot) {
+          const balances = await ctx.db
+            .query("inventoryLotBalances")
+            .withIndex(
+              "by_organizationId_and_lotId_and_locationId_and_stockStatus",
+              (q) =>
+                q
+                  .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
+                  .eq("lotId", lot._id)
+                  .eq("locationId", location._id),
+            )
+            .take(20);
+          const occupied = balances.find(
+            (balance) => balance.physicalBase !== 0n,
+          );
+          if (occupied)
+            rowErrors.push(
+              rowError(
+                row.rowNumber,
+                ERROR_CODES.duplicateStock,
+                `${productCode} lot ${lotNumber} already has ${occupied.physicalBase} base units at ${locationCode}. Correct stock through a stock count and an approved adjustment.`,
+                "lot_number",
+              ),
+            );
+        }
+      } else {
+        const balance = await ctx.db
+          .query("inventoryBalances")
+          .withIndex("by_organizationId_and_productId_and_locationId", (q) =>
+            q
+              .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
+              .eq("productId", product._id)
+              .eq("locationId", location._id),
+          )
+          .unique();
+        if (balance && (balance.physicalBase ?? 0n) !== 0n)
           rowErrors.push(
             rowError(
               row.rowNumber,
               ERROR_CODES.duplicateStock,
-              `${productCode} lot ${lotNumber} already has ${lotBalance.physicalBase} base units at ${locationCode}. Correct stock through a stock count and an approved adjustment.`,
-              "lot_number",
+              `${productCode} already has ${balance.physicalBase} base units at ${locationCode}. Correct stock through a stock count and an approved adjustment.`,
+              "product_code",
             ),
           );
       }
@@ -354,7 +389,7 @@ export const validateOpeningStock = query({
     errors: v.array(rowErrorValidator),
   }),
   handler: async (ctx, args) => {
-    await requireScopedRole(ctx, ["admin"]);
+    await requireNationalScope(ctx, ["admin"]);
     const validation = await validateOpeningStockRows(ctx, args.rows);
     const blocking = validation.errors.length > 0;
     return {
@@ -379,7 +414,6 @@ export const commitOpeningStock = mutation({
     idempotencyKey: v.string(),
     fileHash: v.string(),
     sourceReference: v.string(),
-    scopeUnitId: v.optional(v.id("orgUnits")),
     rows: v.array(importRowValidator),
   },
   returns: v.object({
@@ -392,11 +426,7 @@ export const commitOpeningStock = mutation({
     errors: v.array(rowErrorValidator),
   }),
   handler: async (ctx, args) => {
-    const { identity } = await requireScopedRole(
-      ctx,
-      ["admin"],
-      args.scopeUnitId,
-    );
+    const { identity } = await requireNationalScope(ctx, ["admin"]);
     if (args.rows.length === 0)
       throw new ConvexError("Import needs at least one row");
     if (args.rows.length > IMPORT_CHUNK_ROWS)
@@ -408,6 +438,11 @@ export const commitOpeningStock = mutation({
     if (!args.sourceReference.trim())
       throw new ConvexError("A cutover source reference is required");
 
+    const chunkHash = chunkHashOf(
+      args.chunkIndex,
+      args.rows,
+      args.sourceReference,
+    );
     const existing = await ctx.db
       .query("importRuns")
       .withIndex("by_organizationId_and_idempotencyKey", (q) =>
@@ -417,7 +452,11 @@ export const commitOpeningStock = mutation({
       )
       .unique();
     if (existing) {
-      if (existing.fileHash !== args.fileHash)
+      if (
+        existing.importType !== "opening_stock" ||
+        existing.fileHash !== args.fileHash ||
+        existing.chunkHash !== chunkHash
+      )
         throw new ConvexError(
           "Idempotency key reused with a different payload",
         );
@@ -435,7 +474,11 @@ export const commitOpeningStock = mutation({
       };
     }
 
-    const validation = await validateOpeningStockRows(ctx, args.rows);
+    const validation = await validateOpeningStockRows(
+      ctx,
+      args.rows,
+      args.sourceReference,
+    );
     const now = Date.now();
     const reportedErrors = validation.errors.slice(0, MAX_IMPORT_ERRORS);
 
@@ -449,6 +492,7 @@ export const commitOpeningStock = mutation({
         runKey: args.runKey,
         chunkIndex: args.chunkIndex,
         fileHash: args.fileHash,
+        chunkHash,
         idempotencyKey: args.idempotencyKey,
         actorSubject: identity.tokenIdentifier,
         status: "failed",
@@ -557,6 +601,7 @@ export const commitOpeningStock = mutation({
       runKey: args.runKey,
       chunkIndex: args.chunkIndex,
       fileHash: args.fileHash,
+      chunkHash,
       idempotencyKey: args.idempotencyKey,
       actorSubject: identity.tokenIdentifier,
       status: "completed",

@@ -249,20 +249,6 @@ describe("capability gate", () => {
       "unscoped-manager@sunpride.local",
       "manager",
     );
-    await t.run(async (ctx) => {
-      const profile = await ctx.db
-        .query("profiles")
-        .withIndex("by_email", (q) =>
-          q.eq("email", "unscoped-manager@sunpride.local"),
-        )
-        .unique();
-      if (!profile) throw new Error("profile not found");
-      await ctx.db.patch(profile._id, {
-        orgUnitId: undefined,
-        updatedAt: Date.now(),
-      });
-    });
-
     await expect(
       manager.mutation(internal.lib.capabilities.assertCapability, {
         capability: "mcp.approve",

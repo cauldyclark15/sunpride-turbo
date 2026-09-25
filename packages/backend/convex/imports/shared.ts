@@ -109,6 +109,19 @@ export function fileHashOf(rowCount: number, rows: ImportRow[]): string {
   return hashPayload({ rowCount, rows });
 }
 
+/** Server-owned digest of the exact chunk and its posting provenance. */
+export function chunkHashOf(
+  chunkIndex: number,
+  rows: ImportRow[],
+  sourceReference?: string,
+): string {
+  return hashPayload({
+    chunkIndex,
+    rows,
+    sourceReference: sourceReference ?? null,
+  });
+}
+
 export function rowError(
   rowNumber: number,
   code: string,

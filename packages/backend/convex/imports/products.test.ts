@@ -251,6 +251,75 @@ describe("product master import", () => {
     ).rejects.toThrow(/Insufficient permission/);
   });
 
+  it("rejects the later row when two products share a barcode in one chunk", async () => {
+    const { t, admin } = await setup();
+    const rows = [
+      row(productValues(), 2),
+      row(
+        productValues({ product_code: "SP-OTHER-1L", name: "Other Juice" }),
+        3,
+      ),
+    ];
+    const preview = await admin.query(api.imports.products.validateProducts, {
+      rows,
+    });
+    expect(preview.errors).toMatchObject([
+      { rowNumber: 3, code: "barcode_conflict", column: "barcode" },
+    ]);
+    const result = await admin.mutation(
+      api.imports.products.commitProducts,
+      commitArgs(rows),
+    );
+    expect(result.created).toBe(1);
+    expect(result.failed).toBe(1);
+    expect(await productByCode(t, "SP-OTHER-1L")).toBeNull();
+  });
+
+  it("rejects changed product rows with the same idempotency key and file hash", async () => {
+    const { t, admin } = await setup();
+    const args = commitArgs([row(productValues())]);
+    await admin.mutation(api.imports.products.commitProducts, args);
+    await expect(
+      admin.mutation(api.imports.products.commitProducts, {
+        ...args,
+        rows: [row(productValues({ name: "Forged replacement" }))],
+      }),
+    ).rejects.toThrow(/different payload/);
+    expect((await productByCode(t, "SP-TEST-1L"))?.name).toBe(
+      "Sunpride Test Juice 1L",
+    );
+  });
+
+  it("refuses a region-scoped admin in preview and commit", async () => {
+    const { t, admin, superAdmin } = await setup();
+    const root = (await admin.query(api.domains.profiles.myScope)).orgUnitId!;
+    const area = await t.run(async (ctx) =>
+      ctx.db.insert("orgUnits", {
+        organizationId: "sunpride",
+        code: "REG-TEST",
+        name: "Test Region",
+        typeCode: "REGION",
+        parentId: root,
+        status: "active",
+        effectiveFrom: Date.now(),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+    const adminId = (await admin.query(api.domains.profiles.current))!._id;
+    await superAdmin.mutation(api.domains.profiles.assignPersona, {
+      profileId: adminId,
+      orgUnitId: area,
+    });
+    const rows = [row(productValues())];
+    await expect(
+      admin.query(api.imports.products.validateProducts, { rows }),
+    ).rejects.toThrow(/outside your organizational scope/);
+    await expect(
+      admin.mutation(api.imports.products.commitProducts, commitArgs(rows)),
+    ).rejects.toThrow(/outside your organizational scope/);
+  });
+
   it("previews without writing", async () => {
     const { t, admin } = await setup();
     const preview = await admin.query(api.imports.products.validateProducts, {

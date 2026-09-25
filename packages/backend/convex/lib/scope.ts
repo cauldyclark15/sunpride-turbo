@@ -2,7 +2,10 @@ import { ConvexError, v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation } from "../_generated/server";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
+import {
+  ORG_ROOT_UNIT_CODE,
+  SUNPRIDE_ORGANIZATION_ID,
+} from "../inventory/constants";
 import { requireActiveProfile } from "./auth";
 
 /**
@@ -14,6 +17,38 @@ import { requireActiveProfile } from "./auth";
  */
 
 const MAX_SCOPE_UNITS = 500;
+
+/** The active national root, if seeded. Never treat an arbitrary parentless unit as root. */
+export async function rootOrgUnitId(ctx: QueryCtx | MutationCtx) {
+  const root = await ctx.db
+    .query("orgUnits")
+    .withIndex("by_organizationId_and_code", (q) =>
+      q
+        .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
+        .eq("code", ORG_ROOT_UNIT_CODE),
+    )
+    .unique();
+  return root?.status === "active" && !root.parentId ? root._id : null;
+}
+
+/** Gate national data without accepting a client-selected target unit. */
+export async function requireNationalScope(
+  ctx: QueryCtx | MutationCtx,
+  allowed: readonly string[],
+) {
+  const { identity, profile } = await requireActiveProfile(ctx);
+  if (profile.role !== "super_admin" && !allowed.includes(profile.role))
+    throw new ConvexError("Insufficient permission");
+  if (profile.role === "super_admin") return { identity, profile };
+  if (!profile.orgUnitId)
+    throw new ConvexError("Your access has no organizational scope");
+  const rootId = await rootOrgUnitId(ctx);
+  if (!rootId || profile.orgUnitId !== rootId)
+    throw new ConvexError(
+      "Requested scope is outside your organizational scope",
+    );
+  return { identity, profile };
+}
 
 export async function collectScopeUnitIds(
   ctx: QueryCtx | MutationCtx,
@@ -43,7 +78,8 @@ export async function collectScopeUnitIds(
   return ids;
 }
 
-/** Role + organizational scope gate. See ADR-005 and tracker CVX-023. */
+/** Role + organizational scope gate. Omitting targetUnitId checks the role ONLY;
+ * never use that mode to guard national data. See ADR-005 and tracker CVX-023. */
 export async function requireScopedRole(
   ctx: QueryCtx | MutationCtx,
   allowed: readonly string[],

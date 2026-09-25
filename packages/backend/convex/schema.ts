@@ -1269,6 +1269,7 @@ export default defineSchema({
     runKey: v.string(),
     chunkIndex: v.number(),
     fileHash: v.string(),
+    chunkHash: v.optional(v.string()),
     idempotencyKey: v.string(),
     actorSubject: v.string(),
     status: v.union(

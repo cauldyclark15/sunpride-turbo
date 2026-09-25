@@ -6,9 +6,10 @@ import {
   DEFAULT_QUANTITY_SCALE,
   SUNPRIDE_ORGANIZATION_ID,
 } from "../inventory/constants";
-import { requireScopedRole } from "../lib/scope";
+import { requireNationalScope } from "../lib/scope";
 import {
   cell,
+  chunkHashOf,
   ERROR_CODES,
   IMPORT_CHUNK_ROWS,
   importRowValidator,
@@ -129,6 +130,7 @@ export async function validateProductRows(
   const errors: RowError[] = [];
   const valid: ResolvedProductRow[] = [];
   const seenCodes = new Set<string>();
+  const seenBarcodes = new Map<string, string>();
 
   for (const row of rows) {
     const rowErrors: RowError[] = [];
@@ -328,6 +330,17 @@ export async function validateProductRows(
     }
 
     if (barcode && BARCODE_PATTERN.test(barcode)) {
+      const firstCode = seenBarcodes.get(barcode);
+      if (firstCode && firstCode !== productCode)
+        rowErrors.push(
+          rowError(
+            row.rowNumber,
+            ERROR_CODES.barcodeConflict,
+            `Barcode ${barcode} already belongs to another product in this chunk`,
+            "barcode",
+          ),
+        );
+      else seenBarcodes.set(barcode, productCode);
       const owner = await ctx.db
         .query("productBarcodes")
         .withIndex("by_organizationId_and_barcode", (q) =>
@@ -551,7 +564,7 @@ export const validateProducts = query({
     errors: v.array(rowErrorValidator),
   }),
   handler: async (ctx, args) => {
-    await requireScopedRole(ctx, ["admin"]);
+    await requireNationalScope(ctx, ["admin"]);
     const validation = await validateProductRows(ctx, args.rows);
     return {
       rowCount: validation.rowCount,
@@ -574,7 +587,6 @@ export const commitProducts = mutation({
     chunkIndex: v.number(),
     idempotencyKey: v.string(),
     fileHash: v.string(),
-    scopeUnitId: v.optional(v.id("orgUnits")),
     rows: v.array(importRowValidator),
   },
   returns: v.object({
@@ -587,11 +599,7 @@ export const commitProducts = mutation({
     errors: v.array(rowErrorValidator),
   }),
   handler: async (ctx, args) => {
-    const { identity } = await requireScopedRole(
-      ctx,
-      ["admin"],
-      args.scopeUnitId,
-    );
+    const { identity } = await requireNationalScope(ctx, ["admin"]);
     if (args.rows.length === 0)
       throw new ConvexError("Import needs at least one row");
     if (args.rows.length > IMPORT_CHUNK_ROWS)
@@ -601,6 +609,7 @@ export const commitProducts = mutation({
     if (args.chunkIndex < 0)
       throw new ConvexError("chunkIndex must not be negative");
 
+    const chunkHash = chunkHashOf(args.chunkIndex, args.rows);
     const existing = await ctx.db
       .query("importRuns")
       .withIndex("by_organizationId_and_idempotencyKey", (q) =>
@@ -610,7 +619,11 @@ export const commitProducts = mutation({
       )
       .unique();
     if (existing) {
-      if (existing.fileHash !== args.fileHash)
+      if (
+        existing.importType !== "products" ||
+        existing.fileHash !== args.fileHash ||
+        existing.chunkHash !== chunkHash
+      )
         throw new ConvexError(
           "Idempotency key reused with a different payload",
         );
@@ -664,6 +677,7 @@ export const commitProducts = mutation({
       runKey: args.runKey,
       chunkIndex: args.chunkIndex,
       fileHash: args.fileHash,
+      chunkHash,
       idempotencyKey: args.idempotencyKey,
       actorSubject: identity.tokenIdentifier,
       status: "completed",

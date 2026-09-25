@@ -20,7 +20,7 @@ function newTest() {
 
 async function setup(options: { withProduct?: boolean } = {}) {
   const t = newTest();
-  const { admin } = await provisionAdmin(t);
+  const { admin, superAdmin } = await provisionAdmin(t);
   await provisionInventory(admin);
   if (options.withProduct !== false) {
     const productRows = [row(productValues())];
@@ -32,7 +32,7 @@ async function setup(options: { withProduct?: boolean } = {}) {
       rows: productRows,
     });
   }
-  return { t, admin };
+  return { t, admin, superAdmin };
 }
 
 function openingArgs(
@@ -248,7 +248,7 @@ describe("opening stock import", () => {
       api.imports.openingStock.commitOpeningStock,
       openingArgs(rows),
     );
-    expect(result.failed).toBe(1);
+    expect(result.failed).toBe(2);
     expect(result.errors[0]?.column).toBe("source_reference");
   });
 
@@ -321,6 +321,202 @@ describe("opening stock import", () => {
       ctx.db.query("inventoryMovements").collect(),
     );
     expect(movements).toHaveLength(1);
+  });
+
+  it("rejects non-lot stock already physically present at the location", async () => {
+    const { t, admin } = await setup({ withProduct: false });
+    const products = [
+      row(
+        productValues({
+          product_code: "SP-NONLOT",
+          barcode: "4800000000002",
+          tracking_mode: "none",
+          expiry_required: "N",
+          manufacture_date_required: "N",
+        }),
+      ),
+    ];
+    await admin.mutation(api.imports.products.commitProducts, {
+      runKey: "nonlot-product",
+      chunkIndex: 0,
+      idempotencyKey: chunkKey("products", "nonlot-product", 0),
+      fileHash: fileHashOf(products.length, products),
+      rows: products,
+    });
+    const rows = [
+      row(
+        openingStockValues({
+          product_code: "SP-NONLOT",
+          lot_number: "",
+          expires_at: "",
+          manufactured_at: "",
+        }),
+      ),
+    ];
+    const first = await admin.mutation(
+      api.imports.openingStock.commitOpeningStock,
+      openingArgs(rows),
+    );
+    expect(first.accepted).toBe(1);
+    const second = await admin.mutation(
+      api.imports.openingStock.commitOpeningStock,
+      openingArgs(rows, { runKey: "cutover-nonlot-again" }),
+    );
+    expect(second.accepted).toBe(0);
+    expect(second.errors[0]).toMatchObject({
+      code: "duplicate_stock",
+      column: "product_code",
+    });
+    expect(
+      await t.run(async (ctx) => ctx.db.query("inventoryMovements").collect()),
+    ).toHaveLength(1);
+  });
+
+  it("rejects a second opening import after the product policy is removed", async () => {
+    const { t, admin } = await setup();
+    const rows = [row(openingStockValues())];
+    const first = await admin.mutation(
+      api.imports.openingStock.commitOpeningStock,
+      openingArgs(rows),
+    );
+    expect(first.accepted).toBe(1);
+
+    await t.run(async (ctx) => {
+      const product = await ctx.db
+        .query("products")
+        .withIndex("by_code", (q) => q.eq("code", "SP-TEST-1L"))
+        .unique();
+      const policy = await ctx.db
+        .query("productInventoryPolicies")
+        .withIndex("by_organizationId_and_productId", (q) =>
+          q.eq("organizationId", "sunpride").eq("productId", product!._id),
+        )
+        .unique();
+      await ctx.db.delete(policy!._id);
+    });
+
+    const second = await admin.mutation(
+      api.imports.openingStock.commitOpeningStock,
+      openingArgs(rows, { runKey: "cutover-without-policy" }),
+    );
+    expect(second.accepted).toBe(0);
+    expect(second.errors).toContainEqual(
+      expect.objectContaining({
+        code: "duplicate_stock",
+        column: "product_code",
+      }),
+    );
+    expect(
+      await t.run(async (ctx) => ctx.db.query("inventoryMovements").collect()),
+    ).toHaveLength(1);
+  });
+
+  it("rejects lot stock even when its physical balance is entirely on hold", async () => {
+    const { t, admin } = await setup();
+    const rows = [row(openingStockValues())];
+    await admin.mutation(
+      api.imports.openingStock.commitOpeningStock,
+      openingArgs(rows),
+    );
+    await t.run(async (ctx) => {
+      const available = (
+        await ctx.db.query("inventoryLotBalances").collect()
+      )[0]!;
+      await ctx.db.patch(available._id, {
+        physicalBase: 0n,
+        availableBase: 0n,
+      });
+      await ctx.db.insert("inventoryLotBalances", {
+        organizationId: available.organizationId,
+        productId: available.productId,
+        lotId: available.lotId,
+        locationId: available.locationId,
+        stockStatus: "quality_hold",
+        physicalBase: 240_000n,
+        reservedBase: 0n,
+        availableBase: 0n,
+        expirySortKey: available.expirySortKey,
+        receiptSequence: available.receiptSequence,
+        version: 1,
+        updatedAt: Date.now(),
+      });
+    });
+    const preview = await admin.query(
+      api.imports.openingStock.validateOpeningStock,
+      { rows },
+    );
+    expect(preview.errors[0]?.code).toBe("duplicate_stock");
+    const second = await admin.mutation(
+      api.imports.openingStock.commitOpeningStock,
+      openingArgs(rows, { runKey: "cutover-hold-again" }),
+    );
+    expect(second.errors[0]?.code).toBe("duplicate_stock");
+  });
+
+  it("rejects changed opening rows under the same key and claimed file hash", async () => {
+    const { t, admin } = await setup();
+    const args = openingArgs([row(openingStockValues())]);
+    await admin.mutation(api.imports.openingStock.commitOpeningStock, args);
+    await expect(
+      admin.mutation(api.imports.openingStock.commitOpeningStock, {
+        ...args,
+        rows: [row(openingStockValues({ quantity: "500" }))],
+      }),
+    ).rejects.toThrow(/different payload/);
+    expect(
+      await t.run(async (ctx) => ctx.db.query("inventoryMovements").collect()),
+    ).toHaveLength(1);
+  });
+
+  it("refuses a row source reference different from posting provenance", async () => {
+    const { t, admin } = await setup();
+    const rows = [
+      row(openingStockValues({ source_reference: "OTHER-REFERENCE" })),
+    ];
+    const result = await admin.mutation(
+      api.imports.openingStock.commitOpeningStock,
+      openingArgs(rows),
+    );
+    expect(result.accepted).toBe(0);
+    expect(result.errors[0]).toMatchObject({
+      code: "invalid_format",
+      column: "source_reference",
+    });
+    expect(
+      await t.run(async (ctx) => ctx.db.query("inventoryMovements").collect()),
+    ).toHaveLength(0);
+  });
+
+  it("refuses a region-scoped admin in opening stock preview and commit", async () => {
+    const { t, admin, superAdmin } = await setup();
+    const root = (await admin.query(api.domains.profiles.myScope)).orgUnitId!;
+    const area = await t.run(async (ctx) =>
+      ctx.db.insert("orgUnits", {
+        organizationId: "sunpride",
+        code: "REG-TEST",
+        name: "Test Region",
+        typeCode: "REGION",
+        parentId: root,
+        status: "active",
+        effectiveFrom: Date.now(),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+    await superAdmin.mutation(api.domains.profiles.assignPersona, {
+      profileId: (await admin.query(api.domains.profiles.current))!._id,
+      orgUnitId: area,
+    });
+    const rows = [row(openingStockValues())];
+    await expect(
+      admin.query(api.imports.openingStock.validateOpeningStock, { rows }),
+    ).rejects.toThrow(/outside your organizational scope/);
+    await expect(
+      admin.mutation(
+        api.imports.openingStock.commitOpeningStock,
+        openingArgs(rows),
+      ),
+    ).rejects.toThrow(/outside your organizational scope/);
   });
 
   it("previews without posting", async () => {

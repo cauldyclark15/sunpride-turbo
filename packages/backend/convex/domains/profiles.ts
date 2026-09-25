@@ -18,25 +18,13 @@ import {
   employmentTypeValidator,
   type AssignableRole,
 } from "../lib/roles";
-import { collectScopeUnitIds } from "../lib/scope";
 import {
-  ORG_ROOT_UNIT_CODE,
-  SUNPRIDE_ORGANIZATION_ID,
-} from "../inventory/constants";
+  collectScopeUnitIds,
+  requireNationalScope,
+  rootOrgUnitId,
+} from "../lib/scope";
+import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
 import { CHANNEL_SCOPE_CODES } from "../sfa/constants";
-
-/** Root organizational unit, assigned to every profile that has no scope yet (ADR-005). */
-async function rootOrgUnitId(ctx: Parameters<typeof collectScopeUnitIds>[0]) {
-  const root = await ctx.db
-    .query("orgUnits")
-    .withIndex("by_organizationId_and_code", (q) =>
-      q
-        .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
-        .eq("code", ORG_ROOT_UNIT_CODE),
-    )
-    .unique();
-  return root?._id ?? null;
-}
 
 const assignableRoleValue = assignableRoleValidator;
 
@@ -160,7 +148,10 @@ export const ensure = mutation({
       .unique();
     const existing = bySubject ?? byEmail;
     const name = identity.name ?? invitation.name ?? email;
-    const rootUnitId = existing?.orgUnitId ? null : await rootOrgUnitId(ctx);
+    const rootUnitId =
+      role === "super_admin" && !existing?.orgUnitId
+        ? await rootOrgUnitId(ctx)
+        : null;
 
     if (existing) {
       await ctx.db.patch(existing._id, {
@@ -453,11 +444,11 @@ export const assignPersona = mutation({
     const target = await ctx.db.get(args.profileId);
     if (!target) throw new ConvexError("Profile not found");
 
-    const { identity, profile: actor } = await requireCapability(
-      ctx,
-      "admin.manage",
-      args.orgUnitId ?? target.orgUnitId,
-    );
+    const { identity, profile: actor } = target.orgUnitId
+      ? await requireCapability(ctx, "admin.manage", target.orgUnitId)
+      : await requireNationalScope(ctx, ["admin"]);
+    if (args.orgUnitId)
+      await requireCapability(ctx, "admin.manage", args.orgUnitId);
     if (target.role === "super_admin")
       throw new ConvexError("The super admin cannot be reassigned");
     if (actor.role !== "super_admin" && target.role === "admin")

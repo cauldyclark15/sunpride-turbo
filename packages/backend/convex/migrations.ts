@@ -17,7 +17,8 @@ const ROOT_ORG_UNIT_CODE = ORG_ROOT_UNIT_CODE;
 
 /**
  * Idempotent: creates the configurable level vocabulary and the root organization unit,
- * then assigns every profile that has no scope to the root unit. Run once per deployment
+ * then assigns the root unit only to unscoped super admins. Other roles remain unscoped
+ * until explicitly assigned. Run once per deployment
  * (`bunx convex run migrations:seedOrganizationFoundation`). Level names are data, not
  * code (ADR-005).
  */
@@ -90,7 +91,7 @@ export const seedOrganizationFoundation = internalMutation({
     let scopedProfileCount = 0;
     const profiles = await ctx.db.query("profiles").take(200);
     for (const profile of profiles) {
-      if (profile.orgUnitId) continue;
+      if (profile.orgUnitId || profile.role !== "super_admin") continue;
       await ctx.db.patch(profile._id, {
         orgUnitId: root._id,
         effectiveFrom: profile.effectiveFrom ?? now,

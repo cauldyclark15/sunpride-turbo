@@ -18,9 +18,9 @@ function newTest() {
 
 async function setup() {
   const t = newTest();
-  const { admin } = await provisionAdmin(t);
+  const { superAdmin, admin } = await provisionAdmin(t);
   await provisionInventory(admin);
-  return { t, admin };
+  return { t, admin, superAdmin };
 }
 
 describe("import run history", () => {
@@ -62,7 +62,13 @@ describe("import run history", () => {
   it("keeps the row errors of a rejected opening-stock chunk", async () => {
     const { admin } = await setup();
     const rows = [
-      row(openingStockValues({ product_code: "SP-MISSING-1L" }), 2),
+      row(
+        openingStockValues({
+          product_code: "SP-MISSING-1L",
+          source_reference: "CUTOVER-BAD",
+        }),
+        2,
+      ),
     ];
     const failed = await admin.mutation(
       api.imports.openingStock.commitOpeningStock,
@@ -91,6 +97,72 @@ describe("import run history", () => {
     const history = await admin.query(api.imports.runs.list, {});
     expect(history[0]?.status).toBe("failed");
     expect(history[0]?.failedCount).toBe(1);
+  });
+
+  it("refuses viewers and region-scoped admins on list and detail, while root analyst reads", async () => {
+    const { t, admin, superAdmin } = await setup();
+    const root = (await admin.query(api.domains.profiles.myScope)).orgUnitId!;
+    const area = await t.run(async (ctx) =>
+      ctx.db.insert("orgUnits", {
+        organizationId: "sunpride",
+        code: "REG-TEST",
+        name: "Test Region",
+        typeCode: "REGION",
+        parentId: root,
+        status: "active",
+        effectiveFrom: Date.now(),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+    const assertDenied = async (actor: typeof admin, message: RegExp) => {
+      await expect(actor.query(api.imports.runs.list, {})).rejects.toThrow(
+        message,
+      );
+      await expect(
+        actor.query(api.imports.runs.detail, {
+          runKey: "none",
+          importType: "products",
+        }),
+      ).rejects.toThrow(message);
+    };
+    await superAdmin.mutation(api.domains.profiles.invite, {
+      email: "viewer@sunpride.local",
+      role: "viewer",
+    });
+    const viewer = t.withIdentity({
+      subject: "viewer@sunpride.local",
+      email: "viewer@sunpride.local",
+    });
+    await viewer.mutation(api.domains.profiles.ensure);
+    await assertDenied(viewer, /Insufficient permission/);
+    await superAdmin.mutation(api.domains.profiles.assignPersona, {
+      profileId: (await admin.query(api.domains.profiles.current))!._id,
+      orgUnitId: area,
+    });
+    await assertDenied(admin, /outside your organizational scope/);
+    await superAdmin.mutation(api.domains.profiles.invite, {
+      email: "analyst@sunpride.local",
+      role: "analyst",
+    });
+    const analyst = t.withIdentity({
+      subject: "analyst@sunpride.local",
+      email: "analyst@sunpride.local",
+    });
+    const analystId = await analyst.mutation(api.domains.profiles.ensure);
+    await superAdmin.mutation(api.domains.profiles.assignPersona, {
+      profileId: analystId,
+      orgUnitId: root,
+    });
+    expect(await analyst.query(api.imports.runs.list, {})).toEqual([]);
+    expect(
+      (
+        await analyst.query(api.imports.runs.detail, {
+          runKey: "none",
+          importType: "products",
+        })
+      ).runs,
+    ).toEqual([]);
   });
 
   it("requires an authenticated profile", async () => {

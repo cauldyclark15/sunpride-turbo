@@ -15,3 +15,5 @@ Status: accepted. The seeded level names and the profile-as-employee shortcut ar
 - Assignment conflicts must be validated on effective dates: one employee holds one org unit and one supervisor at a time, with history preserved rather than overwritten (`CVX-004`).
 - Teams (`CVX-004`), territory polygons (`CVX-005`), and location-scoped inventory access are explicitly **not** covered here; scope currently governs master data, imports, and new SFA endpoints only.
 - Every new query that returns scoped data must filter by the caller's subtree; returning national data to a scoped user is a defect, not a configuration choice.
+- Provisioning assigns the national root only to the bootstrap super admin; other invited roles have no unit until an administrator explicitly assigns one, and scoped access refuses them until then.
+- Imports of national product and opening-stock data require national scope (super admin or an active root-scoped importer), not a caller-selected target unit; import history follows the same boundary.
