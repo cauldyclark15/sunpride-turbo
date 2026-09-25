@@ -159,6 +159,53 @@ describe("capability table", () => {
       ]);
   });
 
+  it("matches the group-04 grants and server permission view", async () => {
+    const all = [
+      "super_admin",
+      "admin",
+      "operations",
+      "manager",
+      "approver",
+      "sales",
+      "analyst",
+      "viewer",
+    ];
+    for (const key of ["territory.read", "route.read", "outlet.read"] as const)
+      expect(CAPABILITIES[key]).toEqual(all);
+    expect(CAPABILITIES["territory.manage"]).toEqual(["super_admin", "admin"]);
+    for (const key of [
+      "route.manage",
+      "outlet.manage",
+      "outlet.assign",
+    ] as const)
+      expect(CAPABILITIES[key]).toEqual(["super_admin", "admin", "operations"]);
+    expect(CAPABILITIES["outlet.verify"]).toEqual([
+      "super_admin",
+      "admin",
+      "manager",
+    ]);
+    const t = convexTest(schema, modules);
+    const root = await bootstrapSuperAdmin(t);
+    await t.mutation(internal.migrations.seedOrganizationFoundation, {});
+    const analyst = await provisionProfile(
+      t,
+      root,
+      "g04-analyst@example.test",
+      "analyst",
+    );
+    const permissions = await analyst.query(
+      api.lib.capabilities.currentPermissions,
+      {},
+    );
+    expect(permissions.capabilities).toEqual(
+      Object.entries(CAPABILITIES)
+        .filter(([, roles]) => (roles as readonly string[]).includes("analyst"))
+        .map(([key]) => key),
+    );
+    expect(permissions.capabilities).toContain("territory.read");
+    expect(permissions.capabilities).not.toContain("outlet.verify");
+  });
+
   it("keeps cross-scope analyst access read-only", () => {
     const analystCapabilities = Object.entries(CAPABILITIES)
       .filter(([, roles]) => (roles as readonly string[]).includes("analyst"))

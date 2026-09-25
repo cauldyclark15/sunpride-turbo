@@ -67,6 +67,9 @@ import type * as sfa_setup from "../sfa/setup.js";
 import type * as teams_mutations from "../teams/mutations.js";
 import type * as teams_queries from "../teams/queries.js";
 import type * as teams_validation from "../teams/validation.js";
+import type * as territories_mutations from "../territories/mutations.js";
+import type * as territories_queries from "../territories/queries.js";
+import type * as territories_validation from "../territories/validation.js";
 
 import type {
   ApiFromModules,
@@ -134,6 +137,9 @@ declare const fullApi: ApiFromModules<{
   "teams/mutations": typeof teams_mutations;
   "teams/queries": typeof teams_queries;
   "teams/validation": typeof teams_validation;
+  "territories/mutations": typeof territories_mutations;
+  "territories/queries": typeof territories_queries;
+  "territories/validation": typeof territories_validation;
 }>;
 
 /**

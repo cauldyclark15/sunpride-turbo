@@ -1229,6 +1229,172 @@ export default defineSchema({
   })
     .index("by_unitId_and_effectiveFrom", ["unitId", "effectiveFrom"])
     .index("by_parentId_and_effectiveFrom", ["parentId", "effectiveFrom"]),
+  // Group-04 operational coverage identities; relationship rows are temporal authority.
+  territories: defineTable({
+    organizationId: v.string(),
+    code: v.string(),
+    name: v.string(),
+    channel: v.optional(v.string()),
+    boundaryGeoJson: v.optional(v.string()),
+    status: v.union(v.literal("active"), v.literal("inactive")),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    createdBy: v.string(),
+  })
+    .index("by_organizationId_and_code", ["organizationId", "code"])
+    .index("by_organizationId_and_status", ["organizationId", "status"]),
+  territoryOwnerships: defineTable({
+    territoryId: v.id("territories"),
+    orgUnitId: v.id("orgUnits"),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    actorSubject: v.string(),
+    reason: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_territoryId_and_effectiveFrom", ["territoryId", "effectiveFrom"])
+    .index("by_orgUnitId_and_effectiveFrom", ["orgUnitId", "effectiveFrom"]),
+  territorySalespeople: defineTable({
+    territoryId: v.id("territories"),
+    profileId: v.id("profiles"),
+    kind: v.optional(v.union(v.literal("primary"), v.literal("secondary"))),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    actorSubject: v.string(),
+    reason: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_territoryId_and_effectiveFrom", ["territoryId", "effectiveFrom"])
+    .index("by_profileId_and_effectiveFrom", ["profileId", "effectiveFrom"]),
+  routes: defineTable({
+    organizationId: v.string(),
+    code: v.string(),
+    name: v.string(),
+    status: v.union(v.literal("active"), v.literal("inactive")),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    weekdayTemplate: v.optional(v.array(v.number())),
+    cycleDays: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    createdBy: v.string(),
+  })
+    .index("by_organizationId_and_code", ["organizationId", "code"])
+    .index("by_organizationId_and_status", ["organizationId", "status"]),
+  routeTerritories: defineTable({
+    routeId: v.id("routes"),
+    territoryId: v.id("territories"),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    actorSubject: v.string(),
+    reason: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_routeId_and_effectiveFrom", ["routeId", "effectiveFrom"])
+    .index("by_territoryId_and_effectiveFrom", [
+      "territoryId",
+      "effectiveFrom",
+    ]),
+  routeSalespeople: defineTable({
+    routeId: v.id("routes"),
+    profileId: v.id("profiles"),
+    primary: v.boolean(),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    actorSubject: v.string(),
+    reason: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_routeId_and_effectiveFrom", ["routeId", "effectiveFrom"])
+    .index("by_profileId_and_effectiveFrom", ["profileId", "effectiveFrom"]),
+  outlets: defineTable({
+    organizationId: v.string(),
+    code: v.string(),
+    name: v.string(),
+    status: v.union(
+      v.literal("prospect"),
+      v.literal("active"),
+      v.literal("inactive"),
+    ),
+    custodianOrgUnitId: v.id("orgUnits"),
+    channel: v.optional(v.string()),
+    subchannel: v.optional(v.string()),
+    classification: v.optional(v.string()),
+    address: v.optional(v.string()),
+    directions: v.optional(v.string()),
+    contacts: v.optional(
+      v.array(v.object({ name: v.string(), phone: v.optional(v.string()) })),
+    ),
+    photoStorageIds: v.optional(v.array(v.id("_storage"))),
+    salesPotential: v.optional(v.number()),
+    preferredWeekday: v.optional(v.number()),
+    visitFrequencyDays: v.optional(v.number()),
+    visitWindow: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    createdBy: v.string(),
+  })
+    .index("by_organizationId_and_code", ["organizationId", "code"])
+    .index("by_custodianOrgUnitId_and_status", [
+      "custodianOrgUnitId",
+      "status",
+    ]),
+  outletCustomerLinks: defineTable({
+    outletId: v.id("outlets"),
+    customerId: v.id("customers"),
+    source: v.string(),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    actorSubject: v.string(),
+    reason: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_outletId_and_effectiveFrom", ["outletId", "effectiveFrom"])
+    .index("by_customerId_and_effectiveFrom", ["customerId", "effectiveFrom"]),
+  outletPins: defineTable({
+    outletId: v.id("outlets"),
+    latitude: v.number(),
+    longitude: v.number(),
+    radiusMeters: v.number(),
+    source: v.string(),
+    evidenceStorageId: v.optional(v.id("_storage")),
+    evidenceNote: v.optional(v.string()),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("verified"),
+      v.literal("rejected"),
+      v.literal("superseded"),
+    ),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    proposedBy: v.string(),
+    proposedAt: v.number(),
+    verifiedBy: v.optional(v.string()),
+    verifiedAt: v.optional(v.number()),
+    reviewerReason: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_outletId_and_effectiveFrom", ["outletId", "effectiveFrom"])
+    .index("by_outletId_and_status", ["outletId", "status"]),
+  outletAssignments: defineTable({
+    outletId: v.id("outlets"),
+    territoryId: v.id("territories"),
+    routeId: v.optional(v.id("routes")),
+    sequence: v.optional(v.number()),
+    preferredWeekday: v.optional(v.number()),
+    cycleDays: v.optional(v.number()),
+    visitWindow: v.optional(v.string()),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    actorSubject: v.string(),
+    reason: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_outletId_and_effectiveFrom", ["outletId", "effectiveFrom"])
+    .index("by_territoryId_and_effectiveFrom", ["territoryId", "effectiveFrom"])
+    .index("by_routeId_and_effectiveFrom", ["routeId", "effectiveFrom"]),
   teams: defineTable({
     code: v.string(),
     name: v.string(),
