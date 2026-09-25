@@ -3,8 +3,18 @@ import { api } from "@sunpride/backend/api";
 import type { Id } from "@sunpride/backend/data-model";
 import { useQuery } from "convex/react";
 import { useState } from "react";
+import {
+  CoverageScopeSelect,
+  useCoverageScopeOptions,
+} from "./coverage-scope-filters";
 
-export function CoverageWorkloadView({ localMonth }: { localMonth: string }) {
+export function CoverageWorkloadView({
+  localMonth,
+  planId,
+}: {
+  localMonth: string;
+  planId?: Id<"coveragePlans">;
+}) {
   const [cursor, setCursor] = useState<string | null>(null);
   const [territoryId, setTerritory] = useState("");
   const [routeId, setRoute] = useState("");
@@ -14,6 +24,7 @@ export function CoverageWorkloadView({ localMonth }: { localMonth: string }) {
     routeId: routeId ? (routeId as Id<"routes">) : undefined,
     paginationOpts: { numItems: 20, cursor },
   });
+  const options = useCoverageScopeOptions(planId);
   return (
     <section
       aria-label="Employee workload"
@@ -25,28 +36,30 @@ export function CoverageWorkloadView({ localMonth }: { localMonth: string }) {
         effective daily call standard × planned working days.
       </p>
       <div className="flex gap-2">
-        <label>
-          Territory ID{" "}
-          <input
-            aria-label="Territory ID"
-            value={territoryId}
-            onChange={(e) => {
-              setTerritory(e.target.value);
-              setCursor(null);
-            }}
-          />
-        </label>
-        <label>
-          Route ID{" "}
-          <input
-            aria-label="Route ID"
-            value={routeId}
-            onChange={(e) => {
-              setRoute(e.target.value);
-              setCursor(null);
-            }}
-          />
-        </label>
+        {planId ? (
+          <>
+            <CoverageScopeSelect
+              label="Territory"
+              options={options?.territories ?? []}
+              selected={territoryId}
+              onSelect={(id) => {
+                setTerritory(id);
+                setCursor(null);
+              }}
+            />
+            <CoverageScopeSelect
+              label="Route"
+              options={options?.routes ?? []}
+              selected={routeId}
+              onSelect={(id) => {
+                setRoute(id);
+                setCursor(null);
+              }}
+            />
+          </>
+        ) : (
+          <p>Select a plan to filter workload by territory or route.</p>
+        )}
       </div>
       {result === undefined ? (
         <p>Loading workload…</p>

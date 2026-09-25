@@ -29,8 +29,11 @@ const row: ScheduleRow = {
 };
 describe("coverage export", () => {
   it("quotes RFC-4180, BOM, filter header, and guards formula cells", () => {
-    const csv = scheduleCsv(header, [row], { routeId: "-ROUTE" });
-    expect(csv.startsWith("\uFEFFPlan,plan")).toBe(true);
+    const csv = scheduleCsv(header, [row], {
+      routeId: "raw-route-id",
+      routeLabel: "-ROUTE",
+    });
+    expect(csv.startsWith("\uFEFFPlan,Seller · 2026-09 · v2")).toBe(true);
     expect(csv).toContain("'-ROUTE");
     expect(csv).toContain("'+X");
     expect(csv).toContain('"\'=SUM(1,2)\n""quoted"""');
@@ -42,6 +45,39 @@ describe("coverage export", () => {
         {},
       ),
     ).toContain("UNAPPROVED");
+  });
+  it("omits IDs and epoch timestamps and labels schedule kinds and statuses", () => {
+    const csv = scheduleCsv(
+      {
+        ...header,
+        planId: "raw-plan-id",
+        preparedAt: Date.UTC(2026, 8, 25, 15, 5),
+        submittedAt: Date.UTC(2026, 8, 26, 1, 9),
+      },
+      [row],
+      {
+        territoryId: "raw-territory-id",
+        territoryLabel: "T1 · North",
+        routeId: "raw-route-id",
+        routeLabel: "R1 · City",
+        visitStatus: "planned",
+      },
+    );
+    expect(csv).toContain("Prepared at,2026-09-25 23:05");
+    expect(csv).toContain("Submitted at,2026-09-26 09:09");
+    expect(csv).toContain("Approved at,1970-01-01 08:00");
+    expect(csv).toContain("T1 · North,Route filter,R1 · City");
+    expect(csv).toContain("Store visit");
+    expect(csv).toContain("Planned");
+    for (const raw of [
+      "raw-plan-id",
+      "raw-territory-id",
+      "raw-route-id",
+      "outlet_visit",
+      ",planned",
+      "179036",
+    ])
+      expect(csv).not.toContain(raw);
   });
   it("collects empty/large pages completely and aborts a failed second page", async () => {
     const fetch = vi.fn(async (cursor: string | null) =>

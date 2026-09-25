@@ -3,7 +3,16 @@ import { api } from "@sunpride/backend/api";
 import type { Id } from "@sunpride/backend/data-model";
 import { useQuery } from "convex/react";
 import { useState } from "react";
-import { groupCalendar, type CalendarMode } from "../lib/coverage-view-model";
+import {
+  groupCalendar,
+  slotKindLabel,
+  coverageStatusLabel,
+  type CalendarMode,
+} from "../lib/coverage-view-model";
+import {
+  CoverageScopeSelect,
+  useCoverageScopeOptions,
+} from "./coverage-scope-filters";
 
 /** The selected plan/assignee picker is supplied by scoped discovery (slice A). */
 export function CoverageCalendarView({
@@ -28,16 +37,7 @@ export function CoverageCalendarView({
     paginationOpts: { numItems: 20, cursor },
   });
   const rows = result?.page ?? [];
-  const territories = [
-    ...new Set(rows.filter((x) => x.territoryId).map((x) => x.territoryId!)),
-  ];
-  const routes = [
-    ...new Map(
-      rows
-        .filter((x) => x.routeId)
-        .map((x) => [x.routeId!, x.routeCode ?? "No route"]),
-    ).entries(),
-  ];
+  const options = useCoverageScopeOptions(planId);
   return (
     <section
       aria-label="Coverage calendar"
@@ -60,42 +60,24 @@ export function CoverageCalendarView({
             {value}
           </button>
         ))}
-        <label>
-          Territory{" "}
-          <select
-            aria-label="Territory"
-            value={territoryId}
-            onChange={(e) => {
-              setTerritory(e.target.value);
-              setCursor(null);
-            }}
-          >
-            <option value="">All</option>
-            {territories.map((id) => (
-              <option key={id} value={id}>
-                {id}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Route{" "}
-          <select
-            aria-label="Route"
-            value={routeId}
-            onChange={(e) => {
-              setRoute(e.target.value);
-              setCursor(null);
-            }}
-          >
-            <option value="">All</option>
-            {routes.map(([id, code]) => (
-              <option key={id} value={id}>
-                {code}
-              </option>
-            ))}
-          </select>
-        </label>
+        <CoverageScopeSelect
+          label="Territory"
+          options={options?.territories ?? []}
+          selected={territoryId}
+          onSelect={(id) => {
+            setTerritory(id);
+            setCursor(null);
+          }}
+        />
+        <CoverageScopeSelect
+          label="Route"
+          options={options?.routes ?? []}
+          selected={routeId}
+          onSelect={(id) => {
+            setRoute(id);
+            setCursor(null);
+          }}
+        />
         <label>
           Status{" "}
           <select
@@ -128,9 +110,9 @@ export function CoverageCalendarView({
                 <li key={row.slotKey}>
                   {row.serviceDate} · {row.sequence} · {row.name ?? "Non-visit"}{" "}
                   {row.outletCode ? `(${row.outletCode})` : ""} ·{" "}
-                  {row.routeCode ?? "No route"} · {row.kind} ·{" "}
-                  {row.visitStatus ?? row.planStatus} · {row.durationMinutes}{" "}
-                  min
+                  {row.routeCode ?? "No route"} · {slotKindLabel(row.kind)} ·{" "}
+                  {coverageStatusLabel(row.visitStatus ?? row.planStatus)} ·{" "}
+                  {row.durationMinutes} min
                 </li>
               ))}
             </ul>

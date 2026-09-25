@@ -2,6 +2,14 @@ import { expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 vi.mock("convex/react", () => ({
   useQuery: () => ({
+    territories: [
+      {
+        id: "raw-territory-id",
+        code: "DEMO-T1",
+        name: "Demo North Metro Territory",
+      },
+    ],
+    routes: [{ id: "raw-route-id", code: "DEMO-R1", name: "Demo City Route" }],
     page: [
       {
         outletId: "o1",
@@ -47,4 +55,8 @@ it("plots only verified pins and always renders the table fallback", () => {
   expect(html).toContain("Outlet list (available even if tiles fail)");
   expect(html).toContain("Unmapped (no verified pin)");
   expect(html).toContain("Pinned");
+  expect(html).toContain("DEMO-T1 · Demo North Metro Territory");
+  expect(html).toContain("DEMO-R1 · Demo City Route");
+  expect(html).not.toContain("raw-territory-id");
+  expect(html).not.toContain("raw-route-id");
 });

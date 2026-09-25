@@ -5,6 +5,10 @@ import type { Id } from "@sunpride/backend/data-model";
 import { useQuery } from "convex/react";
 import { useEffect, useRef, useState } from "react";
 import "leaflet/dist/leaflet.css";
+import {
+  CoverageScopeSelect,
+  useCoverageScopeOptions,
+} from "./coverage-scope-filters";
 
 type PinRow = {
   outletId: Id<"outlets">;
@@ -104,31 +108,28 @@ export function CoverageMapView({ planId }: { planId: Id<"coveragePlans"> }) {
     paginationOpts: { numItems: 20, cursor },
   });
   const rows = result?.page ?? [];
+  const options = useCoverageScopeOptions(planId);
   return (
     <section aria-label="Coverage outlet map">
       <h3>Verified outlet pins and route stops</h3>
-      <label>
-        Territory ID{" "}
-        <input
-          value={territoryId ?? ""}
-          onChange={(event) => {
-            setTerritoryId(
-              (event.target.value as Id<"territories">) || undefined,
-            );
-            setCursor(null);
-          }}
-        />
-      </label>
-      <label>
-        Route ID{" "}
-        <input
-          value={routeId ?? ""}
-          onChange={(event) => {
-            setRouteId((event.target.value as Id<"routes">) || undefined);
-            setCursor(null);
-          }}
-        />
-      </label>
+      <CoverageScopeSelect
+        label="Territory"
+        options={options?.territories ?? []}
+        selected={territoryId ?? ""}
+        onSelect={(id) => {
+          setTerritoryId((id as Id<"territories">) || undefined);
+          setCursor(null);
+        }}
+      />
+      <CoverageScopeSelect
+        label="Route"
+        options={options?.routes ?? []}
+        selected={routeId ?? ""}
+        onSelect={(id) => {
+          setRouteId((id as Id<"routes">) || undefined);
+          setCursor(null);
+        }}
+      />
       {result === undefined ? (
         <p>Loading scoped outlets…</p>
       ) : (

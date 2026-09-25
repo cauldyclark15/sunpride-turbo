@@ -248,6 +248,41 @@ async function fixture() {
 }
 
 describe("coverage views", () => {
+  it("offers plan-scoped code and name choices to sales without people.read", async () => {
+    const f = await fixture();
+    const id = await f.plan(1, "draft");
+    const routeId = await f.t.run(async (ctx) => {
+      const routeId = await ctx.db.insert("routes", {
+        organizationId: "sunpride",
+        code: "R1",
+        name: "East route",
+        status: "active",
+        effectiveFrom: Date.now() - 100000,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        createdBy: "fixture",
+      });
+      const row = await ctx.db
+        .query("coveragePlanOutlets")
+        .withIndex("by_planId_and_outletId", (q) => q.eq("planId", id))
+        .first();
+      await ctx.db.patch(row!._id, { routeId });
+      return routeId;
+    });
+    const choices = await f.seller.actor.query(
+      api.coverage.views.filterOptions,
+      { planId: id },
+    );
+    expect(choices.territories).toEqual([
+      { id: f.territory, code: "T", name: "T" },
+    ]);
+    expect(choices.routes).toEqual([
+      { id: routeId, code: "R1", name: "East route" },
+    ]);
+    await expect(
+      f.foreign.actor.query(api.coverage.views.filterOptions, { planId: id }),
+    ).rejects.toThrow();
+  });
   it("projects 18 generated visits, not 36 slots plus visits, and preserves non-visit entries", async () => {
     const f = await fixture();
     const id = await f.plan(1, "active");

@@ -410,7 +410,10 @@ export function SalesForcePanels() {
                 key={`${coverageTab}-${month}`}
                 label="Coverage workload"
               >
-                <CoverageWorkloadView localMonth={month} />
+                <CoverageWorkloadView
+                  localMonth={month}
+                  planId={selected?.id}
+                />
               </PanelErrorBoundary>
             ) : selected ? (
               <PanelErrorBoundary

@@ -12,9 +12,14 @@ import {
   type ScheduleRow,
 } from "../lib/coverage-export";
 import { CoveragePrint } from "./coverage-print";
+import {
+  CoverageScopeSelect,
+  useCoverageScopeOptions,
+} from "./coverage-scope-filters";
 
 export function CoverageExport({ planId }: { planId: Id<"coveragePlans"> }) {
   const convex = useConvex();
+  const options = useCoverageScopeOptions(planId);
   const [territoryId, setTerritory] = useState("");
   const [routeId, setRoute] = useState("");
   const [visitStatus, setStatus] = useState<
@@ -28,10 +33,18 @@ export function CoverageExport({ planId }: { planId: Id<"coveragePlans"> }) {
     filters: ScheduleFilters;
   }>();
   function filters(): ScheduleFilters {
+    const territory = options?.territories.find(
+      (option) => option.id === territoryId,
+    );
+    const route = options?.routes.find((option) => option.id === routeId);
     return {
       territoryId: territoryId || undefined,
       routeId: routeId || undefined,
       visitStatus: visitStatus || undefined,
+      territoryLabel: territory
+        ? `${territory.code} · ${territory.name}`
+        : undefined,
+      routeLabel: route ? `${route.code} · ${route.name}` : undefined,
     };
   }
   async function prepare(mode: "csv" | "print") {
@@ -79,28 +92,24 @@ export function CoverageExport({ planId }: { planId: Id<"coveragePlans"> }) {
       <h3>Scoped schedule export</h3>
       <p>CSV opens in a spreadsheet. Print → Save as PDF uses your browser.</p>
       <div className="flex flex-wrap gap-2">
-        <label>
-          Territory ID{" "}
-          <input
-            aria-label="Export territory ID"
-            value={territoryId}
-            onChange={(e) => {
-              setTerritory(e.target.value);
-              setPrintData(undefined);
-            }}
-          />
-        </label>
-        <label>
-          Route ID{" "}
-          <input
-            aria-label="Export route ID"
-            value={routeId}
-            onChange={(e) => {
-              setRoute(e.target.value);
-              setPrintData(undefined);
-            }}
-          />
-        </label>
+        <CoverageScopeSelect
+          label="Territory"
+          options={options?.territories ?? []}
+          selected={territoryId}
+          onSelect={(id) => {
+            setTerritory(id);
+            setPrintData(undefined);
+          }}
+        />
+        <CoverageScopeSelect
+          label="Route"
+          options={options?.routes ?? []}
+          selected={routeId}
+          onSelect={(id) => {
+            setRoute(id);
+            setPrintData(undefined);
+          }}
+        />
         <label>
           Visit status{" "}
           <select

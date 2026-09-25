@@ -190,6 +190,58 @@ async function projection(
       a.slotKey.localeCompare(b.slotKey),
   );
 }
+/** Choices come from one authorized plan, never from global territory or people readers. */
+export const filterOptions = query({
+  args: { planId: v.id("coveragePlans") },
+  returns: v.object({
+    territories: v.array(
+      v.object({ id: v.id("territories"), code: v.string(), name: v.string() }),
+    ),
+    routes: v.array(
+      v.object({ id: v.id("routes"), code: v.string(), name: v.string() }),
+    ),
+  }),
+  handler: async (ctx, { planId }) => {
+    const { plan, outlets, slots } = await scoped(ctx, planId);
+    const territoryIds = new Set<Id<"territories">>([
+      ...plan.territoryIds,
+      ...outlets.map((row) => row.territoryId),
+      ...slots.flatMap((slot) =>
+        slot.approvedSnapshot ? [slot.approvedSnapshot.territoryId] : [],
+      ),
+    ]);
+    const routeIds = new Set<Id<"routes">>([
+      ...outlets.flatMap((row) => (row.routeId ? [row.routeId] : [])),
+      ...slots.flatMap((slot) =>
+        slot.approvedSnapshot?.routeId
+          ? [slot.approvedSnapshot.routeId]
+          : slot.routeId
+            ? [slot.routeId]
+            : [],
+      ),
+    ]);
+    const territories = [];
+    for (const id of territoryIds) {
+      const territory = await ctx.db.get(id);
+      if (territory)
+        territories.push({ id, code: territory.code, name: territory.name });
+    }
+    const routes = [];
+    for (const id of routeIds) {
+      const route = await ctx.db.get(id);
+      if (route) routes.push({ id, code: route.code, name: route.name });
+    }
+    const byLabel = (
+      a: { code: string; name: string },
+      b: { code: string; name: string },
+    ) => a.code.localeCompare(b.code) || a.name.localeCompare(b.name);
+    return {
+      territories: territories.sort(byLabel),
+      routes: routes.sort(byLabel),
+    };
+  },
+});
+
 export const calendar = query({
   args: {
     planId: v.id("coveragePlans"),

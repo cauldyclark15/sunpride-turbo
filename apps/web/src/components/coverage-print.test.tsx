@@ -37,6 +37,11 @@ describe("print schedule", () => {
         filters={{ visitStatus: "planned" }}
       />,
     );
+    expect(html).toContain("Store visit");
+    expect(html).toContain("Planned");
+    expect(html).not.toContain("outlet_visit");
+    expect(html).not.toContain('planId="p"');
+    expect(html).toContain("1970-01-01 08:00");
     for (const text of [
       "2026-09",
       "Version 3",
@@ -49,6 +54,26 @@ describe("print schedule", () => {
       "Print / Save as PDF",
     ])
       expect(html).toContain(text);
+  });
+  it("shows readable filter labels without rendering database IDs", () => {
+    const html = renderToStaticMarkup(
+      <CoveragePrint
+        header={header}
+        rows={rows}
+        filters={{
+          territoryId: "raw-territory-id",
+          territoryLabel: "T1 · North",
+          routeId: "raw-route-id",
+          routeLabel: "R1 · City",
+          visitStatus: "planned",
+        }}
+      />,
+    );
+    expect(html).toContain("Territory: T1 · North");
+    expect(html).toContain("Route: R1 · City");
+    expect(html).toContain("Visit status: Planned");
+    expect(html).not.toContain("raw-territory-id");
+    expect(html).not.toContain("raw-route-id");
   });
   it("labels unsigned zero-row schedules", () => {
     const html = renderToStaticMarkup(

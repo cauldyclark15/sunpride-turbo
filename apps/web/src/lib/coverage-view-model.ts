@@ -1,3 +1,31 @@
+export function slotKindLabel(kind: string): string {
+  const labels: Record<string, string> = {
+    outlet_visit: "Store visit",
+    non_visit: "Non-visit activity",
+  };
+  return (
+    labels[kind] ??
+    kind.replaceAll("_", " ").replace(/^./, (c) => c.toUpperCase())
+  );
+}
+
+export function coverageStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    planned: "Planned",
+    cancelled: "Cancelled",
+    replaced: "Replaced",
+    draft: "Draft",
+    submitted: "Submitted",
+    approved: "Approved",
+    active: "Active",
+    superseded: "Superseded",
+  };
+  return (
+    labels[status] ??
+    status.replaceAll("_", " ").replace(/^./, (c) => c.toUpperCase())
+  );
+}
+
 export type CalendarRow = {
   serviceDate: string;
   slotKey: string;

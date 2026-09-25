@@ -5,6 +5,8 @@ import type {
   ScheduleRow,
 } from "../lib/coverage-export";
 import "./coverage-print.css";
+import { coverageStatusLabel, slotKindLabel } from "../lib/coverage-view-model";
+import { manilaMinute } from "../lib/coverage-export";
 
 export function CoveragePrint({
   header,
@@ -16,13 +18,7 @@ export function CoveragePrint({
   filters: ScheduleFilters;
 }) {
   const time = (value?: number) =>
-    value === undefined
-      ? "—"
-      : new Intl.DateTimeFormat("en-PH", {
-          timeZone: "Asia/Manila",
-          dateStyle: "medium",
-          timeStyle: "short",
-        }).format(value);
+    value === undefined ? "—" : manilaMinute(value);
   return (
     <section
       className="coverage-print-view"
@@ -49,9 +45,14 @@ export function CoveragePrint({
           : "UNAPPROVED — provisional schedule"}
       </p>
       <p>
-        Territory: {filters.territoryId ?? "All"} · Route:{" "}
-        {filters.routeId ?? "All"} · Visit status:{" "}
-        {filters.visitStatus ?? "All"}
+        Territory:{" "}
+        {filters.territoryId
+          ? (filters.territoryLabel ?? "Selected territory")
+          : "All"}{" "}
+        · Route:{" "}
+        {filters.routeId ? (filters.routeLabel ?? "Selected route") : "All"} ·
+        Visit status:{" "}
+        {filters.visitStatus ? coverageStatusLabel(filters.visitStatus) : "All"}
       </p>
       <table>
         <thead>
@@ -72,12 +73,14 @@ export function CoveragePrint({
             <tr key={row.slotKey}>
               <td>{row.serviceDate}</td>
               <td>{row.sequence}</td>
-              <td>{row.kind}</td>
+              <td>{slotKindLabel(row.kind)}</td>
               <td>{row.outletCode ?? "—"}</td>
               <td>{row.name ?? "—"}</td>
               <td>{row.territoryCode ?? "—"}</td>
               <td>{row.routeCode ?? "—"}</td>
-              <td>{row.visitStatus ?? "—"}</td>
+              <td>
+                {row.visitStatus ? coverageStatusLabel(row.visitStatus) : "—"}
+              </td>
               <td>{row.durationMinutes}</td>
             </tr>
           ))}
