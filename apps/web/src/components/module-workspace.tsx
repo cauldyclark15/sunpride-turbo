@@ -14,7 +14,8 @@ import {
 import { useMutation, useQuery } from "convex/react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { getWebModuleTabs } from "@/config/navigation";
+import { getWebModuleTabs, type WebModuleSlug } from "@/config/navigation";
+import { canAccessWebModule } from "@/lib/module-access";
 import { AdminWorkspace } from "./admin-workspace";
 import { ImportsWorkspace } from "./imports-workspace";
 import { InventoryWorkspace } from "./inventory-workspace";
@@ -50,12 +51,6 @@ const modules = {
     description:
       "Assignments, customer coverage, planned visits, field notes, and sales representative activity.",
   },
-  mobile: {
-    eyebrow: "Offline-first field app",
-    title: "Mobile / PWA",
-    description:
-      "Progressive web application readiness, local queues, synchronization status, and conflict visibility.",
-  },
   orders: {
     eyebrow: "Order-to-SAP lifecycle",
     title: "Sales orders",
@@ -86,9 +81,12 @@ const modules = {
     description:
       "Operational indicators that expose sales velocity, stock risk, and process bottlenecks.",
   },
-} as const;
+} satisfies Record<
+  WebModuleSlug,
+  { eyebrow: string; title: string; description: string }
+>;
 
-type ModuleKey = keyof typeof modules;
+type ModuleKey = WebModuleSlug;
 const money = new Intl.NumberFormat("en-PH", {
   style: "currency",
   currency: "PHP",
@@ -120,12 +118,33 @@ function SectionCard({
   );
 }
 
-export function ModuleWorkspace({ module }: { module: string }) {
-  const key: ModuleKey =
-    module in modules ? (module as ModuleKey) : "dashboard";
-  const config = modules[key];
+export function ModuleWorkspace({ module }: { module: WebModuleSlug }) {
+  const profile = useQuery(api.domains.profiles.current, {});
+
+  // Do not mount ModuleContent (or its module-specific queries/mutations) until
+  // the active profile is known and allowed for this route.
+  if (!profile) {
+    return <p className="text-sm text-muted">Verifying module access…</p>;
+  }
+  if (
+    profile.status !== "active" ||
+    !canAccessWebModule(module, profile.role)
+  ) {
+    return (
+      <section className="rounded-lg border border-border bg-surface p-8">
+        <h1 className="text-xl font-semibold text-foreground">Access denied</h1>
+        <p className="mt-2 text-sm text-muted">
+          Your role does not have access to this module.
+        </p>
+      </section>
+    );
+  }
+  return <AllowedModuleWorkspace module={module} />;
+}
+
+function AllowedModuleWorkspace({ module }: { module: WebModuleSlug }) {
+  const config = modules[module];
   const ensureProfile = useMutation(api.domains.profiles.ensure);
-  const seedDemo = useMutation(api.seed.demo);
   const initialized = useRef(false);
   const [setupMessage, setSetupMessage] = useState("Preparing your workspace…");
   const pathname = usePathname();
@@ -136,16 +155,9 @@ export function ModuleWorkspace({ module }: { module: string }) {
     if (initialized.current) return;
     initialized.current = true;
     void ensureProfile()
-      .then(() => seedDemo())
-      .then((result) =>
-        setSetupMessage(
-          result.seeded
-            ? "Demo operational data loaded."
-            : "Operational data connected.",
-        ),
-      )
+      .then(() => setSetupMessage("Operational data connected."))
       .catch(() => setSetupMessage("Workspace connected."));
-  }, [ensureProfile, seedDemo]);
+  }, [ensureProfile]);
 
   return (
     <div className="grid gap-7">
@@ -159,7 +171,7 @@ export function ModuleWorkspace({ module }: { module: string }) {
         items={tabs}
         onNavigate={(href) => router.push(href)}
       />
-      <ModuleContent module={key} setupMessage={setupMessage} />
+      <ModuleContent module={module} setupMessage={setupMessage} />
     </div>
   );
 }
@@ -478,11 +490,6 @@ function ModuleContent({
         "Planned customer visits",
         "Field notes and completion history",
       ],
-      mobile: [
-        "IndexedDB local operational store",
-        "Transactional outbox with retry",
-        "Explicit online, offline, queued, syncing, and conflict states",
-      ],
       "sap-integration": [
         "Outbound-only local connector",
         "HMAC signed requests with replay window",
@@ -493,7 +500,7 @@ function ModuleContent({
         "Role-based authorization in Convex",
         "Server-derived identity and immutable audit events",
       ],
-    }[module as "sales-force" | "mobile" | "sap-integration" | "admin"] ?? [];
+    }[module as "sales-force" | "sap-integration" | "admin"] ?? [];
   return (
     <div className="grid gap-4 md:grid-cols-3">
       <SectionCard
