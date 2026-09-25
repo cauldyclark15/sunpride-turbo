@@ -1225,6 +1225,31 @@ export default defineSchema({
   })
     .index("by_unitId_and_effectiveFrom", ["unitId", "effectiveFrom"])
     .index("by_parentId_and_effectiveFrom", ["parentId", "effectiveFrom"]),
+  teams: defineTable({
+    code: v.string(),
+    name: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    status: v.union(v.literal("active"), v.literal("inactive")),
+    supervisorProfileId: v.optional(v.id("profiles")),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    createdBy: v.string(),
+  })
+    .index("by_code", ["code"])
+    .index("by_orgUnitId", ["orgUnitId"]),
+  teamMemberships: defineTable({
+    teamId: v.id("teams"),
+    profileId: v.id("profiles"),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    actorSubject: v.string(),
+    reason: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_teamId_and_effectiveFrom", ["teamId", "effectiveFrom"])
+    .index("by_profileId_and_effectiveFrom", ["profileId", "effectiveFrom"]),
   employeeAssignments: defineTable({
     profileId: v.id("profiles"),
     orgUnitId: v.optional(v.id("orgUnits")),

@@ -59,6 +59,9 @@ import type * as seed from "../seed.js";
 import type * as sfa_constants from "../sfa/constants.js";
 import type * as sfa_positions from "../sfa/positions.js";
 import type * as sfa_setup from "../sfa/setup.js";
+import type * as teams_mutations from "../teams/mutations.js";
+import type * as teams_queries from "../teams/queries.js";
+import type * as teams_validation from "../teams/validation.js";
 
 import type {
   ApiFromModules,
@@ -118,6 +121,9 @@ declare const fullApi: ApiFromModules<{
   "sfa/constants": typeof sfa_constants;
   "sfa/positions": typeof sfa_positions;
   "sfa/setup": typeof sfa_setup;
+  "teams/mutations": typeof teams_mutations;
+  "teams/queries": typeof teams_queries;
+  "teams/validation": typeof teams_validation;
 }>;
 
 /**
