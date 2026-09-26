@@ -127,8 +127,8 @@ class FieldControllerTest {
         assertEquals(StatusPill.UNREGISTERED, StatusPill.of(EnrollmentState.Unregistered))
         assertEquals(StatusPill.READY, StatusPill.of(EnrollmentState.Ready("d")))
         assertEquals(StatusPill.REMOVED, StatusPill.of(EnrollmentState.Removed))
-        assertEquals("Offline — not signed in", StatusPill.OFFLINE.label)
-        assertEquals("Signed in — phone not registered", StatusPill.UNREGISTERED.label)
+        assertEquals("Offline", StatusPill.OFFLINE.label)
+        assertEquals("Waiting for admin", StatusPill.UNREGISTERED.label)
         assertEquals(SunprideTokens.yellow, StatusPill.OFFLINE.background)
         assertEquals(SunprideTokens.yellow, StatusPill.UNREGISTERED.background)
     }
