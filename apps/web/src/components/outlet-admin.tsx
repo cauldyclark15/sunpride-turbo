@@ -1,7 +1,14 @@
 "use client";
 
 import { Button } from "@heroui/react";
-import { Card, ListRow, StatusPill, WorkspaceIcon } from "@sunpride/ui";
+import {
+  Card,
+  FormField,
+  Pager,
+  ListRow,
+  StatusPill,
+  WorkspaceIcon,
+} from "@sunpride/ui";
 import { api } from "@sunpride/backend/api";
 import type { Id } from "@sunpride/backend/data-model";
 import { useMutation, useQuery } from "convex/react";
@@ -9,8 +16,6 @@ import type { FunctionArgs } from "convex/server";
 import { useState, type FormEvent } from "react";
 import { formatManilaDate, futureManilaDateToUtcMs } from "../lib/manila-date";
 
-const field =
-  "h-10 rounded-[10px] border border-border bg-surface px-3 text-sm text-foreground";
 type Action =
   | "create"
   | "edit"
@@ -239,26 +244,17 @@ export function OutletAdmin() {
             ))}
           </ul>
         )}
-        <div>
-          <button
-            type="button"
-            disabled={cursors.length === 1}
-            onClick={() => setCursors((old) => old.slice(0, -1))}
-          >
-            Previous
-          </button>
-          <span> Page {cursors.length} </span>
-          <button
-            type="button"
-            disabled={!list || list.isDone}
-            onClick={() => {
-              if (list && !list.isDone)
-                setCursors((old) => [...old, list.continueCursor]);
-            }}
-          >
-            Next
-          </button>
-        </div>
+        <Pager
+          page={cursors.length}
+          canPrevious={cursors.length > 1}
+          canNext={!!list && !list.isDone}
+          onPrevious={() => setCursors((old) => old.slice(0, -1))}
+          onNext={() => {
+            if (list && !list.isDone)
+              setCursors((old) => [...old, list.continueCursor]);
+          }}
+          label="Outlets pages"
+        />
         {detail && (
           <section
             aria-label="Outlet profile"
@@ -380,7 +376,7 @@ export function OutletAdmin() {
           <form
             key={`${action}-${selectedId}`}
             onSubmit={submit}
-            className="grid gap-2 rounded border border-border p-3"
+            className="grid gap-3 rounded border border-border p-3 sm:grid-cols-2 lg:grid-cols-3"
             aria-label="Outlet action"
           >
             <h3>
@@ -400,16 +396,11 @@ export function OutletAdmin() {
               <>
                 {action === "create" && (
                   <>
-                    <label>
-                      Code <input className={field} name="code" required />
-                    </label>
-                    <label>
-                      Custodian unit{" "}
-                      <select
-                        name="custodianOrgUnitId"
-                        className={field}
-                        required
-                      >
+                    <FormField label="Code">
+                      <input name="code" required />
+                    </FormField>
+                    <FormField label="Custodian unit">
+                      <select name="custodianOrgUnitId" required>
                         <option value="">Select unit</option>
                         {units
                           ?.filter((u) => u.status === "active")
@@ -419,29 +410,25 @@ export function OutletAdmin() {
                             </option>
                           ))}
                       </select>
-                    </label>
+                    </FormField>
                   </>
                 )}
-                <label>
-                  Name{" "}
+                <FormField label="Name">
                   <input
-                    className={field}
                     name="name"
                     defaultValue={detail?.outlet.name}
                     required
                   />
-                </label>
-                <label>
-                  Site status{" "}
+                </FormField>
+                <FormField label="Site status">
                   <select
                     name="status"
-                    className={field}
                     defaultValue={detail?.outlet.status ?? "prospect"}
                   >
                     <option value="prospect">Prospect / unlinked</option>
                     <option value="active">Active</option>
                   </select>
-                </label>
+                </FormField>
                 {(
                   [
                     "channel",
@@ -452,70 +439,54 @@ export function OutletAdmin() {
                     "visitWindow",
                   ] as const
                 ).map((key) => (
-                  <label key={key}>
-                    {key}{" "}
-                    <input
-                      className={field}
-                      name={key}
-                      defaultValue={detail?.outlet[key]}
-                    />
-                  </label>
+                  <FormField key={key} label={key}>
+                    <input name={key} defaultValue={detail?.outlet[key]} />
+                  </FormField>
                 ))}
-                <label>
-                  Contact name{" "}
+                <FormField label="Contact name">
                   <input
-                    className={field}
                     name="contactName"
                     defaultValue={detail?.outlet.contacts?.[0]?.name}
                   />
-                </label>
-                <label>
-                  Contact phone{" "}
+                </FormField>
+                <FormField label="Contact phone">
                   <input
-                    className={field}
                     name="contactPhone"
                     defaultValue={detail?.outlet.contacts?.[0]?.phone}
                   />
-                </label>
-                <label>
-                  Sales potential{" "}
+                </FormField>
+                <FormField label="Sales potential">
                   <input
-                    className={field}
                     type="number"
                     min="0"
                     name="salesPotential"
                     defaultValue={detail?.outlet.salesPotential}
                   />
-                </label>
-                <label>
-                  Preferred weekday (0–6){" "}
+                </FormField>
+                <FormField label="Preferred weekday (0–6)">
                   <input
-                    className={field}
                     type="number"
                     min="0"
                     max="6"
                     name="preferredWeekday"
                     defaultValue={detail?.outlet.preferredWeekday}
                   />
-                </label>
-                <label>
-                  Visit frequency (days){" "}
+                </FormField>
+                <FormField label="Visit frequency (days)">
                   <input
-                    className={field}
                     type="number"
                     min="1"
                     max="365"
                     name="visitFrequencyDays"
                     defaultValue={detail?.outlet.visitFrequencyDays}
                   />
-                </label>
+                </FormField>
               </>
             )}
             {action === "link" && (
               <>
-                <label>
-                  Existing customer{" "}
-                  <select className={field} name="customerId">
+                <FormField label="Existing customer">
+                  <select name="customerId">
                     <option value="">Unlink (prospect)</option>
                     {customers
                       ?.filter((c) => c.active)
@@ -525,74 +496,40 @@ export function OutletAdmin() {
                         </option>
                       ))}
                   </select>
-                </label>
-                <label>
-                  Source{" "}
-                  <input
-                    className={field}
-                    name="source"
-                    defaultValue="local"
-                    required
-                  />
-                </label>
-                <label>
-                  Effective date{" "}
-                  <input
-                    className={field}
-                    type="date"
-                    name="effectiveDate"
-                    required
-                  />
-                </label>
+                </FormField>
+                <FormField label="Source">
+                  <input name="source" defaultValue="local" required />
+                </FormField>
+                <FormField label="Effective date">
+                  <input type="date" name="effectiveDate" required />
+                </FormField>
               </>
             )}
             {action === "propose" && (
               <>
-                <label>
-                  Latitude{" "}
-                  <input
-                    className={field}
-                    name="latitude"
-                    type="number"
-                    step="any"
-                    required
-                  />
-                </label>
-                <label>
-                  Longitude{" "}
-                  <input
-                    className={field}
-                    name="longitude"
-                    type="number"
-                    step="any"
-                    required
-                  />
-                </label>
-                <label>
-                  Radius meters (default 75){" "}
-                  <input
-                    className={field}
-                    name="radiusMeters"
-                    type="number"
-                    min="1"
-                    max="500"
-                  />
-                </label>
-                <label>
-                  Source <input className={field} name="source" required />
-                </label>
-                <label>
-                  Evidence note <input className={field} name="evidenceNote" />
-                </label>
-                <label>
-                  Future effective date (optional){" "}
-                  <input className={field} name="effectiveDate" type="date" />
-                </label>
+                <FormField label="Latitude">
+                  <input name="latitude" type="number" step="any" required />
+                </FormField>
+                <FormField label="Longitude">
+                  <input name="longitude" type="number" step="any" required />
+                </FormField>
+                <FormField label="Radius meters (default 75)">
+                  <input name="radiusMeters" type="number" min="1" max="500" />
+                </FormField>
+                <FormField label="Source">
+                  <input name="source" required />
+                </FormField>
+                <FormField label="Evidence note">
+                  <input name="evidenceNote" />
+                </FormField>
+                <FormField label="Future effective date (optional)">
+                  <input name="effectiveDate" type="date" />
+                </FormField>
               </>
             )}
-            <label>
-              Reason <input className={field} name="reason" required />
-            </label>
+            <FormField label="Reason">
+              <input name="reason" required />
+            </FormField>
             <button type="submit" disabled={pending}>
               Save {action}
             </button>

@@ -100,6 +100,15 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
 vi.mock("@sunpride/ui", () => ({
+  FormField: ({
+    label,
+    children,
+  }: {
+    label: string;
+    children: React.ReactNode;
+  }) => createElement("label", null, label, children),
+  Pager: ({ page, label }: { page: number; label: string }) =>
+    createElement("nav", { "aria-label": label }, `Page ${page}`),
   PageHeader: ({
     title,
     meta,

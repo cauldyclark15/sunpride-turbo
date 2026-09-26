@@ -7,6 +7,7 @@ import {
   Card,
   DataTable,
   EmptyPanel,
+  FormField,
   StatusPill,
   WorkspaceIcon,
   type DataColumn,
@@ -27,9 +28,6 @@ const typeLabel = (code: string) =>
     .toLowerCase()
     .replaceAll("_", " ")
     .replace(/^./, (c) => c.toUpperCase());
-const fieldClass =
-  "h-10 rounded-[10px] border border-border bg-surface px-3 text-sm text-foreground shadow-none";
-const fieldLabel = "grid gap-1.5 text-[13px] font-medium text-foreground";
 
 /** Select keeps the submitted form value while using the HeroUI popover. */
 export function AdminSelectField({
@@ -52,8 +50,7 @@ export function AdminSelectField({
   const [internalValue, setInternalValue] = useState(defaultValue);
   const selected = value ?? internalValue;
   return (
-    <div className={fieldLabel}>
-      <span>{label}</span>
+    <FormField label={label}>
       {name ? <input type="hidden" name={name} value={selected} /> : null}
       <Select
         aria-label={label}
@@ -83,7 +80,7 @@ export function AdminSelectField({
           </ListBox>
         </Select.Popover>
       </Select>
-    </div>
+    </FormField>
   );
 }
 
@@ -245,7 +242,7 @@ export function OrgAdmin() {
       key: "effective",
       label: "Effective",
       render: (row) => (
-        <span className="text-xs text-muted">
+        <span className="whitespace-nowrap text-xs text-muted">
           {formatManilaDate(row.effectiveFrom)}
           {row.effectiveTo !== undefined
             ? ` – ${formatManilaDate(row.effectiveTo)}`
@@ -257,13 +254,13 @@ export function OrgAdmin() {
       key: "actions",
       label: "Actions",
       render: (row) => (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           {(["create", "edit", "reparent", "deactivate"] as const).map(
             (action) => (
               <Button
                 key={action}
                 size="sm"
-                variant={action === "deactivate" ? "danger-soft" : "secondary"}
+                variant={action === "deactivate" ? "danger-soft" : "outline"}
                 isDisabled={
                   !canManage ||
                   !!previewDate ||
@@ -309,20 +306,16 @@ export function OrgAdmin() {
         count={units?.length}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <label className="flex items-center gap-2 text-[13px] text-foreground">
-              <span>Preview date</span>
-              <input
-                type="date"
-                aria-label="Preview date"
-                className={fieldClass}
-                value={previewDate}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  setPreviewDate(value);
-                  setAsOf(value ? manilaDateToUtcMs(value) : Date.now());
-                }}
-              />
-            </label>
+            <input
+              type="date"
+              aria-label="Preview date"
+              value={previewDate}
+              onChange={(event) => {
+                const value = event.target.value;
+                setPreviewDate(value);
+                setAsOf(value ? manilaDateToUtcMs(value) : Date.now());
+              }}
+            />
             <Button
               variant="primary"
               className="h-10 rounded-[10px]"
@@ -356,17 +349,18 @@ export function OrgAdmin() {
         <Card
           label={`${choice.action === "create" ? "New unit" : choice.action === "edit" ? "Edit unit" : choice.action === "reparent" ? "Move unit" : "Deactivate unit"} · ${choice.unit.name}`}
         >
-          <form onSubmit={submit} className="grid max-w-xl gap-4">
+          <form
+            onSubmit={submit}
+            className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
+          >
             {choice.action === "create" ? (
               <>
-                <label className={fieldLabel}>
-                  Code
-                  <Input className={fieldClass} name="code" required />
-                </label>
-                <label className={fieldLabel}>
-                  Name
-                  <Input className={fieldClass} name="name" required />
-                </label>
+                <FormField label="Code">
+                  <Input name="code" required />
+                </FormField>
+                <FormField label="Name">
+                  <Input name="name" required />
+                </FormField>
                 <AdminSelectField
                   name="typeCode"
                   label="Unit type"
@@ -386,15 +380,9 @@ export function OrgAdmin() {
                 />
               </>
             ) : choice.action === "edit" ? (
-              <label className={fieldLabel}>
-                Name
-                <Input
-                  className={fieldClass}
-                  name="name"
-                  defaultValue={choice.unit.name}
-                  required
-                />
-              </label>
+              <FormField label="Name">
+                <Input name="name" defaultValue={choice.unit.name} required />
+              </FormField>
             ) : choice.action === "reparent" ? (
               <AdminSelectField
                 name="parentId"
@@ -423,25 +411,18 @@ export function OrgAdmin() {
               />
             ) : null}
             {choice.action !== "edit" ? (
-              <label className={fieldLabel}>
-                Effective date
-                <input
-                  className={fieldClass}
-                  type="date"
-                  name="effectiveDate"
-                  required
-                />
-              </label>
+              <FormField label="Effective date">
+                <input type="date" name="effectiveDate" required />
+              </FormField>
             ) : null}
-            <label className={fieldLabel}>
-              Reason
+            <FormField label="Reason">
               <textarea
                 className="min-h-20 rounded-[10px] border border-border bg-surface p-3 text-sm"
                 name="reason"
                 required
                 rows={2}
               />
-            </label>
+            </FormField>
             {error ? (
               <p role="alert" className="text-sm text-danger">
                 {error}

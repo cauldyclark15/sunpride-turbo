@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@heroui/react";
-import { Card, StatusPill, WorkspaceIcon } from "@sunpride/ui";
+import { Card, FormField, StatusPill, WorkspaceIcon } from "@sunpride/ui";
 import { api } from "@sunpride/backend/api";
 import type { Doc, Id } from "@sunpride/backend/data-model";
 import { useMutation, useQuery } from "convex/react";
@@ -15,7 +15,7 @@ import {
 } from "../lib/coverage-calendar";
 import { formatManilaDate, manilaDateToUtcMs } from "../lib/manila-date";
 
-const field =
+const secondaryAction =
   "h-10 rounded-[10px] border border-border bg-surface px-3 text-sm text-foreground";
 type Outlet = FunctionArgs<
   typeof api.coverage.plans.saveOutlets
@@ -225,12 +225,10 @@ export function CoveragePlanner() {
           <p>Coverage access required.</p>
         ) : (
           <>
-            <div className="flex flex-wrap items-end gap-3">
-              <label className="grid gap-1">
-                Assignee
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <FormField label="Assignee">
                 <select
                   aria-label="Plan assignee"
-                  className={field}
                   value={assignee ?? ""}
                   disabled={permissions?.role === "sales" || !people}
                   onChange={(e) => {
@@ -249,29 +247,27 @@ export function CoveragePlanner() {
                       </option>
                     ))}
                 </select>
-              </label>
+              </FormField>
               {people && !people.isDone && (
                 <button
+                  className={secondaryAction}
                   type="button"
-                  className={field}
                   onClick={() => setPeopleCursor(people.continueCursor)}
                 >
                   More people
                 </button>
               )}
-              <label className="grid gap-1">
-                Month
+              <FormField label="Month">
                 <input
                   aria-label="Plan month"
                   type="month"
-                  className={field}
                   value={month}
                   onChange={(e) => {
                     setMonth(e.target.value);
                     setSelected(null);
                   }}
                 />
-              </label>
+              </FormField>
               <Button
                 variant="primary"
                 className="h-10"
@@ -338,29 +334,25 @@ export function CoveragePlanner() {
                     )}
                   {(detail.plan.status === "approved" ||
                     detail.plan.status === "active") && (
-                    <div className="flex flex-wrap items-end gap-2">
-                      <label className="grid gap-1">
-                        Revision date
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      <FormField label="Revision date">
                         <input
-                          className={field}
                           type="date"
                           min={currentManilaDate()}
                           max={`${month}-31`}
                           value={revisionDate}
                           onChange={(e) => setRevisionDate(e.target.value)}
                         />
-                      </label>
-                      <label className="grid gap-1">
-                        Revision reason
+                      </FormField>
+                      <FormField label="Revision reason">
                         <input
-                          className={field}
                           value={revisionReason}
                           onChange={(e) => setRevisionReason(e.target.value)}
                         />
-                      </label>
+                      </FormField>
                       <button
+                        className={secondaryAction}
                         type="button"
-                        className={field}
                         disabled={
                           !canPlan ||
                           busy ||
@@ -568,42 +560,36 @@ export function PlanEditor({
       )}
       {editable && (
         <div
-          className="flex flex-wrap items-end gap-2 rounded border p-2 text-sm"
+          className="grid gap-3 border-t border-separator pt-4 sm:grid-cols-2 lg:grid-cols-3"
           aria-label="Primary coverage assignment"
         >
           <strong>Assignment period</strong>
-          <label>
-            From{" "}
+          <FormField label="From">
             <input
               aria-label="Assignment from"
-              className={field}
               type="date"
               value={assignmentFrom}
               onChange={(e) => setAssignmentFrom(e.target.value)}
             />
-          </label>
-          <label>
-            To{" "}
+          </FormField>
+          <FormField label="To">
             <input
               aria-label="Assignment to exclusive"
-              className={field}
               type="date"
               value={assignmentTo}
               onChange={(e) => setAssignmentTo(e.target.value)}
             />
-          </label>
-          <label>
-            Reason{" "}
+          </FormField>
+          <FormField label="Reason">
             <input
               aria-label="Assignment reason"
-              className={field}
               value={assignmentReason}
               onChange={(e) => setAssignmentReason(e.target.value)}
             />
-          </label>
+          </FormField>
           <button
+            className={secondaryAction}
             type="button"
-            className={field}
             disabled={busy || !assignmentReason.trim()}
             onClick={() =>
               void run("Assignment period saved.", () =>
@@ -623,8 +609,8 @@ export function PlanEditor({
       )}
       {editable && (
         <button
+          className={secondaryAction}
           type="button"
-          className={field}
           disabled={busy}
           onClick={() =>
             void run(
@@ -639,12 +625,10 @@ export function PlanEditor({
           Apply weekly routine
         </button>
       )}
-      <div className="flex flex-wrap gap-2">
-        <label>
-          Territory{" "}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <FormField label="Territory">
           <select
             aria-label="Coverage territory filter"
-            className={field}
             value={territoryId}
             onChange={(e) => {
               setTerritoryId(e.target.value as Id<"territories"> | "");
@@ -659,12 +643,10 @@ export function PlanEditor({
               </option>
             ))}
           </select>
-        </label>
-        <label>
-          Route{" "}
+        </FormField>
+        <FormField label="Route">
           <select
             aria-label="Coverage route filter"
-            className={field}
             value={routeId}
             onChange={(e) => setRouteId(e.target.value as Id<"routes"> | "")}
           >
@@ -675,11 +657,11 @@ export function PlanEditor({
               </option>
             ))}
           </select>
-        </label>
+        </FormField>
         {names && !names.isDone && (
           <button
+            className={secondaryAction}
             type="button"
-            className={field}
             onClick={() => setOutletCursor(names.continueCursor)}
           >
             More outlet names
@@ -690,7 +672,6 @@ export function PlanEditor({
         <div className="flex gap-2">
           <select
             aria-label="Add plan outlet"
-            className={field}
             value={candidate}
             onChange={(e) => setCandidate(e.target.value as Id<"outlets"> | "")}
           >
@@ -702,8 +683,8 @@ export function PlanEditor({
             ))}
           </select>
           <button
+            className={secondaryAction}
             type="button"
-            className={field}
             disabled={!candidate || busy}
             onClick={() => {
               const row = assigned.find((r) => r.outletId === candidate);
@@ -741,14 +722,12 @@ export function PlanEditor({
         {visible.map((o) => (
           <div
             key={o.outletId}
-            className="flex flex-wrap items-center gap-2 border-b p-2 text-xs"
+            className="grid gap-3 border-b p-3 sm:grid-cols-2 lg:grid-cols-3"
           >
             <strong className="min-w-28">{named(o.outletId)}</strong>
-            <label>
-              Frequency{" "}
+            <FormField label="Frequency">
               <select
                 aria-label={`Frequency ${o.outletId}`}
-                className={field}
                 disabled={!editable}
                 value={o.frequency}
                 onChange={(e) =>
@@ -761,7 +740,7 @@ export function PlanEditor({
                   <option key={v}>{v}</option>
                 ))}
               </select>
-            </label>
+            </FormField>
             <fieldset disabled={!editable}>
               <legend>Preferred days</legend>
               {weekdays.map((day, index) => (
@@ -788,11 +767,10 @@ export function PlanEditor({
               ))}
             </fieldset>
             {cadenceNumbers.map(({ key, label, min, ...rest }) => (
-              <label key={key}>
-                {label}{" "}
+              <FormField key={key} label={label}>
                 <input
                   aria-label={`${label} ${o.outletId}`}
-                  className={`${field} w-16`}
+                  className="w-full"
                   type="number"
                   min={min}
                   max={"max" in rest ? rest.max : undefined}
@@ -806,14 +784,12 @@ export function PlanEditor({
                     })
                   }
                 />
-              </label>
+              </FormField>
             ))}
             {cadenceText.map(({ key, label, type }) => (
-              <label key={key}>
-                {label}{" "}
+              <FormField key={key} label={label}>
                 <input
                   aria-label={`${label} ${o.outletId}`}
-                  className={field}
                   type={type}
                   disabled={!editable}
                   value={
@@ -829,12 +805,12 @@ export function PlanEditor({
                     })
                   }
                 />
-              </label>
+              </FormField>
             ))}
             {editable && (
               <button
+                className={secondaryAction}
                 type="button"
-                className={field}
                 onClick={() =>
                   setOutlets((old) =>
                     old.filter((row) => row.outletId !== o.outletId),
@@ -849,8 +825,8 @@ export function PlanEditor({
       </div>
       {editable && (
         <button
+          className={secondaryAction}
           type="button"
-          className={field}
           disabled={busy}
           onClick={() =>
             void run("Outlet cadence saved.", async () => {
@@ -900,41 +876,35 @@ export function PlanEditor({
         Non-visit activities (including DS Work-With)
       </h3>
       {editable && (
-        <div className="flex flex-wrap items-end gap-2">
-          <label>
-            Date{" "}
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <FormField label="Date">
             <input
               aria-label="Activity date"
               type="date"
-              className={field}
               min={`${plan.localMonth}-01`}
               max={`${plan.localMonth}-31`}
               value={activityDate}
               onChange={(e) => setActivityDate(e.target.value)}
             />
-          </label>
-          <label>
-            Activity name{" "}
+          </FormField>
+          <FormField label="Activity name">
             <input
               aria-label="Activity name"
-              className={field}
               value={activityKind}
               onChange={(e) => setActivityKind(e.target.value)}
               placeholder="Work-With / admin / day_off"
             />
-          </label>
-          <label>
-            Named truck (DS Work-With){" "}
+          </FormField>
+          <FormField label="Named truck (DS Work-With)">
             <input
               aria-label="Named truck"
-              className={field}
               value={truck}
               onChange={(e) => setTruck(e.target.value)}
             />
-          </label>
+          </FormField>
           <button
+            className={secondaryAction}
             type="button"
-            className={field}
             disabled={!activityDate || !activityKind.trim()}
             onClick={() => {
               try {
@@ -981,7 +951,6 @@ export function PlanEditor({
               <input
                 aria-label={`Activity date ${s.slotKey}`}
                 type="date"
-                className={field}
                 disabled={!editable}
                 value={s.serviceDate}
                 onChange={(e) =>
@@ -996,7 +965,6 @@ export function PlanEditor({
               />
               <input
                 aria-label={`Activity ${s.slotKey}`}
-                className={field}
                 disabled={!editable}
                 value={s.activityKind ?? ""}
                 onChange={(e) =>
@@ -1012,7 +980,6 @@ export function PlanEditor({
               <input
                 aria-label={`Truck ${s.slotKey}`}
                 title="DS Work-With named truck"
-                className={field}
                 disabled={!editable}
                 value={s.namedTruckRef ?? ""}
                 onChange={(e) =>
@@ -1051,8 +1018,8 @@ export function PlanEditor({
       {editable && (
         <div className="flex flex-wrap gap-2">
           <button
+            className={secondaryAction}
             type="button"
-            className={field}
             disabled={busy}
             onClick={() =>
               void run("Dated slots saved.", async () => {
@@ -1064,8 +1031,8 @@ export function PlanEditor({
             Save dated slots
           </button>
           <button
+            className={secondaryAction}
             type="button"
-            className={field}
             disabled={busy}
             onClick={() =>
               void run("Submitted for independent approval.", () =>

@@ -1,6 +1,13 @@
 "use client";
 import { Button, Input } from "@heroui/react";
-import { Card, ListRow, StatusPill, WorkspaceIcon } from "@sunpride/ui";
+import {
+  Card,
+  FormField,
+  Pager,
+  ListRow,
+  StatusPill,
+  WorkspaceIcon,
+} from "@sunpride/ui";
 import { api } from "@sunpride/backend/api";
 import type { Id } from "@sunpride/backend/data-model";
 import { useMutation, useQuery } from "convex/react";
@@ -33,8 +40,6 @@ type Mutations = {
     args: FunctionArgs<typeof api.territories.routes.deactivate>,
   ) => Promise<unknown>;
 };
-const field =
-  "h-10 rounded-[10px] border border-border bg-surface px-3 text-sm text-foreground";
 export async function performRouteAction(
   action: Action,
   data: Pick<FormData, "get" | "getAll">,
@@ -198,11 +203,9 @@ export function RouteAdmin() {
           <p>Route access required.</p>
         ) : (
           <>
-            <label className="grid max-w-sm gap-1.5 text-[13px] font-medium">
-              Territory
+            <FormField label="Territory">
               <select
                 aria-label="Territory"
-                className={field}
                 value={territoryId ?? ""}
                 onChange={(event) => {
                   setTerritoryId(
@@ -219,7 +222,7 @@ export function RouteAdmin() {
                   </option>
                 ))}
               </select>
-            </label>
+            </FormField>
             {territoryId && (
               <>
                 <ul className="overflow-hidden rounded-xl border border-border">
@@ -255,28 +258,17 @@ export function RouteAdmin() {
                   ))}
                 </ul>
                 {routes && !routes.page.length && <p>No routes here</p>}
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    className="h-10"
-                    isDisabled={cursors.length === 1}
-                    onPress={() => setCursors((old) => old.slice(0, -1))}
-                  >
-                    Previous
-                  </Button>
-                  <span>Page {cursors.length}</span>
-                  <Button
-                    variant="outline"
-                    className="h-10"
-                    isDisabled={!routes || routes.isDone}
-                    onPress={() =>
-                      routes &&
-                      setCursors((old) => [...old, routes.continueCursor])
-                    }
-                  >
-                    Next
-                  </Button>
-                </div>
+                <Pager
+                  page={cursors.length}
+                  canPrevious={cursors.length > 1}
+                  canNext={!!routes && !routes.isDone}
+                  onPrevious={() => setCursors((old) => old.slice(0, -1))}
+                  onNext={() =>
+                    routes &&
+                    setCursors((old) => [...old, routes.continueCursor])
+                  }
+                  label="Routes pages"
+                />
               </>
             )}
             {detail && (
@@ -351,24 +343,26 @@ export function RouteAdmin() {
               </aside>
             )}
             {action && canManage && (
-              <form onSubmit={submit} className="grid gap-3 rounded border p-4">
+              <form
+                onSubmit={submit}
+                className="grid gap-3 rounded border p-4 sm:grid-cols-2 lg:grid-cols-3"
+              >
                 <h3>{action} route</h3>
                 {(action === "create" || action === "duplicate") && (
-                  <label>
-                    Code <Input name="code" required />
-                  </label>
+                  <FormField label="Code">
+                    <Input name="code" required />
+                  </FormField>
                 )}
                 {(["create", "edit", "duplicate"] as Action[]).includes(
                   action,
                 ) && (
-                  <label>
-                    Name{" "}
+                  <FormField label="Name">
                     <Input
                       name="name"
                       required
                       defaultValue={action === "edit" ? detail?.route.name : ""}
                     />
-                  </label>
+                  </FormField>
                 )}
                 {(action === "create" || action === "edit") && (
                   <>
@@ -389,27 +383,24 @@ export function RouteAdmin() {
                         </label>
                       ))}
                     </fieldset>
-                    <label>
-                      Cycle days (optional, 1–366){" "}
+                    <FormField label="Cycle days (optional, 1–366)">
                       <input
                         name="cycleDays"
                         type="number"
                         min="1"
                         max="366"
-                        className={field}
                         defaultValue={
                           action === "edit"
                             ? detail?.route.cycleDays
                             : undefined
                         }
                       />
-                    </label>
+                    </FormField>
                   </>
                 )}
                 {(action === "move" || action === "duplicate") && (
-                  <label>
-                    Destination territory{" "}
-                    <select name="territoryId" className={field} required>
+                  <FormField label="Destination territory">
+                    <select name="territoryId" className="min-w-40" required>
                       <option value="">Select territory</option>
                       {territories?.page.map((t) => (
                         <option key={t._id} value={t._id}>
@@ -417,13 +408,12 @@ export function RouteAdmin() {
                         </option>
                       ))}
                     </select>
-                  </label>
+                  </FormField>
                 )}
                 {action === "assign" && (
                   <>
-                    <label>
-                      Salesperson{" "}
-                      <select name="profileId" required className={field}>
+                    <FormField label="Salesperson">
+                      <select name="profileId" className="min-w-40" required>
                         <option value="">Select person</option>
                         {people?.page
                           .filter(
@@ -438,7 +428,7 @@ export function RouteAdmin() {
                             </option>
                           ))}
                       </select>
-                    </label>
+                    </FormField>
                     <label>
                       <input type="checkbox" name="primary" defaultChecked />{" "}
                       Primary owner
@@ -446,9 +436,8 @@ export function RouteAdmin() {
                   </>
                 )}
                 {action === "end" && (
-                  <label>
-                    Assignment{" "}
-                    <select name="assignmentId" className={field} required>
+                  <FormField label="Assignment">
+                    <select name="assignmentId" className="min-w-40" required>
                       <option value="">Select assignment</option>
                       {detail?.salespeople.map((row) => (
                         <option key={row._id} value={row._id}>
@@ -456,29 +445,21 @@ export function RouteAdmin() {
                         </option>
                       ))}
                     </select>
-                  </label>
+                  </FormField>
                 )}
                 {action !== "edit" && (
-                  <label>
-                    Effective date{" "}
-                    <input
-                      type="date"
-                      name="effectiveDate"
-                      className={field}
-                      required
-                    />
-                  </label>
+                  <FormField label="Effective date">
+                    <input type="date" name="effectiveDate" required />
+                  </FormField>
                 )}
                 {action === "create" && (
-                  <label>
-                    End date{" "}
-                    <input type="date" name="endDate" className={field} />
-                  </label>
+                  <FormField label="End date">
+                    <input type="date" name="endDate" />
+                  </FormField>
                 )}
-                <label>
-                  Reason (required){" "}
-                  <textarea name="reason" className={field} required />
-                </label>
+                <FormField label="Reason (required)">
+                  <textarea name="reason" required />
+                </FormField>
                 {error && (
                   <p role="alert" className="text-danger">
                     {error}

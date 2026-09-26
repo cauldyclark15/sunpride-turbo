@@ -1,6 +1,12 @@
 "use client";
 
-import { Card, ListRow, StatusPill, WorkspaceIcon } from "@sunpride/ui";
+import {
+  Card,
+  FormField,
+  ListRow,
+  StatusPill,
+  WorkspaceIcon,
+} from "@sunpride/ui";
 import { api } from "@sunpride/backend/api";
 import type { Doc, Id } from "@sunpride/backend/data-model";
 import { useMutation, useQuery } from "convex/react";
@@ -15,7 +21,7 @@ type Permissions = {
   capabilities: string[];
   scopeUnitIds: Id<"orgUnits">[];
 };
-const field =
+const secondaryAction =
   "h-10 rounded-[10px] border border-border bg-surface px-3 text-sm text-foreground";
 const stamp = (ms?: number) =>
   ms
@@ -191,8 +197,8 @@ function PlanHistory({ planId }: { planId: Id<"coveragePlans"> }) {
       </ol>
       {events && !events.isDone && (
         <button
+          className={secondaryAction}
           type="button"
-          className={field}
           onClick={() => {
             setPages(rows);
             setCursor(events.continueCursor);
@@ -427,19 +433,17 @@ function SelectedPlan({
         {mode === "review" && canApprove && plan.status === "submitted" && (
           <div className="grid gap-2">
             {blocked && <p role="status">{blocked}</p>}
-            <label>
-              Return reason{" "}
+            <FormField label="Return reason">
               <input
                 aria-label="Return reason"
-                className={field}
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
               />
-            </label>
+            </FormField>
             <div className="flex gap-2">
               <button
+                className={secondaryAction}
                 type="button"
-                className={field}
                 disabled={busy || !!blocked || !reason.trim()}
                 onClick={() =>
                   void act(
@@ -451,8 +455,8 @@ function SelectedPlan({
                 Return plan
               </button>
               <button
+                className={secondaryAction}
                 type="button"
-                className={field}
                 disabled={busy || !!blocked}
                 onClick={() =>
                   void act(
@@ -474,8 +478,8 @@ function SelectedPlan({
                 <p role="status">Activation starts on the effective date.</p>
               )}
               <button
+                className={secondaryAction}
                 type="button"
-                className={field}
                 disabled={busy || !effective}
                 onClick={() =>
                   void act(async () => {
@@ -601,12 +605,10 @@ export function CoverageReview({
       : plans.filter((p) => p.assigneeProfileId === selectedPerson);
   return (
     <section aria-label={`Coverage ${mode}`} className="grid gap-3">
-      <div className="flex flex-wrap items-end gap-2">
-        <label>
-          Month
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <FormField label="Month">
           <input
             aria-label="Coverage month"
-            className={field}
             type="month"
             value={month}
             onChange={(e) => {
@@ -617,13 +619,11 @@ export function CoverageReview({
               setCursor(null);
             }}
           />
-        </label>
+        </FormField>
         {mode !== "review" && (
-          <label>
-            Assignee{" "}
+          <FormField label="Assignee">
             <select
               aria-label="Coverage assignee"
-              className={field}
               value={selectedPerson ?? ""}
               onChange={(e) => {
                 setPersonId(e.target.value as Id<"profiles">);
@@ -636,7 +636,7 @@ export function CoverageReview({
                 </option>
               ))}
             </select>
-          </label>
+          </FormField>
         )}
       </div>
       {mode !== "visits" && (
@@ -647,9 +647,9 @@ export function CoverageReview({
           <div className="flex flex-wrap gap-2">
             {visible.map((p) => (
               <button
+                className={secondaryAction}
                 key={p.planId}
                 type="button"
-                className={field}
                 aria-pressed={selected === p.planId}
                 onClick={() => {
                   setSelected(p.planId);
@@ -664,8 +664,8 @@ export function CoverageReview({
       )}
       {discovery && !discovery.isDone && (
         <button
+          className={secondaryAction}
           type="button"
-          className={field}
           onClick={() => {
             setPrior(plans);
             setCursor(discovery.continueCursor);

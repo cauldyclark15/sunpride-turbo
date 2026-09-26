@@ -1,5 +1,12 @@
 "use client";
-import { Card, ListRow, StatusPill, WorkspaceIcon } from "@sunpride/ui";
+import {
+  Card,
+  FormField,
+  Pager,
+  ListRow,
+  StatusPill,
+  WorkspaceIcon,
+} from "@sunpride/ui";
 import { Button, Input } from "@heroui/react";
 import { api } from "@sunpride/backend/api";
 import type { Doc, Id } from "@sunpride/backend/data-model";
@@ -31,8 +38,6 @@ type Mutations = {
     args: FunctionArgs<typeof api.territories.mutations.deactivate>,
   ) => Promise<unknown>;
 };
-const field =
-  "h-10 rounded-[10px] border border-border bg-surface px-3 text-sm text-foreground";
 export async function performTerritoryAction(
   action: Action,
   data: Pick<FormData, "get">,
@@ -239,28 +244,17 @@ export function TerritoryAdmin() {
             {territories && !territories.page.length ? (
               <p>No territories here</p>
             ) : null}
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                className="h-10"
-                isDisabled={cursors.length === 1}
-                onPress={() => setCursors((old) => old.slice(0, -1))}
-              >
-                Previous
-              </Button>
-              <span>Page {cursors.length}</span>
-              <Button
-                variant="outline"
-                className="h-10"
-                isDisabled={!territories || territories.isDone}
-                onPress={() =>
-                  territories &&
-                  setCursors((old) => [...old, territories.continueCursor])
-                }
-              >
-                Next
-              </Button>
-            </div>
+            <Pager
+              page={cursors.length}
+              canPrevious={cursors.length > 1}
+              canNext={!!territories && !territories.isDone}
+              onPrevious={() => setCursors((old) => old.slice(0, -1))}
+              onNext={() =>
+                territories &&
+                setCursors((old) => [...old, territories.continueCursor])
+              }
+              label="Territories pages"
+            />
             {detail ? (
               <aside className="grid gap-2 rounded border p-3">
                 <h3>
@@ -330,16 +324,19 @@ export function TerritoryAdmin() {
               </aside>
             ) : null}
             {action && canManage ? (
-              <form onSubmit={submit} className="grid gap-3 rounded border p-4">
+              <form
+                onSubmit={submit}
+                className="grid gap-3 rounded border p-4 sm:grid-cols-2 lg:grid-cols-3"
+              >
                 <h3>{action} territory</h3>
                 {(action === "create" || action === "edit") && (
                   <>
-                    <label>
-                      Code{" "}
-                      {action === "create" && <Input name="code" required />}
-                    </label>
-                    <label>
-                      Name{" "}
+                    {action === "create" && (
+                      <FormField label="Code">
+                        <Input name="code" required />
+                      </FormField>
+                    )}
+                    <FormField label="Name">
                       <Input
                         name="name"
                         required
@@ -347,34 +344,30 @@ export function TerritoryAdmin() {
                           action === "edit" ? detail?.territory.name : ""
                         }
                       />
-                    </label>
-                    <label>
-                      Channel{" "}
+                    </FormField>
+                    <FormField label="Channel">
                       <Input
                         name="channel"
                         defaultValue={
                           action === "edit" ? detail?.territory.channel : ""
                         }
                       />
-                    </label>
-                    <label>
-                      Advisory boundary (GeoJSON Polygon){" "}
+                    </FormField>
+                    <FormField label="Advisory boundary (GeoJSON Polygon)">
                       <textarea
                         name="boundaryGeoJson"
-                        className={field}
                         defaultValue={
                           action === "edit"
                             ? detail?.territory.boundaryGeoJson
                             : ""
                         }
                       />
-                    </label>
+                    </FormField>
                   </>
                 )}
                 {(action === "create" || action === "transfer") && (
-                  <label>
-                    Owning unit{" "}
-                    <select name="orgUnitId" className={field} required>
+                  <FormField label="Owning unit">
+                    <select name="orgUnitId" className="min-w-40" required>
                       <option value="">Select unit</option>
                       {units
                         ?.filter(
@@ -388,12 +381,11 @@ export function TerritoryAdmin() {
                           </option>
                         ))}
                     </select>
-                  </label>
+                  </FormField>
                 )}
                 {action === "assign" && (
-                  <label>
-                    Salesperson{" "}
-                    <select name="profileId" className={field} required>
+                  <FormField label="Salesperson">
+                    <select name="profileId" className="min-w-40" required>
                       <option value="">Select person</option>
                       {people?.page
                         .filter(
@@ -408,12 +400,11 @@ export function TerritoryAdmin() {
                           </option>
                         ))}
                     </select>
-                  </label>
+                  </FormField>
                 )}
                 {action === "end" && (
-                  <label>
-                    Assignment{" "}
-                    <select name="assignmentId" className={field} required>
+                  <FormField label="Assignment">
+                    <select name="assignmentId" className="min-w-40" required>
                       <option value="">Select assignment</option>
                       {salespeople?.map((row) => (
                         <option key={row._id} value={row._id}>
@@ -422,29 +413,21 @@ export function TerritoryAdmin() {
                         </option>
                       ))}
                     </select>
-                  </label>
+                  </FormField>
                 )}
                 {action !== "edit" && (
-                  <label>
-                    Effective date{" "}
-                    <input
-                      type="date"
-                      name="effectiveDate"
-                      className={field}
-                      required
-                    />
-                  </label>
+                  <FormField label="Effective date">
+                    <input type="date" name="effectiveDate" required />
+                  </FormField>
                 )}
                 {action === "create" && (
-                  <label>
-                    End date{" "}
-                    <input type="date" name="endDate" className={field} />
-                  </label>
+                  <FormField label="End date">
+                    <input type="date" name="endDate" />
+                  </FormField>
                 )}
-                <label>
-                  Reason (required){" "}
-                  <textarea name="reason" required className={field} />
-                </label>
+                <FormField label="Reason (required)">
+                  <textarea name="reason" required />
+                </FormField>
                 {error && (
                   <p role="alert" className="text-danger">
                     {error}

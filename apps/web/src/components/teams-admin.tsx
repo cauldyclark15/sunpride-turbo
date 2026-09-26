@@ -7,6 +7,8 @@ import {
   Card,
   DataTable,
   ListRow,
+  FormField,
+  Pager,
   StatusPill,
   WorkspaceIcon,
   type DataColumn,
@@ -17,9 +19,6 @@ import { useState, type FormEvent } from "react";
 import { AdminSelectField } from "./org-admin";
 import { formatManilaDate, futureManilaDateToUtcMs } from "../lib/manila-date";
 
-const fieldClass =
-  "h-10 rounded-[10px] border border-border bg-surface px-3 text-sm text-foreground shadow-none";
-const fieldLabel = "grid gap-1.5 text-[13px] font-medium text-foreground";
 type TeamAction = "create" | "add" | "remove" | "deactivate";
 type TeamMutations = {
   create: (
@@ -223,28 +222,17 @@ export function TeamsAdmin() {
             }
           />
         )}
-        <div className="flex items-center gap-2 border-t border-separator p-4 text-sm">
-          <Button
-            size="sm"
-            variant="secondary"
-            isDisabled={cursors.length === 1}
-            onPress={() => setCursors((old) => old.slice(0, -1))}
-          >
-            Previous teams
-          </Button>
-          <span>Page {cursors.length}</span>
-          <Button
-            size="sm"
-            variant="secondary"
-            isDisabled={!teams || teams.isDone}
-            onPress={() => {
-              if (teams && !teams.isDone)
-                setCursors((old) => [...old, teams.continueCursor]);
-            }}
-          >
-            Next teams
-          </Button>
-        </div>
+        <Pager
+          label="Teams pages"
+          page={cursors.length}
+          canPrevious={cursors.length > 1}
+          canNext={!!teams && !teams.isDone}
+          onPrevious={() => setCursors((old) => old.slice(0, -1))}
+          onNext={() => {
+            if (teams && !teams.isDone)
+              setCursors((old) => [...old, teams.continueCursor]);
+          }}
+        />
       </Card>
       {selectedId &&
         (detail === undefined ? (
@@ -341,30 +329,17 @@ export function TeamsAdmin() {
                   })),
                 ]}
               />
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  isDisabled={peopleCursors.length === 1}
-                  onPress={() => setPeopleCursors((old) => old.slice(0, -1))}
-                >
-                  Previous people
-                </Button>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  isDisabled={!people || people.isDone}
-                  onPress={() => {
-                    if (people && !people.isDone)
-                      setPeopleCursors((old) => [
-                        ...old,
-                        people.continueCursor,
-                      ]);
-                  }}
-                >
-                  Next people
-                </Button>
-              </div>
+              <Pager
+                label="People pages"
+                page={peopleCursors.length}
+                canPrevious={peopleCursors.length > 1}
+                canNext={!!people && !people.isDone}
+                onPrevious={() => setPeopleCursors((old) => old.slice(0, -1))}
+                onNext={() => {
+                  if (people && !people.isDone)
+                    setPeopleCursors((old) => [...old, people.continueCursor]);
+                }}
+              />
               {historyProfileId &&
                 (history === undefined ? (
                   <p>Loading member history…</p>
@@ -400,15 +375,18 @@ export function TeamsAdmin() {
                   : "Deactivate team"
           }
         >
-          <form onSubmit={submit} className="grid max-w-xl gap-4">
+          <form
+            onSubmit={submit}
+            className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
+          >
             {action === "create" ? (
               <>
-                <label className={fieldLabel}>
-                  Code <Input className={fieldClass} name="code" required />
-                </label>
-                <label className={fieldLabel}>
-                  Name <Input className={fieldClass} name="name" required />
-                </label>
+                <FormField label="Code">
+                  <Input name="code" required />
+                </FormField>
+                <FormField label="Name">
+                  <Input name="name" required />
+                </FormField>
                 <AdminSelectField
                   key="new-team-unit"
                   name="orgUnitId"
@@ -469,24 +447,17 @@ export function TeamsAdmin() {
                 </p>
               </>
             ) : null}
-            <label className={fieldLabel}>
-              Effective date
-              <input
-                type="date"
-                name="effectiveDate"
-                className={fieldClass}
-                required
-              />
-            </label>
-            <label className={fieldLabel}>
-              Reason
+            <FormField label="Effective date">
+              <input type="date" name="effectiveDate" required />
+            </FormField>
+            <FormField label="Reason">
               <textarea
                 name="reason"
                 required
                 rows={2}
                 className="min-h-20 rounded-[10px] border border-border bg-surface p-3 text-sm"
               />
-            </label>
+            </FormField>
             {error ? (
               <p role="alert" className="text-sm text-danger">
                 {error}

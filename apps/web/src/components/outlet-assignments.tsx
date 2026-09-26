@@ -1,5 +1,5 @@
 "use client";
-import { Card, ListRow, WorkspaceIcon } from "@sunpride/ui";
+import { Card, FormField, Pager, IconTile, WorkspaceIcon } from "@sunpride/ui";
 import { Button } from "@heroui/react";
 import { api } from "@sunpride/backend/api";
 import type { Id } from "@sunpride/backend/data-model";
@@ -12,8 +12,6 @@ import {
   manilaDateToUtcMs,
 } from "../lib/manila-date";
 
-const field =
-  "h-10 rounded-[10px] border border-border bg-surface px-3 text-sm text-foreground";
 type Choice = Omit<
   FunctionArgs<typeof api.outlets.assignments.assign>,
   "effectiveFrom" | "reason"
@@ -94,6 +92,7 @@ export function OutletAssignments() {
   const [outletId, setOutletId] = useState<Id<"outlets"> | null>(null);
   const [order, setOrder] = useState<Id<"outlets">[] | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
   const [previewDate, setPreviewDate] = useState("");
   const asOf = previewDate ? manilaDateToUtcMs(previewDate) : undefined;
   const [error, setError] = useState("");
@@ -165,105 +164,116 @@ export function OutletAssignments() {
           <p>Outlet read access required.</p>
         ) : (
           <>
-            <label>
-              Preview date{" "}
-              <input
-                className={field}
-                type="date"
-                value={previewDate}
-                onChange={(event) => {
-                  setPreviewDate(event.target.value);
-                  setOrder(null);
-                }}
-              />
-            </label>
-            <label>
-              Territory{" "}
-              <select
-                aria-label="Assignment territory"
-                className={field}
-                value={territoryId ?? ""}
-                onChange={(e) => {
-                  setTerritoryId((e.target.value as Id<"territories">) || null);
-                  setRouteId(null);
-                  setOrder(null);
-                }}
-              >
-                <option value="">Select territory</option>
-                {territories?.page.map((t) => (
-                  <option key={t._id} value={t._id}>
-                    {t.code} · {t.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {canRoute && (
-              <label>
-                Route{" "}
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <FormField label="Preview date">
+                <input
+                  type="date"
+                  value={previewDate}
+                  onChange={(event) => {
+                    setPreviewDate(event.target.value);
+                    setOrder(null);
+                  }}
+                />
+              </FormField>
+              <FormField label="Territory">
                 <select
-                  aria-label="Assignment route"
-                  className={field}
-                  value={routeId ?? ""}
+                  aria-label="Assignment territory"
+                  value={territoryId ?? ""}
                   onChange={(e) => {
-                    setRouteId((e.target.value as Id<"routes">) || null);
+                    setTerritoryId(
+                      (e.target.value as Id<"territories">) || null,
+                    );
+                    setRouteId(null);
                     setOrder(null);
                   }}
                 >
-                  <option value="">Territory only</option>
-                  {routes?.page.map((r) => (
-                    <option key={r._id} value={r._id}>
-                      {r.code} · {r.name}
+                  <option value="">Select territory</option>
+                  {territories?.page.map((t) => (
+                    <option key={t._id} value={t._id}>
+                      {t.code} · {t.name}
                     </option>
                   ))}
                 </select>
-              </label>
-            )}
+              </FormField>
+              {canRoute && (
+                <FormField label="Route">
+                  <select
+                    className="min-w-40"
+                    aria-label="Assignment route"
+                    value={routeId ?? ""}
+                    onChange={(e) => {
+                      setRouteId((e.target.value as Id<"routes">) || null);
+                      setOrder(null);
+                    }}
+                  >
+                    <option value="">Territory only</option>
+                    {routes?.page.map((r) => (
+                      <option key={r._id} value={r._id}>
+                        {r.code} · {r.name}
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
+              )}
+            </div>
             <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted">
               Outlets
             </h3>
             <ul className="overflow-hidden rounded-xl border border-border">
               {outlets?.page.map((o) => (
-                <li key={o._id}>
-                  <ListRow
-                    icon={<WorkspaceIcon name="field" />}
-                    title={o.name}
-                    meta={o.code}
-                    value={
-                      <input
-                        aria-label={`Select ${o.name}`}
-                        type="checkbox"
-                        checked={selected.includes(o._id)}
-                        onChange={(e) =>
-                          setSelected((old) =>
-                            e.target.checked
-                              ? [...old, o._id]
-                              : old.filter((id) => id !== o._id),
-                          )
-                        }
-                      />
-                    }
-                    action={
-                      <Button
-                        variant="outline"
-                        className="h-8"
-                        onPress={() => setOutletId(o._id)}
-                      >
-                        History / assign
-                      </Button>
-                    }
-                  />
+                <li key={o._id} className="border-b border-separator last:border-b-0">
+                  <div className="flex min-h-14 items-center gap-3 px-4">
+                    <input
+                      aria-label={`Select ${o.name}`}
+                      type="checkbox"
+                      checked={selected.includes(o._id)}
+                      onChange={(e) =>
+                        setSelected((old) =>
+                          e.target.checked
+                            ? [...old, o._id]
+                            : old.filter((id) => id !== o._id),
+                        )
+                      }
+                    />
+                    <IconTile icon={<WorkspaceIcon name="field" />} />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium">
+                        {o.name}
+                      </div>
+                      <div className="truncate text-[13px] text-muted">
+                        {o.code}
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onPress={() => setOutletId(o._id)}
+                    >
+                      History
+                    </Button>
+                  </div>
                 </li>
               ))}
             </ul>
-            <Button
-              variant="outline"
-              className="h-10"
-              isDisabled={!outlets || outlets.isDone}
-              onPress={() => outlets && setCursor(outlets.continueCursor)}
-            >
-              Next page
-            </Button>
-            <h3>Unassigned</h3>
+            <Pager
+              label="Outlets pages"
+              page={page}
+              canPrevious={cursor !== null}
+              canNext={!!outlets && !outlets.isDone}
+              onPrevious={() => {
+                setCursor(null);
+                setPage(1);
+              }}
+              onNext={() => {
+                if (outlets) {
+                  setCursor(outlets.continueCursor);
+                  setPage((old) => old + 1);
+                }
+              }}
+            />
+            <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted">
+              Unassigned
+            </h3>
             <ul>
               {unassigned?.page.map((o) => (
                 <li key={o._id}>
@@ -352,7 +362,7 @@ export function OutletAssignments() {
             )}
             {canAssign && (
               <form
-                className="grid gap-3 rounded border p-4"
+                className="grid gap-3 border-t border-separator pt-4"
                 onSubmit={(e) =>
                   void submit(
                     e,
@@ -368,49 +378,45 @@ export function OutletAssignments() {
                   value={territoryId ?? ""}
                 />
                 <input type="hidden" name="routeId" value={routeId ?? ""} />
-                <label>
-                  Starting sequence{" "}
-                  <input
-                    className={field}
-                    name="sequence"
-                    type="number"
-                    min="1"
-                  />
-                </label>
-                <label>
-                  Effective date{" "}
-                  <input
-                    className={field}
-                    name="effectiveDate"
-                    type="date"
-                    required
-                  />
-                </label>
-                <label>
-                  Reason <input className={field} name="reason" required />
-                </label>
-                <div className="flex gap-2">
-                  <button
-                    className={field}
+                <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted">
+                  Assign outlets
+                </h3>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <FormField label="Starting sequence">
+                    <input name="sequence" type="number" min="1" />
+                  </FormField>
+                  <FormField label="Effective date">
+                    <input name="effectiveDate" type="date" required />
+                  </FormField>
+                  <FormField label="Reason">
+                    <input name="reason" required />
+                  </FormField>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="submit"
+                    variant="primary"
                     data-action="assign"
-                    disabled={!outletId || !territoryId || pending}
+                    isDisabled={!outletId || !territoryId || pending}
                   >
                     Assign selected outlet
-                  </button>
-                  <button
-                    className={field}
+                  </Button>
+                  <Button
+                    type="submit"
+                    variant="outline"
                     data-action="bulk"
-                    disabled={!selected.length || !territoryId || pending}
+                    isDisabled={!selected.length || !territoryId || pending}
                   >
                     Reassign selected
-                  </button>
-                  <button
-                    className={field}
+                  </Button>
+                  <Button
+                    type="submit"
+                    variant="outline"
                     data-action="reorder"
-                    disabled={!routeId || !currentOrder.length || pending}
+                    isDisabled={!routeId || !currentOrder.length || pending}
                   >
                     Save stop order
-                  </button>
+                  </Button>
                 </div>
               </form>
             )}

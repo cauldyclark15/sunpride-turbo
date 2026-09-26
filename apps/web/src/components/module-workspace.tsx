@@ -7,6 +7,8 @@ import {
   DataTable,
   MetricCard,
   PageHeader,
+  FormField,
+  Pager,
   StatusPill,
   UnderlineTabs,
   WorkspaceModuleTabs,
@@ -153,17 +155,17 @@ function ScopedPlanPicker({
   onSelect: (plan: SelectedPlan | null) => void;
 }) {
   const [cursor, setCursor] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
   const result = useQuery(api.coverage.discovery.list, {
     localMonth: month,
     paginationOpts: { numItems: 20, cursor },
   });
   return (
-    <div className="flex flex-wrap items-end gap-2">
-      <label className="grid min-w-56 flex-1 gap-1.5 text-[13px] font-medium">
-        Plan
+    <div className="grid gap-3">
+      <FormField label="Plan">
         <select
           aria-label="Scoped coverage plan"
-          className="h-10 w-full rounded-[10px] border border-border bg-surface px-3 text-sm text-foreground"
+          className="w-full"
           value={selected?.id ?? ""}
           onChange={(event) => {
             const plan = result?.page.find(
@@ -193,29 +195,29 @@ function ScopedPlanPicker({
             </option>
           ))}
         </select>
-      </label>
-      <Button
-        variant="outline"
-        className="h-10"
-        isDisabled={cursor === null}
-        onPress={() => setCursor(null)}
-      >
-        First page
-      </Button>
-      <Button
-        variant="outline"
-        className="h-10"
-        isDisabled={!result || result.isDone}
-        onPress={() => setCursor(result!.continueCursor)}
-      >
-        Next page
-      </Button>
+      </FormField>
       {result === undefined && (
         <span className="text-[13px] text-muted">Loading plans…</span>
       )}
       {result && !result.page.length && (
         <span className="text-[13px] text-muted">No plans here</span>
       )}
+      <Pager
+        label="Plans pages"
+        page={page}
+        canPrevious={cursor !== null}
+        canNext={!!result && !result.isDone}
+        onPrevious={() => {
+          setCursor(null);
+          setPage(1);
+        }}
+        onNext={() => {
+          if (result) {
+            setCursor(result.continueCursor);
+            setPage((old) => old + 1);
+          }
+        }}
+      />
     </div>
   );
 }
@@ -255,19 +257,18 @@ export function SalesForcePanels() {
         <>
           <Card label="Plans" icon={<WorkspaceIcon name="field" />}>
             <div className="grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)] sm:items-end">
-              <label className="grid gap-1.5 text-[13px] font-medium">
-                Month
+              <FormField label="Month">
                 <input
                   type="month"
                   aria-label="Coverage month"
-                  className="h-10 w-full rounded-[10px] border border-border bg-surface px-3 text-sm text-foreground"
+                  className="w-full"
                   value={month}
                   onChange={(event) => {
                     setMonth(event.target.value);
                     setSelected(null);
                   }}
                 />
-              </label>
+              </FormField>
               <PanelErrorBoundary key={month} label="Scoped plan picker">
                 <ScopedPlanPicker
                   key={month}

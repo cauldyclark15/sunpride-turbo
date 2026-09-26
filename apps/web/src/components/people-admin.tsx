@@ -7,6 +7,8 @@ import {
   Card,
   DataTable,
   EmptyPanel,
+  FormField,
+  Pager,
   StatusPill,
   WorkspaceIcon,
   type DataColumn,
@@ -35,9 +37,6 @@ const roles: Role[] = [
   "analyst",
   "viewer",
 ];
-const selectClass =
-  "h-10 rounded-[10px] border border-border bg-surface px-3 text-sm text-foreground shadow-none";
-const fieldLabel = "grid gap-1.5 text-[13px] font-medium text-foreground";
 
 export async function performPeopleAssignment(
   selected: Person,
@@ -243,32 +242,24 @@ export function PeopleAdmin() {
             empty={<EmptyPanel title="No people on this page" />}
           />
         )}
-        <div className="flex items-center gap-3 border-t border-separator p-4 text-sm">
-          <Button
-            variant="secondary"
-            size="sm"
-            isDisabled={cursors.length === 1}
-            onPress={() => setCursors((old) => old.slice(0, -1))}
-          >
-            Previous
-          </Button>
-          <span>Page {cursors.length}</span>
-          <Button
-            variant="secondary"
-            size="sm"
-            isDisabled={!result || result.isDone}
-            onPress={() => {
-              if (result && !result.isDone)
-                setCursors((old) => [...old, result.continueCursor]);
-            }}
-          >
-            Next
-          </Button>
-        </div>
+        <Pager
+          label="People pages"
+          page={cursors.length}
+          canPrevious={cursors.length > 1}
+          canNext={!!result && !result.isDone}
+          onPrevious={() => setCursors((old) => old.slice(0, -1))}
+          onNext={() => {
+            if (result && !result.isDone)
+              setCursors((old) => [...old, result.continueCursor]);
+          }}
+        />
       </Card>
       {selected ? (
         <Card label={`Assign · ${selected.name}`}>
-          <form onSubmit={submit} className="grid max-w-xl gap-4">
+          <form
+            onSubmit={submit}
+            className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
+          >
             <AdminSelectField
               key={`${selected._id}-unit`}
               name="orgUnitId"
@@ -324,10 +315,8 @@ export function PeopleAdmin() {
                 })),
               ]}
             />
-            <label className={fieldLabel}>
-              Search supervisors
+            <FormField label="Search supervisors">
               <Input
-                className={selectClass}
                 value={supervisorSearch}
                 onChange={(event) => {
                   setSupervisorSearch(event.target.value);
@@ -335,7 +324,7 @@ export function PeopleAdmin() {
                 }}
                 placeholder="Name, email or code"
               />
-            </label>
+            </FormField>
             <AdminSelectField
               name="supervisorId"
               label="Supervisor"
@@ -357,51 +346,40 @@ export function PeopleAdmin() {
                   })),
               ]}
             />
-            <div className="flex items-center gap-2 text-sm">
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                isDisabled={supervisorCursors.length === 1}
-                onPress={() => setSupervisorCursors((old) => old.slice(0, -1))}
-              >
-                Previous supervisors
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                isDisabled={!supervisorOptions || supervisorOptions.isDone}
-                onPress={() => {
+            <div className="sm:col-span-2 lg:col-span-3">
+              <Pager
+                label="Supervisors pages"
+                page={supervisorCursors.length}
+                canPrevious={supervisorCursors.length > 1}
+                canNext={!!supervisorOptions && !supervisorOptions.isDone}
+                onPrevious={() =>
+                  setSupervisorCursors((old) => old.slice(0, -1))
+                }
+                onNext={() => {
                   if (supervisorOptions && !supervisorOptions.isDone)
                     setSupervisorCursors((old) => [
                       ...old,
                       supervisorOptions.continueCursor,
                     ]);
                 }}
-              >
-                Next supervisors
-              </Button>
+              />
             </div>
-            <label className={fieldLabel}>
-              Employee code
+            <FormField label="Employee code">
               <Input
-                className={selectClass}
                 name="employeeCode"
                 defaultValue={selected.employeeCode ?? ""}
                 disabled={!!selected.employeeCode}
                 placeholder="e.g. EMP-001"
               />
-            </label>
-            <label className={fieldLabel}>
-              Reason
+            </FormField>
+            <FormField label="Reason">
               <textarea
                 className="min-h-20 rounded-[10px] border border-border bg-surface p-3 text-sm"
                 name="reason"
                 required
                 rows={2}
               />
-            </label>
+            </FormField>
             {error ? (
               <p role="alert" className="text-sm text-danger">
                 {error}

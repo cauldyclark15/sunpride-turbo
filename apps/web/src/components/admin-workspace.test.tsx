@@ -117,6 +117,17 @@ vi.mock("@heroui/react", () => ({
 }));
 vi.mock("@sunpride/ui", () => ({
   WorkspaceIcon: () => createElement("span"),
+  IconTile: ({ icon }: { icon: React.ReactNode }) =>
+    createElement("span", null, icon),
+  FormField: ({
+    label,
+    children,
+  }: {
+    label: string;
+    children: React.ReactNode;
+  }) => createElement("label", null, label, children),
+  Pager: ({ page, label }: { page: number; label: string }) =>
+    createElement("nav", { "aria-label": label }, `Page ${page}`),
   Card: ({
     label,
     actions,
@@ -337,6 +348,16 @@ describe("Admin workspace tabs", () => {
     expect(view).toContain("Teams");
     expect(view).toContain("Invitations");
     expect(view).toContain("<h2>Organization</h2>");
+  });
+  it("shows counts only for the active administration tab", () => {
+    const organization = html(createElement(AdminWorkspace));
+    expect(organization).toContain("<h2>Organization</h2>");
+    expect(organization).not.toContain("people shown");
+    expect(organization).not.toContain("teams shown");
+    state.tabOverride = "people";
+    expect(html(createElement(AdminWorkspace))).toContain("2 people shown");
+    state.tabOverride = "teams";
+    expect(html(createElement(AdminWorkspace))).toContain("0 teams shown");
   });
   it("preserves the invitation form and authorized accounts in their tab", () => {
     state.tabOverride = "invitations";

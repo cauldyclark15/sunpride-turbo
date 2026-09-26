@@ -69,9 +69,13 @@ export function AdminWorkspace() {
   });
   return (
     <div className="grid gap-4">
-      {people && teams ? (
+      {tab === "people" && people ? (
         <p className="text-[13px] text-muted">
-          {people.page.length} people shown · {teams.page.length} teams shown
+          {people.page.length} people shown
+        </p>
+      ) : tab === "teams" && teams ? (
+        <p className="text-[13px] text-muted">
+          {teams.page.length} teams shown
         </p>
       ) : null}
       <UnderlineTabs

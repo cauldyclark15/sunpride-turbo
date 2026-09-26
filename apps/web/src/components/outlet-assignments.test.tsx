@@ -10,6 +10,7 @@ import {
 
 const state = vi.hoisted(() => ({
   permissions: [] as string[],
+  showOutlet: false,
   calls: [] as { name: string; args: unknown }[],
 }));
 vi.mock("convex/react", () => ({
@@ -18,6 +19,12 @@ vi.mock("convex/react", () => ({
     state.calls.push({ name, args });
     if (name === "lib/capabilities:currentPermissions")
       return { capabilities: state.permissions };
+    if (state.showOutlet && name === "outlets/queries:list")
+      return {
+        page: [{ _id: "outlet-1", name: "North market", code: "N-01" }],
+        continueCursor: "next",
+        isDone: false,
+      };
     return undefined;
   },
   useMutation: () => vi.fn(),
@@ -44,6 +51,7 @@ const actions = () => ({
 describe("outlet assignment screen", () => {
   beforeEach(() => {
     state.permissions = [];
+    state.showOutlet = false;
     state.calls = [];
   });
   it("skips every denied data query and does not show write controls", () => {
@@ -55,6 +63,22 @@ describe("outlet assignment screen", () => {
         .every((c) => c.args === "skip"),
     ).toBe(true);
     expect(html).not.toContain("Bulk reassign selection");
+  });
+  it("places selection before the outlet and labels the history action precisely", () => {
+    state.permissions = ["outlet.read", "outlet.assign", "route.read"];
+    state.showOutlet = true;
+    const html = renderToStaticMarkup(createElement(OutletAssignments));
+    const row = html.match(/<li[^>]*>(.*?)<\/li>/)?.[1] ?? "";
+    expect(row).toContain('aria-label="Select North market"');
+    expect(row.indexOf('aria-label="Select North market"')).toBeLessThan(
+      row.indexOf(">North market</div>"),
+    );
+    expect(row).toContain(">History</button>");
+    expect(row).not.toContain("History / assign");
+    expect(html).toContain('aria-label="Outlets pages"');
+    expect(html).toContain("Page 1");
+    expect(html).toContain("Assign outlets");
+    expect(html).toContain("Assign selected outlet");
   });
   it("passes reason and Manila midnight to assign, bulk and atomic reorder", async () => {
     const m = actions();
