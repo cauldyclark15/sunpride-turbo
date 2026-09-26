@@ -86,6 +86,7 @@ final class VisitSyncClient {
     /// same persisted operation bytes and keys; only proof nonce/timestamp and envelope change.
     func push(store: any FieldLocalStore, partition: StorePartition) async throws {
         guard try !store.isHeld(partition) else { return }
+        guard try store.isLeaseValid(now: Date(), for: partition) else { throw Failure.rebootstrap }
         for _ in 0..<100 {
             try Task.checkCancellation()
             // Materialize dependencies only after the check-in ack is durable. If check-in was
@@ -112,11 +113,13 @@ final class VisitSyncClient {
             guard !batch.isEmpty else { return }
             let bytes = try body(deviceId: partition.deviceId, items: batch)
             let data = try await withBackoff { try await self.post(path: "/mobile/v1/push", body: bytes, deviceId: partition.deviceId) }
+            try Task.checkCancellation()
             let result: BootstrapV1.PushResultEnvelope
             do { result = try JSONDecoder().decode(BootstrapV1.PushResultEnvelope.self, from: data) }
             catch { throw Failure.invalidResponse }
             guard result.results.count == batch.count else { throw Failure.invalidResponse }
             for (item, outcome) in zip(batch, result.results) {
+                try Task.checkCancellation()
                 guard outcome.clientRequestId == item.intent.requestId.uuidString.lowercased(),
                       outcome.kind.rawValue == item.intent.kind else { throw Failure.invalidResponse }
                 switch outcome.status.rawValue {
@@ -146,6 +149,7 @@ final class VisitSyncClient {
                   seen.insert(cursor).inserted else { throw Failure.rebootstrap }
             let body = try JSONEncoder().encode(PullRequest(deviceId: partition.deviceId, cursor: cursor))
             let data = try await withBackoff { try await self.post(path: "/mobile/v1/pull", body: body, deviceId: partition.deviceId) }
+            try Task.checkCancellation()
             let page: PullPage
             do { page = try JSONDecoder().decode(PullPage.self, from: data) }
             catch { throw Failure.invalidResponse }

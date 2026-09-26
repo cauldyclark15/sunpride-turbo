@@ -4,7 +4,8 @@ import Synchronization
 
 /// URLProtocol stub: every request made through `StubHTTP.client()` is recorded and answered by `handler`.
 /// No request ever leaves the process.
-final class StubURLProtocol: URLProtocol {
+final class StubURLProtocol: URLProtocol, @unchecked Sendable {
+    private let stopped = Mutex(false)
     struct Reply: Sendable {
         var status: Int
         var headers: [String: String] = [:]
@@ -13,7 +14,7 @@ final class StubURLProtocol: URLProtocol {
             Reply(status: status, headers: headers, body: try! JSONSerialization.data(withJSONObject: object))
         }
     }
-    enum Outcome: Sendable { case reply(Reply), fail(URLError.Code) }
+    enum Outcome: Sendable { case reply(Reply), delayed(Reply), fail(URLError.Code) }
 
     struct Recorded: Sendable {
         let method: String
@@ -32,7 +33,15 @@ final class StubURLProtocol: URLProtocol {
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-    override func stopLoading() {}
+    override func stopLoading() { stopped.withLock { $0 = true } }
+    private func deliver(_ reply: Reply) {
+        guard !stopped.withLock({ $0 }) else { return }
+        let response = HTTPURLResponse(url: request.url!, statusCode: reply.status, httpVersion: "HTTP/1.1",
+                                       headerFields: reply.headers)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: reply.body)
+        client?.urlProtocolDidFinishLoading(self)
+    }
 
     override func startLoading() {
         let recorded = Recorded(method: request.httpMethod ?? "GET", path: request.url?.path ?? "",
@@ -44,12 +53,10 @@ final class StubURLProtocol: URLProtocol {
         switch handler?(recorded) ?? .fail(.notConnectedToInternet) {
         case .fail(let code):
             client?.urlProtocol(self, didFailWithError: URLError(code))
+        case .delayed(let reply):
+            DispatchQueue.global().asyncAfter(deadline: .now() + 1) { [self] in deliver(reply) }
         case .reply(let reply):
-            let response = HTTPURLResponse(url: request.url!, statusCode: reply.status, httpVersion: "HTTP/1.1",
-                                           headerFields: reply.headers)!
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: reply.body)
-            client?.urlProtocolDidFinishLoading(self)
+            deliver(reply)
         }
     }
 

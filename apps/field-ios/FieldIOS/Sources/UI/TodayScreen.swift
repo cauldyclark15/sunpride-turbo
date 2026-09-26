@@ -24,7 +24,7 @@ struct TodayScreen: View {
                 }
             }
             if let time = model.lastSyncedAt {
-                Text("Last synced \(time.formatted(date: .abbreviated, time: .shortened))")
+                Text("Last synced \(time.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened, timeZone: TimeZone(identifier: "Asia/Manila")!))) PHT")
                     .font(SunprideTokens.TypeStyle.caption)
                     .foregroundStyle(SunprideTokens.secondaryText)
                     .accessibilityIdentifier("lastSynced")
@@ -60,12 +60,13 @@ struct TodayScreen: View {
             Button { Task { await model.syncNow() } } label: {
                 if model.syncing { ProgressView() } else { Label("Sync now", systemImage: "arrow.clockwise") }
             }
-            .disabled(model.syncing || !model.enrollment.state.isReady)
+            .disabled(model.syncing || !model.enrollment.state.isReady || model.isOffline)
             .accessibilityIdentifier("syncNow")
         }
         .padding(SunprideTokens.Space.six)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(SunprideTokens.card, in: RoundedRectangle(cornerRadius: SunprideTokens.Radius.field))
+        .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { _ in model.refreshStatus() }
     }
     private func visitRow(_ visit: AppModel.TodayVisit) -> some View {
         VStack(alignment: .leading, spacing: SunprideTokens.Space.one) {

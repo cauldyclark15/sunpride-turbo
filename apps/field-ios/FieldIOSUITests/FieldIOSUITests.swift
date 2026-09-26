@@ -118,10 +118,15 @@ final class FieldIOSUITests: XCTestCase {
         offline.buttons["diagnosticCheckOut"].tap()
         XCTAssertTrue(offline.staticTexts["Check-out queued offline."].waitForExistence(timeout: 5))
         XCTAssertTrue(offline.staticTexts["Local state: Queued"].exists)
+        offline.buttons["BackButton"].tap()
+        XCTAssertTrue(offline.buttons["outboxStatus"].waitForExistence(timeout: 5))
+        XCTAssertTrue(offline.buttons["outboxStatus"].label.contains("Queued · not synced"))
         offline.terminate()
         let online = launchStub("online")
         XCTAssertTrue(online.staticTexts["Phone ready"].waitForExistence(timeout: 15))
         XCTAssertTrue(online.staticTexts["Stub Outlet"].waitForExistence(timeout: 15))
         XCTAssertTrue(online.staticTexts["Planned · Accepted"].waitForExistence(timeout: 20))
+        XCTAssertTrue(online.buttons["outboxStatus"].label.contains("All synced"))
+        XCTAssertTrue(online.staticTexts["lastSynced"].exists)
     }
 }

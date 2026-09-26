@@ -40,6 +40,7 @@ struct SignInShell: View {
     let model: AppModel
     @State private var email = ""
     @State private var password = ""
+    @State private var showSyncStatus = false
 
     var body: some View {
         NavigationStack {
@@ -60,6 +61,8 @@ struct SignInShell: View {
                     }
                     if model.signedIn {
                         EnrollmentCard(model: model)
+                        NavigationLink("Support info", destination: SupportInfoScreen(model: model))
+                            .accessibilityIdentifier("supportInfoLink")
                         if model.enrollment.state.isReady || !model.visits.isEmpty {
                             TodayScreen(model: model)
                         }
@@ -75,6 +78,25 @@ struct SignInShell: View {
                 .padding(SunprideTokens.Space.six)
             }
             .background(SunprideTokens.background)
+            .safeAreaInset(edge: .top) {
+                if model.signedIn {
+                    Button { showSyncStatus = true } label: {
+                        HStack {
+                            Label(model.syncStatus?.label ?? "Not synced yet",
+                                  systemImage: model.isOffline ? "wifi.slash" : "arrow.triangle.2.circlepath")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                        }
+                        .font(SunprideTokens.TypeStyle.caption.weight(.semibold))
+                        .padding(.horizontal, SunprideTokens.Space.six)
+                        .padding(.vertical, SunprideTokens.Space.two)
+                        .frame(maxWidth: .infinity)
+                        .background(SunprideTokens.card)
+                    }
+                    .accessibilityIdentifier("outboxStatus")
+                }
+            }
+            .sheet(isPresented: $showSyncStatus) { SyncStatusDetail(model: model) }
             .refreshable { await model.syncNow() }
             .onChange(of: model.enrollment.state) { _, state in
                 Task { await model.phoneStateChanged(state) }

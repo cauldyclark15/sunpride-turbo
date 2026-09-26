@@ -9,6 +9,8 @@
 <key>CFBundleVersion</key><string>1</string>
 <key>UILaunchScreen</key><dict/>
 <key>NSLocationWhenInUseUsageDescription</key><string>Record a location fix for a diagnostic visit check-in. Location is sent to the server only when you sync.</string>
+<key>BGTaskSchedulerPermittedIdentifiers</key><array><string>com.sunpride.field.dev.sync-refresh</string></array>
+<key>UIBackgroundModes</key><array><string>fetch</string></array>
 <key>CONVEX_SITE_URL</key><string>$(CONVEX_SITE_URL)</string>
 <key>CONVEX_URL</key><string>$(CONVEX_URL)</string>
 </dict></plist>

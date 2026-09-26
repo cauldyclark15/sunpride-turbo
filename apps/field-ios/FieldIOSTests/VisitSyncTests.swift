@@ -291,4 +291,36 @@ final class VisitSyncTests: XCTestCase {
         XCTAssertEqual(try store.heldOutbox(for: partition).first?.intent.requestId, initial.requestId)
         XCTAssertTrue(try store.pendingOutbox(for: newScope).isEmpty)
     }
+    func testCancelledInFlightPushRetainsDurableIntentAndRetry() async throws {
+        let intent = try checkIn()
+        install { request in
+            if case .reply(let response) = Self.accepted(request) { return .delayed(response) }
+            return .fail(.badURL)
+        }
+        let flight = Task { try await client().push(store: store, partition: partition) }
+        for _ in 0..<100 where StubURLProtocol.requests(to: "/mobile/v1/push").isEmpty {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(StubURLProtocol.requests(to: "/mobile/v1/push").count, 1)
+        flight.cancel()
+        do { try await flight.value; XCTFail("cancelled push completed") }
+        catch is CancellationError { }
+        catch { XCTAssertTrue(error is URLError) }
+        XCTAssertEqual(try store.pendingOutbox(for: partition).first?.intent.requestId, intent.requestId)
+        XCTAssertNil(try store.ack(for: intent.requestId, in: partition))
+        XCTAssertTrue(BackgroundRetry.hasRetryableWork(store: store, partition: partition), "expiration must reschedule")
+        install { request in Self.accepted(request) }
+        try await client().push(store: store, partition: partition)
+        XCTAssertEqual(try store.ack(for: intent.requestId, in: partition)?.entityId, "server-visit-1")
+        XCTAssertTrue(try store.pendingOutbox(for: partition).isEmpty)
+    }
+    func testHeldOutboxNeverPushes() async throws {
+        _ = try checkIn()
+        try store.holdForReview(partition)
+        XCTAssertFalse(BackgroundRetry.hasRetryableWork(store: store, partition: partition))
+        install { request in Self.accepted(request) }
+        try await client().push(store: store, partition: partition)
+        XCTAssertTrue(StubURLProtocol.requests(to: "/mobile/v1/push").isEmpty)
+        XCTAssertEqual(try store.heldOutbox(for: partition).count, 1)
+    }
 }

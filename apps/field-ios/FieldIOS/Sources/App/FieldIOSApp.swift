@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct FieldIOSApp: App {
+    init() { BackgroundRetry.register() }
     var body: some Scene {
         WindowGroup {
             let values = [
@@ -29,20 +30,33 @@ struct FieldIOSApp: App {
 
 /// Owns the single AppModel for the scene.
 struct RootView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @State private var model: AppModel
 
     init(environment: AppEnvironment) {
         #if DEBUG
         if let scenario = StubBackend.scenario {
-            _model = State(initialValue: StubBackend.makeModel(environment: environment, scenario: scenario))
+            let model = BackgroundRetry.shared.model ?? StubBackend.makeModel(environment: environment, scenario: scenario)
+            _model = State(initialValue: model)
+            BackgroundRetry.shared.model = model
             return
         }
         #endif
-        _model = State(initialValue: AppModel.live(environment: environment))
+        let model = BackgroundRetry.shared.model ?? AppModel.live(environment: environment)
+        _model = State(initialValue: model)
+        BackgroundRetry.shared.model = model
     }
 
     var body: some View {
         SignInShell(model: model)
-            .task { await model.launch() }
+            .task {
+                BackgroundRetry.shared.model = model
+                model.startConnectivity()
+                await model.launch()
+                BackgroundRetry.shared.scheduleIfNeeded()
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { Task { await model.syncNow() } }
+            }
     }
 }

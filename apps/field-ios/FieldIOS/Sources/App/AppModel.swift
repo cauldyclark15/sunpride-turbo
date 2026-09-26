@@ -1,4 +1,5 @@
 import Foundation
+import Network
 
 /// Composition root for the signed-in field session: Better Auth session, Convex functions and enrollment.
 @MainActor
@@ -26,6 +27,8 @@ final class AppModel {
     private(set) var review: [String] = []
     private(set) var visits: [TodayVisit] = []
     private(set) var lastSyncedAt: Date?
+    private(set) var syncStatus: FieldSyncStatus?
+    private(set) var isOffline = false
     let enrollment: Enrollment
 
     struct TodayVisit: Identifiable {
@@ -46,6 +49,36 @@ final class AppModel {
     @ObservationIgnored private var fieldStore: EncryptedFieldStore?
     @ObservationIgnored private var activeStoragePartition: StorePartition?
     @ObservationIgnored private var bootstrapping = false
+    @ObservationIgnored private let networkMonitor = NWPathMonitor()
+    @ObservationIgnored private var monitoring = false
+    @ObservationIgnored private var breadcrumbs: DiagnosticBreadcrumbs?
+    var hasRetryableWork: Bool {
+        guard signedIn, let partition = activeStoragePartition, let store = fieldStore else { return false }
+        return BackgroundRetry.hasRetryableWork(store: store, partition: partition)
+    }
+    var supportText: String { SupportInfo(secrets: secrets).text(status: syncStatus) }
+    private func breadcrumb(_ event: DiagnosticEvent) {
+        if breadcrumbs == nil,
+           let folder = try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
+                                                      appropriateFor: nil, create: true) {
+            breadcrumbs = DiagnosticBreadcrumbs(url: folder.appending(path: "field-breadcrumbs.json"))
+        }
+        breadcrumbs?.add(event)
+    }
+    func startConnectivity() {
+        guard !monitoring else { return }
+        monitoring = true
+        networkMonitor.pathUpdateHandler = { [weak self] path in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let wasOffline = self.isOffline
+                self.isOffline = path.status != .satisfied
+                self.refreshToday()
+                if wasOffline && !self.isOffline { await self.syncNow() }
+            }
+        }
+        networkMonitor.start(queue: DispatchQueue(label: "field.network.path"))
+    }
 
     /// Bootstrap supplies the verified auth subject, bound device ID and server scope fingerprint.
     /// Never derive a partition from an email or from the cached employee row.
@@ -154,6 +187,12 @@ final class AppModel {
         return false
     }
 
+    func refreshStatus() {
+        guard let partition = activeStoragePartition, let store = fieldStore else { syncStatus = nil; return }
+        syncStatus = try? FieldSyncStatus.read(store: store, partition: partition, now: Date(),
+                                               sending: syncing, offline: isOffline)
+    }
+
     func refreshToday() {
         guard let partition = activeStoragePartition, let store = try? storage(for: partition) else { return }
         do {
@@ -173,7 +212,16 @@ final class AppModel {
                              (try store.deferredOutbox(for: partition).map { $0.intent.requestId }) +
                              (try store.heldOutbox(for: partition).map { $0.intent.requestId }))
             let rejected = try store.reviewOutbox(for: partition)
-            review = rejected.map { "\($0.intent.kind) · \($0.code)" }
+            review = rejected.map { item in
+                let reasons: [String: String] = [
+                    "invalid_request": "Invalid request", "invalid_plan": "Plan is no longer valid",
+                    "conflict": "Conflicts with server record", "dependency_missing": "Check-in was not accepted",
+                    "unsupported_operation": "Operation not supported", "out_of_scope": "Outside current scope",
+                    "evidence_pending_review": "Evidence needs review", "invalid_transition": "Visit state changed",
+                    "unknown_code": "Unrecognized server reason", "unknown_status": "Unrecognized server status"
+                ]
+                return "\(item.intent.kind) · \(reasons[item.code] ?? "Unknown outcome — ask supervisor")"
+            }
             if try store.isHeld(partition), !intents.isEmpty { review.append("Unsent work held — verify account and scope") }
             if try store.hasOtherHeldWork(for: partition) { review.append("Prior scope has unsent work held for supervised review") }
             visits = rows.map { visit in
@@ -201,6 +249,7 @@ final class AppModel {
             }
             lastSyncedAt = try store.syncHealth(for: partition).flatMap { $0.lastSuccessfulSyncAt }
                 .map { Date(timeIntervalSince1970: Double($0) / 1000) }
+            refreshStatus()
         } catch { syncMessage = "Cached visits are unavailable." }
     }
 
@@ -232,6 +281,8 @@ final class AppModel {
             reason: unplannedReason, location: location)
         try store.enqueue(intent, for: partition, now: Date())
         refreshToday()
+        breadcrumb(.workQueued)
+        BackgroundRetry.shared.scheduleIfNeeded()
     }
     func queueNote(_ note: String, for visit: TodayVisit) throws {
         let (initial, store, partition) = try checkIn(for: visit)
@@ -244,6 +295,8 @@ final class AppModel {
         if ack == nil { try store.enqueueDeferred(intent, for: partition, now: Date()) }
         else { try store.enqueue(intent, for: partition, now: Date()) }
         refreshToday()
+        breadcrumb(.workQueued)
+        BackgroundRetry.shared.scheduleIfNeeded()
     }
     func queueCheckOut(outcome: String, reason: String?, for visit: TodayVisit) throws {
         let (initial, store, partition) = try checkIn(for: visit)
@@ -256,19 +309,42 @@ final class AppModel {
         if ack == nil { try store.enqueueDeferred(intent, for: partition, now: Date()) }
         else { try store.enqueue(intent, for: partition, now: Date()) }
         refreshToday()
+        breadcrumb(.workQueued)
+        BackgroundRetry.shared.scheduleIfNeeded()
     }
 
     func syncNow() async {
-        guard !bootstrapping, case .ready(let deviceId) = enrollment.state,
+        guard !bootstrapping, !Task.isCancelled, !isOffline, case .ready(let deviceId) = enrollment.state,
               let key = enrollment.key, let site, let functions, let http else { return }
-        bootstrapping = true; syncing = true; refreshToday()
-        defer { bootstrapping = false; syncing = false; refreshToday() }
+        bootstrapping = true; syncing = true; breadcrumb(.syncStarted); refreshToday()
+        var succeeded = false
+        defer {
+            if !succeeded && !Task.isCancelled, let partition = activeStoragePartition,
+               let store = fieldStore, let message = syncMessage {
+                let code: String
+                if message.hasPrefix("Phone removed") { code = "revoked" }
+                else if message.contains("proof") || message.contains("Sign-in") { code = "unauthorized" }
+                else if message.contains("Plan") || message.contains("Scope") { code = "rebootstrap" }
+                else if message.contains("Unexpected") { code = "invalid_response" }
+                else { code = "retryable" }
+                let previous = try? store.syncHealth(for: partition)
+                try? store.setSyncHealth(SyncHealth(lastSuccessfulSyncAt: previous?.lastSuccessfulSyncAt,
+                                                   lastErrorCode: code), for: partition)
+                breadcrumb(.syncFailed)
+            }
+            bootstrapping = false; syncing = false; refreshToday()
+            BackgroundRetry.shared.scheduleIfNeeded()
+        }
         let sync = VisitSyncClient(site: site, auth: auth, registry: registry, http: http, key: key)
         if freshThisLaunch, let current = activeStoragePartition, let store = fieldStore,
            (try? store.cursor(for: current)) != nil {
             do {
                 try await sync.push(store: store, partition: current)
                 try await sync.pull(store: store, partition: current)
+                try Task.checkCancellation()
+                try store.setSyncHealth(SyncHealth(lastSuccessfulSyncAt: Int64(Date().timeIntervalSince1970 * 1000), lastErrorCode: nil), for: current)
+                breadcrumb(.syncSucceeded)
+                succeeded = true
                 if syncMessage?.hasPrefix("Scope changed") != true { syncMessage = nil }
                 return
             } catch VisitSyncClient.Failure.rebootstrap {
@@ -283,6 +359,9 @@ final class AppModel {
                 await enrollment.check()
                 if case .removed = enrollment.state { holdActive() }
                 syncMessage = "Sync proof refused — work retained."
+                return
+            } catch is CancellationError {
+                breadcrumb(.syncCancelled)
                 return
             } catch {
                 syncMessage = "Sync unavailable — queued work retained."
@@ -315,6 +394,10 @@ final class AppModel {
             do {
                 try await sync.push(store: store, partition: partition)
                 try await sync.pull(store: store, partition: partition)
+                try Task.checkCancellation()
+                try store.setSyncHealth(SyncHealth(lastSuccessfulSyncAt: Int64(Date().timeIntervalSince1970 * 1000), lastErrorCode: nil), for: partition)
+                breadcrumb(.syncSucceeded)
+                succeeded = true
             } catch VisitSyncClient.Failure.rebootstrap {
                 try store.holdForReview(partition)
                 syncMessage = "Plan or cursor changed again — unsent work held for review."
@@ -325,6 +408,9 @@ final class AppModel {
                 await enrollment.check()
                 if case .removed = enrollment.state { holdActive() }
                 syncMessage = "Sync proof refused — work retained."
+            } catch is CancellationError {
+                breadcrumb(.syncCancelled)
+                return
             } catch {
                 syncMessage = "Sync unavailable — queued work retained."
             }
@@ -346,6 +432,9 @@ final class AppModel {
             case .retryable: syncMessage = "Sync unavailable. Showing last saved visits."
             case .invalidResponse: syncMessage = "Unexpected sync response. Showing saved visits."
             }
+        } catch is CancellationError {
+            breadcrumb(.syncCancelled)
+            return
         } catch {
             freshThisLaunch = false
             await enrollment.check()
@@ -353,11 +442,6 @@ final class AppModel {
                 syncMessage = "Phone removed — unsent work held for review."
                 holdActive()
             } else { syncMessage = "Offline — showing last saved visits." }
-        }
-        if let partition = activeStoragePartition, let store = fieldStore, let syncMessage {
-            let previous = try? store.syncHealth(for: partition)
-            try? store.setSyncHealth(SyncHealth(lastSuccessfulSyncAt: previous?.lastSuccessfulSyncAt,
-                                               lastErrorCode: syncMessage), for: partition)
         }
     }
 
@@ -395,6 +479,7 @@ final class AppModel {
         try? secrets.delete(Self.partitionAccount)
         visits = []
         lastSyncedAt = nil
+        syncStatus = nil
         freshThisLaunch = false
         syncMessage = nil
         signedIn = false
