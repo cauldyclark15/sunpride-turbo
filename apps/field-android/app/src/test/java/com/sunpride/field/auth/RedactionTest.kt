@@ -39,6 +39,14 @@ class RedactionTest {
             val signIn = runCatching { auth.signIn("a@example.test", "fake-password-XYZ") }.exceptionOrNull()!!
             assertClean(signIn.message); assertClean(signIn.toString()); assertClean(FieldController.userMessage(signIn))
 
+            server.enqueue(MockResponse().setResponseCode(200)
+                .setBody("""{"token":"fake-session-XYZ invalid"}"""))
+            val malformed = runCatching { auth.signIn("a@example.test", "fake-password-XYZ") }.exceptionOrNull()!!
+            assertClean(malformed.message); assertClean(malformed.toString())
+            assertClean(malformed.stackTraceToString().lineSequence().first())
+            assertClean(FieldController.userMessage(malformed))
+            assertNull(vault.readSession())
+
             vault.saveSession("fake-session-XYZ")
             server.enqueue(MockResponse().setResponseCode(500).setBody("fake-session-XYZ eyJfakeJwt"))
             val exchange = runCatching { auth.convexToken() }.exceptionOrNull()!!
