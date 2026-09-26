@@ -163,3 +163,75 @@ export function UnderlineTabs<T extends string>({
     </nav>
   );
 }
+
+/**
+ * One pagination pattern for every list: a right-aligned row of two 32px
+ * outlined buttons around a muted page label. Cursor state stays with the
+ * caller; this only renders.
+ */
+export function Pager({
+  page,
+  canPrevious,
+  canNext,
+  onPrevious,
+  onNext,
+  label = "Pages",
+}: {
+  page: number;
+  canPrevious: boolean;
+  canNext: boolean;
+  onPrevious: () => void;
+  onNext: () => void;
+  label?: string;
+}) {
+  return (
+    <nav
+      aria-label={label}
+      className="flex items-center justify-end gap-2 border-t border-separator px-4 py-2"
+    >
+      <Button
+        size="sm"
+        variant="outline"
+        isDisabled={!canPrevious}
+        onPress={onPrevious}
+      >
+        Previous
+      </Button>
+      <span className="min-w-14 text-center text-[13px] tabular-nums text-muted">
+        Page {page}
+      </span>
+      <Button
+        size="sm"
+        variant="outline"
+        isDisabled={!canNext}
+        onPress={onNext}
+      >
+        Next
+      </Button>
+    </nav>
+  );
+}
+
+/**
+ * Stacked field: 13px medium label above a 40px control, 6px apart. Wrap a
+ * native or HeroUI control so every form shares one label treatment.
+ */
+export function FormField({
+  label,
+  hint,
+  children,
+  className = "",
+}: {
+  label: string;
+  hint?: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <label className={`grid min-w-0 gap-1.5 ${className}`}>
+      <span className="text-[13px] font-medium text-foreground">{label}</span>
+      {children}
+      {hint ? <span className="text-[12px] text-muted">{hint}</span> : null}
+    </label>
+  );
+}

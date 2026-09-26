@@ -106,20 +106,21 @@ to lists.
 
 ## 8. Controls
 
-| Control             | Spec                                                                                                                                                                |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Button, primary     | 40px, `rounded-[10px]`, accent fill, 14px medium label, optional 16px leading icon                                                                                  |
-| Button, secondary   | 40px, surface fill, 1px `border`, same label                                                                                                                        |
-| Row action          | 32px, `px-3`, 13px label; primary or secondary                                                                                                                      |
-| Icon button         | 40px square, outlined; may carry a 6px dot                                                                                                                          |
-| Input, select, date | 40px, HeroUI field components only, 1px border, `rounded-[10px]`, 16px leading icon where useful. Never unstyled native controls                                    |
-| Field label         | 13px medium, 6px above the field. Stacked labels, never inline                                                                                                      |
-| Tabs                | One style: underline tabs, 40px, 14px. Active tab is foreground semibold with a 2px accent underline; inactive tabs are muted. More than 6 tabs scroll horizontally |
-| Filters             | Outlined 40px dropdown buttons (icon + value + chevron) in the page header row or card header                                                                       |
-| Toggle              | For on/off settings rows: label, caption, toggle on the right                                                                                                       |
-| Pill                | Content-sized, `rounded-md`, `px-2 py-0.5`, 12px medium, soft tint. Tones: success, warning, danger, neutral. Active ≠ draft: use different tones                   |
-| Count badge         | Solid danger, white 11px numeral, only for counts that need action                                                                                                  |
-| Avatar              | Circle: 32px in the user card, 24px in stacks (overlapping by 30%)                                                                                                  |
+| Control             | Spec                                                                                                                                                                                           |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Button, primary     | 40px, `rounded-[10px]`, accent fill, 14px medium label, optional 16px leading icon                                                                                                             |
+| Button, secondary   | 40px, surface fill, 1px `border`, same label                                                                                                                                                   |
+| Row action          | 32px, `px-3`, 13px label; primary or secondary                                                                                                                                                 |
+| Icon button         | 40px square, outlined; may carry a 6px dot                                                                                                                                                     |
+| Input, select, date | 40px, 1px border, `rounded-[10px]`, 16px leading icon where useful. HeroUI field components preferred; native controls inherit the same look from `styles/index.css`, never raw browser chrome |
+| Field label         | 13px medium, 6px above the field. Stacked labels, never inline. Use `FormField`                                                                                                                |
+| Pagination          | `Pager`: right-aligned Previous · Page N · Next, 32px outlined, in a hairline footer row. One pattern for every list                                                                           |
+| Tabs                | One style: underline tabs, 40px, 14px. Active tab is foreground semibold with a 2px accent underline; inactive tabs are muted. More than 6 tabs scroll horizontally                            |
+| Filters             | Outlined 40px dropdown buttons (icon + value + chevron) in the page header row or card header                                                                                                  |
+| Toggle              | For on/off settings rows: label, caption, toggle on the right                                                                                                                                  |
+| Pill                | Content-sized, `rounded-md`, `px-2 py-0.5`, 12px medium, soft tint. Tones: success, warning, danger, neutral. Active ≠ draft: use different tones                                              |
+| Count badge         | Solid danger, white 11px numeral, only for counts that need action                                                                                                                             |
+| Avatar              | Circle: 32px in the user card, 24px in stacks (overlapping by 30%)                                                                                                                             |
 
 Icons use the outline style with a 1.5 stroke and inherit the text color. Sizes are 18px in
 navigation, 16px in controls, and 14px in card headers.

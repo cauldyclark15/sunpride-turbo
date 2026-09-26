@@ -85,7 +85,6 @@ export function AuthScreen({ mode }: { mode: "login" | "register" }) {
               minLength={8}
               autoComplete={isLogin ? "current-password" : "new-password"}
               required
-              className="h-10 rounded-[10px] border border-border bg-surface"
             />
           </div>
           {error ? (
