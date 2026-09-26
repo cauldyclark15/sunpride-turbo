@@ -40,13 +40,32 @@ data class AckRow(val account: String, val deviceId: String, val scope: String,
     val requestId: String, val entityId: String, val eventIdsJson: String,
     val serverTime: Long)
 
+@Entity(tableName = "deltas", primaryKeys = ["account", "deviceId", "scope", "entity", "entityId"])
+data class DeltaRow(val account: String, val deviceId: String, val scope: String,
+    val entity: String, val entityId: String, val revision: Long, val json: String?, val tombstone: Boolean)
+
 @Dao
 interface StoreDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putDelta(row: DeltaRow)
+    @Query("SELECT * FROM deltas WHERE account=:account AND deviceId=:device AND scope=:scope AND entity=:entity AND entityId=:id")
+    suspend fun delta(account: String, device: String, scope: String, entity: String, id: String): DeltaRow?
+    @Query("SELECT MAX(createdAt) FROM outbox WHERE account=:account AND deviceId=:device AND scope=:scope")
+    suspend fun latestCreatedAt(account: String, device: String, scope: String): Long?
+    @Query("SELECT * FROM outbox WHERE account=:account AND deviceId=:device AND scope=:scope ORDER BY createdAt, requestId")
+    suspend fun allOutbox(account: String, device: String, scope: String): List<OutboxRow>
+    @Query("SELECT * FROM intents WHERE account=:account AND deviceId=:device AND scope=:scope AND clientVisitId=:clientVisitId")
+    suspend fun visitIntents(account: String, device: String, scope: String, clientVisitId: String): List<IntentRow>
+    @Query("SELECT * FROM intents WHERE account=:account AND deviceId=:device AND scope=:scope AND requestId=:requestId")
+    suspend fun intentById(account: String, device: String, scope: String, requestId: String): IntentRow?
+    @Query("SELECT * FROM acks WHERE account=:account AND deviceId=:device AND scope=:scope AND entityId=:entityId")
+    suspend fun visitAcks(account: String, device: String, scope: String, entityId: String): List<AckRow>
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertSnapshot(row: SnapshotRow)
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertIntent(row: IntentRow)
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertOutbox(row: OutboxRow)
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertAck(row: AckRow)
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putPartition(row: PartitionRow)
+    @Query("SELECT COUNT(*) FROM outbox JOIN partitions ON outbox.account=partitions.account AND outbox.deviceId=partitions.deviceId AND outbox.scope=partitions.scope WHERE outbox.account=:account AND outbox.deviceId=:device AND partitions.held=1 AND outbox.state='pending'")
+    suspend fun heldCount(account: String, device: String): Int
     @Query("SELECT * FROM partitions WHERE account=:account AND deviceId=:device AND scope=:scope")
     suspend fun partition(account: String, device: String, scope: String): PartitionRow?
     @Query("SELECT * FROM snapshots WHERE account=:account AND deviceId=:device AND scope=:scope AND generation=:generation AND kind=:kind AND (:day IS NULL OR serviceDate=:day) ORDER BY entityId")
@@ -70,8 +89,8 @@ interface StoreDao {
     suspend fun ack(account: String, device: String, scope: String, requestId: String): AckRow?
 }
 
-@Database(entities = [SnapshotRow::class, PartitionRow::class, IntentRow::class, OutboxRow::class, AckRow::class],
-    version = 1, exportSchema = true)
+@Database(entities = [SnapshotRow::class, PartitionRow::class, IntentRow::class, OutboxRow::class, AckRow::class, DeltaRow::class],
+    version = 2, exportSchema = true)
 abstract class StoreDatabase : RoomDatabase() {
     abstract fun rows(): StoreDao
 }

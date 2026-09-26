@@ -21,7 +21,7 @@ class MainActivity : ComponentActivity() {
         val app = applicationContext
         val backend = LiveFieldBackend(environment, KeystoreSessionVault(app), app) { KeystoreDeviceKey.loadOrCreate(app) }
         setContent {
-            FieldApp(environment, dark = dark, debug = BuildConfig.DEBUG, backend = backend,
+            FieldApp(environment, dark = dark, debug = BuildConfig.DEBUG && BuildConfig.FLAVOR == "dev", backend = backend,
                 onKeyLoaded = { exportPublicKeyForDev(it) })
         }
     }

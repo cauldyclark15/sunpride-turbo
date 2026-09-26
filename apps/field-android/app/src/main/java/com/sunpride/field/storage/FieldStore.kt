@@ -2,6 +2,8 @@ package com.sunpride.field.storage
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.room.withTransaction
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 import java.util.UUID
@@ -39,15 +41,25 @@ interface FieldStore {
     suspend fun setSyncHealth(value: String)
     /** Sign-out, revoke or scope change: freeze pending work for supervised review; never delete it. */
     suspend fun holdForReview()
+    suspend fun history(): List<Pair<IntentRow, OutboxRow>> = emptyList()
+    suspend fun intent(requestId: String): IntentRow? = null
+    suspend fun delta(entity: String, id: String): DeltaRow? = null
+    suspend fun applyDelta(changes: List<DeltaRow>, nextCursor: String) { setCursor(nextCursor) }
     fun close() {}
 }
 
 object EncryptedFieldDatabase {
+    val MIGRATION_1_2 = object : Migration(1, 2) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `deltas` (`account` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `scope` TEXT NOT NULL, `entity` TEXT NOT NULL, `entityId` TEXT NOT NULL, `revision` INTEGER NOT NULL, `json` TEXT, `tombstone` INTEGER NOT NULL, PRIMARY KEY(`account`, `deviceId`, `scope`, `entity`, `entityId`))")
+        }
+    }
     fun open(context: Context): StoreDatabase {
         System.loadLibrary("sqlcipher")
         val passphrase = PassphraseVault(context).passphrase()
         return Room.databaseBuilder(context.applicationContext, StoreDatabase::class.java, PassphraseVault.DB_NAME)
             .openHelperFactory(SupportOpenHelperFactory(passphrase))
+            .addMigrations(MIGRATION_1_2)
             .build()
     }
 
@@ -124,9 +136,10 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             intent.serializedOperation.isNotBlank())
         db.withTransaction {
             check(isLeaseValid(now)) { "Offline lease expired or held" }
-            dao.insertIntent(intent)
+            val orderedAt = maxOf(intent.createdAt, (dao.latestCreatedAt(a, d, s) ?: Long.MIN_VALUE) + 1)
+            dao.insertIntent(intent.copy(createdAt = orderedAt))
             checkpoint()
-            dao.insertOutbox(OutboxRow(a, d, s, intent.requestId, intent.createdAt))
+            dao.insertOutbox(OutboxRow(a, d, s, intent.requestId, orderedAt))
         }
     }
 
@@ -163,6 +176,26 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             val old = metadata()
             check(!old.held || value == "held_for_review") { "Partition held for review" }
             dao.putPartition(old.copy(syncHealth = value))
+        }
+    }
+    override suspend fun history(): List<Pair<IntentRow, OutboxRow>> = dao.allOutbox(a, d, s)
+        .map { row -> (dao.intent(a, d, s, row.requestId) ?: error("Orphaned outbox")) to row }
+    override suspend fun intent(requestId: String): IntentRow? = dao.intent(a, d, s, requestId)
+    override suspend fun delta(entity: String, id: String): DeltaRow? = dao.delta(a, d, s, entity, id)
+    override suspend fun applyDelta(changes: List<DeltaRow>, nextCursor: String) {
+        require(nextCursor.isNotBlank())
+        db.withTransaction {
+            val old = metadata()
+            check(!old.held && old.activeGeneration != null)
+            // Keep server changes in a separate revision projection: a pending local visit intent
+            // never gets overwritten by an upsert or tombstone. UI can overlay it explicitly.
+            for (change in changes) {
+                require(change.account == a && change.deviceId == d && change.scope == s &&
+                    change.entity in setOf("visit", "activity") && change.revision > 0)
+                val prior = dao.delta(a, d, s, change.entity, change.entityId)
+                if (prior == null || change.revision > prior.revision) dao.putDelta(change)
+            }
+            dao.putPartition(old.copy(cursor = nextCursor))
         }
     }
     override suspend fun holdForReview() {

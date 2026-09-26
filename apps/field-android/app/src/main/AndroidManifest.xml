@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- Session ciphertext is useless without this install's Keystore key; still, never back it up or migrate it. -->
     <application android:label="@string/app_name" android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:allowBackup="false" android:fullBackupContent="@xml/backup_rules"
