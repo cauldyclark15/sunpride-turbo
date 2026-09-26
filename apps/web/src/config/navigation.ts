@@ -39,13 +39,13 @@ const workspaceItems: WorkspaceNavGroup["items"] = [
   },
   {
     id: "field",
-    label: "Field Sales",
+    label: "Field",
     href: "/sales-force",
     icon: "field",
   },
   {
     id: "operations",
-    label: "SAP Operations",
+    label: "Integration",
     href: "/sap-integration",
     icon: "operations",
   },
@@ -65,11 +65,11 @@ const workspaceItems: WorkspaceNavGroup["items"] = [
 
 const moduleTabs: Partial<Record<string, WorkspaceModuleTab[]>> = {
   commercial: [
-    { id: "sales-orders", label: "Sales orders", href: "/orders" },
+    { id: "sales-orders", label: "Orders", href: "/orders" },
     { id: "master-data", label: "Master data", href: "/master-data" },
     { id: "imports", label: "Imports", href: "/imports" },
   ],
-  field: [{ id: "sales-force", label: "Sales force", href: "/sales-force" }],
+  field: [{ id: "sales-force", label: "Coverage", href: "/sales-force" }],
 };
 
 export function getWebNavigation(pathname: string, canAdminister: boolean) {
@@ -86,7 +86,7 @@ export function getWebNavigation(pathname: string, canAdminister: boolean) {
       items: [
         {
           id: "admin",
-          label: "Administration",
+          label: "Admin",
           href: "/admin",
           icon: "admin",
         },

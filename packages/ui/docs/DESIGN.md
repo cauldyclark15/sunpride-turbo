@@ -461,7 +461,7 @@ Use HeroUI's default rounded shape language and Tailwind radius utilities. Custo
 - Don't nest visually heavy surfaces inside other heavy surfaces; avoid card-on-card depth unless hierarchy truly needs it.
 - Don't let badges, chips, tags, or compact indicators stretch full width; they should remain content-sized.
 - Don't add redundant icons, logos, badges, wrappers, or trust signals that do not introduce new information.
-- Don't use ALL CAPS labels or verbose headings when short Title Case labels communicate the section clearly.
+- Don't use ALL CAPS or verbose headings. The only exception is the small 11–12px section, group, and table-header labels defined in `PATTERNS.md`, which also governs layout, spacing, and copy.
 - Don't misuse warning for neutral emphasis or decoration; reserve it for genuine caution.
 - Don't allow floating controls to overlap content; add enough spacing or padding for close buttons, badges, and overlay actions.
 - Don't add hover or transition behavior to non-interactive content; reserve feedback for actual interactions.

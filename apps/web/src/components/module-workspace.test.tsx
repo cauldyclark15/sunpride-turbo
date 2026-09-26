@@ -27,6 +27,8 @@ vi.mock("convex/react", () => ({
     state.calls.push({ name, args });
     if (args === "skip") return undefined;
     if (name === "domains/profiles:current") return state.profile;
+    if (name === "domains/orders:list" || name === "domains/workflows:pending")
+      return [];
     if (name === "lib/capabilities:currentPermissions")
       return state.permissions;
     if (name === "coverage/plans:list") return [];
@@ -98,11 +100,37 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
 vi.mock("@sunpride/ui", () => ({
-  PageHeader: ({ title }: { title: string }) =>
-    createElement("h1", null, title),
+  PageHeader: ({
+    title,
+    meta,
+    actions,
+  }: {
+    title: string;
+    meta?: React.ReactNode;
+    actions?: React.ReactNode;
+  }) =>
+    createElement(
+      "header",
+      null,
+      createElement("h1", null, title),
+      meta,
+      actions,
+    ),
   WorkspaceModuleTabs: () => null,
-  MetricCard: () => null,
-  DataTable: () => null,
+  WorkspaceIcon: () => null,
+  Card: ({ label, children }: { label: string; children: React.ReactNode }) =>
+    createElement("section", { "data-label": label }, children),
+  MetricCard: ({
+    label,
+    value,
+    detail,
+  }: {
+    label: string;
+    value: string;
+    detail?: string;
+  }) => createElement("article", null, label, ":", value, detail),
+  DataTable: ({ rows }: { rows: unknown[] }) =>
+    createElement("table", null, `${rows.length} rows`),
   EmptyPanel: () => null,
   StatusPill: ({ children }: { children: React.ReactNode }) =>
     createElement("span", null, children),
@@ -116,12 +144,18 @@ vi.mock("./inventory-workspace", () => ({ InventoryWorkspace: () => null }));
 vi.mock("./coverage-planner", () => ({
   CoveragePlanner: () => createElement("p", null, "Mounted planner"),
 }));
-const render = () => {
+const render = (
+  module:
+    | "sales-force"
+    | "dashboard"
+    | "analytics"
+    | "master-data"
+    | "orders"
+    | "workflows" = "sales-force",
+) => {
   state.calls = [];
   state.hookCalls = 0;
-  return renderToStaticMarkup(
-    createElement(ModuleWorkspace, { module: "sales-force" }),
-  );
+  return renderToStaticMarkup(createElement(ModuleWorkspace, { module }));
 };
 beforeEach(() => {
   state.profile = {
@@ -137,6 +171,34 @@ beforeEach(() => {
     scopeUnitIds: ["unit"],
   };
   state.tab = "plan";
+});
+
+describe("calm generic modules", () => {
+  it("uses concise dashboard and analytics titles, KPI labels, and bordered sections", () => {
+    for (const slug of ["dashboard", "analytics"] as const) {
+      const html = render(slug);
+      expect(html).toContain(
+        `<h1>${slug === "dashboard" ? "Dashboard" : "Analytics"}</h1>`,
+      );
+      expect(html).toContain("Products:—Active");
+      expect(html).not.toContain('data-label="Focus"');
+      expect(html).not.toContain("Executive control center");
+      expect(html).not.toContain("Realtime Convex");
+    }
+  });
+  it("groups master records and orders under card headers", () => {
+    state.profile.role = "super_admin";
+    expect(render("master-data")).toContain('data-label="Products"');
+    const orders = render("orders");
+    expect(orders).toContain("<h1>Orders</h1>");
+    expect(orders).toContain('data-label="Orders"');
+    expect(orders).not.toContain("idempotent");
+  });
+  it("shows waiting count on workflows without a policy paragraph", () => {
+    const html = render("workflows");
+    expect(html).toContain("0 waiting");
+    expect(html).not.toContain("role-based authority");
+  });
 });
 
 describe("sales force coverage module", () => {

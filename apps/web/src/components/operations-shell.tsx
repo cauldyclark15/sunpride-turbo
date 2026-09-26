@@ -16,14 +16,6 @@ export function OperationsShell({ children }: { children: ReactNode }) {
   const current = useQuery(api.domains.profiles.current, {});
   const canAdminister = canAccessWebModule("admin", current?.role);
   const navigation = getWebNavigation(pathname, canAdminister);
-  const fullWidth = [
-    "/inventory",
-    "/orders",
-    "/sap-integration",
-    "/workflows",
-    "/analytics",
-    "/admin",
-  ].includes(pathname);
 
   async function signOut() {
     await authClient.signOut();
@@ -37,10 +29,10 @@ export function OperationsShell({ children }: { children: ReactNode }) {
       activePrimaryId={navigation.activePrimaryId}
       brand={{
         logo: <Image src="/sunpride-logo.jpg" alt="" width={40} height={40} />,
-        name: "sunpride",
+        name: "Sunpride",
         descriptor: "Operations",
       }}
-      contentWidth={fullWidth ? "full" : "contained"}
+      contentWidth="full"
       navGroups={navigation.navGroups}
       onNavigate={(href) => router.push(href)}
       onSignOut={signOut}
