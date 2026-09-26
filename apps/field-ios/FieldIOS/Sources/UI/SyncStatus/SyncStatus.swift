@@ -13,11 +13,12 @@ struct FieldSyncStatus: Equatable {
     let leaseExpired: Bool
     let cacheStale: Bool
     let offline: Bool
+    var accessUntil: Date? = nil
 
     var label: String {
         if held > 0 || otherHeldWork { return "Held · needs supervisor" }
         if needsReview > 0 { return "Needs review" }
-        if queued + sending > 0 { return sending > 0 ? "Sending · not synced" : "Queued · not synced" }
+        if queued + sending > 0 { return sending > 0 ? "Sending · not synced" : "Waiting · not synced" }
         if lastErrorCode != nil { return "Sync unavailable · saved cache" }
         if cacheStale || leaseExpired { return "Stale · pending" }
         if offline { return "Offline · saved cache" }
@@ -30,46 +31,87 @@ struct FieldSyncStatus: Equatable {
         let pending = heldPartition ? 0 : try store.pendingOutbox(for: partition).count + store.deferredOutbox(for: partition).count
         let health = try store.syncHealth(for: partition)
         let cacheExpiry = try store.cacheExpiry(for: partition)
-        return FieldSyncStatus(queued: sending ? 0 : pending, sending: sending ? pending : 0,
+        var status = FieldSyncStatus(queued: sending ? 0 : pending, sending: sending ? pending : 0,
             needsReview: try store.reviewOutbox(for: partition).count, held: held,
             otherHeldWork: try store.hasOtherHeldWork(for: partition),
             lastSuccessful: health?.lastSuccessfulSyncAt.map { Date(timeIntervalSince1970: Double($0) / 1000) },
             lastErrorCode: health?.lastErrorCode, leaseExpired: try !store.isLeaseValid(now: now, for: partition),
             cacheStale: cacheExpiry.map { Double($0) <= now.timeIntervalSince1970 * 1000 } ?? true,
             offline: offline)
+        status.accessUntil = try store.leaseExpiry(for: partition).map { Date(timeIntervalSince1970: Double($0) / 1000) }
+        return status
     }
 }
 
 struct SyncStatusDetail: View {
     let model: AppModel
+    @Environment(\.dismiss) private var dismiss
     var body: some View {
         NavigationStack {
-            List {
-                if let status = model.syncStatus {
-                    Section("Local sync") {
-                        Text(status.label)
-                        Text("Queued: \(status.queued) · Sending: \(status.sending) · Needs review: \(status.needsReview) · Held: \(status.held)")
-                        if status.otherHeldWork { Text("Prior scope has held work — supervisor review required") }
-                        if status.offline { Text("Offline — retry when connected") }
-                        if status.leaseExpired { Text("Lease expired — reconnect before new work") }
-                        if status.cacheStale { Text("Saved cache is stale") }
-                        if let date = status.lastSuccessful {
-                            Text("Last successful sync: \(date.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened, timeZone: TimeZone(identifier: "Asia/Manila")!))) PHT")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Sync").font(SunprideTokens.TypeStyle.title)
+                    if let status = model.syncStatus {
+                        SectionCard(title: "On this phone") {
+                            VStack(spacing: 0) {
+                                if status.queued > 0 {
+                                    DetailRow(label: "Waiting", value: "\(status.queued)")
+                                } else {
+                                    DetailRow(label: "Nothing waiting", value: "")
+                                }
+                                divider
+                                if status.needsReview > 0 {
+                                    DetailRow(label: "To review", value: "\(status.needsReview)")
+                                    divider
+                                }
+                                if status.held > 0 {
+                                    DetailRow(label: "Held", value: "\(status.held)")
+                                    divider
+                                }
+                                if status.sending > 0 {
+                                    DetailRow(label: "Sending", value: "\(status.sending)")
+                                    divider
+                                }
+                                DetailRow(label: "Last sync", value: status.lastSuccessful.map {
+                                    $0.formatted(Date.FormatStyle(date: .omitted, time: .shortened, timeZone: TimeZone(identifier: "Asia/Manila")!))
+                                } ?? "Never")
+                                divider
+                                DetailRow(label: "Access until", value: status.accessUntil.map {
+                                    $0.formatted(Date.FormatStyle(date: .abbreviated, time: .omitted, timeZone: TimeZone(identifier: "Asia/Manila")!))
+                                } ?? "Unavailable")
+                            }
+                        }
+                        if status.needsReview > 0 {
+                            SectionCard(title: "To review · \(status.needsReview)") {
+                                ForEach(Array(model.review.enumerated()), id: \.offset) { _, reason in
+                                    CalmListRow(symbol: "exclamationmark.circle", title: reason, meta: "Ask your supervisor")
+                                }
+                            }
+                        }
+                        if status.otherHeldWork {
+                            SectionCard(title: "Attention") {
+                                CalmListRow(symbol: "exclamationmark.circle", title: "Earlier work held", meta: "Ask your supervisor")
+                            }
                         }
                     }
                 }
-                Section("Frozen work · never retried automatically") {
-                    if model.review.isEmpty { Text("No frozen operations") }
-                    ForEach(Array(model.review.enumerated()), id: \.offset) { _, reason in
-                        Text(reason).foregroundStyle(SunprideTokens.dangerText)
-                    }
-                    Text("Hold for supervisor: contact your supervisor before resolving rejected or held work. Nothing is deleted here.")
-                        .font(.caption)
-                }
-                Button("Sync now") { Task { await model.syncNow() } }
-                    .disabled(model.syncing || !model.enrollment.state.isReady || model.isOffline)
+                .padding(16)
+                .padding(.bottom, 64)
             }
-            .navigationTitle("Sync status")
+            .background(SunprideTokens.background)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }.foregroundStyle(SunprideTokens.text)
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                PrimaryBottomButton(title: model.syncing ? "Syncing…" : "Sync now", disabled: model.syncing || !model.enrollment.state.isReady || model.isOffline) {
+                    Task { await model.syncNow() }
+                }.padding(16).background(SunprideTokens.background)
+            }
         }
+    }
+    private var divider: some View {
+        Rectangle().fill(SunprideTokens.secondaryText.opacity(0.2)).frame(height: 1).padding(.leading, 16)
     }
 }

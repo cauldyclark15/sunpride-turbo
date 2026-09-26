@@ -47,7 +47,7 @@ final class SyncStatusDiagnosticsTests: XCTestCase {
         let first = try enqueue()
         _ = try enqueue(deferred: true)
         XCTAssertEqual(try status().queued, 2)
-        XCTAssertEqual(try status().label, "Queued · not synced")
+        XCTAssertEqual(try status().label, "Waiting · not synced")
         XCTAssertEqual(try status(sending: true).sending, 2)
         try store.recordRejection(code: "invalid_transition", for: first, in: partition)
         XCTAssertEqual(try status().needsReview, 1)

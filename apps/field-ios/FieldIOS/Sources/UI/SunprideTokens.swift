@@ -61,13 +61,18 @@ enum SunprideTokens {
         static let eight: CGFloat = 32
     }
     enum Radius {
-        static let regular: CGFloat = 8
-        static let field: CGFloat = 12
+        static let regular: CGFloat = 10
+        static let control: CGFloat = 10
+        static let field: CGFloat = 10
+        static let card: CGFloat = 16
     }
     // System text styles automatically respond to Dynamic Type.
     enum TypeStyle {
-        static let title: Font = .system(.largeTitle, design: .rounded, weight: .bold)
-        static let heading: Font = .system(.title2, design: .rounded, weight: .semibold)
+        static let title: Font = .system(.largeTitle, weight: .semibold)
+        static let heading: Font = .system(.title2, weight: .semibold)
+        static let row: Font = .system(.subheadline, weight: .medium)
+        static let meta: Font = .system(.footnote)
+        static let section: Font = .system(.caption, weight: .medium)
         static let body: Font = .system(.body)
         static let caption: Font = .system(.caption)
     }
