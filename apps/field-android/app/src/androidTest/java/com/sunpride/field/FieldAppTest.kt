@@ -51,11 +51,10 @@ class FieldAppTest {
 
     @After fun cleanUp() = KeystoreDeviceKey.delete(alias)
 
-    @Test fun signInIsEnabledOnceCredentialsAreEnteredAndPillShowsOffline() {
+    @Test fun signInIsEnabledOnceCredentialsAreEnteredWithoutPrematureSyncPill() {
         rule.setContent { FieldApp(configured, dark = false, debug = true, backend = ScriptedBackend(EnrollmentState.Unregistered)) }
         rule.onNodeWithTag("shell-title").assertIsDisplayed()
-        rule.onNodeWithTag("sync-status").assertTextContains("Offline — not signed in", substring = true)
-        rule.onNodeWithTag("sign-in-note").assertExists()
+        rule.onNodeWithTag("sync-status").assertDoesNotExist()
         rule.onNodeWithTag("sign-in").assertIsNotEnabled()
         rule.onNodeWithTag("email").performTextInput("seller@example.test")
         rule.onNodeWithTag("password").performTextInput("fake-password")
@@ -67,15 +66,23 @@ class FieldAppTest {
         rule.onNodeWithTag("email").performTextInput("seller@example.test")
         rule.onNodeWithTag("password").performTextInput("fake-password")
         rule.onNodeWithTag("sign-in").performClick()
-        rule.waitUntil(10_000) { rule.onAllNodesWithTagExists("public-key") }
+        rule.waitUntil(10_000) { rule.onAllNodesWithTagExists("show-full-code") }
+        rule.onNodeWithTag("show-full-code").performClick()
         val signer = KeystoreDeviceKey.loadOrCreate(rule.activity, alias)
-        rule.onNodeWithTag("enrollment-title").assertTextContains("This phone isn't registered yet")
-        rule.onNodeWithTag("sync-status").assertTextContains("Signed in — phone not registered", substring = true)
+        rule.onNodeWithTag("enrollment-title").assertTextContains("Register phone")
+        rule.onNodeWithTag("sync-status").assertDoesNotExist()
         rule.onNodeWithTag("public-key").assertTextContains(signer.publicKeyBase64)
-        rule.onNodeWithTag("key-fingerprint").assertTextContains(fingerprint(signer.publicKeySpki), substring = true)
-        rule.onNodeWithTag("device-info").assertTextContains(android.os.Build.MODEL, substring = true)
-        rule.onNodeWithTag("copy-key").performScrollTo().assertIsEnabled()
-        rule.onNodeWithTag("check-again").performScrollTo().assertIsEnabled()
+        rule.onNodeWithTag("key-fingerprint").assertTextContains(fingerprint(signer.publicKeySpki).replace(":", "").chunked(4).joinToString(" "), substring = true)
+        rule.onNodeWithTag("copy-key").assertIsEnabled()
+        rule.onNodeWithTag("check-again").assertIsEnabled()
+        rule.onNodeWithTag("account-open").performClick()
+        rule.onNodeWithTag("device-info").assertExists()
+        rule.onNodeWithTag("account-title").assertIsDisplayed()
+        rule.onNodeWithTag("support-info").performClick()
+        rule.onNodeWithTag("support-back").assertIsDisplayed()
+        rule.onNodeWithText("Done").assertDoesNotExist()
+        rule.onNodeWithTag("support-back").performClick()
+        rule.onNodeWithTag("account-title").assertIsDisplayed()
     }
 
     @Test fun registrationPollTriggersBootstrapWithoutSyncTap() {
@@ -88,8 +95,9 @@ class FieldAppTest {
         backend.enrollment = EnrollmentState.Ready("dev1")
         rule.mainClock.advanceTimeBy(com.sunpride.field.auth.Enrollment.POLL_INTERVAL_MS + 100L)
         rule.waitUntil(10_000) { backend.syncs == 1 }
-        rule.onNodeWithTag("sync-status").assertTextContains("Ready", substring = true)
-        rule.onNodeWithTag("last-synced").assertTextContains("Last synced", substring = true)
+        rule.onNodeWithTag("sync-status").assertExists()
+        rule.onNodeWithTag("sync-status").performClick()
+        rule.onNodeWithTag("sync-back").assertExists()
     }
 
     @Test fun readyAndRemovedStates() {
@@ -97,8 +105,9 @@ class FieldAppTest {
         rule.setContent { FieldApp(configured, dark = false, debug = true, backend = backend) }
         rule.waitUntil(10_000) { rule.onAllNodesWithTagExists("today-title") }
         rule.onNodeWithTag("today-title").assertTextContains("Today")
-        rule.onNodeWithTag("sync-status").assertTextContains("Ready", substring = true)
+        rule.onNodeWithTag("sync-status").assertExists()
         backend.enrollment = EnrollmentState.Removed
+        rule.onNodeWithTag("account-open").performClick()
         rule.onNodeWithTag("sign-out").performClick()
         rule.waitUntil(10_000) { rule.onAllNodesWithTagExists("shell-title") }
     }
@@ -107,9 +116,9 @@ class FieldAppTest {
         val backend = ScriptedBackend(EnrollmentState.Removed).apply { signedIn = true }
         rule.setContent { FieldApp(configured, dark = false, debug = true, backend = backend) }
         rule.waitUntil(10_000) {
-            runCatching { rule.onNodeWithTag("enrollment-title").assertTextContains("This phone was removed — ask your admin") }.isSuccess
+            runCatching { rule.onNodeWithTag("enrollment-title").assertTextContains("Phone removed") }.isSuccess
         }
-        rule.onNodeWithTag("sync-status").assertTextContains("Phone removed", substring = true)
+        rule.onNodeWithTag("sync-status").assertDoesNotExist()
     }
 
     @Test fun todayRendersSavedVisitsAndStaleState() {
@@ -118,32 +127,21 @@ class FieldAppTest {
                 1790380800000L, stale = true, warning = "Offline verification pending"), false, {}, {})
         }
         rule.onNodeWithTag("today-title").assertTextContains("Today")
-        rule.onNodeWithTag("today-stale").assertTextContains("Stale", substring = true)
         rule.onNodeWithTag("today-visit").assertTextContains("Outlet One", substring = true)
-        rule.onNodeWithTag("last-synced").assertTextContains("Last synced", substring = true)
-        rule.onNodeWithTag("sync-now").assertIsEnabled()
+        rule.onNodeWithTag("today-stale").assertDoesNotExist()
+        rule.onNodeWithTag("sync-now").assertDoesNotExist()
     }
 
-    @Test fun todayStatusQueueThenAckAndSupportInfo() {
+    @Test fun todayDoesNotDuplicateSyncState() {
         val partition = com.sunpride.field.storage.PartitionRow("a", "d", "s", "g", leaseExpiresAt = Long.MAX_VALUE,
             cacheExpiresAt = Long.MAX_VALUE, syncHealth = "synced", lastSuccessfulSync = 150L)
         val pending = com.sunpride.field.ui.syncstatus.SyncStatus.fromRoom(partition,
             listOf(com.sunpride.field.storage.OutboxRow("a", "d", "s", "r", 1)))
-        var data by androidx.compose.runtime.mutableStateOf(TodayData(stale = false, queuedCount = 1, syncStatus = pending))
-        rule.setContent { TodayScreen(data, false, {}, {}) }
-        rule.onNodeWithTag("today-stale").assertTextContains("Queued · not synced")
-        rule.onNodeWithTag("sync-details").performScrollTo().performClick()
-        rule.onNodeWithTag("detail-label").assertTextContains("Queued · not synced")
-        rule.onNodeWithText("Close").performClick()
-        rule.onNodeWithTag("support-info").performScrollTo().performClick()
-        rule.onNodeWithTag("support-text").assertTextContains("Queued: 1", substring = true)
-        rule.onNodeWithTag("support-copy").performClick()
-        rule.runOnUiThread {
-            data = data.copy(queuedCount = 0,
-                syncStatus = com.sunpride.field.ui.syncstatus.SyncStatus.fromRoom(partition, emptyList()))
-        }
-        rule.onNodeWithText("Close").performClick()
-        rule.onNodeWithTag("today-stale").assertTextContains("All synced")
+        rule.setContent { TodayScreen(TodayData(stale = false, queuedCount = 1, syncStatus = pending), false, {}, {}) }
+        rule.onNodeWithTag("today-stale").assertDoesNotExist()
+        rule.onNodeWithTag("queued-count").assertDoesNotExist()
+        rule.onNodeWithTag("last-synced").assertDoesNotExist()
+        rule.onNodeWithTag("sync-details").assertDoesNotExist()
     }
 
     @Test fun wrongPasswordShowsFixedMessage() {
@@ -158,10 +156,10 @@ class FieldAppTest {
         rule.onNodeWithTag("auth-error").assertTextContains(AuthFailure.Kind.INVALID_CREDENTIALS.message)
     }
 
-    @Test fun designTokensPreview() {
+    @Test fun designTokensPreviewIsNotReachable() {
         rule.setContent { FieldApp(configured, dark = false, debug = true, backend = ScriptedBackend(EnrollmentState.Unregistered)) }
-        rule.onNodeWithTag("design-tokens-link").performClick()
-        rule.onNodeWithTag("design-tokens-screen").assertIsDisplayed()
+        rule.onNodeWithTag("design-tokens-link").assertDoesNotExist()
+        rule.onNodeWithTag("design-tokens-screen").assertDoesNotExist()
     }
 
     @Test fun darkAtDoubleFontScaleKeepsKeyNodes() {
@@ -172,14 +170,14 @@ class FieldAppTest {
             }
         }
         rule.onNodeWithTag("shell-title").assertIsDisplayed()
-        rule.onNodeWithTag("sync-status").assertIsDisplayed()
+        rule.onNodeWithTag("sync-status").assertDoesNotExist()
         rule.onNodeWithTag("sign-in").assertExists().assertIsNotEnabled()
     }
 
     @Test fun missingEndpointsShowVisibleError() {
         rule.setContent { FieldApp(AppEnvironment("", ""), dark = false, debug = true, backend = ScriptedBackend(EnrollmentState.Unregistered)) }
         rule.onNodeWithTag("environment-error").assertIsDisplayed()
-        rule.onNodeWithTag("sync-status").assertIsDisplayed()
+        rule.onNodeWithTag("sync-status").assertDoesNotExist()
     }
 
     private fun <R : org.junit.rules.TestRule, A : androidx.activity.ComponentActivity>

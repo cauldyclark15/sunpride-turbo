@@ -42,9 +42,9 @@ object SunprideTokens {
     val spacing6 = 24.dp
     val spacing8 = 32.dp
     val shapes = Shapes(
-        small = RoundedCornerShape(8.dp),
-        medium = RoundedCornerShape(12.dp),
-        large = RoundedCornerShape(12.dp)
+        small = RoundedCornerShape(10.dp),
+        medium = RoundedCornerShape(10.dp),
+        large = RoundedCornerShape(16.dp)
     )
     // sp participates in the platform font scale; no unlicensed bundled font.
     val typography = Typography(

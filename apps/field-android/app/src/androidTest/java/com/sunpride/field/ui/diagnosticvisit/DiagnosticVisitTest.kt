@@ -1,5 +1,6 @@
 package com.sunpride.field.ui.diagnosticvisit
 
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -7,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
 import com.sunpride.field.AppEnvironment
 import com.sunpride.field.auth.EnrollmentState
 import com.sunpride.field.device.DeviceSigner
@@ -36,7 +38,8 @@ class DiagnosticVisitTest {
         override fun refreshEnrollment(signer: DeviceSigner) = EnrollmentState.Ready(identity.deviceId)
         override fun today(deviceId: String, signer: DeviceSigner, sync: Boolean) = TodayData(
             listOf(VisitDisplay("Test outlet", "Planned", "Scheduled", "outlet-1", "planned-1")),
-            stale = true, queuedCount = visitStates().count { it.second == "pending" })
+            stale = true, queuedCount = visitStates().count { it.second == "pending" },
+            syncStatus = com.sunpride.field.ui.syncstatus.SyncStatus(queued = visitStates().count { it.second == "pending" }))
         override fun visitStates(): List<Pair<IntentRow, String>> {
             val store = scoped()
             return try { runBlocking { store.history().map { it.first to it.second.state } } }
@@ -54,7 +57,9 @@ class DiagnosticVisitTest {
         }
     }
     @After fun cleanup() { KeystoreDeviceKey.delete(alias) }
-    @Test fun queuesCheckInAndCheckOutOfflineWithoutPhoneLocationPermission() {
+    @Test fun queuesCheckInAndCheckOutOfflineWithoutPhoneLocationPermission() = runScenario(false)
+    @Test fun darkVisitScreenshot() = runScenario(true)
+    private fun runScenario(dark: Boolean) {
         val store = scoped()
         runBlocking {
             store.swap(store.stage(ScopedSnapshot("{\"id\":\"test\"}", null, emptyList(), emptyList(), emptyList(), emptyList())),
@@ -68,17 +73,42 @@ class DiagnosticVisitTest {
                 .put("provider", "gps").put("mockSignal", true)
         }
         rule.setContent { FieldApp(AppEnvironment("https://team.convex.site", "https://team.convex.cloud"),
-            dark = false, debug = true, backend = Backend(), visitLocation = location) }
+            dark = dark, debug = true, backend = Backend(), visitLocation = location) }
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-open").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithTag("diagnostic-open").performClick()
+        rule.runOnUiThread {
+            androidx.core.view.WindowCompat.getInsetsController(rule.activity.window,
+                rule.activity.window.decorView).isAppearanceLightStatusBars = !dark
+        }
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("diagnostic-checkin").assertIsEnabled() }.isSuccess }
+        rule.waitForIdle()
+        Thread.sleep(350)
+        com.sunpride.field.captureCalmScreenshot("${if (dark) "dark" else "light"}-visit-before")
+        rule.onNodeWithText("Planned · Not started").assertExists()
+        rule.onNodeWithTag("unplanned-toggle").assertDoesNotExist()
         rule.onNodeWithTag("diagnostic-checkin").performClick()
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-operation").fetchSemanticsNodes().size == 1 }
-        rule.onNodeWithTag("diagnostic-operation").assertTextContains("Queued", substring = true)
+        rule.onNodeWithTag("diagnostic-operation").assertTextContains("Waiting", substring = true)
         rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("diagnostic-checkout").assertIsEnabled() }.isSuccess }
-        rule.onNodeWithTag("diagnostic-checkout").performScrollTo().performClick()
+        rule.onNodeWithTag("diagnostic-note").performTextInput("Stock checked")
+        rule.onNodeWithTag("diagnostic-add-note").performClick()
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-operation").fetchSemanticsNodes().size == 2 }
+        androidx.test.espresso.Espresso.pressBack()
+        rule.waitForIdle()
+        Thread.sleep(350)
+        com.sunpride.field.captureCalmScreenshot("${if (dark) "dark" else "light"}-visit-queued-top")
+        rule.onNodeWithTag("visit-bottom-space").performScrollTo()
+        rule.runOnUiThread {
+            androidx.core.view.WindowCompat.getInsetsController(rule.activity.window,
+                rule.activity.window.decorView).isAppearanceLightStatusBars = !dark
+        }
+        rule.waitForIdle()
+        Thread.sleep(350)
+        com.sunpride.field.captureCalmScreenshot("${if (dark) "dark" else "light"}-visit-queued")
+        rule.onNodeWithTag("diagnostic-checkout").performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-operation").fetchSemanticsNodes().size == 3 }
         val reopened = scoped()
-        try { assertEquals(2, runBlocking { reopened.pending().size }) }
+        try { assertEquals(3, runBlocking { reopened.pending().size }) }
         finally { reopened.close() }
     }
 }
