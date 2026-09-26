@@ -19,7 +19,7 @@ class MainActivity : ComponentActivity() {
         val dark = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
         WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = !dark
         val app = applicationContext
-        val backend = LiveFieldBackend(environment, KeystoreSessionVault(app)) { KeystoreDeviceKey.loadOrCreate(app) }
+        val backend = LiveFieldBackend(environment, KeystoreSessionVault(app), app) { KeystoreDeviceKey.loadOrCreate(app) }
         setContent {
             FieldApp(environment, dark = dark, debug = BuildConfig.DEBUG, backend = backend,
                 onKeyLoaded = { exportPublicKeyForDev(it) })
