@@ -1,4 +1,6 @@
 "use client";
+import { Button } from "@heroui/react";
+import { Card, ListRow, StatusPill, WorkspaceIcon } from "@sunpride/ui";
 import { api } from "@sunpride/backend/api";
 import type { Id } from "@sunpride/backend/data-model";
 import { useQuery } from "convex/react";
@@ -11,59 +13,68 @@ export function CoverageRouteView({ planId }: { planId: Id<"coveragePlans"> }) {
     paginationOpts: { numItems: 20, cursor },
   });
   return (
-    <section
-      aria-label="Coverage by route"
-      className="space-y-3 rounded border border-border p-4"
+    <Card
+      label="Routes"
+      icon={<WorkspaceIcon name="field" />}
+      count={result?.page.length}
     >
-      <h3 className="font-semibold">Territory / route coverage</h3>
-      <p className="text-sm">
-        Uncovered = eligible, currently scoped assigned outlets absent from this
-        version. Counts exclude other units.
-      </p>
-      {result === undefined ? (
-        <p>Loading routes…</p>
-      ) : result.page.length === 0 ? (
-        <p>No scoped routes on this page.</p>
-      ) : (
-        result.page.map((group) => (
-          <article
-            key={`${group.territoryId ?? "none"}:${group.routeId ?? "none"}`}
+      <div className="grid gap-4">
+        {result === undefined ? (
+          <p className="text-[13px] text-muted">Loading routes…</p>
+        ) : result.page.length === 0 ? (
+          <p className="text-[13px] text-muted">No routes here</p>
+        ) : (
+          result.page.map((group) => (
+            <section
+              key={`${group.territoryId ?? "none"}:${group.routeId ?? "none"}`}
+            >
+              <h3 className="mb-1 text-[13px] font-medium">
+                {group.territoryCode} · {group.routeCode}
+              </h3>
+              <p className="mb-2 text-[13px] text-muted">
+                {group.coveredCount} covered · {group.uncoveredCount} uncovered
+                · {group.slotCount} slots · {group.visitCount} visits
+              </p>
+              <ul className="overflow-hidden rounded-xl border border-border">
+                {group.outlets.map((outlet) => (
+                  <li key={outlet.outletCode}>
+                    <ListRow
+                      icon={<WorkspaceIcon name="field" />}
+                      title={outlet.name}
+                      meta={`${outlet.outletCode} · ${outlet.frequency ?? "No frequency"}`}
+                      value={
+                        <StatusPill
+                          tone={outlet.covered ? "success" : "neutral"}
+                        >
+                          {outlet.covered ? "Covered" : "Uncovered"}
+                        </StatusPill>
+                      }
+                    />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))
+        )}
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            className="h-10"
+            isDisabled={cursor === null}
+            onPress={() => setCursor(null)}
           >
-            <h4 className="font-medium">
-              {group.territoryCode} / {group.routeCode}
-            </h4>
-            <p>
-              {group.coveredCount} covered · {group.uncoveredCount} uncovered ·{" "}
-              {group.slotCount} slots · {group.visitCount} planned visits
-            </p>
-            <ul>
-              {group.outlets.map((outlet) => (
-                <li key={outlet.outletCode}>
-                  {outlet.outletCode} · {outlet.name} ·{" "}
-                  {outlet.frequency ?? "No planned frequency"} ·{" "}
-                  {outlet.covered ? "Covered" : "Uncovered"}
-                </li>
-              ))}
-            </ul>
-          </article>
-        ))
-      )}
-      <div className="flex gap-2">
-        <button
-          type="button"
-          disabled={cursor === null}
-          onClick={() => setCursor(null)}
-        >
-          First page
-        </button>
-        <button
-          type="button"
-          disabled={!result || result.isDone}
-          onClick={() => setCursor(result!.continueCursor)}
-        >
-          Next page
-        </button>
+            First page
+          </Button>
+          <Button
+            variant="outline"
+            className="h-10"
+            isDisabled={!result || result.isDone}
+            onPress={() => setCursor(result!.continueCursor)}
+          >
+            Next page
+          </Button>
+        </div>
       </div>
-    </section>
+    </Card>
   );
 }

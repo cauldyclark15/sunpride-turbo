@@ -51,3 +51,90 @@ textarea {
     transition-duration: 0.01ms !important;
   }
 }
+
+/*
+ * Calm workspace control geometry (docs/PATTERNS.md): every control is 40px
+ * with a 10px radius, row-level actions are 32px, and resting fields use a
+ * line instead of a shadow. Declared in the components layer after HeroUI so
+ * it replaces HeroUI's 36px pill defaults while per-instance utility classes
+ * still win. Geometry only — no color values change here.
+ */
+:root {
+  --field-shadow: 0 0 #0000;
+}
+
+/*
+ * Native form controls (select, date/month, text, checkbox) get the same
+ * field treatment as HeroUI fields so no screen shows raw browser chrome.
+ * Base layer: HeroUI component classes and per-instance utilities override.
+ */
+@layer base {
+  :where(
+    select,
+    textarea,
+    input:not(
+      [type="checkbox"],
+      [type="radio"],
+      [type="file"],
+      [type="range"],
+      [type="color"],
+      [type="hidden"],
+      [type="submit"],
+      [type="button"]
+    )
+  ) {
+    min-height: 2.5rem;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background-color: var(--surface);
+    color: var(--foreground);
+    padding-inline: 0.75rem;
+    font-size: 0.875rem;
+  }
+  :where(textarea) {
+    padding-block: 0.5rem;
+  }
+  :where(select) {
+    appearance: none;
+    padding-inline-end: 2.25rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2371717a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    background-size: 1rem;
+  }
+  :where(input, textarea)::placeholder {
+    color: var(--muted);
+  }
+  :where(input)::-webkit-calendar-picker-indicator {
+    opacity: 0.45;
+    cursor: pointer;
+  }
+  :where(input[type="checkbox"], input[type="radio"]) {
+    width: 1rem;
+    height: 1rem;
+    accent-color: var(--accent);
+  }
+  :where(select, textarea, input):disabled {
+    opacity: var(--disabled-opacity, 0.5);
+    cursor: not-allowed;
+  }
+  :where(select, textarea, input):focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 1px;
+  }
+}
+@layer components {
+  .button {
+    height: 2.5rem;
+    border-radius: 10px;
+  }
+  .button--sm {
+    height: 2rem;
+  }
+  .button--icon-only {
+    width: 2.5rem;
+  }
+  .button--icon-only.button--sm {
+    width: 2rem;
+  }
+}

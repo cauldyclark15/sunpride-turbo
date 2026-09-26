@@ -7,18 +7,26 @@ import { useState, type ComponentProps } from "react";
 
 type PasswordInputProps = Omit<ComponentProps<typeof InputGroup.Input>, "type">;
 
-export function PasswordInput({ className, ...props }: PasswordInputProps) {
+/**
+ * Password field with a show/hide toggle. The calm-workspace field outline
+ * (PATTERNS.md) lives on the group so the input and the eye button read as a
+ * single 40px control; `className` is applied to the group.
+ */
+export function PasswordInput({ className = "", ...props }: PasswordInputProps) {
   const [isVisible, setIsVisible] = useState(false);
   const actionLabel = isVisible ? "Hide password" : "Show password";
 
   return (
-    <InputGroup fullWidth>
+    <InputGroup
+      fullWidth
+      className={`h-10 min-h-10 rounded-[10px] !border !border-border bg-surface shadow-none ${className}`}
+    >
       <InputGroup.Input
         {...props}
         type={isVisible ? "text" : "password"}
-        className={className}
+        className="h-full"
       />
-      <InputGroup.Suffix className="pe-0">
+      <InputGroup.Suffix className="pe-1">
         <Button
           type="button"
           variant="ghost"

@@ -1,4 +1,6 @@
 "use client";
+import { Button } from "@heroui/react";
+import { Card, WorkspaceIcon } from "@sunpride/ui";
 import { api } from "@sunpride/backend/api";
 import type { Id } from "@sunpride/backend/data-model";
 import { useConvex } from "convex/react";
@@ -85,62 +87,67 @@ export function CoverageExport({ planId }: { planId: Id<"coveragePlans"> }) {
     }
   }
   return (
-    <section
-      aria-label="Coverage export"
-      className="space-y-3 rounded border border-border p-4"
-    >
-      <h3>Scoped schedule export</h3>
-      <p>CSV opens in a spreadsheet. Print → Save as PDF uses your browser.</p>
-      <div className="flex flex-wrap gap-2">
-        <CoverageScopeSelect
-          label="Territory"
-          options={options?.territories ?? []}
-          selected={territoryId}
-          onSelect={(id) => {
-            setTerritory(id);
-            setPrintData(undefined);
-          }}
-        />
-        <CoverageScopeSelect
-          label="Route"
-          options={options?.routes ?? []}
-          selected={routeId}
-          onSelect={(id) => {
-            setRoute(id);
-            setPrintData(undefined);
-          }}
-        />
-        <label>
-          Visit status{" "}
-          <select
-            aria-label="Export visit status"
-            value={visitStatus}
-            onChange={(e) => {
-              setStatus(e.target.value as typeof visitStatus);
+    <Card label="Export" icon={<WorkspaceIcon name="field" />}>
+      <div className="grid gap-4">
+        <div className="flex flex-wrap gap-3">
+          <CoverageScopeSelect
+            label="Territory"
+            options={options?.territories ?? []}
+            selected={territoryId}
+            onSelect={(id) => {
+              setTerritory(id);
               setPrintData(undefined);
             }}
+          />
+          <CoverageScopeSelect
+            label="Route"
+            options={options?.routes ?? []}
+            selected={routeId}
+            onSelect={(id) => {
+              setRoute(id);
+              setPrintData(undefined);
+            }}
+          />
+          <label className="grid gap-1.5 text-[13px] font-medium">
+            Visit status
+            <select
+              className="h-10 rounded-[10px] border border-border bg-surface px-3 text-sm"
+              aria-label="Export visit status"
+              value={visitStatus}
+              onChange={(e) => {
+                setStatus(e.target.value as typeof visitStatus);
+                setPrintData(undefined);
+              }}
+            >
+              <option value="">All</option>
+              <option value="planned">Planned</option>
+              <option value="cancelled">Cancelled</option>
+              <option value="replaced">Replaced</option>
+            </select>
+          </label>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="primary"
+            className="h-10"
+            isDisabled={busy}
+            onPress={() => void prepare("csv")}
           >
-            <option value="">All</option>
-            <option value="planned">Planned</option>
-            <option value="cancelled">Cancelled</option>
-            <option value="replaced">Replaced</option>
-          </select>
-        </label>
+            Export CSV
+          </Button>
+          <Button
+            variant="outline"
+            className="h-10"
+            isDisabled={busy}
+            onPress={() => void prepare("print")}
+          >
+            Prepare print
+          </Button>
+        </div>
+        {busy && <p>Loading all scoped pages…</p>}
+        {error && <p role="alert">{error}</p>}
+        {printData && <CoveragePrint {...printData} />}
       </div>
-      <button type="button" disabled={busy} onClick={() => void prepare("csv")}>
-        Export CSV
-      </button>
-      {" · "}
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => void prepare("print")}
-      >
-        Prepare print view
-      </button>
-      {busy && <p>Loading all scoped pages…</p>}
-      {error && <p role="alert">{error}</p>}
-      {printData && <CoveragePrint {...printData} />}
-    </section>
+    </Card>
   );
 }

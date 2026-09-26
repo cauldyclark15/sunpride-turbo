@@ -91,12 +91,7 @@ export function CoverageGrid({
   }
   return (
     <section aria-label="Outlet by day coverage grid" className="grid gap-2">
-      <p className="text-xs text-muted">
-        Manila local dates · weekdays Sunday=0 · select a cell to add or remove
-        a visit. Bulk selection adds missing visits without removing existing
-        ones.
-      </p>
-      <div className="max-h-[38rem] overflow-auto rounded border border-border">
+      <div className="max-h-[38rem] overflow-auto rounded-xl border border-border">
         <table className="w-max min-w-full border-collapse text-xs">
           <thead className="sticky top-0 z-10 bg-surface">
             <tr>
@@ -171,7 +166,7 @@ export function CoverageGrid({
                         onClick={() =>
                           onChange(toggleVisit(slots, outlet, date))
                         }
-                        className={`w-full rounded p-1 ${slot ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+                        className={`min-h-8 w-full rounded-md p-1 ${slot ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
                       >
                         {slot ? "✓" : "+"}
                       </button>

@@ -1,9 +1,17 @@
 "use client";
 
-import { Button, Input } from "@heroui/react";
+import { Button, Input, ListBox, Select } from "@heroui/react";
 import { api } from "@sunpride/backend/api";
 import type { Doc, Id } from "@sunpride/backend/data-model";
-import { EmptyPanel, StatusPill } from "@sunpride/ui";
+import {
+  Card,
+  DataTable,
+  EmptyPanel,
+  FormField,
+  StatusPill,
+  WorkspaceIcon,
+  type DataColumn,
+} from "@sunpride/ui";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionArgs } from "convex/server";
 import { useState, type FormEvent } from "react";
@@ -20,8 +28,61 @@ const typeLabel = (code: string) =>
     .toLowerCase()
     .replaceAll("_", " ")
     .replace(/^./, (c) => c.toUpperCase());
-const fieldClass =
-  "h-10 rounded-md border border-border bg-surface px-3 text-sm text-foreground";
+
+/** Select keeps the submitted form value while using the HeroUI popover. */
+export function AdminSelectField({
+  name,
+  label,
+  value,
+  defaultValue = "",
+  onChange,
+  options,
+  required = false,
+}: {
+  name?: string;
+  label: string;
+  value?: string;
+  defaultValue?: string;
+  onChange?: (value: string) => void;
+  options: { id: string; label: string }[];
+  required?: boolean;
+}) {
+  const [internalValue, setInternalValue] = useState(defaultValue);
+  const selected = value ?? internalValue;
+  return (
+    <FormField label={label}>
+      {name ? <input type="hidden" name={name} value={selected} /> : null}
+      <Select
+        aria-label={label}
+        selectedKey={selected || "__none"}
+        isRequired={required}
+        onSelectionChange={(key) => {
+          const next = key === "__none" ? "" : String(key ?? "");
+          setInternalValue(next);
+          onChange?.(next);
+        }}
+      >
+        <Select.Trigger className="h-10 min-h-10 rounded-[10px] !border !border-border bg-surface px-3 text-sm shadow-none">
+          <Select.Value />
+          <Select.Indicator />
+        </Select.Trigger>
+        <Select.Popover>
+          <ListBox>
+            {options.map((option) => (
+              <ListBox.Item
+                key={option.id || "__none"}
+                id={option.id || "__none"}
+                textValue={option.label}
+              >
+                {option.label}
+              </ListBox.Item>
+            ))}
+          </ListBox>
+        </Select.Popover>
+      </Select>
+    </FormField>
+  );
+}
 
 type OrgActions = {
   create: (
@@ -116,9 +177,7 @@ export function OrgAdmin() {
       });
       setChoice(null);
       setAsOf(previewDate ? manilaDateToUtcMs(previewDate) : Date.now());
-      setNotice(
-        "Organization change saved. Future changes appear on their effective date.",
-      );
+      setNotice("Organization saved");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -126,255 +185,286 @@ export function OrgAdmin() {
     }
   }
 
-  const children = (parentId?: Id<"orgUnits">) =>
-    (units ?? []).filter((unit) => unit.parentId === parentId);
   const levelOf = (code: string) =>
     unitTypes?.find((type) => type.code === code)?.level;
-  function renderBranch(unit: Unit, depth: number) {
-    return (
-      <li key={unit._id} className="list-none">
+  const [typeCode, setTypeCode] = useState("");
+  const [parentId, setParentId] = useState("");
+  const depthOf = (unit: Unit): number => {
+    if (!unit.parentId) return 0;
+    const parent = units?.find((candidate) => candidate._id === unit.parentId);
+    return parent ? 1 + depthOf(parent) : 0;
+  };
+  const createParent = (units ?? []).find(
+    (unit) =>
+      unit.status === "active" &&
+      (permissions?.scopeUnitIds.includes(unit._id) ?? false) &&
+      (unitTypes ?? []).some(
+        (type) =>
+          levelOf(unit.typeCode) !== undefined &&
+          type.level > levelOf(unit.typeCode)!,
+      ),
+  );
+  const orderedUnits = (parentId?: Id<"orgUnits">): Unit[] =>
+    (units ?? [])
+      .filter((unit) => unit.parentId === parentId)
+      .flatMap((unit) => [unit, ...orderedUnits(unit._id)]);
+  const rows = orderedUnits().map((unit) => ({
+    ...unit,
+    id: unit._id,
+    depth: depthOf(unit),
+  }));
+  const columns: DataColumn<Unit & { id: string; depth: number }>[] = [
+    {
+      key: "name",
+      label: "Unit",
+      render: (row) => (
         <div
-          className="rounded-md border border-border bg-surface p-3"
-          style={{ marginLeft: `${Math.min(depth, 8) * 16}px` }}
-          data-depth={depth}
+          data-depth={row.depth}
+          style={{ paddingLeft: `${Math.min(row.depth, 8) * 16}px` }}
         >
-          <div className="flex flex-wrap items-center gap-2">
-            <strong className="text-sm text-foreground">{unit.name}</strong>
-            <span className="text-xs text-muted">
-              {unit.code} · {typeLabel(unit.typeCode)}
-            </span>
-            <StatusPill tone={unit.status === "active" ? "success" : "neutral"}>
-              {unit.status}
-            </StatusPill>
-          </div>
-          <p className="mt-1 text-xs text-muted">
-            Effective {formatManilaDate(unit.effectiveFrom)}
-            {unit.effectiveTo !== undefined
-              ? ` – ${formatManilaDate(unit.effectiveTo)}`
-              : " onward"}
-          </p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {(["create", "edit", "reparent", "deactivate"] as const).map(
-              (action) => (
-                <Button
-                  key={action}
-                  size="sm"
-                  variant="secondary"
-                  isDisabled={
-                    !canManage ||
-                    !!previewDate ||
-                    !(permissions?.scopeUnitIds.includes(unit._id) ?? false) ||
-                    unit.status !== "active" ||
-                    (action === "create" &&
-                      !(unitTypes ?? []).some(
-                        (type) =>
-                          levelOf(unit.typeCode) !== undefined &&
-                          type.level > levelOf(unit.typeCode)!,
-                      )) ||
-                    ((action === "reparent" || action === "deactivate") &&
-                      unit.code === "SUNPRIDE")
-                  }
-                  onPress={() => {
-                    setChoice({ unit, action });
-                    setError("");
-                    setNotice("");
-                  }}
-                >
-                  {action === "create"
-                    ? "Create child"
-                    : action === "edit"
-                      ? "Edit name"
-                      : action === "reparent"
-                        ? "Reparent"
-                        : "Deactivate"}
-                </Button>
-              ),
-            )}
-          </div>
+          <span className="block text-sm font-medium">{row.name}</span>
+          <span className="block font-mono text-xs text-muted">
+            {row.code} · {typeLabel(row.typeCode)}
+          </span>
         </div>
-        {children(unit._id).length ? (
-          <ul className="mt-2 grid gap-2">
-            {children(unit._id).map((child) => renderBranch(child, depth + 1))}
-          </ul>
-        ) : null}
-      </li>
-    );
-  }
+      ),
+    },
+    {
+      key: "status",
+      label: "Status",
+      render: (row) => (
+        <StatusPill tone={row.status === "active" ? "success" : "neutral"}>
+          {row.status}
+        </StatusPill>
+      ),
+    },
+    {
+      key: "effective",
+      label: "Effective",
+      render: (row) => (
+        <span className="whitespace-nowrap text-xs text-muted">
+          {formatManilaDate(row.effectiveFrom)}
+          {row.effectiveTo !== undefined
+            ? ` – ${formatManilaDate(row.effectiveTo)}`
+            : " onward"}
+        </span>
+      ),
+    },
+    {
+      key: "actions",
+      label: "Actions",
+      align: "right",
+      render: (row) => (
+        <div className="flex flex-nowrap justify-end gap-2">
+          {(["create", "edit", "reparent", "deactivate"] as const).map(
+            (action) => (
+              <Button
+                key={action}
+                size="sm"
+                variant={action === "deactivate" ? "danger-soft" : "outline"}
+                isDisabled={
+                  !canManage ||
+                  !!previewDate ||
+                  !(permissions?.scopeUnitIds.includes(row._id) ?? false) ||
+                  row.status !== "active" ||
+                  (action === "create" &&
+                    !(unitTypes ?? []).some(
+                      (type) =>
+                        levelOf(row.typeCode) !== undefined &&
+                        type.level > levelOf(row.typeCode)!,
+                    )) ||
+                  ((action === "reparent" || action === "deactivate") &&
+                    row.code === "SUNPRIDE")
+                }
+                onPress={() => {
+                  setChoice({ unit: row, action });
+                  setTypeCode("");
+                  setParentId("");
+                  setError("");
+                  setNotice("");
+                }}
+              >
+                {action === "create"
+                  ? "Create child"
+                  : action === "edit"
+                    ? "Edit name"
+                    : action === "reparent"
+                      ? "Reparent"
+                      : "Deactivate"}
+              </Button>
+            ),
+          )}
+        </div>
+      ),
+    },
+  ];
 
   return (
-    <section className="grid gap-5">
-      <div>
-        <h2 className="text-lg font-semibold">Organization hierarchy</h2>
-        <p className="text-sm text-muted">
-          {previewDate
-            ? "Preview as of Manila midnight"
-            : "Current effective tree"}{" "}
-          · Dates shown in Manila time
-        </p>
-        <label className="mt-3 grid max-w-xs gap-1 text-sm">
-          Preview as of date (Asia/Manila)
-          <input
-            type="date"
-            className={fieldClass}
-            value={previewDate}
-            onChange={(event) => {
-              const value = event.target.value;
-              setPreviewDate(value);
-              setAsOf(value ? manilaDateToUtcMs(value) : Date.now());
-            }}
-          />
-        </label>
-      </div>
-      {units === undefined ? (
-        <p>Loading organization…</p>
-      ) : units.length === 0 ? (
-        <EmptyPanel
-          title="No organization units"
-          description="The organization foundation has not been seeded."
-        />
-      ) : (
-        <ul className="grid gap-2">
-          {children().map((unit) => renderBranch(unit, 0))}
-        </ul>
-      )}
-      {choice ? (
-        <form
-          onSubmit={submit}
-          className="grid gap-3 rounded-lg border border-border bg-surface p-5"
-        >
-          <h3 className="font-semibold">
-            {choice.action === "create"
-              ? "Create child of"
-              : choice.action === "edit"
-                ? "Edit"
-                : choice.action === "reparent"
-                  ? "Reparent"
-                  : "Deactivate"}{" "}
-            {choice.unit.name}
-          </h3>
-          {choice.action === "create" ? (
-            <>
-              <label className="grid gap-1 text-sm">
-                Code
-                <Input name="code" required />
-              </label>
-              <label className="grid gap-1 text-sm">
-                Name
-                <Input name="name" required />
-              </label>
-              <label className="grid gap-1 text-sm">
-                Unit type
-                <select
-                  name="typeCode"
-                  required
-                  className={fieldClass}
-                  defaultValue=""
-                >
-                  <option value="" disabled>
-                    Select a type
-                  </option>
-                  {(unitTypes ?? [])
-                    .filter(
-                      (type) =>
-                        levelOf(choice.unit.typeCode) !== undefined &&
-                        type.level > levelOf(choice.unit.typeCode)!,
-                    )
-                    .map((type) => (
-                      <option key={type._id} value={type.code}>
-                        {type.label}
-                      </option>
-                    ))}
-                </select>
-              </label>
-            </>
-          ) : choice.action === "edit" ? (
-            <label className="grid gap-1 text-sm">
-              Name
-              <Input name="name" defaultValue={choice.unit.name} required />
-            </label>
-          ) : choice.action === "reparent" ? (
-            <label className="grid gap-1 text-sm">
-              New parent
-              <select
-                name="parentId"
-                required
-                className={fieldClass}
-                defaultValue=""
-              >
-                <option value="" disabled>
-                  Select a unit
-                </option>
-                {(units ?? [])
-                  .filter(
-                    (unit) =>
-                      unit._id !== choice.unit._id &&
-                      unit._id !== choice.unit.parentId &&
-                      unit.status === "active" &&
-                      levelOf(unit.typeCode) !== undefined &&
-                      levelOf(choice.unit.typeCode) !== undefined &&
-                      levelOf(unit.typeCode)! < levelOf(choice.unit.typeCode)!,
-                  )
-                  .map((unit) => (
-                    <option key={unit._id} value={unit._id}>
-                      {unit.code} · {unit.name}
-                    </option>
-                  ))}
-              </select>
-            </label>
-          ) : null}
-          {choice.action !== "edit" ? (
-            <label className="grid gap-1 text-sm">
-              Effective date (Asia/Manila)
-              <input
-                className={fieldClass}
-                type="date"
-                name="effectiveDate"
-                required
-              />
-            </label>
-          ) : null}
-          <label className="grid gap-1 text-sm">
-            Reason (required)
-            <textarea
-              className="rounded-md border border-border bg-surface p-2"
-              name="reason"
-              required
-              rows={2}
+    <div className="grid gap-4">
+      <Card
+        label="Organization"
+        icon={<WorkspaceIcon name="admin" />}
+        count={units?.length}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[13px] text-muted">As of</span>
+            <input
+              type="date"
+              aria-label="Preview date"
+              value={previewDate}
+              onChange={(event) => {
+                const value = event.target.value;
+                setPreviewDate(value);
+                setAsOf(value ? manilaDateToUtcMs(value) : Date.now());
+              }}
             />
-          </label>
-          <p className="text-xs text-muted">
-            The reason is recorded with this organization change.
-          </p>
-          {error ? (
-            <p role="alert" className="text-sm text-danger">
-              {error}
-            </p>
-          ) : null}
-          <div className="flex gap-2">
             <Button
-              type="submit"
               variant="primary"
-              isDisabled={!canManage}
-              isPending={pending}
+              isDisabled={!canManage || !!previewDate || !createParent}
+              onPress={() => {
+                if (!createParent) return;
+                setChoice({ unit: createParent, action: "create" });
+                setTypeCode("");
+                setError("");
+                setNotice("");
+              }}
             >
-              Save change
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              onPress={() => setChoice(null)}
-            >
-              Cancel
+              New unit
             </Button>
           </div>
-        </form>
+        }
+        flush
+      >
+        {units === undefined ? (
+          <p className="p-4 text-sm text-muted">Loading organization…</p>
+        ) : (
+          <DataTable
+            bare
+            rows={rows}
+            columns={columns}
+            empty={<EmptyPanel title="No units" />}
+          />
+        )}
+      </Card>
+      {choice ? (
+        <Card
+          label={`${choice.action === "create" ? "New unit" : choice.action === "edit" ? "Edit unit" : choice.action === "reparent" ? "Move unit" : "Deactivate unit"} · ${choice.unit.name}`}
+        >
+          <form
+            onSubmit={submit}
+            className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
+          >
+            {choice.action === "create" ? (
+              <>
+                <FormField label="Code">
+                  <Input name="code" required />
+                </FormField>
+                <FormField label="Name">
+                  <Input name="name" required />
+                </FormField>
+                <AdminSelectField
+                  name="typeCode"
+                  label="Unit type"
+                  value={typeCode}
+                  onChange={setTypeCode}
+                  required
+                  options={[
+                    { id: "", label: "Select a type" },
+                    ...(unitTypes ?? [])
+                      .filter(
+                        (type) =>
+                          levelOf(choice.unit.typeCode) !== undefined &&
+                          type.level > levelOf(choice.unit.typeCode)!,
+                      )
+                      .map((type) => ({ id: type.code, label: type.label })),
+                  ]}
+                />
+              </>
+            ) : choice.action === "edit" ? (
+              <FormField label="Name">
+                <Input name="name" defaultValue={choice.unit.name} required />
+              </FormField>
+            ) : choice.action === "reparent" ? (
+              <AdminSelectField
+                name="parentId"
+                label="New parent"
+                value={parentId}
+                onChange={setParentId}
+                required
+                options={[
+                  { id: "", label: "Select a unit" },
+                  ...(units ?? [])
+                    .filter(
+                      (unit) =>
+                        unit._id !== choice.unit._id &&
+                        unit._id !== choice.unit.parentId &&
+                        unit.status === "active" &&
+                        levelOf(unit.typeCode) !== undefined &&
+                        levelOf(choice.unit.typeCode) !== undefined &&
+                        levelOf(unit.typeCode)! <
+                          levelOf(choice.unit.typeCode)!,
+                    )
+                    .map((unit) => ({
+                      id: unit._id,
+                      label: `${unit.code} · ${unit.name}`,
+                    })),
+                ]}
+              />
+            ) : null}
+            {choice.action !== "edit" ? (
+              <FormField label="Effective date">
+                <input type="date" name="effectiveDate" required />
+              </FormField>
+            ) : null}
+            <FormField label="Reason">
+              <textarea
+                className="min-h-20 rounded-[10px] border border-border bg-surface p-3 text-sm"
+                name="reason"
+                required
+                rows={2}
+              />
+            </FormField>
+            {error ? (
+              <p role="alert" className="text-sm text-danger">
+                {error}
+              </p>
+            ) : null}
+            <div className="flex gap-2">
+              <Button
+                type="submit"
+                variant="primary"
+                isDisabled={!canManage}
+                isPending={pending}
+                className="h-10"
+              >
+                Save change
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                className="h-10"
+                onPress={() => setChoice(null)}
+              >
+                Cancel
+              </Button>
+            </div>
+          </form>
+        </Card>
       ) : null}
-      {error && !choice ? <p role="alert">{error}</p> : null}
+      {error && !choice ? (
+        <Card label="Error">
+          <p role="alert" className="text-sm text-danger">
+            {error}
+          </p>
+        </Card>
+      ) : null}
       {notice ? (
-        <p role="status" className="text-sm text-success">
-          {notice}
-        </p>
+        <Card label="Status">
+          <p role="status" className="text-sm text-success">
+            {notice}
+          </p>
+        </Card>
       ) : null}
-    </section>
+    </div>
   );
 }

@@ -113,7 +113,7 @@ describe("Outlet admin (unmounted)", () => {
   it("shows history, verification, and disables self-review controls", () => {
     state.selected = outlet._id;
     const view = render();
-    expect(view).toContain("Customer-link history");
+    expect(view).toContain("Customer history");
     expect(view).toContain("Unlinked prospect / site");
     expect(view).toContain("Verification");
     expect(view).toMatch(/disabled=""[^>]*>Approve/);

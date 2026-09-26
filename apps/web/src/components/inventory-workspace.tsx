@@ -1,9 +1,18 @@
 "use client";
 
-import { Button } from "@heroui/react";
+import { Button, Input, ListBox, Select } from "@heroui/react";
 import { api } from "@sunpride/backend/api";
 import type { Id } from "@sunpride/backend/data-model";
-import { StatusPill } from "@sunpride/ui";
+import {
+  Card,
+  ListRow,
+  MetricCard,
+  Notice,
+  PageHeader,
+  StatusPill,
+  UnderlineTabs,
+  WorkspaceIcon,
+} from "@sunpride/ui";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { useMemo, useState } from "react";
 
@@ -14,11 +23,51 @@ const tabs = [
   ["counts", "Stock counts"],
   ["production", "Production"],
   ["controls", "Controls"],
-  ["ledger", "Movement ledger"],
+  ["ledger", "Movements"],
 ] as const;
 
 const inputClass =
-  "h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20";
+  "h-10 w-full rounded-[10px] border border-field-border bg-field-background px-3 text-sm shadow-none";
+
+function InventorySelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: { id: string; label: string }[];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <Select
+      aria-label={label}
+      selectedKey={value || "__none"}
+      onSelectionChange={(key) =>
+        onChange(key === "__none" ? "" : String(key ?? ""))
+      }
+    >
+      <Select.Trigger className="h-10 min-h-10 rounded-[10px] !border !border-border bg-surface px-3 text-sm shadow-none">
+        <Select.Value />
+        <Select.Indicator />
+      </Select.Trigger>
+      <Select.Popover>
+        <ListBox>
+          {options.map((option) => (
+            <ListBox.Item
+              key={option.id || "__none"}
+              id={option.id || "__none"}
+              textValue={option.label}
+            >
+              {option.label}
+            </ListBox.Item>
+          ))}
+        </ListBox>
+      </Select.Popover>
+    </Select>
+  );
+}
 
 function quantityBase(value: string) {
   const parsed = Number(value);
@@ -42,43 +91,34 @@ function formatTime(value: number) {
 }
 
 function operationErrorMessage(error: unknown) {
-  const fallback =
-    "We couldn't complete that action. Please try again or contact an administrator.";
+  const fallback = "Action failed. Try again.";
   if (!(error instanceof Error)) return fallback;
   const message = error.message.trim();
-  if (
-    !message ||
-    message.startsWith("[CONVEX") ||
-    message.includes("Server Error") ||
-    message.length > 180
-  )
-    return fallback;
-  return message;
+  return message === "Enter a positive quantity" ||
+    message === "Count must be zero or greater"
+    ? message
+    : fallback;
 }
 
 function OperationPanel({
   title,
-  description,
   children,
 }: {
   title: string;
-  description: string;
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-border bg-surface p-5 shadow-sm">
-      <div className="mb-5 border-l-4 border-accent pl-3">
-        <h2 className="font-semibold text-foreground">{title}</h2>
-        <p className="mt-1 text-sm text-muted">{description}</p>
-      </div>
+    <Card label={title} icon={<WorkspaceIcon name="inventory" />}>
       {children}
-    </section>
+    </Card>
   );
 }
 
 export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
+  void setupMessage;
   const [tab, setTab] = useState<(typeof tabs)[number][0]>("stock");
   const [notice, setNotice] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [locationFilter, setLocationFilter] = useState("");
   const [receipt, setReceipt] = useState({
@@ -148,9 +188,9 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
     );
   const displayedNotice =
     notice ??
-    (inventoryReady
-      ? "Inventory is ready. Locations, units, and product rules are configured."
-      : setupMessage);
+    (!inventoryReady && locations && products
+      ? "Set up inventory to continue"
+      : null);
 
   const inTransit = locations?.find(
     (location) => location.type === "in_transit",
@@ -173,7 +213,9 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
     setBusy(true);
     try {
       await action();
-      setNotice(success);
+      setNotice(null);
+      setToast(success);
+      window.setTimeout(() => setToast(null), 4000);
     } catch (error) {
       console.error(error);
       setNotice(operationErrorMessage(error));
@@ -184,176 +226,188 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
 
   async function setupInventory() {
     setBusy(true);
-    setNotice("Setting up inventory locations, units, and product rules…");
+    setNotice(null);
     try {
-      const result = await provision();
-      setNotice(
-        result.seeded
-          ? `Inventory setup is complete. ${result.locationCount} locations and ${result.policyCount} product ${result.policyCount === 1 ? "rule" : "rules"} are ready.`
-          : "Inventory setup was already complete. No changes were needed.",
-      );
+      await provision();
+      setNotice(null);
+      setToast("Inventory set up");
+      window.setTimeout(() => setToast(null), 4000);
     } catch (error) {
       console.error(error);
-      setNotice(
-        "Inventory setup couldn't be completed. Please try again or contact an administrator.",
-      );
+      setNotice("Setup failed. Try again.");
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div className="grid gap-5">
-      <div className="inventory-command-bar">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">
-            Inventory setup
-          </p>
-          <p className="mt-1 text-sm text-foreground">{displayedNotice}</p>
-        </div>
-        <Button
-          size="sm"
-          variant="secondary"
-          isPending={busy}
-          isDisabled={busy || inventoryReady}
-          onPress={() => void setupInventory()}
+    <div className="grid gap-4">
+      <PageHeader
+        title="Inventory"
+        meta={
+          overview && locations
+            ? `${totals.physical.toLocaleString("en-PH")} cases · ${locations.length} ${locations.length === 1 ? "location" : "locations"}`
+            : undefined
+        }
+      />
+      {toast ? (
+        <div
+          role="status"
+          className="fixed bottom-4 right-4 z-50 rounded-xl bg-overlay px-4 py-3 text-[13px] text-overlay-foreground shadow-overlay"
         >
-          {inventoryReady ? "Inventory ready" : "Set up inventory"}
-        </Button>
-      </div>
-
-      <div className="flex gap-1 overflow-x-auto rounded-lg border border-border bg-surface p-1">
-        {tabs.map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            className={`shrink-0 rounded-md px-4 py-2 text-sm font-medium transition ${
-              tab === id
-                ? "bg-foreground text-background shadow-sm"
-                : "text-muted hover:bg-background hover:text-foreground"
-            }`}
-            onClick={() => setTab(id)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+          {toast}
+        </div>
+      ) : null}
+      {displayedNotice ? (
+        <Notice
+          title={displayedNotice}
+          tone={notice ? "danger" : "warning"}
+          meta={
+            !inventoryReady ? (
+              <Button
+                variant="secondary"
+                className="mt-2 h-8 min-h-8"
+                isPending={busy}
+                onPress={() => void setupInventory()}
+              >
+                Set up
+              </Button>
+            ) : undefined
+          }
+        />
+      ) : null}
+      <UnderlineTabs
+        items={tabs}
+        activeId={tab}
+        onChange={setTab}
+        label="Inventory sections"
+      />
 
       {tab === "stock" ? (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {[
-              ["Physical", totals.physical],
-              ["Available to promise", totals.available],
-              ["Hard reserved", totals.reserved],
-              ["Quality hold", totals.quality],
-            ].map(([label, value]) => (
-              <div key={label} className="inventory-tally">
-                <span>{label}</span>
-                <strong>{Number(value).toLocaleString("en-PH")}</strong>
-                <small>base cases across filtered locations</small>
-              </div>
-            ))}
-          </div>
-          <OperationPanel
-            title="Product-location balance"
-            description="Physical identity is preserved by lot; this is the fast operational summary."
-          >
-            <div className="mb-4 max-w-sm">
-              <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">
-                Location
-              </label>
-              <select
-                className={inputClass}
-                value={locationFilter}
-                onChange={(event) => setLocationFilter(event.target.value)}
-              >
-                <option value="">All operational locations</option>
-                {(locations ?? []).map((location) => (
-                  <option key={location._id} value={location._id}>
-                    {location.code} — {location.name}
-                  </option>
-                ))}
-              </select>
+          <section aria-label="Stock · cases">
+            <h2 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted">
+              Stock · cases
+            </h2>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              {[
+                ["Physical", totals.physical],
+                ["Available", totals.available],
+                ["Reserved", totals.reserved],
+                ["Hold", totals.quality],
+              ].map(([label, value]) => (
+                <MetricCard
+                  key={label}
+                  label={String(label)}
+                  value={Number(value).toLocaleString("en-PH")}
+                />
+              ))}
             </div>
+          </section>
+          <Card
+            label="Stock by location"
+            icon={<WorkspaceIcon name="inventory" />}
+            flush
+            actions={
+              <div className="w-56">
+                <InventorySelect
+                  label="Location"
+                  value={locationFilter}
+                  onChange={setLocationFilter}
+                  options={[
+                    { id: "", label: "All locations" },
+                    ...(locations ?? []).map((location) => ({
+                      id: location._id,
+                      label: `${location.code} · ${location.name}`,
+                    })),
+                  ]}
+                />
+              </div>
+            }
+          >
             <div className="overflow-x-auto">
-              <table className="inventory-table">
+              <table className="w-full min-w-[640px] border-collapse [&_tbody_tr:last-child_td]:border-b-0 text-left text-sm [&_th]:border-b [&_th]:border-separator [&_th]:px-4 [&_th]:py-3 [&_th]:text-[11px] [&_th]:font-medium [&_th]:uppercase [&_th]:tracking-wide [&_th]:text-muted [&_td]:h-[52px] [&_td]:border-b [&_td]:border-separator [&_td]:px-4 [&_td]:py-2">
                 <thead>
                   <tr>
-                    <th>Product</th>
+                    <th className="w-1/2">Product</th>
                     <th>Location</th>
-                    <th>Physical</th>
-                    <th>Reserved</th>
-                    <th>Available</th>
-                    <th>Hold</th>
-                    <th>Version</th>
+                    <th className="text-right">Physical</th>
+                    <th className="text-right">Available</th>
+                    <th className="text-right">Reserved</th>
+                    <th className="text-right">Hold</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(overview ?? []).map((row) => (
                     <tr key={row.id}>
                       <td>
-                        <strong>{row.productCode}</strong>
-                        <small>{row.productName}</small>
+                        <span className="block font-medium">
+                          {row.productName}
+                        </span>
+                        <span className="block font-mono text-xs text-muted">
+                          {row.productCode}
+                        </span>
                       </td>
                       <td>
-                        {row.locationCode}
-                        <small>{row.locationType.replaceAll("_", " ")}</small>
+                        <span className="block">{row.locationCode}</span>
+                        <span className="block text-xs text-muted">
+                          {row.locationType.replaceAll("_", " ")}
+                        </span>
                       </td>
-                      <td>{row.physical}</td>
-                      <td>{row.reserved}</td>
-                      <td className="font-semibold text-success">
+                      <td className="text-right tabular-nums">
+                        {row.physical}
+                      </td>
+                      <td className="text-right tabular-nums">
                         {row.available}
                       </td>
-                      <td>{row.qualityHold}</td>
-                      <td>v{row.version}</td>
+                      <td className="text-right tabular-nums">
+                        {row.reserved}
+                      </td>
+                      <td className="text-right tabular-nums">
+                        {row.qualityHold}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          </OperationPanel>
+          </Card>
         </>
       ) : null}
 
       {tab === "receiving" ? (
-        <div className="grid gap-4 xl:grid-cols-[0.8fr_1.2fr]">
-          <OperationPanel
-            title="Post goods receipt"
-            description="Creates the document, lot, movement, ledger, balances, audit, and SAP effect atomically."
-          >
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <OperationPanel title="Receive stock">
             <div className="grid gap-3">
-              <select
-                className={inputClass}
+              <InventorySelect
+                label="Product"
                 value={receipt.productId}
-                onChange={(event) =>
-                  setReceipt({ ...receipt, productId: event.target.value })
-                }
-              >
-                <option value="">Select product</option>
-                {(products ?? []).map((product) => (
-                  <option key={product._id} value={product._id}>
-                    {product.code} — {product.name}
-                  </option>
-                ))}
-              </select>
-              <select
-                className={inputClass}
+                onChange={(productId) => setReceipt({ ...receipt, productId })}
+                options={[
+                  { id: "", label: "Select product" },
+                  ...(products ?? []).map((product) => ({
+                    id: product._id,
+                    label: `${product.code} · ${product.name}`,
+                  })),
+                ]}
+              />
+              <InventorySelect
+                label="Receiving location"
                 value={receipt.locationId}
-                onChange={(event) =>
-                  setReceipt({ ...receipt, locationId: event.target.value })
+                onChange={(locationId) =>
+                  setReceipt({ ...receipt, locationId })
                 }
-              >
-                <option value="">Receiving location</option>
-                {(locations ?? [])
-                  .filter((location) => location.allowsReceiving)
-                  .map((location) => (
-                    <option key={location._id} value={location._id}>
-                      {location.code} — {location.name}
-                    </option>
-                  ))}
-              </select>
-              <input
+                options={[
+                  { id: "", label: "Receiving location" },
+                  ...(locations ?? [])
+                    .filter((location) => location.allowsReceiving)
+                    .map((location) => ({
+                      id: location._id,
+                      label: `${location.code} · ${location.name}`,
+                    })),
+                ]}
+              />
+              <Input
                 className={inputClass}
                 aria-label="Quantity in cases"
                 value={receipt.quantity}
@@ -362,7 +416,7 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                 }
                 placeholder="Accepted cases"
               />
-              <input
+              <Input
                 className={inputClass}
                 aria-label="Lot number"
                 value={receipt.lotNumber}
@@ -371,7 +425,7 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                 }
                 placeholder="Supplier or production lot"
               />
-              <input
+              <Input
                 className={inputClass}
                 type="date"
                 aria-label="Expiry date"
@@ -408,7 +462,7 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                           },
                         ],
                       }),
-                    "Goods receipt posted and queued for SAP acknowledgement.",
+                    "Receipt posted",
                   )
                 }
               >
@@ -416,63 +470,71 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
               </Button>
             </div>
           </OperationPanel>
-          <DocumentList
-            title="Recent receipts"
-            rows={(receipts ?? []).map((row) => ({
-              id: row._id,
-              number: row.receiptNumber,
-              status: row.status,
-              time: row.createdAt,
-            }))}
-          />
+          <Card
+            label="Recent receipts"
+            icon={<WorkspaceIcon name="inventory" />}
+          >
+            <DocumentList
+              title=""
+              rows={(receipts ?? []).map((row) => ({
+                id: row._id,
+                number: row.receiptNumber,
+                status: row.status,
+                time: row.createdAt,
+              }))}
+            />
+          </Card>
         </div>
       ) : null}
 
       {tab === "transfers" ? (
-        <div className="grid gap-4 xl:grid-cols-[0.8fr_1.2fr]">
-          <OperationPanel
-            title="Request stock transfer"
-            description="Shipment moves exact lots into transit; receipt preserves those allocations at destination."
-          >
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <OperationPanel title="New transfer">
             <div className="grid gap-3">
-              <select
-                className={inputClass}
+              <InventorySelect
+                label="Product"
                 value={transfer.productId}
-                onChange={(event) =>
-                  setTransfer({ ...transfer, productId: event.target.value })
+                onChange={(productId) =>
+                  setTransfer({ ...transfer, productId })
                 }
-              >
-                <option value="">Select product</option>
-                {(products ?? []).map((product) => (
-                  <option key={product._id} value={product._id}>
-                    {product.code} — {product.name}
-                  </option>
-                ))}
-              </select>
+                options={[
+                  { id: "", label: "Select product" },
+                  ...(products ?? []).map((product) => ({
+                    id: product._id,
+                    label: `${product.code} · ${product.name}`,
+                  })),
+                ]}
+              />
               {(["sourceId", "destinationId"] as const).map((field) => (
-                <select
+                <InventorySelect
                   key={field}
-                  className={inputClass}
-                  value={transfer[field]}
-                  onChange={(event) =>
-                    setTransfer({ ...transfer, [field]: event.target.value })
-                  }
-                >
-                  <option value="">
-                    {field === "sourceId"
+                  label={
+                    field === "sourceId"
                       ? "Source location"
-                      : "Destination location"}
-                  </option>
-                  {(locations ?? [])
-                    .filter((location) => location.type !== "in_transit")
-                    .map((location) => (
-                      <option key={location._id} value={location._id}>
-                        {location.code} — {location.name}
-                      </option>
-                    ))}
-                </select>
+                      : "Destination location"
+                  }
+                  value={transfer[field]}
+                  onChange={(value) =>
+                    setTransfer({ ...transfer, [field]: value })
+                  }
+                  options={[
+                    {
+                      id: "",
+                      label:
+                        field === "sourceId"
+                          ? "Source location"
+                          : "Destination location",
+                    },
+                    ...(locations ?? [])
+                      .filter((location) => location.type !== "in_transit")
+                      .map((location) => ({
+                        id: location._id,
+                        label: `${location.code} · ${location.name}`,
+                      })),
+                  ]}
+                />
               ))}
-              <input
+              <Input
                 className={inputClass}
                 aria-label="Transfer quantity in cases"
                 value={transfer.quantity}
@@ -505,7 +567,7 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                           },
                         ],
                       }),
-                    "Transfer requested. A different authorized user must approve it.",
+                    "Transfer requested",
                   )
                 }
               >
@@ -513,16 +575,20 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
               </Button>
             </div>
           </OperationPanel>
-          <OperationPanel
-            title="Transfer queue"
-            description="The control sequence is request → approve → ship → receive."
-          >
+          <OperationPanel title="Transfer queue">
             <div className="grid gap-2">
               {(transfers ?? []).map((row) => (
-                <div key={row._id} className="inventory-document-row">
+                <div
+                  key={row._id}
+                  className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-separator px-4 last:border-b-0"
+                >
                   <div>
-                    <strong>{row.transferNumber}</strong>
-                    <small>{formatTime(row.createdAt)}</small>
+                    <strong className="font-mono text-sm font-medium">
+                      {row.transferNumber}
+                    </strong>
+                    <small className="block text-[13px] text-muted">
+                      {formatTime(row.createdAt)}
+                    </small>
                   </div>
                   <StatusPill
                     tone={row.status === "received" ? "success" : "warning"}
@@ -555,7 +621,7 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                                 transferId: row._id,
                                 idempotencyKey: crypto.randomUUID(),
                               }),
-                            "Transfer shipped into transit.",
+                            "Transfer shipped",
                           )
                         }
                       >
@@ -573,7 +639,7 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                                 transferId: row._id,
                                 idempotencyKey: crypto.randomUUID(),
                               }),
-                            "Transfer received with exact lot identity.",
+                            "Transfer received",
                           )
                         }
                       >
@@ -589,10 +655,7 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
       ) : null}
 
       {tab === "counts" ? (
-        <OperationPanel
-          title="Controlled stock counts"
-          description="A blind snapshot freezes the expected quantities; another authorized user approves any adjustment."
-        >
+        <OperationPanel title="Stock counts">
           <div className="mb-5 flex flex-wrap gap-2">
             {(locations ?? [])
               .filter((location) => location.type !== "virtual_boundary")
@@ -611,7 +674,7 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                             location.type === "truck" ? "route_close" : "cycle",
                           blindCount: true,
                         }),
-                      `Blind count started for ${location.code}.`,
+                      "Count started",
                     )
                   }
                 >
@@ -629,15 +692,19 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                   <button
                     key={row._id}
                     type="button"
-                    className={`inventory-document-row text-left ${countSessionId === row._id ? "border-accent" : ""}`}
+                    className={`flex min-h-14 w-full items-center justify-between gap-3 border-b border-separator px-4 text-left last:border-b-0 ${countSessionId === row._id ? "bg-accent-soft" : ""}`}
                     onClick={() => {
                       setCountSessionId(row._id);
                       setCountValues({});
                     }}
                   >
                     <div>
-                      <strong>{row.countNumber}</strong>
-                      <small>{formatTime(row.createdAt)}</small>
+                      <strong className="font-mono text-sm font-medium">
+                        {row.countNumber}
+                      </strong>
+                      <small className="block text-[13px] text-muted">
+                        {formatTime(row.createdAt)}
+                      </small>
                     </div>
                     <StatusPill
                       tone={row.status === "posted" ? "success" : "warning"}
@@ -648,11 +715,9 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                 ))}
               </div>
             </div>
-            <div className="rounded-lg border border-border bg-background p-4">
+            <div className="p-4">
               {!countDetail ? (
-                <p className="text-sm text-muted">
-                  Select a count session to enter or review quantities.
-                </p>
+                <p className="text-sm text-muted">Select a count to review</p>
               ) : (
                 <div className="grid gap-3">
                   {countDetail.lines.map((line) => (
@@ -670,7 +735,7 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                             : " · blind count"}
                         </small>
                       </div>
-                      <input
+                      <Input
                         className={inputClass}
                         type="number"
                         min="0"
@@ -712,11 +777,11 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                                 ),
                               })),
                             }),
-                          "Count submitted for independent approval.",
+                          "Count submitted",
                         )
                       }
                     >
-                      Submit blind count
+                      Submit count
                     </Button>
                   ) : null}
                   {countDetail.session.status === "submitted" ? (
@@ -731,11 +796,11 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                               idempotencyKey: crypto.randomUUID(),
                               reasonCode: "verified_stock_count",
                             }),
-                          "Count variance approved and posted.",
+                          "Count posted",
                         )
                       }
                     >
-                      Approve and post variance
+                      Approve count
                     </Button>
                   ) : null}
                 </div>
@@ -746,10 +811,7 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
       ) : null}
 
       {tab === "production" ? (
-        <OperationPanel
-          title="Production control"
-          description="Released orders pin a BOM version; completion consumes exact component lots and creates an output lot with genealogy."
-        >
+        <OperationPanel title="Production">
           <DocumentList
             title="Production orders"
             rows={(production ?? []).map((row) => ({
@@ -758,23 +820,25 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
               status: row.status,
               time: row.createdAt,
             }))}
-            empty="No production orders have been released. Create and approve a BOM version through the manufacturing API before production."
+            empty="No production orders yet"
           />
         </OperationPanel>
       ) : null}
 
       {tab === "controls" ? (
         <div className="grid gap-4 xl:grid-cols-3">
-          <OperationPanel
-            title="Replenishment exceptions"
-            description="Enabled min/target policies produce suggestions without creating stock by themselves."
-          >
+          <OperationPanel title="Low stock">
             <div className="grid gap-2">
               {(replenishment ?? []).map((row) => (
-                <div key={row.policyId} className="inventory-document-row">
+                <div
+                  key={row.policyId}
+                  className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-separator px-4 last:border-b-0"
+                >
                   <div>
-                    <strong>{row.productCode}</strong>
-                    <small>
+                    <strong className="font-mono text-sm font-medium">
+                      {row.productCode}
+                    </strong>
+                    <small className="block text-[13px] text-muted">
                       {row.locationCode ?? "All locations"} · suggested{" "}
                       {Number(row.suggestedBase) / 1_000}
                     </small>
@@ -783,14 +847,11 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                 </div>
               ))}
               {replenishment?.length === 0 ? (
-                <p className="text-sm text-muted">No low-stock exceptions.</p>
+                <p className="text-sm text-muted">No low stock</p>
               ) : null}
             </div>
           </OperationPanel>
-          <OperationPanel
-            title="Adjustment approvals"
-            description="Manual corrections are requested first and must be posted by another authorized user."
-          >
+          <OperationPanel title="Adjustments">
             <DocumentList
               title="Recent adjustments"
               rows={(adjustments ?? []).map((row) => ({
@@ -801,28 +862,28 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
               }))}
             />
           </OperationPanel>
-          <OperationPanel
-            title="SAP reconciliation"
-            description="Compares operational balances to snapshots at an explicit cutoff; it never overwrites stock."
-          >
+          <OperationPanel title="Differences">
             <Button
               variant="secondary"
               isPending={busy}
               onPress={() =>
                 void execute(
                   () => runReconciliation({ sapCutoff: Date.now() }),
-                  "Reconciliation completed. Review any open differences.",
+                  "Check differences",
                 )
               }
             >
-              Reconcile current snapshot
+              Check differences
             </Button>
             <div className="mt-4 grid gap-2">
               {(reconciliationRuns ?? []).map((row) => (
-                <div key={row._id} className="inventory-document-row">
+                <div
+                  key={row._id}
+                  className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-separator px-4 last:border-b-0"
+                >
                   <div>
-                    <strong>{row.scope}</strong>
-                    <small>
+                    <strong className="text-sm font-medium">{row.scope}</strong>
+                    <small className="block text-[13px] text-muted">
                       {row.comparedCount} compared · {row.differenceCount}{" "}
                       differences
                     </small>
@@ -840,16 +901,18 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
       ) : null}
 
       {tab === "ledger" ? (
-        <OperationPanel
-          title="Immutable movement ledger"
-          description="Every row links back to a command, document, exact allocations, balance versions, audit record, and SAP effect."
-        >
+        <OperationPanel title="Movements">
           <div className="grid gap-2">
             {movements.results.map((row) => (
-              <div key={row._id} className="inventory-document-row">
+              <div
+                key={row._id}
+                className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-separator px-4 last:border-b-0"
+              >
                 <div>
-                  <strong>{row.movementNumber}</strong>
-                  <small>
+                  <strong className="font-mono text-sm font-medium">
+                    {row.movementNumber}
+                  </strong>
+                  <small className="block text-[13px] text-muted">
                     {row.sourceType.replaceAll("_", " ")} ·{" "}
                     {formatTime(row.postedAt)}
                   </small>
@@ -884,7 +947,7 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
 function DocumentList({
   title,
   rows,
-  empty = "No records yet.",
+  empty = "No records yet",
 }: {
   title: string;
   rows: { id: string; number: string; status: string; time: number }[];
@@ -892,33 +955,37 @@ function DocumentList({
 }) {
   return (
     <div>
-      <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-muted">
-        {title}
-      </h3>
-      <div className="grid gap-2">
+      {title ? (
+        <h3 className="mb-3 text-[11px] font-medium uppercase tracking-wide text-muted">
+          {title}
+        </h3>
+      ) : null}
+      <div className="-mx-4 -mb-4">
         {rows.length === 0 ? (
           <p className="rounded-lg bg-background p-4 text-sm text-muted">
             {empty}
           </p>
         ) : null}
         {rows.map((row) => (
-          <div key={row.id} className="inventory-document-row">
-            <div>
-              <strong>{row.number}</strong>
-              <small>{formatTime(row.time)}</small>
-            </div>
-            <StatusPill
-              tone={
-                row.status === "posted" ||
-                row.status === "received" ||
-                row.status === "completed"
-                  ? "success"
-                  : "warning"
-              }
-            >
-              {row.status.replaceAll("_", " ")}
-            </StatusPill>
-          </div>
+          <ListRow
+            key={row.id}
+            icon={<WorkspaceIcon name="inventory" />}
+            title={<span className="font-mono">{row.number}</span>}
+            meta={formatTime(row.time)}
+            action={
+              <StatusPill
+                tone={
+                  row.status === "posted" ||
+                  row.status === "received" ||
+                  row.status === "completed"
+                    ? "success"
+                    : "warning"
+                }
+              >
+                {row.status.replaceAll("_", " ")}
+              </StatusPill>
+            }
+          />
         ))}
       </div>
     </div>

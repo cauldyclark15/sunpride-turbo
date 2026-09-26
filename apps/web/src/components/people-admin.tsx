@@ -4,14 +4,19 @@ import { Button, Input } from "@heroui/react";
 import { api } from "@sunpride/backend/api";
 import type { Doc, Id } from "@sunpride/backend/data-model";
 import {
+  Card,
   DataTable,
   EmptyPanel,
+  FormField,
+  Pager,
   StatusPill,
+  WorkspaceIcon,
   type DataColumn,
 } from "@sunpride/ui";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionArgs } from "convex/server";
 import { useState, type FormEvent } from "react";
+import { AdminSelectField } from "./org-admin";
 import { formatManilaDate } from "../lib/manila-date";
 
 type Person = Doc<"profiles">;
@@ -32,8 +37,6 @@ const roles: Role[] = [
   "analyst",
   "viewer",
 ];
-const selectClass =
-  "h-10 rounded-md border border-border bg-surface px-3 text-sm text-foreground";
 
 export async function performPeopleAssignment(
   selected: Person,
@@ -144,16 +147,20 @@ export function PeopleAdmin() {
       key: "name",
       label: "Person",
       render: (row) => (
-        <span>
-          {row.name}
-          <span className="block text-xs text-muted">{row.email}</span>
+        <span className="block">
+          <span className="block text-sm font-medium">{row.name}</span>
+          <span className="block font-mono text-xs text-muted">
+            {row.email}
+          </span>
         </span>
       ),
     },
     {
       key: "role",
       label: "Role",
-      render: (row) => row.role.replaceAll("_", " "),
+      render: (row) => (
+        <StatusPill tone="neutral">{row.role.replaceAll("_", " ")}</StatusPill>
+      ),
     },
     {
       key: "position",
@@ -218,237 +225,197 @@ export function PeopleAdmin() {
   ];
 
   return (
-    <section className="grid gap-5">
-      <div>
-        <h2 className="text-lg font-semibold">People assignments</h2>
-        <p className="text-sm text-muted">
-          Role, position and organizational unit are separate assignment axes.
-        </p>
-      </div>
-      {result === undefined ? (
-        <p>Loading people…</p>
-      ) : (
-        <DataTable
-          rows={rows}
-          columns={columns}
-          empty={
-            <EmptyPanel
-              title="No people on this page"
-              description="Invite a user or turn the page."
-            />
-          }
-        />
-      )}
-      <div className="flex items-center gap-3 text-sm">
-        <Button
-          variant="secondary"
-          size="sm"
-          isDisabled={cursors.length === 1}
-          onPress={() => setCursors((old) => old.slice(0, -1))}
-        >
-          Previous
-        </Button>
-        <span>Page {cursors.length}</span>
-        <Button
-          variant="secondary"
-          size="sm"
-          isDisabled={!result || result.isDone}
-          onPress={() => {
+    <div className="grid gap-4">
+      <Card
+        label="People"
+        icon={<WorkspaceIcon name="user" />}
+        count={people.length}
+        flush
+      >
+        {result === undefined ? (
+          <p className="p-4 text-sm text-muted">Loading people…</p>
+        ) : (
+          <DataTable
+            bare
+            rows={rows}
+            columns={columns}
+            empty={<EmptyPanel title="No people on this page" />}
+          />
+        )}
+        <Pager
+          label="People pages"
+          page={cursors.length}
+          canPrevious={cursors.length > 1}
+          canNext={!!result && !result.isDone}
+          onPrevious={() => setCursors((old) => old.slice(0, -1))}
+          onNext={() => {
             if (result && !result.isDone)
               setCursors((old) => [...old, result.continueCursor]);
           }}
-        >
-          Next
-        </Button>
-      </div>
+        />
+      </Card>
       {selected ? (
-        <form
-          onSubmit={submit}
-          className="grid gap-3 rounded-lg border border-border bg-surface p-5"
-        >
-          <h3 className="font-semibold">Assign {selected.name}</h3>
-          <label className="grid gap-1 text-sm">
-            Unit
-            <select
-              className={selectClass}
+        <Card label={`Assign · ${selected.name}`}>
+          <form
+            onSubmit={submit}
+            className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
+          >
+            <AdminSelectField
+              key={`${selected._id}-unit`}
               name="orgUnitId"
+              label="Unit"
               defaultValue={selected.orgUnitId ?? ""}
-              onChange={(event) => {
-                setSupervisorUnitId(event.target.value as Id<"orgUnits">);
+              required
+              onChange={(value) => {
+                setSupervisorUnitId(value as Id<"orgUnits">);
                 setSupervisorSearch("");
                 setChosenSupervisorId("");
                 setSupervisorCursors([null]);
               }}
-              required
-            >
-              <option value="" disabled>
-                Select a unit
-              </option>
-              {(units ?? [])
-                .filter(
-                  (unit) =>
-                    unit.status === "active" &&
-                    (permissions?.scopeUnitIds.includes(unit._id) ?? false),
-                )
-                .map((unit) => (
-                  <option key={unit._id} value={unit._id}>
-                    {unit.code} · {unit.name}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <label className="grid gap-1 text-sm">
-            Role
-            <select
-              className={selectClass}
+              options={[
+                { id: "", label: "Select a unit" },
+                ...(units ?? [])
+                  .filter(
+                    (unit) =>
+                      unit.status === "active" &&
+                      (permissions?.scopeUnitIds.includes(unit._id) ?? false),
+                  )
+                  .map((unit) => ({
+                    id: unit._id,
+                    label: `${unit.code} · ${unit.name}`,
+                  })),
+              ]}
+            />
+            <AdminSelectField
+              key={`${selected._id}-role`}
               name="role"
+              label="Role"
               defaultValue={selected.role}
               required
-            >
-              {roles
+              options={roles
                 .filter(
                   (role) =>
                     role !== "admin" || permissions?.role === "super_admin",
                 )
-                .map((role) => (
-                  <option key={role} value={role}>
-                    {role.replaceAll("_", " ")}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <label className="grid gap-1 text-sm">
-            Position (optional)
-            <select
-              className={selectClass}
+                .map((role) => ({
+                  id: role,
+                  label: role.replaceAll("_", " "),
+                }))}
+            />
+            <AdminSelectField
+              key={`${selected._id}-position`}
               name="positionId"
+              label="Position"
               defaultValue={selected.positionId ?? ""}
-            >
-              <option value="">Keep current position</option>
-              {(positions ?? []).map((position) => (
-                <option key={position._id} value={position._id}>
-                  {position.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="grid gap-1 text-sm">
-            Search supervisors (name, email or employee code)
-            <Input
-              value={supervisorSearch}
-              onChange={(event) => {
-                setSupervisorSearch(event.target.value);
-                setSupervisorCursors([null]);
-              }}
-              placeholder="Search by prefix"
+              options={[
+                { id: "", label: "Keep current position" },
+                ...(positions ?? []).map((position) => ({
+                  id: position._id,
+                  label: position.label,
+                })),
+              ]}
             />
-          </label>
-          <label className="grid gap-1 text-sm">
-            Supervisor (optional)
-            <select
-              className={selectClass}
+            <FormField label="Search supervisors">
+              <Input
+                value={supervisorSearch}
+                onChange={(event) => {
+                  setSupervisorSearch(event.target.value);
+                  setSupervisorCursors([null]);
+                }}
+                placeholder="Name, email or code"
+              />
+            </FormField>
+            <AdminSelectField
               name="supervisorId"
+              label="Supervisor"
               value={chosenSupervisorId}
-              onChange={(event) => setChosenSupervisorId(event.target.value)}
-            >
-              <option value="">Keep current supervisor</option>
-              {chosenSupervisorId &&
-              !supervisorOptions?.page.some(
-                (person) => person._id === chosenSupervisorId,
-              ) ? (
-                <option value={chosenSupervisorId}>Selected supervisor</option>
-              ) : null}
-              {(supervisorOptions?.page ?? [])
-                .filter((person) => person._id !== selected._id)
-                .map((person) => (
-                  <option key={person._id} value={person._id}>
-                    {person.name} · {person.email}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <div className="flex items-center gap-2 text-sm">
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              isDisabled={supervisorCursors.length === 1}
-              onPress={() => setSupervisorCursors((old) => old.slice(0, -1))}
-            >
-              Previous supervisors
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              isDisabled={!supervisorOptions || supervisorOptions.isDone}
-              onPress={() => {
-                if (supervisorOptions && !supervisorOptions.isDone)
-                  setSupervisorCursors((old) => [
-                    ...old,
-                    supervisorOptions.continueCursor,
-                  ]);
-              }}
-            >
-              Next supervisors
-            </Button>
-          </div>
-          <label className="grid gap-1 text-sm">
-            Employee code (set once)
-            <Input
-              name="employeeCode"
-              defaultValue={selected.employeeCode ?? ""}
-              disabled={!!selected.employeeCode}
-              placeholder="e.g. EMP-001"
+              onChange={setChosenSupervisorId}
+              options={[
+                { id: "", label: "Keep current supervisor" },
+                ...(chosenSupervisorId &&
+                !supervisorOptions?.page.some(
+                  (person) => person._id === chosenSupervisorId,
+                )
+                  ? [{ id: chosenSupervisorId, label: "Selected supervisor" }]
+                  : []),
+                ...(supervisorOptions?.page ?? [])
+                  .filter((person) => person._id !== selected._id)
+                  .map((person) => ({
+                    id: person._id,
+                    label: `${person.name} · ${person.email}`,
+                  })),
+              ]}
             />
-          </label>
-          <label className="grid gap-1 text-sm">
-            Reason (required)
-            <textarea
-              className="rounded-md border border-border bg-surface p-2"
-              name="reason"
-              required
-              rows={2}
-            />
-          </label>
-          {error ? (
-            <p role="alert" className="text-sm text-danger">
-              {error}
-            </p>
-          ) : null}
-          <div className="flex gap-2">
-            <Button
-              type="submit"
-              variant="primary"
-              isDisabled={!canManage}
-              isPending={pending}
-            >
-              Save assignment
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              onPress={() => setSelectedId(null)}
-            >
-              Cancel
-            </Button>
-          </div>
-        </form>
+            <div className="sm:col-span-2 lg:col-span-3">
+              <Pager
+                label="Supervisors pages"
+                page={supervisorCursors.length}
+                canPrevious={supervisorCursors.length > 1}
+                canNext={!!supervisorOptions && !supervisorOptions.isDone}
+                onPrevious={() =>
+                  setSupervisorCursors((old) => old.slice(0, -1))
+                }
+                onNext={() => {
+                  if (supervisorOptions && !supervisorOptions.isDone)
+                    setSupervisorCursors((old) => [
+                      ...old,
+                      supervisorOptions.continueCursor,
+                    ]);
+                }}
+              />
+            </div>
+            <FormField label="Employee code">
+              <Input
+                name="employeeCode"
+                defaultValue={selected.employeeCode ?? ""}
+                disabled={!!selected.employeeCode}
+                placeholder="e.g. EMP-001"
+              />
+            </FormField>
+            <FormField label="Reason">
+              <textarea
+                className="min-h-20 rounded-[10px] border border-border bg-surface p-3 text-sm"
+                name="reason"
+                required
+                rows={2}
+              />
+            </FormField>
+            {error ? (
+              <p role="alert" className="text-sm text-danger">
+                {error}
+              </p>
+            ) : null}
+            <div className="flex gap-2">
+              <Button
+                type="submit"
+                variant="primary"
+                isDisabled={!canManage}
+                isPending={pending}
+              >
+                Save assignment
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onPress={() => setSelectedId(null)}
+              >
+                Cancel
+              </Button>
+            </div>
+          </form>
+        </Card>
       ) : null}
       {notice ? (
-        <p role="status" className="text-sm text-success">
-          {notice}
-        </p>
+        <Card label="Status">
+          <p role="status" className="text-sm text-success">
+            {notice}
+          </p>
+        </Card>
       ) : null}
       {historyId ? (
-        <aside
-          aria-label="Assignment history"
-          className="rounded-lg border border-border bg-surface p-5"
-        >
-          <div className="flex justify-between">
-            <h3 className="font-semibold">
-              Assignment history · {nameOf(historyId)}
-            </h3>
+        <Card
+          label={`History · ${nameOf(historyId)}`}
+          actions={
             <Button
               size="sm"
               variant="secondary"
@@ -456,36 +423,39 @@ export function PeopleAdmin() {
             >
               Close
             </Button>
-          </div>
-          {history === undefined ? (
-            <p>Loading history…</p>
-          ) : history.length === 0 ? (
-            <p className="text-sm text-muted">No assignment history.</p>
-          ) : (
-            <ol className="mt-3 grid gap-3">
-              {[...history]
-                .sort((a, b) => b.effectiveFrom - a.effectiveFrom)
-                .map((entry) => (
-                  <li
-                    key={entry._id}
-                    className="rounded-md border border-border p-3 text-sm"
-                  >
-                    <strong>{entry.role.replaceAll("_", " ")}</strong> ·{" "}
-                    {unitOf(entry.orgUnitId)} · {positionOf(entry.positionId)} ·
-                    Supervisor: {nameOf(entry.supervisorId)}
-                    <p className="text-xs text-muted">
-                      {formatManilaDate(entry.effectiveFrom)}
-                      {entry.effectiveTo
-                        ? ` – ${formatManilaDate(entry.effectiveTo)}`
-                        : " onward"}{" "}
-                      · {entry.reason}
-                    </p>
-                  </li>
-                ))}
-            </ol>
-          )}
-        </aside>
+          }
+        >
+          <aside aria-label="Assignment history">
+            {history === undefined ? (
+              <p>Loading history…</p>
+            ) : history.length === 0 ? (
+              <p className="text-sm text-muted">No assignment history.</p>
+            ) : (
+              <ol className="mt-3 grid gap-3">
+                {[...history]
+                  .sort((a, b) => b.effectiveFrom - a.effectiveFrom)
+                  .map((entry) => (
+                    <li
+                      key={entry._id}
+                      className="rounded-md border border-border p-3 text-sm"
+                    >
+                      <strong>{entry.role.replaceAll("_", " ")}</strong> ·{" "}
+                      {unitOf(entry.orgUnitId)} · {positionOf(entry.positionId)}{" "}
+                      · Supervisor: {nameOf(entry.supervisorId)}
+                      <p className="text-xs text-muted">
+                        {formatManilaDate(entry.effectiveFrom)}
+                        {entry.effectiveTo
+                          ? ` – ${formatManilaDate(entry.effectiveTo)}`
+                          : " onward"}{" "}
+                        · {entry.reason}
+                      </p>
+                    </li>
+                  ))}
+              </ol>
+            )}
+          </aside>
+        </Card>
       ) : null}
-    </section>
+    </div>
   );
 }

@@ -10,18 +10,20 @@ export function EmptyPanel({
   action,
 }: {
   title: string;
-  description: string;
+  description?: string;
   icon?: ReactNode;
   action?: ReactNode;
 }) {
   return (
-    <EmptyState className="min-h-64 rounded-lg border border-dashed border-border bg-surface shadow-none">
+    <EmptyState className="min-h-32 rounded-2xl border border-border bg-surface p-4 shadow-none">
       <EmptyState.Header>
         {icon ? (
           <EmptyState.Media variant="icon">{icon}</EmptyState.Media>
         ) : null}
         <EmptyState.Title>{title}</EmptyState.Title>
-        <EmptyState.Description>{description}</EmptyState.Description>
+        {description ? (
+          <EmptyState.Description>{description}</EmptyState.Description>
+        ) : null}
       </EmptyState.Header>
       {action ? <EmptyState.Content>{action}</EmptyState.Content> : null}
     </EmptyState>

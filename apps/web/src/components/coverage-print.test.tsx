@@ -51,7 +51,7 @@ describe("print schedule", () => {
       "abcdef012345",
       "PROSPECT",
       "Unlinked prospect",
-      "Print / Save as PDF",
+      "Print / Save PDF",
     ])
       expect(html).toContain(text);
   });
@@ -89,7 +89,7 @@ describe("print schedule", () => {
         filters={{}}
       />,
     );
-    expect(html).toContain("UNAPPROVED — provisional schedule");
+    expect(html).toContain("Not approved");
     expect(html).toContain("No entries match these filters");
   });
 });

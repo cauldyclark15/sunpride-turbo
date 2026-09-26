@@ -27,8 +27,8 @@ describe("web navigation", () => {
         group.items.map((item) => item.label),
       );
 
-    expect(labels(false)).not.toContain("Administration");
-    expect(labels(true)).toContain("Administration");
+    expect(labels(false)).not.toContain("Admin");
+    expect(labels(true)).toContain("Admin");
   });
 
   it("provides in-content tabs only for real subdivisions", () => {

@@ -61,10 +61,15 @@ function NavGroups({
   groups: WorkspaceNavGroup[];
   activePrimaryId: string;
 }) {
-  return groups.map((group) => (
-    <Sidebar.Group key={group.id}>
+  return groups.map((group, index) => (
+    <Sidebar.Group
+      key={group.id}
+      className={index ? "border-t border-separator pt-3" : ""}
+    >
       {group.label ? (
-        <Sidebar.GroupLabel>{group.label}</Sidebar.GroupLabel>
+        <Sidebar.GroupLabel className="text-[11px] font-medium uppercase tracking-wide text-muted">
+          {group.label}
+        </Sidebar.GroupLabel>
       ) : null}
       <Sidebar.Menu aria-label={group.label ?? "Workspace navigation"}>
         {group.items.map((item) => (
@@ -74,6 +79,7 @@ function NavGroups({
             href={item.href}
             isCurrent={activePrimaryId === item.id}
             textValue={item.label}
+            className="min-h-9 text-sm [&_svg]:size-[18px]"
           >
             <Sidebar.MenuIcon>
               <WorkspaceIcon name={item.icon} />
@@ -113,8 +119,8 @@ function UserFooter({
             aria-label="Open account menu"
             className="h-auto min-h-0 justify-start gap-3 px-2 py-2 text-left"
           >
-            <span className="grid size-9 shrink-0 place-items-center rounded-full bg-surface-secondary text-sm font-semibold text-foreground">
-              {user.name.slice(0, 1).toUpperCase()}
+            <span className="grid size-8 shrink-0 place-items-center rounded-full bg-surface-secondary text-sm font-semibold text-foreground">
+              {user.name.trim().slice(0, 1).toUpperCase()}
             </span>
             <span className="min-w-0" data-sidebar="label">
               <span className="block truncate text-sm font-medium text-foreground">
@@ -174,55 +180,59 @@ export function WorkspaceShell({
       >
         Skip to content
       </a>
-      <div className="flex min-h-svh">
-        <Sidebar
-          className="!sticky !top-0 !h-svh border-r border-separator bg-background"
-          style={
-            {
-              "--sidebar-width": "var(--workspace-sidebar-width)",
-            } as CSSProperties
-          }
-        >
-          <Sidebar.Header className="!px-4 !pb-4 !pt-5">
-            <Brand brand={brand} />
-          </Sidebar.Header>
-          <Sidebar.Content className="!px-2.5">
-            <NavGroups groups={navGroups} activePrimaryId={activePrimaryId} />
-          </Sidebar.Content>
-          <UserFooter user={user} onSignOut={onSignOut} status={status} />
-        </Sidebar>
-
-        <Sidebar.Mobile backdrop="blur">
-          <Heading slot="title" className="sr-only">
-            Workspace navigation
-          </Heading>
-          <Sidebar.Header>
-            <Brand brand={brand} />
-          </Sidebar.Header>
-          <Sidebar.Content>
-            <NavGroups groups={navGroups} activePrimaryId={activePrimaryId} />
-          </Sidebar.Content>
-          <UserFooter user={user} onSignOut={onSignOut} status={status} />
-        </Sidebar.Mobile>
-
-        <Sidebar.Main className="!min-h-svh min-w-0 bg-surface">
-          <div className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-separator bg-surface/95 px-4 backdrop-blur md:hidden">
-            <Brand brand={brand} />
-            <Sidebar.Trigger
-              aria-label="Open workspace navigation"
-              isIconOnly
-              variant="ghost"
-            />
-          </div>
-          <main
-            id="workspace-content"
-            className={`w-full px-4 pb-24 pt-7 sm:px-7 md:pb-10 md:pt-8 lg:px-10 ${
-              contentWidth === "full" ? "max-w-none" : "mx-auto max-w-[1440px]"
-            }`}
+      <div className="flex min-h-svh lg:min-h-[calc(100svh-24px)] lg:p-3">
+        <div className="flex min-h-svh w-full overflow-hidden bg-surface lg:min-h-[calc(100svh-24px)] lg:rounded-3xl lg:border lg:border-border">
+          <Sidebar
+            className="!sticky !top-0 !h-svh border-r border-separator bg-surface lg:!h-[calc(100svh-26px)]"
+            style={
+              {
+                "--sidebar-width": "var(--workspace-sidebar-width)",
+              } as CSSProperties
+            }
           >
-            {children}
-          </main>
-        </Sidebar.Main>
+            <Sidebar.Header className="!px-4 !pb-4 !pt-5">
+              <Brand brand={brand} />
+            </Sidebar.Header>
+            <Sidebar.Content className="!px-2.5">
+              <NavGroups groups={navGroups} activePrimaryId={activePrimaryId} />
+            </Sidebar.Content>
+            <UserFooter user={user} onSignOut={onSignOut} status={status} />
+          </Sidebar>
+
+          <Sidebar.Mobile backdrop="blur">
+            <Heading slot="title" className="sr-only">
+              Workspace navigation
+            </Heading>
+            <Sidebar.Header>
+              <Brand brand={brand} />
+            </Sidebar.Header>
+            <Sidebar.Content>
+              <NavGroups groups={navGroups} activePrimaryId={activePrimaryId} />
+            </Sidebar.Content>
+            <UserFooter user={user} onSignOut={onSignOut} status={status} />
+          </Sidebar.Mobile>
+
+          <Sidebar.Main className="!min-h-svh min-w-0 bg-surface lg:!min-h-[calc(100svh-26px)]">
+            <div className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-separator bg-surface/95 px-4 backdrop-blur md:hidden">
+              <Brand brand={brand} />
+              <Sidebar.Trigger
+                aria-label="Open workspace navigation"
+                isIconOnly
+                variant="ghost"
+              />
+            </div>
+            <main
+              id="workspace-content"
+              className={`w-full px-6 pt-5 pb-24 md:pb-5 ${
+                contentWidth === "full"
+                  ? "max-w-none"
+                  : "mx-auto max-w-[1440px]"
+              }`}
+            >
+              {children}
+            </main>
+          </Sidebar.Main>
+        </div>
       </div>
 
       {mobilePrimaryItems.length ? (

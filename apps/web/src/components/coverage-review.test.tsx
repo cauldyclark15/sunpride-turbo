@@ -291,7 +291,7 @@ describe("coverage review", () => {
     expect(opened).toContain("R-1");
     expect(opened).toContain("Five-store target");
     expect(opened).toContain("Prepared by Sales One");
-    expect(opened).toContain("version 2");
+    expect(opened).toContain("v2");
     expect(opened).not.toContain("seller-subject");
     expect(
       state.calls.find((c) => c.name === "coverage/plans:detail")?.args,
@@ -353,7 +353,7 @@ describe("coverage review", () => {
     state.hooks[1] = plan._id;
     state.hooks[5] = "Fix objective";
     render();
-    await state.handlers["Return with reason"]!();
+    await state.handlers["Return plan"]!();
     await vi.waitFor(() => expect(state.hooks[6]).toBe(false));
     await state.handlers["Approve"]!();
     await vi.waitFor(() => expect(state.writes).toHaveLength(2));
@@ -382,7 +382,7 @@ describe("coverage review", () => {
       const html = render();
       expect(html).toContain("independent reviewer");
       expect(html).toMatch(/disabled=""[^>]*>Approve/);
-      expect(html).toMatch(/disabled=""[^>]*>Return with reason/);
+      expect(html).toMatch(/disabled=""[^>]*>Return plan/);
     },
   );
   it("uses scoped discovery without people.read and shows attributed names", () => {
@@ -509,14 +509,14 @@ describe("coverage review", () => {
       warnings: [],
     };
     render();
-    await state.handlers["Generate / reconcile planned visits"]!();
+    await state.handlers["Generate visits"]!();
     await vi.waitFor(() => expect(state.hooks[6]).toBe(false));
     const html = render();
     expect(html).toContain("1 planned visit(s): visit-1");
     expect(html).toContain("Frozen Market");
     expect(html).toContain("v2");
     expect(state.hooks[6]).toBe(false);
-    await state.handlers["Generate / reconcile planned visits"]!();
+    await state.handlers["Generate visits"]!();
     await vi.waitFor(() => expect(state.writes).toHaveLength(2));
     expect(state.writes).toEqual([
       { name: "coverage/activation:activate", args: { planId: plan._id } },
@@ -546,11 +546,8 @@ describe("coverage review", () => {
     };
     const html = render();
     expect(html).toContain("Approved · future");
-    expect(html).toContain("not yet effective");
-    expect(html).toContain("scheduled activation will generate visits");
-    expect(html).toMatch(
-      /disabled=""[^>]*>Generate \/ reconcile planned visits/,
-    );
+    expect(html).toContain("Activation starts on the effective date.");
+    expect(html).toMatch(/disabled=""[^>]*>Generate visits/);
     expect(coverageStatus({ status: "superseded", effectiveFrom: 0 })).toBe(
       "Superseded",
     );
@@ -640,7 +637,9 @@ describe("coverage review", () => {
     expect(state.calls.some((c) => c.name.startsWith("people/queries"))).toBe(
       false,
     );
-    expect(render("review", sales, grants)).toContain("MCP access required");
+    expect(render("review", sales, grants)).toContain(
+      "Coverage access required",
+    );
     expect(
       state.calls.find((c) => c.name === "coverage/discovery:list")?.args,
     ).toBe("skip");
@@ -648,7 +647,7 @@ describe("coverage review", () => {
       false,
     );
     expect(render("visits", sales, { ...grants, capabilities: [] })).toContain(
-      "MCP access required",
+      "Coverage access required",
     );
     expect(
       state.calls.find((c) => c.name === "coverage/activation:plannedForMonth"),

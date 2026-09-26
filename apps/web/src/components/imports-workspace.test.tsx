@@ -54,22 +54,109 @@ vi.mock("react", async (importOriginal) => {
     },
   };
 });
-vi.mock("@heroui/react", () => ({
-  Button: ({
-    children,
-    onPress,
-    isDisabled,
-  }: {
-    children: React.ReactNode;
-    onPress?: () => void;
-    isDisabled?: boolean;
-  }) => {
-    const label = String(children);
-    if (onPress && !isDisabled) state.buttons[label] = onPress;
-    return createElement("button", { disabled: isDisabled }, children);
-  },
-}));
+vi.mock("@heroui/react", () => {
+  const Select = Object.assign(
+    ({
+      children,
+      "aria-label": label,
+      onSelectionChange,
+    }: {
+      children: React.ReactNode;
+      "aria-label": string;
+      onSelectionChange: (key: string) => void;
+    }) => {
+      state.selects[label === "Draft plan" ? "plan" : "format"] =
+        onSelectionChange;
+      return createElement("div", null, children);
+    },
+    {
+      Trigger: ({ children }: { children: React.ReactNode }) =>
+        createElement("div", null, children),
+      Value: () => null,
+      Indicator: () => null,
+      Popover: ({ children }: { children: React.ReactNode }) =>
+        createElement("div", null, children),
+    },
+  );
+  const ListBox = Object.assign(
+    ({ children }: { children: React.ReactNode }) =>
+      createElement("div", null, children),
+    {
+      Item: ({ children }: { children: React.ReactNode }) =>
+        createElement("div", null, children),
+    },
+  );
+  return {
+    Select,
+    ListBox,
+    Button: ({
+      children,
+      onPress,
+      isDisabled,
+    }: {
+      children: React.ReactNode;
+      onPress?: () => void;
+      isDisabled?: boolean;
+    }) => {
+      const label = String(children);
+      if (onPress && !isDisabled) state.buttons[label] = onPress;
+      return createElement("button", { disabled: isDisabled }, children);
+    },
+  };
+});
 vi.mock("@sunpride/ui", () => ({
+  Card: ({
+    label,
+    count,
+    actions,
+    children,
+  }: {
+    label: string;
+    count?: number;
+    actions?: React.ReactNode;
+    children: React.ReactNode;
+  }) =>
+    createElement(
+      "section",
+      null,
+      createElement(
+        "h2",
+        null,
+        `${label}${count === undefined ? "" : ` · ${count}`}`,
+      ),
+      actions,
+      children,
+    ),
+  PageHeader: ({ title, meta }: { title: string; meta?: string }) =>
+    createElement("header", null, title, meta),
+  ListRow: ({
+    title,
+    meta,
+    value,
+  }: {
+    title: React.ReactNode;
+    meta?: React.ReactNode;
+    value?: React.ReactNode;
+  }) => createElement("div", null, title, meta, value),
+  UnderlineTabs: ({
+    items,
+    onChange,
+  }: {
+    items: readonly (readonly [string, string])[];
+    onChange: (key: string) => void;
+  }) =>
+    createElement(
+      "nav",
+      null,
+      items.map(([key, label]) => {
+        state.buttons[label] = () => onChange(key);
+        return createElement(
+          "button",
+          { key, onClick: () => onChange(key) },
+          label,
+        );
+      }),
+    ),
   StatusPill: ({ children }: { children: React.ReactNode }) =>
     createElement("span", null, children),
   EmptyPanel: ({ title }: { title: string }) => createElement("p", null, title),
@@ -148,9 +235,9 @@ vi.mock("react/jsx-runtime", async (importOriginal) => {
       if (
         type === "button" &&
         typeof props?.onClick === "function" &&
-        props?.children === "Download template"
+        props?.children === "Template"
       )
-        state.buttons["Download template"] = props.onClick as () => void;
+        state.buttons["Template"] = props.onClick as () => void;
       if (type === "select" && typeof props?.onChange === "function") {
         const key = state.selectIndex++ === 0 ? "plan" : "format";
         state.selects[key] = (value) =>
@@ -196,9 +283,9 @@ vi.mock("react/jsx-dev-runtime", async (importOriginal) => {
       if (
         type === "button" &&
         typeof props?.onClick === "function" &&
-        props?.children === "Download template"
+        props?.children === "Template"
       )
-        state.buttons["Download template"] = props.onClick as () => void;
+        state.buttons["Template"] = props.onClick as () => void;
       if (type === "select" && typeof props?.onChange === "function") {
         const name = state.selectIndex++ === 0 ? "plan" : "format";
         state.selects[name] = (value) =>
@@ -296,7 +383,7 @@ describe("ImportsWorkspace", () => {
     expect(html).not.toContain("Stock adjustment");
     expect(html).not.toContain("Product master");
     state.buttons["Run history"]!();
-    expect(render()).toContain("Adjustment and count runs · scoped");
+    expect(render()).toContain("Adjustment and count runs");
     expect(state.calls).toContainEqual({
       name: "imports/runs:list",
       args: "skip",
@@ -325,7 +412,7 @@ describe("ImportsWorkspace", () => {
       state.buttons[kind]!();
       render();
       const download = captureDownload();
-      state.buttons["Download template"]!();
+      state.buttons["Template"]!();
       expect(await download.read()).toEqual({
         filename,
         content: `${header}\r\n`,
@@ -364,11 +451,11 @@ describe("ImportsWorkspace", () => {
       "Stock adjustment",
       `${ADJUSTMENT_HEADER}\nR,1,TYPE,REASON,A,WH,available,,0,,\n`,
     );
-    await state.buttons.Preview!();
+    await state.buttons["Preview file"]!();
     const html = render();
     expect(html).toContain("0 valid · 1 rejected");
     expect(html).toContain("zero_delta");
-    expect(html).toContain("Projected totals");
+    expect(html).toContain("Projected");
     expect(state.query.mock.calls[0]?.[1]).toMatchObject({
       header: ADJUSTMENT_HEADER.split(","),
       rows: [{ rowNumber: 2 }],
@@ -409,10 +496,10 @@ describe("ImportsWorkspace", () => {
       approvalPartitions: [{ expectedBase: 9000n, varianceBase: -6000n }],
     });
     await upload("Cycle count", `${COUNT_HEADER}\nREF,WH,A,available,,3,,\n`);
-    await state.buttons.Preview!();
+    await state.buttons["Preview file"]!();
     const html = render();
     expect(html).toContain("1 valid · 0 rejected");
-    expect(html).toContain("Counted quantities");
+    expect(html).toContain("Counted");
     expect(html).not.toMatch(/expected|variance|9,000|6,000/i);
   });
 
@@ -420,7 +507,7 @@ describe("ImportsWorkspace", () => {
     [
       "Stock adjustment",
       ADJUSTMENT_HEADER,
-      "Submit for approval",
+      "Submit request",
       "imports/adjustments:commit",
     ],
     ["Cycle count", COUNT_HEADER, "Submit count", "imports/counts:commit"],
@@ -445,7 +532,7 @@ describe("ImportsWorkspace", () => {
         kind,
         `${header}\n${kind === "Cycle count" ? "REF,WH,A,available,,1,," : "REF,1,TYPE,REASON,A,WH,available,,1,,"}\n`,
       );
-      await state.buttons.Preview!();
+      await state.buttons["Preview file"]!();
       render();
       await state.buttons[action]!();
       expect(getFunctionName(state.mutation.mock.calls[0]![0])).toBe(endpoint);
@@ -454,7 +541,9 @@ describe("ImportsWorkspace", () => {
         rowCount: 1,
         rows: [{ rowNumber: 2 }],
       });
-      expect(render()).toContain("No stock has been posted");
+      expect(render()).toContain(
+        kind === "Cycle count" ? "counts submitted" : "submitted for approval",
+      );
     },
   );
 
@@ -464,9 +553,9 @@ describe("ImportsWorkspace", () => {
       "Stock adjustment",
       `${ADJUSTMENT_HEADER}\nREF,1,TYPE,REASON,A,WH,available,,1,,\n`,
     );
-    await state.buttons.Preview!();
+    await state.buttons["Preview file"]!();
     expect(render()).toContain("Location is outside scope");
-    expect(state.buttons["Submit for approval"]).toBeUndefined();
+    expect(state.buttons["Submit request"]).toBeUndefined();
     state.buttons.Cancel!();
     expect(render()).not.toContain("upload.csv");
   });
@@ -498,8 +587,8 @@ describe("ImportsWorkspace", () => {
     render();
     state.buttons["Run history"]!();
     const html = render();
-    expect(html).toContain("Product and opening-stock runs · national");
-    expect(html).toContain("Adjustment and count runs · scoped");
+    expect(html).toContain("Product and stock runs");
+    expect(html).toContain("Adjustment and count runs");
     expect(html).toContain("national");
     expect(html).toContain("scoped");
   });
@@ -573,10 +662,10 @@ describe("ImportsWorkspace", () => {
       runId: "run",
     });
     await vi.waitFor(() => expect(render()).toContain("sheet.csv"));
-    await state.buttons["Preview MCP"]!();
+    await state.buttons["Preview file"]!();
     expect(render()).toContain("1 accepted");
     expect(render()).toContain("unknown_reference");
-    await state.buttons["Merge accepted rows"]!();
+    await state.buttons["Merge rows"]!();
     expect(state.query.mock.calls[0]?.[1]).toMatchObject({
       planId: "plan1",
       rows: [{ rowNumber: 2 }, { rowNumber: 3 }],
@@ -586,7 +675,7 @@ describe("ImportsWorkspace", () => {
       chunkIndex: 0,
       rowCount: 2,
     });
-    expect(render()).toContain("rows merged into the draft");
+    expect(render()).toContain("rows merged");
   });
   it("hides MCP without mcp.plan and disables commit for all rejected", async () => {
     state.values["lib/capabilities:currentPermissions"] = {
@@ -643,8 +732,8 @@ describe("ImportsWorkspace", () => {
       fileHash: "hash",
       rowCount: 1,
     });
-    await state.buttons["Preview MCP"]!();
+    await state.buttons["Preview file"]!();
     render();
-    expect(state.buttons["Merge accepted rows"]).toBeUndefined();
+    expect(state.buttons["Merge rows"]).toBeUndefined();
   });
 });

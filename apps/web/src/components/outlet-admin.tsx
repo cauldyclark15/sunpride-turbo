@@ -1,5 +1,14 @@
 "use client";
 
+import { Button } from "@heroui/react";
+import {
+  Card,
+  FormField,
+  Pager,
+  ListRow,
+  StatusPill,
+  WorkspaceIcon,
+} from "@sunpride/ui";
 import { api } from "@sunpride/backend/api";
 import type { Id } from "@sunpride/backend/data-model";
 import { useMutation, useQuery } from "convex/react";
@@ -7,8 +16,6 @@ import type { FunctionArgs } from "convex/server";
 import { useState, type FormEvent } from "react";
 import { formatManilaDate, futureManilaDateToUtcMs } from "../lib/manila-date";
 
-const field =
-  "rounded border border-border bg-surface px-2 py-1 text-foreground";
 type Action =
   | "create"
   | "edit"
@@ -183,405 +190,361 @@ export function OutletAdmin() {
   const customerName = (id: Id<"customers">) =>
     customers?.find((c) => c._id === id)?.name ?? id;
   return (
-    <section className="grid gap-4">
-      <h2 className="text-lg font-semibold">Outlets</h2>
-      <p>
-        Operational sites are distinct from SAP customer accounts. Pin radius 75
-        m by default (provisional).
-      </p>
-      {canManage && (
-        <button type="button" onClick={() => setAction("create")}>
-          Create outlet
-        </button>
-      )}
-      {list === undefined ? (
-        <p>Loading outlets…</p>
-      ) : (
-        <ul aria-label="Outlet list">
-          {list.page.map((row) => (
-            <li key={row._id}>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedId(row._id);
-                  setAction(null);
-                }}
-              >
-                {row.code} · {row.name}
-              </button>{" "}
-              · {row.status}
-            </li>
-          ))}
-        </ul>
-      )}
-      <div>
-        <button
-          type="button"
-          disabled={cursors.length === 1}
-          onClick={() => setCursors((old) => old.slice(0, -1))}
-        >
-          Previous
-        </button>
-        <span> Page {cursors.length} </span>
-        <button
-          type="button"
-          disabled={!list || list.isDone}
-          onClick={() => {
+    <Card
+      label="Outlets"
+      count={list?.page.length}
+      icon={<WorkspaceIcon name="field" />}
+      actions={
+        canManage ? (
+          <Button
+            variant="outline"
+            className="h-8"
+            onPress={() => setAction("create")}
+          >
+            Create outlet
+          </Button>
+        ) : undefined
+      }
+    >
+      <div className="grid gap-4">
+        {list === undefined ? (
+          <p>Loading outlets…</p>
+        ) : (
+          <ul
+            aria-label="Outlet list"
+            className="overflow-hidden rounded-xl border border-border"
+          >
+            {list.page.map((row) => (
+              <li key={row._id}>
+                <ListRow
+                  icon={<WorkspaceIcon name="field" />}
+                  title={row.name}
+                  meta={row.code}
+                  value={
+                    <StatusPill
+                      tone={row.status === "active" ? "success" : "neutral"}
+                    >
+                      {row.status}
+                    </StatusPill>
+                  }
+                  action={
+                    <Button
+                      variant="outline"
+                      className="h-8"
+                      onPress={() => {
+                        setSelectedId(row._id);
+                        setAction(null);
+                      }}
+                    >
+                      Open
+                    </Button>
+                  }
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+        <Pager
+          page={cursors.length}
+          canPrevious={cursors.length > 1}
+          canNext={!!list && !list.isDone}
+          onPrevious={() => setCursors((old) => old.slice(0, -1))}
+          onNext={() => {
             if (list && !list.isDone)
               setCursors((old) => [...old, list.continueCursor]);
           }}
-        >
-          Next
-        </button>
-      </div>
-      {detail && (
-        <section
-          aria-label="Outlet profile"
-          className="grid gap-2 rounded border border-border p-3"
-        >
-          <h3>
-            {detail.outlet.code} · {detail.outlet.name}
-          </h3>
-          <p>
-            {detail.outlet.status} ·{" "}
-            {detail.outlet.channel ?? "Channel not set"} ·{" "}
-            {detail.outlet.address ?? "Address not set"}
-          </p>
-          <p>
-            Customer:{" "}
-            {detail.customerLink
-              ? customerName(detail.customerLink.customerId)
-              : "Unlinked prospect / site"}
-          </p>
-          <p>
-            Route association (read-only until assignments):{" "}
-            {detail.assignment
-              ? `${detail.assignment.territoryId} / ${detail.assignment.routeId ?? "no route"}${detail.assignment.sequence ? ` · stop ${detail.assignment.sequence}` : ""}`
-              : "Unassigned"}
-          </p>
-          <p>
-            Current verified pin:{" "}
-            {detail.pin
-              ? `${detail.pin.latitude}, ${detail.pin.longitude} · ${detail.pin.radiusMeters} m`
-              : "None"}
-          </p>
-          {canManage && (
-            <div className="flex gap-2">
-              <button type="button" onClick={() => setAction("edit")}>
-                Edit profile
-              </button>
-              <button type="button" onClick={() => setAction("link")}>
-                Change customer link
-              </button>
-              <button type="button" onClick={() => setAction("deactivate")}>
-                Deactivate
-              </button>
-            </div>
-          )}
-          <h4>Customer-link history</h4>
-          <ul>
-            {links?.map((row) => (
-              <li key={row._id}>
-                {customerName(row.customerId)} · {row.source} ·{" "}
-                {formatManilaDate(row.effectiveFrom)}–
-                {row.effectiveTo
-                  ? formatManilaDate(row.effectiveTo)
-                  : "current"}{" "}
-                · {row.reason}
-              </li>
-            ))}
-          </ul>
-          <h4>Verification</h4>
-          {canManage && (
-            <button type="button" onClick={() => setAction("propose")}>
-              Propose GPS pin
-            </button>
-          )}
-          <ul>
-            {pins?.map((pin) => (
-              <li key={pin._id}>
-                {pin.status} · {pin.latitude}, {pin.longitude} ·{" "}
-                {pin.radiusMeters} m · {pin.source} ·{" "}
-                {pin.evidenceNote ?? "No note"} · proposed by {pin.proposedBy}
-                {pin.verifiedBy && (
-                  <>
-                    {" "}
-                    · reviewed by {pin.verifiedBy}: {pin.reviewerReason}
-                  </>
-                )}
-                {pin.status === "verified" && (
-                  <>
-                    {" "}
-                    · {formatManilaDate(pin.effectiveFrom)}–
-                    {pin.effectiveTo
-                      ? formatManilaDate(pin.effectiveTo)
-                      : "current"}
-                  </>
-                )}
-                {pin.status === "pending" && canVerify && (
-                  <>
-                    <button
-                      type="button"
-                      disabled={
-                        !profile || profile.authSubject === pin.proposedBy
-                      }
-                      onClick={() => {
-                        setPendingPin(pin._id);
-                        setAction("verified");
-                      }}
-                    >
-                      Approve
-                    </button>
-                    <button
-                      type="button"
-                      disabled={
-                        !profile || profile.authSubject === pin.proposedBy
-                      }
-                      onClick={() => {
-                        setPendingPin(pin._id);
-                        setAction("rejected");
-                      }}
-                    >
-                      Reject
-                    </button>
-                  </>
-                )}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-      {action && (
-        <form
-          key={`${action}-${selectedId}`}
-          onSubmit={submit}
-          className="grid gap-2 rounded border border-border p-3"
-          aria-label="Outlet action"
-        >
-          <h3>
-            {action === "create"
-              ? "Create outlet"
-              : action === "edit"
-                ? "Edit profile"
-                : action === "link"
-                  ? "Change customer link"
-                  : action === "propose"
-                    ? "Propose GPS pin"
-                    : action === "deactivate"
-                      ? "Deactivate outlet"
-                      : `${action === "verified" ? "Approve" : "Reject"} pin`}
-          </h3>
-          {(action === "create" || action === "edit") && (
-            <>
-              {action === "create" && (
-                <>
-                  <label>
-                    Code <input className={field} name="code" required />
-                  </label>
-                  <label>
-                    Custodian unit{" "}
-                    <select
-                      name="custodianOrgUnitId"
-                      className={field}
-                      required
-                    >
-                      <option value="">Select unit</option>
-                      {units
-                        ?.filter((u) => u.status === "active")
-                        .map((u) => (
-                          <option key={u._id} value={u._id}>
-                            {u.name}
-                          </option>
-                        ))}
-                    </select>
-                  </label>
-                </>
-              )}
-              <label>
-                Name{" "}
-                <input
-                  className={field}
-                  name="name"
-                  defaultValue={detail?.outlet.name}
-                  required
-                />
-              </label>
-              <label>
-                Site status{" "}
-                <select
-                  name="status"
-                  className={field}
-                  defaultValue={detail?.outlet.status ?? "prospect"}
-                >
-                  <option value="prospect">Prospect / unlinked</option>
-                  <option value="active">Active</option>
-                </select>
-              </label>
-              {(
-                [
-                  "channel",
-                  "subchannel",
-                  "classification",
-                  "address",
-                  "directions",
-                  "visitWindow",
-                ] as const
-              ).map((key) => (
-                <label key={key}>
-                  {key}{" "}
-                  <input
-                    className={field}
-                    name={key}
-                    defaultValue={detail?.outlet[key]}
-                  />
-                </label>
+          label="Outlets pages"
+        />
+        {detail && (
+          <section
+            aria-label="Outlet profile"
+            className="grid gap-2 rounded border border-border p-3"
+          >
+            <h3>
+              {detail.outlet.code} · {detail.outlet.name}
+            </h3>
+            <p>
+              {detail.outlet.status} ·{" "}
+              {detail.outlet.channel ?? "Channel not set"} ·{" "}
+              {detail.outlet.address ?? "Address not set"}
+            </p>
+            <p>
+              Customer:{" "}
+              {detail.customerLink
+                ? customerName(detail.customerLink.customerId)
+                : "Unlinked prospect / site"}
+            </p>
+            <p>
+              Route:{" "}
+              {detail.assignment
+                ? `${detail.assignment.territoryId} / ${detail.assignment.routeId ?? "no route"}${detail.assignment.sequence ? ` · stop ${detail.assignment.sequence}` : ""}`
+                : "Unassigned"}
+            </p>
+            <p>
+              Verified pin:{" "}
+              {detail.pin
+                ? `${detail.pin.latitude}, ${detail.pin.longitude} · ${detail.pin.radiusMeters} m`
+                : "None"}
+            </p>
+            {canManage && (
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setAction("edit")}>
+                  Edit profile
+                </button>
+                <button type="button" onClick={() => setAction("link")}>
+                  Change customer link
+                </button>
+                <button type="button" onClick={() => setAction("deactivate")}>
+                  Deactivate
+                </button>
+              </div>
+            )}
+            <h4>Customer history</h4>
+            <ul>
+              {links?.map((row) => (
+                <li key={row._id}>
+                  {customerName(row.customerId)} · {row.source} ·{" "}
+                  {formatManilaDate(row.effectiveFrom)}–
+                  {row.effectiveTo
+                    ? formatManilaDate(row.effectiveTo)
+                    : "current"}{" "}
+                  · {row.reason}
+                </li>
               ))}
-              <label>
-                Contact name{" "}
-                <input
-                  className={field}
-                  name="contactName"
-                  defaultValue={detail?.outlet.contacts?.[0]?.name}
-                />
-              </label>
-              <label>
-                Contact phone{" "}
-                <input
-                  className={field}
-                  name="contactPhone"
-                  defaultValue={detail?.outlet.contacts?.[0]?.phone}
-                />
-              </label>
-              <label>
-                Sales potential{" "}
-                <input
-                  className={field}
-                  type="number"
-                  min="0"
-                  name="salesPotential"
-                  defaultValue={detail?.outlet.salesPotential}
-                />
-              </label>
-              <label>
-                Preferred weekday (0–6){" "}
-                <input
-                  className={field}
-                  type="number"
-                  min="0"
-                  max="6"
-                  name="preferredWeekday"
-                  defaultValue={detail?.outlet.preferredWeekday}
-                />
-              </label>
-              <label>
-                Visit frequency (days){" "}
-                <input
-                  className={field}
-                  type="number"
-                  min="1"
-                  max="365"
-                  name="visitFrequencyDays"
-                  defaultValue={detail?.outlet.visitFrequencyDays}
-                />
-              </label>
-            </>
-          )}
-          {action === "link" && (
-            <>
-              <label>
-                Existing customer{" "}
-                <select className={field} name="customerId">
-                  <option value="">Unlink (prospect)</option>
-                  {customers
-                    ?.filter((c) => c.active)
-                    .map((c) => (
-                      <option key={c._id} value={c._id}>
-                        {c.code} · {c.name}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              <label>
-                Source{" "}
-                <input
-                  className={field}
-                  name="source"
-                  defaultValue="local"
-                  required
-                />
-              </label>
-              <label>
-                Effective date (Asia/Manila){" "}
-                <input
-                  className={field}
-                  type="date"
-                  name="effectiveDate"
-                  required
-                />
-              </label>
-            </>
-          )}
-          {action === "propose" && (
-            <>
-              <label>
-                Latitude{" "}
-                <input
-                  className={field}
-                  name="latitude"
-                  type="number"
-                  step="any"
-                  required
-                />
-              </label>
-              <label>
-                Longitude{" "}
-                <input
-                  className={field}
-                  name="longitude"
-                  type="number"
-                  step="any"
-                  required
-                />
-              </label>
-              <label>
-                Radius meters (default 75){" "}
-                <input
-                  className={field}
-                  name="radiusMeters"
-                  type="number"
-                  min="1"
-                  max="500"
-                />
-              </label>
-              <label>
-                Source <input className={field} name="source" required />
-              </label>
-              <label>
-                Evidence note <input className={field} name="evidenceNote" />
-              </label>
-              <label>
-                Future effective date (optional){" "}
-                <input className={field} name="effectiveDate" type="date" />
-              </label>
-            </>
-          )}
-          <label>
-            Reason <input className={field} name="reason" required />
-          </label>
-          <button type="submit" disabled={pending}>
-            Save {action}
-          </button>
-          <button type="button" onClick={() => setAction(null)}>
-            Cancel
-          </button>
-        </form>
-      )}
-      {error && (
-        <p role="alert" className="text-danger">
-          {error}
-        </p>
-      )}
-      {notice && <p role="status">{notice}</p>}
-    </section>
+            </ul>
+            <h4>Verification</h4>
+            {canManage && (
+              <button type="button" onClick={() => setAction("propose")}>
+                Propose GPS pin
+              </button>
+            )}
+            <ul>
+              {pins?.map((pin) => (
+                <li key={pin._id}>
+                  {pin.status} · {pin.latitude}, {pin.longitude} ·{" "}
+                  {pin.radiusMeters} m · {pin.source} ·{" "}
+                  {pin.evidenceNote ?? "No note"} · proposed by {pin.proposedBy}
+                  {pin.verifiedBy && (
+                    <>
+                      {" "}
+                      · reviewed by {pin.verifiedBy}: {pin.reviewerReason}
+                    </>
+                  )}
+                  {pin.status === "verified" && (
+                    <>
+                      {" "}
+                      · {formatManilaDate(pin.effectiveFrom)}–
+                      {pin.effectiveTo
+                        ? formatManilaDate(pin.effectiveTo)
+                        : "current"}
+                    </>
+                  )}
+                  {pin.status === "pending" && canVerify && (
+                    <>
+                      <button
+                        type="button"
+                        disabled={
+                          !profile || profile.authSubject === pin.proposedBy
+                        }
+                        onClick={() => {
+                          setPendingPin(pin._id);
+                          setAction("verified");
+                        }}
+                      >
+                        Approve
+                      </button>
+                      <button
+                        type="button"
+                        disabled={
+                          !profile || profile.authSubject === pin.proposedBy
+                        }
+                        onClick={() => {
+                          setPendingPin(pin._id);
+                          setAction("rejected");
+                        }}
+                      >
+                        Reject
+                      </button>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+        {action && (
+          <form
+            key={`${action}-${selectedId}`}
+            onSubmit={submit}
+            className="grid gap-3 rounded border border-border p-3 sm:grid-cols-2 lg:grid-cols-3"
+            aria-label="Outlet action"
+          >
+            <h3>
+              {action === "create"
+                ? "Create outlet"
+                : action === "edit"
+                  ? "Edit profile"
+                  : action === "link"
+                    ? "Change customer link"
+                    : action === "propose"
+                      ? "Propose GPS pin"
+                      : action === "deactivate"
+                        ? "Deactivate outlet"
+                        : `${action === "verified" ? "Approve" : "Reject"} pin`}
+            </h3>
+            {(action === "create" || action === "edit") && (
+              <>
+                {action === "create" && (
+                  <>
+                    <FormField label="Code">
+                      <input name="code" required />
+                    </FormField>
+                    <FormField label="Custodian unit">
+                      <select name="custodianOrgUnitId" required>
+                        <option value="">Select unit</option>
+                        {units
+                          ?.filter((u) => u.status === "active")
+                          .map((u) => (
+                            <option key={u._id} value={u._id}>
+                              {u.name}
+                            </option>
+                          ))}
+                      </select>
+                    </FormField>
+                  </>
+                )}
+                <FormField label="Name">
+                  <input
+                    name="name"
+                    defaultValue={detail?.outlet.name}
+                    required
+                  />
+                </FormField>
+                <FormField label="Site status">
+                  <select
+                    name="status"
+                    defaultValue={detail?.outlet.status ?? "prospect"}
+                  >
+                    <option value="prospect">Prospect / unlinked</option>
+                    <option value="active">Active</option>
+                  </select>
+                </FormField>
+                {(
+                  [
+                    "channel",
+                    "subchannel",
+                    "classification",
+                    "address",
+                    "directions",
+                    "visitWindow",
+                  ] as const
+                ).map((key) => (
+                  <FormField key={key} label={key}>
+                    <input name={key} defaultValue={detail?.outlet[key]} />
+                  </FormField>
+                ))}
+                <FormField label="Contact name">
+                  <input
+                    name="contactName"
+                    defaultValue={detail?.outlet.contacts?.[0]?.name}
+                  />
+                </FormField>
+                <FormField label="Contact phone">
+                  <input
+                    name="contactPhone"
+                    defaultValue={detail?.outlet.contacts?.[0]?.phone}
+                  />
+                </FormField>
+                <FormField label="Sales potential">
+                  <input
+                    type="number"
+                    min="0"
+                    name="salesPotential"
+                    defaultValue={detail?.outlet.salesPotential}
+                  />
+                </FormField>
+                <FormField label="Preferred weekday (0–6)">
+                  <input
+                    type="number"
+                    min="0"
+                    max="6"
+                    name="preferredWeekday"
+                    defaultValue={detail?.outlet.preferredWeekday}
+                  />
+                </FormField>
+                <FormField label="Visit frequency (days)">
+                  <input
+                    type="number"
+                    min="1"
+                    max="365"
+                    name="visitFrequencyDays"
+                    defaultValue={detail?.outlet.visitFrequencyDays}
+                  />
+                </FormField>
+              </>
+            )}
+            {action === "link" && (
+              <>
+                <FormField label="Existing customer">
+                  <select name="customerId">
+                    <option value="">Unlink (prospect)</option>
+                    {customers
+                      ?.filter((c) => c.active)
+                      .map((c) => (
+                        <option key={c._id} value={c._id}>
+                          {c.code} · {c.name}
+                        </option>
+                      ))}
+                  </select>
+                </FormField>
+                <FormField label="Source">
+                  <input name="source" defaultValue="local" required />
+                </FormField>
+                <FormField label="Effective date">
+                  <input type="date" name="effectiveDate" required />
+                </FormField>
+              </>
+            )}
+            {action === "propose" && (
+              <>
+                <FormField label="Latitude">
+                  <input name="latitude" type="number" step="any" required />
+                </FormField>
+                <FormField label="Longitude">
+                  <input name="longitude" type="number" step="any" required />
+                </FormField>
+                <FormField label="Radius meters (default 75)">
+                  <input name="radiusMeters" type="number" min="1" max="500" />
+                </FormField>
+                <FormField label="Source">
+                  <input name="source" required />
+                </FormField>
+                <FormField label="Evidence note">
+                  <input name="evidenceNote" />
+                </FormField>
+                <FormField label="Future effective date (optional)">
+                  <input name="effectiveDate" type="date" />
+                </FormField>
+              </>
+            )}
+            <FormField label="Reason">
+              <input name="reason" required />
+            </FormField>
+            <button type="submit" disabled={pending}>
+              Save {action}
+            </button>
+            <button type="button" onClick={() => setAction(null)}>
+              Cancel
+            </button>
+          </form>
+        )}
+        {error && (
+          <p role="alert" className="text-danger">
+            {error}
+          </p>
+        )}
+        {notice && <p role="status">{notice}</p>}
+      </div>
+    </Card>
   );
 }

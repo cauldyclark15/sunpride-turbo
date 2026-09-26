@@ -27,7 +27,7 @@ export function WorkspaceModuleTabs({
             key={item.id}
             aria-current={isCurrent ? "page" : undefined}
             variant="ghost"
-            className={`relative min-w-max rounded-b-none rounded-t-md border-b-2 px-3 pb-2.5 pt-2 text-sm ${
+            className={`relative h-10 min-h-10 min-w-max rounded-none border-b-2 bg-transparent px-3 text-sm ${
               isCurrent
                 ? "border-accent bg-transparent font-semibold text-foreground"
                 : "border-transparent bg-transparent text-muted hover:text-foreground"

@@ -195,7 +195,7 @@ describe("standalone coverage planner", () => {
       const html = render(createElement(CoveragePlanner));
       expect(html).toContain("Returned for changes");
       expect(html).toContain("Fix missing route");
-      expect(html).toContain("History tab");
+      expect(html).not.toContain("History tab");
       expect(html).not.toContain("prepared by seller");
     } finally {
       vi.useRealTimers();
@@ -217,7 +217,7 @@ describe("standalone coverage planner", () => {
       scopeUnitIds: [],
     };
     expect(render(createElement(CoveragePlanner))).toContain(
-      "MCP read access required",
+      "Coverage access required",
     );
     expect(
       state.calls.filter((c) => c.name === "coverage/plans:list").at(-1)?.args,

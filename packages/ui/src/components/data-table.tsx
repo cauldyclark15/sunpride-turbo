@@ -11,22 +11,30 @@ export function DataTable<Row extends { id: string }>({
   columns,
   rows,
   empty,
+  bare = false,
 }: {
   columns: DataColumn<Row>[];
   rows: Row[];
   empty: ReactNode;
+  bare?: boolean;
 }) {
   if (rows.length === 0) return <>{empty}</>;
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-surface">
+    <div
+      className={
+        bare
+          ? "overflow-hidden"
+          : "overflow-hidden rounded-2xl border border-border bg-surface"
+      }
+    >
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[680px] border-collapse text-left text-sm">
-          <thead className="bg-surface-secondary text-xs font-medium text-muted">
+        <table className="w-full border-collapse text-left text-sm">
+          <thead className="text-[11px] font-medium uppercase tracking-wide text-muted">
             <tr>
               {columns.map((column) => (
                 <th
                   key={column.key}
-                  className={`px-4 py-2.5 ${column.align === "right" ? "text-right" : ""}`}
+                  className={`border-b border-separator px-4 py-3 ${column.align === "right" ? "text-right" : ""}`}
                 >
                   {column.label}
                 </th>
@@ -35,11 +43,11 @@ export function DataTable<Row extends { id: string }>({
           </thead>
           <tbody className="divide-y divide-separator">
             {rows.map((row) => (
-              <tr key={row.id} className="hover:bg-surface-secondary/70">
+              <tr key={row.id}>
                 {columns.map((column) => (
                   <td
                     key={column.key}
-                    className={`px-4 py-3 text-foreground ${column.align === "right" ? "text-right tabular-nums" : ""}`}
+                    className={`h-[52px] px-4 py-2 text-foreground ${column.align === "right" ? "text-right tabular-nums" : ""}`}
                   >
                     {column.render(row)}
                   </td>

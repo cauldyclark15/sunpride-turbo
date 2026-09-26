@@ -52,8 +52,8 @@ it("plots only verified pins and always renders the table fallback", () => {
   const html = renderToStaticMarkup(
     <CoverageMapView planId={"plan" as never} />,
   );
-  expect(html).toContain("Outlet list (available even if tiles fail)");
-  expect(html).toContain("Unmapped (no verified pin)");
+  expect(html).toContain('<table class="w-full text-left text-[13px]">');
+  expect(html).toContain("Unmapped");
   expect(html).toContain("Pinned");
   expect(html).toContain("DEMO-T1 · Demo North Metro Territory");
   expect(html).toContain("DEMO-R1 · Demo City Route");

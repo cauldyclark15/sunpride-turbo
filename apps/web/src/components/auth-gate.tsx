@@ -7,8 +7,8 @@ import { useEffect, useState, type ReactNode } from "react";
 
 const errorMessage = (error: unknown) => {
   if (error instanceof Error && error.message.includes("has not been invited"))
-    return "This email address has not been invited to Sunpride Operations.";
-  return "We could not provision this account. Contact the Sunpride super admin.";
+    return "Email not invited. Contact your administrator.";
+  return "Access unavailable. Contact your administrator.";
 };
 
 export function AuthGate({ children }: { children: ReactNode }) {
@@ -45,17 +45,13 @@ export function AuthGate({ children }: { children: ReactNode }) {
     };
   }, [ensureProfile, isAuthenticated]);
 
-  if (isLoading || !isAuthenticated)
-    return <LoadingScreen label="Opening Sunpride sign in…" />;
+  if (isLoading || !isAuthenticated) return <LoadingScreen label="Loading…" />;
   if (provisioningError)
     return (
-      <AccessMessage
-        title="Access has not been provisioned"
-        message={provisioningError}
-      />
+      <AccessMessage title="Access unavailable" message={provisioningError} />
     );
   if (!profile || profile.status !== "active")
-    return <LoadingScreen label="Verifying your Sunpride access…" />;
+    return <LoadingScreen label="Loading…" />;
   return <>{children}</>;
 }
 

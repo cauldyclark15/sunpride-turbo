@@ -3,12 +3,16 @@
 import { Button } from "@heroui/react";
 import { api } from "@sunpride/backend/api";
 import {
+  Card,
   DataTable,
-  EmptyPanel,
   MetricCard,
   PageHeader,
+  FormField,
+  Pager,
   StatusPill,
+  UnderlineTabs,
   WorkspaceModuleTabs,
+  WorkspaceIcon,
   type DataColumn,
 } from "@sunpride/ui";
 import { useMutation, useQuery } from "convex/react";
@@ -49,70 +53,17 @@ const CoverageExport = dynamic(() =>
 );
 
 const modules = {
-  dashboard: {
-    eyebrow: "Executive control center",
-    title: "Operations dashboard",
-    description:
-      "A live view of orders, stock exposure, approvals, customers, and today’s sales.",
-  },
-  "master-data": {
-    eyebrow: "SAP-governed records",
-    title: "Master data",
-    description:
-      "Product, customer, warehouse, territory, and price references synchronized with SAP.",
-  },
-  imports: {
-    eyebrow: "Governed data entry",
-    title: "Data imports",
-    description:
-      "Load the approved product master and opening stock through validated CSV operations with preview, row-level errors, and an auditable run history.",
-  },
-  inventory: {
-    eyebrow: "Operational inventory authority",
-    title: "Inventory control",
-    description:
-      "Lot-aware stock, receiving, transfers, counts, manufacturing, rolling trucks, and an immutable movement ledger.",
-  },
-  "sales-force": {
-    eyebrow: "Field execution",
-    title: "Sales force automation",
-    description:
-      "Assignments, customer coverage, planned visits, field notes, and sales representative activity.",
-  },
-  orders: {
-    eyebrow: "Order-to-SAP lifecycle",
-    title: "Sales orders",
-    description:
-      "Create, review, approve, and track orders from field capture through SAP handoff.",
-  },
-  "sap-integration": {
-    eyebrow: "Outbound-only bridge",
-    title: "SAP integration",
-    description:
-      "Signed event exchange, connector health, retry queues, acknowledgements, and dead-letter operations.",
-  },
-  workflows: {
-    eyebrow: "Controlled decisions",
-    title: "Workflow & approval",
-    description:
-      "Pending business decisions with role-based authority and a complete audit trail.",
-  },
-  admin: {
-    eyebrow: "Identity and governance",
-    title: "Security & administration",
-    description:
-      "Account roles, access posture, auditability, and operational configuration.",
-  },
-  analytics: {
-    eyebrow: "Management intelligence",
-    title: "Dashboards & analytics",
-    description:
-      "Operational indicators that expose sales velocity, stock risk, and process bottlenecks.",
-  },
-} satisfies Record<
-  WebModuleSlug,
-  { eyebrow: string; title: string; description: string }
->;
+  dashboard: { title: "Dashboard" },
+  "master-data": { title: "Master data" },
+  imports: { title: "Imports" },
+  inventory: { title: "Inventory" },
+  "sales-force": { title: "Coverage" },
+  orders: { title: "Orders" },
+  "sap-integration": { title: "Integration" },
+  workflows: { title: "Workflows" },
+  admin: { title: "Administration" },
+  analytics: { title: "Analytics" },
+} satisfies Record<WebModuleSlug, { title: string }>;
 
 type ModuleKey = WebModuleSlug;
 const money = new Intl.NumberFormat("en-PH", {
@@ -121,38 +72,13 @@ const money = new Intl.NumberFormat("en-PH", {
   maximumFractionDigits: 0,
 });
 
-function SectionCard({
-  title,
-  description,
-  bullets,
-}: {
-  title: string;
-  description: string;
-  bullets: string[];
-}) {
-  return (
-    <article className="rounded-lg border border-border bg-surface p-5 shadow-none">
-      <h2 className="font-semibold text-foreground">{title}</h2>
-      <p className="mt-2 text-sm leading-6 text-muted">{description}</p>
-      <ul className="mt-4 grid gap-2 text-sm text-foreground">
-        {bullets.map((item) => (
-          <li key={item} className="flex gap-2">
-            <span className="mt-2 size-1.5 shrink-0 rounded-full bg-accent" />
-            {item}
-          </li>
-        ))}
-      </ul>
-    </article>
-  );
-}
-
 export function ModuleWorkspace({ module }: { module: WebModuleSlug }) {
   const profile = useQuery(api.domains.profiles.current, {});
 
   // Do not mount ModuleContent (or its module-specific queries/mutations) until
   // the active profile is known and allowed for this route.
   if (!profile) {
-    return <p className="text-sm text-muted">Verifying module access…</p>;
+    return <p className="text-sm text-muted">Checking access…</p>;
   }
   if (
     profile.status !== "active" ||
@@ -162,7 +88,7 @@ export function ModuleWorkspace({ module }: { module: WebModuleSlug }) {
       <section className="rounded-lg border border-border bg-surface p-8">
         <h1 className="text-xl font-semibold text-foreground">Access denied</h1>
         <p className="mt-2 text-sm text-muted">
-          Your role does not have access to this module.
+          Ask an administrator for access.
         </p>
       </section>
     );
@@ -174,7 +100,7 @@ function AllowedModuleWorkspace({ module }: { module: WebModuleSlug }) {
   const config = modules[module];
   const ensureProfile = useMutation(api.domains.profiles.ensure);
   const initialized = useRef(false);
-  const [setupMessage, setSetupMessage] = useState("Preparing your workspace…");
+  const [setupMessage, setSetupMessage] = useState("Connecting…");
   const pathname = usePathname();
   const router = useRouter();
   const tabs = getWebModuleTabs(pathname);
@@ -183,17 +109,15 @@ function AllowedModuleWorkspace({ module }: { module: WebModuleSlug }) {
     if (initialized.current) return;
     initialized.current = true;
     void ensureProfile()
-      .then(() => setSetupMessage("Operational data connected."))
-      .catch(() => setSetupMessage("Workspace connected."));
+      .then(() => setSetupMessage(""))
+      .catch(() => setSetupMessage(""));
   }, [ensureProfile]);
 
   return (
-    <div className="grid gap-7">
-      <PageHeader
-        eyebrow={config.eyebrow}
-        title={config.title}
-        description={config.description}
-      />
+    <div className="grid gap-4">
+      {!["inventory", "orders", "workflows"].includes(module) ? (
+        <PageHeader title={config.title} />
+      ) : null}
       <WorkspaceModuleTabs
         activeHref={pathname}
         items={tabs}
@@ -231,16 +155,17 @@ function ScopedPlanPicker({
   onSelect: (plan: SelectedPlan | null) => void;
 }) {
   const [cursor, setCursor] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
   const result = useQuery(api.coverage.discovery.list, {
     localMonth: month,
     paginationOpts: { numItems: 20, cursor },
   });
   return (
-    <div className="space-y-2">
-      <label>
-        Scoped plan{" "}
+    <div className="grid gap-3">
+      <FormField label="Plan">
         <select
           aria-label="Scoped coverage plan"
+          className="w-full"
           value={selected?.id ?? ""}
           onChange={(event) => {
             const plan = result?.page.find(
@@ -270,25 +195,33 @@ function ScopedPlanPicker({
             </option>
           ))}
         </select>
-      </label>
-      {result === undefined && <p>Loading scoped plans…</p>}
-      {result && !result.page.length && (
-        <p>No plans on this page. Continue to check more.</p>
+      </FormField>
+      {result === undefined && (
+        <span className="text-[13px] text-muted">Loading plans…</span>
       )}
-      <button
-        type="button"
-        disabled={cursor === null}
-        onClick={() => setCursor(null)}
-      >
-        First plans
-      </button>{" "}
-      <button
-        type="button"
-        disabled={!result || result.isDone}
-        onClick={() => setCursor(result!.continueCursor)}
-      >
-        Next plans
-      </button>
+      {result && !result.page.length && (
+        <span className="text-[13px] text-muted">No plans here</span>
+      )}
+      {/* The picker is a dropdown, so paging only appears once the month has
+          more plans than one page holds. */}
+      {(cursor !== null || (result && !result.isDone)) && (
+        <Pager
+          label="Plans pages"
+          page={page}
+          canPrevious={cursor !== null}
+          canNext={!!result && !result.isDone}
+          onPrevious={() => {
+            setCursor(null);
+            setPage(1);
+          }}
+          onNext={() => {
+            if (result) {
+              setCursor(result.continueCursor);
+              setPage((old) => old + 1);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -314,60 +247,48 @@ export function SalesForcePanels() {
     ["plan", "Plan"],
     ...(canApprove ? ([["review", "Review"]] as [CoverageTab, string][]) : []),
     ["exceptions", "Exceptions"],
-    ["visits", "Planned visits"],
+    ["visits", "Visits"],
     ["history", "History"],
     ["calendar", "Calendar"],
-    ["route", "Territory / route"],
+    ["route", "Routes"],
     ["map", "Map"],
     ["workload", "Workload"],
-    ["export", "Export / print"],
+    ["export", "Export"],
   ];
   return (
-    <div className="grid gap-6">
+    <div className="grid gap-4">
       {canRead && (
-        <section
-          aria-label="Coverage plans"
-          className="grid gap-4 rounded border border-border p-4"
-        >
-          <h2 className="text-lg font-semibold">Coverage plans</h2>
-          <label>
-            Manila month{" "}
-            <input
-              type="month"
-              aria-label="Coverage month"
-              value={month}
-              onChange={(event) => {
-                setMonth(event.target.value);
-                setSelected(null);
-              }}
-            />
-          </label>
-          <PanelErrorBoundary key={month} label="Scoped plan picker">
-            <ScopedPlanPicker
-              key={month}
-              month={month}
-              selected={selected}
-              onSelect={setSelected}
-            />
-          </PanelErrorBoundary>
-          <div
-            role="tablist"
-            aria-label="Master Coverage Plans"
-            className="flex flex-wrap gap-2"
-          >
-            {coverageTabs.map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                role="tab"
-                aria-selected={coverageTab === key}
-                className="rounded border border-border px-3 py-1"
-                onClick={() => setCoverageTab(key)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+        <>
+          <Card label="Plans" icon={<WorkspaceIcon name="field" />}>
+            <div className="grid items-start gap-3 sm:grid-cols-[180px_minmax(0,1fr)]">
+              <FormField label="Month">
+                <input
+                  type="month"
+                  aria-label="Coverage month"
+                  className="w-full"
+                  value={month}
+                  onChange={(event) => {
+                    setMonth(event.target.value);
+                    setSelected(null);
+                  }}
+                />
+              </FormField>
+              <PanelErrorBoundary key={month} label="Scoped plan picker">
+                <ScopedPlanPicker
+                  key={month}
+                  month={month}
+                  selected={selected}
+                  onSelect={setSelected}
+                />
+              </PanelErrorBoundary>
+            </div>
+          </Card>
+          <UnderlineTabs
+            items={coverageTabs}
+            activeId={coverageTab}
+            onChange={setCoverageTab}
+            label="Coverage views"
+          />
           <div role="tabpanel">
             {coverageTab === "plan" ? (
               <PanelErrorBoundary key="plan" label="Coverage plan">
@@ -439,12 +360,7 @@ export function SalesForcePanels() {
               <p>Select a scoped plan to open this view.</p>
             )}
           </div>
-        </section>
-      )}
-      {panels.editing ? (
-        <h2 className="text-lg font-semibold">Territory coverage editors</h2>
-      ) : (
-        <h2 className="text-lg font-semibold">Scoped route and outlet lists</h2>
+        </>
       )}
       {panels.routes && (
         <PanelErrorBoundary label="Territory and route editor">
@@ -530,62 +446,44 @@ function ModuleContent({
   if (module === "dashboard" || module === "analytics")
     return (
       <>
-        <p className="text-xs font-medium text-muted">{setupMessage}</p>
+        {setupMessage ? (
+          <p className="text-[13px] text-muted">{setupMessage}</p>
+        ) : null}
         {metrics?.restricted ? (
           <p className="text-sm text-muted">
-            Company-wide totals are visible to national users only.
+            Totals unavailable for this account.
           </p>
         ) : null}
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
           <MetricCard
             label="Products"
             value={String(metrics?.productCount ?? "—")}
-            detail="Active catalog references"
+            detail="Active"
           />
           <MetricCard
             label="Customers"
             value={String(metrics?.customerCount ?? "—")}
-            detail="Trading accounts"
+            detail="Trading"
           />
           <MetricCard
             label="Low stock"
             value={String(metrics?.lowStockCount ?? "—")}
-            detail="Requires replenishment"
+            detail="Need stock"
           />
           <MetricCard
             label="Open orders"
             value={String(metrics?.openOrderCount ?? "—")}
-            detail="In active processing"
+            detail="In progress"
           />
           <MetricCard
             label="Approvals"
             value={String(metrics?.pendingApprovalCount ?? "—")}
-            detail="Awaiting a decision"
+            detail="Waiting"
           />
           <MetricCard
             label="Sales today"
             value={metrics ? money.format(metrics.salesToday) : "—"}
-            detail="Submitted order value"
-          />
-        </div>
-        <div className="grid gap-4 xl:grid-cols-[1.5fr_1fr]">
-          <SectionCard
-            title="Commercial pulse"
-            description="Sunpride’s control plane is organized around exception management: stock risk, stalled approvals, and SAP delivery status."
-            bullets={[
-              "Realtime Convex subscriptions update every connected workspace",
-              "Approval decisions generate outbound SAP events",
-              "All privileged actions append immutable audit records",
-            ]}
-          />
-          <SectionCard
-            title="Management focus"
-            description="Today’s operating rhythm, ready for client-specific KPI definitions."
-            bullets={[
-              "Review low-stock products",
-              "Resolve approval backlog",
-              "Confirm connector heartbeat before cut-off",
-            ]}
+            detail="Order value"
           />
         </div>
       </>
@@ -638,28 +536,32 @@ function ModuleContent({
     ];
     return (
       <>
-        <h2 className="text-lg font-semibold">Products</h2>
-        <DataTable
-          rows={productRows}
-          columns={productColumns}
-          empty={
-            <EmptyPanel
-              title="No products"
-              description="Products will appear after SAP synchronization."
-            />
-          }
-        />
-        <h2 className="mt-4 text-lg font-semibold">Customers</h2>
-        <DataTable
-          rows={customerRows}
-          columns={customerColumns}
-          empty={
-            <EmptyPanel
-              title="No customers"
-              description="Customers will appear after SAP synchronization."
-            />
-          }
-        />
+        <Card
+          label="Products"
+          icon={<WorkspaceIcon name="catalog" />}
+          count={productRows.length}
+          flush
+        >
+          <DataTable
+            rows={productRows}
+            columns={productColumns}
+            bare
+            empty={<p className="p-4 text-[13px] text-muted">No products</p>}
+          />
+        </Card>
+        <Card
+          label="Customers"
+          icon={<WorkspaceIcon name="commercial" />}
+          count={customerRows.length}
+          flush
+        >
+          <DataTable
+            rows={customerRows}
+            columns={customerColumns}
+            bare
+            empty={<p className="p-4 text-[13px] text-muted">No customers</p>}
+          />
+        </Card>
       </>
     );
   }
@@ -748,32 +650,42 @@ function ModuleContent({
     ];
     return (
       <>
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted">
-            {module === "workflows"
-              ? `${workflows?.length ?? 0} pending workflow(s)`
-              : "Orders are idempotent across online and offline clients."}
-          </p>
-          {module === "orders" ? (
-            <Button
-              variant="primary"
-              isPending={busy}
-              onPress={() => void addDemoOrder()}
-            >
-              Create sample order
-            </Button>
-          ) : null}
-        </div>
-        <DataTable
-          rows={orderRows}
-          columns={columns}
-          empty={
-            <EmptyPanel
-              title="No orders yet"
-              description="Create a sample order or sync an offline field order."
-            />
+        <PageHeader
+          title={module === "workflows" ? "Workflows" : "Orders"}
+          meta={
+            module === "workflows"
+              ? workflows
+                ? `${workflows.length} waiting`
+                : undefined
+              : orders
+                ? `${orders.length} orders`
+                : undefined
+          }
+          actions={
+            module === "orders" ? (
+              <Button
+                variant="primary"
+                isPending={busy}
+                onPress={() => void addDemoOrder()}
+              >
+                New order
+              </Button>
+            ) : undefined
           }
         />
+        <Card
+          label="Orders"
+          icon={<WorkspaceIcon name="order" />}
+          count={orderRows.length}
+          flush
+        >
+          <DataTable
+            bare
+            rows={orderRows}
+            columns={columns}
+            empty={<p className="p-4 text-[13px] text-muted">No orders yet</p>}
+          />
+        </Card>
       </>
     );
   }
@@ -781,44 +693,9 @@ function ModuleContent({
   if (module === "admin") return <AdminWorkspace />;
   if (module === "sales-force") return <SalesForcePanels />;
 
-  const content =
-    {
-      "sap-integration": [
-        "Outbound-only local connector",
-        "HMAC signed requests with replay window",
-        "Durable Bun SQLite retries and dead-letter handling",
-      ],
-      admin: [
-        "Invitation-only Better Auth email and password identity",
-        "Role-based authorization in Convex",
-        "Server-derived identity and immutable audit events",
-      ],
-    }[module as "sap-integration" | "admin"] ?? [];
   return (
-    <div className="grid gap-4 md:grid-cols-3">
-      <SectionCard
-        title="Ready foundation"
-        description="This module is connected to the shared architecture and prepared for client-specific business rules."
-        bullets={content}
-      />
-      <SectionCard
-        title="Control posture"
-        description="Operational safety is built into every state-changing flow."
-        bullets={[
-          "Validated inputs and bounded queries",
-          "Idempotent write boundaries",
-          "Visible error and recovery states",
-        ]}
-      />
-      <SectionCard
-        title="Next configuration"
-        description="Finalize these values during discovery with Sunpride and the SAP team."
-        bullets={[
-          "Field mapping and ownership",
-          "Role matrix and thresholds",
-          "Cut-off, retry, and SLA rules",
-        ]}
-      />
-    </div>
+    <Card label="Integration" icon={<WorkspaceIcon name="operations" />}>
+      <p className="text-[13px] text-muted">Not connected yet</p>
+    </Card>
   );
 }
