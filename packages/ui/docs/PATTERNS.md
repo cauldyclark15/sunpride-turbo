@@ -17,7 +17,7 @@ very few words.
    layers (popover, modal, sheet, toast) get `shadow-overlay`.
 3. **One big text size per screen**, the page title. Everything else is 11–15px and gets
    its hierarchy from weight, case, and color.
-4. **Fragments, not sentences.** Use labels, counts, and meta lines joined with ` · `. Never
+4. **Fragments, not sentences.** Use labels, counts, and meta lines joined with `·`. Never
    explain the system on screen.
 5. **Every control is 40px tall.** Row-level actions are 32px. Nothing sits in between.
 6. **Leave space empty.** Don't stretch content, add filler, or decorate edges.
@@ -64,7 +64,7 @@ Stat line (13px muted) — e.g. "6 visits · 2 need action"
 - **Two-column pages:** On `xl` screens, use a flexible main column plus a `w-[360px]` side
   column for secondary panels (needs action, filters, settings).
 - **Tinted notice** (replaces banners): a soft status fill (`bg-*-soft
-  text-*-soft-foreground`), no border, `rounded-xl p-3`, with a title plus one meta line.
+text-*-soft-foreground`), no border, `rounded-xl p-3`, with a title plus one meta line.
   - Show it only when someone must act.
   - A healthy state gets no banner. If needed, a status pill in the header is enough.
   - Success is green and never red.
@@ -75,7 +75,7 @@ A row is 56px tall, with a hairline between rows and no zebra striping. Left to 
 
 1. A 36px **icon tile** (`rounded-[10px]`, soft status tint, 18px icon in the tint's
    foreground).
-2. **Title** (14px, medium) above a **meta line** (13px, muted, fragments joined with ` · `).
+2. **Title** (14px, medium) above a **meta line** (13px, muted, fragments joined with `·`).
 3. Right-aligned: a value or time (13px, `tabular-nums`; use mono for codes and timestamps),
    then an optional 32px action button, then an optional 6px status dot.
 
@@ -106,35 +106,35 @@ to lists.
 
 ## 8. Controls
 
-| Control | Spec |
-|---|---|
-| Button, primary | 40px, `rounded-[10px]`, accent fill, 14px medium label, optional 16px leading icon |
-| Button, secondary | 40px, surface fill, 1px `border`, same label |
-| Row action | 32px, `px-3`, 13px label; primary or secondary |
-| Icon button | 40px square, outlined; may carry a 6px dot |
-| Input, select, date | 40px, HeroUI field components only, 1px border, `rounded-[10px]`, 16px leading icon where useful. Never unstyled native controls |
-| Field label | 13px medium, 6px above the field. Stacked labels, never inline |
-| Tabs | One style: underline tabs, 40px, 14px. Active tab is foreground semibold with a 2px accent underline; inactive tabs are muted. More than 6 tabs scroll horizontally |
-| Filters | Outlined 40px dropdown buttons (icon + value + chevron) in the page header row or card header |
-| Toggle | For on/off settings rows: label, caption, toggle on the right |
-| Pill | Content-sized, `rounded-md`, `px-2 py-0.5`, 12px medium, soft tint. Tones: success, warning, danger, neutral. Active ≠ draft: use different tones |
-| Count badge | Solid danger, white 11px numeral, only for counts that need action |
-| Avatar | Circle: 32px in the user card, 24px in stacks (overlapping by 30%) |
+| Control             | Spec                                                                                                                                                                |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Button, primary     | 40px, `rounded-[10px]`, accent fill, 14px medium label, optional 16px leading icon                                                                                  |
+| Button, secondary   | 40px, surface fill, 1px `border`, same label                                                                                                                        |
+| Row action          | 32px, `px-3`, 13px label; primary or secondary                                                                                                                      |
+| Icon button         | 40px square, outlined; may carry a 6px dot                                                                                                                          |
+| Input, select, date | 40px, HeroUI field components only, 1px border, `rounded-[10px]`, 16px leading icon where useful. Never unstyled native controls                                    |
+| Field label         | 13px medium, 6px above the field. Stacked labels, never inline                                                                                                      |
+| Tabs                | One style: underline tabs, 40px, 14px. Active tab is foreground semibold with a 2px accent underline; inactive tabs are muted. More than 6 tabs scroll horizontally |
+| Filters             | Outlined 40px dropdown buttons (icon + value + chevron) in the page header row or card header                                                                       |
+| Toggle              | For on/off settings rows: label, caption, toggle on the right                                                                                                       |
+| Pill                | Content-sized, `rounded-md`, `px-2 py-0.5`, 12px medium, soft tint. Tones: success, warning, danger, neutral. Active ≠ draft: use different tones                   |
+| Count badge         | Solid danger, white 11px numeral, only for counts that need action                                                                                                  |
+| Avatar              | Circle: 32px in the user card, 24px in stacks (overlapping by 30%)                                                                                                  |
 
 Icons use the outline style with a 1.5 stroke and inherit the text color. Sizes are 18px in
 navigation, 16px in controls, and 14px in card headers.
 
 ## 9. Type
 
-| Role | Size / weight | Case |
-|---|---|---|
-| Page title | 26px / 600, tracking-tight | Sentence |
-| KPI number | 28px / 500, tabular | — |
-| Row / card title | 14px / 500 | Sentence |
-| Body, meta | 13px / 400, muted | Sentence fragments |
-| Section, group, table header | 11–12px / 500, `tracking-wide` | UPPERCASE |
-| Caption | 12px / 400, muted | Sentence |
-| Code, time, ID | 12–13px mono, tabular | As data |
+| Role                         | Size / weight                  | Case               |
+| ---------------------------- | ------------------------------ | ------------------ |
+| Page title                   | 26px / 600, tracking-tight     | Sentence           |
+| KPI number                   | 28px / 500, tabular            | —                  |
+| Row / card title             | 14px / 500                     | Sentence           |
+| Body, meta                   | 13px / 400, muted              | Sentence fragments |
+| Section, group, table header | 11–12px / 500, `tracking-wide` | UPPERCASE          |
+| Caption                      | 12px / 400, muted              | Sentence           |
+| Code, time, ID               | 12–13px mono, tabular          | As data            |
 
 The font is Mulish. The heaviest weight is 600, and nothing is bold beyond that.
 
@@ -158,14 +158,14 @@ Every word must earn its place.
 
 ### Before → after
 
-| Before | After |
-|---|---|
-| Inventory control / "Lot-aware stock, receiving, transfers, counts, manufacturing, rolling trucks, and an immutable movement ledger." | Inventory / "240 cases · 1 location" |
-| "Physical 240 base cases across filtered locations" | PHYSICAL 240 (section label: STOCK · CASES) |
-| Banner "Inventory is ready. Locations, units, and product rules are configured." | (nothing) |
-| "Sales force automation" + description | Coverage |
-| "Operational sites are distinct from SAP customer accounts. Pin radius 75 m by default (provisional)." | (removed; pin radius shown as the "75 m" meta on each outlet) |
-| "Schedule templates only; ordered outlet stops are managed separately. Asia/Manila dates." | (removed) |
+| Before                                                                                                                                | After                                                         |
+| ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| Inventory control / "Lot-aware stock, receiving, transfers, counts, manufacturing, rolling trucks, and an immutable movement ledger." | Inventory / "240 cases · 1 location"                          |
+| "Physical 240 base cases across filtered locations"                                                                                   | PHYSICAL 240 (section label: STOCK · CASES)                   |
+| Banner "Inventory is ready. Locations, units, and product rules are configured."                                                      | (nothing)                                                     |
+| "Sales force automation" + description                                                                                                | Coverage                                                      |
+| "Operational sites are distinct from SAP customer accounts. Pin radius 75 m by default (provisional)."                                | (removed; pin radius shown as the "75 m" meta on each outlet) |
+| "Schedule templates only; ordered outlet stops are managed separately. Asia/Manila dates."                                            | (removed)                                                     |
 
 ## 11. Native (iOS and Android)
 
