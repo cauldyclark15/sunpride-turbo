@@ -6,6 +6,18 @@ import androidx.compose.runtime.setValue
 import android.content.Context
 import com.sunpride.field.storage.EncryptedFieldDatabase
 import kotlinx.coroutines.runBlocking
+import com.sunpride.field.storage.RoomFieldStore
+import com.sunpride.field.storage.StoreScope
+import com.sunpride.field.sync.BootstrapClient
+import com.sunpride.field.sync.BootstrapFailure
+import com.sunpride.field.sync.LiveBootstrapTransport
+import com.sunpride.field.sync.BootstrapCodec
+import com.sunpride.field.device.RequestSigner
+import org.json.JSONObject
+import java.util.Base64
+import java.time.LocalDate
+import java.time.ZoneId
+import java.security.MessageDigest
 import com.sunpride.field.AppEnvironment
 import com.sunpride.field.auth.AuthClient
 import com.sunpride.field.auth.AuthFailure
@@ -31,7 +43,13 @@ interface FieldBackend {
     fun signIn(email: String, password: String)
     fun signOut()
     fun refreshEnrollment(signer: DeviceSigner): EnrollmentState
+    fun today(deviceId: String, signer: DeviceSigner, sync: Boolean): TodayData = TodayData()
+    val cachedDeviceId: String? get() = null
 }
+
+data class VisitDisplay(val outlet: String, val planned: String, val status: String)
+data class TodayData(val visits: List<VisitDisplay> = emptyList(), val lastSynced: Long? = null,
+                     val stale: Boolean = true, val warning: String? = null, val updateRequired: Boolean = false)
 
 class LiveFieldBackend(
     environment: AppEnvironment,
@@ -41,6 +59,85 @@ class LiveFieldBackend(
 ) : FieldBackend {
     private val auth = AuthClient(environment, vault)
     private val functions = ConvexFunctions(environment, auth)
+    private val syncTransport = LiveBootstrapTransport(environment, auth, functions)
+    private val prefs = context.getSharedPreferences("field_cache_index", Context.MODE_PRIVATE)
+    private fun sessionKey(): String? = vault.readSession()?.let {
+        MessageDigest.getInstance("SHA-256").digest(it.toByteArray(Charsets.UTF_8))
+            .joinToString("") { b -> "%02x".format(b.toInt() and 255) }
+    }
+    private fun subjectFromToken(): String {
+        val token = auth.convexToken()
+        val claims = JSONObject(String(Base64.getUrlDecoder().decode(token.split('.')[1]), Charsets.UTF_8))
+        val issuer = claims.getString("iss")
+        val subject = claims.getString("sub")
+        check(issuer.startsWith("https://") && subject.isNotBlank())
+        return "$issuer|$subject"
+    }
+    override fun today(deviceId: String, signer: DeviceSigner, sync: Boolean): TodayData {
+        val key = sessionKey() ?: return TodayData()
+        var subject = prefs.getString("$key.subject", null)
+        var fingerprint = prefs.getString("$key.scope", null)
+        var warning: String? = null
+        var failed = prefs.getBoolean("$key.failed", true)
+        val terminal = prefs.getInt("$key.updateVersion", -1) == com.sunpride.field.BuildConfig.VERSION_CODE
+        if (sync && !terminal) {
+            try {
+                val authenticated = subjectFromToken()
+                val p = BootstrapClient(syncTransport, signer, deviceId,
+                    { fp -> RoomFieldStore(EncryptedFieldDatabase.open(context), StoreScope(authenticated, deviceId, fp)) })
+                    .fetch(subject = authenticated)
+                subject = authenticated; fingerprint = p.fingerprint
+                prefs.edit().putString("$key.subject", subject).putString("$key.scope", fingerprint)
+                    .putString("$key.device", deviceId).putLong("$key.synced", p.serverTime)
+                    .putBoolean("$key.failed", false).apply()
+                failed = false
+            } catch (e: Exception) {
+                failed = true
+                prefs.edit().putBoolean("$key.failed", true).apply()
+                warning = when (e) {
+                    is BootstrapFailure -> when (e.kind) {
+                        BootstrapFailure.Kind.REMOVED -> "Phone removed"
+                        BootstrapFailure.Kind.UPDATE_REQUIRED -> "Update required"
+                        BootstrapFailure.Kind.UNAUTHORIZED -> "Sign in again"
+                        else -> "Sync unavailable — showing saved visits"
+                    }
+                    else -> "Sync unavailable — showing saved visits"
+                }
+                if (e is BootstrapFailure && e.kind == BootstrapFailure.Kind.UNAUTHORIZED) {
+                    // HTTP gateway returns 401 for failed device authorization, including revocation.
+                    // Distinguish it by a fresh authenticated enrollment read when possible.
+                    val revoked = runCatching { ConvexDeviceApi(functions).mine(signer.publicKeyBase64)?.status }
+                        .getOrNull() in setOf("revoked", "suspended")
+                    if (revoked) warning = "Phone removed"
+                }
+                if (warning == "Update required") prefs.edit()
+                    .putInt("$key.updateVersion", com.sunpride.field.BuildConfig.VERSION_CODE).apply()
+                if (warning == "Phone removed" ||
+                    (e is BootstrapFailure && e.kind == BootstrapFailure.Kind.UNAUTHORIZED)) {
+                    runBlocking { EncryptedFieldDatabase.holdExisting(context) }
+                }
+            }
+        }
+        if (subject == null || fingerprint == null || prefs.getString("$key.device", null) != deviceId)
+            return TodayData(warning = warning ?: if (terminal) "Update required" else null, updateRequired = terminal)
+        val db = EncryptedFieldDatabase.open(context)
+        try {
+            val store = RoomFieldStore(db, StoreScope(subject, deviceId, fingerprint))
+            return runBlocking {
+                val day = LocalDate.now(ZoneId.of("Asia/Manila")).toString()
+                val outlets = store.outlets().associate { it.id to JSONObject(it.json).optString("name", "Outlet") }
+                val visits = store.todaysVisits(day).map { row ->
+                    val v = JSONObject(row.json)
+                    VisitDisplay(outlets[v.optString("outletId")] ?: "Outlet unavailable", "Planned", "Scheduled")
+                }
+                TodayData(visits, prefs.getLong("$key.synced", 0).takeIf { it > 0 },
+                    failed || !store.isLeaseValid(System.currentTimeMillis()),
+                    warning ?: if (terminal) "Update required" else null,
+                    terminal || warning == "Update required")
+            }
+        } finally { db.close() }
+    }
+    override val cachedDeviceId get() = vault.deviceId
     override val isSignedIn get() = auth.isSignedIn
     override fun loadSigner() = signerLoader()
     override fun signIn(email: String, password: String) = auth.signIn(email, password)
@@ -77,6 +174,7 @@ class FieldController(
     var busy by mutableStateOf(false); private set
     var error by mutableStateOf<String?>(null); private set
     var key by mutableStateOf<DeviceKeyInfo?>(null); private set
+    var today by mutableStateOf(TodayData()); private set
     private var signer: DeviceSigner? = null
 
     /** On launch: restore a stored session and re-verify the device with the server. */
@@ -84,7 +182,15 @@ class FieldController(
         runCatching { ensureKey() } // create the device key on first launch; failures surface on refresh
         if (!configured) return@launch
         val signedIn = runCatching { withContext(io) { backend.isSignedIn } }.getOrDefault(false)
-        if (signedIn) refresh()
+        if (signedIn) {
+            val cached = runCatching { withContext(io) { backend.cachedDeviceId } }.getOrNull()
+            if (cached != null) {
+                state = EnrollmentState.Ready(cached)
+                loadToday(sync = false)
+                today = today.copy(stale = true, warning = "Offline verification pending")
+            }
+            refresh()
+        }
     }
 
     private suspend fun ensureKey(): DeviceSigner = signer ?: withContext(io) { backend.loadSigner() }.also { s ->
@@ -119,6 +225,7 @@ class FieldController(
             val loaded = ensureKey()
             state = withContext(io) { backend.refreshEnrollment(loaded) }
             error = null
+            if (state is EnrollmentState.Ready) loadToday(sync = true)
         } catch (e: AuthFailure) {
             if (e.kind == AuthFailure.Kind.SESSION_EXPIRED) state = EnrollmentState.SignedOut
             error = userMessage(e)
@@ -129,12 +236,29 @@ class FieldController(
         }
     }
 
+    private suspend fun loadToday(sync: Boolean) {
+        val ready = state as? EnrollmentState.Ready ?: return
+        val loaded = ensureKey()
+        today = withContext(io) { backend.today(ready.deviceId, loaded, sync) }
+    }
+    fun refreshCache() = scope.launch(ui) {
+        if (state is EnrollmentState.Ready && !busy) {
+            runCatching { loadToday(sync = false) }.onFailure { today = today.copy(stale = true) }
+        }
+    }
+    fun syncNow() = scope.launch(ui) {
+        if (busy || state !is EnrollmentState.Ready || today.updateRequired) return@launch
+        busy = true
+        try { loadToday(sync = true) }
+        catch (_: Exception) { today = today.copy(stale = true, warning = "Sync unavailable — showing saved visits") }
+        finally { busy = false }
+    }
     fun checkAgain() = scope.launch(ui) { refresh() }
 
     fun signOut() = scope.launch(ui) {
         busy = true
         runCatching { withContext(io) { backend.signOut() } }
-        state = EnrollmentState.SignedOut; error = null; busy = false
+        state = EnrollmentState.SignedOut; today = TodayData(); error = null; busy = false
     }
 
     companion object {

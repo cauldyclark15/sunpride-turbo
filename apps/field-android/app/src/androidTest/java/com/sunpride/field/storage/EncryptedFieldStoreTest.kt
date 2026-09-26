@@ -52,6 +52,24 @@ class EncryptedFieldStoreTest {
         assertEquals(marker, store().todaysVisits("2026-09-26").single().json)
     }
 
+    @Test fun sameAccountVerifiedSwapReleasesHeldButOtherAccountCannotSeeIt() = runBlocking {
+        ready(store())
+        val i = intent()
+        store().enqueue(i, 100)
+        store().holdForReview()
+        assertNull(store().cursor())
+        val other = store(scope.copy(account = "issuer|different"))
+        assertTrue(other.pending().isEmpty())
+        assertTrue(other.todaysVisits("2026-09-26").isEmpty())
+        val staged = store().stage(snapshot("new"))
+        assertNull(store().cursor())
+        store().swap(staged, "fresh-cursor", 3000, 3000, releaseHeld = true)
+        assertEquals("fresh-cursor", store().cursor())
+        assertEquals(i.requestId, store().pending().single().first.requestId)
+        assertTrue(store().isLeaseValid(100))
+        assertTrue(other.pending().isEmpty())
+    }
+
     @Test fun rollbackLeavesNeitherIntentNorOutbox() = runBlocking {
         ready(store())
         val intent = intent()

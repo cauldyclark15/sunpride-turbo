@@ -19,6 +19,9 @@ import com.sunpride.field.device.KeystoreDeviceKey
 import com.sunpride.field.device.fingerprint
 import com.sunpride.field.ui.FieldApp
 import com.sunpride.field.ui.FieldBackend
+import com.sunpride.field.ui.TodayScreen
+import com.sunpride.field.ui.TodayData
+import com.sunpride.field.ui.VisitDisplay
 import org.junit.After
 import org.junit.Rule
 import org.junit.Test
@@ -70,8 +73,8 @@ class FieldAppTest {
     @Test fun readyAndRemovedStates() {
         val backend = ScriptedBackend(EnrollmentState.Ready("dev1")).apply { signedIn = true }
         rule.setContent { FieldApp(configured, dark = false, debug = true, backend = backend) }
-        rule.waitUntil(10_000) { rule.onAllNodesWithTagExists("ready-note") }
-        rule.onNodeWithTag("enrollment-title").assertTextContains("Phone ready")
+        rule.waitUntil(10_000) { rule.onAllNodesWithTagExists("today-title") }
+        rule.onNodeWithTag("today-title").assertTextContains("Today")
         rule.onNodeWithTag("sync-status").assertTextContains("Ready", substring = true)
         backend.enrollment = EnrollmentState.Removed
         rule.onNodeWithTag("sign-out").performClick()
@@ -85,6 +88,18 @@ class FieldAppTest {
             runCatching { rule.onNodeWithTag("enrollment-title").assertTextContains("This phone was removed — ask your admin") }.isSuccess
         }
         rule.onNodeWithTag("sync-status").assertTextContains("Phone removed", substring = true)
+    }
+
+    @Test fun todayRendersSavedVisitsAndStaleState() {
+        rule.setContent {
+            TodayScreen(TodayData(listOf(VisitDisplay("Outlet One", "Planned", "Pending")),
+                1790380800000L, stale = true, warning = "Offline verification pending"), false, {}, {})
+        }
+        rule.onNodeWithTag("today-title").assertTextContains("Today")
+        rule.onNodeWithTag("today-stale").assertTextContains("Stale", substring = true)
+        rule.onNodeWithTag("today-visit").assertTextContains("Outlet One", substring = true)
+        rule.onNodeWithTag("last-synced").assertTextContains("Last synced", substring = true)
+        rule.onNodeWithTag("sync-now").assertIsEnabled()
     }
 
     @Test fun wrongPasswordShowsFixedMessage() {
