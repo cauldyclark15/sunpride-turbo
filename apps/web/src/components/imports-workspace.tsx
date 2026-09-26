@@ -7,7 +7,6 @@ import {
   DataTable,
   EmptyPanel,
   ListRow,
-  PageHeader,
   StatusPill,
   UnderlineTabs,
   type DataColumn,
@@ -1321,16 +1320,16 @@ export function ImportsWorkspace(_props: { setupMessage: string }) {
 
   return (
     <div className="grid gap-4">
-      <PageHeader
-        title="Imports"
-        meta={`${tabs.length - 1} types · ${Object.values(files).reduce((total, file) => total + file.rows.length, 0)} rows`}
-      />
-      <UnderlineTabs
-        label="Import types"
-        items={tabs.map((item) => [item.key, item.label] as const)}
-        activeId={activeTab}
-        onChange={setTab}
-      />
+      {/* The module shell already titles this page "Imports"; a single
+          remaining tab needs no tab bar. */}
+      {tabs.length > 1 ? (
+        <UnderlineTabs
+          label="Import types"
+          items={tabs.map((item) => [item.key, item.label] as const)}
+          activeId={activeTab}
+          onChange={setTab}
+        />
+      ) : null}
       {activeTab === "history" ? (
         <RunHistory canNational={canNational} canOperational={canOperational} />
       ) : activeTab === "mcp" ? (
