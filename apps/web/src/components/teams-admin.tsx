@@ -3,13 +3,23 @@
 import { Button, Input } from "@heroui/react";
 import { api } from "@sunpride/backend/api";
 import type { Id } from "@sunpride/backend/data-model";
+import {
+  Card,
+  DataTable,
+  ListRow,
+  StatusPill,
+  WorkspaceIcon,
+  type DataColumn,
+} from "@sunpride/ui";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionArgs } from "convex/server";
 import { useState, type FormEvent } from "react";
+import { AdminSelectField } from "./org-admin";
 import { formatManilaDate, futureManilaDateToUtcMs } from "../lib/manila-date";
 
 const fieldClass =
-  "h-10 rounded-md border border-border bg-surface px-3 text-sm text-foreground";
+  "h-10 rounded-[10px] border border-border bg-surface px-3 text-sm text-foreground shadow-none";
+const fieldLabel = "grid gap-1.5 text-[13px] font-medium text-foreground";
 type TeamAction = "create" | "add" | "remove" | "deactivate";
 type TeamMutations = {
   create: (
@@ -121,9 +131,7 @@ export function TeamsAdmin() {
         selectedId ?? undefined,
       );
       setAction(null);
-      setNotice(
-        "Team change saved. Future changes take effect on their selected date.",
-      );
+      setNotice("Team saved");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -131,363 +139,386 @@ export function TeamsAdmin() {
     }
   }
 
+  const teamRows = (teams?.page ?? []).map((team) => ({
+    ...team,
+    id: team._id,
+  }));
+  const columns: DataColumn<(typeof teamRows)[number]>[] = [
+    {
+      key: "name",
+      label: "Team",
+      render: (row) => (
+        <span className="block">
+          <span className="block text-sm font-medium">{row.name}</span>
+          <span className="block font-mono text-xs text-muted">{row.code}</span>
+        </span>
+      ),
+    },
+    {
+      key: "unit",
+      label: "Unit",
+      render: (row) =>
+        units?.find((unit) => unit._id === row.orgUnitId)?.name ??
+        row.orgUnitId,
+    },
+    {
+      key: "status",
+      label: "Status",
+      render: (row) => (
+        <StatusPill tone={row.status === "active" ? "success" : "neutral"}>
+          {row.status}
+        </StatusPill>
+      ),
+    },
+    {
+      key: "actions",
+      label: "Actions",
+      render: (row) => (
+        <Button
+          size="sm"
+          variant="secondary"
+          onPress={() => {
+            setSelectedId(row._id);
+            setHistoryProfileId(null);
+            setAction(null);
+          }}
+        >
+          View team
+        </Button>
+      ),
+    },
+  ];
+
   return (
-    <section className="grid gap-5">
-      <div>
-        <h2 className="text-lg font-semibold">Teams</h2>
-        <p className="text-sm text-muted">
-          Scoped teams and effective-dated memberships · Asia/Manila dates
-        </p>
-      </div>
-      {canManage ? (
-        <Button
-          variant="primary"
-          onPress={() => {
-            setAction("create");
-            setError("");
-          }}
-        >
-          Create team
-        </Button>
-      ) : null}
-      {teams === undefined ? (
-        <p>Loading teams…</p>
-      ) : teams.page.length === 0 ? (
-        <p className="text-sm text-muted">No teams on this page.</p>
-      ) : (
-        <ul className="grid gap-2">
-          {teams.page.map((team) => (
-            <li
-              key={team._id}
-              className="rounded-md border border-border bg-surface p-3"
+    <div className="grid gap-4">
+      <Card
+        label="Teams"
+        icon={<WorkspaceIcon name="user" />}
+        count={teams?.page.length}
+        actions={
+          canManage ? (
+            <Button
+              variant="primary"
+              className="h-10 rounded-[10px]"
+              onPress={() => {
+                setAction("create");
+                setError("");
+              }}
             >
-              <Button
-                variant="secondary"
-                onPress={() => {
-                  setSelectedId(team._id);
-                  setHistoryProfileId(null);
-                  setAction(null);
-                }}
-              >
-                {team.code} · {team.name}
-              </Button>
-              <span className="ml-2 text-sm text-muted">
-                {team.status} ·{" "}
-                {units?.find((u) => u._id === team.orgUnitId)?.name ??
-                  team.orgUnitId}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-      <div className="flex items-center gap-2 text-sm">
-        <Button
-          size="sm"
-          variant="secondary"
-          isDisabled={cursors.length === 1}
-          onPress={() => setCursors((old) => old.slice(0, -1))}
-        >
-          Previous teams
-        </Button>
-        <span>Page {cursors.length}</span>
-        <Button
-          size="sm"
-          variant="secondary"
-          isDisabled={!teams || teams.isDone}
-          onPress={() => {
-            if (teams && !teams.isDone)
-              setCursors((old) => [...old, teams.continueCursor]);
-          }}
-        >
-          Next teams
-        </Button>
-      </div>
+              New team
+            </Button>
+          ) : undefined
+        }
+        flush
+      >
+        {teams === undefined ? (
+          <p className="p-4 text-sm text-muted">Loading teams…</p>
+        ) : (
+          <DataTable
+            bare
+            rows={teamRows}
+            columns={columns}
+            empty={
+              <p className="p-4 text-sm text-muted">No teams on this page</p>
+            }
+          />
+        )}
+        <div className="flex items-center gap-2 border-t border-separator p-4 text-sm">
+          <Button
+            size="sm"
+            variant="secondary"
+            isDisabled={cursors.length === 1}
+            onPress={() => setCursors((old) => old.slice(0, -1))}
+          >
+            Previous teams
+          </Button>
+          <span>Page {cursors.length}</span>
+          <Button
+            size="sm"
+            variant="secondary"
+            isDisabled={!teams || teams.isDone}
+            onPress={() => {
+              if (teams && !teams.isDone)
+                setCursors((old) => [...old, teams.continueCursor]);
+            }}
+          >
+            Next teams
+          </Button>
+        </div>
+      </Card>
       {selectedId &&
         (detail === undefined ? (
-          <p>Loading team detail…</p>
+          <Card label="Team detail">Loading team…</Card>
         ) : (
-          <aside
-            aria-label="Team detail"
-            className="grid gap-3 rounded-lg border border-border bg-surface p-5"
-          >
-            <h3 className="font-semibold">
-              {detail.team.name} · {detail.team.code}
-            </h3>
-            <p className="text-sm text-muted">
-              Effective {formatManilaDate(detail.team.effectiveFrom)}
-              {detail.team.effectiveTo
-                ? ` – ${formatManilaDate(detail.team.effectiveTo)}`
-                : " onward"}
-            </p>
-            <h4 className="font-medium">Current members</h4>
-            {detail.members.length === 0 ? (
-              <p className="text-sm text-muted">No current members.</p>
-            ) : (
-              <ul className="grid gap-2">
-                {detail.members.map(({ membership, profile }) => (
-                  <li
-                    key={membership._id}
-                    className="flex items-center justify-between gap-2 text-sm"
+          <Card label={`${detail.team.name} · ${detail.team.code}`}>
+            <aside aria-label="Team detail" className="grid gap-4">
+              <p className="text-[13px] text-muted">
+                Effective {formatManilaDate(detail.team.effectiveFrom)}
+                {detail.team.effectiveTo
+                  ? ` – ${formatManilaDate(detail.team.effectiveTo)}`
+                  : " onward"}
+              </p>
+              <h4 className="text-[11px] font-medium uppercase tracking-wide text-muted">
+                Current members
+              </h4>
+              {detail.members.length === 0 ? (
+                <p className="text-sm text-muted">No current members</p>
+              ) : (
+                <div className="-mx-4 border-y border-separator">
+                  {detail.members.map(({ membership, profile }) => (
+                    <ListRow
+                      key={membership._id}
+                      icon={<WorkspaceIcon name="user" />}
+                      title={profile.name}
+                      meta={`${profile.email} · ${formatManilaDate(membership.effectiveFrom)}`}
+                      action={
+                        <span className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onPress={() => setHistoryProfileId(profile._id)}
+                          >
+                            History
+                          </Button>
+                          {canManage && activeTeam ? (
+                            <Button
+                              size="sm"
+                              variant="danger-soft"
+                              onPress={() => {
+                                setHistoryProfileId(profile._id);
+                                setAction("remove");
+                                setError("");
+                              }}
+                            >
+                              Remove member
+                            </Button>
+                          ) : null}
+                        </span>
+                      }
+                    />
+                  ))}
+                </div>
+              )}
+              {canManage && activeTeam ? (
+                <div className="flex gap-2">
+                  <Button
+                    variant="secondary"
+                    onPress={() => {
+                      setAction("add");
+                      setError("");
+                    }}
                   >
-                    <span>
-                      {profile.name} · {profile.email} · from{" "}
-                      {formatManilaDate(membership.effectiveFrom)}
-                    </span>
-                    <span className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onPress={() => setHistoryProfileId(profile._id)}
-                      >
-                        History
-                      </Button>
-                      {canManage && activeTeam ? (
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onPress={() => {
-                            setHistoryProfileId(profile._id);
-                            setAction("remove");
-                            setError("");
-                          }}
-                        >
-                          Remove
-                        </Button>
-                      ) : null}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {canManage && activeTeam ? (
+                    Add member
+                  </Button>
+                  <Button
+                    variant="danger-soft"
+                    onPress={() => {
+                      setAction("deactivate");
+                      setError("");
+                    }}
+                  >
+                    Deactivate team
+                  </Button>
+                </div>
+              ) : null}
+              <AdminSelectField
+                label="Membership history"
+                value={historyProfileId ?? ""}
+                onChange={(value) =>
+                  setHistoryProfileId(value ? (value as Id<"profiles">) : null)
+                }
+                options={[
+                  { id: "", label: "Select a person" },
+                  ...(historyProfileId &&
+                  !people?.page.some(
+                    (person) => person._id === historyProfileId,
+                  )
+                    ? [{ id: historyProfileId, label: "Selected person" }]
+                    : []),
+                  ...(people?.page ?? []).map((person) => ({
+                    id: person._id,
+                    label: `${person.name} · ${person.email}`,
+                  })),
+                ]}
+              />
               <div className="flex gap-2">
                 <Button
+                  size="sm"
                   variant="secondary"
-                  onPress={() => {
-                    setAction("add");
-                    setError("");
-                  }}
+                  isDisabled={peopleCursors.length === 1}
+                  onPress={() => setPeopleCursors((old) => old.slice(0, -1))}
                 >
-                  Add member
+                  Previous people
                 </Button>
                 <Button
+                  size="sm"
                   variant="secondary"
+                  isDisabled={!people || people.isDone}
                   onPress={() => {
-                    setAction("deactivate");
-                    setError("");
+                    if (people && !people.isDone)
+                      setPeopleCursors((old) => [
+                        ...old,
+                        people.continueCursor,
+                      ]);
                   }}
                 >
-                  Deactivate team
+                  Next people
                 </Button>
               </div>
-            ) : null}
-            <label className="grid gap-1 text-sm">
-              Membership history for person
-              <select
-                className={fieldClass}
-                value={historyProfileId ?? ""}
-                onChange={(event) =>
-                  setHistoryProfileId(
-                    event.target.value
-                      ? (event.target.value as Id<"profiles">)
-                      : null,
-                  )
-                }
-              >
-                <option value="">Select a person</option>
-                {historyProfileId &&
-                !people?.page.some((p) => p._id === historyProfileId) ? (
-                  <option value={historyProfileId}>Selected person</option>
-                ) : null}
-                {(people?.page ?? []).map((person) => (
-                  <option key={person._id} value={person._id}>
-                    {person.name} · {person.email}
-                  </option>
+              {historyProfileId &&
+                (history === undefined ? (
+                  <p>Loading member history…</p>
+                ) : history.length ? (
+                  <ol className="grid gap-1 text-sm">
+                    {history.map((entry) => (
+                      <li key={entry._id}>
+                        {formatManilaDate(entry.effectiveFrom)}
+                        {entry.effectiveTo
+                          ? ` – ${formatManilaDate(entry.effectiveTo)}`
+                          : " onward"}{" "}
+                        · {entry.reason}
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <p className="text-sm text-muted">
+                    No membership history for this person.
+                  </p>
                 ))}
-              </select>
-            </label>
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="secondary"
-                isDisabled={peopleCursors.length === 1}
-                onPress={() => setPeopleCursors((old) => old.slice(0, -1))}
-              >
-                Previous people
-              </Button>
-              <Button
-                size="sm"
-                variant="secondary"
-                isDisabled={!people || people.isDone}
-                onPress={() => {
-                  if (people && !people.isDone)
-                    setPeopleCursors((old) => [...old, people.continueCursor]);
-                }}
-              >
-                Next people
-              </Button>
-            </div>
-            {historyProfileId &&
-              (history === undefined ? (
-                <p>Loading member history…</p>
-              ) : history.length ? (
-                <ol className="grid gap-1 text-sm">
-                  {history.map((entry) => (
-                    <li key={entry._id}>
-                      {formatManilaDate(entry.effectiveFrom)}
-                      {entry.effectiveTo
-                        ? ` – ${formatManilaDate(entry.effectiveTo)}`
-                        : " onward"}{" "}
-                      · {entry.reason}
-                    </li>
-                  ))}
-                </ol>
-              ) : (
-                <p className="text-sm text-muted">
-                  No membership history for this person.
-                </p>
-              ))}
-          </aside>
+            </aside>
+          </Card>
         ))}
       {action && canManage ? (
-        <form
-          onSubmit={submit}
-          className="grid gap-3 rounded-lg border border-border bg-surface p-5"
-        >
-          <h3 className="font-semibold">
-            {action === "create"
-              ? "Create team"
+        <Card
+          label={
+            action === "create"
+              ? "New team"
               : action === "add"
                 ? "Add member"
                 : action === "remove"
                   ? "Remove member"
-                  : "Deactivate team"}
-          </h3>
-          {action === "create" ? (
-            <>
-              <label className="grid gap-1 text-sm">
-                Code <Input name="code" required />
-              </label>
-              <label className="grid gap-1 text-sm">
-                Name <Input name="name" required />
-              </label>
-              <label className="grid gap-1 text-sm">
-                Unit
-                <select
-                  className={fieldClass}
+                  : "Deactivate team"
+          }
+        >
+          <form onSubmit={submit} className="grid max-w-xl gap-4">
+            {action === "create" ? (
+              <>
+                <label className={fieldLabel}>
+                  Code <Input className={fieldClass} name="code" required />
+                </label>
+                <label className={fieldLabel}>
+                  Name <Input className={fieldClass} name="name" required />
+                </label>
+                <AdminSelectField
+                  key="new-team-unit"
                   name="orgUnitId"
+                  label="Unit"
                   required
-                  defaultValue=""
-                >
-                  <option value="" disabled>
-                    Select a unit
-                  </option>
-                  {(units ?? [])
-                    .filter(
-                      (unit) =>
-                        unit.status === "active" &&
-                        permissions?.scopeUnitIds.includes(unit._id),
-                    )
-                    .map((unit) => (
-                      <option key={unit._id} value={unit._id}>
-                        {unit.code} · {unit.name}
-                      </option>
-                    ))}
-                </select>
-              </label>
-            </>
-          ) : null}
-          {action === "add" ? (
-            <label className="grid gap-1 text-sm">
-              Person
-              <select
-                className={fieldClass}
+                  options={[
+                    { id: "", label: "Select a unit" },
+                    ...(units ?? [])
+                      .filter(
+                        (unit) =>
+                          unit.status === "active" &&
+                          permissions?.scopeUnitIds.includes(unit._id),
+                      )
+                      .map((unit) => ({
+                        id: unit._id,
+                        label: `${unit.code} · ${unit.name}`,
+                      })),
+                  ]}
+                />
+              </>
+            ) : null}
+            {action === "add" ? (
+              <AdminSelectField
                 name="profileId"
+                label="Person"
                 required
-                defaultValue=""
-              >
-                <option value="" disabled>
-                  Select a person
-                </option>
-                {(people?.page ?? [])
-                  .filter(
-                    (person) =>
-                      person.status === "active" &&
-                      person.orgUnitId &&
-                      permissions?.scopeUnitIds.includes(person.orgUnitId) &&
-                      !detail?.members.some(
-                        (m) => m.profile._id === person._id,
-                      ),
-                  )
-                  .map((person) => (
-                    <option key={person._id} value={person._id}>
-                      {person.name} · {person.email}
-                    </option>
-                  ))}
-              </select>
-            </label>
-          ) : null}
-          {action === "remove" ? (
-            <>
-              <input
-                type="hidden"
-                name="profileId"
-                value={historyProfileId ?? ""}
+                options={[
+                  { id: "", label: "Select a person" },
+                  ...(people?.page ?? [])
+                    .filter(
+                      (person) =>
+                        person.status === "active" &&
+                        person.orgUnitId &&
+                        permissions?.scopeUnitIds.includes(person.orgUnitId) &&
+                        !detail?.members.some(
+                          (member) => member.profile._id === person._id,
+                        ),
+                    )
+                    .map((person) => ({
+                      id: person._id,
+                      label: `${person.name} · ${person.email}`,
+                    })),
+                ]}
               />
-              <p className="text-sm">
-                Removing{" "}
-                {detail?.members.find((m) => m.profile._id === historyProfileId)
-                  ?.profile.name ?? historyProfileId}
+            ) : null}
+            {action === "remove" ? (
+              <>
+                <input
+                  type="hidden"
+                  name="profileId"
+                  value={historyProfileId ?? ""}
+                />
+                <p className="text-sm">
+                  Removing{" "}
+                  {detail?.members.find(
+                    (m) => m.profile._id === historyProfileId,
+                  )?.profile.name ?? historyProfileId}
+                </p>
+              </>
+            ) : null}
+            <label className={fieldLabel}>
+              Effective date
+              <input
+                type="date"
+                name="effectiveDate"
+                className={fieldClass}
+                required
+              />
+            </label>
+            <label className={fieldLabel}>
+              Reason
+              <textarea
+                name="reason"
+                required
+                rows={2}
+                className="min-h-20 rounded-[10px] border border-border bg-surface p-3 text-sm"
+              />
+            </label>
+            {error ? (
+              <p role="alert" className="text-sm text-danger">
+                {error}
               </p>
-            </>
-          ) : null}
-          <label className="grid gap-1 text-sm">
-            Effective date (Asia/Manila)
-            <input
-              type="date"
-              name="effectiveDate"
-              className={fieldClass}
-              required
-            />
-          </label>
-          <label className="grid gap-1 text-sm">
-            Reason (required)
-            <textarea
-              name="reason"
-              required
-              rows={2}
-              className="rounded-md border border-border bg-surface p-2"
-            />
-          </label>
-          {error ? (
-            <p role="alert" className="text-sm text-danger">
-              {error}
-            </p>
-          ) : null}
-          <div className="flex gap-2">
-            <Button
-              type="submit"
-              variant="primary"
-              isPending={pending}
-              isDisabled={!canManage}
-            >
-              Save team change
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              onPress={() => setAction(null)}
-            >
-              Cancel
-            </Button>
-          </div>
-        </form>
+            ) : null}
+            <div className="flex gap-2">
+              <Button
+                type="submit"
+                variant="primary"
+                isPending={pending}
+                isDisabled={!canManage}
+              >
+                Save change
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onPress={() => setAction(null)}
+              >
+                Cancel
+              </Button>
+            </div>
+          </form>
+        </Card>
       ) : null}
       {notice ? (
-        <p role="status" className="text-sm text-success">
-          {notice}
-        </p>
+        <Card label="Status">
+          <p role="status" className="text-sm text-success">
+            {notice}
+          </p>
+        </Card>
       ) : null}
-    </section>
+    </div>
   );
 }
