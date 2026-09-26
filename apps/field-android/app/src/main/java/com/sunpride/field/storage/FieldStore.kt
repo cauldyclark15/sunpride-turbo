@@ -22,7 +22,8 @@ interface FieldStore {
     /** Stage all pages under a unique generation. No reader sees these rows before promotion. */
     suspend fun stage(snapshot: ScopedSnapshot): String
     /** Promote only after the last bootstrap page and non-null final cursor. */
-    suspend fun swap(generation: String, cursor: String, leaseExpiresAt: Long, cacheExpiresAt: Long)
+    suspend fun swap(generation: String, cursor: String, leaseExpiresAt: Long, cacheExpiresAt: Long,
+                     releaseHeld: Boolean = false)
     suspend fun todaysVisits(day: String): List<SnapshotItem>
     suspend fun outlets(): List<SnapshotItem>
     suspend fun isLeaseValid(now: Long): Boolean
@@ -38,6 +39,7 @@ interface FieldStore {
     suspend fun setSyncHealth(value: String)
     /** Sign-out, revoke or scope change: freeze pending work for supervised review; never delete it. */
     suspend fun holdForReview()
+    fun close() {}
 }
 
 object EncryptedFieldDatabase {
@@ -60,6 +62,7 @@ object EncryptedFieldDatabase {
 
 class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreScope) : FieldStore {
     private val dao = db.rows()
+    override fun close() = db.close()
     private val a get() = identity.account
     private val d get() = identity.deviceId
     private val s get() = identity.fingerprint
@@ -83,7 +86,8 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
         return generation
     }
 
-    override suspend fun swap(generation: String, cursor: String, leaseExpiresAt: Long, cacheExpiresAt: Long) {
+    override suspend fun swap(generation: String, cursor: String, leaseExpiresAt: Long, cacheExpiresAt: Long,
+                              releaseHeld: Boolean) {
         require(generation.isNotBlank() && cursor.isNotBlank() && leaseExpiresAt > 0 && cacheExpiresAt > 0)
         db.withTransaction {
             val marker = dao.snapshot(a, d, s, generation, "meta", null).singleOrNull()
@@ -92,8 +96,9 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             val header = JSONObject(marker.json)
             dao.putPartition(old.copy(activeGeneration = generation, employeeJson = header.getString("employee"),
                 routeJson = if (header.isNull("route")) null else header.getString("route"),
-                cursor = if (old.held) null else cursor, leaseExpiresAt = leaseExpiresAt,
-                cacheExpiresAt = cacheExpiresAt, syncHealth = if (old.held) "held_for_review" else "synced"))
+                cursor = if (old.held && !releaseHeld) null else cursor, leaseExpiresAt = leaseExpiresAt,
+                cacheExpiresAt = cacheExpiresAt, held = old.held && !releaseHeld,
+                syncHealth = if (old.held && !releaseHeld) "held_for_review" else "synced"))
             dao.discardOldSnapshots(a, d, s, generation)
             // No intent, ack, or outbox table is touched by promotion or cursor reset.
         }

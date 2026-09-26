@@ -54,6 +54,8 @@ import com.sunpride.field.BuildConfig
 import com.sunpride.field.auth.EnrollmentState
 import com.sunpride.field.device.DeviceSigner
 import kotlinx.coroutines.delay
+import java.text.DateFormat
+import java.util.Date
 
 /** Pill style for each state; the text carries the meaning, colour only reinforces it. */
 enum class StatusPill(val label: String, val marker: String) {
@@ -121,6 +123,8 @@ fun FieldApp(
                 controller.state == EnrollmentState.SignedOut -> SignInScreen(
                     environment, dark, debug, controller.busy, controller.error,
                     onPreview = { preview = true }, onSignIn = controller::signIn, modifier = modifier)
+                controller.state is EnrollmentState.Ready -> TodayScreen(controller.today, controller.busy,
+                    onSync = controller::syncNow, onSignOut = controller::signOut, modifier = modifier)
                 else -> EnrollmentScreen(controller.state, controller.key, controller.busy, controller.error,
                     onCheck = { controller.checkAgain() }, onSignOut = { controller.signOut() }, modifier = modifier)
             }
@@ -188,6 +192,36 @@ private fun SignInScreen(
             if (busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text("Sign in")
         }
         if (debug) TextButton(onClick = onPreview, modifier = Modifier.testTag("design-tokens-link")) { Text("Design tokens") }
+    }
+}
+
+@Composable
+fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: () -> Unit,
+                modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(SunprideTokens.spacing6),
+        verticalArrangement = Arrangement.spacedBy(SunprideTokens.spacing4)) {
+        Text("Phone ready", style = MaterialTheme.typography.titleMedium)
+        Text("Today", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.testTag("today-title"))
+        Text(if (data.stale) "Stale · offline/pending" else "Synced",
+            color = if (data.stale) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.testTag("today-stale"))
+        Text("Last synced: " + (data.lastSynced?.let { DateFormat.getDateTimeInstance().format(Date(it)) } ?: "Never"),
+            modifier = Modifier.testTag("last-synced"))
+        data.warning?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("today-warning")) }
+        Button(onClick = onSync, enabled = !busy && !data.updateRequired, modifier = Modifier.fillMaxWidth().testTag("sync-now")) {
+            Text(if (busy) "Syncing…" else "Sync now")
+        }
+        if (data.visits.isEmpty()) Text("No visits saved for today", modifier = Modifier.testTag("today-empty"))
+        data.visits.forEach { visit ->
+            Surface(shape = SunprideTokens.shapes.medium, color = MaterialTheme.colorScheme.surface,
+                modifier = Modifier.fillMaxWidth().testTag("today-visit").semantics(mergeDescendants = true) {}) {
+                Column(Modifier.padding(SunprideTokens.spacing4)) {
+                    Text(visit.outlet, style = MaterialTheme.typography.titleMedium)
+                    Text("${visit.planned} · ${visit.status}")
+                }
+            }
+        }
+        TextButton(onClick = onSignOut, enabled = !busy, modifier = Modifier.testTag("sign-out")) { Text("Sign out") }
     }
 }
 
