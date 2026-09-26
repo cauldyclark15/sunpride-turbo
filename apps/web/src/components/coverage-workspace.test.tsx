@@ -192,30 +192,118 @@ beforeEach(() => {
   state.tab = "plan";
 });
 
-describe("calm generic modules", () => {
-  it("uses concise dashboard and analytics titles, KPI labels, and bordered sections", () => {
-    for (const slug of ["dashboard", "analytics"] as const) {
-      const html = render(slug);
-      expect(html).toContain(
-        `<h1>${slug === "dashboard" ? "Dashboard" : "Analytics"}</h1>`,
-      );
-      expect(html).toContain("Products:—Active");
-      expect(html).not.toContain('data-label="Focus"');
-      expect(html).not.toContain("Executive control center");
-      expect(html).not.toContain("Realtime Convex");
-    }
+describe("sales force coverage module", () => {
+  it("mounts planner and all four tabs for manager", () => {
+    const html = render();
+    expect(html).toContain("Plans");
+    expect(html).toContain("Mounted planner");
+    for (const tab of ["Plan", "Review", "Visits", "History"])
+      expect(html).toContain(`>${tab}</button>`);
   });
-  it("groups master records and orders under card headers", () => {
-    state.profile.role = "super_admin";
-    expect(render("master-data")).toContain('data-label="Products"');
-    const orders = render("orders");
-    expect(orders).toContain("<h1>Orders</h1>");
-    expect(orders).toContain('data-label="Orders"');
-    expect(orders).not.toContain("idempotent");
+  it("sales sees own planner, visits and history, but cannot review", () => {
+    state.profile.role = "sales";
+    state.permissions = {
+      role: "sales",
+      capabilities: ["mcp.read", "mcp.plan"],
+      scopeUnitIds: ["unit"],
+    };
+    expect(render()).not.toContain(">Review</button>");
+    state.tab = "visits";
+    const html = render();
+    expect(html).toContain("Visits");
+    expect(state.calls.some((c) => c.name === "people/queries:list")).toBe(
+      false,
+    );
+    expect(
+      state.calls.find((c) => c.name === "coverage/activation:plannedForMonth")
+        ?.args,
+    ).toMatchObject({ assigneeProfileId: "manager" });
   });
-  it("shows waiting count on workflows without a policy paragraph", () => {
-    const html = render("workflows");
-    expect(html).toContain("0 waiting");
-    expect(html).not.toContain("role-based authority");
+  it("analyst is read-only and has history and visits without review", () => {
+    state.profile.role = "analyst";
+    state.permissions = {
+      role: "analyst",
+      capabilities: ["mcp.read", "people.read"],
+      scopeUnitIds: ["unit"],
+    };
+    const html = render();
+    expect(html).toContain("Mounted planner");
+    expect(html).not.toContain(">Review</button>");
+    state.tab = "history";
+    expect(render()).toContain("Plan history");
+    expect(state.calls.some((c) => c.name === "people/queries:list")).toBe(
+      false,
+    );
+    expect(state.calls.some((c) => c.name === "coverage/discovery:list")).toBe(
+      true,
+    );
+  });
+  it("viewer with mcp.read sees read-only coverage, denied profile never mounts queries", () => {
+    state.profile.role = "viewer";
+    state.permissions = {
+      role: "viewer",
+      capabilities: ["mcp.read", "people.read"],
+      scopeUnitIds: ["unit"],
+    };
+    expect(render()).toContain("Plans");
+    state.profile.status = "disabled";
+    expect(render()).toContain("Access denied");
+    expect(
+      state.calls.some(
+        (c) =>
+          c.name.startsWith("coverage/") ||
+          c.name === "lib/capabilities:currentPermissions",
+      ),
+    ).toBe(false);
+  });
+  it("hides all coverage panels when current permissions deny mcp.read and skips denied queries", () => {
+    state.permissions.capabilities = [];
+    expect(render()).not.toContain("Plans");
+    expect(
+      state.calls.some(
+        (c) =>
+          c.name.startsWith("coverage/") || c.name === "people/queries:list",
+      ),
+    ).toBe(false);
+  });
+  it("offers new scoped tabs to mcp.read operations without people.read", () => {
+    state.profile.role = "operations";
+    state.permissions = {
+      role: "operations",
+      capabilities: ["mcp.read"],
+      scopeUnitIds: ["unit"],
+    };
+    const html = render();
+    for (const tab of [
+      "Calendar",
+      "Routes",
+      "Map",
+      "Workload",
+      "Exceptions",
+      "Export",
+    ])
+      expect(html).toContain(`>${tab}</button>`);
+    expect(html).not.toContain(">Review</button>");
+    expect(state.calls.some((c) => c.name === "coverage/discovery:list")).toBe(
+      true,
+    );
+    expect(state.calls.some((c) => c.name.startsWith("people/"))).toBe(false);
+  });
+  it("mounts selected history only and keeps other view subscriptions unmounted", () => {
+    state.tab = "history";
+    const html = render();
+    expect(html).toContain("Plan history");
+    expect(state.calls.some((c) => c.name === "coverage/history:list")).toBe(
+      true,
+    );
+    for (const name of [
+      "coverage/views:calendar",
+      "coverage/views:byRoute",
+      "coverage/views:workload",
+      "coverage/map:forPlan",
+      "coverage/exceptions:forPlan",
+      "coverage/exports:schedule",
+    ])
+      expect(state.calls.some((c) => c.name === name)).toBe(false);
   });
 });
