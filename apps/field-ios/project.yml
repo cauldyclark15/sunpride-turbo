@@ -56,6 +56,23 @@ targets:
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/crypto/request-proof.json
         buildPhase: resources
         group: FieldIOSTests/Fixtures
+      # Original shared wire fixtures, copied into the test bundle without maintaining native duplicates.
+      - path: ../../packages/domain-contracts/fixtures/mobile-v1/bootstrap-request.json
+        buildPhase: resources
+      - path: ../../packages/domain-contracts/fixtures/mobile-v1/bootstrap-response.json
+        buildPhase: resources
+      - path: ../../packages/domain-contracts/fixtures/mobile-v1/bootstrap-next-page.json
+        buildPhase: resources
+      - path: ../../packages/domain-contracts/fixtures/mobile-v1/error-device-revoked.json
+        buildPhase: resources
+      - path: ../../packages/domain-contracts/fixtures/mobile-v1/error-invalid-cursor.json
+        buildPhase: resources
+      - path: ../../packages/domain-contracts/fixtures/mobile-v1/error-rebootstrap-required.json
+        buildPhase: resources
+      - path: ../../packages/domain-contracts/fixtures/mobile-v1/error-version-unsupported.json
+        buildPhase: resources
+      - path: ../../packages/domain-contracts/fixtures/mobile-v1/unknown-response-enum.json
+        buildPhase: resources
     dependencies:
       - target: FieldIOS
     settings:

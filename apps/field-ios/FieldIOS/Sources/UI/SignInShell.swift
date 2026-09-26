@@ -60,6 +60,9 @@ struct SignInShell: View {
                     }
                     if model.signedIn {
                         EnrollmentCard(model: model)
+                        if model.enrollment.state.isReady || !model.visits.isEmpty {
+                            TodayScreen(model: model)
+                        }
                     } else {
                         signInCard
                     }
@@ -72,6 +75,10 @@ struct SignInShell: View {
                 .padding(SunprideTokens.Space.six)
             }
             .background(SunprideTokens.background)
+            .refreshable { await model.syncNow() }
+            .onChange(of: model.enrollment.state) { _, state in
+                Task { await model.phoneStateChanged(state) }
+            }
         }
     }
 

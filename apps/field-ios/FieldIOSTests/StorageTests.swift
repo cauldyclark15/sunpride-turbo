@@ -147,7 +147,8 @@ final class StorageTests: XCTestCase {
         XCTAssertNotNil(try store.snapshot(for: a)) // stale but readable
         try store.holdForReview(a)
         XCTAssertNil(try store.cursor(for: a))
-        XCTAssertEqual(try store.pendingOutbox(for: a).first?.intent, op)
+        XCTAssertTrue(try store.pendingOutbox(for: a).isEmpty)
+        XCTAssertEqual(try store.heldOutbox(for: a).first?.intent, op)
         XCTAssertThrowsError(try store.enqueue(intent(), for: a, now: now)) {
             XCTAssertEqual($0 as? StoreError, .heldForReview)
         }
@@ -163,6 +164,38 @@ final class StorageTests: XCTestCase {
         let reopened = try open() // v1 → v1 no-op
         XCTAssertEqual(try reopened.pendingOutbox(for: p).first?.intent.requestId, op.requestId)
         XCTAssertEqual(try reopened.cursor(for: p), "after-migration")
+    }
+
+    func testSameBoundSubjectResumesHeldWorkDifferentAccountCannot() throws {
+        let a = try partition
+        let b = try StorePartition(subject: "issuer|other", deviceId: a.deviceId, scope: a.scope)
+        let c = try StorePartition(subject: a.subject, deviceId: "another-phone", scope: a.scope)
+        let store = try open()
+        for p in [a, b, c] {
+            try seeded(store, p)
+            try store.enqueue(intent(), for: p, now: now)
+            try store.holdForReview(p)
+            XCTAssertTrue(try store.pendingOutbox(for: p).isEmpty)
+            XCTAssertEqual(try store.heldOutbox(for: p).count, 1)
+        }
+        try store.releaseHeld(subject: a.subject, deviceId: a.deviceId)
+        XCTAssertEqual(try store.pendingOutbox(for: a).count, 1)
+        XCTAssertTrue(try store.heldOutbox(for: a).isEmpty)
+        try store.holdForReview(a)
+        try store.saveSnapshot(snapshot(marker: "refreshed while held"), cursor: "new", leaseExpiresAt: 1_790_467_200_000,
+                               cacheExpiresAt: 1_790_467_200_000, for: a)
+        XCTAssertTrue(try store.isHeld(a), "snapshot promotion cannot silently resume held work")
+        try store.releaseHeld(subject: a.subject, deviceId: a.deviceId)
+        XCTAssertEqual(try store.pendingOutbox(for: a).count, 1)
+        for p in [b, c] {
+            XCTAssertTrue(try store.isHeld(p))
+            XCTAssertTrue(try store.pendingOutbox(for: p).isEmpty)
+            XCTAssertEqual(try store.heldOutbox(for: p).count, 1)
+        }
+        store.close()
+        let reopened = try open()
+        XCTAssertEqual(try reopened.pendingOutbox(for: a).count, 1)
+        XCTAssertTrue(try reopened.pendingOutbox(for: b).isEmpty)
     }
 
     func testSyncHealthSurvivesRestart() throws {

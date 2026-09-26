@@ -205,6 +205,12 @@ final class Enrollment {
 
     var isPolling: Bool { pollTask != nil }
 
+    /// An explicit device-revoked gateway response locks this enrollment immediately.
+    func markRemoved() {
+        state = .removed
+        updatePolling()
+    }
+
     /// Sign-out: forget the in-memory key handle and this person's enrollment progress. The device key itself
     /// stays in the Keychain so the same registered phone is found again after the next sign-in.
     func signedOut() {

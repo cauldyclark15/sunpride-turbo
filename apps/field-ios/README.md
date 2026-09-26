@@ -1,6 +1,6 @@
 # Sunpride Field (iOS DEV scaffold)
 
-SwiftUI field app (DEV). Implemented: Better Auth email sign-in (session in Keychain, Convex JWT in memory), device key (Secure Enclave; simulator uses a TEST-ONLY Keychain key), request signer, and the enrollment flow (show public key → admin registers → `mine` → challenge → bind). Storage and sync are **not implemented** yet. The status pill shows `Offline — not signed in`, `Signed in — checking phone`, `Signed in — phone not registered`, `Ready` or `Phone removed`; it never claims data is synced.
+SwiftUI field app (DEV). Implemented: Better Auth email sign-in (session in Keychain, Convex JWT in memory), device key (Secure Enclave; simulator uses a TEST-ONLY Keychain key), request signer, enrollment, encrypted SQLCipher local store, signed paginated bootstrap, and a store-backed Today list. Visit execution/push/pull are not implemented yet. The status pill reports enrollment, not sync freshness; Today has a separate stale/pending badge. Offline relaunch shows the last verified partition's saved visits only with an existing session, never a live/ready claim.
 
 ## Build and test
 
@@ -8,13 +8,11 @@ Requires Xcode 27 and an available iOS 26+ simulator. From the repository root:
 
 ```sh
 export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
-xcrun simctl list devices available
-SIM_ID=<available-iPhone-17-Pro-UUID>
-xcodebuild build -project apps/field-ios/FieldIOS.xcodeproj -scheme FieldIOS-Dev -configuration Debug -destination "platform=iOS Simulator,id=$SIM_ID" CODE_SIGNING_ALLOWED=NO
-xcodebuild test -project apps/field-ios/FieldIOS.xcodeproj -scheme FieldIOS-Dev -configuration Debug -destination "platform=iOS Simulator,id=$SIM_ID" -resultBundlePath "$TMPDIR/FieldIOS-Dev-$(date +%s).xcresult" CODE_SIGNING_ALLOWED=NO
+bun run native:ios
+# Or choose an available simulator UUID and run xcodebuild build/test without CODE_SIGNING_ALLOWED=NO.
 ```
 
-Unit tests make no network calls (URLProtocol stubs) and load the frozen crypto vectors directly from `packages/domain-contracts/fixtures/mobile-v1/crypto/request-proof.json`. UI tests drive the real client code against a DEBUG-only in-process fake backend selected with the launch environment `FIELD_STUB_BACKEND=unregistered|registers|revoked` (stub password `correct-horse`; no real account). Simulator builds are ad-hoc signed (`CODE_SIGN_IDENTITY=-`, no team) because the Keychain needs an application-identifier entitlement.
+Unit tests make no network calls (URLProtocol stubs) and bundle shared JSON bootstrap/error/unknown-enum fixtures directly from `packages/domain-contracts/fixtures/mobile-v1/`, plus the frozen crypto vectors under `crypto/`. UI tests drive the real client against a DEBUG-only in-process fake backend selected with `FIELD_STUB_BACKEND=unregistered|registers|revoked|offline` (stub password `correct-horse`; no real account). Simulator builds are ad-hoc signed (`CODE_SIGN_IDENTITY=-`, no team) because the Keychain needs an application-identifier entitlement.
 
 Open `FieldIOS.xcodeproj` and select the shared `FieldIOS-Dev` scheme to run interactively. `project.yml` is the checked-in XcodeGen source; the generated `.xcodeproj` is also checked in, so XcodeGen is **not** required on a clean clone. After changing the project spec, regenerate from this directory with `xcodegen generate` and include the resulting project diff. Targets: `FieldIOS`, `FieldIOSTests`, `FieldIOSUITests`. Debug and Debug-Dev use `Config/Dev.xcconfig`.
 
@@ -44,3 +42,11 @@ WCAG contrast (normal text, computed sRGB): white on brand red is **4.35:1** and
 5. Within 10 s the app finds the device, binds and shows **Phone ready**. Revoke with `--revoke DEVICE_ID --reason decommissioned`; the next check shows "This phone was removed — ask your admin".
 
 The simulator key is a software key stored in the Keychain (key storage line says TEST ONLY); only a physical phone uses the Secure Enclave.
+
+## Live DEV bootstrap check (integration owner only)
+
+1. Use the gitignored `Config/Local.xcconfig` endpoints above; run `bun run native:ios`, install/launch the built `com.sunpride.field.dev` on the simulator, and sign in as the invited employee. If the phone is not already active/bound, use the separate admin registration flow above; do not self-register or use another person's active device. Never log or screenshot credentials, bearer headers, payloads containing personal data, or the public-key export alongside sensitive evidence.
+2. Confirm **Phone ready**, then **Today**, Last synced, and either the scoped planned visits for **Manila today** or the explicit empty state. Use an authorized read-only DEV plan/visit query to compare the today's count and outlet IDs without printing personal data. The historical Sep 28–30 demo fixture does not imply visits on Sep 26; check the live Manila date and actual assignment before expecting rows. Verify the device challenge mutation and the site bootstrap HTTP action both succeeded, with final cursor only after all pages; do not copy signed headers into logs.
+3. Disconnect networking after a successful bootstrap, kill and relaunch the app. The previously verified account's saved visits must remain visible with **Stale · pending**, the enrollment must not say Ready, and Sync now must be disabled while the phone cannot be verified. Reconnect, tap Check again/Sync now, and check Last synced advances. Sign out; a different account must not see the previous cached rows.
+
+The client intentionally omits `dayFrom` so the server chooses Manila today; it always sends `limit:100` and follows page cursors. Every page is signed with a new challenge; the timestamp uses `challenge.expiresAt - 30_000` as the server-time midpoint of the backend's 60-second challenge lifetime, avoiding handset wall-clock skew. The working `mobile_fake_device.ts` instead uses local `Date.now()`; its live wire route/body/signature is authoritative, but that timestamp choice is less robust for a skewed phone. Current `http_handlers.ts` emits **flat** `code/message/retryable` errors whereas the frozen error fixtures nest these under `error`; the client decodes both, and the gateway currently masks a revoked proof as `401 unauthorized`, so the UI rechecks `devices.mine` before declaring the phone removed. A 401 alone is not revocation evidence. Lease defaults remain provisional server policy; no field pilot claim follows from this simulator test.

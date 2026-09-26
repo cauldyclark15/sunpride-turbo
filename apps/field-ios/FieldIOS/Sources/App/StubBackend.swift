@@ -22,13 +22,20 @@ final class StubBackend: URLProtocol {
     @MainActor
     static func makeModel(environment: AppEnvironment, scenario: String) -> AppModel {
         configure(scenario: scenario)
-        let store = InMemoryStore()
+        let store = KeychainStore(service: "com.sunpride.field.stub.ui")
+        if scenario != "offline" {
+            try? store.delete(StoreAccount.session)
+            try? store.delete(StoreAccount.deviceId)
+            try? store.delete(StoreAccount.credentialId)
+            try? store.delete("field.lastVerifiedPartition")
+        }
         let http = HTTPClient(session: URLSession(configuration: HTTPClient.makeConfiguration(protocolClasses: [StubBackend.self])))
         let auth = AuthClient(site: environment.siteURL, store: store, http: http)
         let functions = ConvexFunctions(url: environment.convexURL, auth: auth, http: http)
-        let key = SoftwareDeviceKey(key: P256.Signing.PrivateKey(), storage: .ephemeralTest)
         return AppModel(auth: auth, registry: ConvexDeviceRegistry(functions: functions), store: store,
-                        pollInterval: .seconds(2)) { key }
+                        pollInterval: .seconds(2), site: environment.siteURL, functions: functions, http: http) {
+            try DeviceKeys.loadOrCreate(store: store)
+        }
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -37,8 +44,12 @@ final class StubBackend: URLProtocol {
 
     override func startLoading() {
         let path = request.url?.path ?? ""
+        if Self.scenario == "offline" && (path == "/api/query" || path == "/api/mutation" || path.hasPrefix("/mobile/v1/")) {
+            client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
+            return
+        }
         let body = Self.body(of: request)
-        let (status, headers, payload) = Self.respond(path: path, body: body)
+        let (status, headers, payload) = Self.respond(path: path, body: body, headers: request.allHTTPHeaderFields ?? [:])
         let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1",
                                        headerFields: headers.merging(["Content-Type": "application/json"]) { a, _ in a })!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
@@ -70,7 +81,7 @@ final class StubBackend: URLProtocol {
         return "\(segment(["alg": "none"])).\(segment(["aud": "convex", "exp": exp])).stub"
     }
 
-    private static func respond(path: String, body: Data) -> (Int, [String: String], Data) {
+    private static func respond(path: String, body: Data, headers: [String: String]) -> (Int, [String: String], Data) {
         switch path {
         case "/api/auth/sign-in/email":
             let fields = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
@@ -84,6 +95,35 @@ final class StubBackend: URLProtocol {
             let call = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
             let args = call?["args"] as? [String: Any] ?? [:]
             return (200, [:], json(function(call?["path"] as? String ?? "", args: args)))
+        case "/mobile/v1/bootstrap":
+            let h = Dictionary(uniqueKeysWithValues: headers.map { ($0.key.lowercased(), $0.value) })
+            let nonce = h["x-mobile-nonce"] ?? "", timestamp = h["x-mobile-timestamp"] ?? ""
+            let digest = RequestSigner.bodyDigest(body)
+            let message = "POST|/mobile/v1/bootstrap|\(digest)|\(nonce)|\(timestamp)"
+            let valid = state.withLock { s in
+                s.bound && s.nonce == nonce && s.key.map {
+                    DeviceKeys.verify(signatureBase64: h["x-mobile-signature"] ?? "",
+                                      message: Data(message.utf8), spkiBase64: $0)
+                } == true
+            }
+            guard valid, h["x-mobile-body-digest"] == digest,
+                  h["x-mobile-contract-version"] == "1" else { return (401, [:], json(["code": "unauthorized"])) }
+            state.withLock { $0.nonce = nil }
+            let now = Int64(Date().timeIntervalSince1970 * 1000)
+            let today = BootstrapClient.manilaDay(Date())
+            return (200, [:], json([
+                "type": "bootstrap.response", "contractVersion": 1, "serverTime": now,
+                "permissions": ["visit.read", "visit.record"],
+                "employee": ["id": "profile-1", "role": "sales", "orgUnitId": "unit-1"],
+                "scope": ["fingerprint": "stub-scope-1", "orgUnitIds": ["unit-1"]],
+                "appConfig": ["offlineLeaseExpiresAt": now + 86_400_000, "cacheExpiresAt": now + 86_400_000,
+                              "orderCaptureEnabled": false, "priceAvailability": "unavailable", "promotionsAvailability": "unavailable"],
+                "plannedVisits": [["id": "planned-stub-1", "outletId": "outlet-stub-1", "serviceDate": today,
+                                   "planId": "plan-stub-1", "planVersion": 1, "intents": ["audit"]]],
+                "outlets": [["id": "outlet-stub-1", "name": "Stub Outlet", "routeId": NSNull()]],
+                "localCustomers": [], "route": NSNull(), "tasks": [], "productCatalog": [],
+                "page": 1, "nextPageCursor": NSNull(), "syncCursor": "stub-cursor"
+            ]))
         default:
             return (404, [:], Data())
         }
@@ -92,6 +132,8 @@ final class StubBackend: URLProtocol {
     private static func function(_ name: String, args: [String: Any]) -> [String: Any] {
         state.withLock { s in
             switch name {
+            case "domains/profiles:current":
+                return ["status": "success", "value": ["_id": "profile-1", "authSubject": "stub-issuer|seller"]]
             case "mobile/devices:mine":
                 s.lookups += 1
                 s.key = args["publicKey"] as? String

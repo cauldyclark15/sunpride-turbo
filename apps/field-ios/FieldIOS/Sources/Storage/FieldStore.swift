@@ -76,6 +76,7 @@ protocol FieldLocalStore: AnyObject {
     func snapshot(for partition: StorePartition) throws -> StoreSnapshot?
     func enqueue(_ intent: VisitIntent, for partition: StorePartition, now: Date) throws
     func pendingOutbox(for partition: StorePartition) throws -> [OutboxItem]
+    func heldOutbox(for partition: StorePartition) throws -> [OutboxItem]
     func reviewOutbox(for partition: StorePartition) throws -> [ReviewItem]
     func recordAck(_ ack: ServerAck, for requestId: UUID, in partition: StorePartition) throws
     func recordRejection(code: String, for requestId: UUID, in partition: StorePartition) throws
@@ -88,6 +89,8 @@ protocol FieldLocalStore: AnyObject {
     func syncHealth(for partition: StorePartition) throws -> SyncHealth?
     func setSyncHealth(_ health: SyncHealth, for partition: StorePartition) throws
     func holdForReview(_ partition: StorePartition) throws
+    func releaseHeld(subject: String, deviceId: String) throws
+    func isHeld(_ partition: StorePartition) throws -> Bool
 }
 
 /// SQLCipher 4 database. Keychain loss with an existing file is an error, never a new plaintext DB.
@@ -296,7 +299,7 @@ final class EncryptedFieldStore: FieldLocalStore {
                 try run("INSERT INTO snapshot(subject,device,scope,generation,kind,id,service_date,body) VALUES (?,?,?,?,?,?,?,?)",
                         p(partition) + [.integer(generation), .text(kind), .text(id), date.map(Value.text) ?? .null, body])
             }
-            try run("UPDATE partitions SET generation=?,cursor=?,lease_expiry=?,cache_expiry=?,held=0 WHERE \(Self.predicate)",
+            try run("UPDATE partitions SET generation=?,cursor=?,lease_expiry=?,cache_expiry=? WHERE \(Self.predicate)",
                     [.integer(generation), .text(cursor), .integer(leaseExpiresAt), .integer(cacheExpiresAt)] + p(partition))
             try run("DELETE FROM snapshot WHERE \(Self.predicate) AND generation<>?", p(partition) + [.integer(generation)])
             // Intents, outbox, acks and sync health are deliberately untouched.
@@ -361,6 +364,14 @@ final class EncryptedFieldStore: FieldLocalStore {
         try protectFiles()
     }
     func pendingOutbox(for partition: StorePartition) throws -> [OutboxItem] {
+        guard try !isHeld(partition) else { return [] }
+        return try queuedOutbox(for: partition)
+    }
+    func heldOutbox(for partition: StorePartition) throws -> [OutboxItem] {
+        guard try isHeld(partition) else { return [] }
+        return try queuedOutbox(for: partition)
+    }
+    private func queuedOutbox(for partition: StorePartition) throws -> [OutboxItem] {
         try query("SELECT o.sequence,i.request_id,i.kind,i.body FROM outbox o JOIN intents i ON i.subject=o.subject AND i.device=o.device AND i.scope=o.scope AND i.request_id=o.request_id WHERE o.subject=? AND o.device=? AND o.scope=? AND o.status='pending' ORDER BY o.sequence", p(partition)) { row in
             guard let uuid = UUID(uuidString: Self.text(row, 1)) else { throw StoreError.database }
             return OutboxItem(intent: VisitIntent(requestId: uuid, kind: Self.text(row, 2), operationJSON: Self.data(row, 3)), sequence: sqlite3_column_int64(row, 0))
@@ -426,6 +437,13 @@ final class EncryptedFieldStore: FieldLocalStore {
     func holdForReview(_ partition: StorePartition) throws {
         try run("UPDATE partitions SET held=1,cursor=NULL WHERE \(Self.predicate)", p(partition))
     }
+    /// Only call after the server verifies the same full subject on this bound device.
+    /// Scope may change; releasing a different subject or device is never permitted by this predicate.
+    func releaseHeld(subject: String, deviceId: String) throws {
+        guard !subject.isEmpty, !deviceId.isEmpty else { throw StoreError.invalidInput }
+        try run("UPDATE partitions SET held=0 WHERE subject=? AND device=?", [.text(subject), .text(deviceId)])
+    }
+    func isHeld(_ partition: StorePartition) throws -> Bool { try state(partition)?.1 ?? false }
 
     #if DEBUG
     /// Migration harness only. Creates an encrypted pre-v1 fixture with a caller-owned durable UUID.

@@ -84,4 +84,19 @@ final class FieldIOSUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["This phone was removed — ask your admin"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Phone removed"].exists)
     }
+
+    func testTodayVisitsAndOfflineRelaunchStaysStale() {
+        let app = launchStub("registers")
+        signIn(app, password: "correct-horse")
+        XCTAssertTrue(app.staticTexts["Phone ready"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["todayTitle"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["Stub Outlet"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["syncNow"].exists)
+        app.terminate()
+        let offline = launchStub("offline")
+        XCTAssertTrue(offline.staticTexts["Stub Outlet"].waitForExistence(timeout: 15))
+        XCTAssertTrue(offline.staticTexts["staleBadge"].exists)
+        XCTAssertFalse(offline.staticTexts["Ready"].exists)
+        XCTAssertFalse(offline.buttons["syncNow"].isEnabled)
+    }
 }
