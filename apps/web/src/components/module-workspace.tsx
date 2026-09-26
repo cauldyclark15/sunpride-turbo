@@ -14,7 +14,7 @@ import {
 } from "@sunpride/ui";
 import { useMutation, useQuery } from "convex/react";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { getWebModuleTabs, type WebModuleSlug } from "../config/navigation";
 import { canAccessWebModule } from "../lib/module-access";
 import { AdminWorkspace } from "./admin-workspace";
@@ -22,18 +22,17 @@ import { SalesForcePanels } from "./coverage-workspace";
 import { ImportsWorkspace } from "./imports-workspace";
 import { InventoryWorkspace } from "./inventory-workspace";
 
-
 const modules = {
-  dashboard: { title: "Dashboard" },
-  "master-data": { title: "Master data" },
-  imports: { title: "Imports" },
+  dashboard: { title: "Home" },
+  "master-data": { title: "Commercial" },
+  imports: { title: "Commercial" },
   inventory: { title: "Inventory" },
   "sales-force": { title: "Coverage" },
   orders: { title: "Orders" },
   "sap-integration": { title: "Integration" },
-  workflows: { title: "Workflows" },
+  workflows: { title: "Approvals" },
   admin: { title: "Administration" },
-  analytics: { title: "Analytics" },
+  analytics: { title: "Reports" },
 } satisfies Record<WebModuleSlug, { title: string }>;
 
 type ModuleKey = WebModuleSlug;
@@ -49,7 +48,7 @@ export function ModuleWorkspace({ module }: { module: WebModuleSlug }) {
   // Do not mount ModuleContent (or its module-specific queries/mutations) until
   // the active profile is known and allowed for this route.
   if (!profile) {
-    return <p className="text-sm text-muted">Checking access…</p>;
+    return <div className="text-[13px] text-muted">Checking access…</div>;
   }
   if (
     profile.status !== "active" ||
@@ -84,28 +83,37 @@ function AllowedModuleWorkspace({ module }: { module: WebModuleSlug }) {
       .catch(() => setSetupMessage(""));
   }, [ensureProfile]);
 
+  const commercialTabs = (
+    <WorkspaceModuleTabs
+      activeHref={pathname}
+      items={tabs}
+      onNavigate={(href) => router.push(href)}
+    />
+  );
+
   return (
     <div className="grid gap-4">
       {!["inventory", "orders", "workflows"].includes(module) ? (
         <PageHeader title={config.title} />
       ) : null}
-      <WorkspaceModuleTabs
-        activeHref={pathname}
-        items={tabs}
-        onNavigate={(href) => router.push(href)}
+      {module === "orders" ? null : commercialTabs}
+      <ModuleContent
+        module={module}
+        setupMessage={setupMessage}
+        commercialTabs={commercialTabs}
       />
-      <ModuleContent module={module} setupMessage={setupMessage} />
     </div>
   );
 }
 
-
 function ModuleContent({
   module,
   setupMessage,
+  commercialTabs,
 }: {
   module: ModuleKey;
   setupMessage: string;
+  commercialTabs: ReactNode;
 }) {
   const metrics = useQuery(
     api.domains.dashboard.summary,
@@ -163,43 +171,37 @@ function ModuleContent({
     return (
       <>
         {setupMessage ? (
-          <p className="text-[13px] text-muted">{setupMessage}</p>
+          <div className="text-[13px] text-muted">{setupMessage}</div>
         ) : null}
         {metrics?.restricted ? (
-          <p className="text-sm text-muted">
+          <div className="text-[13px] text-muted">
             Totals unavailable for this account.
-          </p>
+          </div>
         ) : null}
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
           <MetricCard
             label="Products"
             value={String(metrics?.productCount ?? "—")}
-            detail="Active"
           />
           <MetricCard
             label="Customers"
             value={String(metrics?.customerCount ?? "—")}
-            detail="Trading"
           />
           <MetricCard
             label="Low stock"
             value={String(metrics?.lowStockCount ?? "—")}
-            detail="Need stock"
           />
           <MetricCard
             label="Open orders"
             value={String(metrics?.openOrderCount ?? "—")}
-            detail="In progress"
           />
           <MetricCard
             label="Approvals"
             value={String(metrics?.pendingApprovalCount ?? "—")}
-            detail="Waiting"
           />
           <MetricCard
             label="Sales today"
             value={metrics ? money.format(metrics.salesToday) : "—"}
-            detail="Order value"
           />
         </div>
       </>
@@ -208,13 +210,17 @@ function ModuleContent({
   if (module === "master-data") {
     const productColumns: DataColumn<(typeof productRows)[number]>[] = [
       {
-        key: "code",
-        label: "Code",
+        key: "product",
+        label: "Product",
         render: (row) => (
-          <span className="font-semibold text-foreground">{row.code}</span>
+          <span className="flex flex-col">
+            <span className="text-sm font-medium text-foreground">
+              {row.name}
+            </span>
+            <span className="font-mono text-xs text-muted">{row.code}</span>
+          </span>
         ),
       },
-      { key: "name", label: "Product", render: (row) => row.name },
       { key: "category", label: "Category", render: (row) => row.category },
       {
         key: "price",
@@ -234,13 +240,17 @@ function ModuleContent({
     ];
     const customerColumns: DataColumn<(typeof customerRows)[number]>[] = [
       {
-        key: "code",
-        label: "Code",
+        key: "customer",
+        label: "Customer",
         render: (row) => (
-          <span className="font-semibold text-foreground">{row.code}</span>
+          <span className="flex flex-col">
+            <span className="text-sm font-medium text-foreground">
+              {row.name}
+            </span>
+            <span className="font-mono text-xs text-muted">{row.code}</span>
+          </span>
         ),
       },
-      { key: "name", label: "Customer", render: (row) => row.name },
       { key: "channel", label: "Channel", render: (row) => row.channel },
       { key: "territory", label: "Territory", render: (row) => row.territory },
       {
@@ -262,7 +272,9 @@ function ModuleContent({
             rows={productRows}
             columns={productColumns}
             bare
-            empty={<p className="p-4 text-[13px] text-muted">No products</p>}
+            empty={
+              <div className="p-4 text-[13px] text-muted">No products</div>
+            }
           />
         </Card>
         <Card
@@ -275,7 +287,9 @@ function ModuleContent({
             rows={customerRows}
             columns={customerColumns}
             bare
-            empty={<p className="p-4 text-[13px] text-muted">No customers</p>}
+            empty={
+              <div className="p-4 text-[13px] text-muted">No customers</div>
+            }
           />
         </Card>
       </>
@@ -291,17 +305,49 @@ function ModuleContent({
   }
 
   if (module === "orders" || module === "workflows") {
+    const waitingIds = new Set((workflows ?? []).map((row) => row.entityId));
+    const visibleOrders =
+      module === "workflows"
+        ? orderRows.filter(
+            (row) =>
+              row.status === "pending_approval" && waitingIds.has(row._id),
+          )
+        : orderRows;
+    const customerNames = new Map(
+      (customers ?? []).map((customer) => [customer.code, customer.name]),
+    );
     const columns: DataColumn<(typeof orderRows)[number]>[] = [
       {
         key: "number",
         label: "Order",
         render: (row) => (
-          <span className="font-semibold text-foreground">
-            {row.orderNumber}
-          </span>
+          <span className="font-medium text-foreground">{row.orderNumber}</span>
         ),
       },
-      { key: "customer", label: "Customer", render: (row) => row.customerCode },
+      {
+        key: "customer",
+        label: "Customer",
+        render: (row) => {
+          const name =
+            module === "orders"
+              ? customerNames.get(row.customerCode)
+              : undefined;
+          return name ? (
+            <span className="flex flex-col">
+              <span className="text-sm font-medium text-foreground">
+                {name}
+              </span>
+              <span className="font-mono text-xs text-muted">
+                {row.customerCode}
+              </span>
+            </span>
+          ) : (
+            <span className="font-mono text-xs text-muted">
+              {row.customerCode}
+            </span>
+          );
+        },
+      },
       {
         key: "status",
         label: "Status",
@@ -315,7 +361,11 @@ function ModuleContent({
                   : "warning"
             }
           >
-            {row.status.replaceAll("_", " ")}
+            {row.status === "pending_approval"
+              ? "Waiting"
+              : row.status === "sent_to_sap"
+                ? "Sent"
+                : row.status}
           </StatusPill>
         ),
       },
@@ -325,56 +375,60 @@ function ModuleContent({
         align: "right",
         render: (row) => money.format(row.total),
       },
-      {
-        key: "action",
-        label: "Decision",
-        align: "right",
-        render: (row) =>
-          row.status === "pending_approval" ? (
-            <span className="flex justify-end gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onPress={() =>
-                  void decide({
-                    orderId: row._id,
-                    decision: "rejected",
-                    comment: "Rejected from operations workspace",
-                  })
-                }
-              >
-                Reject
-              </Button>
-              <Button
-                size="sm"
-                variant="primary"
-                onPress={() =>
-                  void decide({
-                    orderId: row._id,
-                    decision: "approved",
-                    comment: "Approved from operations workspace",
-                  })
-                }
-              >
-                Approve
-              </Button>
-            </span>
-          ) : (
-            "—"
-          ),
-      },
+      ...(visibleOrders.some((row) => row.status === "pending_approval")
+        ? [
+            {
+              key: "action",
+              label: "Decision",
+              align: "right" as const,
+              render: (row: (typeof orderRows)[number]) =>
+                row.status === "pending_approval" ? (
+                  <span className="flex justify-end gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onPress={() =>
+                        void decide({
+                          orderId: row._id,
+                          decision: "rejected",
+                          comment: "Rejected from operations workspace",
+                        })
+                      }
+                    >
+                      Reject
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      onPress={() =>
+                        void decide({
+                          orderId: row._id,
+                          decision: "approved",
+                          comment: "Approved from operations workspace",
+                        })
+                      }
+                    >
+                      Approve
+                    </Button>
+                  </span>
+                ) : (
+                  "—"
+                ),
+            },
+          ]
+        : []),
     ];
     return (
       <>
         <PageHeader
-          title={module === "workflows" ? "Workflows" : "Orders"}
+          title={module === "workflows" ? "Approvals" : "Commercial"}
           meta={
             module === "workflows"
-              ? workflows
-                ? `${workflows.length} waiting`
+              ? orders && workflows
+                ? `${visibleOrders.length} waiting`
                 : undefined
               : orders
-                ? `${orders.length} orders`
+                ? `${orders.length} ${orders.length === 1 ? "order" : "orders"}`
                 : undefined
           }
           actions={
@@ -389,19 +443,16 @@ function ModuleContent({
             ) : undefined
           }
         />
-        <Card
-          label="Orders"
-          icon={<WorkspaceIcon name="order" />}
-          count={orderRows.length}
-          flush
-        >
-          <DataTable
-            bare
-            rows={orderRows}
-            columns={columns}
-            empty={<p className="p-4 text-[13px] text-muted">No orders yet</p>}
-          />
-        </Card>
+        {module === "orders" ? commercialTabs : null}
+        <DataTable
+          rows={visibleOrders}
+          columns={columns}
+          empty={
+            <div className="rounded-2xl border border-border bg-surface p-4 text-[13px] text-muted">
+              {module === "workflows" ? "Nothing waiting" : "No orders yet"}
+            </div>
+          }
+        />
       </>
     );
   }

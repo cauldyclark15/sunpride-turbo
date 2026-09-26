@@ -164,18 +164,22 @@ export function TeamsAdmin() {
       key: "status",
       label: "Status",
       render: (row) => (
-        <StatusPill tone={row.status === "active" ? "success" : "neutral"}>
-          {row.status}
-        </StatusPill>
+        <span className="whitespace-nowrap">
+          <StatusPill tone={row.status === "active" ? "success" : "neutral"}>
+            {row.status}
+          </StatusPill>
+        </span>
       ),
     },
     {
       key: "actions",
       label: "Actions",
+      align: "right",
       render: (row) => (
         <Button
           size="sm"
           variant="outline"
+          className="h-8 whitespace-nowrap"
           onPress={() => {
             setSelectedId(row._id);
             setHistoryProfileId(null);
@@ -217,9 +221,7 @@ export function TeamsAdmin() {
             bare
             rows={teamRows}
             columns={columns}
-            empty={
-              <p className="p-4 text-sm text-muted">No teams on this page</p>
-            }
+            empty={<p className="p-4 text-sm text-muted">No teams yet</p>}
           />
         )}
         <Pager
@@ -260,27 +262,28 @@ export function TeamsAdmin() {
                       title={profile.name}
                       meta={`${profile.email} · ${formatManilaDate(membership.effectiveFrom)}`}
                       action={
-                        <span className="flex gap-2">
+                        <span className="flex flex-nowrap justify-end gap-2 whitespace-nowrap">
                           <Button
                             size="sm"
                             variant="outline"
+                            className="h-8 whitespace-nowrap"
                             onPress={() => setHistoryProfileId(profile._id)}
                           >
                             History
                           </Button>
-                          {canManage && activeTeam ? (
-                            <Button
-                              size="sm"
-                              variant="danger-soft"
-                              onPress={() => {
-                                setHistoryProfileId(profile._id);
-                                setAction("remove");
-                                setError("");
-                              }}
-                            >
-                              Remove member
-                            </Button>
-                          ) : null}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 whitespace-nowrap"
+                            isDisabled={!canManage || !activeTeam}
+                            onPress={() => {
+                              setHistoryProfileId(profile._id);
+                              setAction("remove");
+                              setError("");
+                            }}
+                          >
+                            Remove member
+                          </Button>
                         </span>
                       }
                     />
@@ -299,7 +302,7 @@ export function TeamsAdmin() {
                     Add member
                   </Button>
                   <Button
-                    variant="danger-soft"
+                    variant="outline"
                     onPress={() => {
                       setAction("deactivate");
                       setError("");

@@ -1,10 +1,11 @@
 "use client";
 
-import { Button, Input, Label, TextField } from "@heroui/react";
+import { Button, Input } from "@heroui/react";
 import { api } from "@sunpride/backend/api";
 import type { Id } from "@sunpride/backend/data-model";
 import {
   Card,
+  FormField,
   ListRow,
   Notice,
   StatusPill,
@@ -18,31 +19,13 @@ import { TerritoryAdmin } from "./territory-admin";
 import { RouteAdmin } from "./route-admin";
 import { OutletAdmin } from "./outlet-admin";
 import { OutletAssignments } from "./outlet-assignments";
-import { PeopleAdmin } from "./people-admin";
+import {
+  PeopleAdmin,
+  roleLabel,
+  roleOptions,
+  type AssignableRole,
+} from "./people-admin";
 import { TeamsAdmin } from "./teams-admin";
-
-type AssignableRole =
-  | "admin"
-  | "operations"
-  | "manager"
-  | "approver"
-  | "sales"
-  | "analyst"
-  | "viewer";
-
-const roles: { value: AssignableRole; label: string }[] = [
-  { value: "admin", label: "Administrator" },
-  { value: "operations", label: "Operations" },
-  { value: "manager", label: "Sales manager" },
-  { value: "approver", label: "Approver" },
-  { value: "sales", label: "Sales" },
-  { value: "analyst", label: "Analyst" },
-  { value: "viewer", label: "Viewer" },
-];
-
-const roleLabel = (role: string) =>
-  roles.find((option) => option.value === role)?.label ??
-  role.replaceAll("_", " ");
 
 const readableError = (error: unknown) =>
   error instanceof Error ? error.message : "Access update failed. Try again.";
@@ -61,23 +44,8 @@ type AdminTab = (typeof tabs)[number][0];
 
 export function AdminWorkspace() {
   const [tab, setTab] = useState<AdminTab>("organization");
-  const people = useQuery(api.people.queries.list, {
-    paginationOpts: { numItems: 25, cursor: null },
-  });
-  const teams = useQuery(api.teams.queries.list, {
-    paginationOpts: { numItems: 25, cursor: null },
-  });
   return (
     <div className="grid gap-4">
-      {tab === "people" && people ? (
-        <p className="text-[13px] text-muted">
-          {people.page.length} people shown
-        </p>
-      ) : tab === "teams" && teams ? (
-        <p className="text-[13px] text-muted">
-          {teams.page.length} teams shown
-        </p>
-      ) : null}
       <UnderlineTabs
         label="Administration sections"
         items={tabs}
@@ -184,8 +152,11 @@ function InvitationsAdmin() {
             <ListRow
               key={invitation._id}
               icon={<WorkspaceIcon name="user" />}
-              title={invitation.name ?? invitation.email}
-              meta={`${invitation.email} · ${roleLabel(invitation.role)}`}
+              title={invitation.name?.trim() || invitation.email}
+              meta={[
+                ...(invitation.name?.trim() ? [invitation.email] : []),
+                roleLabel(invitation.role),
+              ].join(" · ")}
               value={
                 <StatusPill
                   tone={
@@ -200,16 +171,18 @@ function InvitationsAdmin() {
                 </StatusPill>
               }
               action={
-                invitation.role !== "super_admin" &&
-                invitation.status !== "revoked" ? (
-                  <Button
-                    size="sm"
-                    variant="danger-soft"
-                    onPress={() => void revokeAccess(invitation._id)}
-                  >
-                    Revoke access
-                  </Button>
-                ) : undefined
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 whitespace-nowrap"
+                  isDisabled={
+                    invitation.role === "super_admin" ||
+                    invitation.status === "revoked"
+                  }
+                  onPress={() => void revokeAccess(invitation._id)}
+                >
+                  Revoke access
+                </Button>
               }
             />
           ))
@@ -233,30 +206,22 @@ function InvitationsAdmin() {
         }
       >
         <form id="invite-person" onSubmit={submit} className="grid gap-4">
-          <TextField name="name" className="grid gap-1.5">
-            <Label className="text-[13px] font-medium">Full name</Label>
+          <FormField label="Full name">
+            <Input name="name" placeholder="Juan Dela Cruz" />
+          </FormField>
+          <FormField label="Email">
             <Input
-              className="h-10 rounded-[10px] border border-border bg-surface px-3 text-sm shadow-none"
-              placeholder="Juan Dela Cruz"
-            />
-          </TextField>
-          <TextField
-            name="email"
-            type="email"
-            isRequired
-            className="grid gap-1.5"
-          >
-            <Label className="text-[13px] font-medium">Email</Label>
-            <Input
-              className="h-10 rounded-[10px] border border-border bg-surface px-3 text-sm shadow-none"
+              name="email"
+              type="email"
+              required
               placeholder="name@sunpride.com.ph"
             />
-          </TextField>
+          </FormField>
           <AdminSelectField
             label="Role"
             value={role}
             onChange={(value) => setRole(value as AssignableRole)}
-            options={roles
+            options={roleOptions
               .filter(
                 (option) =>
                   option.value !== "admin" || current.role === "super_admin",

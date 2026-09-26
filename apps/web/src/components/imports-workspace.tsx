@@ -5,7 +5,7 @@ import { api } from "@sunpride/backend/api";
 import {
   Card,
   DataTable,
-  EmptyPanel,
+  FormField,
   ListRow,
   StatusPill,
   UnderlineTabs,
@@ -110,6 +110,11 @@ function emptyFileState(): FileState {
   };
 }
 
+function displayLabel(value: string) {
+  const words = value.replaceAll("_", " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 function operationErrorMessage(error: unknown) {
   const fallback = "Import failed. Try again or contact your administrator.";
   if (!(error instanceof Error)) return fallback;
@@ -143,11 +148,17 @@ function ErrorTable({
 }) {
   const columns: DataColumn<ImportError & { id: string }>[] = [
     { key: "row", label: "Row", render: (error) => String(error.rowNumber) },
-    { key: "column", label: "Column", render: (error) => error.column ?? "—" },
+    {
+      key: "column",
+      label: "Column",
+      render: (error) => (error.column ? displayLabel(error.column) : "—"),
+    },
     {
       key: "code",
       label: "Code",
-      render: (error) => <StatusPill tone="danger">{error.code}</StatusPill>,
+      render: (error) => (
+        <StatusPill tone="danger">{displayLabel(error.code)}</StatusPill>
+      ),
     },
     { key: "message", label: "Message", render: (error) => error.message },
   ];
@@ -520,13 +531,22 @@ function ImportSection({
                 {
                   key: "product",
                   label: "Product / UOM",
-                  render: (part) => `${part.productCode} / ${part.baseUomCode}`,
+                  render: (part) => (
+                    <span className="block">
+                      <span className="block text-[14px] font-medium">
+                        {part.productCode}
+                      </span>
+                      <span className="block font-mono text-xs text-muted">
+                        {part.baseUomCode}
+                      </span>
+                    </span>
+                  ),
                 },
                 {
                   key: "location",
                   label: "Location / status / lot",
                   render: (part) =>
-                    `${part.locationCode} / ${part.stockStatus} / ${part.lotNumber ?? "—"}`,
+                    `${part.locationCode} / ${displayLabel(part.stockStatus)} / ${part.lotNumber ?? "—"}`,
                 },
                 {
                   key: "added",
@@ -588,7 +608,7 @@ function ImportSection({
                     <StatusPill
                       tone={line.status === "accepted" ? "success" : "warning"}
                     >
-                      {line.status}
+                      {displayLabel(line.status)}
                     </StatusPill>
                   ),
                 },
@@ -738,13 +758,18 @@ function RunHistory({
       label: "Run",
       render: (row) => (
         <button
-          className="font-medium text-foreground underline decoration-border underline-offset-4"
+          className="text-left text-foreground underline decoration-border underline-offset-4"
           onClick={() =>
             setSelected({ runKey: row.runKey, importType: row.importType })
           }
           type="button"
         >
-          {row.runKey.slice(0, 8)}
+          <span className="block text-[14px] font-medium">
+            {IMPORT_TEMPLATES[row.importType].label}
+          </span>
+          <span className="block font-mono text-xs text-muted">
+            {row.runKey.slice(0, 8)}
+          </span>
         </button>
       ),
     },
@@ -758,7 +783,7 @@ function RunHistory({
       label: "Status",
       render: (row) => (
         <StatusPill tone={row.status === "completed" ? "success" : "danger"}>
-          {row.status}
+          {displayLabel(row.status)}
         </StatusPill>
       ),
     },
@@ -803,11 +828,13 @@ function RunHistory({
         <div className="grid gap-4">
           <Card label="Product and stock runs" count={rows.length} flush>
             {runs === undefined ? (
-              <EmptyPanel title="Loading…" />
+              <p className="p-4 text-[13px] text-muted">Loading…</p>
             ) : (
               <DataTable
                 columns={columns}
-                empty={<EmptyPanel title="No imports yet" />}
+                empty={
+                  <p className="p-4 text-[13px] text-muted">No imports yet</p>
+                }
                 rows={rows}
               />
             )}
@@ -845,10 +872,12 @@ function RunHistory({
             flush
           >
             {operationalRuns === undefined ? (
-              <EmptyPanel title="Loading…" />
+              <p className="p-4 text-[13px] text-muted">Loading…</p>
             ) : (
               <DataTable
-                empty={<EmptyPanel title="No runs yet" />}
+                empty={
+                  <p className="p-4 text-[13px] text-muted">No runs yet</p>
+                }
                 rows={operationalRuns.map((run, index) => ({
                   ...run,
                   id: `${run.importType}:${run.runKey}:${index}`,
@@ -860,7 +889,7 @@ function RunHistory({
                     render: (run) => (
                       <button
                         type="button"
-                        className="underline"
+                        className="text-left text-foreground underline decoration-border underline-offset-4"
                         onClick={() =>
                           setOperationalSelected({
                             runKey: run.runKey,
@@ -869,7 +898,16 @@ function RunHistory({
                           })
                         }
                       >
-                        {run.runKey.slice(0, 8)}
+                        <span className="block text-[14px] font-medium">
+                          {
+                            CONFIG[
+                              run.importType as keyof typeof OPERATIONAL_CONFIG
+                            ].label
+                          }
+                        </span>
+                        <span className="block font-mono text-xs text-muted">
+                          {run.runKey.slice(0, 8)}
+                        </span>
                       </button>
                     ),
                   },
@@ -887,7 +925,7 @@ function RunHistory({
                       <StatusPill
                         tone={run.status === "failed" ? "danger" : "success"}
                       >
-                        {run.status}
+                        {displayLabel(run.status)}
                       </StatusPill>
                     ),
                   },
@@ -920,7 +958,9 @@ function RunHistory({
             >
               <p className="text-[13px] text-muted">
                 {operationalDetail.runs.length} chunks ·{" "}
-                {operationalDetail.runs.map((run) => run.status).join(" · ")}
+                {operationalDetail.runs
+                  .map((run) => displayLabel(run.status))
+                  .join(" · ")}
               </p>
               {operationalDetail.errors.length ? (
                 <ErrorTable
@@ -1082,9 +1122,9 @@ function McpSection() {
       >
         <div className="grid gap-4">
           <div className="grid gap-4 sm:grid-cols-3">
-            <label className="grid gap-1.5 text-[13px] font-medium">
-              Month
+            <FormField label="Month">
               <input
+                aria-label="Month"
                 className="h-10 rounded-[10px] border border-border bg-surface px-3"
                 type="month"
                 value={month}
@@ -1095,9 +1135,8 @@ function McpSection() {
                   setPreview(null);
                 }}
               />
-            </label>
-            <div className="grid gap-1.5 text-[13px] font-medium">
-              <span>Draft plan</span>
+            </FormField>
+            <FormField label="Draft plan">
               <Select
                 aria-label="Draft plan"
                 selectedKey={planId ?? "__none"}
@@ -1132,9 +1171,8 @@ function McpSection() {
                   </ListBox>
                 </Select.Popover>
               </Select>
-            </div>
-            <div className="grid gap-1.5 text-[13px] font-medium">
-              <span>Sheet type</span>
+            </FormField>
+            <FormField label="Sheet type">
               <Select
                 aria-label="Sheet type"
                 selectedKey={format}
@@ -1159,7 +1197,7 @@ function McpSection() {
                   </ListBox>
                 </Select.Popover>
               </Select>
-            </div>
+            </FormField>
           </div>
           {discovery && !discovery.isDone && (
             <Button
@@ -1251,6 +1289,9 @@ function McpSection() {
               )}
             </div>
           ))}
+          {history?.page.length === 0 ? (
+            <p className="p-4 text-[13px] text-muted">No route sheets yet</p>
+          ) : null}
           {history && !history.isDone && (
             <Button
               variant="outline"
@@ -1312,7 +1353,7 @@ export function ImportsWorkspace(_props: { setupMessage: string }) {
     ...(canCount
       ? [{ key: "cycle_count" as const, label: CONFIG.cycle_count.label }]
       : []),
-    ...(canMcp ? [{ key: "mcp" as const, label: "MCP / route sheets" }] : []),
+    ...(canMcp ? [{ key: "mcp" as const, label: "Route sheets" }] : []),
     { key: "history", label: "Run history" },
   ];
   // A permission or organizational reassignment must immediately unmount a now-forbidden section.

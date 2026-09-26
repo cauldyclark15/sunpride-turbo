@@ -104,12 +104,15 @@ export function AuthScreen({ mode }: { mode: "login" | "register" }) {
             {isLogin ? "Sign in" : "Create account"}
           </Button>
         </form>
-        <Link
-          to={isLogin ? "/register" : "/login"}
-          className="mt-5 block text-center text-sm font-medium text-muted hover:text-foreground"
-        >
-          {isLogin ? "Create account" : "Sign in"}
-        </Link>
+        <p className="mt-5 text-sm text-muted">
+          {isLogin ? "No account? " : "Already have an account? "}
+          <Link
+            to={isLogin ? "/register" : "/login"}
+            className="font-medium text-accent hover:underline"
+          >
+            {isLogin ? "Create one" : "Sign in"}
+          </Link>
+        </p>
       </section>
     </main>
   );

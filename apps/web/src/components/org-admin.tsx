@@ -233,9 +233,11 @@ export function OrgAdmin() {
       key: "status",
       label: "Status",
       render: (row) => (
-        <StatusPill tone={row.status === "active" ? "success" : "neutral"}>
-          {row.status}
-        </StatusPill>
+        <span className="whitespace-nowrap">
+          <StatusPill tone={row.status === "active" ? "success" : "neutral"}>
+            {row.status}
+          </StatusPill>
+        </span>
       ),
     },
     {
@@ -261,7 +263,8 @@ export function OrgAdmin() {
               <Button
                 key={action}
                 size="sm"
-                variant={action === "deactivate" ? "danger-soft" : "outline"}
+                variant="outline"
+                className="h-8 whitespace-nowrap"
                 isDisabled={
                   !canManage ||
                   !!previewDate ||
@@ -306,8 +309,24 @@ export function OrgAdmin() {
         icon={<WorkspaceIcon name="admin" />}
         count={units?.length}
         actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[13px] text-muted">As of</span>
+          <Button
+            variant="primary"
+            isDisabled={!canManage || !!previewDate || !createParent}
+            onPress={() => {
+              if (!createParent) return;
+              setChoice({ unit: createParent, action: "create" });
+              setTypeCode("");
+              setError("");
+              setNotice("");
+            }}
+          >
+            New unit
+          </Button>
+        }
+        flush
+      >
+        <div className="border-b border-separator px-4 py-3">
+          <FormField label="As of" className="w-fit">
             <input
               type="date"
               aria-label="Preview date"
@@ -318,23 +337,8 @@ export function OrgAdmin() {
                 setAsOf(value ? manilaDateToUtcMs(value) : Date.now());
               }}
             />
-            <Button
-              variant="primary"
-              isDisabled={!canManage || !!previewDate || !createParent}
-              onPress={() => {
-                if (!createParent) return;
-                setChoice({ unit: createParent, action: "create" });
-                setTypeCode("");
-                setError("");
-                setNotice("");
-              }}
-            >
-              New unit
-            </Button>
-          </div>
-        }
-        flush
-      >
+          </FormField>
+        </div>
         {units === undefined ? (
           <p className="p-4 text-sm text-muted">Loading organization…</p>
         ) : (

@@ -105,6 +105,13 @@ vi.mock("@heroui/react", () => {
   };
 });
 vi.mock("@sunpride/ui", () => ({
+  FormField: ({
+    label,
+    children,
+  }: {
+    label: string;
+    children: React.ReactNode;
+  }) => createElement("label", null, label, children),
   Card: ({
     label,
     count,
@@ -454,7 +461,8 @@ describe("ImportsWorkspace", () => {
     await state.buttons["Preview file"]!();
     const html = render();
     expect(html).toContain("0 valid · 1 rejected");
-    expect(html).toContain("zero_delta");
+    expect(html).toContain("Zero delta");
+    expect(html).not.toContain(">zero_delta<");
     expect(html).toContain("Projected");
     expect(state.query.mock.calls[0]?.[1]).toMatchObject({
       header: ADJUSTMENT_HEADER.split(","),
@@ -617,7 +625,7 @@ describe("ImportsWorkspace", () => {
       continueCursor: "0",
     };
     render();
-    state.buttons["MCP / route sheets"]!();
+    state.buttons["Route sheets"]!();
     expect(render()).toContain("Draft plan");
     expect(state.calls).toContainEqual({
       name: "imports/mcp:history",
@@ -664,7 +672,7 @@ describe("ImportsWorkspace", () => {
     await vi.waitFor(() => expect(render()).toContain("sheet.csv"));
     await state.buttons["Preview file"]!();
     expect(render()).toContain("1 accepted");
-    expect(render()).toContain("unknown_reference");
+    expect(render()).toContain("Unknown reference");
     await state.buttons["Merge rows"]!();
     expect(state.query.mock.calls[0]?.[1]).toMatchObject({
       planId: "plan1",
@@ -683,7 +691,7 @@ describe("ImportsWorkspace", () => {
       orgUnitId: "region",
       capabilities: ["inventory.count.submit"],
     };
-    expect(render()).not.toContain("MCP / route sheets");
+    expect(render()).not.toContain("Route sheets");
     state.values["lib/capabilities:currentPermissions"] = {
       role: "manager",
       orgUnitId: "region",
@@ -702,7 +710,7 @@ describe("ImportsWorkspace", () => {
       continueCursor: "",
     };
     render();
-    state.buttons["MCP / route sheets"]!();
+    state.buttons["Route sheets"]!();
     state.hooks.splice(3);
     render();
     state.selects.plan!("plan1");

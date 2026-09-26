@@ -18,7 +18,15 @@ const state = vi.hoisted(() => ({
     scopeUnitIds: ["unit"],
   },
   calls: [] as { name: string; args: unknown }[],
+  discoveryPage: [] as {
+    planId: string;
+    assigneeProfileId: string;
+    assigneeName: string;
+    version: number;
+    status: string;
+  }[],
   tab: "plan",
+  setupSection: "routes",
   hookCalls: 0,
 }));
 vi.mock("convex/react", () => ({
@@ -46,7 +54,7 @@ vi.mock("convex/react", () => ({
         warnings: [],
       };
     if (name === "coverage/discovery:list")
-      return { page: [], continueCursor: "0", isDone: true };
+      return { page: state.discoveryPage, continueCursor: "0", isDone: true };
     if (name === "coverage/activation:plannedForMonth") return [];
     if (name === "people/queries:list")
       return {
@@ -68,7 +76,7 @@ vi.mock("react", async (original) => {
     useState: (initial: unknown) => {
       state.hookCalls++;
       return [
-        state.hookCalls === 5 &&
+        state.hookCalls === 6 &&
         [
           "visits",
           "history",
@@ -86,9 +94,11 @@ vi.mock("react", async (original) => {
             }
           : initial === "plan"
             ? state.tab
-            : typeof initial === "function"
-              ? (initial as () => unknown)()
-              : initial,
+            : initial === "routes"
+              ? state.setupSection
+              : typeof initial === "function"
+                ? (initial as () => unknown)()
+                : initial,
         vi.fn(),
       ];
     },
@@ -131,12 +141,14 @@ vi.mock("@sunpride/ui", () => ({
     createElement("section", { "data-label": label }, label, children),
   UnderlineTabs: ({
     items,
+    label,
   }: {
     items: readonly (readonly [string, string])[];
+    label: string;
   }) =>
     createElement(
       "nav",
-      null,
+      { "aria-label": label },
       items.map(([id, label]) => createElement("button", { key: id }, label)),
     ),
   MetricCard: ({
@@ -155,9 +167,15 @@ vi.mock("@sunpride/ui", () => ({
     createElement("span", null, children),
 }));
 vi.mock("./admin-workspace", () => ({ AdminWorkspace: () => null }));
-vi.mock("./route-admin", () => ({ RouteAdmin: () => null }));
-vi.mock("./outlet-admin", () => ({ OutletAdmin: () => null }));
-vi.mock("./outlet-assignments", () => ({ OutletAssignments: () => null }));
+vi.mock("./route-admin", () => ({
+  RouteAdmin: () => createElement("p", null, "Mounted routes"),
+}));
+vi.mock("./outlet-admin", () => ({
+  OutletAdmin: () => createElement("p", null, "Mounted outlets"),
+}));
+vi.mock("./outlet-assignments", () => ({
+  OutletAssignments: () => createElement("p", null, "Mounted assignments"),
+}));
 vi.mock("./imports-workspace", () => ({ ImportsWorkspace: () => null }));
 vi.mock("./inventory-workspace", () => ({ InventoryWorkspace: () => null }));
 vi.mock("./coverage-planner", () => ({
@@ -190,13 +208,19 @@ beforeEach(() => {
     scopeUnitIds: ["unit"],
   };
   state.tab = "plan";
+  state.setupSection = "routes";
+  state.discoveryPage = [];
 });
 
 describe("sales force coverage module", () => {
-  it("mounts planner and all four tabs for manager", () => {
+  it("mounts planner and the coverage tabs for manager without shell filters", () => {
     const html = render();
-    expect(html).toContain("Plans");
     expect(html).toContain("Mounted planner");
+    expect(html).not.toContain('aria-label="Coverage month"');
+    expect(html).not.toContain('aria-label="Scoped coverage plan"');
+    expect(state.calls.some((c) => c.name === "coverage/discovery:list")).toBe(
+      false,
+    );
     for (const tab of ["Plan", "Review", "Visits", "History"])
       expect(html).toContain(`>${tab}</button>`);
   });
@@ -245,7 +269,7 @@ describe("sales force coverage module", () => {
       capabilities: ["mcp.read", "people.read"],
       scopeUnitIds: ["unit"],
     };
-    expect(render()).toContain("Plans");
+    expect(render()).toContain(">Plan</button>");
     state.profile.status = "disabled";
     expect(render()).toContain("Access denied");
     expect(
@@ -276,7 +300,7 @@ describe("sales force coverage module", () => {
     const html = render();
     for (const tab of [
       "Calendar",
-      "Routes",
+      "Route",
       "Map",
       "Workload",
       "Exceptions",
@@ -285,9 +309,102 @@ describe("sales force coverage module", () => {
       expect(html).toContain(`>${tab}</button>`);
     expect(html).not.toContain(">Review</button>");
     expect(state.calls.some((c) => c.name === "coverage/discovery:list")).toBe(
+      false,
+    );
+    state.tab = "history";
+    render();
+    expect(state.calls.some((c) => c.name === "coverage/discovery:list")).toBe(
       true,
     );
     expect(state.calls.some((c) => c.name.startsWith("people/"))).toBe(false);
+  });
+  it("shows Setup last only with editor capabilities and mounts one editor at a time", () => {
+    expect(render()).not.toContain(">Setup</button>");
+    state.permissions.capabilities = [
+      "mcp.read",
+      "route.read",
+      "outlet.read",
+      "route.manage",
+      "outlet.assign",
+    ];
+    const planHtml = render();
+    expect(planHtml).toMatch(/>Export<\/button><button>Setup<\/button>/);
+    expect(planHtml).not.toContain("Mounted routes");
+    state.tab = "setup";
+    for (const [section, mounted] of [
+      ["routes", "Mounted routes"],
+      ["outlets", "Mounted outlets"],
+      ["assignments", "Mounted assignments"],
+    ] as const) {
+      state.setupSection = section;
+      const html = render();
+      expect(html).toContain('aria-label="Setup sections"');
+      for (const label of [
+        "Territories &amp; routes",
+        "Outlets",
+        "Assignments",
+      ])
+        expect(html).toContain(`>${label}</button>`);
+      expect(html).toContain(mounted);
+      for (const other of [
+        "Mounted routes",
+        "Mounted outlets",
+        "Mounted assignments",
+      ])
+        if (other !== mounted) expect(html).not.toContain(other);
+      expect(html).not.toContain('aria-label="Coverage month"');
+      expect(html).not.toContain('aria-label="Scoped coverage plan"');
+      expect(
+        state.calls.some((c) => c.name === "coverage/discovery:list"),
+      ).toBe(false);
+    }
+  });
+  it("renders permitted Setup content directly without mcp.read or plan queries", () => {
+    state.permissions.capabilities = ["outlet.read", "outlet.verify"];
+    const html = render();
+    expect(html).not.toContain('aria-label="Coverage views"');
+    expect(html).toContain('aria-label="Setup sections"');
+    expect(html).toContain("Mounted outlets");
+    expect(html).not.toContain("Mounted routes");
+    expect(html).toContain("Verification: select an outlet above");
+    expect(state.calls.some((c) => c.name.startsWith("coverage/"))).toBe(false);
+  });
+  it("shows only Month for Workload and both fields for selected-plan views", () => {
+    state.tab = "workload";
+    const workload = render();
+    expect(workload).toContain('aria-label="Coverage month"');
+    expect(workload).not.toContain('aria-label="Scoped coverage plan"');
+    expect(state.calls.some((c) => c.name === "coverage/discovery:list")).toBe(
+      false,
+    );
+    state.tab = "calendar";
+    const calendar = render();
+    expect(calendar).toContain('aria-label="Coverage month"');
+    expect(calendar).toContain('aria-label="Scoped coverage plan"');
+    expect(calendar.indexOf('aria-label="Coverage views"')).toBeLessThan(
+      calendar.indexOf('aria-label="Coverage month"'),
+    );
+    expect(calendar).not.toContain('data-label="Plans"');
+    expect(state.calls.some((c) => c.name === "coverage/discovery:list")).toBe(
+      true,
+    );
+  });
+  it("sentence-cases scoped plan options without changing the discovery query", () => {
+    state.tab = "history";
+    state.discoveryPage = [
+      {
+        planId: "plan-1",
+        assigneeProfileId: "seller",
+        assigneeName: "Avery",
+        version: 2,
+        status: "pending_approval",
+      },
+    ];
+    const html = render();
+    expect(html).toContain("Avery · v2 · Pending approval");
+    expect(
+      state.calls.find((c) => c.name === "coverage/discovery:list")?.args,
+    ).toMatchObject({ paginationOpts: { numItems: 20, cursor: null } });
   });
   it("mounts selected history only and keeps other view subscriptions unmounted", () => {
     state.tab = "history";

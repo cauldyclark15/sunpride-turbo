@@ -190,7 +190,7 @@ export function OutletAssignments() {
                   <option value="">Select territory</option>
                   {territories?.page.map((t) => (
                     <option key={t._id} value={t._id}>
-                      {t.code} · {t.name}
+                      {t.name} · {t.code}
                     </option>
                   ))}
                 </select>
@@ -205,10 +205,10 @@ export function OutletAssignments() {
                       setOrder(null);
                     }}
                   >
-                    <option value="">Territory only</option>
+                    <option value="">No route (territory only)</option>
                     {routes?.page.map((r) => (
                       <option key={r._id} value={r._id}>
-                        {r.code} · {r.name}
+                        {r.name} · {r.code}
                       </option>
                     ))}
                   </select>
@@ -273,19 +273,19 @@ export function OutletAssignments() {
                 }
               }}
             />
-            <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted">
-              Unassigned
-            </h3>
-            {unassigned && unassigned.page.length === 0 ? (
-              <p className="text-[13px] text-muted">None</p>
-            ) : (
-              <ul className="grid gap-1 text-sm">
-                {unassigned?.page.map((o) => (
-                  <li key={o._id}>
-                    {o.code} · {o.name}
-                  </li>
-                ))}
-              </ul>
+            {!!unassigned?.page.length && (
+              <section className="grid gap-2">
+                <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted">
+                  Unassigned
+                </h3>
+                <ul className="grid gap-1 text-[13px] text-muted">
+                  {unassigned.page.map((o) => (
+                    <li key={o._id}>
+                      {o.name} · {o.code}
+                    </li>
+                  ))}
+                </ul>
+              </section>
             )}
             {outletId && (
               <>
@@ -298,7 +298,7 @@ export function OutletAssignments() {
                       {formatManilaDate(row.effectiveFrom)} –{" "}
                       {row.effectiveTo
                         ? formatManilaDate(row.effectiveTo)
-                        : "current"}{" "}
+                        : "Current"}{" "}
                       · {row.territoryId} / {row.routeId ?? "no route"} ·{" "}
                       {row.sequence ?? "—"} · {row.actorSubject}: {row.reason}
                     </li>
@@ -308,7 +308,9 @@ export function OutletAssignments() {
             )}
             {territoryId && (
               <>
-                <h3>Territory roster</h3>
+                <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted">
+                  Territory roster
+                </h3>
                 <ul>
                   {roster?.map((row) => (
                     <li key={row._id}>
@@ -321,7 +323,9 @@ export function OutletAssignments() {
             )}
             {routeId && (
               <>
-                <h3>Route stops</h3>
+                <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted">
+                  Route stops
+                </h3>
                 <ol>
                   {currentOrder.map((id, i) => (
                     <li key={id}>
@@ -400,14 +404,14 @@ export function OutletAssignments() {
                     <input name="reason" required />
                   </FormField>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Button
                     type="submit"
                     variant="primary"
                     data-action="assign"
                     isDisabled={!outletId || !territoryId || pending}
                   >
-                    Assign selected outlet
+                    Assign selected
                   </Button>
                   <Button
                     type="submit"
@@ -425,6 +429,11 @@ export function OutletAssignments() {
                   >
                     Save stop order
                   </Button>
+                  {!outletId && !selected.length && (
+                    <span className="text-[13px] text-muted">
+                      Select outlets to assign
+                    </span>
+                  )}
                 </div>
               </form>
             )}

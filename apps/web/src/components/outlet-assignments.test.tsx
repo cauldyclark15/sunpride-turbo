@@ -78,7 +78,9 @@ describe("outlet assignment screen", () => {
     expect(html).toContain('aria-label="Outlets pages"');
     expect(html).toContain("Page 1");
     expect(html).toContain("Assign outlets");
-    expect(html).toContain("Assign selected outlet");
+    expect(html).toContain("Assign selected");
+    expect(html).toContain("Select outlets to assign");
+    expect(html).not.toContain("Unassigned</h3>");
   });
   it("passes reason and Manila midnight to assign, bulk and atomic reorder", async () => {
     const m = actions();

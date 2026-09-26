@@ -1,7 +1,6 @@
 import {
   Button,
   Input,
-  Label,
   ListBox,
   Select,
   TextField,
@@ -11,10 +10,12 @@ import type { Id } from "@sunpride/backend/data-model";
 import {
   Card,
   EmptyPanel,
+  FormField,
   ListRow,
   PageHeader,
   StatusPill,
   UnderlineTabs,
+  WorkspaceIcon,
   WorkspaceShell,
 } from "@sunpride/ui";
 import { useLiveQuery } from "dexie-react-hooks";
@@ -45,6 +46,34 @@ import {
 } from "./lib/database";
 import { syncOutbox } from "./lib/sync";
 
+const peso = new Intl.NumberFormat("en-PH", {
+  style: "currency",
+  currency: "PHP",
+  maximumFractionDigits: 0,
+});
+const shortDateTime = new Intl.DateTimeFormat("en-PH", {
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+});
+
+function countLabel(count: number, noun: string) {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+function orderSyncStatus(state: LocalOrder["syncState"]) {
+  return state === "synced"
+    ? { label: "Synced", tone: "success" as const }
+    : state === "conflict"
+      ? { label: "Needs attention", tone: "danger" as const }
+      : { label: "Waiting", tone: "warning" as const };
+}
+
+function deviceStatus(online: boolean, queued: number) {
+  return !online ? "Offline" : queued ? `${queued} waiting` : "All synced";
+}
+
 function OrderModuleTabs() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -59,21 +88,22 @@ function OrderModuleTabs() {
 }
 
 function Overview({
-  catalogCount,
+  customers,
   localOrders,
   queued,
 }: {
-  catalogCount: number;
+  customers: Customer[];
   localOrders: LocalOrder[];
   queued: number;
 }) {
   const navigate = useNavigate();
+  const customerNames = new Map(customers.map(({ code, name }) => [code, name]));
 
   return (
     <div className="grid gap-4 pb-20">
       <PageHeader
         title="Today"
-        meta={`${localOrders.length} orders · ${queued} waiting · ${catalogCount} catalog items`}
+        meta={`${countLabel(localOrders.length, "order")} · ${queued} waiting`}
       />
       <Card label="Orders" count={localOrders.length} flush>
         {localOrders.length ? (
@@ -82,20 +112,12 @@ function Overview({
             .map((order) => (
               <ListRow
                 key={order.id}
-                icon="▤"
-                title={order.customerCode}
-                meta={`${order.description} · ${order.quantity} × PHP ${order.unitPrice.toLocaleString()}`}
+                icon={<WorkspaceIcon name="order" />}
+                title={customerNames.get(order.customerCode) ?? order.customerCode}
+                meta={`${order.description} · ${order.quantity} × ${peso.format(order.unitPrice)}`}
                 value={
-                  <StatusPill
-                    tone={
-                      order.syncState === "synced"
-                        ? "success"
-                        : order.syncState === "conflict"
-                          ? "danger"
-                          : "warning"
-                    }
-                  >
-                    {order.syncState}
+                  <StatusPill tone={orderSyncStatus(order.syncState).tone}>
+                    {orderSyncStatus(order.syncState).label}
                   </StatusPill>
                 }
               />
@@ -156,10 +178,7 @@ function NewOrder({
     : (availableProducts[0]?.code ?? "");
   return (
     <div className="grid max-w-4xl gap-4 pb-20">
-      <PageHeader
-        title="New order"
-        meta={`${customers.length} customers · ${products.length} products`}
-      />
+      <PageHeader title="New order" />
       <OrderModuleTabs />
       <Card label="Order details">
         <form
@@ -167,8 +186,7 @@ function NewOrder({
           onSubmit={onSubmit}
           className="grid gap-4 sm:grid-cols-2"
         >
-          <div className="grid gap-1.5 text-[13px] font-medium">
-            <span>Customer</span>
+          <FormField label="Customer">
             <input type="hidden" name="customerCode" value={chosenCustomer} />
             <Select
               aria-label="Customer"
@@ -193,9 +211,8 @@ function NewOrder({
                 </ListBox>
               </Select.Popover>
             </Select>
-          </div>
-          <div className="grid gap-1.5 text-[13px] font-medium">
-            <span>Product</span>
+          </FormField>
+          <FormField label="Product">
             <input type="hidden" name="productCode" value={chosenProduct} />
             <Select
               aria-label="Product"
@@ -226,29 +243,31 @@ function NewOrder({
                 </ListBox>
               </Select.Popover>
             </Select>
-          </div>
-          <TextField className="grid gap-1.5">
-            <Label className="text-[13px] font-medium">Quantity</Label>
-            <Input
-              name="quantity"
-              type="number"
-              min={1}
-              defaultValue="1"
-              required
-              className="h-10 rounded-[10px] border border-border bg-surface"
-            />
-          </TextField>
-          <TextField className="grid gap-1.5">
-            <Label className="text-[13px] font-medium">Unit price (PHP)</Label>
-            <Input
-              name="unitPrice"
-              type="number"
-              min={0}
-              defaultValue={products[0]?.unitPrice?.toString() ?? "1188"}
-              required
-              className="h-10 rounded-[10px] border border-border bg-surface"
-            />
-          </TextField>
+          </FormField>
+          <FormField label="Quantity">
+            <TextField className="min-w-0">
+              <Input
+                name="quantity"
+                type="number"
+                min={1}
+                defaultValue="1"
+                required
+                className="h-10 w-full rounded-[10px] border border-border bg-surface"
+              />
+            </TextField>
+          </FormField>
+          <FormField label="Unit price (₱)">
+            <TextField className="min-w-0">
+              <Input
+                name="unitPrice"
+                type="number"
+                min={0}
+                defaultValue={products[0]?.unitPrice?.toString() ?? "1188"}
+                required
+                className="h-10 w-full rounded-[10px] border border-border bg-surface"
+              />
+            </TextField>
+          </FormField>
         </form>
       </Card>
       <div className="fixed inset-x-4 bottom-20 z-10 mx-auto max-w-md rounded-xl bg-background p-2 lg:bottom-6">
@@ -276,10 +295,10 @@ function TruckInventory({
 }) {
   return (
     <div className="grid gap-4">
-      <PageHeader title="Truck stock" meta={`${inventory.length} products`} />
-      <Card label="Active route" flush>
-        <ListRow icon="↗" title={routeCode ?? "No route opened"} />
-      </Card>
+      <PageHeader
+        title="Truck stock"
+        meta={`${countLabel(inventory.length, "product")} · ${routeCode ? `Route ${routeCode}` : "No route"}`}
+      />
       <Card label="Stock" count={inventory.length} flush>
         {inventory.map((row) => {
           const projected =
@@ -288,7 +307,7 @@ function TruckInventory({
           return (
             <ListRow
               key={row.id}
-              icon="▤"
+              icon={<WorkspaceIcon name="inventory" />}
               title={row.productName}
               meta={`${row.productCode} · ${remote === projected ? "Synced" : `${remote - projected} queued`}`}
               value={`${projected.toLocaleString("en-PH")} cases`}
@@ -304,12 +323,19 @@ function TruckInventory({
   );
 }
 
-function OrderQueue({ localOrders }: { localOrders: LocalOrder[] }) {
+function OrderQueue({
+  customers,
+  localOrders,
+}: {
+  customers: Customer[];
+  localOrders: LocalOrder[];
+}) {
+  const customerNames = new Map(customers.map(({ code, name }) => [code, name]));
   return (
     <div className="grid gap-4">
       <PageHeader
         title="Queue"
-        meta={`${localOrders.length} orders · ${localOrders.filter((order) => order.syncState !== "synced").length} waiting`}
+        meta={`${countLabel(localOrders.length, "order")} · ${localOrders.filter((order) => order.syncState !== "synced").length} waiting`}
       />
       <OrderModuleTabs />
       <Card label="Local orders" count={localOrders.length} flush>
@@ -319,26 +345,26 @@ function OrderQueue({ localOrders }: { localOrders: LocalOrder[] }) {
           localOrders.map((order) => (
             <ListRow
               key={order.id}
-              icon="▤"
-              title={`${order.customerCode} · ${order.description}`}
+              icon={<WorkspaceIcon name="order" />}
+              title={customerNames.get(order.customerCode) ?? order.customerCode}
               meta={
                 <>
-                  {order.quantity} × PHP {order.unitPrice.toLocaleString()} ·{" "}
-                  {new Date(order.createdAt).toLocaleString()}
-                  {order.lastError ? ` · ${order.lastError}` : ""}
+                  <div className="truncate">
+                    {order.description} · {order.quantity} × {peso.format(order.unitPrice)}
+                  </div>
+                  <div className="font-mono text-[12px] tabular-nums">
+                    {shortDateTime.format(new Date(order.createdAt))}
+                  </div>
+                  {order.lastError ? (
+                    <div className="whitespace-normal break-words text-danger-soft-foreground">
+                      {order.lastError}
+                    </div>
+                  ) : null}
                 </>
               }
               value={
-                <StatusPill
-                  tone={
-                    order.syncState === "synced"
-                      ? "success"
-                      : order.syncState === "conflict"
-                        ? "danger"
-                        : "warning"
-                  }
-                >
-                  {order.syncState}
+                <StatusPill tone={orderSyncStatus(order.syncState).tone}>
+                  {orderSyncStatus(order.syncState).label}
                 </StatusPill>
               }
             />
@@ -360,14 +386,14 @@ function Catalog({
     <div className="grid gap-4">
       <PageHeader
         title="Catalog"
-        meta={`${customers.length} customers · ${products.length} products`}
+        meta={`${countLabel(customers.length, "customer")} · ${countLabel(products.length, "product")}`}
       />
       <div className="grid gap-4 lg:grid-cols-2">
         <Card label="Customers" count={customers.length} flush>
           {customers.map((customer) => (
             <ListRow
               key={customer._id}
-              icon="◯"
+              icon={<WorkspaceIcon name="user" />}
               title={customer.name}
               meta={customer.code}
             />
@@ -378,10 +404,10 @@ function Catalog({
           {products.map((product) => (
             <ListRow
               key={product._id}
-              icon="▤"
+              icon={<WorkspaceIcon name="catalog" />}
               title={product.name}
               meta={product.code}
-              value={`PHP ${(product.unitPrice ?? 0).toLocaleString()}`}
+              value={peso.format(product.unitPrice ?? 0)}
             />
           ))}
           {!products.length ? <EmptyPanel title="No products" /> : null}
@@ -407,14 +433,8 @@ function SyncStatus({
       <PageHeader title="Sync" meta={`${queued} waiting`} />
       <Card label="Device status" flush>
         <ListRow
-          icon="↻"
-          title={
-            queued === 0
-              ? online
-                ? "All synced"
-                : "No orders waiting"
-              : `${queued} waiting`
-          }
+          icon={<WorkspaceIcon name="sync" />}
+          title={deviceStatus(online, queued)}
           meta={online ? "Online" : "Offline"}
           value={
             <StatusPill tone={online ? "success" : "warning"}>
@@ -582,7 +602,7 @@ function FieldWorkspace({ user }: { user: { name: string; role: string } }) {
     <>
       <div className="fixed right-16 top-3 z-30 md:hidden">
         <StatusPill tone={online ? "success" : "warning"}>
-          {!online ? "Offline" : queued ? `${queued} waiting` : "All synced"}
+          {deviceStatus(online, queued)}
         </StatusPill>
       </div>
       <WorkspaceShell
@@ -599,7 +619,7 @@ function FieldWorkspace({ user }: { user: { name: string; role: string } }) {
         onSignOut={signOut}
         status={
           <StatusPill tone={online ? "success" : "warning"}>
-            {online ? (queued ? `${queued} waiting` : "All synced") : "Offline"}
+            {deviceStatus(online, queued)}
           </StatusPill>
         }
         user={user}
@@ -623,9 +643,7 @@ function FieldWorkspace({ user }: { user: { name: string; role: string } }) {
             index
             element={
               <Overview
-                catalogCount={
-                  (products?.length ?? 0) + (customers?.length ?? 0)
-                }
+                customers={customers ?? []}
                 localOrders={localOrders}
                 queued={queued}
               />
@@ -655,7 +673,7 @@ function FieldWorkspace({ user }: { user: { name: string; role: string } }) {
           />
           <Route
             path="orders/queue"
-            element={<OrderQueue localOrders={localOrders} />}
+            element={<OrderQueue customers={customers ?? []} localOrders={localOrders} />}
           />
           <Route
             path="catalog"

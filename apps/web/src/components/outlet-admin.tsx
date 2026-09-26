@@ -221,11 +221,9 @@ export function OutletAdmin() {
                   title={row.name}
                   meta={row.code}
                   value={
-                    <StatusPill
-                      tone={row.status === "active" ? "success" : "neutral"}
-                    >
-                      {row.status}
-                    </StatusPill>
+                    row.status !== "active" ? (
+                      <StatusPill tone="neutral">{row.status}</StatusPill>
+                    ) : undefined
                   }
                   action={
                     <Button
@@ -261,10 +259,11 @@ export function OutletAdmin() {
             className="grid gap-2 rounded border border-border p-3"
           >
             <h3>
-              {detail.outlet.code} · {detail.outlet.name}
+              {detail.outlet.name} · {detail.outlet.code}
             </h3>
             <p>
-              {detail.outlet.status} ·{" "}
+              {detail.outlet.status[0]?.toUpperCase()}
+              {detail.outlet.status.slice(1)} ·{" "}
               {detail.outlet.channel ?? "Channel not set"} ·{" "}
               {detail.outlet.address ?? "Address not set"}
             </p>
@@ -307,7 +306,7 @@ export function OutletAdmin() {
                   {formatManilaDate(row.effectiveFrom)}–
                   {row.effectiveTo
                     ? formatManilaDate(row.effectiveTo)
-                    : "current"}{" "}
+                    : "Current"}{" "}
                   · {row.reason}
                 </li>
               ))}
@@ -321,7 +320,8 @@ export function OutletAdmin() {
             <ul>
               {pins?.map((pin) => (
                 <li key={pin._id}>
-                  {pin.status} · {pin.latitude}, {pin.longitude} ·{" "}
+                  {pin.status[0]?.toUpperCase()}
+                  {pin.status.slice(1)} · {pin.latitude}, {pin.longitude} ·{" "}
                   {pin.radiusMeters} m · {pin.source} ·{" "}
                   {pin.evidenceNote ?? "No note"} · proposed by {pin.proposedBy}
                   {pin.verifiedBy && (
@@ -336,7 +336,7 @@ export function OutletAdmin() {
                       · {formatManilaDate(pin.effectiveFrom)}–
                       {pin.effectiveTo
                         ? formatManilaDate(pin.effectiveTo)
-                        : "current"}
+                        : "Current"}
                     </>
                   )}
                   {pin.status === "pending" && canVerify && (
@@ -492,7 +492,7 @@ export function OutletAdmin() {
                       ?.filter((c) => c.active)
                       .map((c) => (
                         <option key={c._id} value={c._id}>
-                          {c.code} · {c.name}
+                          {c.name} · {c.code}
                         </option>
                       ))}
                   </select>

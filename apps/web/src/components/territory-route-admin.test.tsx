@@ -189,6 +189,9 @@ describe("unmounted territory and route administration", () => {
     const html = render(createElement(TerritoryAdmin));
     expect(html).toContain("Metro territory");
     expect(html).toContain("No salesperson assigned");
+    expect(html).toMatch(
+      /Metro territory<\/div><div[^>]*>NCR · .* · No salesperson<\/div>/,
+    );
     expect(state.calls).toContainEqual({
       name: "territories/queries:list",
       args: { paginationOpts: { numItems: 25, cursor: null } },
@@ -200,6 +203,13 @@ describe("unmounted territory and route administration", () => {
     expect(render(createElement(TerritoryAdmin))).toMatch(
       /disabled=""[^>]*>Create territory/,
     );
+  });
+  it("explains the route selector before a territory is chosen", () => {
+    state.mode = "route";
+    const html = render(createElement(RouteAdmin));
+    expect(html).toContain("Choose a territory to see its routes");
+    expect(html).toMatch(/disabled=""[^>]*>Create route/);
+    expect(html).toContain("Metro territory · NCR");
   });
   it("renders route territory selector, scoped list, template and disabled controls without route.manage", () => {
     state.selection = territory._id;

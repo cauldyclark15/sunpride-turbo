@@ -130,17 +130,24 @@ vi.mock("@sunpride/ui", () => ({
     createElement("nav", { "aria-label": label }, `Page ${page}`),
   Card: ({
     label,
+    count,
     actions,
     children,
   }: {
     label: string;
+    count?: number;
     actions?: React.ReactNode;
     children: React.ReactNode;
   }) =>
     createElement(
       "section",
       null,
-      createElement("h2", null, label),
+      createElement(
+        "h2",
+        null,
+        label,
+        count === undefined ? "" : ` · ${count}`,
+      ),
       actions,
       children,
     ),
@@ -167,7 +174,15 @@ vi.mock("@sunpride/ui", () => ({
   }) => createElement("div", null, title, meta, value, action),
   Notice: ({ title }: { title: string }) => createElement("p", null, title),
   StatusPill: ({ children }: { children: React.ReactNode }) =>
-    createElement("span", null, children),
+    createElement(
+      "span",
+      null,
+      typeof children === "string"
+        ? children
+            .replaceAll("_", " ")
+            .replace(/^./, (letter) => letter.toUpperCase())
+        : children,
+    ),
   EmptyPanel: ({ title }: { title: string }) => createElement("p", null, title),
   DataTable: ({
     rows,
@@ -336,9 +351,7 @@ describe("Admin workspace tabs", () => {
       ["territories", "Territories"],
     ] as const) {
       state.tabOverride = tab;
-      expect(html(createElement(AdminWorkspace))).toContain(
-        `<h2>${section}</h2>`,
-      );
+      expect(html(createElement(AdminWorkspace))).toContain(`<h2>${section}`);
     }
   });
   it("keeps organization, people, and invitation sections inside the existing admin module", () => {
@@ -347,17 +360,24 @@ describe("Admin workspace tabs", () => {
     expect(view).toContain("People");
     expect(view).toContain("Teams");
     expect(view).toContain("Invitations");
-    expect(view).toContain("<h2>Organization</h2>");
+    expect(view).toContain("<h2>Organization · 3</h2>");
   });
-  it("shows counts only for the active administration tab", () => {
+  it("shows counts in only the active administration card header", () => {
     const organization = html(createElement(AdminWorkspace));
-    expect(organization).toContain("<h2>Organization</h2>");
+    expect(organization).toContain("<h2>Organization · 3</h2>");
     expect(organization).not.toContain("people shown");
     expect(organization).not.toContain("teams shown");
     state.tabOverride = "people";
-    expect(html(createElement(AdminWorkspace))).toContain("2 people shown");
+    const people = html(createElement(AdminWorkspace));
+    expect(people).toContain("<h2>People · 2</h2>");
+    expect(people).not.toContain("people shown");
+    expect(people).not.toContain("<h2>Teams ·");
     state.tabOverride = "teams";
-    expect(html(createElement(AdminWorkspace))).toContain("0 teams shown");
+    const teams = html(createElement(AdminWorkspace));
+    expect(teams).toContain("<h2>Teams · 0</h2>");
+    expect(teams).not.toContain("teams shown");
+    expect(teams).not.toContain("<h2>People ·");
+    expect(teams).toContain("No teams yet");
   });
   it("preserves the invitation form and authorized accounts in their tab", () => {
     state.tabOverride = "invitations";
@@ -378,6 +398,40 @@ describe("Admin workspace tabs", () => {
     expect(view).toContain("Invite person");
     expect(view).toContain("new@example.com");
     expect(view).toContain("Send invitation");
+    expect(view).toMatch(
+      /<input[^>]*type="email"[^>]*required=""[^>]*name="email"/,
+    );
+    expect(view).toContain("<label>Full name");
+    expect(view).toContain("<label>Role");
+    expect(view).toContain("<label>Position");
+    expect(view.match(/new@example\.com/g)).toHaveLength(1);
+    expect(view).toContain("Viewer");
+  });
+  it("labels invitations without duplicating unnamed emails and leaves revocation gated", () => {
+    state.tabOverride = "invitations";
+    state.values["domains/profiles:current"] = { role: "super_admin" };
+    state.values["domains/profiles:listInvitations"] = [
+      {
+        _id: "first",
+        email: "first@example.com",
+        role: "super_admin",
+        status: "accepted",
+      },
+      {
+        _id: "second",
+        name: "Jo Santos",
+        email: "jo@example.com",
+        role: "manager",
+        status: "pending",
+      },
+    ];
+    const view = html(createElement(AdminWorkspace));
+    expect(view.match(/first@example\.com/g)).toHaveLength(1);
+    expect(view).toContain("Super admin");
+    expect(view).toContain("Jo Santosjo@example.com · Sales manager");
+    expect(view).toContain("Accepted");
+    expect(view).not.toContain(">accepted<");
+    expect(view).toMatch(/disabled=""[^>]*>Revoke access/);
   });
 });
 
@@ -387,7 +441,7 @@ describe("Organization admin", () => {
     expect(view).toContain("Metro Region");
     expect(view).toContain("Manila Area");
     expect(view).toContain('data-depth="2"');
-    expect(view).toContain("inactive");
+    expect(view).toContain("Inactive");
     expect(view).toContain("Region");
   });
   it("keeps hierarchy order even when units arrive code-sorted", () => {
@@ -529,15 +583,33 @@ describe("People admin", () => {
       state.queryCalls.some((call) => call.name === "domains/profiles:list"),
     ).toBe(false);
   });
-  it("renders the paginated people list with role, position, unit, supervisor, and employee code", () => {
+  it("renders five people columns with role, position, unit, supervisor, and code metadata", () => {
     const view = html(createElement(PeopleAdmin));
     expect(view).toContain("Ana Reyes");
     expect(view).toContain("Field Rep");
     expect(view).toContain("Metro Region");
     expect(view).toContain("Maria Santos");
     expect(view).toContain("EMP-002");
-    expect(view).toContain("Employee code");
+    expect(view).toContain("Sales manager");
+    expect(view).toMatch(/<thead><tr>(?:<th>.*?<\/th>){5}<\/tr><\/thead>/);
+    expect(view).not.toContain("<th>Employee code</th>");
+    expect(view).not.toContain("<th>Supervisor</th>");
     expect(view).toContain("Page 1");
+  });
+  it("uses email as the title when a person has no name, without repeating it in metadata", () => {
+    state.values["people/queries:list"] = {
+      page: [
+        { ...person, name: "", role: "super_admin", employeeCode: "DEMO-E1" },
+      ],
+      continueCursor: "",
+      isDone: true,
+    };
+    const view = html(createElement(PeopleAdmin));
+    expect(view.match(/ana@example\.com/g)).toHaveLength(1);
+    expect(view).toContain("DEMO-E1");
+    expect(view).toContain("Super admin");
+    expect(view).toMatch(/disabled=""[^>]*>Assign/);
+    expect(view).toContain("whitespace-nowrap");
   });
   it("submits assignment axes, code once, and reason", async () => {
     const assign = vi.fn();

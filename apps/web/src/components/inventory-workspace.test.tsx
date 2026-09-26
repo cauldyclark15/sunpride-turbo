@@ -4,7 +4,7 @@ import { getFunctionName } from "convex/server";
 import { describe, expect, it, vi } from "vitest";
 import { InventoryWorkspace } from "./inventory-workspace";
 
-const data = vi.hoisted(() => ({ ready: true }));
+const data = vi.hoisted(() => ({ ready: true, stockEmpty: false }));
 vi.mock("convex/react", () => ({
   useQuery: (ref: unknown) => {
     const name = getFunctionName(ref as never);
@@ -27,13 +27,14 @@ vi.mock("convex/react", () => ({
         ? [{ _id: "l", code: "L1", name: "Main", type: "warehouse" }]
         : [];
     if (name === "inventory/queries:overview")
-      return data.ready
+      return data.ready && !data.stockEmpty
         ? [
             {
               id: "b",
               productCode: "P1",
               productName: "Product one",
               locationCode: "L1",
+              locationName: "Main warehouse",
               locationType: "warehouse",
               physical: 240,
               available: 230,
@@ -78,6 +79,13 @@ vi.mock("@heroui/react", () => {
   };
 });
 vi.mock("@sunpride/ui", () => ({
+  FormField: ({
+    label,
+    children,
+  }: {
+    label: string;
+    children: React.ReactNode;
+  }) => createElement("label", null, label, children),
   PageHeader: ({ title, meta }: { title: string; meta: string }) =>
     createElement(
       "header",
@@ -125,7 +133,11 @@ describe("Inventory calm stock view", () => {
       createElement(InventoryWorkspace, { setupMessage: "Connected" }),
     );
     expect(html).toContain("<h1>Inventory</h1>");
-    expect(html).toContain("240 cases · 1 location");
+    expect(html).toContain("240 cases · 1 location configured");
+    expect(html).toContain("Main warehouse");
+    expect(html).toContain("L1</span> · Warehouse");
+    expect(html).not.toContain(">warehouse<");
+    expect(html).toContain("Adjustments</button>");
     expect(html).toContain("Stock · cases");
     expect(html).toContain("Physical 240");
     expect(html).toContain('data-label="Stock by location"');
@@ -136,6 +148,16 @@ describe("Inventory calm stock view", () => {
     expect(html).not.toContain("Inventory is ready");
     expect(html).not.toContain("base cases across filtered locations");
     expect(html).not.toContain("<aside>");
+  });
+  it("keeps configured location count distinct from empty stock", () => {
+    data.ready = true;
+    data.stockEmpty = true;
+    const html = renderToStaticMarkup(
+      createElement(InventoryWorkspace, { setupMessage: "Connected" }),
+    );
+    expect(html).toContain("0 cases · 1 location configured");
+    expect(html).toContain("No stock yet");
+    data.stockEmpty = false;
   });
   it("offers setup only when stock is not configured", () => {
     data.ready = false;

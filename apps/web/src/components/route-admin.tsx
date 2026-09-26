@@ -218,11 +218,16 @@ export function RouteAdmin() {
                 <option value="">Select territory</option>
                 {territories?.page.map((t) => (
                   <option key={t._id} value={t._id}>
-                    {t.code} · {t.name}
+                    {t.name} · {t.code}
                   </option>
                 ))}
               </select>
             </FormField>
+            {!territoryId && (
+              <p className="text-[13px] text-muted">
+                Choose a territory to see its routes
+              </p>
+            )}
             {territoryId && (
               <>
                 <ul className="overflow-hidden rounded-xl border border-border">
@@ -230,8 +235,8 @@ export function RouteAdmin() {
                     <li key={row._id}>
                       <ListRow
                         icon={<WorkspaceIcon name="field" />}
-                        title={`${row.code} · ${row.name}`}
-                        meta={formatManilaDate(row.effectiveFrom)}
+                        title={row.name}
+                        meta={`${row.code} · ${formatManilaDate(row.effectiveFrom)}`}
                         value={
                           <StatusPill
                             tone={
@@ -274,7 +279,7 @@ export function RouteAdmin() {
             {detail && (
               <aside className="grid gap-2 rounded border p-3">
                 <h3>
-                  {detail.route.code} · {detail.route.name}
+                  {detail.route.name} · {detail.route.code}
                 </h3>
                 <p>
                   Territory:{" "}
@@ -307,7 +312,7 @@ export function RouteAdmin() {
                     <li key={row._id}>
                       {people?.page.find((p) => p._id === row.profileId)
                         ?.name ?? row.profileId}{" "}
-                      · {row.primary ? "primary" : "secondary"}{" "}
+                      · {row.primary ? "Primary" : "Secondary"}{" "}
                       <Button
                         variant="outline"
                         className="h-10"
@@ -404,7 +409,7 @@ export function RouteAdmin() {
                       <option value="">Select territory</option>
                       {territories?.page.map((t) => (
                         <option key={t._id} value={t._id}>
-                          {t.name}
+                          {t.name} · {t.code}
                         </option>
                       ))}
                     </select>

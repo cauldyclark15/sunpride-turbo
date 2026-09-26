@@ -103,12 +103,27 @@ beforeEach(() => {
 describe("Outlet admin (unmounted)", () => {
   it("renders paginated scoped outlet list and skips detail until selection", () => {
     const view = render();
-    expect(view).toContain("SHOP-1 · Corner Store");
-    expect(view).toContain("Page 1");
+    expect(view).toContain("Corner Store · SHOP-1");
+    expect(view).toContain("Prospect");
+    expect(view).toContain("Pending");
+    expect(view).not.toContain("Page 1");
     expect(state.queries).toContainEqual({
       name: "outlets/queries:detail",
       args: "skip",
     });
+  });
+  it("omits the normal active status pill but keeps row actions", () => {
+    state.values["outlets/queries:list"] = {
+      page: [{ ...outlet, status: "active" }],
+      isDone: true,
+      continueCursor: "",
+    };
+    const row =
+      render().match(/<ul aria-label="Outlet list"[^>]*>(.*?)<\/ul>/)?.[1] ??
+      "";
+    expect(row).toContain("Corner Store");
+    expect(row).toContain("Open</button>");
+    expect(row).not.toContain("Active</span>");
   });
   it("shows history, verification, and disables self-review controls", () => {
     state.selected = outlet._id;

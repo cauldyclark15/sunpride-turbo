@@ -20,7 +20,7 @@ import { AdminSelectField } from "./org-admin";
 import { formatManilaDate } from "../lib/manila-date";
 
 type Person = Doc<"profiles">;
-type Role =
+export type AssignableRole =
   | "admin"
   | "operations"
   | "manager"
@@ -28,15 +28,25 @@ type Role =
   | "sales"
   | "analyst"
   | "viewer";
-const roles: Role[] = [
-  "admin",
-  "operations",
-  "manager",
-  "approver",
-  "sales",
-  "analyst",
-  "viewer",
+export const roleOptions: { value: AssignableRole; label: string }[] = [
+  { value: "admin", label: "Administrator" },
+  { value: "operations", label: "Operations" },
+  { value: "manager", label: "Sales manager" },
+  { value: "approver", label: "Approver" },
+  { value: "sales", label: "Sales" },
+  { value: "analyst", label: "Analyst" },
+  { value: "viewer", label: "Viewer" },
 ];
+export const roleLabel = (role: string) =>
+  role === "super_admin"
+    ? "Super admin"
+    : (roleOptions.find((option) => option.value === role)?.label ??
+      role
+        .replaceAll("_", " ")
+        .replace(/^./, (letter) => letter.toUpperCase()));
+
+type Role = AssignableRole;
+const roles: Role[] = roleOptions.map((option) => option.value);
 
 export async function performPeopleAssignment(
   selected: Person,
@@ -147,11 +157,21 @@ export function PeopleAdmin() {
       key: "name",
       label: "Person",
       render: (row) => (
-        <span className="block">
-          <span className="block text-sm font-medium">{row.name}</span>
-          <span className="block font-mono text-xs text-muted">
-            {row.email}
+        <span className="block min-w-0">
+          <span className="block text-sm font-medium">
+            {row.name?.trim() || row.email}
           </span>
+          {(row.name?.trim() || row.employeeCode) && (
+            <span className="block text-[13px] text-muted">
+              {row.name?.trim() ? row.email : null}
+              {row.name?.trim() && row.employeeCode ? " · " : null}
+              {row.employeeCode ? (
+                <span className="whitespace-nowrap font-mono text-[13px]">
+                  {row.employeeCode}
+                </span>
+              ) : null}
+            </span>
+          )}
         </span>
       ),
     },
@@ -159,42 +179,53 @@ export function PeopleAdmin() {
       key: "role",
       label: "Role",
       render: (row) => (
-        <StatusPill tone="neutral">{row.role.replaceAll("_", " ")}</StatusPill>
+        <span className="block">
+          <span className="block whitespace-nowrap text-sm">
+            <StatusPill tone="neutral">{roleLabel(row.role)}</StatusPill>
+          </span>
+          {row.positionId ? (
+            <span className="block text-[13px] text-muted">
+              {positionOf(row.positionId)}
+            </span>
+          ) : null}
+        </span>
       ),
     },
     {
-      key: "position",
-      label: "Position",
-      render: (row) => positionOf(row.positionId),
-    },
-    { key: "unit", label: "Unit", render: (row) => unitOf(row.orgUnitId) },
-    {
-      key: "supervisor",
-      label: "Supervisor",
-      render: (row) => supervisorOf(row.supervisorSubject),
-    },
-    {
-      key: "code",
-      label: "Employee code",
-      render: (row) => row.employeeCode ?? "—",
+      key: "unit",
+      label: "Unit",
+      render: (row) => (
+        <span className="block">
+          <span className="block text-sm">{unitOf(row.orgUnitId)}</span>
+          {row.supervisorSubject ? (
+            <span className="block text-[13px] text-muted">
+              {supervisorOf(row.supervisorSubject)}
+            </span>
+          ) : null}
+        </span>
+      ),
     },
     {
       key: "status",
       label: "Status",
       render: (row) => (
-        <StatusPill tone={row.status === "active" ? "success" : "neutral"}>
-          {row.status}
-        </StatusPill>
+        <span className="whitespace-nowrap">
+          <StatusPill tone={row.status === "active" ? "success" : "neutral"}>
+            {row.status}
+          </StatusPill>
+        </span>
       ),
     },
     {
       key: "actions",
       label: "Actions",
+      align: "right",
       render: (row) => (
-        <span className="flex gap-2">
+        <span className="flex flex-nowrap justify-end gap-2 whitespace-nowrap">
           <Button
             size="sm"
             variant="outline"
+            className="h-8 whitespace-nowrap"
             isDisabled={
               !canManage ||
               row.role === "super_admin" ||
@@ -215,6 +246,7 @@ export function PeopleAdmin() {
           <Button
             size="sm"
             variant="outline"
+            className="h-8 whitespace-nowrap"
             onPress={() => setHistoryId(row._id)}
           >
             History
@@ -299,7 +331,7 @@ export function PeopleAdmin() {
                 )
                 .map((role) => ({
                   id: role,
-                  label: role.replaceAll("_", " "),
+                  label: roleLabel(role),
                 }))}
             />
             <AdminSelectField
@@ -439,7 +471,7 @@ export function PeopleAdmin() {
                       key={entry._id}
                       className="rounded-md border border-border p-3 text-sm"
                     >
-                      <strong>{entry.role.replaceAll("_", " ")}</strong> ·{" "}
+                      <strong>{roleLabel(entry.role)}</strong> ·{" "}
                       {unitOf(entry.orgUnitId)} · {positionOf(entry.positionId)}{" "}
                       · Supervisor: {nameOf(entry.supervisorId)}
                       <p className="text-xs text-muted">

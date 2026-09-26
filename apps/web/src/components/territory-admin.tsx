@@ -100,23 +100,35 @@ function TerritoryListRow({
   noSalesperson,
   onSelect,
   asOf,
+  salespersonNames,
 }: {
   row: Doc<"territories">;
   noSalesperson: boolean;
   onSelect: () => void;
   asOf: number;
+  salespersonNames: Map<string, string>;
 }) {
-  const assigned = useQuery(
-    api.territories.queries.salespeopleAt,
-    noSalesperson ? { territoryId: row._id, asOf } : "skip",
-  );
+  const assigned = useQuery(api.territories.queries.salespeopleAt, {
+    territoryId: row._id,
+    asOf,
+  });
   if (noSalesperson && (!assigned || assigned.length > 0)) return null;
+  const salesperson = assigned?.length
+    ? assigned
+        .map(
+          (person) =>
+            salespersonNames.get(person.profileId) ?? "Salesperson assigned",
+        )
+        .join(", ")
+    : assigned
+      ? "No salesperson"
+      : "Salesperson loading…";
   return (
     <li>
       <ListRow
         icon={<WorkspaceIcon name="field" />}
         title={row.name}
-        meta={`${row.code} · ${formatManilaDate(row.effectiveFrom)}`}
+        meta={`${row.code} · ${formatManilaDate(row.effectiveFrom)} · ${salesperson}`}
         value={
           <StatusPill tone={row.status === "active" ? "success" : "neutral"}>
             {row.status}
@@ -234,6 +246,11 @@ export function TerritoryAdmin() {
                   row={row}
                   noSalesperson={noSalesperson}
                   asOf={asOf}
+                  salespersonNames={
+                    new Map(
+                      people?.page.map((person) => [person._id, person.name]),
+                    )
+                  }
                   onSelect={() => {
                     setSelected(row._id);
                     setAction(null);
@@ -294,7 +311,7 @@ export function TerritoryAdmin() {
                     <li key={row._id}>
                       {people?.page.find((p) => p._id === row.profileId)
                         ?.name ?? row.profileId}{" "}
-                      · {row.kind ?? "primary"}{" "}
+                      · {row.kind === "secondary" ? "Secondary" : "Primary"}{" "}
                       <Button
                         variant="outline"
                         className="h-10"
@@ -377,7 +394,7 @@ export function TerritoryAdmin() {
                         )
                         .map((unit) => (
                           <option value={unit._id} key={unit._id}>
-                            {unit.code} · {unit.name}
+                            {unit.name} · {unit.code}
                           </option>
                         ))}
                     </select>

@@ -5,6 +5,7 @@ import { api } from "@sunpride/backend/api";
 import type { Id } from "@sunpride/backend/data-model";
 import {
   Card,
+  FormField,
   ListRow,
   MetricCard,
   Notice,
@@ -22,7 +23,7 @@ const tabs = [
   ["transfers", "Transfers"],
   ["counts", "Stock counts"],
   ["production", "Production"],
-  ["controls", "Controls"],
+  ["controls", "Adjustments"],
   ["ledger", "Movements"],
 ] as const;
 
@@ -34,13 +35,15 @@ function InventorySelect({
   value,
   options,
   onChange,
+  showLabel = true,
 }: {
   label: string;
   value: string;
   options: { id: string; label: string }[];
   onChange: (value: string) => void;
+  showLabel?: boolean;
 }) {
-  return (
+  const select = (
     <Select
       aria-label={label}
       selectedKey={value || "__none"}
@@ -67,6 +70,7 @@ function InventorySelect({
       </Select.Popover>
     </Select>
   );
+  return showLabel ? <FormField label={label}>{select}</FormField> : select;
 }
 
 function quantityBase(value: string) {
@@ -81,6 +85,11 @@ function countedQuantityBase(value: string) {
   if (!Number.isFinite(parsed) || parsed < 0)
     throw new Error("Count must be zero or greater");
   return BigInt(Math.round(parsed * 1_000));
+}
+
+function displayLabel(value: string) {
+  const words = value.replaceAll("_", " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 function formatTime(value: number) {
@@ -246,7 +255,7 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
         title="Inventory"
         meta={
           overview && locations
-            ? `${totals.physical.toLocaleString("en-PH")} cases · ${locations.length} ${locations.length === 1 ? "location" : "locations"}`
+            ? `${totals.physical.toLocaleString("en-PH")} cases · ${locations.length} ${locations.length === 1 ? "location" : "locations"} configured`
             : undefined
         }
       />
@@ -312,6 +321,7 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
               <div className="w-56">
                 <InventorySelect
                   label="Location"
+                  showLabel={false}
                   value={locationFilter}
                   onChange={setLocationFilter}
                   options={[
@@ -329,7 +339,7 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
               <table className="w-full min-w-[640px] border-collapse [&_tbody_tr:last-child_td]:border-b-0 text-left text-sm [&_th]:border-b [&_th]:border-separator [&_th]:px-4 [&_th]:py-3 [&_th]:text-[11px] [&_th]:font-medium [&_th]:uppercase [&_th]:tracking-wide [&_th]:text-muted [&_td]:h-[52px] [&_td]:border-b [&_td]:border-separator [&_td]:px-4 [&_td]:py-2">
                 <thead>
                   <tr>
-                    <th className="w-1/2">Product</th>
+                    <th>Product</th>
                     <th>Location</th>
                     <th className="text-right">Physical</th>
                     <th className="text-right">Available</th>
@@ -341,7 +351,7 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                   {(overview ?? []).map((row) => (
                     <tr key={row.id}>
                       <td>
-                        <span className="block font-medium">
+                        <span className="block text-[14px] font-medium">
                           {row.productName}
                         </span>
                         <span className="block font-mono text-xs text-muted">
@@ -349,9 +359,12 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                         </span>
                       </td>
                       <td>
-                        <span className="block">{row.locationCode}</span>
+                        <span className="block text-[14px] font-medium">
+                          {row.locationName || row.locationCode}
+                        </span>
                         <span className="block text-xs text-muted">
-                          {row.locationType.replaceAll("_", " ")}
+                          <span className="font-mono">{row.locationCode}</span>{" "}
+                          · {displayLabel(row.locationType)}
                         </span>
                       </td>
                       <td className="text-right tabular-nums">
@@ -370,6 +383,9 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                   ))}
                 </tbody>
               </table>
+              {overview?.length === 0 ? (
+                <p className="p-4 text-[13px] text-muted">No stock yet</p>
+              ) : null}
             </div>
           </Card>
         </>
@@ -407,33 +423,39 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                     })),
                 ]}
               />
-              <Input
-                className={inputClass}
-                aria-label="Quantity in cases"
-                value={receipt.quantity}
-                onChange={(event) =>
-                  setReceipt({ ...receipt, quantity: event.target.value })
-                }
-                placeholder="Accepted cases"
-              />
-              <Input
-                className={inputClass}
-                aria-label="Lot number"
-                value={receipt.lotNumber}
-                onChange={(event) =>
-                  setReceipt({ ...receipt, lotNumber: event.target.value })
-                }
-                placeholder="Supplier or production lot"
-              />
-              <Input
-                className={inputClass}
-                type="date"
-                aria-label="Expiry date"
-                value={receipt.expiresAt}
-                onChange={(event) =>
-                  setReceipt({ ...receipt, expiresAt: event.target.value })
-                }
-              />
+              <FormField label="Quantity in cases">
+                <Input
+                  className={inputClass}
+                  aria-label="Quantity in cases"
+                  value={receipt.quantity}
+                  onChange={(event) =>
+                    setReceipt({ ...receipt, quantity: event.target.value })
+                  }
+                  placeholder="Accepted cases"
+                />
+              </FormField>
+              <FormField label="Lot number">
+                <Input
+                  className={inputClass}
+                  aria-label="Lot number"
+                  value={receipt.lotNumber}
+                  onChange={(event) =>
+                    setReceipt({ ...receipt, lotNumber: event.target.value })
+                  }
+                  placeholder="Supplier or production lot"
+                />
+              </FormField>
+              <FormField label="Expiry date">
+                <Input
+                  className={inputClass}
+                  type="date"
+                  aria-label="Expiry date"
+                  value={receipt.expiresAt}
+                  onChange={(event) =>
+                    setReceipt({ ...receipt, expiresAt: event.target.value })
+                  }
+                />
+              </FormField>
               <Button
                 variant="primary"
                 isPending={busy}
@@ -475,7 +497,8 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
             icon={<WorkspaceIcon name="inventory" />}
           >
             <DocumentList
-              title=""
+              itemLabel="Receipt"
+              empty="No receipts yet"
               rows={(receipts ?? []).map((row) => ({
                 id: row._id,
                 number: row.receiptNumber,
@@ -534,14 +557,16 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                   ]}
                 />
               ))}
-              <Input
-                className={inputClass}
-                aria-label="Transfer quantity in cases"
-                value={transfer.quantity}
-                onChange={(event) =>
-                  setTransfer({ ...transfer, quantity: event.target.value })
-                }
-              />
+              <FormField label="Transfer quantity in cases">
+                <Input
+                  className={inputClass}
+                  aria-label="Transfer quantity in cases"
+                  value={transfer.quantity}
+                  onChange={(event) =>
+                    setTransfer({ ...transfer, quantity: event.target.value })
+                  }
+                />
+              </FormField>
               <Button
                 variant="primary"
                 isPending={busy}
@@ -583,17 +608,25 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                   className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-separator px-4 last:border-b-0"
                 >
                   <div>
-                    <strong className="font-mono text-sm font-medium">
-                      {row.transferNumber}
+                    <strong className="text-[14px] font-medium">
+                      {locations?.find(
+                        (location) => location._id === row.sourceLocationId,
+                      )?.name ?? row.sourceLocationId}{" "}
+                      →{" "}
+                      {locations?.find(
+                        (location) =>
+                          location._id === row.destinationLocationId,
+                      )?.name ?? row.destinationLocationId}
                     </strong>
                     <small className="block text-[13px] text-muted">
+                      <span className="font-mono">{row.transferNumber}</span> ·{" "}
                       {formatTime(row.createdAt)}
                     </small>
                   </div>
                   <StatusPill
                     tone={row.status === "received" ? "success" : "warning"}
                   >
-                    {row.status.replaceAll("_", " ")}
+                    {displayLabel(row.status)}
                   </StatusPill>
                   <div className="flex flex-wrap justify-end gap-1">
                     {row.status === "requested" ? (
@@ -631,7 +664,7 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                     {row.status === "shipped" ? (
                       <Button
                         size="sm"
-                        variant="primary"
+                        variant="outline"
                         onPress={() =>
                           void execute(
                             () =>
@@ -649,13 +682,16 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                   </div>
                 </div>
               ))}
+              {transfers?.length === 0 ? (
+                <p className="p-4 text-[13px] text-muted">No transfers yet</p>
+              ) : null}
             </div>
           </OperationPanel>
         </div>
       ) : null}
 
       {tab === "counts" ? (
-        <OperationPanel title="Stock counts">
+        <OperationPanel title="Count sessions">
           <div className="mb-5 flex flex-wrap gap-2">
             {(locations ?? [])
               .filter((location) => location.type !== "virtual_boundary")
@@ -684,9 +720,6 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
           </div>
           <div className="grid gap-4 lg:grid-cols-[0.7fr_1.3fr]">
             <div>
-              <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-muted">
-                Count sessions
-              </h3>
               <div className="grid gap-2">
                 {(counts ?? []).map((row) => (
                   <button
@@ -699,25 +732,33 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                     }}
                   >
                     <div>
-                      <strong className="font-mono text-sm font-medium">
-                        {row.countNumber}
+                      <strong className="text-[14px] font-medium">
+                        {locations?.find(
+                          (location) => location._id === row.locationId,
+                        )?.name ?? row.countNumber}
                       </strong>
                       <small className="block text-[13px] text-muted">
+                        <span className="font-mono">{row.countNumber}</span> ·{" "}
                         {formatTime(row.createdAt)}
                       </small>
                     </div>
                     <StatusPill
                       tone={row.status === "posted" ? "success" : "warning"}
                     >
-                      {row.status}
+                      {displayLabel(row.status)}
                     </StatusPill>
                   </button>
                 ))}
+                {counts?.length === 0 ? (
+                  <p className="p-4 text-[13px] text-muted">No counts yet</p>
+                ) : null}
               </div>
             </div>
             <div className="p-4">
               {!countDetail ? (
-                <p className="text-sm text-muted">Select a count to review</p>
+                <p className="text-[13px] text-muted">
+                  Select a count to review
+                </p>
               ) : (
                 <div className="grid gap-3">
                   {countDetail.lines.map((line) => (
@@ -726,36 +767,40 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                       className="grid gap-2 border-b border-border pb-3 sm:grid-cols-[1fr_10rem] sm:items-end"
                     >
                       <div>
-                        <strong className="text-sm">{line.productCode}</strong>
-                        <small className="block text-muted">
+                        <strong className="text-[14px] font-medium">
                           {line.productName}
+                        </strong>
+                        <small className="block text-[12px] text-muted">
+                          <span className="font-mono">{line.productCode}</span>
                           {line.lotNumber ? ` · lot ${line.lotNumber}` : ""}
                           {line.systemBase !== undefined
                             ? ` · system ${Number(line.systemBase) / 1_000}`
                             : " · blind count"}
                         </small>
                       </div>
-                      <Input
-                        className={inputClass}
-                        type="number"
-                        min="0"
-                        step="0.001"
-                        aria-label={`Counted quantity for ${line.productCode}`}
-                        disabled={countDetail.session.status !== "counting"}
-                        value={
-                          countValues[line.lineId] ??
-                          (line.countedBase !== undefined
-                            ? String(Number(line.countedBase) / 1_000)
-                            : "")
-                        }
-                        onChange={(event) =>
-                          setCountValues({
-                            ...countValues,
-                            [line.lineId]: event.target.value,
-                          })
-                        }
-                        placeholder="Counted cases"
-                      />
+                      <FormField label={`Counted cases · ${line.productCode}`}>
+                        <Input
+                          className={inputClass}
+                          type="number"
+                          min="0"
+                          step="0.001"
+                          aria-label={`Counted quantity for ${line.productCode}`}
+                          disabled={countDetail.session.status !== "counting"}
+                          value={
+                            countValues[line.lineId] ??
+                            (line.countedBase !== undefined
+                              ? String(Number(line.countedBase) / 1_000)
+                              : "")
+                          }
+                          onChange={(event) =>
+                            setCountValues({
+                              ...countValues,
+                              [line.lineId]: event.target.value,
+                            })
+                          }
+                          placeholder="Counted cases"
+                        />
+                      </FormField>
                     </div>
                   ))}
                   {countDetail.session.status === "counting" ? (
@@ -811,9 +856,9 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
       ) : null}
 
       {tab === "production" ? (
-        <OperationPanel title="Production">
+        <OperationPanel title="Production orders">
           <DocumentList
-            title="Production orders"
+            itemLabel="Production order"
             rows={(production ?? []).map((row) => ({
               id: row._id,
               number: row.productionOrderNumber,
@@ -843,17 +888,18 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                       {Number(row.suggestedBase) / 1_000}
                     </small>
                   </div>
-                  <StatusPill tone="warning">low</StatusPill>
+                  <StatusPill tone="warning">Low</StatusPill>
                 </div>
               ))}
               {replenishment?.length === 0 ? (
-                <p className="text-sm text-muted">No low stock</p>
+                <p className="text-[13px] text-muted">No low stock</p>
               ) : null}
             </div>
           </OperationPanel>
-          <OperationPanel title="Adjustments">
+          <OperationPanel title="Recent adjustments">
             <DocumentList
-              title="Recent adjustments"
+              itemLabel="Adjustment"
+              empty="No adjustments yet"
               rows={(adjustments ?? []).map((row) => ({
                 id: row._id,
                 number: row.adjustmentNumber,
@@ -864,7 +910,7 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
           </OperationPanel>
           <OperationPanel title="Differences">
             <Button
-              variant="outline"
+              variant="primary"
               isPending={busy}
               onPress={() =>
                 void execute(
@@ -882,7 +928,9 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                   className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-separator px-4 last:border-b-0"
                 >
                   <div>
-                    <strong className="text-sm font-medium">{row.scope}</strong>
+                    <strong className="text-sm font-medium">
+                      {displayLabel(row.scope)}
+                    </strong>
                     <small className="block text-[13px] text-muted">
                       {row.comparedCount} compared · {row.differenceCount}{" "}
                       differences
@@ -891,17 +939,20 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                   <StatusPill
                     tone={row.differenceCount === 0 ? "success" : "warning"}
                   >
-                    {row.status}
+                    {displayLabel(row.status)}
                   </StatusPill>
                 </div>
               ))}
+              {reconciliationRuns?.length === 0 ? (
+                <p className="p-4 text-[13px] text-muted">No checks yet</p>
+              ) : null}
             </div>
           </OperationPanel>
         </div>
       ) : null}
 
       {tab === "ledger" ? (
-        <OperationPanel title="Movements">
+        <OperationPanel title="Recent movements">
           <div className="grid gap-2">
             {movements.results.map((row) => (
               <div
@@ -909,25 +960,29 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                 className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-separator px-4 last:border-b-0"
               >
                 <div>
-                  <strong className="font-mono text-sm font-medium">
-                    {row.movementNumber}
+                  <strong className="text-[14px] font-medium">
+                    {displayLabel(row.movementType)}
                   </strong>
                   <small className="block text-[13px] text-muted">
-                    {row.sourceType.replaceAll("_", " ")} ·{" "}
+                    <span className="font-mono">{row.movementNumber}</span> ·{" "}
                     {formatTime(row.postedAt)}
                   </small>
                 </div>
-                <span className="text-sm font-medium">
-                  {row.movementType.replaceAll("_", " ")}
+                <span className="text-[13px] text-muted">
+                  {displayLabel(row.sourceType)}
                 </span>
                 <StatusPill
                   tone={row.status === "posted" ? "success" : "neutral"}
                 >
-                  {row.status}
+                  {displayLabel(row.status)}
                 </StatusPill>
               </div>
             ))}
           </div>
+          {movements.results.length === 0 &&
+          movements.status === "Exhausted" ? (
+            <p className="p-4 text-[13px] text-muted">No movements yet</p>
+          ) : null}
           {movements.status === "CanLoadMore" ? (
             <Button
               className="mt-4"
@@ -945,33 +1000,31 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
 }
 
 function DocumentList({
-  title,
   rows,
+  itemLabel,
   empty = "No records yet",
 }: {
-  title: string;
   rows: { id: string; number: string; status: string; time: number }[];
+  itemLabel: string;
   empty?: string;
 }) {
   return (
     <div>
-      {title ? (
-        <h3 className="mb-3 text-[11px] font-medium uppercase tracking-wide text-muted">
-          {title}
-        </h3>
-      ) : null}
       <div className="-mx-4 -mb-4">
         {rows.length === 0 ? (
-          <p className="rounded-lg bg-background p-4 text-sm text-muted">
-            {empty}
-          </p>
+          <p className="p-4 text-[13px] text-muted">{empty}</p>
         ) : null}
         {rows.map((row) => (
           <ListRow
             key={row.id}
             icon={<WorkspaceIcon name="inventory" />}
-            title={<span className="font-mono">{row.number}</span>}
-            meta={formatTime(row.time)}
+            title={<span className="text-[14px] font-medium">{itemLabel}</span>}
+            meta={
+              <>
+                <span className="font-mono">{row.number}</span> ·{" "}
+                {formatTime(row.time)}
+              </>
+            }
             action={
               <StatusPill
                 tone={
@@ -982,7 +1035,7 @@ function DocumentList({
                     : "warning"
                 }
               >
-                {row.status.replaceAll("_", " ")}
+                {displayLabel(row.status)}
               </StatusPill>
             }
           />

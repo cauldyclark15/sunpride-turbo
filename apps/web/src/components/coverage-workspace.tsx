@@ -2,13 +2,7 @@
 
 import { api } from "@sunpride/backend/api";
 import type { Id } from "@sunpride/backend/data-model";
-import {
-  Card,
-  FormField,
-  Pager,
-  UnderlineTabs,
-  WorkspaceIcon,
-} from "@sunpride/ui";
+import { FormField, Pager, UnderlineTabs } from "@sunpride/ui";
 import { useQuery } from "convex/react";
 import dynamic from "next/dynamic";
 import { useState } from "react";
@@ -49,7 +43,9 @@ type CoverageTab =
   | "map"
   | "workload"
   | "exceptions"
-  | "export";
+  | "export"
+  | "setup";
+type SetupSection = "routes" | "outlets" | "assignments";
 type SelectedPlan = {
   id: Id<"coveragePlans">;
   assigneeId: Id<"profiles">;
@@ -76,7 +72,7 @@ function ScopedPlanPicker({
       <FormField label="Plan">
         <select
           aria-label="Scoped coverage plan"
-          className="w-full"
+          className="h-10 w-full"
           value={selected?.id ?? ""}
           onChange={(event) => {
             const plan = result?.page.find(
@@ -102,7 +98,10 @@ function ScopedPlanPicker({
             )}
           {result?.page.map((row) => (
             <option key={row.planId} value={row.planId}>
-              {row.assigneeName} · v{row.version} · {row.status}
+              {row.assigneeName} · v{row.version} ·{" "}
+              {row.status
+                .replaceAll("_", " ")
+                .replace(/^./, (initial) => initial.toUpperCase())}
             </option>
           ))}
         </select>
@@ -141,6 +140,7 @@ export function SalesForcePanels() {
   const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
   const profile = useQuery(api.domains.profiles.current, {});
   const [coverageTab, setCoverageTab] = useState<CoverageTab>("plan");
+  const [setupSection, setSetupSection] = useState<SetupSection>("routes");
   const [month, setMonth] = useState(() => {
     const parts = new Intl.DateTimeFormat("en-US", {
       timeZone: "Asia/Manila",
@@ -150,10 +150,68 @@ export function SalesForcePanels() {
     return `${parts.find((p) => p.type === "year")!.value}-${parts.find((p) => p.type === "month")!.value}`;
   });
   const [selected, setSelected] = useState<SelectedPlan | null>(null);
-  if (!permissions || !profile) return <p>Loading sales force permissions…</p>;
+  if (!permissions || !profile)
+    return (
+      <span className="text-[13px] text-muted">
+        Loading sales force permissions…
+      </span>
+    );
   const panels = salesForcePanels(permissions.capabilities);
   const canRead = permissions.capabilities.includes("mcp.read");
   const canApprove = permissions.capabilities.includes("mcp.approve");
+  const setupSections: [SetupSection, string][] = [
+    ...(panels.routes
+      ? ([["routes", "Territories & routes"]] as [SetupSection, string][])
+      : []),
+    ...(panels.outlets
+      ? ([["outlets", "Outlets"]] as [SetupSection, string][])
+      : []),
+    ...(panels.assignments
+      ? ([["assignments", "Assignments"]] as [SetupSection, string][])
+      : []),
+  ];
+  const activeSetupSection: SetupSection = setupSections.some(
+    ([id]) => id === setupSection,
+  )
+    ? setupSection
+    : (setupSections[0]?.[0] ?? "routes");
+  const setupContent = (
+    <div className="grid gap-4">
+      {setupSections.length > 0 && (
+        <UnderlineTabs
+          items={setupSections}
+          activeId={activeSetupSection}
+          onChange={setSetupSection}
+          label="Setup sections"
+        />
+      )}
+      {panels.routes && activeSetupSection === "routes" && (
+        <PanelErrorBoundary label="Territory and route editor">
+          <RouteAdmin />
+        </PanelErrorBoundary>
+      )}
+      {panels.outlets && activeSetupSection === "outlets" && (
+        <PanelErrorBoundary label="Outlet editor">
+          <OutletAdmin />
+        </PanelErrorBoundary>
+      )}
+      {panels.assignments && activeSetupSection === "assignments" && (
+        <PanelErrorBoundary label="Assignment editor">
+          <OutletAssignments />
+        </PanelErrorBoundary>
+      )}
+      {panels.verification && !panels.editing && (
+        <span className="text-[13px] text-muted">
+          Verification: select an outlet above to review pending pins.
+        </span>
+      )}
+    </div>
+  );
+  const needsPlan =
+    coverageTab !== "plan" &&
+    coverageTab !== "setup" &&
+    coverageTab !== "workload";
+  const needsMonth = coverageTab !== "plan" && coverageTab !== "setup";
   const coverageTabs: [CoverageTab, string][] = [
     ["plan", "Plan"],
     ...(canApprove ? ([["review", "Review"]] as [CoverageTab, string][]) : []),
@@ -161,50 +219,61 @@ export function SalesForcePanels() {
     ["visits", "Visits"],
     ["history", "History"],
     ["calendar", "Calendar"],
-    ["route", "Routes"],
+    ["route", "Route"],
     ["map", "Map"],
     ["workload", "Workload"],
     ["export", "Export"],
+    ...(setupSections.length
+      ? ([["setup", "Setup"]] as [CoverageTab, string][])
+      : []),
   ];
   return (
     <div className="grid gap-4">
       {canRead && (
         <>
-          <Card label="Plans" icon={<WorkspaceIcon name="field" />}>
-            <div className="grid items-start gap-3 sm:grid-cols-[180px_minmax(0,1fr)]">
-              <FormField label="Month">
-                <input
-                  type="month"
-                  aria-label="Coverage month"
-                  className="w-full"
-                  value={month}
-                  onChange={(event) => {
-                    setMonth(event.target.value);
-                    setSelected(null);
-                  }}
-                />
-              </FormField>
-              <PanelErrorBoundary key={month} label="Scoped plan picker">
-                <ScopedPlanPicker
-                  key={month}
-                  month={month}
-                  selected={selected}
-                  onSelect={setSelected}
-                />
-              </PanelErrorBoundary>
-            </div>
-          </Card>
           <UnderlineTabs
             items={coverageTabs}
             activeId={coverageTab}
             onChange={setCoverageTab}
             label="Coverage views"
           />
+          {needsMonth && (
+            <div className="flex flex-wrap items-start gap-3">
+              <div className="w-[180px] max-w-full">
+                <FormField label="Month">
+                  <input
+                    type="month"
+                    aria-label="Coverage month"
+                    className="h-10 w-full"
+                    value={month}
+                    onChange={(event) => {
+                      setMonth(event.target.value);
+                      setSelected(null);
+                    }}
+                  />
+                </FormField>
+              </div>
+              {needsPlan && (
+                <div className="w-[320px] max-w-full">
+                  <PanelErrorBoundary key={month} label="Scoped plan picker">
+                    <ScopedPlanPicker
+                      key={month}
+                      month={month}
+                      selected={selected}
+                      onSelect={setSelected}
+                    />
+                  </PanelErrorBoundary>
+                </div>
+              )}
+            </div>
+          )}
           <div role="tabpanel">
             {coverageTab === "plan" ? (
               <PanelErrorBoundary key="plan" label="Coverage plan">
                 <CoveragePlanner />
               </PanelErrorBoundary>
+            ) : coverageTab === "setup" ? (
+              setupContent
             ) : coverageTab === "review" ||
               coverageTab === "visits" ||
               coverageTab === "history" ? (
@@ -234,7 +303,7 @@ export function SalesForcePanels() {
                     />
                   </PanelErrorBoundary>
                 ) : (
-                  <p>Select a scoped plan to open this view.</p>
+                  <span className="text-[13px] text-muted">Select a plan</span>
                 )}
               </>
             ) : coverageTab === "workload" ? (
@@ -268,29 +337,12 @@ export function SalesForcePanels() {
                 )}
               </PanelErrorBoundary>
             ) : (
-              <p>Select a scoped plan to open this view.</p>
+              <span className="text-[13px] text-muted">Select a plan</span>
             )}
           </div>
         </>
       )}
-      {panels.routes && (
-        <PanelErrorBoundary label="Territory and route editor">
-          <RouteAdmin />
-        </PanelErrorBoundary>
-      )}
-      {panels.outlets && (
-        <PanelErrorBoundary label="Outlet editor">
-          <OutletAdmin />
-        </PanelErrorBoundary>
-      )}
-      {panels.assignments && (
-        <PanelErrorBoundary label="Assignment editor">
-          <OutletAssignments />
-        </PanelErrorBoundary>
-      )}
-      {panels.verification && !panels.editing && (
-        <p>Verification: select an outlet above to review pending pins.</p>
-      )}
+      {!canRead && setupContent}
     </div>
   );
 }
