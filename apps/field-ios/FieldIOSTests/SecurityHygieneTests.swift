@@ -53,7 +53,7 @@ final class SecurityHygieneTests: XCTestCase {
         let jwt = StubHTTP.jwt(exp: Date().timeIntervalSince1970 + 900, marker: "leakcheck")
         StubURLProtocol.install { request -> StubURLProtocol.Outcome in
             if request.path == "/api/auth/sign-in/email" {
-                return .reply(.json(200, [:], headers: ["set-auth-token": "session-leakcheck"]))
+                return .reply(.json(200, ["token": "session-leakcheck"]))
             }
             return .reply(.json(200, ["token": jwt]))
         }

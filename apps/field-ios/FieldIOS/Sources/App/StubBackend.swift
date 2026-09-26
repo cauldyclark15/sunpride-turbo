@@ -92,7 +92,7 @@ final class StubBackend: URLProtocol {
         case "/api/auth/sign-in/email":
             let fields = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
             guard fields?["password"] as? String == "correct-horse" else { return (401, [:], json(["code": "INVALID"])) }
-            return (200, ["set-auth-token": "stub-session-token"], json(["redirect": false]))
+            return (200, [:], json(["redirect": false, "token": "stub-session-token", "user": ["id": "stub-user"]]))
         case "/api/auth/convex/token":
             return (200, [:], json(["token": fakeJWT()]))
         case "/api/auth/sign-out":

@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Wire (docs/runbooks/NATIVE_FIELD_DEV.md, proven by packages/backend/scripts/mobile_fake_device.ts):
 /// - `POST {site}/api/auth/sign-in/email` JSON `{email,password}` with **no Origin header** → the session
-///   token arrives in the `set-auth-token` response header.
+///   token comes from `set-auth-token` when present, otherwise the top-level JSON `token` (DEV).
 /// - `GET {site}/api/auth/convex/token` with `Authorization: Bearer <session>` → `{token}` (15-minute JWT).
 /// - `POST {site}/api/auth/sign-out` with the session bearer.
 @MainActor
@@ -41,7 +41,7 @@ final class AuthClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // Never set Origin: DEV rejects `Origin: null`, and forging a web origin is forbidden.
         request.httpBody = try JSONEncoder().encode(SignInBody(email: trimmed, password: password))
-        let (_, response) = try await http.send(request)
+        let (body, response) = try await http.send(request)
         switch response.statusCode {
         case 200..<300: break
         case 400, 401: throw MobileError.invalidCredentials
@@ -50,9 +50,11 @@ final class AuthClient {
         case 500...: throw MobileError.server
         default: throw MobileError.invalidResponse
         }
-        // A token is only ever taken from a successful response's header, never from a body.
-        guard let token = response.value(forHTTPHeaderField: "set-auth-token"),
-              !token.isEmpty, token.count <= 4096, !token.contains(where: \.isWhitespace) else {
+        // Prefer the response header; DEV's crossDomain + convex plugins return the session in JSON instead.
+        // An invalid present header is not replaced by a body token.
+        let token = response.value(forHTTPHeaderField: "set-auth-token")
+            ?? (try? JSONDecoder().decode(TokenBody.self, from: body).token)
+        guard let token, !token.isEmpty, token.count <= 4096, !token.contains(where: \.isWhitespace) else {
             throw MobileError.invalidResponse
         }
         clearMemory()
