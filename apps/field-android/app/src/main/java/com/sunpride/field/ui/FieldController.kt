@@ -3,6 +3,9 @@ package com.sunpride.field.ui
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import android.content.Context
+import com.sunpride.field.storage.EncryptedFieldDatabase
+import kotlinx.coroutines.runBlocking
 import com.sunpride.field.AppEnvironment
 import com.sunpride.field.auth.AuthClient
 import com.sunpride.field.auth.AuthFailure
@@ -33,6 +36,7 @@ interface FieldBackend {
 class LiveFieldBackend(
     environment: AppEnvironment,
     private val vault: SessionVault,
+    private val context: Context,
     private val signerLoader: () -> DeviceSigner
 ) : FieldBackend {
     private val auth = AuthClient(environment, vault)
@@ -40,9 +44,22 @@ class LiveFieldBackend(
     override val isSignedIn get() = auth.isSignedIn
     override fun loadSigner() = signerLoader()
     override fun signIn(email: String, password: String) = auth.signIn(email, password)
-    override fun signOut() { auth.signOut() }
-    override fun refreshEnrollment(signer: DeviceSigner) =
-        Enrollment(ConvexDeviceApi(functions), signer, vault).refresh()
+    override fun signOut() {
+        runBlocking { EncryptedFieldDatabase.holdExisting(context) }
+        auth.signOut()
+    }
+    override fun refreshEnrollment(signer: DeviceSigner): EnrollmentState {
+        val state = try {
+            Enrollment(ConvexDeviceApi(functions), signer, vault).refresh()
+        } catch (e: AuthFailure) {
+            if (e.kind == AuthFailure.Kind.SESSION_EXPIRED)
+                runBlocking { EncryptedFieldDatabase.holdExisting(context) }
+            throw e
+        }
+        if (state == EnrollmentState.Removed || state == EnrollmentState.Unregistered)
+            runBlocking { EncryptedFieldDatabase.holdExisting(context) }
+        return state
+    }
 }
 
 /** Non-secret key facts shown on the enrollment screen and in diagnostics. */
