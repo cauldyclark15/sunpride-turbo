@@ -316,18 +316,19 @@ describe("Admin workspace tabs", () => {
     const view = html(createElement(AdminWorkspace));
     for (const title of ["Territories", "Routes", "Outlets", "Assignments"])
       expect(view).toContain(title);
-    state.tabOverride = "assignments";
-    expect(html(createElement(AdminWorkspace))).toContain(
-      "Outlet assignments and ordered stops",
-    );
-    state.tabOverride = "routes";
-    expect(html(createElement(AdminWorkspace))).toContain("Routes / beats");
-    state.tabOverride = "outlets";
-    expect(html(createElement(AdminWorkspace))).toContain("Outlet");
-    state.tabOverride = "territories";
-    expect(html(createElement(AdminWorkspace))).toContain(
-      "Operational territories",
-    );
+    // Each tab mounts its own section card (the mock renders the Card label as
+    // an h2), distinct from the always-visible tab buttons.
+    for (const [tab, section] of [
+      ["assignments", "Assignments"],
+      ["routes", "Routes"],
+      ["outlets", "Outlets"],
+      ["territories", "Territories"],
+    ] as const) {
+      state.tabOverride = tab;
+      expect(html(createElement(AdminWorkspace))).toContain(
+        `<h2>${section}</h2>`,
+      );
+    }
   });
   it("keeps organization, people, and invitation sections inside the existing admin module", () => {
     const view = html(createElement(AdminWorkspace));
