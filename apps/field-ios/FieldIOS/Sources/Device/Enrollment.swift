@@ -162,8 +162,12 @@ final class Enrollment {
     private func bind(deviceId: String, key: any DeviceSigningKey) async throws {
         let credentialId = try credentialId()
         let challenge = try await registry.challenge(deviceId: deviceId)
-        let timestamp = Int64((now().timeIntervalSince1970 * 1000).rounded(.down))
-        guard challenge.expiresAt > Double(timestamp) else { throw MobileError.invalidResponse }
+        // The challenge expires 60 seconds after issuance; its midpoint is a server-derived
+        // timestamp inside the proof window even when the handset clock is badly skewed.
+        guard challenge.expiresAt.isFinite, challenge.expiresAt > 30_000,
+              challenge.expiresAt < 9_007_199_254_740_991 else { throw MobileError.invalidResponse }
+        let timestamp = Int64(challenge.expiresAt) - 30_000
+        guard timestamp > 0 else { throw MobileError.invalidResponse }
         let proof = try key.sign(RequestSigner.bindMessage(deviceId: deviceId, credentialId: credentialId,
                                                           nonce: challenge.nonce, timestamp: timestamp))
         let result = try await registry.bind(BindArgs(

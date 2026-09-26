@@ -8,6 +8,7 @@
 <key>CFBundleShortVersionString</key><string>1.0</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>UILaunchScreen</key><dict/>
+<key>NSLocationWhenInUseUsageDescription</key><string>Record a location fix for a diagnostic visit check-in. Location is sent to the server only when you sync.</string>
 <key>CONVEX_SITE_URL</key><string>$(CONVEX_SITE_URL)</string>
 <key>CONVEX_URL</key><string>$(CONVEX_URL)</string>
 </dict></plist>

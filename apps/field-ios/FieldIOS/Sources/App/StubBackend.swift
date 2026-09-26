@@ -16,14 +16,20 @@ final class StubBackend: URLProtocol {
     static var scenario: String? { ProcessInfo.processInfo.environment[environmentKey] }
 
     static func configure(scenario: String) {
-        state.withLock { $0 = (scenario, 0, false, nil, nil) }
+        state.withLock { $0 = (scenario, 0, scenario == "online", nil, nil) }
     }
 
     @MainActor
     static func makeModel(environment: AppEnvironment, scenario: String) -> AppModel {
         configure(scenario: scenario)
         let store = KeychainStore(service: "com.sunpride.field.stub.ui")
-        if scenario != "offline" {
+        if scenario != "offline" && scenario != "online" {
+            // A fresh UI-test scenario starts from an empty encrypted stub partition. Only
+            // offline/online relaunch scenarios deliberately preserve the prior outbox.
+            let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appending(path: "FieldStoreStub", directoryHint: .isDirectory)
+            try? FileManager.default.removeItem(at: directory)
+            try? store.delete("storage.sqlcipher.v1")
             try? store.delete(StoreAccount.session)
             try? store.delete(StoreAccount.deviceId)
             try? store.delete(StoreAccount.credentialId)
@@ -124,6 +130,35 @@ final class StubBackend: URLProtocol {
                 "localCustomers": [], "route": NSNull(), "tasks": [], "productCatalog": [],
                 "page": 1, "nextPageCursor": NSNull(), "syncCursor": "stub-cursor"
             ]))
+        case "/mobile/v1/push", "/mobile/v1/pull":
+            let h = Dictionary(uniqueKeysWithValues: headers.map { ($0.key.lowercased(), $0.value) })
+            let nonce = h["x-mobile-nonce"] ?? "", timestamp = h["x-mobile-timestamp"] ?? ""
+            let digest = RequestSigner.bodyDigest(body)
+            let message = "POST|\(path)|\(digest)|\(nonce)|\(timestamp)"
+            let valid = state.withLock { s in
+                s.bound && s.nonce == nonce && s.key.map {
+                    DeviceKeys.verify(signatureBase64: h["x-mobile-signature"] ?? "",
+                                      message: Data(message.utf8), spkiBase64: $0)
+                } == true
+            }
+            guard valid, h["x-mobile-body-digest"] == digest,
+                  h["x-mobile-contract-version"] == "1" else { return (401, [:], json(["code": "unauthorized"])) }
+            state.withLock { $0.nonce = nil }
+            let now = Int64(Date().timeIntervalSince1970 * 1000)
+            if path == "/mobile/v1/pull" {
+                return (200, [:], json(["type": "pull.response", "contractVersion": 1, "serverTime": now,
+                    "changes": [], "nextCursor": "stub-cursor-next", "hasMore": false]))
+            }
+            let envelope = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
+            let operations = envelope?["operations"] as? [[String: Any]] ?? []
+            guard !operations.isEmpty, operations.count <= 20 else { return (400, [:], Data()) }
+            let results = operations.map { op -> [String: Any] in
+                let kind = op["kind"] as? String ?? ""
+                return ["kind": kind, "clientRequestId": op["clientRequestId"] ?? "",
+                    "status": "accepted", "ack": ["entityId": kind == "visit.activity" ? "stub-activity-1" : "stub-visit-1",
+                        "eventIds": ["stub-event-1"], "serverTime": now]]
+            }
+            return (200, [:], json(["type": "push.response", "contractVersion": 1, "serverTime": now, "results": results]))
         default:
             return (404, [:], Data())
         }
@@ -137,7 +172,7 @@ final class StubBackend: URLProtocol {
             case "mobile/devices:mine":
                 s.lookups += 1
                 s.key = args["publicKey"] as? String
-                let registered = s.scenario == "revoked" || (s.scenario == "registers" && s.lookups > 1)
+                let registered = s.scenario == "revoked" || s.scenario == "online" || (s.scenario == "registers" && s.lookups > 1)
                 guard registered else { return ["status": "success", "value": NSNull()] }
                 return ["status": "success", "value": [
                     "deviceId": "stub-device-1", "status": s.scenario == "revoked" ? "revoked" : "active",

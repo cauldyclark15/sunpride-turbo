@@ -39,14 +39,22 @@ struct TodayScreen: View {
                 Text("No saved visits for today.").foregroundStyle(SunprideTokens.secondaryText)
             } else {
                 ForEach(model.visits) { visit in
-                    VStack(alignment: .leading, spacing: SunprideTokens.Space.one) {
-                        Text(visit.outlet).font(SunprideTokens.TypeStyle.body.weight(.semibold))
-                        Text("\(visit.planned ? "Planned" : "Unplanned") · \(visit.status)")
-                            .font(SunprideTokens.TypeStyle.caption)
-                            .foregroundStyle(SunprideTokens.secondaryText)
+                    #if DEBUG
+                    NavigationLink {
+                        DiagnosticVisitScreen(model: model, visit: visit)
+                    } label: {
+                        visitRow(visit)
                     }
-                    .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("visit-\(visit.id)")
+                    #else
+                    visitRow(visit).accessibilityIdentifier("visit-\(visit.id)")
+                    #endif
+                }
+            }
+            if !model.review.isEmpty {
+                Text("Needs review").font(.headline)
+                ForEach(Array(model.review.enumerated()), id: \.offset) { _, item in
+                    Text(item).font(.caption).foregroundStyle(SunprideTokens.dangerText)
                 }
             }
             Button { Task { await model.syncNow() } } label: {
@@ -58,5 +66,14 @@ struct TodayScreen: View {
         .padding(SunprideTokens.Space.six)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(SunprideTokens.card, in: RoundedRectangle(cornerRadius: SunprideTokens.Radius.field))
+    }
+    private func visitRow(_ visit: AppModel.TodayVisit) -> some View {
+        VStack(alignment: .leading, spacing: SunprideTokens.Space.one) {
+            Text(visit.outlet).font(SunprideTokens.TypeStyle.body.weight(.semibold))
+            Text("\(visit.planned ? "Planned" : "Unplanned") · \(visit.status)")
+                .font(SunprideTokens.TypeStyle.caption)
+                .foregroundStyle(SunprideTokens.secondaryText)
+        }
+        .accessibilityElement(children: .combine)
     }
 }

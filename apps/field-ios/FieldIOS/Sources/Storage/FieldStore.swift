@@ -57,6 +57,58 @@ struct ServerAck: Codable, Sendable, Equatable {
     let serverTime: Int64 // epoch milliseconds
 }
 
+struct DeltaChange: Decodable, Sendable {
+    let seq: Int64
+    let entity: String
+    let id: String
+    let revision: Int64
+    let op: String
+    let value: Data?
+
+    enum CodingKeys: String, CodingKey { case seq, entity, id, revision, op, value }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        seq = try c.decode(Int64.self, forKey: .seq)
+        entity = try c.decode(String.self, forKey: .entity)
+        id = try c.decode(String.self, forKey: .id)
+        revision = try c.decode(Int64.self, forKey: .revision)
+        op = try c.decode(String.self, forKey: .op)
+        if c.contains(.value) {
+            let raw = try c.decode([String: JSONValue].self, forKey: .value)
+            value = try JSONEncoder().encode(raw)
+        } else { value = nil }
+        guard seq > 0, revision > 0, !id.isEmpty, ["visit", "activity"].contains(entity),
+              (op == "upsert" && value != nil) || (op == "tombstone" && value == nil) else {
+            throw StoreError.invalidInput
+        }
+    }
+}
+
+/// Lossless enough for the narrow server projection, preserving null/numeric/string values.
+indirect enum JSONValue: Codable {
+    case string(String), number(Double), bool(Bool), null, array([JSONValue]), object([String: JSONValue])
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if c.decodeNil() { self = .null }
+        else if let s = try? c.decode(String.self) { self = .string(s) }
+        else if let b = try? c.decode(Bool.self) { self = .bool(b) }
+        else if let n = try? c.decode(Double.self) { self = .number(n) }
+        else if let a = try? c.decode([JSONValue].self) { self = .array(a) }
+        else { self = .object(try c.decode([String: JSONValue].self)) }
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch self {
+        case .string(let v): try c.encode(v)
+        case .number(let v): try c.encode(v)
+        case .bool(let v): try c.encode(v)
+        case .null: try c.encodeNil()
+        case .array(let v): try c.encode(v)
+        case .object(let v): try c.encode(v)
+        }
+    }
+}
+
 struct SyncHealth: Codable, Sendable, Equatable {
     let lastSuccessfulSyncAt: Int64?
     let lastErrorCode: String?
@@ -75,6 +127,13 @@ protocol FieldLocalStore: AnyObject {
     func outlets(for partition: StorePartition) throws -> [StoreSnapshot.Outlet]
     func snapshot(for partition: StorePartition) throws -> StoreSnapshot?
     func enqueue(_ intent: VisitIntent, for partition: StorePartition, now: Date) throws
+    func enqueueDeferred(_ intent: VisitIntent, for partition: StorePartition, now: Date) throws
+    func deferredOutbox(for partition: StorePartition) throws -> [OutboxItem]
+    func materialize(_ requestId: UUID, visitId: String, in partition: StorePartition) throws
+    func intent(for requestId: UUID, in partition: StorePartition) throws -> VisitIntent?
+    func intents(for partition: StorePartition) throws -> [VisitIntent]
+    func applyDelta(_ changes: [DeltaChange], nextCursor: String, for partition: StorePartition) throws
+    func deltaValue(entity: String, id: String, for partition: StorePartition) throws -> Data?
     func pendingOutbox(for partition: StorePartition) throws -> [OutboxItem]
     func heldOutbox(for partition: StorePartition) throws -> [OutboxItem]
     func reviewOutbox(for partition: StorePartition) throws -> [ReviewItem]
@@ -89,8 +148,10 @@ protocol FieldLocalStore: AnyObject {
     func syncHealth(for partition: StorePartition) throws -> SyncHealth?
     func setSyncHealth(_ health: SyncHealth, for partition: StorePartition) throws
     func holdForReview(_ partition: StorePartition) throws
+    func releaseHeld(_ partition: StorePartition) throws
     func releaseHeld(subject: String, deviceId: String) throws
     func isHeld(_ partition: StorePartition) throws -> Bool
+    func hasOtherHeldWork(for partition: StorePartition) throws -> Bool
 }
 
 /// SQLCipher 4 database. Keychain loss with an existing file is an error, never a new plaintext DB.
@@ -250,10 +311,14 @@ final class EncryptedFieldStore: FieldLocalStore {
           subject TEXT NOT NULL, device TEXT NOT NULL, scope TEXT NOT NULL,
           request_id TEXT NOT NULL, body BLOB NOT NULL,
           PRIMARY KEY(subject,device,scope,request_id));
+        CREATE TABLE IF NOT EXISTS delta (
+          subject TEXT NOT NULL, device TEXT NOT NULL, scope TEXT NOT NULL,
+          entity TEXT NOT NULL, id TEXT NOT NULL, revision INTEGER NOT NULL, body BLOB,
+          PRIMARY KEY(subject,device,scope,entity,id));
         """
     private func migrate() throws {
-        guard let raw = try scalar("PRAGMA user_version"), let version = Int(raw), version <= 1 else { throw StoreError.unsupportedVersion }
-        if version == 1 { return }
+        guard let raw = try scalar("PRAGMA user_version"), let version = Int(raw), version <= 2 else { throw StoreError.unsupportedVersion }
+        if version == 2 { return }
         try transaction {
             if version == 0 {
                 // Legacy v0 pilot table has durable request IDs; copy, never generate replacement UUIDs.
@@ -266,7 +331,8 @@ final class EncryptedFieldStore: FieldLocalStore {
                     try exec("DROP TABLE legacy_intents")
                 }
             }
-            try exec("PRAGMA user_version=1")
+            if version == 1 { try exec("CREATE TABLE delta(subject TEXT NOT NULL,device TEXT NOT NULL,scope TEXT NOT NULL,entity TEXT NOT NULL,id TEXT NOT NULL,revision INTEGER NOT NULL,body BLOB,PRIMARY KEY(subject,device,scope,entity,id))") }
+            try exec("PRAGMA user_version=2")
         }
     }
 
@@ -302,6 +368,7 @@ final class EncryptedFieldStore: FieldLocalStore {
             try run("UPDATE partitions SET generation=?,cursor=?,lease_expiry=?,cache_expiry=? WHERE \(Self.predicate)",
                     [.integer(generation), .text(cursor), .integer(leaseExpiresAt), .integer(cacheExpiresAt)] + p(partition))
             try run("DELETE FROM snapshot WHERE \(Self.predicate) AND generation<>?", p(partition) + [.integer(generation)])
+            try run("DELETE FROM delta WHERE \(Self.predicate)", p(partition))
             // Intents, outbox, acks and sync health are deliberately untouched.
         }
         try protectFiles()
@@ -363,6 +430,83 @@ final class EncryptedFieldStore: FieldLocalStore {
         }
         try protectFiles()
     }
+    /// A dependent action cannot be a wire operation until the server returns the check-in's
+    /// opaque visit ID. Save its local template and UUID atomically; materialize once before send.
+    func enqueueDeferred(_ intent: VisitIntent, for partition: StorePartition, now: Date) throws {
+        guard ["visit.activity", "visit.checkOut"].contains(intent.kind),
+              let object = try? JSONSerialization.jsonObject(with: intent.operationJSON) as? [String: Any],
+              object["kind"] as? String == intent.kind,
+              object["clientRequestId"] as? String == intent.requestId.uuidString.lowercased(),
+              let deps = object["dependsOn"] as? [String], deps.count == 1,
+              UUID(uuidString: deps[0]) != nil,
+              let payload = object["payload"] as? [String: Any], payload["visitId"] == nil else { throw StoreError.invalidInput }
+        try transaction {
+            guard try isLeaseValid(now: now, for: partition) else { throw StoreError.leaseExpired }
+            guard try state(partition)?.1 == false else { throw StoreError.heldForReview }
+            try run("INSERT INTO intents(subject,device,scope,request_id,kind,body) VALUES (?,?,?,?,?,?)",
+                    p(partition) + [.text(intent.requestId.uuidString.lowercased()), .text(intent.kind), .blob(intent.operationJSON)])
+            try run("INSERT INTO outbox(subject,device,scope,request_id,status) VALUES (?,?,?,?,'deferred')",
+                    p(partition) + [.text(intent.requestId.uuidString.lowercased())])
+        }
+        try protectFiles()
+    }
+    func deferredOutbox(for partition: StorePartition) throws -> [OutboxItem] {
+        try query("SELECT o.sequence,i.request_id,i.kind,i.body FROM outbox o JOIN intents i ON i.subject=o.subject AND i.device=o.device AND i.scope=o.scope AND i.request_id=o.request_id WHERE o.subject=? AND o.device=? AND o.scope=? AND o.status='deferred' ORDER BY o.sequence", p(partition)) { row in
+            guard let uuid = UUID(uuidString: Self.text(row, 1)) else { throw StoreError.database }
+            return OutboxItem(intent: VisitIntent(requestId: uuid, kind: Self.text(row, 2), operationJSON: Self.data(row, 3)), sequence: sqlite3_column_int64(row, 0))
+        }
+    }
+    func intent(for requestId: UUID, in partition: StorePartition) throws -> VisitIntent? {
+        try query("SELECT kind,body FROM intents WHERE \(Self.predicate) AND request_id=?", p(partition) + [.text(requestId.uuidString.lowercased())]) {
+            VisitIntent(requestId: requestId, kind: Self.text($0, 0), operationJSON: Self.data($0, 1))
+        }.first
+    }
+    func intents(for partition: StorePartition) throws -> [VisitIntent] {
+        try query("SELECT i.request_id,i.kind,i.body FROM intents i JOIN outbox o ON o.subject=i.subject AND o.device=i.device AND o.scope=i.scope AND o.request_id=i.request_id WHERE i.subject=? AND i.device=? AND i.scope=? ORDER BY o.sequence", p(partition)) {
+            guard let id = UUID(uuidString: Self.text($0, 0)) else { throw StoreError.database }
+            return VisitIntent(requestId: id, kind: Self.text($0, 1), operationJSON: Self.data($0, 2))
+        }
+    }
+    func materialize(_ requestId: UUID, visitId: String, in partition: StorePartition) throws {
+        guard !visitId.isEmpty, let intent = try intent(for: requestId, in: partition),
+              var object = try JSONSerialization.jsonObject(with: intent.operationJSON) as? [String: Any],
+              var payload = object["payload"] as? [String: Any], payload["visitId"] == nil else { throw StoreError.invalidInput }
+        payload["visitId"] = visitId
+        object["payload"] = payload
+        let bytes = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        try transaction {
+            guard try outcome(requestId.uuidString.lowercased(), partition) == "deferred" else { throw StoreError.alreadyResolved }
+            try run("UPDATE intents SET body=? WHERE \(Self.predicate) AND request_id=?", [.blob(bytes)] + p(partition) + [.text(requestId.uuidString.lowercased())])
+            try run("UPDATE outbox SET status='pending' WHERE \(Self.predicate) AND request_id=?", p(partition) + [.text(requestId.uuidString.lowercased())])
+        }
+    }
+    func applyDelta(_ changes: [DeltaChange], nextCursor: String, for partition: StorePartition) throws {
+        guard !nextCursor.isEmpty else { throw StoreError.invalidInput }
+        try transaction {
+            guard try state(partition) != nil else { throw StoreError.invalidInput }
+            for change in changes {
+                let existing = try query("SELECT revision FROM delta WHERE \(Self.predicate) AND entity=? AND id=?", p(partition) + [.text(change.entity), .text(change.id)]) { sqlite3_column_int64($0, 0) }.first ?? 0
+                guard change.revision > existing else { continue }
+                let pending = try query("SELECT i.body FROM intents i JOIN outbox o ON o.subject=i.subject AND o.device=i.device AND o.scope=i.scope AND o.request_id=i.request_id WHERE i.subject=? AND i.device=? AND i.scope=? AND o.status IN ('pending','deferred')", p(partition)) { Self.data($0, 0) }
+                let protected = pending.contains { body in
+                    guard let op = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+                          let payload = op["payload"] as? [String: Any] else { return false }
+                    if payload["visitId"] as? String == change.id || payload["plannedVisitId"] as? String == change.id { return true }
+                    guard let id = op["clientRequestId"] as? String, let uuid = UUID(uuidString: id) else { return false }
+                    return (try? ack(for: uuid, in: partition))?.entityId == change.id
+                }
+                if protected { continue }
+                try run("INSERT OR REPLACE INTO delta(subject,device,scope,entity,id,revision,body) VALUES (?,?,?,?,?,?,?)",
+                        p(partition) + [.text(change.entity), .text(change.id), .integer(change.revision), change.value.map(Value.blob) ?? .null])
+            }
+            try run("UPDATE partitions SET cursor=? WHERE \(Self.predicate)", [.text(nextCursor)] + p(partition))
+        }
+    }
+    func deltaValue(entity: String, id: String, for partition: StorePartition) throws -> Data? {
+        try query("SELECT body FROM delta WHERE \(Self.predicate) AND entity=? AND id=?", p(partition) + [.text(entity), .text(id)]) {
+            sqlite3_column_type($0, 0) == SQLITE_NULL ? nil : Self.data($0, 0)
+        }.first ?? nil
+    }
     func pendingOutbox(for partition: StorePartition) throws -> [OutboxItem] {
         guard try !isHeld(partition) else { return [] }
         return try queuedOutbox(for: partition)
@@ -399,7 +543,7 @@ final class EncryptedFieldStore: FieldLocalStore {
         let id = requestId.uuidString.lowercased()
         try transaction {
             let status = try outcome(id, partition)
-            guard status == "pending" else { throw status == nil ? StoreError.unknownIntent : StoreError.alreadyResolved }
+            guard status == "pending" || status == "deferred" else { throw status == nil ? StoreError.unknownIntent : StoreError.alreadyResolved }
             try run("UPDATE outbox SET status='rejected',rejection_code=? WHERE \(Self.predicate) AND request_id=?", [.text(code)] + p(partition) + [.text(id)])
         }
     }
@@ -437,6 +581,9 @@ final class EncryptedFieldStore: FieldLocalStore {
     func holdForReview(_ partition: StorePartition) throws {
         try run("UPDATE partitions SET held=1,cursor=NULL WHERE \(Self.predicate)", p(partition))
     }
+    func releaseHeld(_ partition: StorePartition) throws {
+        try run("UPDATE partitions SET held=0 WHERE \(Self.predicate)", p(partition))
+    }
     /// Only call after the server verifies the same full subject on this bound device.
     /// Scope may change; releasing a different subject or device is never permitted by this predicate.
     func releaseHeld(subject: String, deviceId: String) throws {
@@ -444,6 +591,10 @@ final class EncryptedFieldStore: FieldLocalStore {
         try run("UPDATE partitions SET held=0 WHERE subject=? AND device=?", [.text(subject), .text(deviceId)])
     }
     func isHeld(_ partition: StorePartition) throws -> Bool { try state(partition)?.1 ?? false }
+    func hasOtherHeldWork(for partition: StorePartition) throws -> Bool {
+        try query("SELECT 1 FROM partitions p JOIN outbox o ON o.subject=p.subject AND o.device=p.device AND o.scope=p.scope WHERE p.subject=? AND p.device=? AND p.scope<>? AND p.held=1 AND o.status IN ('pending','deferred') LIMIT 1",
+                  p(partition)) { _ in true }.first ?? false
+    }
 
     #if DEBUG
     /// Migration harness only. Creates an encrypted pre-v1 fixture with a caller-owned durable UUID.

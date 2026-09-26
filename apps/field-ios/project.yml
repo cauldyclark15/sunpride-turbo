@@ -73,6 +73,18 @@ targets:
         buildPhase: resources
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/unknown-response-enum.json
         buildPhase: resources
+      - path: ../../packages/domain-contracts/fixtures/mobile-v1/push-request.json
+        buildPhase: resources
+      - path: ../../packages/domain-contracts/fixtures/mobile-v1/push-planned-request.json
+        buildPhase: resources
+      - path: ../../packages/domain-contracts/fixtures/mobile-v1/push-response.json
+        buildPhase: resources
+      - path: ../../packages/domain-contracts/fixtures/mobile-v1/push-conflict-response.json
+        buildPhase: resources
+      - path: ../../packages/domain-contracts/fixtures/mobile-v1/pull-request.json
+        buildPhase: resources
+      - path: ../../packages/domain-contracts/fixtures/mobile-v1/pull-response.json
+        buildPhase: resources
     dependencies:
       - target: FieldIOS
     settings:

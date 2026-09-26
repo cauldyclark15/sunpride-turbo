@@ -99,4 +99,29 @@ final class FieldIOSUITests: XCTestCase {
         XCTAssertFalse(offline.staticTexts["Ready"].exists)
         XCTAssertFalse(offline.buttons["syncNow"].isEnabled)
     }
+
+    func testDiagnosticOfflineCheckInCheckOutThenAcceptedAfterStubSync() {
+        let app = launchStub("registers")
+        signIn(app, password: "correct-horse")
+        XCTAssertTrue(app.staticTexts["Stub Outlet"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["lastSynced"].waitForExistence(timeout: 20))
+        app.terminate()
+        let offline = launchStub("offline")
+        let row = offline.buttons["visit-planned-stub-1"]
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
+        row.tap()
+        XCTAssertTrue(offline.buttons["diagnosticCheckIn"].waitForExistence(timeout: 5))
+        offline.buttons["diagnosticCheckIn"].tap()
+        let diagnostic = offline.staticTexts["diagnosticMessage"]
+        XCTAssertTrue(diagnostic.waitForExistence(timeout: 10))
+        XCTAssertEqual(diagnostic.label, "Queued offline.")
+        offline.buttons["diagnosticCheckOut"].tap()
+        XCTAssertTrue(offline.staticTexts["Check-out queued offline."].waitForExistence(timeout: 5))
+        XCTAssertTrue(offline.staticTexts["Local state: Queued"].exists)
+        offline.terminate()
+        let online = launchStub("online")
+        XCTAssertTrue(online.staticTexts["Phone ready"].waitForExistence(timeout: 15))
+        XCTAssertTrue(online.staticTexts["Stub Outlet"].waitForExistence(timeout: 15))
+        XCTAssertTrue(online.staticTexts["Planned · Accepted"].waitForExistence(timeout: 20))
+    }
 }

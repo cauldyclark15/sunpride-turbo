@@ -65,7 +65,7 @@ final class EnrollmentTests: XCTestCase {
         let bind = try XCTUnwrap(registry.bindCalls.first)
         XCTAssertEqual(bind.deviceId, "dev-1")
         XCTAssertEqual(bind.nonce, "30000000-0000-4000-8000-000000000003")
-        XCTAssertEqual(bind.timestamp, 1_780_000_000_000)
+        XCTAssertEqual(bind.timestamp, 999_999_999_970_000) // server challenge midpoint, not TestClock
         XCTAssertEqual(bind.attestation, Attestation(format: "ios-ephemeral-test-only", keyId: nil))
         XCTAssertNotNil(UUID(uuidString: bind.credentialId))
         let message = "BIND|dev-1|\(bind.credentialId)|\(bind.nonce)|\(bind.timestamp)"
@@ -148,9 +148,19 @@ final class EnrollmentTests: XCTestCase {
         XCTAssertEqual(registry.bindCalls[0].credentialId, registry.bindCalls[1].credentialId, "credential ID is stable")
     }
 
-    func testExpiredChallengeIsNotSigned() async {
+    func testSkewedPhoneClockStillBindsUsingServerChallenge() async throws {
         registry.lastMine = .success(device())
-        registry.challengeResult = .success(ChallengeResult(nonce: "n", expiresAt: 1_779_999_999_000))
+        registry.challengeResult = .success(ChallengeResult(nonce: "nonce", expiresAt: 1_800_000_060_000))
+        // TestClock is far behind the server; the proof must use the challenge midpoint.
+        let enrollment = makeEnrollment()
+        await enrollment.start { key }
+        XCTAssertEqual(enrollment.state, .ready(deviceId: "dev-1"))
+        XCTAssertEqual(try XCTUnwrap(registry.bindCalls.first).timestamp, 1_800_000_030_000)
+    }
+
+    func testMalformedChallengeIsNotSigned() async {
+        registry.lastMine = .success(device())
+        registry.challengeResult = .success(ChallengeResult(nonce: "n", expiresAt: .nan))
         let enrollment = makeEnrollment()
         await enrollment.start { key }
         XCTAssertTrue(registry.bindCalls.isEmpty)
