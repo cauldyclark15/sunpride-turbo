@@ -54,8 +54,6 @@ import com.sunpride.field.BuildConfig
 import com.sunpride.field.auth.EnrollmentState
 import com.sunpride.field.device.DeviceSigner
 import kotlinx.coroutines.delay
-import java.text.DateFormat
-import java.util.Date
 
 /** Pill style for each state; the text carries the meaning, colour only reinforces it. */
 enum class StatusPill(val label: String, val marker: String) {
@@ -93,6 +91,7 @@ fun FieldApp(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val location = remember(visitLocation) { visitLocation ?: com.sunpride.field.ui.diagnosticvisit.AndroidVisitLocation(context) }
+    val offline = com.sunpride.field.ui.syncstatus.rememberOffline()
     val controller = remember(backend) {
         FieldController(backend ?: UnconfiguredBackend, scope, onKeyLoaded = onKeyLoaded)
     }
@@ -117,6 +116,11 @@ fun FieldApp(
                     Text("Sunpride Field", style = MaterialTheme.typography.titleLarge,
                         color = MaterialTheme.colorScheme.onSurface)
                     SyncStatusPill(StatusPill.of(controller.state))
+                    if (controller.state is EnrollmentState.Ready) Text(
+                        controller.today.syncStatus.copy(offline = offline).label(System.currentTimeMillis()).let {
+                            if (controller.today.stale && it == "All synced") "Saved data · verification pending" else it
+                        },
+                        modifier = Modifier.testTag("sync-state"), style = MaterialTheme.typography.labelLarge)
                 }
             }
         }) { padding ->
@@ -130,7 +134,8 @@ fun FieldApp(
                     controller.diagnostic!!, controller, location, controller::closeDiagnostic, modifier)
                 controller.state is EnrollmentState.Ready -> TodayScreen(controller.today, controller.busy,
                     onSync = controller::syncNow, onSignOut = controller::signOut,
-                    onVisit = controller::openDiagnostic, diagnosticEnabled = debug, modifier = modifier)
+                    onVisit = controller::openDiagnostic, diagnosticEnabled = debug, modifier = modifier,
+                    offline = offline)
                 else -> EnrollmentScreen(controller.state, controller.key, controller.busy, controller.error,
                     onCheck = { controller.checkAgain() }, onSignOut = { controller.signOut() }, modifier = modifier)
             }
@@ -203,16 +208,28 @@ private fun SignInScreen(
 
 @Composable
 fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: () -> Unit,
-                modifier: Modifier = Modifier, onVisit: (VisitDisplay) -> Unit = {}, diagnosticEnabled: Boolean = false) {
+                modifier: Modifier = Modifier, onVisit: (VisitDisplay) -> Unit = {}, diagnosticEnabled: Boolean = false,
+                offline: Boolean = false) {
+    val status = data.syncStatus.copy(offline = offline)
+    var details by remember { mutableStateOf(false) }
+    var support by remember { mutableStateOf(false) }
+    if (details) com.sunpride.field.ui.syncstatus.SyncDetails(status) { details = false }
+    if (support) com.sunpride.field.ui.syncstatus.SupportDetails(status) { support = false }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(SunprideTokens.spacing6),
         verticalArrangement = Arrangement.spacedBy(SunprideTokens.spacing4)) {
         Text("Phone ready", style = MaterialTheme.typography.titleMedium)
         Text("Today", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.testTag("today-title"))
-        Text(if (data.stale) "Stale · offline/pending" else "Synced",
-            color = if (data.stale) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onBackground,
+        Text(status.label(System.currentTimeMillis()).let {
+            when { data.stale && it == "All synced" -> "Stale · verification pending"
+                data.stale && !status.pending -> "Stale · $it"
+                it == "Sync pending" -> "Stale · offline/pending"; else -> it }
+        },
+            color = if (data.stale || status.pending) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.testTag("today-stale"))
-        Text("Last synced: " + (data.lastSynced?.let { DateFormat.getDateTimeInstance().format(Date(it)) } ?: "Never"),
+        Text("Last synced: " + com.sunpride.field.ui.syncstatus.manilaTime(status.lastSuccess ?: data.lastSynced),
             modifier = Modifier.testTag("last-synced"))
+        TextButton(onClick = { details = true }, modifier = Modifier.testTag("sync-details")) { Text("Sync details · review") }
+        TextButton(onClick = { support = true }, modifier = Modifier.testTag("support-info")) { Text("Support info") }
         data.warning?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("today-warning")) }
         if (data.queuedCount > 0) Text("Queued: ${data.queuedCount}", modifier = Modifier.testTag("queued-count"))
         if (data.reviewCount > 0) Text("Needs review: ${data.reviewCount}", modifier = Modifier.testTag("review-count"))

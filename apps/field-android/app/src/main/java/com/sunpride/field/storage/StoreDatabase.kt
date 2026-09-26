@@ -22,7 +22,8 @@ data class PartitionRow(val account: String, val deviceId: String, val scope: St
     val activeGeneration: String? = null, val employeeJson: String? = null,
     val routeJson: String? = null, val cursor: String? = null,
     val leaseExpiresAt: Long? = null, val cacheExpiresAt: Long? = null,
-    val syncHealth: String = "never_synced", val held: Boolean = false)
+    val syncHealth: String = "never_synced", val held: Boolean = false,
+    val lastSuccessfulSync: Long? = null)
 
 @Entity(tableName = "intents", primaryKeys = ["account", "deviceId", "scope", "requestId"])
 data class IntentRow(val account: String, val deviceId: String, val scope: String,
@@ -77,11 +78,17 @@ interface StoreDao {
     suspend fun intent(account: String, device: String, scope: String, requestId: String): IntentRow?
     @Query("SELECT * FROM outbox WHERE account=:account AND deviceId=:device AND scope=:scope AND requestId=:requestId")
     suspend fun outbox(account: String, device: String, scope: String, requestId: String): OutboxRow?
-    @Query("SELECT * FROM outbox WHERE account=:account AND deviceId=:device AND scope=:scope AND state='pending' ORDER BY createdAt, requestId")
+    @Query("SELECT * FROM outbox WHERE account=:account AND deviceId=:device AND scope=:scope AND state IN ('pending','sending') ORDER BY createdAt, requestId")
     suspend fun pending(account: String, device: String, scope: String): List<OutboxRow>
-    @Query("UPDATE outbox SET state='done' WHERE account=:account AND deviceId=:device AND scope=:scope AND requestId=:requestId AND state='pending' AND EXISTS (SELECT 1 FROM acks WHERE acks.account=outbox.account AND acks.deviceId=outbox.deviceId AND acks.scope=outbox.scope AND acks.requestId=outbox.requestId)")
+    @Query("UPDATE outbox SET state='sending' WHERE account=:account AND deviceId=:device AND scope=:scope AND requestId=:requestId AND state='pending'")
+    suspend fun markSending(account: String, device: String, scope: String, requestId: String): Int
+    @Query("UPDATE outbox SET state='pending' WHERE account=:account AND deviceId=:device AND scope=:scope AND state='sending'")
+    suspend fun resetSending(account: String, device: String, scope: String)
+    @Query("SELECT * FROM outbox WHERE account=:account AND deviceId=:device AND state IN ('pending','sending','review') ORDER BY createdAt, requestId")
+    suspend fun outstandingForDevice(account: String, device: String): List<OutboxRow>
+    @Query("UPDATE outbox SET state='done' WHERE account=:account AND deviceId=:device AND scope=:scope AND requestId=:requestId AND state IN ('pending','sending') AND EXISTS (SELECT 1 FROM acks WHERE acks.account=outbox.account AND acks.deviceId=outbox.deviceId AND acks.scope=outbox.scope AND acks.requestId=outbox.requestId)")
     suspend fun markDone(account: String, device: String, scope: String, requestId: String): Int
-    @Query("UPDATE outbox SET state='review', rejectionCode=:code WHERE account=:account AND deviceId=:device AND scope=:scope AND requestId=:requestId AND state='pending'")
+    @Query("UPDATE outbox SET state='review', rejectionCode=:code WHERE account=:account AND deviceId=:device AND scope=:scope AND requestId=:requestId AND state IN ('pending','sending')")
     suspend fun reject(account: String, device: String, scope: String, requestId: String, code: String): Int
     @Query("UPDATE partitions SET held=1, cursor=NULL, syncHealth='held_for_review'")
     suspend fun holdAllPartitions()
@@ -90,7 +97,7 @@ interface StoreDao {
 }
 
 @Database(entities = [SnapshotRow::class, PartitionRow::class, IntentRow::class, OutboxRow::class, AckRow::class, DeltaRow::class],
-    version = 2, exportSchema = true)
+    version = 3, exportSchema = true)
 abstract class StoreDatabase : RoomDatabase() {
     abstract fun rows(): StoreDao
 }

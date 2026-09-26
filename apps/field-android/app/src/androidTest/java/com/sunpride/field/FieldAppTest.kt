@@ -1,6 +1,8 @@
 package com.sunpride.field
 
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -8,6 +10,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
@@ -100,6 +103,28 @@ class FieldAppTest {
         rule.onNodeWithTag("today-visit").assertTextContains("Outlet One", substring = true)
         rule.onNodeWithTag("last-synced").assertTextContains("Last synced", substring = true)
         rule.onNodeWithTag("sync-now").assertIsEnabled()
+    }
+
+    @Test fun todayStatusQueueThenAckAndSupportInfo() {
+        val partition = com.sunpride.field.storage.PartitionRow("a", "d", "s", "g", leaseExpiresAt = Long.MAX_VALUE,
+            cacheExpiresAt = Long.MAX_VALUE, syncHealth = "synced", lastSuccessfulSync = 150L)
+        val pending = com.sunpride.field.ui.syncstatus.SyncStatus.fromRoom(partition,
+            listOf(com.sunpride.field.storage.OutboxRow("a", "d", "s", "r", 1)))
+        var data by androidx.compose.runtime.mutableStateOf(TodayData(stale = false, queuedCount = 1, syncStatus = pending))
+        rule.setContent { TodayScreen(data, false, {}, {}) }
+        rule.onNodeWithTag("today-stale").assertTextContains("Queued · not synced")
+        rule.onNodeWithTag("sync-details").performScrollTo().performClick()
+        rule.onNodeWithTag("detail-label").assertTextContains("Queued · not synced")
+        rule.onNodeWithText("Close").performClick()
+        rule.onNodeWithTag("support-info").performScrollTo().performClick()
+        rule.onNodeWithTag("support-text").assertTextContains("Queued: 1", substring = true)
+        rule.onNodeWithTag("support-copy").performClick()
+        rule.runOnUiThread {
+            data = data.copy(queuedCount = 0,
+                syncStatus = com.sunpride.field.ui.syncstatus.SyncStatus.fromRoom(partition, emptyList()))
+        }
+        rule.onNodeWithText("Close").performClick()
+        rule.onNodeWithTag("today-stale").assertTextContains("All synced")
     }
 
     @Test fun wrongPasswordShowsFixedMessage() {

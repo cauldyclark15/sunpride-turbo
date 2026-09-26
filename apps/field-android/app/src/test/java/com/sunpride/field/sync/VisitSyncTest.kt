@@ -218,8 +218,9 @@ class VisitSyncTest {
         val sync = engine(store, t)
         val first = async(kotlinx.coroutines.Dispatchers.Default) { sync.sync() }
         assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS))
-        val second = async(kotlinx.coroutines.Dispatchers.Default) { sync.sync() }
-        second.await(); release.countDown(); first.await()
+        val second = async(kotlinx.coroutines.Dispatchers.Default) { engine(store, t).sync() }
+        assertFalse(second.await()) // separate worker-style instance shares the scope's Mutex
+        release.countDown(); first.await()
         assertEquals(2, t.sent.size) // initial + final pull, not two entire sync flights
     }
     @Test fun codecFixturesAndMockWebServerBytePreservation() {
