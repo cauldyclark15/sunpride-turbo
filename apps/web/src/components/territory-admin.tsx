@@ -367,7 +367,7 @@ export function TerritoryAdmin() {
                 )}
                 {(action === "create" || action === "transfer") && (
                   <FormField label="Owning unit">
-                    <select name="orgUnitId" className="min-w-40" required>
+                    <select name="orgUnitId" required>
                       <option value="">Select unit</option>
                       {units
                         ?.filter(
@@ -385,7 +385,7 @@ export function TerritoryAdmin() {
                 )}
                 {action === "assign" && (
                   <FormField label="Salesperson">
-                    <select name="profileId" className="min-w-40" required>
+                    <select name="profileId" required>
                       <option value="">Select person</option>
                       {people?.page
                         .filter(
@@ -404,7 +404,7 @@ export function TerritoryAdmin() {
                 )}
                 {action === "end" && (
                   <FormField label="Assignment">
-                    <select name="assignmentId" className="min-w-40" required>
+                    <select name="assignmentId" required>
                       <option value="">Select assignment</option>
                       {salespeople?.map((row) => (
                         <option key={row._id} value={row._id}>

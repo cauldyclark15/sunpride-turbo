@@ -228,7 +228,9 @@ export function FormField({
   className?: string;
 }) {
   return (
-    <label className={`grid min-w-0 gap-1.5 ${className}`}>
+    <label
+      className={`grid min-w-0 gap-1.5 [&>:where(select,input,textarea)]:w-full [&>:where(select,input,textarea)]:min-w-0 ${className}`}
+    >
       <span className="text-[13px] font-medium text-foreground">{label}</span>
       {children}
       {hint ? <span className="text-[12px] text-muted">{hint}</span> : null}

@@ -253,8 +253,9 @@ export function OrgAdmin() {
     {
       key: "actions",
       label: "Actions",
+      align: "right",
       render: (row) => (
-        <div className="flex flex-wrap justify-end gap-2">
+        <div className="flex flex-nowrap justify-end gap-2">
           {(["create", "edit", "reparent", "deactivate"] as const).map(
             (action) => (
               <Button
@@ -306,6 +307,7 @@ export function OrgAdmin() {
         count={units?.length}
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[13px] text-muted">As of</span>
             <input
               type="date"
               aria-label="Preview date"
@@ -318,7 +320,6 @@ export function OrgAdmin() {
             />
             <Button
               variant="primary"
-              className="h-10 rounded-[10px]"
               isDisabled={!canManage || !!previewDate || !createParent}
               onPress={() => {
                 if (!createParent) return;

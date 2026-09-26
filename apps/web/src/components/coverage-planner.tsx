@@ -270,7 +270,7 @@ export function CoveragePlanner() {
               </FormField>
               <Button
                 variant="primary"
-                className="h-10"
+                className="self-end"
                 isDisabled={
                   !canPlan || !assignee || busy || !/^\d{4}-\d{2}$/.test(month)
                 }

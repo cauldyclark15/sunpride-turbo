@@ -202,22 +202,26 @@ function ScopedPlanPicker({
       {result && !result.page.length && (
         <span className="text-[13px] text-muted">No plans here</span>
       )}
-      <Pager
-        label="Plans pages"
-        page={page}
-        canPrevious={cursor !== null}
-        canNext={!!result && !result.isDone}
-        onPrevious={() => {
-          setCursor(null);
-          setPage(1);
-        }}
-        onNext={() => {
-          if (result) {
-            setCursor(result.continueCursor);
-            setPage((old) => old + 1);
-          }
-        }}
-      />
+      {/* The picker is a dropdown, so paging only appears once the month has
+          more plans than one page holds. */}
+      {(cursor !== null || (result && !result.isDone)) && (
+        <Pager
+          label="Plans pages"
+          page={page}
+          canPrevious={cursor !== null}
+          canNext={!!result && !result.isDone}
+          onPrevious={() => {
+            setCursor(null);
+            setPage(1);
+          }}
+          onNext={() => {
+            if (result) {
+              setCursor(result.continueCursor);
+              setPage((old) => old + 1);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -256,7 +260,7 @@ export function SalesForcePanels() {
       {canRead && (
         <>
           <Card label="Plans" icon={<WorkspaceIcon name="field" />}>
-            <div className="grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)] sm:items-end">
+            <div className="grid items-start gap-3 sm:grid-cols-[180px_minmax(0,1fr)]">
               <FormField label="Month">
                 <input
                   type="month"

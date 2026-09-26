@@ -400,7 +400,7 @@ export function RouteAdmin() {
                 )}
                 {(action === "move" || action === "duplicate") && (
                   <FormField label="Destination territory">
-                    <select name="territoryId" className="min-w-40" required>
+                    <select name="territoryId" required>
                       <option value="">Select territory</option>
                       {territories?.page.map((t) => (
                         <option key={t._id} value={t._id}>
@@ -413,7 +413,7 @@ export function RouteAdmin() {
                 {action === "assign" && (
                   <>
                     <FormField label="Salesperson">
-                      <select name="profileId" className="min-w-40" required>
+                      <select name="profileId" required>
                         <option value="">Select person</option>
                         {people?.page
                           .filter(
@@ -437,7 +437,7 @@ export function RouteAdmin() {
                 )}
                 {action === "end" && (
                   <FormField label="Assignment">
-                    <select name="assignmentId" className="min-w-40" required>
+                    <select name="assignmentId" required>
                       <option value="">Select assignment</option>
                       {detail?.salespeople.map((row) => (
                         <option key={row._id} value={row._id}>

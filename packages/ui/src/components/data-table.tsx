@@ -28,7 +28,7 @@ export function DataTable<Row extends { id: string }>({
       }
     >
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-left text-sm [&_th:first-child]:w-1/2">
+        <table className="w-full border-collapse text-left text-sm">
           <thead className="text-[11px] font-medium uppercase tracking-wide text-muted">
             <tr>
               {columns.map((column) => (

@@ -198,7 +198,6 @@ export function OutletAssignments() {
               {canRoute && (
                 <FormField label="Route">
                   <select
-                    className="min-w-40"
                     aria-label="Assignment route"
                     value={routeId ?? ""}
                     onChange={(e) => {
@@ -221,7 +220,10 @@ export function OutletAssignments() {
             </h3>
             <ul className="overflow-hidden rounded-xl border border-border">
               {outlets?.page.map((o) => (
-                <li key={o._id} className="border-b border-separator last:border-b-0">
+                <li
+                  key={o._id}
+                  className="border-b border-separator last:border-b-0"
+                >
                   <div className="flex min-h-14 items-center gap-3 px-4">
                     <input
                       aria-label={`Select ${o.name}`}
@@ -274,17 +276,23 @@ export function OutletAssignments() {
             <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted">
               Unassigned
             </h3>
-            <ul>
-              {unassigned?.page.map((o) => (
-                <li key={o._id}>
-                  {o.code} · {o.name}
-                </li>
-              ))}
-            </ul>
+            {unassigned && unassigned.page.length === 0 ? (
+              <p className="text-[13px] text-muted">None</p>
+            ) : (
+              <ul className="grid gap-1 text-sm">
+                {unassigned?.page.map((o) => (
+                  <li key={o._id}>
+                    {o.code} · {o.name}
+                  </li>
+                ))}
+              </ul>
+            )}
             {outletId && (
               <>
-                <h3>Assignment history</h3>
-                <ol>
+                <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted">
+                  Assignment history
+                </h3>
+                <ol className="grid gap-1 text-[13px] text-muted">
                   {history?.map((row) => (
                     <li key={row._id}>
                       {formatManilaDate(row.effectiveFrom)} –{" "}
