@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Input } from "@heroui/react";
+import { Button, Input, Label, TextField } from "@heroui/react";
 import { useConvexAuth } from "convex/react";
 import Image from "next/image";
 import Link from "next/link";
@@ -42,7 +42,7 @@ export function AuthScreen({ mode, next }: { mode: AuthMode; next?: string }) {
           : await authClient.signUp.email({ email, password, name });
 
       if (result.error) {
-        setError(result.error.message ?? "Unable to continue.");
+        setError(result.error.message ?? "Sign in failed. Try again.");
         return;
       }
 
@@ -51,16 +51,15 @@ export function AuthScreen({ mode, next }: { mode: AuthMode; next?: string }) {
     } catch {
       setError(
         mode === "login"
-          ? "Unable to sign in. Check your email and password."
-          : "Unable to create this account. Confirm that the email was invited.",
+          ? "Sign in failed. Check your details."
+          : "Account unavailable. Check your invitation.",
       );
     } finally {
       setPending(false);
     }
   }
 
-  if (isLoading || isAuthenticated)
-    return <LoadingScreen label="Opening Sunpride Operations…" />;
+  if (isLoading || isAuthenticated) return <LoadingScreen label="Loading…" />;
 
   const isLogin = mode === "login";
   const alternateHref = isLogin
@@ -68,39 +67,43 @@ export function AuthScreen({ mode, next }: { mode: AuthMode; next?: string }) {
     : `/login?next=${encodeURIComponent(destination)}`;
 
   return (
-    <main className="grid min-h-screen place-items-center border-t-4 border-accent bg-background p-6">
-      <section className="w-full max-w-md rounded-lg border border-border bg-surface p-7 shadow-none sm:p-8">
+    <main className="grid min-h-screen place-items-center bg-background p-5">
+      <section className="w-full max-w-[400px] rounded-2xl border border-border bg-surface p-6 sm:p-8">
         <Image
           src="/sunpride-logo.jpg"
           alt="Sunpride"
-          width={72}
-          height={72}
+          width={56}
+          height={56}
           priority
           className="mb-6 rounded-[7px]"
         />
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent-soft-foreground">
-          Integrated Operations
-        </p>
-        <h1 className="mt-2 text-[1.625rem] font-semibold leading-9 tracking-tight text-foreground">
-          {isLogin ? "Sign in to Sunpride" : "Create your account"}
+        <h1 className="text-[26px] font-semibold tracking-tight text-foreground">
+          {isLogin ? "Sign in" : "Create account"}
         </h1>
-        <p className="mt-2 text-sm leading-6 text-muted">
-          Access is invitation-only. Use the email address authorized by your
-          Sunpride administrator.
-        </p>
-        <form onSubmit={submit} className="mt-7 grid gap-4">
+        <form onSubmit={submit} className="mt-6 grid gap-4">
           {!isLogin ? (
-            <label className="grid gap-1.5 text-sm font-medium">
-              Full name
-              <Input name="name" autoComplete="name" required />
-            </label>
+            <TextField className="grid gap-1.5">
+              <Label className="text-[13px] font-medium">Full name</Label>
+              <Input
+                name="name"
+                autoComplete="name"
+                required
+                className="h-10 rounded-[10px] border border-border bg-surface"
+              />
+            </TextField>
           ) : null}
-          <label className="grid gap-1.5 text-sm font-medium">
-            Email address
-            <Input name="email" type="email" autoComplete="email" required />
-          </label>
+          <TextField className="grid gap-1.5">
+            <Label className="text-[13px] font-medium">Email</Label>
+            <Input
+              name="email"
+              type="email"
+              autoComplete="email"
+              required
+              className="h-10 rounded-[10px] border border-border bg-surface"
+            />
+          </TextField>
           <div className="grid gap-1.5">
-            <label htmlFor="password" className="text-sm font-medium">
+            <label htmlFor="password" className="text-[13px] font-medium">
               Password
             </label>
             <PasswordInput
@@ -109,6 +112,7 @@ export function AuthScreen({ mode, next }: { mode: AuthMode; next?: string }) {
               minLength={8}
               autoComplete={isLogin ? "current-password" : "new-password"}
               required
+              className="h-10 rounded-[10px] border border-border bg-surface"
             />
           </div>
           {error ? (
@@ -132,9 +136,7 @@ export function AuthScreen({ mode, next }: { mode: AuthMode; next?: string }) {
           href={alternateHref}
           className="mt-5 block w-full text-center text-sm font-medium text-muted hover:text-foreground"
         >
-          {isLogin
-            ? "First time here? Create your account"
-            : "Already registered? Sign in"}
+          {isLogin ? "Create account" : "Sign in"}
         </Link>
       </section>
     </main>

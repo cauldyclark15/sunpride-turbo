@@ -16,13 +16,15 @@ export class PanelErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.failed)
       return (
-        <div role="alert" className="rounded border border-danger p-3 text-sm">
-          <p>
-            {this.props.label} could not load. Other panels remain available.
-          </p>
+        <div
+          role="alert"
+          aria-label={this.props.label}
+          className="rounded-2xl border border-border bg-surface p-4 text-sm"
+        >
+          <p className="font-medium text-foreground">Something went wrong</p>
           <button
             type="button"
-            className="mt-2 rounded border border-border px-3 py-1"
+            className="mt-3 h-10 rounded-[10px] border border-border bg-surface px-4 font-medium"
             onClick={() =>
               this.setState((state) => ({
                 failed: false,
@@ -30,7 +32,7 @@ export class PanelErrorBoundary extends Component<Props, State> {
               }))
             }
           >
-            Retry {this.props.label}
+            Try again
           </button>
         </div>
       );

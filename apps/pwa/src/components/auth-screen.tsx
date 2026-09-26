@@ -1,4 +1,4 @@
-import { Button, Input } from "@heroui/react";
+import { Button, Input, Label, TextField } from "@heroui/react";
 import { PasswordInput } from "@sunpride/ui";
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
@@ -25,15 +25,15 @@ export function AuthScreen({ mode }: { mode: "login" | "register" }) {
         ? await authClient.signIn.email({ email, password })
         : await authClient.signUp.email({ email, password, name });
       if (result.error) {
-        setError(result.error.message ?? "Unable to continue.");
+        setError(result.error.message ?? "Sign in failed. Try again.");
         return;
       }
       navigate("/", { replace: true });
     } catch {
       setError(
         isLogin
-          ? "Unable to sign in. Check your email and password."
-          : "Unable to create this account. Confirm that the email was invited.",
+          ? "Sign in failed. Check your details."
+          : "Account unavailable. Check your invitation.",
       );
     } finally {
       setPending(false);
@@ -41,8 +41,8 @@ export function AuthScreen({ mode }: { mode: "login" | "register" }) {
   }
 
   return (
-    <main className="grid min-h-screen place-items-center border-t-4 border-accent bg-background p-5">
-      <section className="w-full max-w-md rounded-lg border border-border bg-surface p-7 shadow-none sm:p-8">
+    <main className="grid min-h-screen place-items-center bg-background p-5">
+      <section className="w-full max-w-[400px] rounded-2xl border border-border bg-surface p-6 sm:p-8">
         <img
           src="/sunpride-logo.jpg"
           alt="Sunpride"
@@ -50,29 +50,33 @@ export function AuthScreen({ mode }: { mode: "login" | "register" }) {
           height="64"
           className="rounded-[7px]"
         />
-        <p className="mt-6 text-xs font-semibold uppercase tracking-[0.18em] text-accent-soft-foreground">
-          Field operations PWA
-        </p>
-        <h1 className="mt-2 text-[1.625rem] font-semibold leading-9 tracking-tight text-foreground">
-          {isLogin ? "Sign in for field work" : "Create field account"}
+        <h1 className="mt-6 text-[26px] font-semibold tracking-tight text-foreground">
+          {isLogin ? "Sign in" : "Create account"}
         </h1>
-        <p className="mt-2 text-sm leading-6 text-muted">
-          Access is invitation-only. Use the email address authorized by your
-          Sunpride administrator.
-        </p>
-        <form onSubmit={submit} className="mt-7 grid gap-4">
+        <form onSubmit={submit} className="mt-6 grid gap-4">
           {!isLogin ? (
-            <label className="grid gap-1.5 text-sm font-medium">
-              Full name
-              <Input name="name" autoComplete="name" required />
-            </label>
+            <TextField className="grid gap-1.5">
+              <Label className="text-[13px] font-medium">Full name</Label>
+              <Input
+                name="name"
+                autoComplete="name"
+                required
+                className="h-10 rounded-[10px] border border-border bg-surface"
+              />
+            </TextField>
           ) : null}
-          <label className="grid gap-1.5 text-sm font-medium">
-            Email address
-            <Input name="email" type="email" autoComplete="email" required />
-          </label>
+          <TextField className="grid gap-1.5">
+            <Label className="text-[13px] font-medium">Email</Label>
+            <Input
+              name="email"
+              type="email"
+              autoComplete="email"
+              required
+              className="h-10 rounded-[10px] border border-border bg-surface"
+            />
+          </TextField>
           <div className="grid gap-1.5">
-            <label htmlFor="password" className="text-sm font-medium">
+            <label htmlFor="password" className="text-[13px] font-medium">
               Password
             </label>
             <PasswordInput
@@ -81,6 +85,7 @@ export function AuthScreen({ mode }: { mode: "login" | "register" }) {
               minLength={8}
               autoComplete={isLogin ? "current-password" : "new-password"}
               required
+              className="h-10 rounded-[10px] border border-border bg-surface"
             />
           </div>
           {error ? (
@@ -104,9 +109,7 @@ export function AuthScreen({ mode }: { mode: "login" | "register" }) {
           to={isLogin ? "/register" : "/login"}
           className="mt-5 block text-center text-sm font-medium text-muted hover:text-foreground"
         >
-          {isLogin
-            ? "First visit? Create your account"
-            : "Already registered? Sign in"}
+          {isLogin ? "Create account" : "Sign in"}
         </Link>
       </section>
     </main>

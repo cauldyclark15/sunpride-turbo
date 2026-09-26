@@ -1,16 +1,25 @@
-import { Button, Input } from "@heroui/react";
+import {
+  Button,
+  Input,
+  Label,
+  ListBox,
+  Select,
+  TextField,
+} from "@heroui/react";
 import { api } from "@sunpride/backend/api";
 import type { Id } from "@sunpride/backend/data-model";
 import {
-  MetricCard,
+  Card,
+  EmptyPanel,
+  ListRow,
   PageHeader,
   StatusPill,
-  WorkspaceModuleTabs,
+  UnderlineTabs,
   WorkspaceShell,
 } from "@sunpride/ui";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useConvex, useConvexAuth, useMutation, useQuery } from "convex/react";
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import {
   Navigate,
   Route,
@@ -36,23 +45,15 @@ import {
 } from "./lib/database";
 import { syncOutbox } from "./lib/sync";
 
-function Surface({ children }: { children: ReactNode }) {
-  return (
-    <section className="rounded-lg border border-border bg-surface p-5 shadow-none sm:p-6">
-      {children}
-    </section>
-  );
-}
-
 function OrderModuleTabs() {
   const location = useLocation();
   const navigate = useNavigate();
-
   return (
-    <WorkspaceModuleTabs
-      activeHref={location.pathname}
-      items={fieldOrderTabs}
-      onNavigate={(href) => navigate(href)}
+    <UnderlineTabs
+      label="Orders"
+      activeId={location.pathname}
+      items={fieldOrderTabs.map((item) => [item.href, item.label] as const)}
+      onChange={(href) => navigate(href)}
     />
   );
 }
@@ -60,65 +61,58 @@ function OrderModuleTabs() {
 function Overview({
   catalogCount,
   localOrders,
-  online,
   queued,
 }: {
   catalogCount: number;
   localOrders: LocalOrder[];
-  online: boolean;
   queued: number;
 }) {
   const navigate = useNavigate();
 
   return (
-    <div className="grid gap-7">
+    <div className="grid gap-4 pb-20">
       <PageHeader
-        eyebrow="Field Sales"
-        title="Today’s workspace"
-        description="Capture orders on the road, monitor the device queue, and continue working through unreliable connections."
-        actions={
-          <Button variant="primary" onPress={() => navigate("/orders/new")}>
-            Create order
-          </Button>
-        }
+        title="Today"
+        meta={`${localOrders.length} orders · ${queued} waiting · ${catalogCount} catalog items`}
       />
-      <div className="grid gap-4 sm:grid-cols-3">
-        <MetricCard
-          label="Local orders"
-          value={String(localOrders.length)}
-          detail="Retained on this device"
-        />
-        <MetricCard
-          label="Waiting to sync"
-          value={String(queued)}
-          detail={online ? "Automatic sync active" : "Will resume online"}
-        />
-        <MetricCard
-          label="Catalog items"
-          value={String(catalogCount)}
-          detail="Ready for order entry"
-        />
+      <Card label="Orders" count={localOrders.length} flush>
+        {localOrders.length ? (
+          localOrders
+            .slice(0, 5)
+            .map((order) => (
+              <ListRow
+                key={order.id}
+                icon="▤"
+                title={order.customerCode}
+                meta={`${order.description} · ${order.quantity} × PHP ${order.unitPrice.toLocaleString()}`}
+                value={
+                  <StatusPill
+                    tone={
+                      order.syncState === "synced"
+                        ? "success"
+                        : order.syncState === "conflict"
+                          ? "danger"
+                          : "warning"
+                    }
+                  >
+                    {order.syncState}
+                  </StatusPill>
+                }
+              />
+            ))
+        ) : (
+          <EmptyPanel title="No orders yet" />
+        )}
+      </Card>
+      <div className="fixed inset-x-4 bottom-20 z-10 mx-auto max-w-md rounded-xl bg-background p-2 lg:bottom-6">
+        <Button
+          className="h-12 w-full rounded-[10px]"
+          variant="primary"
+          onPress={() => navigate("/orders/new")}
+        >
+          New order
+        </Button>
       </div>
-      <Surface>
-        <div className="grid gap-5 sm:grid-cols-[1fr_auto] sm:items-center">
-          <div>
-            <p className="text-sm font-medium text-accent-soft-foreground">
-              Offline-first
-            </p>
-            <h2 className="mt-1 text-xl font-semibold text-foreground">
-              Your work stays on this device first
-            </h2>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
-              Every new order is saved locally before a network request. The
-              queue synchronizes automatically whenever a trusted connection
-              returns.
-            </p>
-          </div>
-          <Button variant="secondary" onPress={() => navigate("/orders/queue")}>
-            View queue
-          </Button>
-        </div>
-      </Surface>
     </div>
   );
 }
@@ -141,91 +135,134 @@ function NewOrder({
   inventory: LocalInventory[];
   routeReady: boolean;
 }) {
+  const [customerCode, setCustomerCode] = useState("");
+  const [productCode, setProductCode] = useState("");
+  const availableProducts = products.filter((product) =>
+    inventory.some(
+      (stock) =>
+        stock.productCode === product.code &&
+        BigInt(stock.projectedAvailableBase) > 0n,
+    ),
+  );
+  const chosenCustomer = customers.some(
+    (customer) => customer.code === customerCode,
+  )
+    ? customerCode
+    : (customers[0]?.code ?? "");
+  const chosenProduct = availableProducts.some(
+    (product) => product.code === productCode,
+  )
+    ? productCode
+    : (availableProducts[0]?.code ?? "");
   return (
-    <div className="grid max-w-4xl gap-7">
+    <div className="grid max-w-4xl gap-4 pb-20">
       <PageHeader
-        eyebrow="Orders"
-        title="New sales order"
-        description="Save the order to this device immediately. Network synchronization happens separately in the background."
+        title="New order"
+        meta={`${customers.length} customers · ${products.length} products`}
       />
       <OrderModuleTabs />
-      <Surface>
-        <form onSubmit={onSubmit} className="grid gap-5 sm:grid-cols-2">
-          <label className="grid gap-2 text-sm font-medium text-foreground">
-            Customer
-            <select
-              name="customerCode"
-              required
-              className="h-10 rounded-md border border-border bg-surface px-3 outline-none focus:border-accent"
+      <Card label="Order details">
+        <form
+          id="new-order-form"
+          onSubmit={onSubmit}
+          className="grid gap-4 sm:grid-cols-2"
+        >
+          <div className="grid gap-1.5 text-[13px] font-medium">
+            <span>Customer</span>
+            <input type="hidden" name="customerCode" value={chosenCustomer} />
+            <Select
+              aria-label="Customer"
+              selectedKey={chosenCustomer || "__none"}
+              onSelectionChange={(key) => setCustomerCode(String(key))}
             >
-              {customers.map((customer) => (
-                <option key={customer._id} value={customer.code}>
-                  {customer.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="grid gap-2 text-sm font-medium text-foreground">
-            Product
-            <select
-              name="productCode"
-              required
-              className="h-10 rounded-md border border-border bg-surface px-3 outline-none focus:border-accent"
+              <Select.Trigger className="h-10 min-h-10 rounded-[10px] !border !border-border bg-surface px-3 text-sm shadow-none">
+                <Select.Value />
+                <Select.Indicator />
+              </Select.Trigger>
+              <Select.Popover>
+                <ListBox>
+                  {customers.map((customer) => (
+                    <ListBox.Item
+                      key={customer._id}
+                      id={customer.code}
+                      textValue={customer.name}
+                    >
+                      {customer.name}
+                    </ListBox.Item>
+                  ))}
+                </ListBox>
+              </Select.Popover>
+            </Select>
+          </div>
+          <div className="grid gap-1.5 text-[13px] font-medium">
+            <span>Product</span>
+            <input type="hidden" name="productCode" value={chosenProduct} />
+            <Select
+              aria-label="Product"
+              selectedKey={chosenProduct || "__none"}
+              onSelectionChange={(key) => setProductCode(String(key))}
             >
-              {products
-                .filter((product) =>
-                  inventory.some(
-                    (stock) =>
-                      stock.productCode === product.code &&
-                      BigInt(stock.projectedAvailableBase) > 0n,
-                  ),
-                )
-                .map((product) => (
-                  <option key={product._id} value={product.code}>
-                    {product.name} ·{" "}
-                    {Number(
-                      inventory.find(
-                        (stock) => stock.productCode === product.code,
-                      )?.projectedAvailableBase ?? 0,
-                    ) / 1_000}{" "}
-                    left
-                  </option>
-                ))}
-            </select>
-          </label>
-          <label className="grid gap-2 text-sm font-medium text-foreground">
-            Quantity
+              <Select.Trigger className="h-10 min-h-10 rounded-[10px] !border !border-border bg-surface px-3 text-sm shadow-none">
+                <Select.Value />
+                <Select.Indicator />
+              </Select.Trigger>
+              <Select.Popover>
+                <ListBox>
+                  {availableProducts.map((product) => (
+                    <ListBox.Item
+                      key={product._id}
+                      id={product.code}
+                      textValue={product.name}
+                    >
+                      {product.name} ·{" "}
+                      {Number(
+                        inventory.find(
+                          (stock) => stock.productCode === product.code,
+                        )?.projectedAvailableBase ?? 0,
+                      ) / 1_000}{" "}
+                      left
+                    </ListBox.Item>
+                  ))}
+                </ListBox>
+              </Select.Popover>
+            </Select>
+          </div>
+          <TextField className="grid gap-1.5">
+            <Label className="text-[13px] font-medium">Quantity</Label>
             <Input
               name="quantity"
               type="number"
               min={1}
               defaultValue="1"
               required
+              className="h-10 rounded-[10px] border border-border bg-surface"
             />
-          </label>
-          <label className="grid gap-2 text-sm font-medium text-foreground">
-            Unit price (PHP)
+          </TextField>
+          <TextField className="grid gap-1.5">
+            <Label className="text-[13px] font-medium">Unit price (PHP)</Label>
             <Input
               name="unitPrice"
               type="number"
               min={0}
               defaultValue={products[0]?.unitPrice?.toString() ?? "1188"}
               required
+              className="h-10 rounded-[10px] border border-border bg-surface"
             />
-          </label>
-          <Button
-            type="submit"
-            variant="primary"
-            isPending={saving}
-            isDisabled={!routeReady || inventory.length === 0}
-            className="sm:col-span-2"
-          >
-            {routeReady
-              ? "Save sale and issue truck stock"
-              : "Open a truck route first"}
-          </Button>
+          </TextField>
         </form>
-      </Surface>
+      </Card>
+      <div className="fixed inset-x-4 bottom-20 z-10 mx-auto max-w-md rounded-xl bg-background p-2 lg:bottom-6">
+        <Button
+          type="submit"
+          form="new-order-form"
+          variant="primary"
+          isPending={saving}
+          isDisabled={!routeReady || !chosenCustomer || !chosenProduct}
+          className="h-12 w-full rounded-[10px]"
+        >
+          {routeReady ? "Save order" : "Open route first"}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -238,106 +275,76 @@ function TruckInventory({
   routeCode?: string;
 }) {
   return (
-    <div className="grid gap-7">
-      <PageHeader
-        eyebrow="Rolling truck custody"
-        title="Truck inventory"
-        description="This device projection includes queued offline sales, so available stock is conservative until synchronization completes."
-      />
-      <div className="rounded-lg border border-border bg-foreground p-5 text-background">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] opacity-60">
-          Active route
-        </p>
-        <p className="mt-1 text-xl font-semibold">
-          {routeCode ?? "No route opened"}
-        </p>
-      </div>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+    <div className="grid gap-4">
+      <PageHeader title="Truck stock" meta={`${inventory.length} products`} />
+      <Card label="Active route" flush>
+        <ListRow icon="↗" title={routeCode ?? "No route opened"} />
+      </Card>
+      <Card label="Stock" count={inventory.length} flush>
         {inventory.map((row) => {
           const projected =
             Number(row.projectedAvailableBase) / Number(row.scale);
           const remote = Number(row.remoteAvailableBase) / Number(row.scale);
           return (
-            <article key={row.id} className="truck-stock-card">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted">
-                {row.productCode}
-              </p>
-              <h2 className="mt-1 font-semibold text-foreground">
-                {row.productName}
-              </h2>
-              <div className="mt-5 flex items-end justify-between gap-4">
-                <div>
-                  <strong className="text-3xl text-foreground">
-                    {projected.toLocaleString("en-PH")}
-                  </strong>
-                  <span className="ml-1 text-sm text-muted">cases</span>
-                </div>
-                <StatusPill tone={projected > 0 ? "success" : "danger"}>
-                  {remote === projected
-                    ? "synced"
-                    : `${remote - projected} queued`}
-                </StatusPill>
-              </div>
-            </article>
+            <ListRow
+              key={row.id}
+              icon="▤"
+              title={row.productName}
+              meta={`${row.productCode} · ${remote === projected ? "Synced" : `${remote - projected} queued`}`}
+              value={`${projected.toLocaleString("en-PH")} cases`}
+              dotTone={projected > 0 ? "success" : "danger"}
+            />
           );
         })}
         {inventory.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-border bg-surface p-8 text-center text-sm text-muted sm:col-span-2">
-            Open a route while online to cache its truck inventory.
-          </p>
+          <EmptyPanel title="Open a route to see stock" />
         ) : null}
-      </div>
+      </Card>
     </div>
   );
 }
 
 function OrderQueue({ localOrders }: { localOrders: LocalOrder[] }) {
   return (
-    <div className="grid gap-7">
+    <div className="grid gap-4">
       <PageHeader
-        eyebrow="Orders"
-        title="Device order queue"
-        description="Review orders stored on this device and see their synchronization state."
+        title="Queue"
+        meta={`${localOrders.length} orders · ${localOrders.filter((order) => order.syncState !== "synced").length} waiting`}
       />
       <OrderModuleTabs />
-      <div className="grid gap-3">
+      <Card label="Local orders" count={localOrders.length} flush>
         {localOrders.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border bg-surface p-10 text-center text-sm text-muted">
-            No local orders yet.
-          </div>
+          <EmptyPanel title="No orders yet" />
         ) : (
           localOrders.map((order) => (
-            <article
+            <ListRow
               key={order.id}
-              className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4 shadow-none sm:flex-row sm:items-center sm:justify-between"
-            >
-              <div>
-                <p className="font-medium text-foreground">
-                  {order.customerCode} · {order.description}
-                </p>
-                <p className="mt-1 text-xs text-muted">
+              icon="▤"
+              title={`${order.customerCode} · ${order.description}`}
+              meta={
+                <>
                   {order.quantity} × PHP {order.unitPrice.toLocaleString()} ·{" "}
                   {new Date(order.createdAt).toLocaleString()}
-                </p>
-                {order.lastError ? (
-                  <p className="mt-1 text-xs text-danger">{order.lastError}</p>
-                ) : null}
-              </div>
-              <StatusPill
-                tone={
-                  order.syncState === "synced"
-                    ? "success"
-                    : order.syncState === "conflict"
-                      ? "danger"
-                      : "warning"
-                }
-              >
-                {order.syncState}
-              </StatusPill>
-            </article>
+                  {order.lastError ? ` · ${order.lastError}` : ""}
+                </>
+              }
+              value={
+                <StatusPill
+                  tone={
+                    order.syncState === "synced"
+                      ? "success"
+                      : order.syncState === "conflict"
+                        ? "danger"
+                        : "warning"
+                  }
+                >
+                  {order.syncState}
+                </StatusPill>
+              }
+            />
           ))
         )}
-      </div>
+      </Card>
     </div>
   );
 }
@@ -350,48 +357,35 @@ function Catalog({
   products: Product[];
 }) {
   return (
-    <div className="grid gap-7">
+    <div className="grid gap-4">
       <PageHeader
-        eyebrow="Reference data"
-        title="Customer & product catalog"
-        description="The currently available master data used during mobile order capture."
+        title="Catalog"
+        meta={`${customers.length} customers · ${products.length} products`}
       />
-      <div className="grid gap-5 lg:grid-cols-2">
-        <Surface>
-          <h2 className="text-lg font-semibold text-foreground">Customers</h2>
-          <div className="mt-4 divide-y divide-separator">
-            {customers.map((customer) => (
-              <div
-                key={customer._id}
-                className="flex justify-between gap-4 py-3 text-sm"
-              >
-                <span className="font-medium text-foreground">
-                  {customer.name}
-                </span>
-                <span className="text-muted">{customer.code}</span>
-              </div>
-            ))}
-          </div>
-        </Surface>
-        <Surface>
-          <h2 className="text-lg font-semibold text-foreground">Products</h2>
-          <div className="mt-4 divide-y divide-separator">
-            {products.map((product) => (
-              <div
-                key={product._id}
-                className="flex justify-between gap-4 py-3 text-sm"
-              >
-                <div>
-                  <p className="font-medium text-foreground">{product.name}</p>
-                  <p className="mt-0.5 text-xs text-muted">{product.code}</p>
-                </div>
-                <span className="shrink-0 text-muted">
-                  PHP {(product.unitPrice ?? 0).toLocaleString()}
-                </span>
-              </div>
-            ))}
-          </div>
-        </Surface>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card label="Customers" count={customers.length} flush>
+          {customers.map((customer) => (
+            <ListRow
+              key={customer._id}
+              icon="◯"
+              title={customer.name}
+              meta={customer.code}
+            />
+          ))}
+          {!customers.length ? <EmptyPanel title="No customers" /> : null}
+        </Card>
+        <Card label="Products" count={products.length} flush>
+          {products.map((product) => (
+            <ListRow
+              key={product._id}
+              icon="▤"
+              title={product.name}
+              meta={product.code}
+              value={`PHP ${(product.unitPrice ?? 0).toLocaleString()}`}
+            />
+          ))}
+          {!products.length ? <EmptyPanel title="No products" /> : null}
+        </Card>
       </div>
     </div>
   );
@@ -409,39 +403,37 @@ function SyncStatus({
   onSync: () => Promise<void>;
 }) {
   return (
-    <div className="grid max-w-4xl gap-7">
-      <PageHeader
-        eyebrow="Connectivity"
-        title="Sync status"
-        description="Check this device’s connectivity and manually retry any orders that are still waiting."
-      />
-      <Surface>
-        <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
-          <div>
+    <div className="grid max-w-4xl gap-4 pb-20">
+      <PageHeader title="Sync" meta={`${queued} waiting`} />
+      <Card label="Device status" flush>
+        <ListRow
+          icon="↻"
+          title={
+            queued === 0
+              ? online
+                ? "All synced"
+                : "No orders waiting"
+              : `${queued} waiting`
+          }
+          meta={online ? "Online" : "Offline"}
+          value={
             <StatusPill tone={online ? "success" : "warning"}>
               {online ? "Online" : "Offline"}
             </StatusPill>
-            <h2 className="mt-4 text-xl font-semibold text-foreground">
-              {queued === 0
-                ? "This device is up to date"
-                : `${queued} ${queued === 1 ? "order" : "orders"} waiting`}
-            </h2>
-            <p className="mt-2 text-sm leading-6 text-muted">
-              {online
-                ? "Background synchronization is active while the app remains open."
-                : "Orders remain safely stored on this device until connectivity returns."}
-            </p>
-          </div>
-          <Button
-            variant="primary"
-            isDisabled={!online}
-            isPending={syncing}
-            onPress={() => void onSync()}
-          >
-            Sync now
-          </Button>
-        </div>
-      </Surface>
+          }
+        />
+      </Card>
+      <div className="fixed inset-x-4 bottom-20 z-10 mx-auto max-w-md rounded-xl bg-background p-2 lg:bottom-6">
+        <Button
+          className="h-12 w-full rounded-[10px]"
+          variant="primary"
+          isDisabled={!online}
+          isPending={syncing}
+          onPress={() => void onSync()}
+        >
+          Sync now
+        </Button>
+      </div>
     </div>
   );
 }
@@ -587,104 +579,105 @@ function FieldWorkspace({ user }: { user: { name: string; role: string } }) {
   }
 
   return (
-    <WorkspaceShell
-      activeHref={location.pathname}
-      activePrimaryId={navigation.activePrimaryId}
-      brand={{
-        logo: <img src="/sunpride-logo.jpg" alt="" width="40" height="40" />,
-        name: "sunpride",
-        descriptor: "Field Sales",
-      }}
-      mobilePrimaryItems={fieldMobileItems}
-      navGroups={navigation.navGroups}
-      onNavigate={(href) => navigate(href)}
-      onSignOut={signOut}
-      status={
+    <>
+      <div className="fixed right-16 top-3 z-30 md:hidden">
         <StatusPill tone={online ? "success" : "warning"}>
-          {online ? (queued ? `${queued} queued` : "Online") : "Offline"}
+          {!online ? "Offline" : queued ? `${queued} waiting` : "All synced"}
         </StatusPill>
-      }
-      user={user}
-    >
-      {!deviceState?.routeSessionId ? (
-        <div className="mb-5 flex flex-col gap-3 rounded-lg border border-warning/40 bg-warning/10 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="font-semibold text-foreground">
-              Truck custody is not active
-            </p>
-            <p className="mt-1 text-sm text-muted">
-              Open the assigned truck route online before accepting offline
-              sales.
-            </p>
+      </div>
+      <WorkspaceShell
+        activeHref={location.pathname}
+        activePrimaryId={navigation.activePrimaryId}
+        brand={{
+          logo: <img src="/sunpride-logo.jpg" alt="" width="40" height="40" />,
+          name: "sunpride",
+          descriptor: "Field Sales",
+        }}
+        mobilePrimaryItems={fieldMobileItems}
+        navGroups={navigation.navGroups}
+        onNavigate={(href) => navigate(href)}
+        onSignOut={signOut}
+        status={
+          <StatusPill tone={online ? "success" : "warning"}>
+            {online ? (queued ? `${queued} waiting` : "All synced") : "Offline"}
+          </StatusPill>
+        }
+        user={user}
+      >
+        {!deviceState?.routeSessionId ? (
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-warning-soft p-3 text-warning-soft-foreground">
+            <p className="text-sm font-medium">Open route to take orders</p>
+            <Button
+              variant="secondary"
+              className="h-10"
+              isPending={routeBusy}
+              isDisabled={!online || !truckLocations?.length || !deviceState}
+              onPress={() => void activateRoute()}
+            >
+              Open route
+            </Button>
           </div>
-          <Button
-            variant="primary"
-            isPending={routeBusy}
-            isDisabled={!online || !truckLocations?.length || !deviceState}
-            onPress={() => void activateRoute()}
-          >
-            Open assigned route
-          </Button>
-        </div>
-      ) : null}
-      <Routes>
-        <Route
-          index
-          element={
-            <Overview
-              catalogCount={(products?.length ?? 0) + (customers?.length ?? 0)}
-              localOrders={localOrders}
-              online={online}
-              queued={queued}
-            />
-          }
-        />
-        <Route
-          path="orders/new"
-          element={
-            <NewOrder
-              customers={customers ?? []}
-              products={products ?? []}
-              saving={saving}
-              onSubmit={submit}
-              inventory={localInventory}
-              routeReady={Boolean(deviceState?.routeSessionId)}
-            />
-          }
-        />
-        <Route
-          path="inventory"
-          element={
-            <TruckInventory
-              inventory={localInventory}
-              routeCode={deviceState?.routeCode}
-            />
-          }
-        />
-        <Route
-          path="orders/queue"
-          element={<OrderQueue localOrders={localOrders} />}
-        />
-        <Route
-          path="catalog"
-          element={
-            <Catalog customers={customers ?? []} products={products ?? []} />
-          }
-        />
-        <Route
-          path="sync"
-          element={
-            <SyncStatus
-              online={online}
-              queued={queued}
-              syncing={syncing}
-              onSync={syncNow}
-            />
-          }
-        />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </WorkspaceShell>
+        ) : null}
+        <Routes>
+          <Route
+            index
+            element={
+              <Overview
+                catalogCount={
+                  (products?.length ?? 0) + (customers?.length ?? 0)
+                }
+                localOrders={localOrders}
+                queued={queued}
+              />
+            }
+          />
+          <Route
+            path="orders/new"
+            element={
+              <NewOrder
+                customers={customers ?? []}
+                products={products ?? []}
+                saving={saving}
+                onSubmit={submit}
+                inventory={localInventory}
+                routeReady={Boolean(deviceState?.routeSessionId)}
+              />
+            }
+          />
+          <Route
+            path="inventory"
+            element={
+              <TruckInventory
+                inventory={localInventory}
+                routeCode={deviceState?.routeCode}
+              />
+            }
+          />
+          <Route
+            path="orders/queue"
+            element={<OrderQueue localOrders={localOrders} />}
+          />
+          <Route
+            path="catalog"
+            element={
+              <Catalog customers={customers ?? []} products={products ?? []} />
+            }
+          />
+          <Route
+            path="sync"
+            element={
+              <SyncStatus
+                online={online}
+                queued={queued}
+                syncing={syncing}
+                onSync={syncNow}
+              />
+            }
+          />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </WorkspaceShell>
+    </>
   );
 }
 
@@ -701,9 +694,7 @@ function ProvisionedWorkspace() {
       })
       .catch(() => {
         if (active)
-          setAccessError(
-            "This email address has not been invited to Sunpride Operations.",
-          );
+          setAccessError("Email not invited. Contact your administrator.");
       });
     return () => {
       active = false;
@@ -713,7 +704,7 @@ function ProvisionedWorkspace() {
   if (accessError) {
     return (
       <main className="grid min-h-screen place-items-center bg-background p-5">
-        <section className="w-full max-w-md rounded-lg border border-border bg-surface p-7 text-center shadow-none">
+        <section className="w-full max-w-[400px] rounded-2xl border border-border bg-surface p-7 text-center">
           <img
             src="/sunpride-logo.jpg"
             alt="Sunpride"
@@ -721,9 +712,7 @@ function ProvisionedWorkspace() {
             height="64"
             className="mx-auto rounded-[7px]"
           />
-          <h1 className="mt-6 text-2xl font-semibold">
-            Access not provisioned
-          </h1>
+          <h1 className="mt-6 text-2xl font-semibold">Access unavailable</h1>
           <p className="mt-3 text-sm leading-6 text-muted">{accessError}</p>
           <Button
             className="mt-6 w-full"
@@ -740,7 +729,7 @@ function ProvisionedWorkspace() {
   if (!profile || profile.status !== "active") {
     return (
       <div className="grid min-h-screen place-items-center text-sm text-muted">
-        Verifying your Sunpride access…
+        Loading…
       </div>
     );
   }
@@ -754,7 +743,7 @@ export default function App() {
   if (isLoading) {
     return (
       <div className="grid min-h-screen place-items-center text-sm text-muted">
-        Opening field workspace…
+        Loading…
       </div>
     );
   }
