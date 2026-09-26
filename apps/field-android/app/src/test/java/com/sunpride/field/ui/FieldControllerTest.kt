@@ -20,6 +20,13 @@ class FieldControllerTest {
         var signInError: AuthFailure? = null
         val results = ArrayDeque<() -> EnrollmentState>()
         var signOuts = 0
+        var cached: String? = null
+        val todaySyncs = mutableListOf<Boolean>()
+        override val cachedDeviceId get() = cached
+        override fun today(deviceId: String, signer: DeviceSigner, sync: Boolean): TodayData {
+            todaySyncs += sync
+            return if (sync) TodayData(lastSynced = 150, stale = false) else TodayData()
+        }
         override val isSignedIn get() = signedIn
         override fun loadSigner(): DeviceSigner = JcaDeviceSigner(CryptoVectors.privateKey, CryptoVectors.publicKey, KeyProtection.STRONGBOX)
         override fun signIn(email: String, password: String) { signInError?.let { throw it }; signedIn = true }
@@ -46,6 +53,26 @@ class FieldControllerTest {
         assertEquals(EnrollmentState.Ready("dev1"), c.state)
         assertEquals(1, exported.size)
         assertNull(c.error)
+    }
+
+    @Test fun readyTransitionBootstrapsWithoutSyncTap() = run { c, b, _ ->
+        b.results += { EnrollmentState.Unregistered }
+        c.signIn("a@example.test", "fake").join()
+        b.results += { EnrollmentState.Ready("dev1") }
+        c.checkAgain(quiet = true).join() // admin registration discovered by polling
+        assertEquals(listOf(true), b.todaySyncs)
+        assertEquals(150L, c.today.lastSynced)
+        assertEquals(EnrollmentState.Ready("dev1"), c.state)
+    }
+
+    @Test fun readyOnLaunchWithoutSnapshotBootstrapsAfterVerification() = run { c, b, _ ->
+        b.signedIn = true
+        b.cached = "dev1"
+        b.results += { EnrollmentState.Ready("dev1") }
+        c.start().join()
+        assertEquals(listOf(false, true), b.todaySyncs)
+        assertEquals(150L, c.today.lastSynced)
+        assertFalse(c.today.stale)
     }
 
     @Test fun wrongPasswordStaysSignedOutWithMessage() = run { c, b, _ ->

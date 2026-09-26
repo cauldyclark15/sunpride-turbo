@@ -402,7 +402,7 @@ class FieldController(
         catch (_: Exception) { today = today.copy(stale = true, warning = "Sync unavailable — showing saved visits") }
         finally { busy = false }
     }
-    fun checkAgain() = scope.launch(ui) { refresh() }
+    fun checkAgain(quiet: Boolean = false) = scope.launch(ui) { refresh(quiet) }
 
     fun signOut() = scope.launch(ui) {
         busy = true

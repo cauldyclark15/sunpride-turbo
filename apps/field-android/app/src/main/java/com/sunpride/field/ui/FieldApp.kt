@@ -101,7 +101,10 @@ fun FieldApp(
     LaunchedEffect(controller, controller.state) {
         while (controller.state == EnrollmentState.Unregistered) {
             delay(com.sunpride.field.auth.Enrollment.POLL_INTERVAL_MS)
-            controller.refresh(quiet = true)
+            // The state-keyed effect is cancelled as soon as enrollment becomes Ready.
+            // Start verification in the controller's longer-lived scope so its first bootstrap
+            // is not cancelled between setting Ready and loading Today.
+            controller.checkAgain(quiet = true)
         }
     }
     MaterialTheme(

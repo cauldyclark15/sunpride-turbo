@@ -45,19 +45,33 @@ class VisitSyncTest {
             check(!held && rows.none { it.first.requestId == intent.requestId })
             rows += intent to OutboxRow(intent.account, intent.deviceId, intent.scope, intent.requestId, intent.createdAt)
         }
-        override suspend fun pending() = rows.filter { it.second.state == "pending" }
+        override suspend fun pending() = rows.filter { it.second.state in setOf("pending", "sending") }
         override suspend fun history() = rows.toList()
         override suspend fun intent(requestId: String) = rows.find { it.first.requestId == requestId }?.first
+        override suspend fun markSending(ids: List<String>) {
+            check(ids.all { id -> rows.any { it.first.requestId == id && it.second.state == "pending" } })
+            ids.forEach { id ->
+                val i = rows.indexOfFirst { it.first.requestId == id }
+                rows[i] = rows[i].first to rows[i].second.copy(state = "sending")
+            }
+        }
+        override suspend fun resetSending() {
+            rows.indices.forEach { i -> if (rows[i].second.state == "sending")
+                rows[i] = rows[i].first to rows[i].second.copy(state = "pending") }
+        }
         override suspend fun recordAck(requestId: String, entityId: String, eventIdsJson: String, serverTime: Long) {
-            val first = rows.first { it.first.requestId == requestId }.first
-            val ack = AckRow(first.account, first.deviceId, first.scope, requestId, entityId, eventIdsJson, serverTime)
-            check(acks[requestId] == null || acks[requestId] == ack)
-            acks[requestId] = ack
             val i = rows.indexOfFirst { it.first.requestId == requestId }
+            check(i >= 0 && rows[i].second.state in setOf("pending", "sending", "done"))
+            val first = rows[i].first
+            val ack = AckRow(first.account, first.deviceId, first.scope, requestId, entityId, eventIdsJson, serverTime)
+            check(acks[requestId] == null || acks[requestId] == ack) { "Conflicting ack" }
+            acks[requestId] = ack
             rows[i] = rows[i].first to rows[i].second.copy(state = "done")
         }
         override suspend fun recordRejection(requestId: String, code: String) {
+            check(code.isNotBlank())
             val i = rows.indexOfFirst { it.first.requestId == requestId }
+            check(i >= 0 && rows[i].second.state in setOf("pending", "sending"))
             rows[i] = rows[i].first to rows[i].second.copy(state = "review", rejectionCode = code)
         }
         override suspend fun ack(requestId: String) = acks[requestId]

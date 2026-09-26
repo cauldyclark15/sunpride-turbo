@@ -160,7 +160,7 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
     override suspend fun recordAck(requestId: String, entityId: String, eventIdsJson: String, serverTime: Long) {
         db.withTransaction {
             val row = dao.outbox(a, d, s, requestId) ?: error("Unknown request")
-            check(row.state == "pending" || row.state == "done")
+            check(row.state in setOf("pending", "sending", "done"))
             val prior = dao.ack(a, d, s, requestId)
             val ack = AckRow(a, d, s, requestId, entityId, eventIdsJson, serverTime)
             if (prior == null) dao.insertAck(ack) else check(prior == ack) { "Conflicting ack" }

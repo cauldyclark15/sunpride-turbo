@@ -37,7 +37,12 @@ class FieldAppTest {
     /** Real Keystore key, scripted server answers; no network, no real account. */
     private inner class ScriptedBackend(var enrollment: EnrollmentState, val signInError: AuthFailure? = null) : FieldBackend {
         var signedIn = false
+        var syncs = 0
         override val isSignedIn get() = signedIn
+        override fun today(deviceId: String, signer: DeviceSigner, sync: Boolean): TodayData {
+            if (sync) syncs++
+            return TodayData(lastSynced = if (sync) 150L else null, stale = !sync)
+        }
         override fun loadSigner(): DeviceSigner = KeystoreDeviceKey.loadOrCreate(rule.activity, alias)
         override fun signIn(email: String, password: String) { signInError?.let { throw it }; signedIn = true }
         override fun signOut() { signedIn = false }
@@ -71,6 +76,20 @@ class FieldAppTest {
         rule.onNodeWithTag("device-info").assertTextContains(android.os.Build.MODEL, substring = true)
         rule.onNodeWithTag("copy-key").performScrollTo().assertIsEnabled()
         rule.onNodeWithTag("check-again").performScrollTo().assertIsEnabled()
+    }
+
+    @Test fun registrationPollTriggersBootstrapWithoutSyncTap() {
+        val backend = ScriptedBackend(EnrollmentState.Unregistered)
+        rule.setContent { FieldApp(configured, dark = false, debug = true, backend = backend) }
+        rule.onNodeWithTag("email").performTextInput("seller@example.test")
+        rule.onNodeWithTag("password").performTextInput("fake-password")
+        rule.onNodeWithTag("sign-in").performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTagExists("check-again") }
+        backend.enrollment = EnrollmentState.Ready("dev1")
+        rule.mainClock.advanceTimeBy(com.sunpride.field.auth.Enrollment.POLL_INTERVAL_MS + 100L)
+        rule.waitUntil(10_000) { backend.syncs == 1 }
+        rule.onNodeWithTag("sync-status").assertTextContains("Ready", substring = true)
+        rule.onNodeWithTag("last-synced").assertTextContains("Last synced", substring = true)
     }
 
     @Test fun readyAndRemovedStates() {
