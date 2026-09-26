@@ -1,12 +1,19 @@
 "use client";
 
-import { Button, Input } from "@heroui/react";
+import { Button, Input, Label, TextField } from "@heroui/react";
 import { api } from "@sunpride/backend/api";
 import type { Id } from "@sunpride/backend/data-model";
-import { StatusPill } from "@sunpride/ui";
+import {
+  Card,
+  ListRow,
+  Notice,
+  StatusPill,
+  UnderlineTabs,
+  WorkspaceIcon,
+} from "@sunpride/ui";
 import { useMutation, useQuery } from "convex/react";
 import { useState, type FormEvent } from "react";
-import { OrgAdmin } from "./org-admin";
+import { AdminSelectField, OrgAdmin } from "./org-admin";
 import { TerritoryAdmin } from "./territory-admin";
 import { RouteAdmin } from "./route-admin";
 import { OutletAdmin } from "./outlet-admin";
@@ -29,62 +36,50 @@ const roles: { value: AssignableRole; label: string }[] = [
   { value: "manager", label: "Sales manager" },
   { value: "approver", label: "Approver" },
   { value: "sales", label: "Sales" },
-  { value: "analyst", label: "Analyst (read-only, all areas)" },
-  { value: "viewer", label: "Viewer (read-only, own area)" },
+  { value: "analyst", label: "Analyst" },
+  { value: "viewer", label: "Viewer" },
 ];
 
-const roleLabel = (role: string) => {
-  const known = roles.find((option) => option.value === role);
-  if (known) return known.label;
-  return role
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-};
+const roleLabel = (role: string) =>
+  roles.find((option) => option.value === role)?.label ??
+  role.replaceAll("_", " ");
 
 const readableError = (error: unknown) =>
-  error instanceof Error ? error.message : "The access update failed.";
+  error instanceof Error ? error.message : "Access update failed. Try again.";
 
-type AdminTab =
-  | "organization"
-  | "people"
-  | "teams"
-  | "invitations"
-  | "territories"
-  | "routes"
-  | "outlets"
-  | "assignments";
+const tabs = [
+  ["organization", "Organization"],
+  ["people", "People"],
+  ["teams", "Teams"],
+  ["invitations", "Invitations"],
+  ["territories", "Territories"],
+  ["routes", "Routes"],
+  ["outlets", "Outlets"],
+  ["assignments", "Assignments"],
+] as const;
+type AdminTab = (typeof tabs)[number][0];
 
 export function AdminWorkspace() {
   const [tab, setTab] = useState<AdminTab>("organization");
+  const people = useQuery(api.people.queries.list, {
+    paginationOpts: { numItems: 25, cursor: null },
+  });
+  const teams = useQuery(api.teams.queries.list, {
+    paginationOpts: { numItems: 25, cursor: null },
+  });
   return (
-    <div className="grid gap-5">
-      <nav
-        aria-label="Administration sections"
-        className="flex gap-2 border-b border-border pb-2"
-      >
-        {(
-          [
-            "organization",
-            "people",
-            "teams",
-            "invitations",
-            "territories",
-            "routes",
-            "outlets",
-            "assignments",
-          ] as const
-        ).map((item) => (
-          <Button
-            key={item}
-            variant={tab === item ? "primary" : "secondary"}
-            aria-current={tab === item ? "page" : undefined}
-            onPress={() => setTab(item)}
-          >
-            {item.charAt(0).toUpperCase() + item.slice(1)}
-          </Button>
-        ))}
-      </nav>
+    <div className="grid gap-4">
+      {people && teams ? (
+        <p className="text-[13px] text-muted">
+          {people.page.length} people shown · {teams.page.length} teams shown
+        </p>
+      ) : null}
+      <UnderlineTabs
+        label="Administration sections"
+        items={tabs}
+        activeId={tab}
+        onChange={setTab}
+      />
       {tab === "organization" ? (
         <OrgAdmin />
       ) : tab === "people" ? (
@@ -128,18 +123,12 @@ function InvitationsAdmin() {
     text: string;
   } | null>(null);
 
-  if (!current)
-    return <p className="text-sm text-muted">Loading access controls…</p>;
+  if (!current) return <Card label="Invitations">Loading access…</Card>;
   if (!canAdminister)
     return (
-      <section className="rounded-lg border border-warning bg-warning-soft p-6">
-        <h2 className="font-bold text-warning-soft-foreground">
-          Administrator access required
-        </h2>
-        <p className="mt-2 text-sm text-warning-soft-foreground">
-          Your current role cannot invite or manage Sunpride users.
-        </p>
-      </section>
+      <Card label="Invitations">
+        <Notice title="Administrator access required" tone="warning" />
+      </Card>
     );
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -157,10 +146,7 @@ function InvitationsAdmin() {
         ...(name ? { name } : {}),
         ...(positionId ? { positionId: positionId as Id<"positions"> } : {}),
       });
-      setMessage({
-        tone: "success",
-        text: `${email.toLowerCase()} can now create an account and sign in.`,
-      });
+      setMessage({ tone: "success", text: "Invitation sent" });
       form.reset();
       setRole("viewer");
       setPositionId("");
@@ -175,140 +161,126 @@ function InvitationsAdmin() {
     setMessage(null);
     try {
       await revoke({ invitationId });
-      setMessage({ tone: "success", text: "Access has been revoked." });
+      setMessage({ tone: "success", text: "Access revoked" });
     } catch (error) {
       setMessage({ tone: "error", text: readableError(error) });
     }
   }
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
-      <section className="rounded-lg border border-border bg-surface p-6 shadow-none">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent-soft-foreground">
-          Invitation-only access
-        </p>
-        <h2 className="mt-2 text-xl font-semibold text-foreground">
-          Add a Sunpride user
-        </h2>
-        <p className="mt-2 text-sm leading-6 text-muted">
-          Add the exact email the user will register with. Only the super admin
-          can grant the Administrator role.
-        </p>
-        <form onSubmit={submit} className="mt-6 grid gap-4">
-          <label className="grid gap-1.5 text-sm font-medium text-foreground">
-            Full name (optional)
-            <Input name="name" placeholder="Juan Dela Cruz" />
-          </label>
-          <label className="grid gap-1.5 text-sm font-medium text-foreground">
-            Email address
-            <Input
-              name="email"
-              type="email"
-              placeholder="name@sunpride.com.ph"
-              required
-            />
-          </label>
-          <label className="grid gap-1.5 text-sm font-medium text-foreground">
-            Initial role
-            <select
-              value={role}
-              onChange={(event) =>
-                setRole(event.target.value as AssignableRole)
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <Card
+        label="Invitations"
+        count={invitations?.length}
+        icon={<WorkspaceIcon name="user" />}
+        flush
+      >
+        {(invitations ?? []).length ? (
+          invitations?.map((invitation) => (
+            <ListRow
+              key={invitation._id}
+              icon={<WorkspaceIcon name="user" />}
+              title={invitation.name ?? invitation.email}
+              meta={`${invitation.email} · ${roleLabel(invitation.role)}`}
+              value={
+                <StatusPill
+                  tone={
+                    invitation.status === "accepted"
+                      ? "success"
+                      : invitation.status === "revoked"
+                        ? "danger"
+                        : "warning"
+                  }
+                >
+                  {invitation.status}
+                </StatusPill>
               }
-              className="h-10 rounded-md border border-border bg-surface px-3 text-sm outline-none focus:border-accent"
-            >
-              {roles
-                .filter(
-                  (option) =>
-                    option.value !== "admin" || current.role === "super_admin",
-                )
-                .map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <label className="grid gap-1.5 text-sm font-medium text-foreground">
-            Position (optional)
-            <select
-              value={positionId}
-              onChange={(event) => setPositionId(event.target.value)}
-              className="h-10 rounded-md border border-border bg-surface px-3 text-sm outline-none focus:border-accent"
-            >
-              <option value="">No position set</option>
-              {(positions ?? []).map((position) => (
-                <option key={position._id} value={position._id}>
-                  {position.label}
-                </option>
-              ))}
-            </select>
-          </label>
+              action={
+                invitation.role !== "super_admin" &&
+                invitation.status !== "revoked" ? (
+                  <Button
+                    size="sm"
+                    variant="danger-soft"
+                    onPress={() => void revokeAccess(invitation._id)}
+                  >
+                    Revoke access
+                  </Button>
+                ) : undefined
+              }
+            />
+          ))
+        ) : (
+          <p className="p-4 text-[13px] text-muted">No invitations</p>
+        )}
+      </Card>
+      <Card
+        label="Invite person"
+        icon={<WorkspaceIcon name="user" />}
+        actions={
+          <Button
+            type="submit"
+            form="invite-person"
+            variant="primary"
+            isPending={pending}
+            className="h-10 rounded-[10px]"
+          >
+            Send invitation
+          </Button>
+        }
+      >
+        <form id="invite-person" onSubmit={submit} className="grid gap-4">
+          <TextField name="name" className="grid gap-1.5">
+            <Label className="text-[13px] font-medium">Full name</Label>
+            <Input
+              className="h-10 rounded-[10px] border border-border bg-surface px-3 text-sm shadow-none"
+              placeholder="Juan Dela Cruz"
+            />
+          </TextField>
+          <TextField
+            name="email"
+            type="email"
+            isRequired
+            className="grid gap-1.5"
+          >
+            <Label className="text-[13px] font-medium">Email</Label>
+            <Input
+              className="h-10 rounded-[10px] border border-border bg-surface px-3 text-sm shadow-none"
+              placeholder="name@sunpride.com.ph"
+            />
+          </TextField>
+          <AdminSelectField
+            label="Role"
+            value={role}
+            onChange={(value) => setRole(value as AssignableRole)}
+            options={roles
+              .filter(
+                (option) =>
+                  option.value !== "admin" || current.role === "super_admin",
+              )
+              .map((option) => ({ id: option.value, label: option.label }))}
+          />
+          <AdminSelectField
+            label="Position"
+            value={positionId}
+            onChange={setPositionId}
+            options={[
+              { id: "", label: "No position" },
+              ...(positions ?? []).map((position) => ({
+                id: position._id,
+                label: position.label,
+              })),
+            ]}
+          />
           {message ? (
             <p
               role="status"
-              className={`rounded-md px-3 py-2 text-sm font-medium ${message.tone === "success" ? "bg-success-soft text-success-soft-foreground" : "bg-danger-soft text-danger-soft-foreground"}`}
+              className={`rounded-xl p-3 text-sm ${message.tone === "success" ? "bg-success-soft text-success-soft-foreground" : "bg-danger-soft text-danger-soft-foreground"}`}
             >
               {message.text}
             </p>
           ) : null}
-          <Button type="submit" variant="primary" isPending={pending}>
-            Authorize email address
-          </Button>
         </form>
-      </section>
-
-      <div className="grid content-start gap-6">
-        <section className="rounded-lg border border-border bg-surface p-6 shadow-none">
-          <h2 className="text-lg font-semibold text-foreground">
-            Authorized accounts
-          </h2>
-          <p className="mt-1 text-sm text-muted">
-            Pending accounts become active after the user creates an account
-            with the authorized email address.
-          </p>
-          <div className="mt-5 grid gap-3">
-            {(invitations ?? []).map((invitation) => (
-              <article
-                key={invitation._id}
-                className="flex flex-col gap-3 rounded-md border border-border p-4 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div>
-                  <p className="font-medium text-foreground">
-                    {invitation.name ?? invitation.email}
-                  </p>
-                  <p className="mt-1 text-xs text-muted">
-                    {invitation.email} · {roleLabel(invitation.role)}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <StatusPill
-                    tone={
-                      invitation.status === "accepted"
-                        ? "success"
-                        : invitation.status === "revoked"
-                          ? "danger"
-                          : "warning"
-                    }
-                  >
-                    {invitation.status}
-                  </StatusPill>
-                  {invitation.role !== "super_admin" &&
-                  invitation.status !== "revoked" ? (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onPress={() => void revokeAccess(invitation._id)}
-                    >
-                      Revoke
-                    </Button>
-                  ) : null}
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-      </div>
+      </Card>
     </div>
   );
 }

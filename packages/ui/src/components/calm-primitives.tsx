@@ -1,7 +1,6 @@
 "use client";
 
 import { Button } from "@heroui/react/button";
-import { Card as HeroCard } from "@heroui/react/card";
 import type { ReactNode } from "react";
 import type { StatusTone } from "./status-pill";
 

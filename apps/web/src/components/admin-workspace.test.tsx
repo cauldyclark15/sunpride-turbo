@@ -90,8 +90,71 @@ vi.mock("@heroui/react", () => ({
     );
   },
   Input: (props: Record<string, unknown>) => createElement("input", props),
+  TextField: ({ children }: { children: React.ReactNode }) =>
+    createElement("div", null, children),
+  Label: ({ children }: { children: React.ReactNode }) =>
+    createElement("label", null, children),
+  Select: Object.assign(
+    ({ children }: { children: React.ReactNode }) =>
+      createElement("div", null, children),
+    {
+      Trigger: ({ children }: { children: React.ReactNode }) =>
+        createElement("div", null, children),
+      Value: () => null,
+      Indicator: () => null,
+      Popover: ({ children }: { children: React.ReactNode }) =>
+        createElement("div", null, children),
+    },
+  ),
+  ListBox: Object.assign(
+    ({ children }: { children: React.ReactNode }) =>
+      createElement("div", null, children),
+    {
+      Item: ({ children, id }: { children: React.ReactNode; id: string }) =>
+        createElement("option", { value: id }, children),
+    },
+  ),
 }));
 vi.mock("@sunpride/ui", () => ({
+  WorkspaceIcon: () => createElement("span"),
+  Card: ({
+    label,
+    actions,
+    children,
+  }: {
+    label: string;
+    actions?: React.ReactNode;
+    children: React.ReactNode;
+  }) =>
+    createElement(
+      "section",
+      null,
+      createElement("h2", null, label),
+      actions,
+      children,
+    ),
+  UnderlineTabs: ({
+    items,
+  }: {
+    items: readonly (readonly [string, string])[];
+  }) =>
+    createElement(
+      "nav",
+      null,
+      items.map(([id, label]) => createElement("button", { key: id }, label)),
+    ),
+  ListRow: ({
+    title,
+    meta,
+    value,
+    action,
+  }: {
+    title: React.ReactNode;
+    meta?: React.ReactNode;
+    value?: React.ReactNode;
+    action?: React.ReactNode;
+  }) => createElement("div", null, title, meta, value, action),
+  Notice: ({ title }: { title: string }) => createElement("p", null, title),
   StatusPill: ({ children }: { children: React.ReactNode }) =>
     createElement("span", null, children),
   EmptyPanel: ({ title }: { title: string }) => createElement("p", null, title),
@@ -272,7 +335,7 @@ describe("Admin workspace tabs", () => {
     expect(view).toContain("People");
     expect(view).toContain("Teams");
     expect(view).toContain("Invitations");
-    expect(view).toContain("Organization hierarchy");
+    expect(view).toContain("<h2>Organization</h2>");
   });
   it("preserves the invitation form and authorized accounts in their tab", () => {
     state.tabOverride = "invitations";
@@ -290,9 +353,9 @@ describe("Admin workspace tabs", () => {
       },
     ];
     const view = html(createElement(AdminWorkspace));
-    expect(view).toContain("Add a Sunpride user");
+    expect(view).toContain("Invite person");
     expect(view).toContain("new@example.com");
-    expect(view).toContain("Authorize email address");
+    expect(view).toContain("Send invitation");
   });
 });
 
@@ -304,6 +367,16 @@ describe("Organization admin", () => {
     expect(view).toContain('data-depth="2"');
     expect(view).toContain("inactive");
     expect(view).toContain("Region");
+  });
+  it("keeps hierarchy order even when units arrive code-sorted", () => {
+    state.values["org/queries:tree"] = [area, root, region];
+    const view = html(createElement(OrgAdmin));
+    expect(view.indexOf("Sunpride</span>")).toBeLessThan(
+      view.indexOf("Metro Region</span>"),
+    );
+    expect(view.indexOf("Metro Region</span>")).toBeLessThan(
+      view.indexOf("Manila Area</span>"),
+    );
   });
   it("disables management controls without admin.manage", () => {
     state.values["lib/capabilities:currentPermissions"] = {
