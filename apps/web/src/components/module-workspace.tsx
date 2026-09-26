@@ -8,6 +8,7 @@ import {
   MetricCard,
   PageHeader,
   StatusPill,
+  UnderlineTabs,
   WorkspaceModuleTabs,
   WorkspaceIcon,
   type DataColumn,
@@ -157,11 +158,12 @@ function ScopedPlanPicker({
     paginationOpts: { numItems: 20, cursor },
   });
   return (
-    <div className="space-y-2">
-      <label>
-        Scoped plan{" "}
+    <div className="flex flex-wrap items-end gap-2">
+      <label className="grid min-w-56 flex-1 gap-1.5 text-[13px] font-medium">
+        Plan
         <select
           aria-label="Scoped coverage plan"
+          className="h-10 w-full rounded-[10px] border border-border bg-surface px-3 text-sm text-foreground"
           value={selected?.id ?? ""}
           onChange={(event) => {
             const plan = result?.page.find(
@@ -192,24 +194,28 @@ function ScopedPlanPicker({
           ))}
         </select>
       </label>
-      {result === undefined && <p>Loading scoped plans…</p>}
-      {result && !result.page.length && (
-        <p>No plans on this page. Continue to check more.</p>
+      <Button
+        variant="outline"
+        className="h-10"
+        isDisabled={cursor === null}
+        onPress={() => setCursor(null)}
+      >
+        First page
+      </Button>
+      <Button
+        variant="outline"
+        className="h-10"
+        isDisabled={!result || result.isDone}
+        onPress={() => setCursor(result!.continueCursor)}
+      >
+        Next page
+      </Button>
+      {result === undefined && (
+        <span className="text-[13px] text-muted">Loading plans…</span>
       )}
-      <button
-        type="button"
-        disabled={cursor === null}
-        onClick={() => setCursor(null)}
-      >
-        First plans
-      </button>{" "}
-      <button
-        type="button"
-        disabled={!result || result.isDone}
-        onClick={() => setCursor(result!.continueCursor)}
-      >
-        Next plans
-      </button>
+      {result && !result.page.length && (
+        <span className="text-[13px] text-muted">No plans here</span>
+      )}
     </div>
   );
 }
@@ -235,60 +241,49 @@ export function SalesForcePanels() {
     ["plan", "Plan"],
     ...(canApprove ? ([["review", "Review"]] as [CoverageTab, string][]) : []),
     ["exceptions", "Exceptions"],
-    ["visits", "Planned visits"],
+    ["visits", "Visits"],
     ["history", "History"],
     ["calendar", "Calendar"],
-    ["route", "Territory / route"],
+    ["route", "Routes"],
     ["map", "Map"],
     ["workload", "Workload"],
-    ["export", "Export / print"],
+    ["export", "Export"],
   ];
   return (
-    <div className="grid gap-6">
+    <div className="grid gap-4">
       {canRead && (
-        <section
-          aria-label="Coverage plans"
-          className="grid gap-4 rounded border border-border p-4"
-        >
-          <h2 className="text-lg font-semibold">Coverage plans</h2>
-          <label>
-            Manila month{" "}
-            <input
-              type="month"
-              aria-label="Coverage month"
-              value={month}
-              onChange={(event) => {
-                setMonth(event.target.value);
-                setSelected(null);
-              }}
-            />
-          </label>
-          <PanelErrorBoundary key={month} label="Scoped plan picker">
-            <ScopedPlanPicker
-              key={month}
-              month={month}
-              selected={selected}
-              onSelect={setSelected}
-            />
-          </PanelErrorBoundary>
-          <div
-            role="tablist"
-            aria-label="Master Coverage Plans"
-            className="flex flex-wrap gap-2"
-          >
-            {coverageTabs.map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                role="tab"
-                aria-selected={coverageTab === key}
-                className="rounded border border-border px-3 py-1"
-                onClick={() => setCoverageTab(key)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+        <>
+          <Card label="Plans" icon={<WorkspaceIcon name="field" />}>
+            <div className="grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)] sm:items-end">
+              <label className="grid gap-1.5 text-[13px] font-medium">
+                Month
+                <input
+                  type="month"
+                  aria-label="Coverage month"
+                  className="h-10 w-full rounded-[10px] border border-border bg-surface px-3 text-sm text-foreground"
+                  value={month}
+                  onChange={(event) => {
+                    setMonth(event.target.value);
+                    setSelected(null);
+                  }}
+                />
+              </label>
+              <PanelErrorBoundary key={month} label="Scoped plan picker">
+                <ScopedPlanPicker
+                  key={month}
+                  month={month}
+                  selected={selected}
+                  onSelect={setSelected}
+                />
+              </PanelErrorBoundary>
+            </div>
+          </Card>
+          <UnderlineTabs
+            items={coverageTabs}
+            activeId={coverageTab}
+            onChange={setCoverageTab}
+            label="Coverage views"
+          />
           <div role="tabpanel">
             {coverageTab === "plan" ? (
               <PanelErrorBoundary key="plan" label="Coverage plan">
@@ -360,12 +355,7 @@ export function SalesForcePanels() {
               <p>Select a scoped plan to open this view.</p>
             )}
           </div>
-        </section>
-      )}
-      {panels.editing ? (
-        <h2 className="text-lg font-semibold">Territory coverage editors</h2>
-      ) : (
-        <h2 className="text-lg font-semibold">Scoped route and outlet lists</h2>
+        </>
       )}
       {panels.routes && (
         <PanelErrorBoundary label="Territory and route editor">

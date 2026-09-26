@@ -1,5 +1,7 @@
 "use client";
 
+import { Button } from "@heroui/react";
+import { Card, StatusPill, WorkspaceIcon } from "@sunpride/ui";
 import { api } from "@sunpride/backend/api";
 import type { Doc, Id } from "@sunpride/backend/data-model";
 import { useMutation, useQuery } from "convex/react";
@@ -13,7 +15,8 @@ import {
 } from "../lib/coverage-calendar";
 import { formatManilaDate, manilaDateToUtcMs } from "../lib/manila-date";
 
-const field = "rounded border border-border bg-surface px-2 py-1 text-sm";
+const field =
+  "h-10 rounded-[10px] border border-border bg-surface px-3 text-sm text-foreground";
 type Outlet = FunctionArgs<
   typeof api.coverage.plans.saveOutlets
 >["outlets"][number];
@@ -212,184 +215,194 @@ export function CoveragePlanner() {
     }
   }
   return (
-    <section aria-label="Master Coverage Planner" className="grid gap-4">
-      <h2 className="text-lg font-semibold">Master Coverage Plans</h2>
-      {!canRead ? (
-        <p>MCP read access required.</p>
-      ) : (
-        <>
-          <div className="flex flex-wrap items-end gap-3">
-            <label className="grid gap-1">
-              Assignee
-              <select
-                aria-label="Plan assignee"
-                className={field}
-                value={assignee ?? ""}
-                disabled={permissions?.role === "sales" || !people}
-                onChange={(e) => {
-                  setPerson(e.target.value as Id<"profiles">);
-                  setSelected(null);
-                }}
-              >
-                {self && (
-                  <option value={self}>{profile?.name ?? "My plan"}</option>
-                )}
-                {choices
-                  .filter((p) => p._id !== self)
-                  .map((p) => (
-                    <option key={p._id} value={p._id}>
-                      {p.name} · {p.employeeCode ?? p.email}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            {people && !people.isDone && (
-              <button
-                type="button"
-                className={field}
-                onClick={() => setPeopleCursor(people.continueCursor)}
-              >
-                More scoped people
-              </button>
-            )}
-            <label className="grid gap-1">
-              Manila month{" "}
-              <input
-                aria-label="Plan month"
-                type="month"
-                className={field}
-                value={month}
-                onChange={(e) => {
-                  setMonth(e.target.value);
-                  setSelected(null);
-                }}
-              />
-            </label>
-            <button
-              type="button"
-              className={field}
-              disabled={
-                !canPlan || !assignee || busy || !/^\d{4}-\d{2}$/.test(month)
-              }
-              onClick={() =>
-                assignee &&
-                void action(() =>
-                  create({ assigneeProfileId: assignee, localMonth: month }),
-                )
-              }
-            >
-              New plan
-            </button>
-          </div>
-          <div className="flex flex-wrap gap-2" aria-label="Plan versions">
-            {plans?.map((plan) => (
-              <button
-                type="button"
-                key={plan._id}
-                aria-pressed={selected === plan._id}
-                onClick={() => {
-                  setSelected(plan._id);
-                  setError("");
-                }}
-                className={`${field} ${selected === plan._id ? "border-primary" : ""}`}
-              >
-                v{plan.version}{" "}
-                <span className="rounded bg-muted px-1 font-semibold">
-                  {plan.status}
-                </span>
-              </button>
-            ))}
-            {plans && !plans.length && (
-              <p>No versions for this assignee/month.</p>
-            )}
-          </div>
-          {detail &&
-            detail.plan.assigneeProfileId === assignee &&
-            detail.plan.localMonth === month && (
-              <>
-                <p>
-                  v{detail.plan.version} · {detail.plan.status} ·{" "}
-                  {formatManilaDate(detail.plan.effectiveFrom)} to{" "}
-                  {formatManilaDate(detail.plan.effectiveTo - 1)} · prepared by{" "}
-                  {attribution?.preparedByName ?? "—"}
-                </p>
-                {detail.plan.status === "draft" &&
-                  attribution?.latestReturnReason && (
-                    <aside
-                      role="status"
-                      className="rounded border border-warning p-3"
-                    >
-                      <strong>Returned for changes</strong>
-                      <p>{attribution.latestReturnReason}</p>
-                      <p>Open the History tab for the full plan timeline.</p>
-                    </aside>
+    <Card
+      label="Plans"
+      icon={<WorkspaceIcon name="field" />}
+      count={plans?.length}
+    >
+      <div className="grid gap-4">
+        {!canRead ? (
+          <p>Coverage access required.</p>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="grid gap-1">
+                Assignee
+                <select
+                  aria-label="Plan assignee"
+                  className={field}
+                  value={assignee ?? ""}
+                  disabled={permissions?.role === "sales" || !people}
+                  onChange={(e) => {
+                    setPerson(e.target.value as Id<"profiles">);
+                    setSelected(null);
+                  }}
+                >
+                  {self && (
+                    <option value={self}>{profile?.name ?? "My plan"}</option>
                   )}
-                {(detail.plan.status === "approved" ||
-                  detail.plan.status === "active") && (
-                  <div className="flex flex-wrap items-end gap-2">
-                    <label className="grid gap-1">
-                      Revision effective date (Manila)
-                      <input
-                        className={field}
-                        type="date"
-                        min={currentManilaDate()}
-                        max={`${month}-31`}
-                        value={revisionDate}
-                        onChange={(e) => setRevisionDate(e.target.value)}
-                      />
-                    </label>
-                    <label className="grid gap-1">
-                      Revision reason
-                      <input
-                        className={field}
-                        value={revisionReason}
-                        onChange={(e) => setRevisionReason(e.target.value)}
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      className={field}
-                      disabled={
-                        !canPlan ||
-                        busy ||
-                        !revisionReason.trim() ||
-                        !revisionDate
-                      }
-                      onClick={() => {
-                        if (!revisionReason.trim()) {
-                          setError("Revision reason required");
-                          return;
-                        }
-                        void action(() =>
-                          reviseCoveragePlan(
-                            detail.plan._id,
-                            revisionDate,
-                            revisionReason,
-                            revise,
-                          ),
-                        );
-                      }}
-                    >
-                      Revise
-                    </button>
-                  </div>
-                )}
-                <PlanEditor
-                  key={`${detail.plan._id}:${detail.plan.contentRevision}:${detail.plan.status}`}
-                  detail={detail}
-                  canPlan={canPlan}
+                  {choices
+                    .filter((p) => p._id !== self)
+                    .map((p) => (
+                      <option key={p._id} value={p._id}>
+                        {p.name} · {p.employeeCode ?? p.email}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              {people && !people.isDone && (
+                <button
+                  type="button"
+                  className={field}
+                  onClick={() => setPeopleCursor(people.continueCursor)}
+                >
+                  More people
+                </button>
+              )}
+              <label className="grid gap-1">
+                Month
+                <input
+                  aria-label="Plan month"
+                  type="month"
+                  className={field}
+                  value={month}
+                  onChange={(e) => {
+                    setMonth(e.target.value);
+                    setSelected(null);
+                  }}
                 />
-              </>
+              </label>
+              <Button
+                variant="primary"
+                className="h-10"
+                isDisabled={
+                  !canPlan || !assignee || busy || !/^\d{4}-\d{2}$/.test(month)
+                }
+                onPress={() =>
+                  assignee &&
+                  void action(() =>
+                    create({ assigneeProfileId: assignee, localMonth: month }),
+                  )
+                }
+              >
+                New plan
+              </Button>
+            </div>
+            <div className="flex flex-wrap gap-2" aria-label="Plan versions">
+              {plans?.map((plan) => (
+                <button
+                  type="button"
+                  key={plan._id}
+                  aria-pressed={selected === plan._id}
+                  onClick={() => {
+                    setSelected(plan._id);
+                    setError("");
+                  }}
+                  className={`flex h-10 items-center gap-2 rounded-[10px] border bg-surface px-3 text-sm ${selected === plan._id ? "border-primary" : "border-border"}`}
+                >
+                  <span className="tabular-nums">v{plan.version}</span>
+                  <StatusPill
+                    tone={
+                      plan.status === "active" || plan.status === "approved"
+                        ? "success"
+                        : plan.status === "submitted"
+                          ? "warning"
+                          : "neutral"
+                    }
+                  >
+                    {plan.status}
+                  </StatusPill>
+                </button>
+              ))}
+              {plans && !plans.length && <p>No plans this month</p>}
+            </div>
+            {detail &&
+              detail.plan.assigneeProfileId === assignee &&
+              detail.plan.localMonth === month && (
+                <>
+                  <p>
+                    v{detail.plan.version} · {detail.plan.status} ·{" "}
+                    {formatManilaDate(detail.plan.effectiveFrom)} to{" "}
+                    {formatManilaDate(detail.plan.effectiveTo - 1)} · prepared
+                    by {attribution?.preparedByName ?? "—"}
+                  </p>
+                  {detail.plan.status === "draft" &&
+                    attribution?.latestReturnReason && (
+                      <aside
+                        role="status"
+                        className="rounded border border-warning p-3"
+                      >
+                        <strong>Returned for changes</strong>
+                        <p>{attribution.latestReturnReason}</p>
+                      </aside>
+                    )}
+                  {(detail.plan.status === "approved" ||
+                    detail.plan.status === "active") && (
+                    <div className="flex flex-wrap items-end gap-2">
+                      <label className="grid gap-1">
+                        Revision date
+                        <input
+                          className={field}
+                          type="date"
+                          min={currentManilaDate()}
+                          max={`${month}-31`}
+                          value={revisionDate}
+                          onChange={(e) => setRevisionDate(e.target.value)}
+                        />
+                      </label>
+                      <label className="grid gap-1">
+                        Revision reason
+                        <input
+                          className={field}
+                          value={revisionReason}
+                          onChange={(e) => setRevisionReason(e.target.value)}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className={field}
+                        disabled={
+                          !canPlan ||
+                          busy ||
+                          !revisionReason.trim() ||
+                          !revisionDate
+                        }
+                        onClick={() => {
+                          if (!revisionReason.trim()) {
+                            setError("Revision reason required");
+                            return;
+                          }
+                          void action(() =>
+                            reviseCoveragePlan(
+                              detail.plan._id,
+                              revisionDate,
+                              revisionReason,
+                              revise,
+                            ),
+                          );
+                        }}
+                      >
+                        Revise
+                      </button>
+                    </div>
+                  )}
+                  <PlanEditor
+                    key={`${detail.plan._id}:${detail.plan.contentRevision}:${detail.plan.status}`}
+                    detail={detail}
+                    canPlan={canPlan}
+                  />
+                </>
+              )}
+            {error && (
+              <p role="alert" className="text-danger">
+                {error}
+              </p>
             )}
-          {error && (
-            <p role="alert" className="text-danger">
-              {error}
-            </p>
-          )}
-          {notice && <p role="status">{notice}</p>}
-        </>
-      )}
-    </section>
+            {notice && <p role="status">{notice}</p>}
+          </>
+        )}
+      </div>
+    </Card>
   );
 }
 
@@ -542,7 +555,7 @@ export function PlanEditor({
           aria-label="Coverage warnings"
           className="rounded border border-warning bg-warning/10 p-3"
         >
-          <strong>Advisory warnings (not submission blockers)</strong>
+          <strong>Advisory warnings</strong>
           <ul className="list-inside list-disc">
             {detail.warnings.map((warning, i) => (
               <li key={`${i}:${warning}`}>{warning}</li>
@@ -558,7 +571,7 @@ export function PlanEditor({
           className="flex flex-wrap items-end gap-2 rounded border p-2 text-sm"
           aria-label="Primary coverage assignment"
         >
-          <strong>Primary assignment period (Manila; end exclusive)</strong>
+          <strong>Assignment period</strong>
           <label>
             From{" "}
             <input

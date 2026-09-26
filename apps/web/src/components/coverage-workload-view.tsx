@@ -1,4 +1,6 @@
 "use client";
+import { Button } from "@heroui/react";
+import { Card, ListRow, WorkspaceIcon } from "@sunpride/ui";
 import { api } from "@sunpride/backend/api";
 import type { Id } from "@sunpride/backend/data-model";
 import { useQuery } from "convex/react";
@@ -26,18 +28,14 @@ export function CoverageWorkloadView({
   });
   const options = useCoverageScopeOptions(planId);
   return (
-    <section
-      aria-label="Employee workload"
-      className="space-y-3 rounded border border-border p-4"
+    <Card
+      label="Workload"
+      icon={<WorkspaceIcon name="field" />}
+      count={result?.page.length}
     >
-      <h3 className="font-semibold">Employee workload · {localMonth}</h3>
-      <p className="text-sm">
-        One selected version per employee. Variance is advisory, against the
-        effective daily call standard × planned working days.
-      </p>
-      <div className="flex gap-2">
+      <div className="grid gap-4">
         {planId ? (
-          <>
+          <div className="flex flex-wrap gap-3">
             <CoverageScopeSelect
               label="Territory"
               options={options?.territories ?? []}
@@ -56,46 +54,52 @@ export function CoverageWorkloadView({
                 setCursor(null);
               }}
             />
-          </>
+          </div>
+        ) : null}
+        {result === undefined ? (
+          <p className="text-[13px] text-muted">Loading workload…</p>
+        ) : result.page.length === 0 ? (
+          <p className="text-[13px] text-muted">No employees here</p>
         ) : (
-          <p>Select a plan to filter workload by territory or route.</p>
+          <ul className="overflow-hidden rounded-xl border border-border">
+            {result.page.map((person) => (
+              <li key={person.assigneeProfileId}>
+                <ListRow
+                  icon={<WorkspaceIcon name="field" />}
+                  title={person.assigneeName}
+                  meta={`${person.selection} · ${person.routeCodes.join(", ") || "No route"} · ${person.workingDays.join(", ") || "No working days"}`}
+                  value={
+                    <span className="text-[13px] tabular-nums">
+                      {person.visitCount} calls · {person.durationMinutes} min ·{" "}
+                      {person.dailyCallsTarget === undefined
+                        ? "No target"
+                        : `${person.dailyCallsTarget}/day · ${person.variance! > 0 ? "Over" : person.variance! < 0 ? "Under" : "On"} (${person.variance})`}
+                    </span>
+                  }
+                />
+              </li>
+            ))}
+          </ul>
         )}
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            className="h-10"
+            isDisabled={cursor === null}
+            onPress={() => setCursor(null)}
+          >
+            First page
+          </Button>
+          <Button
+            variant="outline"
+            className="h-10"
+            isDisabled={!result || result.isDone}
+            onPress={() => setCursor(result!.continueCursor)}
+          >
+            Next page
+          </Button>
+        </div>
       </div>
-      {result === undefined ? (
-        <p>Loading workload…</p>
-      ) : result.page.length === 0 ? (
-        <p>No scoped employees on this page.</p>
-      ) : (
-        <ul>
-          {result.page.map((person) => (
-            <li key={person.assigneeProfileId}>
-              <strong>{person.assigneeName}</strong> · {person.selection} ·{" "}
-              {person.routeCodes.join(", ") || "No route"} ·{" "}
-              {person.workingDays.join(", ") || "No working days"} ·{" "}
-              {person.visitCount} calls · {person.durationMinutes} min ·{" "}
-              {person.dailyCallsTarget === undefined
-                ? "No effective standard"
-                : `${person.dailyCallsTarget}/day target · ${person.variance! > 0 ? "Over" : person.variance! < 0 ? "Under" : "On"} target (${person.variance})`}
-            </li>
-          ))}
-        </ul>
-      )}
-      <div className="flex gap-2">
-        <button
-          type="button"
-          disabled={cursor === null}
-          onClick={() => setCursor(null)}
-        >
-          First page
-        </button>
-        <button
-          type="button"
-          disabled={!result || result.isDone}
-          onClick={() => setCursor(result!.continueCursor)}
-        >
-          Next page
-        </button>
-      </div>
-    </section>
+    </Card>
   );
 }

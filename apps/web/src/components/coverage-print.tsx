@@ -1,4 +1,5 @@
 "use client";
+import { Button } from "@heroui/react";
 import type {
   ScheduleFilters,
   ScheduleHeader,
@@ -25,11 +26,15 @@ export function CoveragePrint({
       aria-label="Printable coverage schedule"
     >
       <div className="coverage-print-controls">
-        <button type="button" onClick={() => window.print()}>
-          Print / Save as PDF
-        </button>
+        <Button
+          variant="outline"
+          className="h-10"
+          onPress={() => window.print()}
+        >
+          Print / Save PDF
+        </Button>
       </div>
-      <h2>Master Coverage Plan · {header.localMonth}</h2>
+      <h2>Coverage · {header.localMonth}</h2>
       <p>
         {header.status} · Version {header.version} · {header.assigneeName}
       </p>
@@ -41,8 +46,8 @@ export function CoveragePrint({
         Approved: {header.approvedByName ?? "—"} · {time(header.approvedAt)}
         <br />
         {header.signedHashPrefix
-          ? `Signed hash: ${header.signedHashPrefix}`
-          : "UNAPPROVED — provisional schedule"}
+          ? `Signed: ${header.signedHashPrefix}`
+          : "Not approved"}
       </p>
       <p>
         Territory:{" "}
@@ -57,7 +62,7 @@ export function CoveragePrint({
       <table>
         <thead>
           <tr>
-            <th>Date (Manila)</th>
+            <th>Date</th>
             <th>Stop</th>
             <th>Kind</th>
             <th>Outlet</th>

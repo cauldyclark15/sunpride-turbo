@@ -1,5 +1,7 @@
 "use client";
 
+import { Button } from "@heroui/react";
+import { Card, ListRow, StatusPill, WorkspaceIcon } from "@sunpride/ui";
 import { api } from "@sunpride/backend/api";
 import type { Id } from "@sunpride/backend/data-model";
 import { useConvex, useQuery } from "convex/react";
@@ -49,65 +51,82 @@ export function CoverageExceptions({
       setFresh({ planId, rows: page.page });
     } catch (failure) {
       setError(
-        failure instanceof Error ? failure.message : "Preflight unavailable",
+        failure instanceof Error ? failure.message : "Check unavailable",
       );
     } finally {
       setChecking(false);
     }
   }
   return (
-    <section aria-label="Coverage pre-approval exceptions">
-      <h3>Exception preflight</h3>
-      <p>
-        Provisional policy pending client sign-off: missing verified GPS,
-        duplicate locations and territory-only visits are advisory. Existing
-        approval validation remains blocking.
-      </p>
-      <button type="button" disabled={checking} onClick={recheck}>
-        {checking ? "Checking…" : "Recheck before approval"}
-      </button>
-      {error && <p role="alert">{error}</p>}
-      {result === undefined && <p>Loading scoped exceptions…</p>}
-      {result && !rows.length && (
-        <p>
-          No exceptions on this page. Approval still validates every row
-          atomically.
-        </p>
-      )}
-      {(["blocking", "advisory"] as const).map((severity) => (
-        <div key={severity}>
-          <h4>{severity === "blocking" ? "Blocking" : "Advisory"}</h4>
-          <ul>
-            {grouped[severity].map((row, index) => (
-              <li
-                key={`${row.code}-${row.outletId ?? "plan"}-${row.serviceDate ?? ""}-${index}`}
-              >
-                <strong>{row.code}</strong>{" "}
-                {row.signedHistorical ? "Historical signed issue: " : ""}
-                {row.message} {row.serviceDate ?? ""} — {row.remediation}
-                {row.outletId && (
-                  <span>
-                    {" "}
-                    · Outlet {row.outletId}: open the existing outlet/assignment
-                    editor or edit the draft visit.
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
-      {result && !result.isDone && (
-        <button
-          type="button"
-          onClick={() => {
-            setFresh(null);
-            setPageState({ planId, cursor: result.continueCursor });
-          }}
+    <Card
+      label="Exceptions"
+      icon={<WorkspaceIcon name="field" />}
+      count={rows.length}
+      actions={
+        <Button
+          variant="outline"
+          className="h-8"
+          isDisabled={checking}
+          onPress={() => void recheck()}
         >
-          Next exceptions
-        </button>
-      )}
-    </section>
+          {checking ? "Checking…" : "Recheck"}
+        </Button>
+      }
+    >
+      <div className="grid gap-4">
+        {error && (
+          <p role="alert" className="text-[13px] text-danger">
+            {error}
+          </p>
+        )}
+        {result === undefined && (
+          <p className="text-[13px] text-muted">Loading exceptions…</p>
+        )}
+        {result && !rows.length && (
+          <p className="text-[13px] text-muted">No exceptions here</p>
+        )}
+        {(["blocking", "advisory"] as const).map((severity) =>
+          grouped[severity].length ? (
+            <section key={severity}>
+              <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted">
+                {severity}
+              </h3>
+              <ul className="overflow-hidden rounded-xl border border-border">
+                {grouped[severity].map((row, index) => (
+                  <li
+                    key={`${row.code}-${row.outletId ?? "plan"}-${row.serviceDate ?? ""}-${index}`}
+                  >
+                    <ListRow
+                      icon={<WorkspaceIcon name="field" />}
+                      title={row.message}
+                      meta={`${row.code}${row.serviceDate ? ` · ${row.serviceDate}` : ""}${row.signedHistorical ? " · Historical" : ""} · ${row.remediation}`}
+                      value={
+                        <StatusPill
+                          tone={severity === "blocking" ? "danger" : "warning"}
+                        >
+                          {severity}
+                        </StatusPill>
+                      }
+                    />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null,
+        )}
+        {result && !result.isDone && (
+          <Button
+            variant="outline"
+            className="h-10"
+            onPress={() => {
+              setFresh(null);
+              setPageState({ planId, cursor: result.continueCursor });
+            }}
+          >
+            Next page
+          </Button>
+        )}
+      </div>
+    </Card>
   );
 }

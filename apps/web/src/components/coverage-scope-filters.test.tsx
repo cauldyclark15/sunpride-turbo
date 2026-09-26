@@ -31,7 +31,7 @@ describe("plan-scoped filter picker", () => {
       selected: "",
       onSelect,
     });
-    const select = element.props.children[2];
+    const select = element.props.children[1];
     select.props.onChange({ target: { value: "1" } });
     expect(onSelect).toHaveBeenCalledWith("rs70z603x3c01w");
     expect(selectedScopeId(options, "garbage")).toBe("");
