@@ -46,6 +46,8 @@ interface FieldBackend {
     fun today(deviceId: String, signer: DeviceSigner, sync: Boolean): TodayData = TodayData()
     fun visitHistory(): List<com.sunpride.field.storage.IntentRow> = emptyList()
     fun visitStates(): List<Pair<com.sunpride.field.storage.IntentRow, String>> = emptyList()
+    fun syncStatus(): com.sunpride.field.ui.syncstatus.SyncStatus = com.sunpride.field.ui.syncstatus.SyncStatus()
+    fun schedulePendingWork() {}
     fun queueVisit(kind: String, clientVisitId: String?, checkInRequestId: String?, previousRequestId: String?,
         plannedVisitId: String?, outletId: String, intents: List<String>, unplannedReason: String?, note: String?,
         outcome: String?, reasonCode: String?, location: JSONObject?) { error("No local store") }
@@ -57,7 +59,8 @@ data class VisitDisplay(val outlet: String, val planned: String, val status: Str
 data class TodayData(val visits: List<VisitDisplay> = emptyList(), val lastSynced: Long? = null,
                      val stale: Boolean = true, val warning: String? = null, val updateRequired: Boolean = false,
                      val reviewCount: Int = 0, val queuedCount: Int = 0,
-                     val unplannedOutlets: List<VisitDisplay> = emptyList())
+                     val unplannedOutlets: List<VisitDisplay> = emptyList(),
+                     val syncStatus: com.sunpride.field.ui.syncstatus.SyncStatus = com.sunpride.field.ui.syncstatus.SyncStatus())
 
 class LiveFieldBackend(
     environment: AppEnvironment,
@@ -84,6 +87,17 @@ class LiveFieldBackend(
         finally { store.close() }
     }
     override fun visitHistory() = visitStates().map { it.first }
+    override fun syncStatus(): com.sunpride.field.ui.syncstatus.SyncStatus {
+        val scope = storedScope() ?: return com.sunpride.field.ui.syncstatus.SyncStatus()
+        val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+        return try { runBlocking { store.status() } } finally { store.close() }
+    }
+    override fun schedulePendingWork() {
+        val status = syncStatus()
+        if (status.queued + status.sending > 0 && status.held == 0 &&
+            !status.leaseExpired(System.currentTimeMillis()))
+            com.sunpride.field.sync.work.SyncWork.enqueue(context)
+    }
     override fun queueVisit(kind: String, clientVisitId: String?, checkInRequestId: String?, previousRequestId: String?,
         plannedVisitId: String?, outletId: String, intents: List<String>, unplannedReason: String?, note: String?,
         outcome: String?, reasonCode: String?, location: JSONObject?) {
@@ -94,7 +108,9 @@ class LiveFieldBackend(
                 val intent = com.sunpride.field.ui.diagnosticvisit.VisitIntentFactory.create(scope, kind, clientVisitId,
                     checkInRequestId, previousRequestId, plannedVisitId, outletId, intents, unplannedReason,
                     note, outcome, reasonCode, location)
-                store.enqueue(intent, System.currentTimeMillis())
+                com.sunpride.field.sync.work.QueueScheduler.enqueue(store, intent, System.currentTimeMillis()) {
+                    com.sunpride.field.sync.work.SyncWork.enqueue(context)
+                }
             }
         } finally { store.close() }
     }
@@ -110,7 +126,10 @@ class LiveFieldBackend(
         check(issuer.startsWith("https://") && subject.isNotBlank())
         return "$issuer|$subject"
     }
-    override fun today(deviceId: String, signer: DeviceSigner, sync: Boolean): TodayData {
+    override fun today(deviceId: String, signer: DeviceSigner, sync: Boolean): TodayData =
+        today(deviceId, signer, sync, scheduleRemainder = true)
+
+    fun today(deviceId: String, signer: DeviceSigner, sync: Boolean, scheduleRemainder: Boolean): TodayData {
         val key = sessionKey() ?: return TodayData()
         var subject = prefs.getString("$key.subject", null)
         var fingerprint = prefs.getString("$key.scope", null)
@@ -118,6 +137,7 @@ class LiveFieldBackend(
         var failed = prefs.getBoolean("$key.failed", true)
         val terminal = prefs.getInt("$key.updateVersion", -1) == com.sunpride.field.BuildConfig.VERSION_CODE
         if (sync && !terminal) {
+            com.sunpride.field.diagnostics.SafeLog.event(context, "sync_started")
             try {
                 val authenticated = subjectFromToken()
                 val existing = storedScope()?.takeIf { it.account == authenticated && it.deviceId == deviceId }
@@ -156,9 +176,10 @@ class LiveFieldBackend(
                     try { runBlocking { scoped.syncHealth() } } finally { scoped.close() }
                 }
                 failed = health != "synced"
-                prefs.edit().apply { if (!failed) putLong("$key.synced", System.currentTimeMillis()) }
-                    .putBoolean("$key.failed", failed).apply()
+                com.sunpride.field.diagnostics.SafeLog.event(context, if (failed) "sync_retry" else "sync_complete")
+                prefs.edit().putBoolean("$key.failed", failed).apply()
             } catch (e: Exception) {
+                com.sunpride.field.diagnostics.SafeLog.event(context, "sync_retry")
                 failed = true
                 prefs.edit().putBoolean("$key.failed", true).apply()
                 warning = when (e) {
@@ -216,14 +237,19 @@ class LiveFieldBackend(
                     })
                 }
                 val held = db.rows().heldCount(subject, deviceId)
-                TodayData(decorated, prefs.getLong("$key.synced", 0).takeIf { it > 0 },
+                val result = TodayData(decorated, store.status().lastSuccess,
                     failed || held > 0 || !store.isLeaseValid(System.currentTimeMillis()) || history.any { it.second.state != "done" } ||
                         store.syncHealth() != "synced",
                     warning ?: if (held > 0) "Prior assignment has held visit work — administrator review required"
                         else if (terminal) "Update required" else null,
                     terminal || warning == "Update required",
                     history.count { it.second.state == "review" } + held, history.count { it.second.state == "pending" },
-                    outlets.map { (id, name) -> VisitDisplay(name, "Unplanned", "Reason required", id) })
+                    outlets.map { (id, name) -> VisitDisplay(name, "Unplanned", "Reason required", id) },
+                    store.status())
+                if (scheduleRemainder && sync && result.syncStatus.queued + result.syncStatus.sending > 0 &&
+                    result.syncStatus.held == 0 && !result.syncStatus.leaseExpired(System.currentTimeMillis()))
+                    com.sunpride.field.sync.work.SyncWork.enqueue(context)
+                result
             }
         } finally { db.close() }
     }
@@ -309,6 +335,7 @@ class FieldController(
             if (cached != null) {
                 state = EnrollmentState.Ready(cached)
                 loadToday(sync = false)
+                runCatching { withContext(io) { backend.schedulePendingWork() } }
                 today = today.copy(stale = true, warning = "Offline verification pending")
             }
             refresh()

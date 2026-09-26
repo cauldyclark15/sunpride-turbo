@@ -218,6 +218,41 @@ class EncryptedFieldStoreTest {
         Unit
     }
 
+    @Test fun schedulerRunsOnlyAfterCommittedEnqueue() = runBlocking {
+        ready(store())
+        var scheduled = 0
+        var visibleRequest: String? = null
+        val i = intent()
+        com.sunpride.field.sync.work.QueueScheduler.enqueue(store(), i, 100) {
+            scheduled++
+            visibleRequest = runBlocking { store().pending().single().first.requestId }
+        }
+        assertEquals(i.requestId, visibleRequest)
+        assertEquals(1, scheduled)
+        assertThrows(IllegalStateException::class.java) { runBlocking {
+            com.sunpride.field.sync.work.QueueScheduler.enqueue(store(), intent(), 2000) { scheduled++ }
+        } }
+        assertEquals(1, scheduled)
+        Unit
+    }
+
+    @Test fun statusSurvivesReopenAndAckBeforeDoneClearsQueue() = runBlocking {
+        ready(store())
+        val i = intent()
+        store().enqueue(i, 100)
+        assertEquals("Queued · not synced", store().status().label(100))
+        store().markSending(listOf(i.requestId))
+        assertEquals(1, store().status().sending)
+        db.close(); db = EncryptedFieldDatabase.open(context)
+        assertEquals(1, store().status().sending)
+        store().resetSending()
+        store().recordAck(i.requestId, "server-visit", "[]", 150)
+        store().markSyncSuccess(150)
+        assertEquals("All synced", store().status().label(150))
+        assertEquals(150L, store().status().lastSuccess)
+        Unit
+    }
+
     @Test fun activityRecreationDoesNotLoseCommittedRows() = runBlocking {
         ready(store())
         val i = intent()

@@ -39,6 +39,11 @@ interface FieldStore {
     suspend fun setCursor(cursor: String?)
     suspend fun syncHealth(): String
     suspend fun setSyncHealth(value: String)
+    suspend fun markSyncSuccess(now: Long) { setSyncHealth("synced") }
+    suspend fun markSending(ids: List<String>) {}
+    suspend fun resetSending() {}
+    suspend fun status(offline: Boolean = false): com.sunpride.field.ui.syncstatus.SyncStatus =
+        com.sunpride.field.ui.syncstatus.SyncStatus(offline = offline)
     /** Sign-out, revoke or scope change: freeze pending work for supervised review; never delete it. */
     suspend fun holdForReview()
     suspend fun history(): List<Pair<IntentRow, OutboxRow>> = emptyList()
@@ -54,12 +59,17 @@ object EncryptedFieldDatabase {
             db.execSQL("CREATE TABLE IF NOT EXISTS `deltas` (`account` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `scope` TEXT NOT NULL, `entity` TEXT NOT NULL, `entityId` TEXT NOT NULL, `revision` INTEGER NOT NULL, `json` TEXT, `tombstone` INTEGER NOT NULL, PRIMARY KEY(`account`, `deviceId`, `scope`, `entity`, `entityId`))")
         }
     }
+    val MIGRATION_2_3 = object : Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `partitions` ADD COLUMN `lastSuccessfulSync` INTEGER")
+        }
+    }
     fun open(context: Context): StoreDatabase {
         System.loadLibrary("sqlcipher")
         val passphrase = PassphraseVault(context).passphrase()
         return Room.databaseBuilder(context.applicationContext, StoreDatabase::class.java, PassphraseVault.DB_NAME)
             .openHelperFactory(SupportOpenHelperFactory(passphrase))
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
             .build()
     }
 
@@ -110,7 +120,8 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
                 routeJson = if (header.isNull("route")) null else header.getString("route"),
                 cursor = if (old.held && !releaseHeld) null else cursor, leaseExpiresAt = leaseExpiresAt,
                 cacheExpiresAt = cacheExpiresAt, held = old.held && !releaseHeld,
-                syncHealth = if (old.held && !releaseHeld) "held_for_review" else "synced"))
+                syncHealth = if (old.held && !releaseHeld) "held_for_review" else "synced",
+                lastSuccessfulSync = if (old.held && !releaseHeld) old.lastSuccessfulSync else System.currentTimeMillis()))
             dao.discardOldSnapshots(a, d, s, generation)
             // No intent, ack, or outbox table is touched by promotion or cursor reset.
         }
@@ -178,6 +189,22 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             dao.putPartition(old.copy(syncHealth = value))
         }
     }
+    override suspend fun markSyncSuccess(now: Long) {
+        db.withTransaction {
+            val old = metadata()
+            check(!old.held)
+            dao.putPartition(old.copy(syncHealth = "synced", lastSuccessfulSync = now))
+        }
+    }
+    override suspend fun markSending(ids: List<String>) {
+        db.withTransaction { ids.forEach { check(dao.markSending(a, d, s, it) == 1) } }
+    }
+    override suspend fun resetSending() {
+        db.withTransaction { dao.resetSending(a, d, s) }
+    }
+    override suspend fun status(offline: Boolean): com.sunpride.field.ui.syncstatus.SyncStatus =
+        com.sunpride.field.ui.syncstatus.SyncStatus.fromRoom(dao.partition(a, d, s),
+            dao.outstandingForDevice(a, d), offline)
     override suspend fun history(): List<Pair<IntentRow, OutboxRow>> = dao.allOutbox(a, d, s)
         .map { row -> (dao.intent(a, d, s, row.requestId) ?: error("Orphaned outbox")) to row }
     override suspend fun intent(requestId: String): IntentRow? = dao.intent(a, d, s, requestId)

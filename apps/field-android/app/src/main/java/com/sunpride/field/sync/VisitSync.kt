@@ -104,16 +104,18 @@ class VisitSync(private val gateway: SignedVisitGateway, private val store: Fiel
     }
     private val flight = flights.computeIfAbsent(scope) { Mutex() }
     private val retry = attempts.computeIfAbsent(scope) { java.util.concurrent.atomic.AtomicInteger() }
-    suspend fun sync() = withContext(Dispatchers.IO) {
-        if (!flight.tryLock()) return@withContext
+    suspend fun sync(): Boolean = withContext(Dispatchers.IO) {
+        if (!flight.tryLock()) return@withContext false
         try {
-            if (store.syncHealth() == "held_for_review") return@withContext
+            store.resetSending() // Recover an interrupted send; replay retains the immutable request ID.
+            if (store.syncHealth() == "held_for_review") return@withContext true
             try {
                 pull()
-                push()
+                if (store.isLeaseValid(now())) push() else if (store.pending().isNotEmpty())
+                    throw BootstrapFailure(BootstrapFailure.Kind.RESTART)
                 pull()
                 retry.set(0)
-                store.setSyncHealth("synced")
+                store.markSyncSuccess(now())
             } catch (e: BootstrapFailure) {
                 when (e.kind) {
                     BootstrapFailure.Kind.REMOVED, BootstrapFailure.Kind.UNAUTHORIZED,
@@ -124,13 +126,20 @@ class VisitSync(private val gateway: SignedVisitGateway, private val store: Fiel
                         bootstrap()
                         if (store.syncHealth() != "held_for_review") {
                             freezeInvalidAfterBootstrap()
-                            push(); pull()
+                            if (store.isLeaseValid(now())) push()
+                            pull()
+                            store.markSyncSuccess(now())
                         }
                     }
                     else -> backoff()
                 }
-            } catch (_: Exception) { backoff() }
-        } finally { flight.unlock() }
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (_: Exception) { backoff() }
+            true
+        } finally {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { store.resetSending() }
+            flight.unlock()
+        }
     }
     private suspend fun freezeInvalidAfterBootstrap() {
         val day = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Manila")).toString()
@@ -212,6 +221,7 @@ class VisitSync(private val gateway: SignedVisitGateway, private val store: Fiel
                 ready.add(intent); wire.add(op.toString())
             }
             if (ready.isEmpty()) return
+            store.markSending(ready.map { it.requestId })
             val (code, text) = gateway.post("/mobile/v1/push", VisitCodec.push(scope.deviceId, wire))
             if (code !in 200..299) throw failure(code, text)
             val results = VisitCodec.pushResults(text, ready)

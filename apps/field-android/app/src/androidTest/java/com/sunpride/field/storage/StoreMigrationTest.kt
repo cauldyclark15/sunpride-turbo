@@ -32,4 +32,21 @@ class StoreMigrationTest {
             }
         }
     }
+
+    @Test fun v2ToV3KeepsOutboxAndAddsSyncTimestamp() {
+        val name = "migration-status-v2.db"
+        helper.createDatabase(name, 2).apply {
+            execSQL("INSERT INTO partitions (account,deviceId,scope,syncHealth,held) VALUES ('a','d','s','retry_pending',0)")
+            execSQL("INSERT INTO outbox (account,deviceId,scope,requestId,createdAt,state) VALUES ('a','d','s','r',1,'pending')")
+            close()
+        }
+        helper.runMigrationsAndValidate(name, 3, true, EncryptedFieldDatabase.MIGRATION_2_3).use { db ->
+            db.query("SELECT state FROM outbox WHERE requestId='r'").use { c ->
+                assertEquals(true, c.moveToFirst()); assertEquals("pending", c.getString(0))
+            }
+            db.query("SELECT lastSuccessfulSync FROM partitions WHERE scope='s'").use { c ->
+                assertEquals(true, c.moveToFirst()); assertEquals(true, c.isNull(0))
+            }
+        }
+    }
 }
