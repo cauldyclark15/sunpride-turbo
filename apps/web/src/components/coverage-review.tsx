@@ -1,5 +1,6 @@
 "use client";
 
+import { Card, ListRow, StatusPill, WorkspaceIcon } from "@sunpride/ui";
 import { api } from "@sunpride/backend/api";
 import type { Doc, Id } from "@sunpride/backend/data-model";
 import { useMutation, useQuery } from "convex/react";
@@ -14,7 +15,8 @@ type Permissions = {
   capabilities: string[];
   scopeUnitIds: Id<"orgUnits">[];
 };
-const field = "rounded border border-border bg-surface px-2 py-1 text-sm";
+const field =
+  "h-10 rounded-[10px] border border-border bg-surface px-3 text-sm text-foreground";
 const stamp = (ms?: number) =>
   ms
     ? new Date(ms).toLocaleString("en-PH", {
@@ -115,7 +117,7 @@ function PlanHistory({ planId }: { planId: Id<"coveragePlans"> }) {
     <section aria-label="Plan history" className="grid gap-2">
       <h3 className="font-semibold">Plan history</h3>
       {!rows.length && <p>No history yet.</p>}
-      <ol className="grid gap-2">
+      <ol className="overflow-hidden rounded-xl border border-border">
         {rows.map((event) => {
           const actorName =
             attribution?.eventsActorNames[event._id] ?? "Former user";
@@ -222,29 +224,32 @@ function PlannedVisits({
       {visits && !visits.length && (
         <p>No generated visits for this person and month.</p>
       )}
-      <ul className="grid gap-2">
+      <ul className="overflow-hidden rounded-xl border border-border">
         {visits?.map((visit) => (
-          <li
-            key={visit._id}
-            className="rounded border border-border p-2 text-sm"
-          >
-            <strong>
-              {visit.serviceDate} · {visit.approvedSnapshot.outletCode}{" "}
-              {visit.approvedSnapshot.outletName}
-            </strong>
-            <p>
-              {visit.approvedSnapshot.routeCode ?? "No route"} · stop{" "}
-              {visit.approvedSnapshot.sequence ?? "—"} · v{visit.planVersion} ·{" "}
-              {visit.status}
-            </p>
-            <p>Visit ID: {visit._id}</p>
-            {visit.replacedByVisitId && (
-              <p>Replaced by: {visit.replacedByVisitId}</p>
+          <li key={visit._id} title={`Visit ${visit._id}`}>
+            <ListRow
+              icon={<WorkspaceIcon name="field" />}
+              title={visit.approvedSnapshot.outletName}
+              meta={`${visit.serviceDate} · ${visit.approvedSnapshot.outletCode} · ${visit.approvedSnapshot.routeCode ?? "No route"} · stop ${visit.approvedSnapshot.sequence ?? "—"}`}
+              value={
+                <StatusPill
+                  tone={visit.status === "planned" ? "success" : "neutral"}
+                >
+                  {visit.status}
+                </StatusPill>
+              }
+            />
+            {(visit.replacedByVisitId ||
+              visit.replacementOfVisitId ||
+              visit.cancellationReason) && (
+              <p className="px-4 pb-3 text-[12px] text-muted">
+                {visit.replacedByVisitId &&
+                  `Replaced by ${visit.replacedByVisitId} · `}
+                {visit.replacementOfVisitId &&
+                  `Replaces ${visit.replacementOfVisitId} · `}
+                {visit.cancellationReason}
+              </p>
             )}
-            {visit.replacementOfVisitId && (
-              <p>Replaces: {visit.replacementOfVisitId}</p>
-            )}
-            {visit.cancellationReason && <p>{visit.cancellationReason}</p>}
           </li>
         ))}
       </ul>
@@ -286,7 +291,7 @@ function SlotRow({
       {slot.namedTruckRef && <span> · truck {slot.namedTruckRef}</span>}
       {slot.kind === "outlet_visit" && (
         <p>
-          {frozen ? "Frozen" : "Current at service date"}: customer{" "}
+          {frozen ? "Frozen" : "Current"}: customer{" "}
           {frozen?.customerId ??
             current?.customerLink?.customerId ??
             "Prospect / unlinked"}{" "}
@@ -362,145 +367,153 @@ function SelectedPlan({
     }
   }
   return (
-    <section
-      aria-label="Selected coverage plan"
-      className="grid gap-3 rounded border border-border p-3"
+    <Card
+      label={mode === "review" ? "Review" : "History"}
+      icon={<WorkspaceIcon name="field" />}
     >
-      <h3 className="font-semibold">
-        {month} · version {plan.version} ·{" "}
-        <span className="rounded bg-muted px-2 py-1 text-sm">
-          {coverageStatus(plan)}
-        </span>
-      </h3>
-      <p>
-        Prepared by {attribution?.preparedByName ?? "—"} ·{" "}
-        {stamp(plan.preparedAt)}; submitted by{" "}
-        {attribution?.submittedByName ?? "—"} · {stamp(plan.submittedAt)}
-      </p>
-      {plan.approvedBy && (
-        <p>
-          Approved by {attribution?.approvedByName ?? "—"} ·{" "}
-          {stamp(plan.approvedAt)}
-        </p>
-      )}
-      {plan.basedOnPlanId && (
-        <p>
-          Revision of {plan.basedOnPlanId}; reason: {plan.revisionReason ?? "—"}
-        </p>
-      )}
-      {warnings.length > 0 && (
-        <aside aria-label="Coverage warnings">
-          <strong>Advisory warnings</strong>
-          <ul>
-            {warnings.map((w, i) => (
-              <li key={`${i}:${w}`}>{w}</li>
-            ))}
-          </ul>
-        </aside>
-      )}
-      <h4 className="font-semibold">Dated slots</h4>
-      <ul className="grid gap-2">
-        {slots.map((slot) => (
-          <SlotRow
-            key={slot._id}
-            slot={slot}
-            canOutletRead={canOutletRead}
-            canRouteRead={canRouteRead}
-          />
-        ))}
-      </ul>
-      {mode === "review" && canApprove && plan.status === "submitted" && (
-        <div className="grid gap-2">
-          {blocked && <p role="status">{blocked}</p>}
-          <label>
-            Return reason{" "}
-            <input
-              aria-label="Return reason"
-              className={field}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-            />
-          </label>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              className={field}
-              disabled={busy || !!blocked || !reason.trim()}
-              onClick={() =>
-                void act(
-                  () => returnCoveragePlan(planId, reason, returned),
-                  "Returned to draft with reason.",
-                )
-              }
-            >
-              Return with reason
-            </button>
-            <button
-              type="button"
-              className={field}
-              disabled={busy || !!blocked}
-              onClick={() =>
-                void act(
-                  () => approveCoveragePlan(planId, approve),
-                  "Plan approved and signed.",
-                )
-              }
-            >
-              Approve
-            </button>
-          </div>
+      <div className="grid gap-3">
+        <div className="flex flex-wrap items-center gap-2 text-[13px] text-muted">
+          {month} · v{plan.version}
+          <StatusPill
+            tone={
+              plan.status === "active" || plan.status === "approved"
+                ? "success"
+                : plan.status === "submitted"
+                  ? "warning"
+                  : "neutral"
+            }
+          >
+            {coverageStatus(plan)}
+          </StatusPill>
         </div>
-      )}
-      {mode === "review" &&
-        canApprove &&
-        (plan.status === "approved" || plan.status === "active") && (
-          <div>
-            {!effective && (
-              <p role="status">
-                Approved plan not yet effective; scheduled activation will
-                generate visits at its effective start.
-              </p>
-            )}
-            <button
-              type="button"
-              className={field}
-              disabled={busy || !effective}
-              onClick={() =>
-                void act(async () => {
-                  const result = await activateCoveragePlan(planId, activate);
-                  setGenerated(
-                    result as {
-                      count: number;
-                      visitIds: Id<"plannedVisits">[];
-                    },
-                  );
-                }, "Planned visits reconciled.")
-              }
-            >
-              Generate / reconcile planned visits
-            </button>
-            {generated && (
-              <p role="status">
-                {generated.count} planned visit(s):{" "}
-                {generated.visitIds.join(", ") || "none"}
-              </p>
-            )}
+        <p>
+          Prepared by {attribution?.preparedByName ?? "—"} ·{" "}
+          {stamp(plan.preparedAt)}; submitted by{" "}
+          {attribution?.submittedByName ?? "—"} · {stamp(plan.submittedAt)}
+        </p>
+        {plan.approvedBy && (
+          <p>
+            Approved by {attribution?.approvedByName ?? "—"} ·{" "}
+            {stamp(plan.approvedAt)}
+          </p>
+        )}
+        {plan.basedOnPlanId && (
+          <p>
+            Revision of {plan.basedOnPlanId}; reason:{" "}
+            {plan.revisionReason ?? "—"}
+          </p>
+        )}
+        {warnings.length > 0 && (
+          <aside aria-label="Coverage warnings">
+            <strong>Advisory warnings</strong>
+            <ul>
+              {warnings.map((w, i) => (
+                <li key={`${i}:${w}`}>{w}</li>
+              ))}
+            </ul>
+          </aside>
+        )}
+        <h4 className="font-semibold">Dated slots</h4>
+        <ul className="grid gap-2">
+          {slots.map((slot) => (
+            <SlotRow
+              key={slot._id}
+              slot={slot}
+              canOutletRead={canOutletRead}
+              canRouteRead={canRouteRead}
+            />
+          ))}
+        </ul>
+        {mode === "review" && canApprove && plan.status === "submitted" && (
+          <div className="grid gap-2">
+            {blocked && <p role="status">{blocked}</p>}
+            <label>
+              Return reason{" "}
+              <input
+                aria-label="Return reason"
+                className={field}
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+              />
+            </label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className={field}
+                disabled={busy || !!blocked || !reason.trim()}
+                onClick={() =>
+                  void act(
+                    () => returnCoveragePlan(planId, reason, returned),
+                    "Returned to draft with reason.",
+                  )
+                }
+              >
+                Return plan
+              </button>
+              <button
+                type="button"
+                className={field}
+                disabled={busy || !!blocked}
+                onClick={() =>
+                  void act(
+                    () => approveCoveragePlan(planId, approve),
+                    "Plan approved and signed.",
+                  )
+                }
+              >
+                Approve
+              </button>
+            </div>
           </div>
         )}
-      {error && (
-        <p role="alert" className="text-danger">
-          {error}
-        </p>
-      )}
-      {notice && <p role="status">{notice}</p>}
-      {mode === "review" &&
-        (plan.status === "approved" ||
-          plan.status === "active" ||
-          plan.status === "superseded") && (
-          <PlannedVisits personId={personId} month={month} />
+        {mode === "review" &&
+          canApprove &&
+          (plan.status === "approved" || plan.status === "active") && (
+            <div>
+              {!effective && (
+                <p role="status">Activation starts on the effective date.</p>
+              )}
+              <button
+                type="button"
+                className={field}
+                disabled={busy || !effective}
+                onClick={() =>
+                  void act(async () => {
+                    const result = await activateCoveragePlan(planId, activate);
+                    setGenerated(
+                      result as {
+                        count: number;
+                        visitIds: Id<"plannedVisits">[];
+                      },
+                    );
+                  }, "Planned visits reconciled.")
+                }
+              >
+                Generate visits
+              </button>
+              {generated && (
+                <p role="status">
+                  {generated.count} planned visit(s):{" "}
+                  {generated.visitIds.join(", ") || "none"}
+                </p>
+              )}
+            </div>
+          )}
+        {error && (
+          <p role="alert" className="text-danger">
+            {error}
+          </p>
         )}
-      {mode === "history" && <PlanHistory key={planId} planId={planId} />}
-    </section>
+        {notice && <p role="status">{notice}</p>}
+        {mode === "review" &&
+          (plan.status === "approved" ||
+            plan.status === "active" ||
+            plan.status === "superseded") && (
+            <PlannedVisits personId={personId} month={month} />
+          )}
+        {mode === "history" && <PlanHistory key={planId} planId={planId} />}
+      </div>
+    </Card>
   );
 }
 
@@ -545,15 +558,17 @@ export function CoverageReview({
       : "skip",
   );
   if (!canRead || (mode === "review" && !canApprove))
-    return <p>MCP access required.</p>;
+    return <p>Coverage access required.</p>;
   if (scopedSelection)
     return (
       <section aria-label={`Coverage ${mode}`}>
         {mode === "visits" ? (
-          <PlannedVisits
-            personId={scopedSelection.assigneeProfileId}
-            month={scopedSelection.localMonth}
-          />
+          <Card label="Visits" icon={<WorkspaceIcon name="field" />}>
+            <PlannedVisits
+              personId={scopedSelection.assigneeProfileId}
+              month={scopedSelection.localMonth}
+            />
+          </Card>
         ) : (
           <SelectedPlan
             key={scopedSelection.planId}
@@ -588,7 +603,7 @@ export function CoverageReview({
     <section aria-label={`Coverage ${mode}`} className="grid gap-3">
       <div className="flex flex-wrap items-end gap-2">
         <label>
-          Manila month{" "}
+          Month
           <input
             aria-label="Coverage month"
             className={field}
@@ -627,7 +642,7 @@ export function CoverageReview({
       {mode !== "visits" && (
         <>
           <h3 className="font-semibold">
-            {mode === "history" ? "Plan versions" : "Submitted plans in scope"}
+            {mode === "history" ? "Plan versions" : "Submitted plans"}
           </h3>
           <div className="flex flex-wrap gap-2">
             {visible.map((p) => (
@@ -662,9 +677,7 @@ export function CoverageReview({
       {mode === "visits" && selectedPerson && (
         <PlannedVisits personId={selectedPerson} month={month} />
       )}
-      {!selectedPerson && mode !== "review" && (
-        <p>No scoped assignee available.</p>
-      )}
+      {!selectedPerson && mode !== "review" && <p>No assignee available</p>}
       {selected && mode !== "visits" && (
         <SelectedPlan
           key={selected}

@@ -119,7 +119,17 @@ vi.mock("@sunpride/ui", () => ({
   WorkspaceModuleTabs: () => null,
   WorkspaceIcon: () => null,
   Card: ({ label, children }: { label: string; children: React.ReactNode }) =>
-    createElement("section", { "data-label": label }, children),
+    createElement("section", { "data-label": label }, label, children),
+  UnderlineTabs: ({
+    items,
+  }: {
+    items: readonly (readonly [string, string])[];
+  }) =>
+    createElement(
+      "nav",
+      null,
+      items.map(([id, label]) => createElement("button", { key: id }, label)),
+    ),
   MetricCard: ({
     label,
     value,
@@ -204,9 +214,9 @@ describe("calm generic modules", () => {
 describe("sales force coverage module", () => {
   it("mounts planner and all four tabs for manager", () => {
     const html = render();
-    expect(html).toContain("Coverage plans");
+    expect(html).toContain("Plans");
     expect(html).toContain("Mounted planner");
-    for (const tab of ["Plan", "Review", "Planned visits", "History"])
+    for (const tab of ["Plan", "Review", "Visits", "History"])
       expect(html).toContain(`>${tab}</button>`);
   });
   it("sales sees own planner, visits and history, but cannot review", () => {
@@ -219,7 +229,7 @@ describe("sales force coverage module", () => {
     expect(render()).not.toContain(">Review</button>");
     state.tab = "visits";
     const html = render();
-    expect(html).toContain("Planned visits");
+    expect(html).toContain("Visits");
     expect(state.calls.some((c) => c.name === "people/queries:list")).toBe(
       false,
     );
@@ -254,7 +264,7 @@ describe("sales force coverage module", () => {
       capabilities: ["mcp.read", "people.read"],
       scopeUnitIds: ["unit"],
     };
-    expect(render()).toContain("Coverage plans");
+    expect(render()).toContain("Plans");
     state.profile.status = "disabled";
     expect(render()).toContain("Access denied");
     expect(
@@ -267,7 +277,7 @@ describe("sales force coverage module", () => {
   });
   it("hides all coverage panels when current permissions deny mcp.read and skips denied queries", () => {
     state.permissions.capabilities = [];
-    expect(render()).not.toContain("Coverage plans");
+    expect(render()).not.toContain("Plans");
     expect(
       state.calls.some(
         (c) =>
@@ -285,11 +295,11 @@ describe("sales force coverage module", () => {
     const html = render();
     for (const tab of [
       "Calendar",
-      "Territory / route",
+      "Routes",
       "Map",
       "Workload",
       "Exceptions",
-      "Export / print",
+      "Export",
     ])
       expect(html).toContain(`>${tab}</button>`);
     expect(html).not.toContain(">Review</button>");

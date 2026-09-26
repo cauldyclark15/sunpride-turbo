@@ -1,5 +1,7 @@
 "use client";
 
+import { Button } from "@heroui/react";
+import { Card, StatusPill, WorkspaceIcon } from "@sunpride/ui";
 import { api } from "@sunpride/backend/api";
 import type { Id } from "@sunpride/backend/data-model";
 import { useQuery } from "convex/react";
@@ -110,71 +112,90 @@ export function CoverageMapView({ planId }: { planId: Id<"coveragePlans"> }) {
   const rows = result?.page ?? [];
   const options = useCoverageScopeOptions(planId);
   return (
-    <section aria-label="Coverage outlet map">
-      <h3>Verified outlet pins and route stops</h3>
-      <CoverageScopeSelect
-        label="Territory"
-        options={options?.territories ?? []}
-        selected={territoryId ?? ""}
-        onSelect={(id) => {
-          setTerritoryId((id as Id<"territories">) || undefined);
-          setCursor(null);
-        }}
-      />
-      <CoverageScopeSelect
-        label="Route"
-        options={options?.routes ?? []}
-        selected={routeId ?? ""}
-        onSelect={(id) => {
-          setRouteId((id as Id<"routes">) || undefined);
-          setCursor(null);
-        }}
-      />
-      {result === undefined ? (
-        <p>Loading scoped outlets…</p>
-      ) : (
-        <>
-          <TileMap rows={rows} />
-          <table>
-            <caption>Outlet list (available even if tiles fail)</caption>
-            <thead>
-              <tr>
-                <th>Stop</th>
-                <th>Outlet</th>
-                <th>Plan</th>
-                <th>Assignment</th>
-                <th>Pin</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.outletId}>
-                  <td>{row.sequence ?? "—"}</td>
-                  <td>
-                    {row.outletCode} · {row.outletName}
-                  </td>
-                  <td>{row.inPlan ? "Planned" : "Uncovered"}</td>
-                  <td>{row.assigned ? "Assigned" : "Unassigned"}</td>
-                  <td>
-                    {row.pinStatus === "verified"
-                      ? "Verified"
-                      : "Unmapped (no verified pin)"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!rows.length && <p>No visible outlets on this page.</p>}
-          {!result.isDone && (
-            <button
-              type="button"
-              onClick={() => setCursor(result.continueCursor)}
-            >
-              Next outlets
-            </button>
-          )}
-        </>
-      )}
-    </section>
+    <Card label="Map" count={rows.length} icon={<WorkspaceIcon name="field" />}>
+      <div className="grid gap-4">
+        <div className="flex flex-wrap gap-3">
+          <CoverageScopeSelect
+            label="Territory"
+            options={options?.territories ?? []}
+            selected={territoryId ?? ""}
+            onSelect={(id) => {
+              setTerritoryId((id as Id<"territories">) || undefined);
+              setCursor(null);
+            }}
+          />
+          <CoverageScopeSelect
+            label="Route"
+            options={options?.routes ?? []}
+            selected={routeId ?? ""}
+            onSelect={(id) => {
+              setRouteId((id as Id<"routes">) || undefined);
+              setCursor(null);
+            }}
+          />
+        </div>
+        {result === undefined ? (
+          <p>Loading outlets…</p>
+        ) : (
+          <>
+            <TileMap rows={rows} />
+            <div className="overflow-x-auto rounded-xl border border-border">
+              <table className="w-full text-left text-[13px]">
+                <thead className="border-b border-separator text-[11px] uppercase tracking-wide text-muted">
+                  <tr>
+                    <th>Stop</th>
+                    <th>Outlet</th>
+                    <th>Plan</th>
+                    <th>Assignment</th>
+                    <th>Pin</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row) => (
+                    <tr key={row.outletId}>
+                      <td>{row.sequence ?? "—"}</td>
+                      <td>
+                        {row.outletCode} · {row.outletName}
+                      </td>
+                      <td>
+                        <StatusPill tone={row.inPlan ? "success" : "neutral"}>
+                          {row.inPlan ? "Planned" : "Uncovered"}
+                        </StatusPill>
+                      </td>
+                      <td>
+                        <StatusPill tone={row.assigned ? "success" : "neutral"}>
+                          {row.assigned ? "Assigned" : "Unassigned"}
+                        </StatusPill>
+                      </td>
+                      <td>
+                        <StatusPill
+                          tone={
+                            row.pinStatus === "verified" ? "success" : "neutral"
+                          }
+                        >
+                          {row.pinStatus === "verified"
+                            ? "Verified"
+                            : "Unmapped"}
+                        </StatusPill>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {!rows.length && <p>No outlets here</p>}
+            {!result.isDone && (
+              <Button
+                variant="outline"
+                className="h-10"
+                onPress={() => setCursor(result.continueCursor)}
+              >
+                Next page
+              </Button>
+            )}
+          </>
+        )}
+      </div>
+    </Card>
   );
 }

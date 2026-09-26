@@ -33,7 +33,7 @@ it("shows only selected version's load and advisory target variance", () => {
   );
   expect(html).toContain("active v2");
   expect(html).toContain("18 calls");
-  expect(html).toContain("Over target (3)");
+  expect(html).toContain("Over (3)");
   expect(html).toContain("No route");
   expect(html).toContain("DEMO-T1 · Demo North Metro Territory");
   expect(html).toContain("DEMO-R1 · Demo City Route");

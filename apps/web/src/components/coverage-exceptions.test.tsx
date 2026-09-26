@@ -31,5 +31,5 @@ it("separates actionable blockers and provisional advisories", () => {
   );
   expect(html).toContain("No route");
   expect(html).toContain("Inactive");
-  expect(html).toContain("Recheck before approval");
+  expect(html).toContain("Recheck");
 });

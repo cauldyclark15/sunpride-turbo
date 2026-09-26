@@ -35,9 +35,10 @@ export function CoverageScopeSelect({
 }) {
   const position = options.findIndex((option) => option.id === selected);
   return (
-    <label>
-      {label}{" "}
+    <label className="grid min-w-40 gap-1.5 text-[13px] font-medium">
+      {label}
       <select
+        className="h-10 rounded-[10px] border border-border bg-surface px-3 text-sm text-foreground"
         aria-label={label}
         value={position < 0 ? "" : String(position)}
         onChange={(event) =>
