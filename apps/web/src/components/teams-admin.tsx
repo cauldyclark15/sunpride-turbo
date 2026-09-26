@@ -175,7 +175,7 @@ export function TeamsAdmin() {
       render: (row) => (
         <Button
           size="sm"
-          variant="secondary"
+          variant="outline"
           onPress={() => {
             setSelectedId(row._id);
             setHistoryProfileId(null);
@@ -263,7 +263,7 @@ export function TeamsAdmin() {
                         <span className="flex gap-2">
                           <Button
                             size="sm"
-                            variant="secondary"
+                            variant="outline"
                             onPress={() => setHistoryProfileId(profile._id)}
                           >
                             History
@@ -290,7 +290,7 @@ export function TeamsAdmin() {
               {canManage && activeTeam ? (
                 <div className="flex gap-2">
                   <Button
-                    variant="secondary"
+                    variant="outline"
                     onPress={() => {
                       setAction("add");
                       setError("");
@@ -474,7 +474,7 @@ export function TeamsAdmin() {
               </Button>
               <Button
                 type="button"
-                variant="secondary"
+                variant="outline"
                 onPress={() => setAction(null)}
               >
                 Cancel

@@ -441,7 +441,7 @@ export function OrgAdmin() {
               </Button>
               <Button
                 type="button"
-                variant="secondary"
+                variant="outline"
                 className="h-10"
                 onPress={() => setChoice(null)}
               >

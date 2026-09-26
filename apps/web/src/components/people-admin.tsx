@@ -194,7 +194,7 @@ export function PeopleAdmin() {
         <span className="flex gap-2">
           <Button
             size="sm"
-            variant="secondary"
+            variant="outline"
             isDisabled={
               !canManage ||
               row.role === "super_admin" ||
@@ -214,7 +214,7 @@ export function PeopleAdmin() {
           </Button>
           <Button
             size="sm"
-            variant="secondary"
+            variant="outline"
             onPress={() => setHistoryId(row._id)}
           >
             History
@@ -396,7 +396,7 @@ export function PeopleAdmin() {
               </Button>
               <Button
                 type="button"
-                variant="secondary"
+                variant="outline"
                 onPress={() => setSelectedId(null)}
               >
                 Cancel
@@ -418,7 +418,7 @@ export function PeopleAdmin() {
           actions={
             <Button
               size="sm"
-              variant="secondary"
+              variant="outline"
               onPress={() => setHistoryId(null)}
             >
               Close

@@ -608,7 +608,7 @@ function FieldWorkspace({ user }: { user: { name: string; role: string } }) {
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-warning-soft p-3 text-warning-soft-foreground">
             <p className="text-sm font-medium">Open route to take orders</p>
             <Button
-              variant="secondary"
+              variant="outline"
               className="h-10"
               isPending={routeBusy}
               isDisabled={!online || !truckLocations?.length || !deviceState}
@@ -716,7 +716,7 @@ function ProvisionedWorkspace() {
           <p className="mt-3 text-sm leading-6 text-muted">{accessError}</p>
           <Button
             className="mt-6 w-full"
-            variant="secondary"
+            variant="outline"
             onPress={() => void authClient.signOut()}
           >
             Sign out

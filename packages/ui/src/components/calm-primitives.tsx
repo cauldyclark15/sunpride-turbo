@@ -147,7 +147,7 @@ export function UnderlineTabs<T extends string>({
   return (
     <nav
       aria-label={label}
-      className="flex overflow-x-auto border-b border-separator"
+      className="flex gap-6 overflow-x-auto border-b border-separator"
     >
       {items.map(([id, text]) => (
         <Button
@@ -155,7 +155,7 @@ export function UnderlineTabs<T extends string>({
           variant="ghost"
           aria-current={id === activeId ? "page" : undefined}
           onPress={() => onChange(id)}
-          className={`h-10 min-h-10 shrink-0 rounded-none border-b-2 px-3 text-sm ${id === activeId ? "border-accent bg-transparent font-semibold text-foreground" : "border-transparent bg-transparent text-muted hover:text-foreground"}`}
+          className={`h-10 min-h-10 min-w-0 shrink-0 rounded-none border-b-2 px-0 text-sm ${id === activeId ? "border-accent bg-transparent font-semibold text-foreground" : "border-transparent bg-transparent text-muted hover:text-foreground"}`}
         >
           {text}
         </Button>
@@ -184,6 +184,8 @@ export function Pager({
   onNext: () => void;
   label?: string;
 }) {
+  // One page means nothing to page through: render nothing.
+  if (!canPrevious && !canNext) return null;
   return (
     <nav
       aria-label={label}

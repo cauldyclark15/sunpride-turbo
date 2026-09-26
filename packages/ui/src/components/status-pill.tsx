@@ -9,6 +9,12 @@ const tones = {
 
 export type StatusTone = keyof typeof tones;
 
+/** "super_admin" / "in progress" → "Super admin". Other content passes through. */
+export function statusLabel(value: string): string {
+  const text = value.replaceAll("_", " ").trim();
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 export function StatusPill({
   children,
   tone = "neutral",
@@ -20,7 +26,7 @@ export function StatusPill({
     <span
       className={`inline-flex w-fit items-center rounded-md px-2 py-0.5 text-xs font-medium ${tones[tone]}`}
     >
-      {children}
+      {typeof children === "string" ? statusLabel(children) : children}
     </span>
   );
 }

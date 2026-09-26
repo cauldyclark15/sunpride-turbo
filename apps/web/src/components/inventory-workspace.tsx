@@ -265,7 +265,7 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
           meta={
             !inventoryReady ? (
               <Button
-                variant="secondary"
+                variant="outline"
                 className="mt-2 h-8 min-h-8"
                 isPending={busy}
                 onPress={() => void setupInventory()}
@@ -599,7 +599,7 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                     {row.status === "requested" ? (
                       <Button
                         size="sm"
-                        variant="secondary"
+                        variant="outline"
                         onPress={() =>
                           void execute(
                             () => approveTransfer({ transferId: row._id }),
@@ -613,7 +613,7 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                     {row.status === "approved" ? (
                       <Button
                         size="sm"
-                        variant="secondary"
+                        variant="outline"
                         onPress={() =>
                           void execute(
                             () =>
@@ -663,7 +663,7 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                 <Button
                   key={location._id}
                   size="sm"
-                  variant="secondary"
+                  variant="outline"
                   isPending={busy}
                   onPress={() =>
                     void execute(
@@ -864,7 +864,7 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
           </OperationPanel>
           <OperationPanel title="Differences">
             <Button
-              variant="secondary"
+              variant="outline"
               isPending={busy}
               onPress={() =>
                 void execute(
@@ -932,7 +932,7 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
             <Button
               className="mt-4"
               size="sm"
-              variant="secondary"
+              variant="outline"
               onPress={() => movements.loadMore(25)}
             >
               Load more

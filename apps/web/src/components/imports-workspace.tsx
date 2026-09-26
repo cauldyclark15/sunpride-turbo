@@ -430,7 +430,7 @@ function ImportSection({
         <div className="flex items-center gap-2">
           {isOperational(kind) ? (
             <Button
-              variant="secondary"
+              variant="outline"
               className="h-10"
               onPress={() =>
                 downloadCsv(
@@ -491,7 +491,7 @@ function ImportSection({
         ) : null}
         {[...state.parseErrors, ...state.previewErrors].length > 0 ? (
           <Button
-            variant="secondary"
+            variant="outline"
             className="h-10"
             onPress={() =>
               downloadCsv(
@@ -606,7 +606,7 @@ function ImportSection({
               hasHeaderProblem
             }
             onPress={() => void preview()}
-            variant="secondary"
+            variant="outline"
             className="h-10"
           >
             Preview file
@@ -624,7 +624,7 @@ function ImportSection({
                 : "Import file"}
           </Button>
           <Button
-            variant="secondary"
+            variant="outline"
             className="h-10"
             isDisabled={busy}
             onPress={() => setState(emptyFileState())}
@@ -1053,7 +1053,7 @@ function McpSection() {
         actions={
           <div className="flex items-center gap-2">
             <Button
-              variant="secondary"
+              variant="outline"
               className="h-10"
               onPress={() =>
                 downloadCsv(
@@ -1163,7 +1163,7 @@ function McpSection() {
           </div>
           {discovery && !discovery.isDone && (
             <Button
-              variant="secondary"
+              variant="outline"
               className="h-10"
               onPress={() => setCursor(discovery.continueCursor)}
             >
@@ -1179,7 +1179,7 @@ function McpSection() {
             <>
               <ErrorTable errors={errors} title="Rejected rows" />
               <Button
-                variant="secondary"
+                variant="outline"
                 className="h-10"
                 onPress={() => downloadCsv("mcp-errors.csv", errorCsv(errors))}
               >
@@ -1204,7 +1204,7 @@ function McpSection() {
           )}
           <div className="flex gap-2">
             <Button
-              variant="secondary"
+              variant="outline"
               className="h-10"
               isDisabled={
                 !planId || !file?.rows.length || !!file.errors.length || busy
@@ -1253,7 +1253,7 @@ function McpSection() {
           ))}
           {history && !history.isDone && (
             <Button
-              variant="secondary"
+              variant="outline"
               className="m-4 h-10"
               onPress={() => setHistoryCursor(history.continueCursor)}
             >

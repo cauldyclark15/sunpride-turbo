@@ -17,7 +17,7 @@ export function WorkspaceModuleTabs({
   return (
     <nav
       aria-label="Module sections"
-      className="-mx-1 flex gap-1 overflow-x-auto border-b border-separator px-1"
+      className="flex gap-6 overflow-x-auto border-b border-separator"
     >
       {items.map((item) => {
         const isCurrent = activeHref === item.href;
@@ -27,7 +27,7 @@ export function WorkspaceModuleTabs({
             key={item.id}
             aria-current={isCurrent ? "page" : undefined}
             variant="ghost"
-            className={`relative h-10 min-h-10 min-w-max rounded-none border-b-2 bg-transparent px-3 text-sm ${
+            className={`relative h-10 min-h-10 min-w-max rounded-none border-b-2 bg-transparent px-0 text-sm ${
               isCurrent
                 ? "border-accent bg-transparent font-semibold text-foreground"
                 : "border-transparent bg-transparent text-muted hover:text-foreground"
