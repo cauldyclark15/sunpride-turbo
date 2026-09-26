@@ -1,6 +1,7 @@
 package com.sunpride.field.auth
 
 import com.sunpride.field.AppEnvironment
+import okhttp3.CookieJar
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -14,6 +15,7 @@ import java.util.concurrent.TimeUnit
 internal val JSON_MEDIA = "application/json".toMediaType()
 
 fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
+    .cookieJar(CookieJar.NO_COOKIES) // Set-Cookie is not an auth source or persisted by OkHttp
     .followRedirects(false) // a redirect must never carry the bearer to another host
     .followSslRedirects(false)
     .connectTimeout(15, TimeUnit.SECONDS)
@@ -23,8 +25,10 @@ fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
 
 /**
  * Better Auth session (persisted in [vault]) and the short-lived Convex JWT (memory only).
- * Wire, verified on DEV: sign-in POST without any Origin header -> `set-auth-token` response header;
- * GET `/api/auth/convex/token` with the session bearer -> `{token}` (15-minute `aud=convex` JWT).
+ * Wire, verified on DEV: sign-in POST without any Origin header returns a top-level JSON `token`
+ * and Set-Cookie but no `set-auth-token` header. Prefer that header when available, otherwise
+ * use the body token; exchange the session bearer at GET `/api/auth/convex/token` for the
+ * short-lived Convex JWT (15-minute `aud=convex`). Cookies are not retained.
  * Blocking; call off the main thread.
  */
 class AuthClient(
@@ -51,7 +55,10 @@ class AuthClient(
                 code == 429 -> throw AuthFailure(AuthFailure.Kind.RATE_LIMITED)
                 code !in 200..299 -> throw AuthFailure(AuthFailure.Kind.SERVER)
             }
-            response.header(SESSION_HEADER)?.trim()?.takeIf { it.isNotEmpty() }
+            val token = response.header(SESSION_HEADER)
+                ?: (JSONObject(response.body?.string().orEmpty()).opt("token") as? String)
+            token?.takeIf { it.length in 1..MAX_SESSION_TOKEN_LENGTH &&
+                it.none { char -> char.isWhitespace() || char.isISOControl() } }
                 ?: throw AuthFailure(AuthFailure.Kind.SERVER)
         }
         synchronized(this) { jwt = null; jwtRefreshAt = 0 }
@@ -117,6 +124,7 @@ class AuthClient(
         const val CONVEX_TOKEN = "/api/auth/convex/token"
         const val SIGN_OUT = "/api/auth/sign-out"
         const val SESSION_HEADER = "set-auth-token"
+        const val MAX_SESSION_TOKEN_LENGTH = 4096
         const val REFRESH_MARGIN_MS = 60_000L
         const val DEFAULT_LIFETIME_MS = 15 * 60_000L
 

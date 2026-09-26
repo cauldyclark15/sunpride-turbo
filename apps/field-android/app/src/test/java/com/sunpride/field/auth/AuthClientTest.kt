@@ -50,6 +50,58 @@ class AuthClientTest {
         assertTrue(auth.isSignedIn)
     }
 
+    @Test fun signInStoresBodyTokenWithoutHeaderAndDoesNotReplayCookies() {
+        val session = "fake-body-session-XYZ"
+        server.enqueue(MockResponse().setResponseCode(200)
+            .setHeader("Set-Cookie", "better-auth.session_token=cookie-secret; Path=/; HttpOnly")
+            .setBody("""{"redirect":false,"token":"$session","user":{}}"""))
+        auth.signIn("seller@example.test", "fake-password-XYZ")
+        val signIn = take()
+        assertNull(signIn.getHeader("Origin"))
+        assertEquals(session, vault.readSession())
+        assertTrue(auth.isSignedIn)
+        assertFalse(auth.toString().contains(session))
+        assertFalse(vault.toString().contains(session))
+
+        server.enqueue(MockResponse().setBody("""{"token":"${jwt(now / 1000 + 900)}"}"""))
+        auth.convexToken()
+        val exchange = take()
+        assertEquals("Bearer $session", exchange.getHeader("Authorization"))
+        assertNull(exchange.getHeader("Cookie"))
+    }
+
+    @Test fun headerWinsOverBodyToken() {
+        server.enqueue(MockResponse().setResponseCode(200).setHeader("set-auth-token", "fake-header-session")
+            .setBody("""{"token":"fake-body-session"}"""))
+        auth.signIn("seller@example.test", "fake-password")
+        assertEquals("fake-header-session", vault.readSession())
+    }
+
+    @Test fun missingAndMalformedBodyTokensFailWithoutStoringSessionOrEchoingToken() {
+        val badBodies = listOf(
+            "{}", """{"user":{"token":"nested-only"}}""", """{"token":null}""",
+            """{"token":123}""", """{"token":""}""", """{"token":" space"}""",
+            """{"token":"tab\there"}""", """{"token":"line\nhere"}""",
+            JSONObject().put("token", "x".repeat(AuthClient.MAX_SESSION_TOKEN_LENGTH + 1)).toString(),
+            "invalid json"
+        )
+        badBodies.forEach { body ->
+            server.enqueue(MockResponse().setResponseCode(200).setBody(body))
+            val failure = runCatching { auth.signIn("seller@example.test", "fake-password") }.exceptionOrNull()
+            assertTrue("expected fixed auth failure", failure is AuthFailure)
+            assertEquals(AuthFailure.Kind.SERVER, (failure as AuthFailure).kind)
+            assertFalse(failure.toString().contains(body))
+            assertNull(vault.readSession())
+        }
+    }
+
+    @Test fun malformedHeaderIsNotReplacedByBodyToken() {
+        server.enqueue(MockResponse().setResponseCode(200).setHeader("set-auth-token", "bad token")
+            .setBody("""{"token":"valid-body-token"}"""))
+        expect(AuthFailure.Kind.SERVER) { auth.signIn("seller@example.test", "fake-password") }
+        assertNull(vault.readSession())
+    }
+
     @Test fun wrongPasswordIsCredentialsErrorAndStoresNothing() {
         server.enqueue(MockResponse().setResponseCode(401).setHeader("set-auth-token", "must-not-be-used")
             .setBody("""{"code":"INVALID_EMAIL_OR_PASSWORD"}"""))
