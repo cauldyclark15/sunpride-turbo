@@ -87,9 +87,12 @@ fun FieldApp(
     dark: Boolean,
     debug: Boolean,
     backend: FieldBackend? = null,
-    onKeyLoaded: (DeviceKeyInfo) -> Unit = {}
+    onKeyLoaded: (DeviceKeyInfo) -> Unit = {},
+    visitLocation: com.sunpride.field.ui.diagnosticvisit.VisitLocation? = null
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val location = remember(visitLocation) { visitLocation ?: com.sunpride.field.ui.diagnosticvisit.AndroidVisitLocation(context) }
     val controller = remember(backend) {
         FieldController(backend ?: UnconfiguredBackend, scope, onKeyLoaded = onKeyLoaded)
     }
@@ -123,8 +126,11 @@ fun FieldApp(
                 controller.state == EnrollmentState.SignedOut -> SignInScreen(
                     environment, dark, debug, controller.busy, controller.error,
                     onPreview = { preview = true }, onSignIn = controller::signIn, modifier = modifier)
+                controller.diagnostic != null && debug -> com.sunpride.field.ui.diagnosticvisit.DiagnosticVisitScreen(
+                    controller.diagnostic!!, controller, location, controller::closeDiagnostic, modifier)
                 controller.state is EnrollmentState.Ready -> TodayScreen(controller.today, controller.busy,
-                    onSync = controller::syncNow, onSignOut = controller::signOut, modifier = modifier)
+                    onSync = controller::syncNow, onSignOut = controller::signOut,
+                    onVisit = controller::openDiagnostic, diagnosticEnabled = debug, modifier = modifier)
                 else -> EnrollmentScreen(controller.state, controller.key, controller.busy, controller.error,
                     onCheck = { controller.checkAgain() }, onSignOut = { controller.signOut() }, modifier = modifier)
             }
@@ -197,7 +203,7 @@ private fun SignInScreen(
 
 @Composable
 fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: () -> Unit,
-                modifier: Modifier = Modifier) {
+                modifier: Modifier = Modifier, onVisit: (VisitDisplay) -> Unit = {}, diagnosticEnabled: Boolean = false) {
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(SunprideTokens.spacing6),
         verticalArrangement = Arrangement.spacedBy(SunprideTokens.spacing4)) {
         Text("Phone ready", style = MaterialTheme.typography.titleMedium)
@@ -208,6 +214,8 @@ fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: (
         Text("Last synced: " + (data.lastSynced?.let { DateFormat.getDateTimeInstance().format(Date(it)) } ?: "Never"),
             modifier = Modifier.testTag("last-synced"))
         data.warning?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("today-warning")) }
+        if (data.queuedCount > 0) Text("Queued: ${data.queuedCount}", modifier = Modifier.testTag("queued-count"))
+        if (data.reviewCount > 0) Text("Needs review: ${data.reviewCount}", modifier = Modifier.testTag("review-count"))
         Button(onClick = onSync, enabled = !busy && !data.updateRequired, modifier = Modifier.fillMaxWidth().testTag("sync-now")) {
             Text(if (busy) "Syncing…" else "Sync now")
         }
@@ -217,9 +225,17 @@ fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: (
                 modifier = Modifier.fillMaxWidth().testTag("today-visit").semantics(mergeDescendants = true) {}) {
                 Column(Modifier.padding(SunprideTokens.spacing4)) {
                     Text(visit.outlet, style = MaterialTheme.typography.titleMedium)
-                    Text("${visit.planned} · ${visit.status}")
+                    Text("${visit.planned} · ${if (busy && visit.status == "Queued") "Sending" else visit.status}")
+                    if (diagnosticEnabled) TextButton(onClick = { onVisit(visit) },
+                        modifier = Modifier.testTag("diagnostic-open")) { Text("DEV visit") }
                 }
             }
+        }
+        if (diagnosticEnabled && data.unplannedOutlets.isNotEmpty()) {
+            Text("Unplanned DEV visit (requires reason)")
+            data.unplannedOutlets.forEach { outlet -> TextButton(onClick = { onVisit(outlet) }) {
+                Text(outlet.outlet)
+            } }
         }
         TextButton(onClick = onSignOut, enabled = !busy, modifier = Modifier.testTag("sign-out")) { Text("Sign out") }
     }

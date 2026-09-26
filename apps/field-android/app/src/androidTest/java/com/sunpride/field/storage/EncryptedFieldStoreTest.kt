@@ -169,6 +169,55 @@ class EncryptedFieldStoreTest {
         assertTrue(exclusions(com.sunpride.field.R.xml.data_extraction_rules).containsAll(required))
     }
 
+    @Test fun sameMillisecondOutboxMaintainsEnqueueOrder() = runBlocking {
+        ready(store())
+        val first = intent().copy(createdAt = 100)
+        val second = intent().copy(createdAt = 100)
+        store().enqueue(first, 100); store().enqueue(second, 100)
+        assertEquals(listOf(first.requestId, second.requestId), store().pending().map { it.first.requestId })
+        Unit
+    }
+
+    @Test fun deltaCursorAndOutboxSurviveReopenWithoutOverwritingLocalIntent() = runBlocking {
+        ready(store())
+        val queued = intent()
+        store().enqueue(queued, 100)
+        store().applyDelta(listOf(DeltaRow(scope.account, scope.deviceId, scope.fingerprint,
+            "visit", "server-visit", 1, "{\"state\":\"checked-in\"}", false)), "cursor-two")
+        db.close(); db = EncryptedFieldDatabase.open(context)
+        assertEquals("cursor-two", store().cursor())
+        assertEquals(queued.serializedOperation, store().pending().single().first.serializedOperation)
+        assertEquals("checked-in", org.json.JSONObject(store().delta("visit", "server-visit")!!.json!!).getString("state"))
+        store().applyDelta(listOf(DeltaRow(scope.account, scope.deviceId, scope.fingerprint,
+            "visit", "server-visit", 2, null, true)), "cursor-three")
+        assertTrue(store().delta("visit", "server-visit")!!.tombstone)
+        assertEquals(queued.requestId, store().pending().single().first.requestId)
+        Unit
+    }
+
+    @Test fun rejectedDeltaRollsBackCursorAndProjection() = runBlocking {
+        ready(store())
+        assertThrows(IllegalArgumentException::class.java) { runBlocking {
+            store().applyDelta(listOf(DeltaRow("foreign", scope.deviceId, scope.fingerprint,
+                "visit", "v", 1, "{}", false)), "bad")
+        } }
+        assertEquals("opaque-cursor", store().cursor())
+        assertNull(store().delta("visit", "v"))
+        Unit
+    }
+
+    @Test fun ackAndPendingStateSurviveRecreation() = runBlocking {
+        ready(store())
+        val accepted = intent(); val pending = intent()
+        store().enqueue(accepted, 100); store().enqueue(pending, 100)
+        store().recordAck(accepted.requestId, "server-visit", "[]", 150)
+        db.close(); db = EncryptedFieldDatabase.open(context)
+        assertEquals("done", store().history().first { it.first.requestId == accepted.requestId }.second.state)
+        assertEquals("server-visit", store().ack(accepted.requestId)?.entityId)
+        assertEquals(pending.requestId, store().pending().single().first.requestId)
+        Unit
+    }
+
     @Test fun activityRecreationDoesNotLoseCommittedRows() = runBlocking {
         ready(store())
         val i = intent()

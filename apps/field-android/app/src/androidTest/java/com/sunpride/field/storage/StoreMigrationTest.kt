@@ -8,7 +8,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** Version 1 baseline validation. Future migrations must be additive and tested from exported JSON. */
+/** Non-destructive v1 → v2 migration retains immutable work and adds scoped deltas. */
 @RunWith(AndroidJUnit4::class)
 class StoreMigrationTest {
     @get:Rule val helper = MigrationTestHelper(
@@ -20,10 +20,15 @@ class StoreMigrationTest {
             execSQL("INSERT INTO intents (account,deviceId,scope,requestId,clientVisitId,kind,serializedOperation,createdAt) VALUES ('a','d','s','uuid','visit','visit.checkIn','immutable',1)")
             close()
         }
-        helper.runMigrationsAndValidate(name, 1, true).use { db ->
+        helper.runMigrationsAndValidate(name, 2, true, EncryptedFieldDatabase.MIGRATION_1_2).use { db ->
             db.query("SELECT serializedOperation FROM intents WHERE requestId='uuid'").use { cursor ->
                 assertEquals(true, cursor.moveToFirst())
                 assertEquals("immutable", cursor.getString(0))
+            }
+            db.execSQL("INSERT INTO deltas (account,deviceId,scope,entity,entityId,revision,json,tombstone) VALUES ('a','d','s','visit','v',1,NULL,1)")
+            db.query("SELECT revision FROM deltas WHERE entityId='v'").use { cursor ->
+                assertEquals(true, cursor.moveToFirst())
+                assertEquals(1L, cursor.getLong(0))
             }
         }
     }

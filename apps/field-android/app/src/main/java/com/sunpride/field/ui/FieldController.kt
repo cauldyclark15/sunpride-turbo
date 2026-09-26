@@ -44,12 +44,20 @@ interface FieldBackend {
     fun signOut()
     fun refreshEnrollment(signer: DeviceSigner): EnrollmentState
     fun today(deviceId: String, signer: DeviceSigner, sync: Boolean): TodayData = TodayData()
+    fun visitHistory(): List<com.sunpride.field.storage.IntentRow> = emptyList()
+    fun visitStates(): List<Pair<com.sunpride.field.storage.IntentRow, String>> = emptyList()
+    fun queueVisit(kind: String, clientVisitId: String?, checkInRequestId: String?, previousRequestId: String?,
+        plannedVisitId: String?, outletId: String, intents: List<String>, unplannedReason: String?, note: String?,
+        outcome: String?, reasonCode: String?, location: JSONObject?) { error("No local store") }
     val cachedDeviceId: String? get() = null
 }
 
-data class VisitDisplay(val outlet: String, val planned: String, val status: String)
+data class VisitDisplay(val outlet: String, val planned: String, val status: String,
+    val outletId: String = "", val plannedVisitId: String? = null, val intents: List<String> = emptyList())
 data class TodayData(val visits: List<VisitDisplay> = emptyList(), val lastSynced: Long? = null,
-                     val stale: Boolean = true, val warning: String? = null, val updateRequired: Boolean = false)
+                     val stale: Boolean = true, val warning: String? = null, val updateRequired: Boolean = false,
+                     val reviewCount: Int = 0, val queuedCount: Int = 0,
+                     val unplannedOutlets: List<VisitDisplay> = emptyList())
 
 class LiveFieldBackend(
     environment: AppEnvironment,
@@ -60,7 +68,36 @@ class LiveFieldBackend(
     private val auth = AuthClient(environment, vault)
     private val functions = ConvexFunctions(environment, auth)
     private val syncTransport = LiveBootstrapTransport(environment, auth, functions)
+    private val visitTransport = com.sunpride.field.sync.LiveVisitTransport(environment, auth, functions)
     private val prefs = context.getSharedPreferences("field_cache_index", Context.MODE_PRIVATE)
+    private fun storedScope(): StoreScope? {
+        val key = sessionKey() ?: return null
+        val account = prefs.getString("$key.subject", null) ?: return null
+        val device = prefs.getString("$key.device", null) ?: return null
+        val fingerprint = prefs.getString("$key.scope", null) ?: return null
+        return StoreScope(account, device, fingerprint)
+    }
+    override fun visitStates(): List<Pair<com.sunpride.field.storage.IntentRow, String>> {
+        val scope = storedScope() ?: return emptyList()
+        val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+        return try { runBlocking { store.history().map { it.first to it.second.state } } }
+        finally { store.close() }
+    }
+    override fun visitHistory() = visitStates().map { it.first }
+    override fun queueVisit(kind: String, clientVisitId: String?, checkInRequestId: String?, previousRequestId: String?,
+        plannedVisitId: String?, outletId: String, intents: List<String>, unplannedReason: String?, note: String?,
+        outcome: String?, reasonCode: String?, location: JSONObject?) {
+        val scope = storedScope() ?: error("No verified local partition")
+        val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+        try {
+            runBlocking {
+                val intent = com.sunpride.field.ui.diagnosticvisit.VisitIntentFactory.create(scope, kind, clientVisitId,
+                    checkInRequestId, previousRequestId, plannedVisitId, outletId, intents, unplannedReason,
+                    note, outcome, reasonCode, location)
+                store.enqueue(intent, System.currentTimeMillis())
+            }
+        } finally { store.close() }
+    }
     private fun sessionKey(): String? = vault.readSession()?.let {
         MessageDigest.getInstance("SHA-256").digest(it.toByteArray(Charsets.UTF_8))
             .joinToString("") { b -> "%02x".format(b.toInt() and 255) }
@@ -83,14 +120,44 @@ class LiveFieldBackend(
         if (sync && !terminal) {
             try {
                 val authenticated = subjectFromToken()
-                val p = BootstrapClient(syncTransport, signer, deviceId,
-                    { fp -> RoomFieldStore(EncryptedFieldDatabase.open(context), StoreScope(authenticated, deviceId, fp)) })
-                    .fetch(subject = authenticated)
-                subject = authenticated; fingerprint = p.fingerprint
-                prefs.edit().putString("$key.subject", subject).putString("$key.scope", fingerprint)
-                    .putString("$key.device", deviceId).putLong("$key.synced", p.serverTime)
-                    .putBoolean("$key.failed", false).apply()
-                failed = false
+                val existing = storedScope()?.takeIf { it.account == authenticated && it.deviceId == deviceId }
+                val existingCursor = existing?.let { scope ->
+                    val scoped = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+                    try { runBlocking { scoped.cursor() } } finally { scoped.close() }
+                }
+                if (existing != null && existingCursor != null) {
+                    val scoped = RoomFieldStore(EncryptedFieldDatabase.open(context), existing)
+                    try {
+                        val gateway = com.sunpride.field.sync.SignedVisitGateway(visitTransport, signer, deviceId)
+                        runBlocking {
+                            com.sunpride.field.sync.VisitSync(gateway, scoped, existing, bootstrap = {
+                                val page = BootstrapClient(syncTransport, signer, deviceId,
+                                    { fp -> RoomFieldStore(EncryptedFieldDatabase.open(context), StoreScope(authenticated, deviceId, fp)) })
+                                    .fetch(subject = authenticated)
+                                if (page.fingerprint != existing.fingerprint) {
+                                    // Old partition stays held; new verified scope cannot adopt its operations.
+                                    prefs.edit().putString("$key.scope", page.fingerprint).apply()
+                                    fingerprint = page.fingerprint
+                                }
+                            }).sync()
+                        }
+                    } finally { scoped.close() }
+                } else {
+                    val p = BootstrapClient(syncTransport, signer, deviceId,
+                        { fp -> RoomFieldStore(EncryptedFieldDatabase.open(context), StoreScope(authenticated, deviceId, fp)) })
+                        .fetch(subject = authenticated)
+                    subject = authenticated; fingerprint = p.fingerprint
+                    prefs.edit().putString("$key.subject", subject).putString("$key.scope", fingerprint)
+                        .putString("$key.device", deviceId).apply()
+                }
+                val healthScope = storedScope()
+                val health = healthScope?.let { scope ->
+                    val scoped = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+                    try { runBlocking { scoped.syncHealth() } } finally { scoped.close() }
+                }
+                failed = health != "synced"
+                prefs.edit().apply { if (!failed) putLong("$key.synced", System.currentTimeMillis()) }
+                    .putBoolean("$key.failed", failed).apply()
             } catch (e: Exception) {
                 failed = true
                 prefs.edit().putBoolean("$key.failed", true).apply()
@@ -128,12 +195,35 @@ class LiveFieldBackend(
                 val outlets = store.outlets().associate { it.id to JSONObject(it.json).optString("name", "Outlet") }
                 val visits = store.todaysVisits(day).map { row ->
                     val v = JSONObject(row.json)
-                    VisitDisplay(outlets[v.optString("outletId")] ?: "Outlet unavailable", "Planned", "Scheduled")
+                    VisitDisplay(outlets[v.optString("outletId")] ?: "Outlet unavailable", "Planned", "Scheduled",
+                        v.getString("outletId"), v.getString("id"),
+                        v.optJSONArray("intents")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList())
                 }
-                TodayData(visits, prefs.getLong("$key.synced", 0).takeIf { it > 0 },
-                    failed || !store.isLeaseValid(System.currentTimeMillis()),
-                    warning ?: if (terminal) "Update required" else null,
-                    terminal || warning == "Update required")
+                val history = store.history()
+                val decorated = visits.map { visit ->
+                    val own = history.filter { (intent, _) ->
+                        val op = JSONObject(intent.serializedOperation)
+                        val payload = op.getJSONObject("payload")
+                        intent.kind == "visit.checkIn" && payload.optString("outletId") == visit.outletId &&
+                            payload.optString("plannedVisitId") == visit.plannedVisitId
+                    }.map { it.first.clientVisitId }.toSet()
+                    val related = history.filter { it.first.clientVisitId in own }
+                    visit.copy(status = when {
+                        related.any { it.second.state == "review" } -> "Needs review"
+                        related.any { it.second.state == "pending" } -> "Queued"
+                        related.isNotEmpty() -> "Accepted"
+                        else -> visit.status
+                    })
+                }
+                val held = db.rows().heldCount(subject, deviceId)
+                TodayData(decorated, prefs.getLong("$key.synced", 0).takeIf { it > 0 },
+                    failed || held > 0 || !store.isLeaseValid(System.currentTimeMillis()) || history.any { it.second.state != "done" } ||
+                        store.syncHealth() != "synced",
+                    warning ?: if (held > 0) "Prior assignment has held visit work — administrator review required"
+                        else if (terminal) "Update required" else null,
+                    terminal || warning == "Update required",
+                    history.count { it.second.state == "review" } + held, history.count { it.second.state == "pending" },
+                    outlets.map { (id, name) -> VisitDisplay(name, "Unplanned", "Reason required", id) })
             }
         } finally { db.close() }
     }
@@ -175,6 +265,38 @@ class FieldController(
     var error by mutableStateOf<String?>(null); private set
     var key by mutableStateOf<DeviceKeyInfo?>(null); private set
     var today by mutableStateOf(TodayData()); private set
+    var diagnostic by mutableStateOf<VisitDisplay?>(null); private set
+    var diagnosticRows by mutableStateOf<List<Pair<com.sunpride.field.storage.IntentRow, String>>>(emptyList()); private set
+    var diagnosticError by mutableStateOf<String?>(null); private set
+    fun openDiagnostic(visit: VisitDisplay) = scope.launch(ui) {
+        diagnostic = visit; refreshDiagnostic()
+    }
+    fun closeDiagnostic() { diagnostic = null; diagnosticError = null }
+    private suspend fun refreshDiagnostic() {
+        diagnosticRows = withContext(io) { backend.visitStates() }
+    }
+    fun queueDiagnostic(kind: String, reason: String?, note: String?, outcome: String?, location: JSONObject?) = scope.launch(ui) {
+        val visit = diagnostic ?: return@launch
+        busy = true; diagnosticError = null
+        try {
+            val rows = diagnosticRows.filter { it.first.kind == "visit.checkIn" &&
+                JSONObject(it.first.serializedOperation).getJSONObject("payload").optString("outletId") == visit.outletId &&
+                it.second != "review" }
+            val checkin = rows.lastOrNull()?.first
+            val related = if (checkin == null) emptyList() else diagnosticRows.filter { it.first.clientVisitId == checkin.clientVisitId }
+            if (kind != "visit.checkIn" && checkin == null) error("Check in first")
+            if (kind == "visit.checkIn" && checkin != null) error("Already checked in")
+            if (kind == "visit.checkOut" && related.any { it.first.kind == "visit.checkOut" }) error("Already checked out")
+            withContext(io) {
+                backend.queueVisit(kind, checkin?.clientVisitId, checkin?.requestId,
+                    related.lastOrNull()?.first?.requestId, visit.plannedVisitId, visit.outletId, visit.intents,
+                    reason, note, outcome, if (outcome == "nonproductive") "other" else null, location)
+            }
+            refreshDiagnostic()
+            loadToday(sync = false)
+        } catch (_: Exception) { diagnosticError = "Could not queue visit. Check the offline lease and required fields." }
+        finally { busy = false }
+    }
     private var signer: DeviceSigner? = null
 
     /** On launch: restore a stored session and re-verify the device with the server. */
