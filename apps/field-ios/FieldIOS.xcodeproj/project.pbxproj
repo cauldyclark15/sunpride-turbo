@@ -11,6 +11,7 @@
 		0BEFB2B58A9259F661FDC760 /* DeviceKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 160B275247E3A5924861969B /* DeviceKey.swift */; };
 		0CB8035598BB2A1C4F963E31 /* ConvexFunctions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 893C59F3DA031CA5D0C2B141 /* ConvexFunctions.swift */; };
 		18A3D64B33FCA7069A8CA097 /* request-proof.json in Resources */ = {isa = PBXBuildFile; fileRef = 7D5900677E6C2A5A588D21F8 /* request-proof.json */; };
+		1B04D06C36728973163262BA /* StorageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 930F787C27D8364206637A1B /* StorageTests.swift */; };
 		1DAC6BDA3CA11057321C149D /* FieldIOSTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AD00CE0DB5536F7ED709072 /* FieldIOSTests.swift */; };
 		202ACDE9965B8233D862F667 /* EnrollmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0608947B65A82B5F8B21C25E /* EnrollmentTests.swift */; };
 		4192A817C9B71449CE92A730 /* StubBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 770ABB24A61E17AE7FC352FC /* StubBackend.swift */; };
@@ -21,6 +22,7 @@
 		75A7C263CA07E65AEF6DD1D1 /* DesignTokensPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20A2E27FA2580A5F7FD421D1 /* DesignTokensPreview.swift */; };
 		7A245815BC1605BD4C8609F4 /* AuthClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DB5C91CB702257E69CAEEE0 /* AuthClient.swift */; };
 		7A3DB86936D018D089DA9D55 /* AuthClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3ED3ADFB05AAF26B358710EC /* AuthClientTests.swift */; };
+		9D1E244483FED57D037FCE63 /* SQLCipher in Frameworks */ = {isa = PBXBuildFile; productRef = AC26302E2781E047B9486E5D /* SQLCipher */; };
 		A5D4C22D5AAF13BD6E131095 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = A1D7CDEBC506E1AB5A7378A1 /* README.md */; };
 		A729B975C7C31FA68373F2A0 /* HTTPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 329AC521CDFBA9C961E9A8BB /* HTTPClient.swift */; };
 		AE5D9252C977345E2344110B /* RequestSigner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5346E87A86751D4CA1ADD0EE /* RequestSigner.swift */; };
@@ -33,6 +35,7 @@
 		D0ECAFE17CE94651ED173031 /* SunprideTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2692CA1C06F882E746AF973 /* SunprideTokens.swift */; };
 		DC1B6727F5D883AC9A4E241C /* ConvexFunctionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26021CCFB0A859FEF974770E /* ConvexFunctionsTests.swift */; };
 		ED833DDB513936C536488DFF /* RequestSignerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E8592F5635E44DE9E4D11C /* RequestSignerTests.swift */; };
+		FDB32474097B7BE3233DD03B /* FieldStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AD96B1A70BA8246D0F2CCCB /* FieldStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -74,6 +77,8 @@
 		7D5900677E6C2A5A588D21F8 /* request-proof.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = "request-proof.json"; path = "../../../packages/domain-contracts/fixtures/mobile-v1/crypto/request-proof.json"; sourceTree = "<group>"; };
 		83B6EE57DB1DE477B02CC0A6 /* SecurityHygieneTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityHygieneTests.swift; sourceTree = "<group>"; };
 		893C59F3DA031CA5D0C2B141 /* ConvexFunctions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConvexFunctions.swift; sourceTree = "<group>"; };
+		8AD96B1A70BA8246D0F2CCCB /* FieldStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FieldStore.swift; sourceTree = "<group>"; };
+		930F787C27D8364206637A1B /* StorageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageTests.swift; sourceTree = "<group>"; };
 		A0ABFC89807D314D2B62A458 /* SecureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureStore.swift; sourceTree = "<group>"; };
 		A1D7CDEBC506E1AB5A7378A1 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		B785ABDBB42BD392458A68C0 /* FieldIOSUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FieldIOSUITests.swift; sourceTree = "<group>"; };
@@ -84,6 +89,17 @@
 		EDE9BD20A693C17022A70C2E /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
 		F2692CA1C06F882E746AF973 /* SunprideTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SunprideTokens.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		8414B1E09FFEB54CD0B133EC /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9D1E244483FED57D037FCE63 /* SQLCipher in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		106B1D5DCCE6766B43799673 /* App */ = {
@@ -137,6 +153,7 @@
 				6AD00CE0DB5536F7ED709072 /* FieldIOSTests.swift */,
 				E7E8592F5635E44DE9E4D11C /* RequestSignerTests.swift */,
 				83B6EE57DB1DE477B02CC0A6 /* SecurityHygieneTests.swift */,
+				930F787C27D8364206637A1B /* StorageTests.swift */,
 				EE65A434732E7C95EC46E634 /* Fixtures */,
 				F835B55635B96FE9BAB8DABF /* Support */,
 			);
@@ -214,6 +231,14 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		CE5DE472765B8EF50D6282D0 /* Storage */ = {
+			isa = PBXGroup;
+			children = (
+				8AD96B1A70BA8246D0F2CCCB /* FieldStore.swift */,
+			);
+			path = Storage;
+			sourceTree = "<group>";
+		};
 		EE65A434732E7C95EC46E634 /* Fixtures */ = {
 			isa = PBXGroup;
 			children = (
@@ -229,6 +254,7 @@
 				1D72856AF512788E2CF10945 /* Auth */,
 				9CB64D577D9021C21C3BC631 /* Device */,
 				9C791D7E660C7EAF29F55624 /* Diagnostics */,
+				CE5DE472765B8EF50D6282D0 /* Storage */,
 				7ED1588637F297CF94CEBB5B /* UI */,
 			);
 			path = Sources;
@@ -288,6 +314,7 @@
 			buildPhases = (
 				B917D41B40CCFAF795260225 /* Sources */,
 				1775D140ADDBF83248227833 /* Resources */,
+				8414B1E09FFEB54CD0B133EC /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -295,6 +322,7 @@
 			);
 			name = FieldIOS;
 			packageProductDependencies = (
+				AC26302E2781E047B9486E5D /* SQLCipher */,
 			);
 			productName = FieldIOS;
 			productReference = 2A61F2253C7ADE1EFCA16D50 /* FieldIOS.app */;
@@ -333,6 +361,9 @@
 			);
 			mainGroup = 4676AE00E28C23855873447B;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				2DD73702B36D88FEF0097BA1 /* XCRemoteSwiftPackageReference "SQLCipher.swift" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = B54F63CC658DE52485D50D15 /* Products */;
 			projectDirPath = "";
@@ -383,6 +414,7 @@
 				1DAC6BDA3CA11057321C149D /* FieldIOSTests.swift in Sources */,
 				ED833DDB513936C536488DFF /* RequestSignerTests.swift in Sources */,
 				CA75BA40598DC97C020E513C /* SecurityHygieneTests.swift in Sources */,
+				1B04D06C36728973163262BA /* StorageTests.swift in Sources */,
 				AE965CF2451DF21709DC5EB3 /* StubURLProtocol.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -400,6 +432,7 @@
 				0BEFB2B58A9259F661FDC760 /* DeviceKey.swift in Sources */,
 				CDB18FED2C2B99014C51B699 /* Enrollment.swift in Sources */,
 				733E9950FCD06E634516E78E /* FieldIOSApp.swift in Sources */,
+				FDB32474097B7BE3233DD03B /* FieldStore.swift in Sources */,
 				A729B975C7C31FA68373F2A0 /* HTTPClient.swift in Sources */,
 				682CE21438CC325CF1A955A3 /* Redaction.swift in Sources */,
 				AE5D9252C977345E2344110B /* RequestSigner.swift in Sources */,
@@ -832,6 +865,25 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		2DD73702B36D88FEF0097BA1 /* XCRemoteSwiftPackageReference "SQLCipher.swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sqlcipher/SQLCipher.swift.git";
+			requirement = {
+				kind = exactVersion;
+				version = 4.10.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AC26302E2781E047B9486E5D /* SQLCipher */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2DD73702B36D88FEF0097BA1 /* XCRemoteSwiftPackageReference "SQLCipher.swift" */;
+			productName = SQLCipher;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = BFF5B8D29BCC2F927E2332E5 /* Project object */;
 }

@@ -24,6 +24,24 @@ final class AppModel {
 
     @ObservationIgnored private let auth: AuthClient
     @ObservationIgnored private let loadKey: () throws -> any DeviceSigningKey
+    @ObservationIgnored private var fieldStore: EncryptedFieldStore?
+    @ObservationIgnored private var activeStoragePartition: StorePartition?
+
+    /// Bootstrap supplies the verified auth subject, bound device ID and server scope fingerprint.
+    /// Never derive a partition from an email or from the cached employee row.
+    func storage(for partition: StorePartition) throws -> any FieldLocalStore {
+        guard signedIn else { throw StoreError.heldForReview }
+        if fieldStore == nil {
+            let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
+                                                        appropriateFor: nil, create: true).appending(path: "FieldStore", directoryHint: .isDirectory)
+            fieldStore = try EncryptedFieldStore(url: directory.appending(path: "field.sqlite"))
+        }
+        if let previous = activeStoragePartition, previous != partition {
+            try fieldStore?.holdForReview(previous)
+        }
+        activeStoragePartition = partition
+        return fieldStore!
+    }
 
     init(auth: AuthClient, registry: DeviceRegistry, store: SecretStore,
          pollInterval: Duration = .seconds(10), loadKey: @escaping () throws -> any DeviceSigningKey) {
@@ -82,8 +100,13 @@ final class AppModel {
 
     func signOut() async {
         enrollment.signedOut()
-        signedIn = false
         signInError = nil
+        if let partition = activeStoragePartition {
+            do { try fieldStore?.holdForReview(partition) }
+            catch { signInError = "Local evidence needs supervised review; storage could not be locked." }
+        }
+        activeStoragePartition = nil
+        signedIn = false
         await auth.signOut()
     }
 
