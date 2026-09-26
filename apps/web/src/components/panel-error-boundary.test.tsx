@@ -20,8 +20,8 @@ describe("isolated Sales Force panel failures", () => {
     const markup = renderToStaticMarkup(
       createElement("main", null, left.render(), right.render()),
     );
-    expect(markup).toContain("Coverage plan could not load");
-    expect(markup).toContain("Retry Coverage plan");
+    expect(markup).toContain("Something went wrong");
+    expect(markup).toContain("Try again");
     expect(markup).toContain("Outlet content");
     expect(markup).not.toContain("Plan content");
     left.setState = (updater) => {
