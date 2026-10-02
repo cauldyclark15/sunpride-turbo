@@ -21,6 +21,26 @@ describe("web navigation", () => {
     expect(getWebNavigation(pathname, true).activePrimaryId).toBe(expected);
   });
 
+  it.each(["/issues", "/issues/new", "/issues/12"])(
+    "highlights Issues on %s",
+    (pathname) => {
+      expect(getWebNavigation(pathname, true, true).activePrimaryId).toBe(
+        "issues",
+      );
+      expect(getWebModuleTabs(pathname)).toEqual([]);
+    },
+  );
+
+  it("shows Issues only to people with tracker access", () => {
+    const hrefs = (canSeeIssues: boolean) =>
+      getWebNavigation("/dashboard", false, canSeeIssues).navGroups.flatMap(
+        (group) => group.items.map((item) => item.href),
+      );
+    expect(hrefs(false)).not.toContain("/issues");
+    expect(hrefs(true)).toContain("/issues");
+    expect(isWebModuleSlug("issues")).toBe(false);
+  });
+
   it("keeps administration role-gated", () => {
     const labels = (canAdminister: boolean) =>
       getWebNavigation("/dashboard", canAdminister).navGroups.flatMap((group) =>

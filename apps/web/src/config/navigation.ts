@@ -72,11 +72,35 @@ const moduleTabs: Partial<Record<string, WorkspaceModuleTab[]>> = {
   field: [{ id: "sales-force", label: "Coverage", href: "/sales-force" }],
 };
 
-export function getWebNavigation(pathname: string, canAdminister: boolean) {
-  const activePrimaryId =
-    (routeToPrimary as Record<string, string>)[pathname] ?? "home";
+/**
+ * The issue tracker has its own routes (`/issues`, `/issues/new`, `/issues/12`), not a
+ * `[module]` workspace slug; every page under it keeps the Issues item highlighted.
+ */
+function primaryIdFor(pathname: string) {
+  const exact = (routeToPrimary as Record<string, string>)[pathname];
+  if (exact) return exact;
+  if (pathname === "/issues" || pathname.startsWith("/issues/"))
+    return "issues";
+  return "home";
+}
+
+export function getWebNavigation(
+  pathname: string,
+  canAdminister: boolean,
+  canSeeIssues = false,
+) {
+  const activePrimaryId = primaryIdFor(pathname);
   const navGroups: WorkspaceNavGroup[] = [
-    { id: "workspace", label: "Workspace", items: workspaceItems },
+    {
+      id: "workspace",
+      label: "Workspace",
+      items: canSeeIssues
+        ? [
+            ...workspaceItems,
+            { id: "issues", label: "Issues", href: "/issues", icon: "issues" },
+          ]
+        : workspaceItems,
+    },
   ];
 
   if (canAdminister) {
@@ -102,7 +126,5 @@ export function getWebNavigation(pathname: string, canAdminister: boolean) {
 }
 
 export function getWebModuleTabs(pathname: string) {
-  const activePrimaryId =
-    (routeToPrimary as Record<string, string>)[pathname] ?? "home";
-  return moduleTabs[activePrimaryId] ?? [];
+  return moduleTabs[primaryIdFor(pathname)] ?? [];
 }

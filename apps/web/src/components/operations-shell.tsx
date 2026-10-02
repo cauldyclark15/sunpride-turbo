@@ -15,7 +15,8 @@ export function OperationsShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const current = useQuery(api.domains.profiles.current, {});
   const canAdminister = canAccessWebModule("admin", current?.role);
-  const navigation = getWebNavigation(pathname, canAdminister);
+  const canSeeIssues = canAccessWebModule("issues", current?.role);
+  const navigation = getWebNavigation(pathname, canAdminister, canSeeIssues);
 
   async function signOut() {
     await authClient.signOut();

@@ -41,6 +41,22 @@ const orderApprovers = [
   "manager",
   "approver",
 ] as const satisfies readonly AppRole[];
+// issues.read — internal staff; field `sales` and `viewer` never see the tracker.
+const issueReaders = [
+  "super_admin",
+  "admin",
+  "operations",
+  "manager",
+  "approver",
+  "analyst",
+] as const satisfies readonly AppRole[];
+const issueWriters = [
+  "super_admin",
+  "admin",
+  "operations",
+  "manager",
+  "approver",
+] as const satisfies readonly AppRole[];
 const integrationReaders = [
   "super_admin",
   "admin",
@@ -81,6 +97,12 @@ export function salesForcePanels(capabilities: readonly string[]) {
   };
 }
 
+export const ISSUE_PANEL_ROLES = {
+  "issues.read": issueReaders,
+  "issues.write": issueWriters,
+  "issues.manage": administrators,
+} as const satisfies Record<string, readonly AppRole[]>;
+
 export const MODULE_ROLES = {
   dashboard: allReaders, // report.read
   "master-data": masterDataManagers, // masterdata.manage
@@ -98,7 +120,13 @@ export function canAccessWebModule(
   slug: string,
   role: string | null | undefined,
 ): boolean {
-  if (!role || !Object.hasOwn(MODULE_ROLES, slug)) return false;
+  if (!role) return false;
+  // The tracker has its own `/issues` routes rather than a `[module]` slug.
+  if (slug === "issues")
+    return (ISSUE_PANEL_ROLES["issues.read"] as readonly string[]).includes(
+      role,
+    );
+  if (!Object.hasOwn(MODULE_ROLES, slug)) return false;
   return (MODULE_ROLES[slug as WebModuleSlug] as readonly string[]).includes(
     role,
   );

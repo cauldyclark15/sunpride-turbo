@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { CAPABILITIES } from "../../../../packages/backend/convex/lib/capabilities";
 import {
   canAccessWebModule,
+  ISSUE_PANEL_ROLES,
   MCP_PANEL_ROLES,
   MODULE_ROLES,
   OUTLET_PANEL_ROLES,
@@ -153,6 +154,20 @@ describe("web module access", () => {
         expectedModulesByRole[role].includes(slug),
       );
     }
+  });
+
+  it("mirrors the issue tracker capabilities and keeps field sales out", () => {
+    for (const [key, granted] of Object.entries(ISSUE_PANEL_ROLES))
+      expect(new Set(granted)).toEqual(
+        new Set(CAPABILITIES[key as keyof typeof CAPABILITIES]),
+      );
+    for (const role of roles)
+      expect(canAccessWebModule("issues", role)).toBe(
+        (CAPABILITIES["issues.read"] as readonly string[]).includes(role),
+      );
+    expect(canAccessWebModule("issues", "sales")).toBe(false);
+    expect(canAccessWebModule("issues", "viewer")).toBe(false);
+    expect(canAccessWebModule("issues", null)).toBe(false);
   });
 
   it("refuses unknown, retired, and unassigned modules and roles", () => {
