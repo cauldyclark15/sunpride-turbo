@@ -217,6 +217,33 @@ describe("capability table", () => {
       ).toBe(true);
   });
 
+  it("grants the issue tracker to internal staff only", () => {
+    expect(CAPABILITIES["issues.read"]).toEqual([
+      "super_admin",
+      "admin",
+      "operations",
+      "manager",
+      "approver",
+      "analyst",
+    ]);
+    expect(CAPABILITIES["issues.write"]).toEqual([
+      "super_admin",
+      "admin",
+      "operations",
+      "manager",
+      "approver",
+    ]);
+    expect(CAPABILITIES["issues.manage"]).toEqual(["super_admin", "admin"]);
+    for (const capability of [
+      "issues.read",
+      "issues.write",
+      "issues.manage",
+    ] as const) {
+      expect(CAPABILITIES[capability]).not.toContain("sales");
+      expect(CAPABILITIES[capability]).not.toContain("viewer");
+    }
+  });
+
   it("defines at least one role for every capability", () => {
     for (const [capability, roles] of Object.entries(CAPABILITIES)) {
       expect(roles.length).toBeGreaterThan(0);

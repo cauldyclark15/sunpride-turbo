@@ -10,6 +10,12 @@ import {
   slotKind,
   weekday,
 } from "./coverage/validators";
+import {
+  issueActivityKindValidator,
+  issueFieldChangeValidator,
+  issuePriorityValidator,
+  issueStatusValidator,
+} from "./issues/validators";
 import { employmentTypeValidator, roleValidator } from "./lib/roles";
 import { positionCategoryValidator } from "./sfa/constants";
 import {
@@ -2144,4 +2150,80 @@ export default defineSchema({
     "runId",
     "rowNumber",
   ]),
+
+  // In-app issue tracker (ported from the CMS internal-issues board). An issue created
+  // by an agent through `issues/agent` has no reporter profile; `reporterLabel` names it.
+  issues: defineTable({
+    number: v.number(),
+    title: v.string(),
+    description: v.optional(v.string()),
+    steps: v.optional(v.string()),
+    actual: v.optional(v.string()),
+    expected: v.optional(v.string()),
+    area: v.string(),
+    priority: issuePriorityValidator,
+    status: issueStatusValidator,
+    order: v.number(),
+    assigneeId: v.optional(v.id("profiles")),
+    reporterId: v.optional(v.id("profiles")),
+    reporterLabel: v.optional(v.string()),
+    externalRef: v.optional(v.string()),
+    milestone: v.optional(v.string()),
+    archived: v.boolean(),
+    archivedAt: v.optional(v.number()),
+    searchText: v.string(),
+    commentCount: v.number(),
+    attachmentCount: v.number(),
+    lastCommentAt: v.optional(v.number()),
+    lastCommentAuthorId: v.optional(v.id("profiles")),
+    lastCommentAuthorLabel: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    updatedBy: v.optional(v.id("profiles")),
+  })
+    .index("by_number", ["number"])
+    .index("by_externalRef", ["externalRef"])
+    .index("by_archived_and_updatedAt", ["archived", "updatedAt"])
+    .index("by_archived_and_status_and_order", ["archived", "status", "order"])
+    .searchIndex("search_issues", {
+      searchField: "searchText",
+      filterFields: ["archived", "status", "area", "assigneeId", "milestone"],
+    }),
+  issueComments: defineTable({
+    issueId: v.id("issues"),
+    authorId: v.optional(v.id("profiles")),
+    authorLabel: v.optional(v.string()),
+    body: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.optional(v.number()),
+    deletedAt: v.optional(v.number()),
+  }).index("by_issueId_and_createdAt", ["issueId", "createdAt"]),
+  issueAttachments: defineTable({
+    issueId: v.id("issues"),
+    commentId: v.id("issueComments"),
+    storageId: v.id("_storage"),
+    fileName: v.string(),
+    fileType: v.string(),
+    fileSize: v.number(),
+    uploadedBy: v.optional(v.id("profiles")),
+    createdAt: v.number(),
+  })
+    .index("by_commentId", ["commentId"])
+    .index("by_storageId", ["storageId"]),
+  issueActivity: defineTable({
+    issueId: v.id("issues"),
+    actorId: v.optional(v.id("profiles")),
+    actorLabel: v.optional(v.string()),
+    kind: issueActivityKindValidator,
+    fromStatus: v.optional(issueStatusValidator),
+    toStatus: v.optional(issueStatusValidator),
+    changes: v.optional(v.array(issueFieldChangeValidator)),
+    note: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_issueId_and_createdAt", ["issueId", "createdAt"]),
+  issueCounters: defineTable({
+    key: v.string(),
+    lastNumber: v.number(),
+    updatedAt: v.number(),
+  }).index("by_key", ["key"]),
 });

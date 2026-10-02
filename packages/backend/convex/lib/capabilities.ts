@@ -137,6 +137,19 @@ export const CAPABILITIES = {
   ],
   "integration.read": ["super_admin", "admin", "operations"],
   "integration.manage": ["super_admin", "admin"],
+  // In-app issue tracker. Internal staff only — field `sales` never sees it. `analyst` is
+  // cross-scope and therefore read-only; `issues.manage` (archive/restore, moderate any
+  // comment) stays with administrators.
+  "issues.read": [
+    "super_admin",
+    "admin",
+    "operations",
+    "manager",
+    "approver",
+    "analyst",
+  ],
+  "issues.write": ["super_admin", "admin", "operations", "manager", "approver"],
+  "issues.manage": ["super_admin", "admin"],
 } as const satisfies Record<string, readonly AppRole[]>;
 
 export type Capability = keyof typeof CAPABILITIES;
