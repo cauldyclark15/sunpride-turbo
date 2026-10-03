@@ -75,7 +75,7 @@ export function IssuesBoard({
             <section
               key={status}
               aria-label={`${ISSUE_STATUS_LABELS[status]} column`}
-              className={`min-h-[520px] w-60 shrink-0 rounded-2xl border p-2 ${target === status ? "border-accent" : "border-border"} bg-surface-secondary/50`}
+              className={`flex h-[calc(100svh-17rem)] min-h-[420px] w-64 shrink-0 flex-col rounded-2xl border p-2 ${target === status ? "border-accent" : "border-border"} bg-surface-secondary/50`}
               onDragOver={(event) => {
                 if (canWrite && !busy && dragged.current) {
                   event.preventDefault();
@@ -96,7 +96,7 @@ export function IssuesBoard({
                   {counts[status]}
                 </span>
               </header>
-              <div className="grid gap-2">
+              <div className="grid min-h-0 flex-1 content-start gap-2 overflow-y-auto">
                 {cards.length ? (
                   cards.map((issue) => (
                     <article
@@ -145,6 +145,9 @@ export function IssuesBoard({
                           <div className="min-w-0">
                             <p className="font-mono text-xs text-muted">
                               {issue.key}
+                              {issue.externalRef
+                                ? ` · ${issue.externalRef}`
+                                : ""}
                             </p>
                             <p className="mt-1 break-words text-sm font-medium">
                               {issue.title}
@@ -157,13 +160,16 @@ export function IssuesBoard({
                           </span>
                           <IssuePriorityPill priority={issue.priority} />
                         </div>
+                        {issue.milestone ? (
+                          <p className="break-words text-xs text-muted">
+                            {issue.milestone}
+                          </p>
+                        ) : null}
                         <div className="grid gap-1 break-words text-xs text-muted">
                           <p>Reporter: {issue.reporterName}</p>
-                          <p>
-                            {issue.lastCommentAuthorName
-                              ? `Latest comment: ${issue.lastCommentAuthorName}`
-                              : "No comments yet"}
-                          </p>
+                          {issue.lastCommentAuthorName ? (
+                            <p>Latest comment: {issue.lastCommentAuthorName}</p>
+                          ) : null}
                           <IssueTimestamp
                             value={issue.lastCommentAt ?? issue.updatedAt}
                             label={
