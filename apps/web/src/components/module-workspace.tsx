@@ -21,6 +21,7 @@ import { AdminWorkspace } from "./admin-workspace";
 import { SalesForcePanels } from "./coverage-workspace";
 import { ImportsWorkspace } from "./imports-workspace";
 import { InventoryWorkspace } from "./inventory-workspace";
+import { SupervisionWorkspace } from "./supervision/supervision-workspace";
 
 const modules = {
   dashboard: { title: "Home" },
@@ -28,6 +29,7 @@ const modules = {
   imports: { title: "Commercial" },
   inventory: { title: "Inventory" },
   "sales-force": { title: "Coverage" },
+  supervision: { title: "Supervision" },
   orders: { title: "Orders" },
   "sap-integration": { title: "Integration" },
   workflows: { title: "Approvals" },
@@ -63,17 +65,26 @@ export function ModuleWorkspace({ module }: { module: WebModuleSlug }) {
       </section>
     );
   }
-  return <AllowedModuleWorkspace module={module} />;
+  return <AllowedModuleWorkspace module={module} role={profile.role} />;
 }
 
-function AllowedModuleWorkspace({ module }: { module: WebModuleSlug }) {
+function AllowedModuleWorkspace({
+  module,
+  role,
+}: {
+  module: WebModuleSlug;
+  role: string;
+}) {
   const config = modules[module];
   const ensureProfile = useMutation(api.domains.profiles.ensure);
   const initialized = useRef(false);
   const [setupMessage, setSetupMessage] = useState("Connecting…");
   const pathname = usePathname();
   const router = useRouter();
-  const tabs = getWebModuleTabs(pathname);
+  // A tab the role cannot open would only lead to "Access denied".
+  const tabs = getWebModuleTabs(pathname).filter((tab) =>
+    canAccessWebModule(tab.href.slice(1), role),
+  );
 
   useEffect(() => {
     if (initialized.current) return;
@@ -459,6 +470,7 @@ function ModuleContent({
 
   if (module === "admin") return <AdminWorkspace />;
   if (module === "sales-force") return <SalesForcePanels />;
+  if (module === "supervision") return <SupervisionWorkspace />;
 
   return (
     <Card label="Integration" icon={<WorkspaceIcon name="operations" />}>

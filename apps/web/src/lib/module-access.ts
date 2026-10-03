@@ -57,6 +57,14 @@ const issueWriters = [
   "manager",
   "approver",
 ] as const satisfies readonly AppRole[];
+// people.read (every holder also has visit.read): supervisors read their team's field day.
+const supervisors = [
+  "super_admin",
+  "admin",
+  "manager",
+  "analyst",
+  "viewer",
+] as const satisfies readonly AppRole[];
 const integrationReaders = [
   "super_admin",
   "admin",
@@ -109,6 +117,7 @@ export const MODULE_ROLES = {
   imports: importActors, // union of masterdata.manage, inventory.adjustment.request, inventory.count.submit
   inventory: allReaders, // inventory.read
   "sales-force": MCP_PANEL_ROLES["mcp.read"], // all roles with MCP read
+  supervision: supervisors, // people.read + visit.read
   orders: orderActors, // union of order.create and order.approve
   "sap-integration": integrationReaders, // integration.read
   workflows: orderApprovers, // order.approve
