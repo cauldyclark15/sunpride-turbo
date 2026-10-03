@@ -1436,6 +1436,16 @@ export default defineSchema({
     approvedBy: v.optional(v.string()),
     approvedAt: v.optional(v.number()),
     approvalSignature: v.optional(v.string()),
+    // CALL-06: who approved and in what capacity; backup approvals name the absent supervisor.
+    approverProfileId: v.optional(v.id("profiles")),
+    approvalCapacity: v.optional(
+      v.union(
+        v.literal("supervisor"),
+        v.literal("backup"),
+        v.literal("scope_approver"),
+      ),
+    ),
+    approvedOnBehalfOfProfileId: v.optional(v.id("profiles")),
     activatedAt: v.optional(v.number()),
     supersededAt: v.optional(v.number()),
     activeThrough: v.optional(v.number()),
@@ -1580,6 +1590,21 @@ export default defineSchema({
       "serviceDate",
     ])
     .index("by_outletId_and_serviceDate", ["outletId", "serviceDate"]),
+  /**
+   * CALL-06: effective-dated periods when a supervisor is away; while one is in effect
+   * the supervisor's manager may approve MCPs as backup. Shortened, never deleted.
+   */
+  supervisorAwayPeriods: defineTable({
+    organizationId: v.string(),
+    profileId: v.id("profiles"),
+    effectiveFrom: v.number(),
+    effectiveTo: v.number(),
+    reason: v.string(),
+    recordedBy: v.string(),
+    recordedAt: v.number(),
+    endedBy: v.optional(v.string()),
+    endedAt: v.optional(v.number()),
+  }).index("by_profileId_and_effectiveFrom", ["profileId", "effectiveFrom"]),
   coverageAuditEvents: defineTable({
     planId: v.id("coveragePlans"),
     assigneeProfileId: v.id("profiles"),

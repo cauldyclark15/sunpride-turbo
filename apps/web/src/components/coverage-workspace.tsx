@@ -30,11 +30,15 @@ const CoverageWorkloadView = dynamic(() =>
 const CoverageExceptions = dynamic(() =>
   import("./coverage-exceptions").then((m) => m.CoverageExceptions),
 );
+const CoverageDeadlines = dynamic(() =>
+  import("./coverage-deadlines").then((m) => m.CoverageDeadlines),
+);
 const CoverageExport = dynamic(() =>
   import("./coverage-export").then((m) => m.CoverageExport),
 );
 type CoverageTab =
   | "plan"
+  | "deadlines"
   | "review"
   | "visits"
   | "history"
@@ -209,11 +213,13 @@ export function SalesForcePanels() {
   );
   const needsPlan =
     coverageTab !== "plan" &&
+    coverageTab !== "deadlines" &&
     coverageTab !== "setup" &&
     coverageTab !== "workload";
   const needsMonth = coverageTab !== "plan" && coverageTab !== "setup";
   const coverageTabs: [CoverageTab, string][] = [
     ["plan", "Plan"],
+    ["deadlines", "MCP deadlines"],
     ...(canApprove ? ([["review", "Review"]] as [CoverageTab, string][]) : []),
     ["exceptions", "Exceptions"],
     ["visits", "Visits"],
@@ -306,6 +312,17 @@ export function SalesForcePanels() {
                   <span className="text-[13px] text-muted">Select a plan</span>
                 )}
               </>
+            ) : coverageTab === "deadlines" ? (
+              <PanelErrorBoundary
+                key={`${coverageTab}-${month}`}
+                label="MCP deadlines"
+              >
+                <CoverageDeadlines
+                  localMonth={month}
+                  profileId={profile._id}
+                  canApprove={canApprove}
+                />
+              </PanelErrorBoundary>
             ) : coverageTab === "workload" ? (
               <PanelErrorBoundary
                 key={`${coverageTab}-${month}`}

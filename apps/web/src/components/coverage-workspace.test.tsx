@@ -406,6 +406,16 @@ describe("sales force coverage module", () => {
       state.calls.find((c) => c.name === "coverage/discovery:list")?.args,
     ).toMatchObject({ paginationOpts: { numItems: 20, cursor: null } });
   });
+  it("shows only Month for MCP deadlines and needs no plan picker", () => {
+    state.tab = "deadlines";
+    const html = render();
+    expect(html).toContain("MCP deadlines");
+    expect(html).toContain('aria-label="Coverage month"');
+    expect(html).not.toContain('aria-label="Scoped coverage plan"');
+    expect(state.calls.some((c) => c.name === "coverage/discovery:list")).toBe(
+      false,
+    );
+  });
   it("mounts selected history only and keeps other view subscriptions unmounted", () => {
     state.tab = "history";
     const html = render();
