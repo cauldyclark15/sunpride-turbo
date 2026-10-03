@@ -98,10 +98,12 @@ fun FieldApp(
                 Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 20.dp),
                     horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     if (controller.diagnostic != null && ready && page == "home") Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = controller::closeDiagnostic, modifier = Modifier.height(48.dp).testTag("visit-back")) {
+                        IconButton(onClick = {
+                            if (controller.callSheetOpen) controller.closeCallSheet() else controller.closeDiagnostic()
+                        }, modifier = Modifier.height(48.dp).testTag("visit-back")) {
                             Text("‹", style = MaterialTheme.typography.titleLarge)
                         }
-                        Text("Visit", style = MaterialTheme.typography.titleMedium)
+                        Text(if (controller.callSheetOpen) "Call sheet" else "Visit", style = MaterialTheme.typography.titleMedium)
                     } else if (page == "account" || page == "sync" || page == "support") Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { page = if (page == "support") "account" else "home" },
                             modifier = Modifier.height(48.dp).testTag(when (page) {
@@ -140,6 +142,8 @@ fun FieldApp(
                 page == "support" -> SupportDetails(status, { page = "account" }, modifier)
                 ready && page == "sync" -> SyncDetails(status, onDismiss = { page = "home" },
                     onSync = controller::syncNow, busy = controller.busy, modifier = modifier)
+                controller.diagnostic != null && debug && ready && controller.callSheetOpen && controller.diagnosticCallSheet != null ->
+                    com.sunpride.field.ui.diagnosticvisit.CallSheetScreen(controller.diagnosticCallSheet!!, controller, modifier)
                 controller.diagnostic != null && debug && ready -> com.sunpride.field.ui.diagnosticvisit.DiagnosticVisitScreen(
                     controller.diagnostic!!, controller, location, controller::closeDiagnostic, modifier)
                 ready -> TodayScreen(controller.today, controller.busy,

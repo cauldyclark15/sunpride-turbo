@@ -56,13 +56,7 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
             else controller.queueDiagnostic("visit.checkIn", reason, null, null, fix)
         }
     }
-    val related = controller.diagnosticRows.filter { row ->
-        row.first.kind == "visit.checkIn" &&
-            JSONObject(row.first.serializedOperation).getJSONObject("payload").optString("outletId") == visit.outletId ||
-            controller.diagnosticRows.any { it.first.kind == "visit.checkIn" &&
-                JSONObject(it.first.serializedOperation).getJSONObject("payload").optString("outletId") == visit.outletId &&
-                it.first.clientVisitId == row.first.clientVisitId }
-    }
+    val related = controller.relatedVisitRows(visit)
     val checkedIn = related.any { it.first.kind == "visit.checkIn" && it.second != "review" }
     val checkedOut = related.any { it.first.kind == "visit.checkOut" }
     Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
@@ -86,6 +80,14 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                 }
             }
             if (checkedIn && !checkedOut) {
+                SectionCard("Call sheet") {
+                    if (controller.diagnosticCallSheet == null) Text(
+                        "No call sheet set up for this account yet. Ask your office.",
+                        Modifier.padding(16.dp).testTag("call-sheet-unavailable"),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    else ListRow("Call sheet", "Record quantities for this visit", "activity",
+                        Modifier.testTag("call-sheet-open"), onClick = { controller.openCallSheet() })
+                }
                 SectionCard("Note") {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row {
@@ -124,7 +126,9 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
             if (related.isNotEmpty()) SectionCard("Activity · ${related.size}") {
                 related.forEach { (intent, state) ->
                     ListRow(when (intent.kind) {
-                        "visit.checkIn" -> "Check-in"; "visit.activity" -> "Note";
+                        "visit.checkIn" -> "Check-in"; "visit.activity" ->
+                            if (JSONObject(intent.serializedOperation).getJSONObject("payload")
+                                .getJSONObject("activity").optString("kind") == "call_sheet") "Call sheet" else "Note";
                         "visit.checkOut" -> "Check-out"; else -> "Visit action"
                     }, when (state) { "pending" -> "Waiting"; "done" -> "Accepted"; else -> "Needs review" },
                         "activity", Modifier.testTag("diagnostic-operation"))

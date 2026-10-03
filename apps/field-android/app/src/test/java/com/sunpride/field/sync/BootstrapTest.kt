@@ -51,6 +51,67 @@ class BootstrapTest {
         assertEquals(ResponseStatus.Unknown("future_pending"),
             responseStatus(unknown.getJSONArray("results").getJSONObject(0).getString("status")))
     }
+    @Test fun callSheetFixtureAndAbsentFieldDecode() {
+        val sheet = BootstrapCodec.page(fixture("bootstrap-call-sheet-response.json")).callSheets.single()
+        assertEquals("outlet-1", sheet.outletId)
+        assertEquals(2L, sheet.revision)
+        assertEquals("Puregold Example", sheet.header.accountName)
+        assertNull(sheet.header.receivingInCharge)
+        assertEquals(listOf("product-1", "product-2"), sheet.lines.map { it.productId })
+        assertEquals("₱189.00", sheet.lines.first().pricing)
+        assertNull(sheet.lines.last().barcode)
+        assertTrue(BootstrapCodec.page(first).callSheets.isEmpty())
+    }
+    @Test fun callSheetMalformedRequiredFieldsAndWrongPageOutletFailClosed() {
+        val original = fixture("bootstrap-call-sheet-response.json")
+        val mutations: List<(JSONObject) -> Unit> = listOf(
+            { it.put("callSheets", JSONObject.NULL) },
+            { it.getJSONArray("callSheets").getJSONObject(0).put("revision", 0) },
+            { it.getJSONArray("callSheets").getJSONObject(0).put("revision", 1.5) },
+            { it.getJSONArray("callSheets").getJSONObject(0).put("outletId", "not-in-page") },
+            { it.getJSONArray("callSheets").getJSONObject(0).getJSONObject("header").remove("foc") },
+            { it.getJSONArray("callSheets").getJSONObject(0).getJSONObject("header").put("accountName", "") },
+            { it.getJSONArray("callSheets").getJSONObject(0).getJSONArray("lines").getJSONObject(0).remove("pricing") },
+            { it.getJSONArray("callSheets").getJSONObject(0).put("lines", org.json.JSONArray().apply {
+                repeat(101) { put(JSONObject().put("productId", "p$it").put("code", "").put("name", "")
+                    .put("uom", "").put("barcode", JSONObject.NULL).put("pricing", JSONObject.NULL)) }
+            }) }
+        )
+        mutations.forEach { mutate ->
+            val o = JSONObject(original); mutate(o)
+            assertThrows(WireFailure::class.java) { BootstrapCodec.page(o.toString()) }
+        }
+    }
+    @Test fun nullableCallSheetTextAllowsEmptyStringButRequiresKeys() {
+        val o = JSONObject(fixture("bootstrap-call-sheet-response.json"))
+        o.getJSONArray("callSheets").getJSONObject(0).getJSONObject("header").put("address", "")
+        assertEquals("", BootstrapCodec.page(o.toString()).callSheets.single().header.address)
+    }
+    @Test fun multipageCallSheetsMergeAndPromoteOnlyAtFinalCursor() {
+        val one = page(fixture("bootstrap-call-sheet-response.json"), 1, "page-2", null)
+        val two = JSONObject(fixture("bootstrap-call-sheet-response.json"))
+        two.getJSONArray("plannedVisits").getJSONObject(0).put("id", "planned-2").put("outletId", "outlet-2")
+        two.getJSONArray("outlets").getJSONObject(0).put("id", "outlet-2")
+        two.getJSONArray("callSheets").getJSONObject(0).put("outletId", "outlet-2")
+        val store = Store()
+        val transport = Transport(mutableListOf(200 to one, 200 to page(two.toString(), 2, null, "final")))
+        BootstrapClient(transport, Signer(), "device-1", { store }).fetch("2026-09-26", "issuer|person")
+        assertEquals(listOf("outlet-1", "outlet-2"), store.snapshot!!.callSheets.map { it.outletId })
+        assertEquals(2, store.snapshot!!.outlets.size)
+        assertEquals(1, store.swaps)
+        assertEquals("final", store.token)
+    }
+    @Test fun conflictingCallSheetAcrossPagesNeverPromotes() {
+        val one = page(fixture("bootstrap-call-sheet-response.json"), 1, "page-2", null)
+        val two = JSONObject(fixture("bootstrap-call-sheet-response.json"))
+        two.getJSONArray("callSheets").getJSONObject(0).put("revision", 3)
+        val store = Store()
+        val transport = Transport(mutableListOf(200 to one, 200 to page(two.toString(), 2, null, "final")))
+        assertThrows(BootstrapFailure::class.java) {
+            BootstrapClient(transport, Signer(), "device-1", { store }).fetch("2026-09-26", "issuer|person")
+        }
+        assertNull(store.snapshot); assertEquals(0, store.swaps)
+    }
     private class Store : FieldStore {
         var snapshot: ScopedSnapshot? = null; var token: String? = "old"; var held = false; var swaps = 0
         override suspend fun stage(snapshot: ScopedSnapshot): String { this.snapshot = snapshot; return "generation" }

@@ -2,6 +2,8 @@ package com.sunpride.field.sync
 
 import com.sunpride.field.storage.ScopedSnapshot
 import com.sunpride.field.storage.SnapshotItem
+import com.sunpride.field.storage.CallSheet
+import com.sunpride.field.storage.CallSheetCodec
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.LocalDate
@@ -20,7 +22,8 @@ data class BootstrapPage(
     val page: Int, val serverTime: Long, val employee: JSONObject, val fingerprint: String,
     val visits: List<SnapshotItem>, val outlets: List<SnapshotItem>, val customers: List<SnapshotItem>,
     val tasks: List<SnapshotItem>, val route: String?, val next: String?, val cursor: String?,
-    val lease: Long, val cache: Long, val supported: Boolean, val raw: JSONObject
+    val lease: Long, val cache: Long, val supported: Boolean, val raw: JSONObject,
+    val callSheets: List<CallSheet> = emptyList()
 )
 
 object BootstrapCodec {
@@ -85,6 +88,12 @@ object BootstrapCodec {
             v.str("outletId"); LocalDate.parse(v.str("serviceDate")); v.str("planId"); v.num("planVersion"); strings(v.arr("intents"))
         }, true)
         val outlets = items(o, "outlets", { v -> v.str("name"); v.nullable("routeId") })
+        val callSheets = if (!o.has("callSheets")) emptyList() else o.arr("callSheets").let { a ->
+            (0 until a.length()).map { CallSheetCodec.decode(a.getJSONObject(it)) }
+        }
+        val visitOutlets = visits.map { JSONObject(it.json).getString("outletId") }.toSet()
+        require(callSheets.all { it.outletId in visitOutlets })
+        require(callSheets.map { it.outletId }.distinct().size == callSheets.size)
         val customers = items(o, "localCustomers", { it.str("code") })
         val tasks = items(o, "tasks", { it.str("kind"); it.bool("required") })
         if (o.arr("productCatalog").length() != 0) throw WireFailure("Unsupported catalog")
@@ -93,7 +102,7 @@ object BootstrapCodec {
         val next = o.nullable("nextPageCursor"); val cursor = o.nullable("syncCursor")
         if ((next == null) == (cursor == null)) throw WireFailure("Invalid pagination")
         BootstrapPage(o.num("page").toInt(), o.num("serverTime"), employee, fingerprint,
-            visits, outlets, customers, tasks, route, next, cursor, lease, cache, supported, o)
+            visits, outlets, customers, tasks, route, next, cursor, lease, cache, supported, o, callSheets)
     }
     /** Re-encode a validated v1 envelope without normalizing unknown optional response properties. */
     fun encode(page: BootstrapPage): ByteArray = page.raw.toString().toByteArray(Charsets.UTF_8)
@@ -106,9 +115,11 @@ object BootstrapCodec {
         fun unique(items: List<SnapshotItem>) = items.distinctBy { it.id }.also { distinct ->
             require(distinct.size == items.size || items.groupBy { it.id }.values.all { group -> group.map { it.json }.distinct().size == 1 })
         }
+        val sheets = pages.flatMap { it.callSheets }
+        require(sheets.groupBy { it.outletId }.values.all { it.distinct().size == 1 })
         return ScopedSnapshot(first.employee.toString(), pages.firstNotNullOfOrNull { it.route },
             unique(pages.flatMap { it.visits }), unique(pages.flatMap { it.outlets }),
-            unique(pages.flatMap { it.customers }), unique(pages.flatMap { it.tasks }))
+            unique(pages.flatMap { it.customers }), unique(pages.flatMap { it.tasks }), sheets.distinctBy { it.outletId })
     }
     private inline fun <T> guard(block: () -> T): T = try { block() }
         catch (e: WireFailure) { throw e }

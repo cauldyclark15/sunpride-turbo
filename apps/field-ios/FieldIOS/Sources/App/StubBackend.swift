@@ -128,6 +128,12 @@ final class StubBackend: URLProtocol {
                                    "planId": "plan-stub-1", "planVersion": 1, "intents": ["audit"]]],
                 "outlets": [["id": "outlet-stub-1", "name": "Stub Outlet", "routeId": NSNull()]],
                 "localCustomers": [], "route": NSNull(), "tasks": [], "productCatalog": [],
+                "callSheets": [["outletId": "outlet-stub-1", "revision": 1,
+                    "header": ["accountName": "Stub Outlet", "address": NSNull(), "buyerName": "Stub Buyer",
+                        "contactNumber": NSNull(), "accountInCharge": NSNull(), "receivingInCharge": NSNull(),
+                        "distributorName": NSNull(), "distributorSchedule": NSNull(), "foc": NSNull(), "pricing": NSNull()],
+                    "lines": [["productId": "product-stub-1", "code": "SUNP-001", "name": "Sunpride Hotdog 1kg",
+                               "uom": "PC", "barcode": NSNull(), "pricing": "₱189.00"]]]],
                 "page": 1, "nextPageCursor": NSNull(), "syncCursor": "stub-cursor"
             ]))
         case "/mobile/v1/push", "/mobile/v1/pull":

@@ -31,6 +31,62 @@ class EncryptedFieldStoreTest {
     @Before fun open() { db = EncryptedFieldDatabase.open(context) }
     @After fun close() { db.close() }
 
+    private fun callSheet(revision: Long = 1) = CallSheet("outlet-1", revision,
+        CallSheetHeader("Account", "Address", null, null, null, null, null, null, null, "SRP"),
+        listOf(CallSheetProduct("product-1", "SKU", "Product", "PC", null, "₱10")))
+
+    @Test fun callSheetGenerationPromotionIsScopedAtomicAndDurable() = runBlocking {
+        val target = store()
+        val initial = snapshot().copy(callSheets = listOf(callSheet()))
+        target.swap(target.stage(initial), "before", 2000, 2000)
+        assertEquals(callSheet(), target.callSheet("outlet-1"))
+        assertNull(store(scope.copy(account = "other")).callSheet("outlet-1"))
+        assertNull(store(scope.copy(deviceId = "other")).callSheet("outlet-1"))
+        assertNull(store(scope.copy(fingerprint = "other")).callSheet("outlet-1"))
+        val generation = target.stage(initial.copy(callSheets = listOf(callSheet(2))))
+        assertEquals(1L, target.callSheet("outlet-1")!!.revision)
+        assertThrows(IllegalStateException::class.java) { runBlocking { target.swap("unstaged", "bad", 2000, 2000) } }
+        assertEquals("before", target.cursor()); assertEquals(1L, target.callSheet("outlet-1")!!.revision)
+        target.swap(generation, "after", 2000, 2000)
+        db.close(); db = EncryptedFieldDatabase.open(context)
+        assertEquals(2L, store().callSheet("outlet-1")!!.revision)
+        assertEquals("after", store().cursor())
+        store().swap(store().stage(initial.copy(callSheets = emptyList())), "old-server", 2000, 2000)
+        assertNull(store().callSheet("outlet-1"))
+        Unit
+    }
+
+    @Test fun callSheetEnqueueValidatesSetupProductsAndRetainsImmutableTemplate() = runBlocking {
+        val factory = com.sunpride.field.ui.diagnosticvisit.VisitIntentFactory
+        val payload = com.sunpride.field.ui.diagnosticvisit.CallSheetPayload
+        val target = store()
+        target.swap(target.stage(snapshot().copy(callSheets = listOf(callSheet()))), "cursor", 2000, 2000)
+        val check = factory.create(scope, "visit.checkIn", null, null, null, "planned-1", "outlet-1",
+            emptyList(), null, null, null, null, null, at = 100)
+        target.enqueue(check, 100)
+        val activity = payload.activity(callSheet(), listOf(com.sunpride.field.ui.diagnosticvisit.CallSheetDraftLine("product-1", order = "0")))
+        val row = factory.create(scope, "visit.activity", check.clientVisitId, check.requestId, check.requestId,
+            null, "outlet-1", emptyList(), null, null, null, null, null, at = 100, callSheet = activity)
+        val bad = org.json.JSONObject(row.serializedOperation)
+        bad.getJSONObject("payload").getJSONObject("activity").getJSONArray("lines").getJSONObject(0).put("productId", "foreign")
+        assertThrows(IllegalArgumentException::class.java) { runBlocking {
+            target.enqueue(row.copy(serializedOperation = bad.toString()), 100)
+        } }
+        assertNull(target.intent(row.requestId)); assertEquals(1, target.history().size)
+        target.enqueue(row, 100)
+        assertEquals(listOf(100L, 101L), target.history().map { it.first.createdAt })
+        target.markSending(listOf(check.requestId)); target.recordAck(check.requestId, "server-visit", "[]", 150)
+        assertEquals("done", target.history().first().second.state)
+        db.close(); db = EncryptedFieldDatabase.open(context)
+        assertEquals(row.serializedOperation, store().intent(row.requestId)!!.serializedOperation)
+        assertEquals("server-visit", store().ack(check.requestId)!!.entityId)
+        store().swap(store().stage(snapshot()), "no-setup", 2000, 2000)
+        assertEquals(row.serializedOperation, store().intent(row.requestId)!!.serializedOperation)
+        assertThrows(IllegalStateException::class.java) { runBlocking { store().enqueue(row.copy(requestId = "new"), 100) } }
+        assertEquals(2, store().history().size)
+        Unit
+    }
+
     @Test fun wrappedKeyPersistsAndCiphertextContainsNoMarkerAndWrongKeyFails() = runBlocking {
         val marker = "KNOWN_PLAINTEXT_MARKER_${UUID.randomUUID()}"
         ready(store(), marker)

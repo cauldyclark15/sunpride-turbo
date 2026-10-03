@@ -45,8 +45,27 @@ data class AckRow(val account: String, val deviceId: String, val scope: String,
 data class DeltaRow(val account: String, val deviceId: String, val scope: String,
     val entity: String, val entityId: String, val revision: Long, val json: String?, val tombstone: Boolean)
 
+@Entity(tableName = "call_sheets", primaryKeys = ["account", "deviceId", "scope", "generation", "outletId"])
+data class CallSheetRow(val account: String, val deviceId: String, val scope: String,
+    val generation: String, val outletId: String, val revision: Long, val headerJson: String)
+
+@Entity(tableName = "call_sheet_lines", primaryKeys = ["account", "deviceId", "scope", "generation", "outletId", "productId"])
+data class CallSheetLineRow(val account: String, val deviceId: String, val scope: String,
+    val generation: String, val outletId: String, val productId: String, val position: Int,
+    val code: String, val name: String, val uom: String, val barcode: String?, val pricing: String?)
+
 @Dao
 interface StoreDao {
+    @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertCallSheet(row: CallSheetRow)
+    @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertCallSheetLine(row: CallSheetLineRow)
+    @Query("SELECT * FROM call_sheets WHERE account=:account AND deviceId=:device AND scope=:scope AND generation=:generation AND outletId=:outlet")
+    suspend fun callSheet(account: String, device: String, scope: String, generation: String, outlet: String): CallSheetRow?
+    @Query("SELECT * FROM call_sheet_lines WHERE account=:account AND deviceId=:device AND scope=:scope AND generation=:generation AND outletId=:outlet ORDER BY position")
+    suspend fun callSheetLines(account: String, device: String, scope: String, generation: String, outlet: String): List<CallSheetLineRow>
+    @Query("DELETE FROM call_sheets WHERE account=:account AND deviceId=:device AND scope=:scope AND generation!=:generation")
+    suspend fun discardOldCallSheets(account: String, device: String, scope: String, generation: String)
+    @Query("DELETE FROM call_sheet_lines WHERE account=:account AND deviceId=:device AND scope=:scope AND generation!=:generation")
+    suspend fun discardOldCallSheetLines(account: String, device: String, scope: String, generation: String)
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putDelta(row: DeltaRow)
     @Query("SELECT * FROM deltas WHERE account=:account AND deviceId=:device AND scope=:scope AND entity=:entity AND entityId=:id")
     suspend fun delta(account: String, device: String, scope: String, entity: String, id: String): DeltaRow?
@@ -96,8 +115,8 @@ interface StoreDao {
     suspend fun ack(account: String, device: String, scope: String, requestId: String): AckRow?
 }
 
-@Database(entities = [SnapshotRow::class, PartitionRow::class, IntentRow::class, OutboxRow::class, AckRow::class, DeltaRow::class],
-    version = 3, exportSchema = true)
+@Database(entities = [SnapshotRow::class, PartitionRow::class, IntentRow::class, OutboxRow::class, AckRow::class, DeltaRow::class, CallSheetRow::class, CallSheetLineRow::class],
+    version = 4, exportSchema = true)
 abstract class StoreDatabase : RoomDatabase() {
     abstract fun rows(): StoreDao
 }

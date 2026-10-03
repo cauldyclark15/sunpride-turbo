@@ -9,6 +9,9 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.assertIsNotEnabled
 import com.sunpride.field.AppEnvironment
 import com.sunpride.field.auth.EnrollmentState
 import com.sunpride.field.device.DeviceSigner
@@ -45,6 +48,20 @@ class DiagnosticVisitTest {
             return try { runBlocking { store.history().map { it.first to it.second.state } } }
             finally { store.close() }
         }
+        override fun callSheet(outletId: String): CallSheet? {
+            val store = scoped()
+            return try { runBlocking { store.callSheet(outletId) } } finally { store.close() }
+        }
+        override fun queueCallSheet(clientVisitId: String, checkInRequestId: String, previousRequestId: String,
+            outletId: String, drafts: List<CallSheetDraftLine>) {
+            val store = scoped()
+            try { runBlocking {
+                val sheet = store.callSheet(outletId) ?: error("No call sheet")
+                store.enqueue(VisitIntentFactory.create(identity, "visit.activity", clientVisitId, checkInRequestId,
+                    previousRequestId, null, outletId, emptyList(), null, null, null, null, null,
+                    callSheet = CallSheetPayload.activity(sheet, drafts)), System.currentTimeMillis())
+            } } finally { store.close() }
+        }
         override fun queueVisit(kind: String, clientVisitId: String?, checkInRequestId: String?, previousRequestId: String?,
             plannedVisitId: String?, outletId: String, intents: List<String>, unplannedReason: String?, note: String?,
             outcome: String?, reasonCode: String?, location: JSONObject?) {
@@ -55,6 +72,57 @@ class DiagnosticVisitTest {
                     location), System.currentTimeMillis())
             } } finally { store.close() }
         }
+    }
+    @Test fun enterAndSaveCallSheetOfflineAndSaveAgain() {
+        val sheet = CallSheet("outlet-1", 1, CallSheetHeader("Test account", "Sample address", "Buyer",
+            "Contact", "Account lead", null, "Distributor", "Tuesday", null, "SRP"),
+            listOf(CallSheetProduct("product-1", "SKU-1", "Test product", "PC", null, "₱10"),
+                CallSheetProduct("product-2", "SKU-2", "Untouched product", "CAN", null, null)))
+        val store = scoped()
+        runBlocking {
+            store.swap(store.stage(ScopedSnapshot("{\"id\":\"test\"}", null, emptyList(), emptyList(),
+                emptyList(), emptyList(), listOf(sheet))), "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
+        }
+        store.close()
+        val backend = Backend()
+        val location = object : VisitLocation {
+            override val requiresPermission = false
+            override suspend fun fix(): JSONObject? = null
+        }
+        rule.setContent { FieldApp(AppEnvironment("https://team.convex.site", "https://team.convex.cloud"),
+            dark = false, debug = false, backend = backend, visitLocation = location) }
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-open").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("diagnostic-open").performClick()
+        // Inject a check-in without requesting or granting any device permission.
+        backend.queueVisit("visit.checkIn", null, null, null, "planned-1", "outlet-1", emptyList(), null, null, null, null, null)
+        rule.onNodeWithTag("visit-back").performClick()
+        rule.onNodeWithTag("diagnostic-open").performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("call-sheet-open").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("call-sheet-open").performScrollTo().performClick()
+        rule.onNodeWithTag("call-sheet-save").assertIsNotEnabled()
+        rule.onNodeWithTag("call-sheet-products").performScrollToNode(hasTestTag("call-sheet-product-1-order"))
+        rule.onNodeWithTag("call-sheet-product-1-order").performTextInput("24")
+        rule.onNodeWithTag("call-sheet-product-1-beginningInventory").performTextInput("0")
+        androidx.test.espresso.Espresso.pressBack()
+        rule.onNodeWithTag("call-sheet-save").assertIsEnabled().performClick()
+        rule.waitUntil(10_000) { backend.visitStates().count { it.first.kind == "visit.activity" } == 1 }
+        rule.onNodeWithTag("call-sheet-products").performScrollToNode(hasTestTag("call-sheet-status"))
+        rule.onNodeWithTag("call-sheet-status").assertTextContains("Queued", substring = true)
+        rule.onNodeWithTag("call-sheet-save").assertIsNotEnabled()
+        val reopened = scoped()
+        try { runBlocking {
+            val activity = JSONObject(reopened.history().last().first.serializedOperation).getJSONObject("payload").getJSONObject("activity")
+            assertEquals("call_sheet", activity.getString("kind"))
+            assertEquals(1, activity.getJSONArray("lines").length())
+            val line = activity.getJSONArray("lines").getJSONObject(0)
+            assertEquals(24, line.getInt("order")); assertEquals(0, line.getInt("beginningInventory"))
+            assertEquals(JSONObject.NULL, line.get("take"))
+        } } finally { reopened.close() }
+        rule.onNodeWithTag("call-sheet-products").performScrollToNode(hasTestTag("call-sheet-product-1-order"))
+        rule.onNodeWithTag("call-sheet-product-1-order").performTextInput("5")
+        androidx.test.espresso.Espresso.pressBack()
+        rule.onNodeWithTag("call-sheet-save").performClick()
+        rule.waitUntil(10_000) { backend.visitStates().count { it.first.kind == "visit.activity" } == 2 }
     }
     @After fun cleanup() { KeystoreDeviceKey.delete(alias) }
     @Test fun queuesCheckInAndCheckOutOfflineWithoutPhoneLocationPermission() = runScenario(false)

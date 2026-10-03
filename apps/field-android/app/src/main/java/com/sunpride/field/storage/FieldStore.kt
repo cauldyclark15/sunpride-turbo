@@ -14,10 +14,11 @@ data class StoreScope(val account: String, val deviceId: String, val fingerprint
     init { require(account.isNotBlank() && deviceId.isNotBlank() && fingerprint.isNotBlank()) }
 }
 
-/** Supported server-owned bootstrap fields only; no product, price, order or stock rows. */
+/** Server-owned bootstrap, including account-scoped Annex C setup (not an order/stock ledger). */
 data class ScopedSnapshot(val employeeJson: String, val routeJson: String?,
     val visits: List<SnapshotItem>, val outlets: List<SnapshotItem>,
-    val localCustomers: List<SnapshotItem>, val tasks: List<SnapshotItem>)
+    val localCustomers: List<SnapshotItem>, val tasks: List<SnapshotItem>,
+    val callSheets: List<CallSheet> = emptyList())
 data class SnapshotItem(val id: String, val json: String, val serviceDate: String? = null)
 
 interface FieldStore {
@@ -28,6 +29,7 @@ interface FieldStore {
                      releaseHeld: Boolean = false)
     suspend fun todaysVisits(day: String): List<SnapshotItem>
     suspend fun outlets(): List<SnapshotItem>
+    suspend fun callSheet(outletId: String): CallSheet? = null
     suspend fun isLeaseValid(now: Long): Boolean
     /** Immutable serialized v1 operation and UUID. A crash cannot persist just one of intent/outbox. */
     suspend fun enqueue(intent: IntentRow, now: Long)
@@ -64,12 +66,18 @@ object EncryptedFieldDatabase {
             db.execSQL("ALTER TABLE `partitions` ADD COLUMN `lastSuccessfulSync` INTEGER")
         }
     }
+    val MIGRATION_3_4 = object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `call_sheets` (`account` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `scope` TEXT NOT NULL, `generation` TEXT NOT NULL, `outletId` TEXT NOT NULL, `revision` INTEGER NOT NULL, `headerJson` TEXT NOT NULL, PRIMARY KEY(`account`, `deviceId`, `scope`, `generation`, `outletId`))")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `call_sheet_lines` (`account` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `scope` TEXT NOT NULL, `generation` TEXT NOT NULL, `outletId` TEXT NOT NULL, `productId` TEXT NOT NULL, `position` INTEGER NOT NULL, `code` TEXT NOT NULL, `name` TEXT NOT NULL, `uom` TEXT NOT NULL, `barcode` TEXT, `pricing` TEXT, PRIMARY KEY(`account`, `deviceId`, `scope`, `generation`, `outletId`, `productId`))")
+        }
+    }
     fun open(context: Context): StoreDatabase {
         System.loadLibrary("sqlcipher")
         val passphrase = PassphraseVault(context).passphrase()
         return Room.databaseBuilder(context.applicationContext, StoreDatabase::class.java, PassphraseVault.DB_NAME)
             .openHelperFactory(SupportOpenHelperFactory(passphrase))
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
             .build()
     }
 
@@ -100,6 +108,16 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
                 require(item.id.isNotBlank() && item.json.isNotBlank())
                 dao.insertSnapshot(SnapshotRow(a, d, s, generation, kind, item.id, item.json, item.serviceDate))
             }
+            for (sheet in snapshot.callSheets) {
+                // Validate before storing: empty setup lines are allowed, duplicate products are not.
+                CallSheetCodec.decode(CallSheetCodec.encode(sheet))
+                dao.insertCallSheet(CallSheetRow(a, d, s, generation, sheet.outletId, sheet.revision,
+                    CallSheetCodec.encodeHeader(sheet.header).toString()))
+                sheet.lines.forEachIndexed { index, p ->
+                    dao.insertCallSheetLine(CallSheetLineRow(a, d, s, generation, sheet.outletId,
+                        p.productId, index, p.code, p.name, p.uom, p.barcode, p.pricing))
+                }
+            }
             // Stage metadata is deliberately not active. Empty snapshots are valid; marker row carries metadata.
             dao.insertSnapshot(SnapshotRow(a, d, s, generation, "meta", "bootstrap",
                 JSONObject().put("employee", snapshot.employeeJson)
@@ -123,6 +141,8 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
                 syncHealth = if (old.held && !releaseHeld) "held_for_review" else "synced",
                 lastSuccessfulSync = if (old.held && !releaseHeld) old.lastSuccessfulSync else System.currentTimeMillis()))
             dao.discardOldSnapshots(a, d, s, generation)
+            dao.discardOldCallSheets(a, d, s, generation)
+            dao.discardOldCallSheetLines(a, d, s, generation)
             // No intent, ack, or outbox table is touched by promotion or cursor reset.
         }
     }
@@ -133,6 +153,14 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
     }
     override suspend fun todaysVisits(day: String): List<SnapshotItem> = read("visit", day)
     override suspend fun outlets(): List<SnapshotItem> = read("outlet")
+    override suspend fun callSheet(outletId: String): CallSheet? = db.withTransaction {
+        val generation = metadata().activeGeneration ?: return@withTransaction null
+        val row = dao.callSheet(a, d, s, generation, outletId) ?: return@withTransaction null
+        CallSheet(row.outletId, row.revision, CallSheetCodec.header(JSONObject(row.headerJson)),
+            dao.callSheetLines(a, d, s, generation, outletId).map {
+                CallSheetProduct(it.productId, it.code, it.name, it.uom, it.barcode, it.pricing)
+            })
+    }
     override suspend fun isLeaseValid(now: Long): Boolean = metadata().let {
         !it.held && it.leaseExpiresAt != null && now < it.leaseExpiresAt && it.activeGeneration != null
     }
@@ -147,6 +175,7 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             intent.serializedOperation.isNotBlank())
         db.withTransaction {
             check(isLeaseValid(now)) { "Offline lease expired or held" }
+            CallSheetQueueRules.validate(this@RoomFieldStore, intent)
             val orderedAt = maxOf(intent.createdAt, (dao.latestCreatedAt(a, d, s) ?: Long.MIN_VALUE) + 1)
             dao.insertIntent(intent.copy(createdAt = orderedAt))
             checkpoint()

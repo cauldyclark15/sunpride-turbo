@@ -8,6 +8,9 @@ import com.sunpride.field.storage.EncryptedFieldDatabase
 import kotlinx.coroutines.runBlocking
 import com.sunpride.field.storage.RoomFieldStore
 import com.sunpride.field.storage.StoreScope
+import com.sunpride.field.storage.CallSheet
+import com.sunpride.field.ui.diagnosticvisit.CallSheetDraftLine
+import com.sunpride.field.ui.diagnosticvisit.CallSheetPayload
 import com.sunpride.field.sync.BootstrapClient
 import com.sunpride.field.sync.BootstrapFailure
 import com.sunpride.field.sync.LiveBootstrapTransport
@@ -51,6 +54,9 @@ interface FieldBackend {
     fun queueVisit(kind: String, clientVisitId: String?, checkInRequestId: String?, previousRequestId: String?,
         plannedVisitId: String?, outletId: String, intents: List<String>, unplannedReason: String?, note: String?,
         outcome: String?, reasonCode: String?, location: JSONObject?) { error("No local store") }
+    fun callSheet(outletId: String): CallSheet? = null
+    fun queueCallSheet(clientVisitId: String, checkInRequestId: String, previousRequestId: String,
+        outletId: String, drafts: List<CallSheetDraftLine>) { error("No local store") }
     val cachedDeviceId: String? get() = null
 }
 
@@ -113,6 +119,26 @@ class LiveFieldBackend(
                 }
             }
         } finally { store.close() }
+    }
+    override fun callSheet(outletId: String): CallSheet? {
+        val scope = storedScope() ?: return null
+        val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+        return try { runBlocking { store.callSheet(outletId) } } finally { store.close() }
+    }
+    override fun queueCallSheet(clientVisitId: String, checkInRequestId: String, previousRequestId: String,
+        outletId: String, drafts: List<CallSheetDraftLine>) {
+        val scope = storedScope() ?: error("No verified local partition")
+        val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+        try { runBlocking {
+            val sheet = store.callSheet(outletId) ?: error("No call sheet for this account")
+            val activity = CallSheetPayload.activity(sheet, drafts)
+            val intent = com.sunpride.field.ui.diagnosticvisit.VisitIntentFactory.create(scope, "visit.activity",
+                clientVisitId, checkInRequestId, previousRequestId, null, outletId, emptyList(),
+                null, null, null, null, null, callSheet = activity)
+            com.sunpride.field.sync.work.QueueScheduler.enqueue(store, intent, System.currentTimeMillis()) {
+                com.sunpride.field.sync.work.SyncWork.enqueue(context)
+            }
+        } } finally { store.close() }
     }
     private fun sessionKey(): String? = vault.readSession()?.let {
         MessageDigest.getInstance("SHA-256").digest(it.toByteArray(Charsets.UTF_8))
@@ -294,20 +320,56 @@ class FieldController(
     var diagnostic by mutableStateOf<VisitDisplay?>(null); private set
     var diagnosticRows by mutableStateOf<List<Pair<com.sunpride.field.storage.IntentRow, String>>>(emptyList()); private set
     var diagnosticError by mutableStateOf<String?>(null); private set
+    var diagnosticCallSheet by mutableStateOf<CallSheet?>(null); private set
+    var callSheetOpen by mutableStateOf(false); private set
+    fun openCallSheet() = scope.launch(ui) { callSheetOpen = true; diagnosticError = null }
+    fun closeCallSheet() = scope.launch(ui) { callSheetOpen = false; diagnosticError = null }
     fun openDiagnostic(visit: VisitDisplay) = scope.launch(ui) {
-        diagnostic = visit; refreshDiagnostic()
+        diagnostic = visit; callSheetOpen = false; diagnosticCallSheet = null; refreshDiagnostic()
     }
-    fun closeDiagnostic() { diagnostic = null; diagnosticError = null }
+    fun closeDiagnostic() = scope.launch(ui) {
+        diagnostic = null; diagnosticError = null; callSheetOpen = false; diagnosticCallSheet = null
+    }
     private suspend fun refreshDiagnostic() {
-        diagnosticRows = withContext(io) { backend.visitStates() }
+        val visit = diagnostic
+        val (rows, sheet) = withContext(io) { backend.visitStates() to visit?.outletId?.let { backend.callSheet(it) } }
+        if (diagnostic == visit) { diagnosticRows = rows; diagnosticCallSheet = sheet }
     }
-    fun queueDiagnostic(kind: String, reason: String?, note: String?, outcome: String?, location: JSONObject?) = scope.launch(ui) {
+    /** Do not mix separate planned visits to the same account in the editor or its dependency chain. */
+    fun relatedVisitRows(visit: VisitDisplay): List<Pair<com.sunpride.field.storage.IntentRow, String>> {
+        val clients = diagnosticRows.filter { (row, _) ->
+            if (row.kind != "visit.checkIn") false else JSONObject(row.serializedOperation).getJSONObject("payload").let {
+                it.optString("outletId") == visit.outletId && it.optString("plannedVisitId") == (visit.plannedVisitId ?: "null")
+            }
+        }.map { it.first.clientVisitId }.toSet()
+        return diagnosticRows.filter { it.first.clientVisitId in clients }
+    }
+    fun queueCallSheet(drafts: List<CallSheetDraftLine>, onQueued: () -> Unit = {}) = scope.launch(ui) {
+        if (busy) return@launch
         val visit = diagnostic ?: return@launch
         busy = true; diagnosticError = null
         try {
-            val rows = diagnosticRows.filter { it.first.kind == "visit.checkIn" &&
-                JSONObject(it.first.serializedOperation).getJSONObject("payload").optString("outletId") == visit.outletId &&
-                it.second != "review" }
+            val sheet = diagnosticCallSheet ?: error("No call sheet")
+            CallSheetPayload.activity(sheet, drafts)
+            val checkin = relatedVisitRows(visit).lastOrNull { (row, state) ->
+                row.kind == "visit.checkIn" && state != "review"
+            }?.first ?: error("Check in first")
+            val related = diagnosticRows.filter { it.first.clientVisitId == checkin.clientVisitId }
+            check(related.none { it.first.kind == "visit.checkOut" }) { "Already checked out" }
+            withContext(io) { backend.queueCallSheet(checkin.clientVisitId, checkin.requestId,
+                related.last().first.requestId, visit.outletId, drafts) }
+            onQueued() // Main only, and only after the durable enqueue succeeded.
+            refreshDiagnostic(); loadToday(sync = false)
+        } catch (_: Exception) {
+            diagnosticError = "Could not save call sheet. Use whole numbers from 0 to 1,000,000 and check the offline lease."
+        } finally { busy = false }
+    }
+    fun queueDiagnostic(kind: String, reason: String?, note: String?, outcome: String?, location: JSONObject?) = scope.launch(ui) {
+        if (busy) return@launch
+        val visit = diagnostic ?: return@launch
+        busy = true; diagnosticError = null
+        try {
+            val rows = relatedVisitRows(visit).filter { it.first.kind == "visit.checkIn" && it.second != "review" }
             val checkin = rows.lastOrNull()?.first
             val related = if (checkin == null) emptyList() else diagnosticRows.filter { it.first.clientVisitId == checkin.clientVisitId }
             if (kind != "visit.checkIn" && checkin == null) error("Check in first")
@@ -398,7 +460,7 @@ class FieldController(
     fun syncNow() = scope.launch(ui) {
         if (busy || state !is EnrollmentState.Ready || today.updateRequired) return@launch
         busy = true
-        try { loadToday(sync = true) }
+        try { loadToday(sync = true); if (diagnostic != null) refreshDiagnostic() }
         catch (_: Exception) { today = today.copy(stale = true, warning = "Sync unavailable — showing saved visits") }
         finally { busy = false }
     }

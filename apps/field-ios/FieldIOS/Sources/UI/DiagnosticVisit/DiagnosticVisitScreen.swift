@@ -1,7 +1,6 @@
 import SwiftUI
 
-#if DEBUG
-/// Diagnostic only: local work is queued, never credited as a productive call.
+/// Visit work is captured locally; only the server can accept or credit a call.
 struct DiagnosticVisitScreen: View {
     let model: AppModel
     let visit: AppModel.TodayVisit
@@ -84,6 +83,23 @@ struct DiagnosticVisitScreen: View {
                             .accessibilityIdentifier("diagnosticAddNote")
                         }.padding(16)
                     }
+                    if model.callSheet(for: visit) != nil {
+                        NavigationLink {
+                            CallSheetScreen(model: model, visit: visit)
+                        } label: {
+                            SectionCard(title: "Call sheet") {
+                                CalmListRow(symbol: "tablecells", title: "Call sheet",
+                                            meta: model.callSheetStatus(for: visit) ?? "Record product quantities",
+                                            trailing: "chevron.right")
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("openCallSheet")
+                    } else {
+                        Text("No call sheet set up for this account yet. Ask your office.")
+                            .font(SunprideTokens.TypeStyle.meta)
+                            .foregroundStyle(SunprideTokens.secondaryText)
+                    }
                     SectionCard(title: "Outcome") {
                         VStack(alignment: .leading, spacing: 0) {
                             Menu {
@@ -120,6 +136,11 @@ struct DiagnosticVisitScreen: View {
                             if noteQueued {
                                 activityDivider
                                 CalmListRow(symbol: "note.text", title: "Note", meta: "Waiting")
+                            }
+                            if let status = model.callSheetStatus(for: visit) {
+                                activityDivider
+                                CalmListRow(symbol: "tablecells", title: "Call sheet", meta: status)
+                                    .accessibilityIdentifier("callSheetActivity")
                             }
                             if checkedOut {
                                 activityDivider
@@ -168,9 +189,13 @@ struct DiagnosticVisitScreen: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
+        .onAppear {
+            let progress = model.visitProgress(for: visit)
+            checkedIn = progress.checkedIn
+            checkedOut = progress.checkedOut
+        }
     }
     private var activityDivider: some View {
         Rectangle().fill(SunprideTokens.secondaryText.opacity(0.2)).frame(height: 1).padding(.leading, 16)
     }
 }
-#endif

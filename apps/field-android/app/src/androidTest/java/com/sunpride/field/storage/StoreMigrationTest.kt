@@ -14,6 +14,31 @@ class StoreMigrationTest {
     @get:Rule val helper = MigrationTestHelper(
         InstrumentationRegistry.getInstrumentation(), StoreDatabase::class.java.canonicalName!!)
 
+    @Test fun v3ToV4PreservesGenerationOutboxAndAddsCallSheets() {
+        val name = "migration-call-sheet-v3.db"
+        helper.createDatabase(name, 3).apply {
+            execSQL("INSERT INTO partitions (account,deviceId,scope,activeGeneration,cursor,syncHealth,held,lastSuccessfulSync) VALUES ('a','d','s','g','cursor','synced',0,123)")
+            execSQL("INSERT INTO intents (account,deviceId,scope,requestId,clientVisitId,kind,serializedOperation,createdAt) VALUES ('a','d','s','r','v','visit.activity','immutable',1)")
+            execSQL("INSERT INTO outbox (account,deviceId,scope,requestId,createdAt,state) VALUES ('a','d','s','r',1,'pending')")
+            close()
+        }
+        helper.runMigrationsAndValidate(name, 4, true, EncryptedFieldDatabase.MIGRATION_3_4).use { db ->
+            db.query("SELECT activeGeneration,cursor,lastSuccessfulSync FROM partitions WHERE scope='s'").use { c ->
+                assertEquals(true, c.moveToFirst()); assertEquals("g", c.getString(0))
+                assertEquals("cursor", c.getString(1)); assertEquals(123L, c.getLong(2))
+            }
+            db.query("SELECT serializedOperation,state FROM intents JOIN outbox USING (account,deviceId,scope,requestId) WHERE requestId='r'").use { c ->
+                assertEquals(true, c.moveToFirst()); assertEquals("immutable", c.getString(0)); assertEquals("pending", c.getString(1))
+            }
+            db.execSQL("INSERT INTO call_sheets (account,deviceId,scope,generation,outletId,revision,headerJson) VALUES ('a','d','s','g','o',1,'{}')")
+            db.execSQL("INSERT INTO call_sheet_lines (account,deviceId,scope,generation,outletId,productId,position,code,name,uom,barcode,pricing) VALUES ('a','d','s','g','o','p',0,'SKU','Product','PC',NULL,NULL)")
+            db.query("SELECT productId,barcode,pricing FROM call_sheet_lines").use { c ->
+                assertEquals(true, c.moveToFirst()); assertEquals("p", c.getString(0))
+                assertEquals(true, c.isNull(1)); assertEquals(true, c.isNull(2))
+            }
+        }
+    }
+
     @Test fun exportedV1SchemaOpensWithoutDestructiveFallback() {
         val name = "migration-baseline-v1.db"
         helper.createDatabase(name, 1).apply {

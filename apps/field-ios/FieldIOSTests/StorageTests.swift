@@ -198,6 +198,69 @@ final class StorageTests: XCTestCase {
         XCTAssertTrue(try reopened.pendingOutbox(for: b).isEmpty)
     }
 
+    private func callSheetSnapshot() throws -> StoreSnapshot {
+        let fixture = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "bootstrap-call-sheet-response", withExtension: "json"))
+        let page = try JSONDecoder().decode(BootstrapV1.Page.self, from: Data(contentsOf: fixture))
+        return StoreSnapshot(employee: page.employee, visits: page.plannedVisits, outlets: page.outlets,
+                             customers: [], route: nil, tasks: [], callSheets: page.callSheets)
+    }
+    func testV2ToV3MigrationPreservesSnapshotUUIDsAcksLeaseAndOutbox() throws {
+        let p = try partition, store = try open(), accepted = intent(), pending = intent()
+        try seeded(store, p)
+        try store.enqueue(accepted, for: p, now: now)
+        let ack = ServerAck(entityId: "server-visit", eventIds: ["event"], serverTime: 1_790_380_800_010)
+        try store.recordAck(ack, for: accepted.requestId, in: p)
+        try store.enqueue(pending, for: p, now: now)
+        try store.prepareLegacyV2()
+        XCTAssertEqual(store.schemaVersion, 2)
+        store.close()
+        let upgraded = try open()
+        XCTAssertEqual(upgraded.schemaVersion, 3)
+        XCTAssertEqual(try upgraded.pendingOutbox(for: p).map(\.intent), [pending])
+        XCTAssertEqual(try upgraded.ack(for: accepted.requestId, in: p), ack)
+        XCTAssertEqual(try upgraded.snapshot(for: p)?.visits.first?.id, "planned-1")
+        XCTAssertTrue(try XCTUnwrap(upgraded.snapshot(for: p)).callSheets.isEmpty)
+        XCTAssertEqual(try upgraded.cursor(for: p), "opaque-start")
+        XCTAssertEqual(try upgraded.leaseExpiry(for: p), 1_790_467_200_000)
+        try upgraded.saveSnapshot(callSheetSnapshot(), cursor: "v3-cursor", leaseExpiresAt: 1_790_467_200_000,
+                                  cacheExpiresAt: 1_790_467_200_000, for: p)
+        upgraded.close()
+        let reopened = try open()
+        XCTAssertEqual(reopened.schemaVersion, 3)
+        XCTAssertEqual(try reopened.snapshot(for: p)?.callSheets.count, 1)
+        XCTAssertEqual(try reopened.pendingOutbox(for: p).first?.intent, pending)
+        reopened.close()
+    }
+    func testCallSheetEncryptedGenerationSwapRollbackAndPartitionIsolation() throws {
+        let p = try partition, store = try open(), snapshot = try callSheetSnapshot(), queued = intent()
+        try store.saveSnapshot(snapshot, cursor: "sheet-cursor", leaseExpiresAt: 1_790_467_200_000,
+                               cacheExpiresAt: 1_790_467_200_000, for: p)
+        try store.enqueue(queued, for: p, now: now)
+        for suffix in ["", "-wal"] {
+            if let raw = try? Data(contentsOf: URL(fileURLWithPath: url.path + suffix)) {
+                XCTAssertNil(raw.range(of: Data("Puregold Example".utf8)))
+                XCTAssertNil(raw.range(of: Data("Sunpride Hotdog 1kg".utf8)))
+            }
+        }
+        let other = try StorePartition(subject: p.subject, deviceId: p.deviceId, scope: "different-scope")
+        XCTAssertTrue(try store.callSheets(for: other).isEmpty)
+        let invalid = StoreSnapshot(employee: snapshot.employee, visits: snapshot.visits, outlets: snapshot.outlets,
+                                    customers: [], route: nil, tasks: [], callSheets: snapshot.callSheets + snapshot.callSheets)
+        XCTAssertThrowsError(try store.saveSnapshot(invalid, cursor: "must-rollback", leaseExpiresAt: 1,
+                                                     cacheExpiresAt: 1, for: p))
+        XCTAssertEqual(try store.cursor(for: p), "sheet-cursor")
+        XCTAssertEqual(try store.snapshot(for: p)?.callSheets, snapshot.callSheets)
+        XCTAssertEqual(try store.leaseExpiry(for: p), 1_790_467_200_000)
+        try store.saveSnapshot(self.snapshot(), cursor: "old-server", leaseExpiresAt: 1_790_467_200_000,
+                               cacheExpiresAt: 1_790_467_200_000, for: p)
+        XCTAssertTrue(try store.callSheets(for: p).isEmpty, "omitted callSheets clears the prior generation")
+        XCTAssertEqual(try store.pendingOutbox(for: p).first?.intent, queued)
+        store.close()
+        let reopened = try open()
+        XCTAssertTrue(try reopened.callSheets(for: p).isEmpty)
+        reopened.close()
+    }
+
     func testSyncHealthSurvivesRestart() throws {
         let p = try partition, store = try open()
         let health = SyncHealth(lastSuccessfulSyncAt: 1_790_380_800_000, lastErrorCode: "invalid_cursor")
