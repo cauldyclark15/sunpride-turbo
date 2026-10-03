@@ -11,6 +11,7 @@ import {
 } from "./cursor";
 import {
   assertDevice,
+  callSheetDTO,
   customerDTO,
   dayProjection,
   leaseMs,
@@ -55,6 +56,7 @@ export const snapshot = internalQuery({
     route: routeDTO,
     tasks: v.array(taskDTO),
     productCatalog: v.array(productDTO),
+    callSheets: v.array(callSheetDTO),
     page: v.number(),
     nextPageCursor: v.union(v.string(), v.null()),
     syncCursor: v.union(v.string(), v.null()),
@@ -150,6 +152,14 @@ export const snapshot = internalQuery({
       route: visits.find((e) => e.route)?.route ?? null,
       tasks,
       productCatalog: [],
+      // One Annex C sheet per account on this page (outlets repeat across horizon days).
+      callSheets: [
+        ...new Map(
+          visits.flatMap((e) =>
+            e.callSheet ? [[e.callSheet.outletId, e.callSheet] as const] : [],
+          ),
+        ).values(),
+      ],
       page: base.page,
       nextPageCursor: hasMore ? await signCursor(base) : null,
       syncCursor: hasMore

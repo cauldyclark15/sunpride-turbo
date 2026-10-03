@@ -294,4 +294,58 @@ describe("mobile HTTP boundary", () => {
     expect((await first.json()).results).toEqual((await second.json()).results);
     expect(h.authorize).toHaveBeenCalledTimes(2);
   });
+  it("passes a well-formed call_sheet activity through and rejects malformed lines before proof", async () => {
+    const line = {
+      productId: "product",
+      order: 24,
+      beginningInventory: 10,
+      take: null,
+      delivered: 24,
+      offtake: 26,
+      endInventory: 8,
+    };
+    const push = (lines: unknown) => ({
+      type: "push.request",
+      contractVersion: 1,
+      deviceId: "device",
+      operations: [
+        {
+          kind: "visit.activity",
+          clientRequestId: uuid,
+          payload: {
+            visitId: "visit",
+            activity: { kind: "call_sheet", lines },
+            deviceTime: 1,
+          },
+        },
+      ],
+    });
+    const ok = harness();
+    const accepted = await handleMobile(
+      ok.ctx,
+      await request("push", push([line])),
+      "push",
+    );
+    expect(accepted.status).toBe(200);
+    expect(ok.apply).toHaveBeenCalledTimes(1);
+    const { take: _omitted, ...missingMeasure } = line;
+    void _omitted;
+    for (const lines of [
+      [],
+      [missingMeasure],
+      [{ ...line, order: -1 }],
+      [{ ...line, order: 1.5 }],
+      [{ ...line, order: 1_000_001 }],
+      [{ ...line, order: "24" }],
+      [{ ...line, remarks: "x" }],
+      Array.from({ length: 101 }, () => line),
+    ]) {
+      const h = harness();
+      expect(
+        (await handleMobile(h.ctx, await request("push", push(lines)), "push"))
+          .status,
+      ).toBe(400);
+      expect(h.authorize).not.toHaveBeenCalled();
+    }
+  });
 });

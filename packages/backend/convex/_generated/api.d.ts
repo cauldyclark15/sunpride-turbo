@@ -10,6 +10,10 @@
 
 import type * as auth from "../auth.js";
 import type * as authPolicy from "../authPolicy.js";
+import type * as callSheets_accounts from "../callSheets/accounts.js";
+import type * as callSheets_model from "../callSheets/model.js";
+import type * as callSheets_report from "../callSheets/report.js";
+import type * as callSheets_validators from "../callSheets/validators.js";
 import type * as coverage_activation from "../coverage/activation.js";
 import type * as coverage_approval_route from "../coverage/approval_route.js";
 import type * as coverage_audit from "../coverage/audit.js";
@@ -137,6 +141,10 @@ import type {
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   authPolicy: typeof authPolicy;
+  "callSheets/accounts": typeof callSheets_accounts;
+  "callSheets/model": typeof callSheets_model;
+  "callSheets/report": typeof callSheets_report;
+  "callSheets/validators": typeof callSheets_validators;
   "coverage/activation": typeof coverage_activation;
   "coverage/approval_route": typeof coverage_approval_route;
   "coverage/audit": typeof coverage_audit;

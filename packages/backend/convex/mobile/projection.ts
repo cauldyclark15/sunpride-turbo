@@ -1,5 +1,5 @@
 import { ConvexError, v } from "convex/values";
-import type { Doc } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import { employeeAt, manilaDate } from "../coverage/validation";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
@@ -7,6 +7,11 @@ import { capabilityRoles } from "../lib/capabilities";
 import { resolveOutletScopeAt } from "../outlets/validation";
 import { activeAt } from "../org/validation";
 import type { AuthorizedDevice } from "./types";
+import {
+  accountFor,
+  phoneCallSheet,
+  type PhoneCallSheet,
+} from "../callSheets/model";
 
 export const DAY_MS = 86_400_000;
 export const HORIZON_DAYS = 3;
@@ -41,6 +46,37 @@ export const productDTO = v.object({
   name: v.string(),
   uom: v.string(),
 });
+const nullableText = v.union(v.string(), v.null());
+export const callSheetDTO = v.object({
+  outletId: v.string(),
+  revision: v.number(),
+  header: v.object({
+    accountName: v.string(),
+    address: nullableText,
+    buyerName: nullableText,
+    contactNumber: nullableText,
+    accountInCharge: nullableText,
+    receivingInCharge: nullableText,
+    distributorName: nullableText,
+    distributorSchedule: nullableText,
+    foc: nullableText,
+    pricing: nullableText,
+  }),
+  lines: v.array(
+    v.object({
+      productId: v.string(),
+      code: v.string(),
+      name: v.string(),
+      uom: v.string(),
+      barcode: nullableText,
+      pricing: nullableText,
+    }),
+  ),
+});
+type CallSheetCache = {
+  accounts: Map<Id<"outlets">, { sheet: PhoneCallSheet; stamp: string } | null>;
+  products: Parameters<typeof phoneCallSheet>[2];
+};
 export type Visit = typeof visitDTO.type;
 export type Task = typeof taskDTO.type;
 export type Projected = {
@@ -48,6 +84,7 @@ export type Projected = {
   outlet: typeof outletDTO.type;
   customer: typeof customerDTO.type | null;
   route: Exclude<typeof routeDTO.type, null> | null;
+  callSheet: PhoneCallSheet | null;
   stamp: string;
 };
 
@@ -104,6 +141,7 @@ async function visitProjection(
   row: Doc<"plannedVisits">,
   actor: AuthorizedDevice,
   now: number,
+  cache: CallSheetCache,
 ): Promise<Projected> {
   const plan = await ctx.db.get(row.planId);
   const s = row.approvedSnapshot;
@@ -127,6 +165,15 @@ async function visitProjection(
     throw new ConvexError("rebootstrap_required");
   const customer = s.customerId ? await ctx.db.get(s.customerId) : null;
   if (s.customerId && !customer) throw new ConvexError("rebootstrap_required");
+  // Annex C account sheet; office edits change the stamp and force a fresh snapshot.
+  let callSheet = cache.accounts.get(row.outletId);
+  if (callSheet === undefined) {
+    const account = await accountFor(ctx, row.outletId);
+    callSheet = account
+      ? await phoneCallSheet(ctx, account, cache.products)
+      : null;
+    cache.accounts.set(row.outletId, callSheet);
+  }
   return {
     visit: {
       id: row._id,
@@ -140,7 +187,8 @@ async function visitProjection(
     customer: customer ? { id: customer._id, code: customer.code } : null,
     route:
       s.routeId && s.routeCode ? { id: s.routeId, code: s.routeCode } : null,
-    stamp: `${row._id}|${row.status}|${row._creationTime}|${row.generatedAt}|${JSON.stringify(s)}|${JSON.stringify(row.intents)}|${current.assignment?._id ?? ""}|${current.assignment?.routeId ?? ""}|${current.assignment?.sequence ?? ""}|${current.orgUnitId}|${current.outlet.status}|${customer?.code ?? ""}`,
+    callSheet: callSheet?.sheet ?? null,
+    stamp: `${callSheet?.stamp ?? ""}|${row._id}|${row.status}|${row._creationTime}|${row.generatedAt}|${JSON.stringify(s)}|${JSON.stringify(row.intents)}|${current.assignment?._id ?? ""}|${current.assignment?.routeId ?? ""}|${current.assignment?.sequence ?? ""}|${current.orgUnitId}|${current.outlet.status}|${customer?.code ?? ""}`,
   };
 }
 
@@ -159,6 +207,7 @@ export async function dayProjection(
   )
     throw new ConvexError("rebootstrap_required");
   const visits: Projected[] = [];
+  const cache: CallSheetCache = { accounts: new Map(), products: new Map() };
   for (let i = 0; i < HORIZON_DAYS; i++) {
     const date = new Date(start + i * DAY_MS).toISOString().slice(0, 10);
     const rows = await ctx.db
@@ -172,7 +221,7 @@ export async function dayProjection(
     for (const row of rows) {
       // Superseded/cancelled lineage remains in storage but is not a phone assignment.
       if (row.status === "planned")
-        visits.push(await visitProjection(ctx, row, actor, now));
+        visits.push(await visitProjection(ctx, row, actor, now, cache));
     }
   }
   const end = start + HORIZON_DAYS * DAY_MS - 8 * 3_600_000;

@@ -2,6 +2,11 @@ import { httpAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { AuthorizedDevice } from "./types";
+import {
+  CALL_SHEET_MEASURES,
+  MAX_CALL_SHEET_LINES,
+  MAX_CALL_SHEET_QUANTITY,
+} from "../callSheets/validators";
 
 const MAX_BYTES = 128 * 1024;
 const kinds = new Set([
@@ -189,6 +194,27 @@ function validActivity(value: unknown): boolean {
         typeof value.currency === "string" &&
         /^[A-Z]{3}$/.test(value.currency) &&
         (value.compliant === undefined || typeof value.compliant === "boolean")
+      );
+    case "call_sheet":
+      return (
+        exact(value, ["kind", "lines"]) &&
+        Array.isArray(value.lines) &&
+        value.lines.length >= 1 &&
+        value.lines.length <= MAX_CALL_SHEET_LINES &&
+        value.lines.every(
+          (line: unknown) =>
+            record(line) &&
+            exact(line, ["productId", ...CALL_SHEET_MEASURES]) &&
+            typeof line.productId === "string" &&
+            line.productId.length > 0 &&
+            CALL_SHEET_MEASURES.every(
+              (m) =>
+                line[m] === null ||
+                (Number.isSafeInteger(line[m]) &&
+                  (line[m] as number) >= 0 &&
+                  (line[m] as number) <= MAX_CALL_SHEET_QUANTITY),
+            ),
+        )
       );
     default:
       return false;

@@ -12,6 +12,13 @@ import type { AuthorizedDevice } from "../mobile/types";
 import { append } from "./events";
 import { locationValidator, recordLocation } from "./location";
 import { VISIT_LOCATION_POLICY } from "./policy";
+import { callSheetActivityValidator } from "../callSheets/validators";
+import {
+  accountFor,
+  callSheetWeek,
+  usableProduct,
+  validateCaptureLines,
+} from "../callSheets/model";
 import {
   accessOwnedVisit,
   accessVisit,
@@ -78,6 +85,7 @@ const activity = v.union(
     note: v.optional(v.string()),
   }),
   v.object({ kind: v.literal("note"), text: v.string() }),
+  callSheetActivityValidator,
 );
 export const visitOperationValidator = v.union(
   v.object({
@@ -133,6 +141,7 @@ function requireUuid(value: string) {
 }
 function safeActivity(a: Infer<typeof activity>) {
   if (a.kind === "note") boundedText(a.text, 2000);
+  if (a.kind === "call_sheet") validateCaptureLines(a.lines);
   if (
     a.kind === "merchandising" &&
     a.actionTaken !== undefined &&
@@ -348,6 +357,18 @@ export async function applyVisitOperation(
       !(await ctx.db.get(p.activity.uomId))
     )
       throw new ConvexError("invalid_request");
+    // Annex C needs an office-maintained account sheet. Products are not restricted to its
+    // current rows so an office edit during the day never strands a queued phone capture.
+    const account =
+      p.activity.kind === "call_sheet"
+        ? await accountFor(ctx, visit.outletId)
+        : null;
+    if (p.activity.kind === "call_sheet") {
+      if (!account) throw new ConvexError("invalid_request");
+      for (const line of p.activity.lines)
+        if (!usableProduct(await ctx.db.get(line.productId)))
+          throw new ConvexError("invalid_request");
+    }
     const activityId = await ctx.db.insert("visitActivities", {
       organizationId: SUNPRIDE_ORGANIZATION_ID,
       orgUnitId: visit.orgUnitId,
@@ -359,6 +380,24 @@ export async function applyVisitOperation(
       deviceTime: p.deviceTime,
       serverTime: now,
     });
+    if (p.activity.kind === "call_sheet" && account) {
+      const { localMonth, week } = callSheetWeek(visit.serviceDate);
+      for (const line of p.activity.lines)
+        await ctx.db.insert("callSheetEntries", {
+          organizationId: SUNPRIDE_ORGANIZATION_ID,
+          orgUnitId: visit.orgUnitId,
+          outletId: visit.outletId,
+          visitId: visit._id,
+          activityId,
+          assigneeProfileId: actor.profileId,
+          serviceDate: visit.serviceDate,
+          localMonth,
+          week,
+          templateRevision: account.revision,
+          ...line,
+          serverTime: now,
+        });
+    }
     await ctx.db.patch(visit._id, {
       state: "in-progress",
       lastServerTime: now,

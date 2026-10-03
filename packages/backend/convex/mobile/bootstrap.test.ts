@@ -292,6 +292,127 @@ describe("mobile day bootstrap", () => {
     expect(r.syncCursor).toBeTruthy();
     expect(JSON.stringify(r)).not.toContain(f.actor.subject);
   });
+  it("ships each visited account's Annex C call sheet once; an office edit forces a fresh snapshot", async () => {
+    const f = await fixture();
+    const empty = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+    });
+    expect(empty.callSheets).toEqual([]);
+    const ids = await f.t.run(async (ctx) => {
+      const product = (code: string, active: boolean) =>
+        ctx.db.insert("products", {
+          code,
+          name: `Product ${code}`,
+          category: "canned",
+          uom: "CAN",
+          unitPrice: 0,
+          active,
+          updatedAt: f.now,
+        });
+      const active = await product("SUNP-001", true);
+      const retired = await product("HOL-OLD", false);
+      const uom = await ctx.db.insert("unitsOfMeasure", {
+        organizationId: "sunpride",
+        code: "CAN",
+        name: "Can",
+        dimension: "count",
+        decimalPlaces: 0,
+        active: true,
+        createdAt: f.now,
+        updatedAt: f.now,
+      });
+      await ctx.db.insert("productBarcodes", {
+        organizationId: "sunpride",
+        productId: active,
+        barcode: "4800000000017",
+        uomId: uom,
+        active: true,
+        source: "fixture",
+        createdAt: f.now,
+        updatedAt: f.now,
+      });
+      // A second planned day at the same outlet must not duplicate the sheet.
+      await ctx.db.insert("plannedVisits", {
+        generationKey: "tomorrow",
+        planId: f.ids.plan,
+        planVersion: 1,
+        planSlotId: f.ids.slot,
+        assigneeProfileId: f.ids.person,
+        outletId: f.ids.outlet,
+        serviceDate: manilaDate(f.now + 86_400_000),
+        status: "planned",
+        approvedSnapshot: f.ids.snapshot,
+        requiredObjectives: [],
+        intents: ["sell"],
+        expectedDurationMinutes: 30,
+        generatedAt: f.now,
+      });
+      const account = await ctx.db.insert("callSheetAccounts", {
+        organizationId: "sunpride",
+        outletId: f.ids.outlet,
+        revision: 1,
+        header: { accountName: "Signed outlet", buyerName: "A. Buyer" },
+        lines: [
+          { productId: active, pricing: "₱189.00" },
+          { productId: retired },
+        ],
+        updatedAt: f.now,
+        updatedBy: "fixture",
+      });
+      return { active, account };
+    });
+    const first = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+      limit: 1,
+    });
+    expect(first.callSheets).toEqual([
+      {
+        outletId: f.ids.outlet,
+        revision: 1,
+        header: {
+          accountName: "Signed outlet",
+          address: null,
+          buyerName: "A. Buyer",
+          contactNumber: null,
+          accountInCharge: null,
+          receivingInCharge: null,
+          distributorName: null,
+          distributorSchedule: null,
+          foc: null,
+          pricing: null,
+        },
+        lines: [
+          {
+            productId: ids.active,
+            code: "SUNP-001",
+            name: "Product SUNP-001",
+            uom: "CAN",
+            barcode: "4800000000017",
+            pricing: "₱189.00",
+          },
+        ],
+      },
+    ]);
+    const all = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+    });
+    expect(all.plannedVisits).toHaveLength(2);
+    expect(all.callSheets).toHaveLength(1);
+    await f.t.run((ctx) =>
+      ctx.db.patch(ids.account, {
+        revision: 2,
+        header: { accountName: "Renamed account" },
+        updatedAt: f.now + 1,
+      }),
+    );
+    await expect(
+      f.caller.query(internal.mobile.bootstrap.snapshot, {
+        actor: f.actor,
+        pageCursor: first.nextPageCursor!,
+        limit: 1,
+      }),
+    ).rejects.toThrow("rebootstrap_required");
+  });
   it("does not expose cancelled predecessor visits while retaining the active day", async () => {
     const f = await fixture();
     await f.t.run((ctx) =>

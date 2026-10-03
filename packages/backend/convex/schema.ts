@@ -18,6 +18,11 @@ import {
 } from "./issues/validators";
 import { employmentTypeValidator, roleValidator } from "./lib/roles";
 import { positionCategoryValidator } from "./sfa/constants";
+import {
+  callSheetActivityValidator,
+  callSheetHeaderValidator,
+  callSheetTemplateLineValidator,
+} from "./callSheets/validators";
 import { productiveCallRuleValidator } from "./sfa/productive_call";
 import {
   allocationPolicyValidator,
@@ -2015,6 +2020,7 @@ export default defineSchema({
         note: v.optional(v.string()),
       }),
       v.object({ kind: v.literal("note"), text: v.string() }),
+      callSheetActivityValidator,
     ),
     evidenceIds: v.array(v.id("fieldEvidenceFiles")),
     deviceTime: v.number(),
@@ -2331,4 +2337,41 @@ export default defineSchema({
     lastNumber: v.number(),
     updatedAt: v.number(),
   }).index("by_key", ["key"]),
+  // SOP-008 Annex C: the office-maintained account header and product rows of one outlet.
+  callSheetAccounts: defineTable({
+    organizationId: v.string(),
+    outletId: v.id("outlets"),
+    revision: v.number(),
+    header: callSheetHeaderValidator,
+    lines: v.array(callSheetTemplateLineValidator),
+    updatedAt: v.number(),
+    updatedBy: v.string(),
+  })
+    .index("by_outletId", ["outletId"])
+    .index("by_organizationId_and_updatedAt", ["organizationId", "updatedAt"]),
+  // One captured product row per call_sheet visit activity; week 1-4 of the Manila month.
+  callSheetEntries: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    outletId: v.id("outlets"),
+    visitId: v.id("visitExecutions"),
+    activityId: v.id("visitActivities"),
+    assigneeProfileId: v.id("profiles"),
+    serviceDate: v.string(),
+    localMonth: v.string(),
+    week: v.number(),
+    productId: v.id("products"),
+    templateRevision: v.number(),
+    order: v.union(v.number(), v.null()),
+    beginningInventory: v.union(v.number(), v.null()),
+    take: v.union(v.number(), v.null()),
+    delivered: v.union(v.number(), v.null()),
+    offtake: v.union(v.number(), v.null()),
+    endInventory: v.union(v.number(), v.null()),
+    serverTime: v.number(),
+  }).index("by_outletId_and_localMonth_and_week", [
+    "outletId",
+    "localMonth",
+    "week",
+  ]),
 });
