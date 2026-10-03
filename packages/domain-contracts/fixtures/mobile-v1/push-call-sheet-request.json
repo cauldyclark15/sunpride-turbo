@@ -1,0 +1,39 @@
+{
+  "type": "push.request",
+  "contractVersion": 1,
+  "deviceId": "device-1",
+  "operations": [
+    {
+      "kind": "visit.activity",
+      "clientRequestId": "018f5800-1234-7000-8000-000000000010",
+      "dependsOn": ["018f5800-1234-7000-8000-000000000001"],
+      "payload": {
+        "visitId": "visit-1",
+        "activity": {
+          "kind": "call_sheet",
+          "lines": [
+            {
+              "productId": "product-1",
+              "order": 24,
+              "beginningInventory": 10,
+              "take": 8,
+              "delivered": 24,
+              "offtake": 26,
+              "endInventory": 8
+            },
+            {
+              "productId": "product-2",
+              "order": null,
+              "beginningInventory": 0,
+              "take": null,
+              "delivered": null,
+              "offtake": null,
+              "endInventory": 0
+            }
+          ]
+        },
+        "deviceTime": 1790380800005
+      }
+    }
+  ]
+}

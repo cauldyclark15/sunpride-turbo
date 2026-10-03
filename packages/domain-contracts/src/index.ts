@@ -11,6 +11,40 @@ export type BootstrapRequest = {
   pageCursor?: string;
   limit?: number;
 };
+export type CallSheetV1 = {
+  outletId: string;
+  revision: number;
+  header: {
+    accountName: string;
+    address: string | null;
+    buyerName: string | null;
+    contactNumber: string | null;
+    accountInCharge: string | null;
+    receivingInCharge: string | null;
+    distributorName: string | null;
+    distributorSchedule: string | null;
+    foc: string | null;
+    pricing: string | null;
+  };
+  lines: Array<{
+    productId: string;
+    code: string;
+    name: string;
+    uom: string;
+    barcode: string | null;
+    pricing: string | null;
+  }>;
+};
+/** One account product row of an Annex C call sheet; null = not captured on this visit. */
+export type CallSheetLineV1 = {
+  productId: string;
+  order: number | null;
+  beginningInventory: number | null;
+  take: number | null;
+  delivered: number | null;
+  offtake: number | null;
+  endInventory: number | null;
+};
 export type BootstrapResponse = {
   type: "bootstrap.response";
   contractVersion: 1;
@@ -43,6 +77,8 @@ export type BootstrapResponse = {
     name: string;
     uom: string;
   }>;
+  /** Annex C call sheets for this page's accounts. Optional: added after v1 shipped. */
+  callSheets?: Array<CallSheetV1>;
   page: number;
   nextPageCursor: string | null;
   syncCursor: string | null;
@@ -136,7 +172,8 @@ export type PushRequest = {
                 finding: "executed" | "not_executed" | "not_applicable";
               }
             | { kind: "order_intent"; clientOrderId: string; note?: string }
-            | { kind: "note"; text: string };
+            | { kind: "note"; text: string }
+            | { kind: "call_sheet"; lines: Array<CallSheetLineV1> };
           deviceTime: number;
         };
       }

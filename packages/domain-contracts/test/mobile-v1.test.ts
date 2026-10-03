@@ -81,4 +81,47 @@ describe("mobile v1 canonical contract", () => {
     };
     expect(validate(oversized)).toBe(false);
   });
+
+  test("call sheet lines carry every measure, null or a bounded whole number", async () => {
+    const original = await Bun.file(
+      new URL(
+        "../fixtures/mobile-v1/push-call-sheet-request.json",
+        import.meta.url,
+      ),
+    ).json();
+    expect(validate(original), JSON.stringify(validate.errors)).toBe(true);
+    const withLine = (line: Record<string, unknown>) => {
+      const altered = structuredClone(original);
+      altered.operations[0].payload.activity.lines = [line];
+      return altered;
+    };
+    const line = original.operations[0].payload.activity.lines[0];
+    expect(validate(withLine({ ...line, take: null }))).toBe(true);
+    const missing = { ...line };
+    delete missing.offtake;
+    expect(validate(withLine(missing))).toBe(false);
+    expect(validate(withLine({ ...line, order: -1 }))).toBe(false);
+    expect(validate(withLine({ ...line, order: 1.5 }))).toBe(false);
+    expect(validate(withLine({ ...line, order: 1_000_001 }))).toBe(false);
+    expect(validate(withLine({ ...line, remarks: "x" }))).toBe(false);
+    const empty = structuredClone(original);
+    empty.operations[0].payload.activity.lines = [];
+    expect(validate(empty)).toBe(false);
+  });
+
+  test("bootstrap stays valid with or without the additive callSheets field", async () => {
+    const withSheets = await Bun.file(
+      new URL(
+        "../fixtures/mobile-v1/bootstrap-call-sheet-response.json",
+        import.meta.url,
+      ),
+    ).json();
+    expect(validate(withSheets), JSON.stringify(validate.errors)).toBe(true);
+    const withoutSheets = { ...withSheets };
+    delete withoutSheets.callSheets;
+    expect(validate(withoutSheets)).toBe(true);
+    const noName = structuredClone(withSheets);
+    noName.callSheets[0].header.accountName = "";
+    expect(validate(noName)).toBe(false);
+  });
 });
