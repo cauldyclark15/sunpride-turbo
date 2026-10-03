@@ -1115,6 +1115,80 @@ export default defineSchema({
     unitPrice: v.number(),
     lineTotal: v.number(),
   }).index("by_order", ["orderId"]),
+  // CALL-09: a store sends a PO on a day it is not in the salesperson's MCP (an outside
+  // call). The sales admin encodes the PO; the salesperson then records the activity.
+  // Not a call for the day's call count (a call is a planned store visited).
+  outsideCallOrders: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    outletId: v.id("outlets"),
+    territoryId: v.id("territories"),
+    customerId: v.optional(v.id("customers")),
+    salespersonProfileId: v.id("profiles"),
+    serviceDate: v.string(), // Asia/Manila YYYY-MM-DD the store sent the PO
+    poNumber: v.string(),
+    receivedVia: v.union(
+      v.literal("email"),
+      v.literal("viber"),
+      v.literal("phone"),
+      v.literal("fax"),
+      v.literal("other"),
+    ),
+    lines: v.array(
+      v.object({
+        productId: v.id("products"),
+        productCode: v.string(),
+        productName: v.string(),
+        quantity: v.number(),
+        uom: v.string(),
+      }),
+    ),
+    note: v.optional(v.string()),
+    status: v.union(
+      v.literal("awaiting_activity"),
+      v.literal("activity_recorded"),
+      v.literal("cancelled"),
+    ),
+    clientRequestId: v.string(),
+    encodedBy: v.string(), // full identity.tokenIdentifier
+    encodedByProfileId: v.id("profiles"),
+    encodedAt: v.number(),
+    activity: v.optional(
+      v.object({
+        contact: v.union(
+          v.literal("phone"),
+          v.literal("message"),
+          v.literal("in_person"),
+          v.literal("other"),
+        ),
+        codes: v.array(v.string()),
+        note: v.optional(v.string()),
+        recordedAt: v.number(),
+      }),
+    ),
+    cancelledByProfileId: v.optional(v.id("profiles")),
+    cancelledAt: v.optional(v.number()),
+    cancelReason: v.optional(v.string()),
+  })
+    .index("by_encodedByProfileId_and_clientRequestId", [
+      "encodedByProfileId",
+      "clientRequestId",
+    ])
+    .index("by_outletId_and_poNumber", ["outletId", "poNumber"])
+    .index("by_organizationId_and_status_and_encodedAt", [
+      "organizationId",
+      "status",
+      "encodedAt",
+    ])
+    .index("by_salespersonProfileId_and_status_and_encodedAt", [
+      "salespersonProfileId",
+      "status",
+      "encodedAt",
+    ])
+    .index("by_salespersonProfileId_and_serviceDate", [
+      "salespersonProfileId",
+      "serviceDate",
+    ]),
   workflowInstances: defineTable({
     entityType: v.string(),
     entityId: v.string(),

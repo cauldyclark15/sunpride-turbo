@@ -5,6 +5,7 @@ const routeToPrimary = {
   "/master-data": "commercial",
   "/imports": "commercial",
   "/orders": "commercial",
+  "/outside-calls": "commercial",
   "/inventory": "inventory",
   "/sales-force": "field",
   "/supervision": "field",
@@ -67,6 +68,7 @@ const workspaceItems: WorkspaceNavGroup["items"] = [
 const moduleTabs: Partial<Record<string, WorkspaceModuleTab[]>> = {
   commercial: [
     { id: "sales-orders", label: "Orders", href: "/orders" },
+    { id: "outside-calls", label: "Outside-call POs", href: "/outside-calls" },
     { id: "master-data", label: "Master data", href: "/master-data" },
     { id: "imports", label: "Imports", href: "/imports" },
   ],

@@ -36,6 +36,14 @@ const orderActors = [
   "sales",
   "approver",
 ] as const satisfies readonly AppRole[];
+// CALL-09: order.encode (sales admin) plus visit.record (the credited salesperson).
+const outsideCallActors = [
+  "super_admin",
+  "admin",
+  "operations",
+  "manager",
+  "sales",
+] as const satisfies readonly AppRole[];
 const orderApprovers = [
   "super_admin",
   "manager",
@@ -119,6 +127,7 @@ export const MODULE_ROLES = {
   "sales-force": MCP_PANEL_ROLES["mcp.read"], // all roles with MCP read
   supervision: supervisors, // people.read + visit.read
   orders: orderActors, // union of order.create and order.approve
+  "outside-calls": outsideCallActors, // union of order.encode and visit.record
   "sap-integration": integrationReaders, // integration.read
   workflows: orderApprovers, // order.approve
   admin: administrators, // admin.manage
