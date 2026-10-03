@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Looper
 import android.os.CancellationSignal
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
@@ -20,13 +21,23 @@ interface VisitLocation {
     suspend fun fix(): JSONObject?
 }
 
+/** A failure is evidence (null), not permission to prevent arrival/end recording. No distance gate. */
+suspend fun VisitLocation.captureOrNull(): JSONObject? = try { fix() }
+    catch (e: CancellationException) { throw e }
+    catch (_: Exception) { null }
+
 class AndroidVisitLocation(private val context: Context) : VisitLocation {
-    override suspend fun fix(): JSONObject? {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED)
-            return null
+    override suspend fun fix(): JSONObject? = try { currentFix() }
+        catch (e: CancellationException) { throw e }
+        catch (_: Exception) { null }
+
+    private suspend fun currentFix(): JSONObject? {
+        val precise = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val approximate = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (!precise && !approximate) return null
         val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
         val provider = when {
-            manager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
+            precise && manager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
             manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
             else -> return null
         }

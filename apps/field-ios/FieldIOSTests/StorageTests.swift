@@ -198,6 +198,28 @@ final class StorageTests: XCTestCase {
         XCTAssertTrue(try reopened.pendingOutbox(for: b).isEmpty)
     }
 
+    func testSequenceAndOriginalListOrderSurviveEncryptedReopen() throws {
+        let p = try partition, store = try open()
+        let original = snapshot()
+        func visit(_ id: String, _ sequence: Int? = nil) -> StoreSnapshot.Visit {
+            .init(id: id, outletId: "outlet-1", serviceDate: "2026-09-26", planId: "plan-1",
+                  planVersion: 1, intents: [], sequence: sequence)
+        }
+        func save(_ visits: [StoreSnapshot.Visit]) throws {
+            try store.saveSnapshot(StoreSnapshot(employee: original.employee, visits: visits, outlets: original.outlets,
+                customers: [], route: nil, tasks: []), cursor: "c", leaseExpiresAt: 1_790_467_200_000,
+                cacheExpiresAt: 1_790_467_200_000, for: p)
+        }
+        try save([visit("z-first"), visit("a-second")])
+        XCTAssertEqual(try store.todayVisits("2026-09-26", for: p).map(\.id), ["z-first", "a-second"])
+        try save([visit("z-second", 2), visit("a-first", 0), visit("b-third", 3)])
+        store.close()
+        let reopened = try open()
+        XCTAssertEqual(try reopened.todayVisits("2026-09-26", for: p).map(\.id), ["a-first", "z-second", "b-third"])
+        XCTAssertEqual(try reopened.todayVisits("2026-09-26", for: p).map(\.sequence), [0, 2, 3])
+        reopened.close()
+    }
+
     func testSyncHealthSurvivesRestart() throws {
         let p = try partition, store = try open()
         let health = SyncHealth(lastSuccessfulSyncAt: 1_790_380_800_000, lastErrorCode: "invalid_cursor")

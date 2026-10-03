@@ -3,6 +3,7 @@ package com.sunpride.field.ui.diagnosticvisit
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -29,7 +30,8 @@ class DiagnosticVisitTest {
     private val alias = "diagnostic-visit-ui-test"
     private val context get() = rule.activity
     private fun scoped(): RoomFieldStore = RoomFieldStore(EncryptedFieldDatabase.open(context), identity)
-    private inner class Backend : FieldBackend {
+    private inner class Backend(private val plans: List<VisitDisplay> = listOf(
+        VisitDisplay("Test outlet", "Planned", "Scheduled", "outlet-1", "planned-1"))) : FieldBackend {
         override val isSignedIn = true
         override val cachedDeviceId = identity.deviceId
         override fun loadSigner(): DeviceSigner = KeystoreDeviceKey.loadOrCreate(context, alias)
@@ -37,7 +39,7 @@ class DiagnosticVisitTest {
         override fun signOut() = Unit
         override fun refreshEnrollment(signer: DeviceSigner) = EnrollmentState.Ready(identity.deviceId)
         override fun today(deviceId: String, signer: DeviceSigner, sync: Boolean) = TodayData(
-            listOf(VisitDisplay("Test outlet", "Planned", "Scheduled", "outlet-1", "planned-1")),
+            plans,
             stale = true, queuedCount = visitStates().count { it.second == "pending" },
             syncStatus = com.sunpride.field.ui.syncstatus.SyncStatus(queued = visitStates().count { it.second == "pending" }))
         override fun visitStates(): List<Pair<IntentRow, String>> {
@@ -59,7 +61,52 @@ class DiagnosticVisitTest {
     @After fun cleanup() { KeystoreDeviceKey.delete(alias) }
     @Test fun queuesCheckInAndCheckOutOfflineWithoutPhoneLocationPermission() = runScenario(false)
     @Test fun darkVisitScreenshot() = runScenario(true)
-    private fun runScenario(dark: Boolean) {
+    @Test fun nextStoreStartIsDisabledUntilCurrentCallEndsWithProductivity() {
+        val first = VisitDisplay("First", "Planned", "Scheduled", "first", "p-first", sequence = 0)
+        val next = VisitDisplay("Next", "Planned", "Scheduled", "next", "p-next", sequence = 1)
+        val backend = Backend(listOf(next, first))
+        val store = scoped()
+        val day = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Manila")).toString()
+        runBlocking {
+            val plans = listOf(next, first).map { v -> SnapshotItem(v.plannedVisitId!!, JSONObject()
+                .put("id", v.plannedVisitId).put("outletId", v.outletId).put("serviceDate", day)
+                .put("sequence", v.sequence).toString(), day) }
+            store.swap(store.stage(ScopedSnapshot("{}", null, plans, emptyList(), emptyList(), emptyList())),
+                "cursor", System.currentTimeMillis() + 120_000, System.currentTimeMillis() + 120_000)
+        }
+        store.close()
+        val location = object : VisitLocation { override val requiresPermission = false; override suspend fun fix(): JSONObject? = null }
+        rule.setContent { FieldApp(AppEnvironment("https://team.convex.site", "https://team.convex.cloud"),
+            dark = false, debug = true, backend = backend, visitLocation = location) }
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-open").fetchSemanticsNodes().size == 2 }
+        rule.onAllNodesWithTag("diagnostic-open")[0].assertTextContains("First", substring = true)
+        rule.onAllNodesWithTag("diagnostic-open")[1].performClick()
+        rule.onNodeWithTag("diagnostic-checkin").assertIsNotEnabled()
+        rule.onNodeWithTag("start-blocked").assertTextContains("Visit stores in plan order")
+        rule.onNodeWithTag("visit-back").performClick()
+        rule.onAllNodesWithTag("diagnostic-open")[0].performClick()
+        rule.onNodeWithTag("diagnostic-checkin").performClick()
+        rule.waitUntil(10_000) { backend.visitStates().size == 1 }
+        rule.onNodeWithTag("visit-back").performClick()
+        rule.onAllNodesWithTag("diagnostic-open")[1].performClick()
+        rule.onNodeWithTag("diagnostic-checkin").assertIsNotEnabled()
+        rule.onNodeWithTag("start-blocked").assertTextContains("Finish the open call first")
+        rule.onNodeWithTag("visit-back").performClick()
+        rule.onAllNodesWithTag("diagnostic-open")[0].performClick()
+        rule.onNodeWithTag("diagnostic-checkout").assertIsNotEnabled()
+        rule.onNodeWithTag("diagnostic-outcome").performScrollTo().performClick() // completed
+        rule.onNodeWithTag("diagnostic-outcome").performClick() // nonproductive
+        rule.onNodeWithTag("diagnostic-checkout").assertIsNotEnabled()
+        rule.onNodeWithTag("diagnostic-reason").performScrollTo().performTextInput("other")
+        androidx.test.espresso.Espresso.pressBack()
+        rule.onNodeWithTag("diagnostic-checkout").performClick()
+        rule.waitUntil(10_000) { backend.visitStates().size == 2 }
+        rule.onNodeWithTag("visit-back").performClick()
+        rule.onAllNodesWithTag("diagnostic-open")[1].performClick()
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("diagnostic-checkin").assertIsEnabled() }.isSuccess }
+    }
+    @Test fun missingLocationNeverBlocksStartOrEnd() = runScenario(false, missingFix = true)
+    private fun runScenario(dark: Boolean, missingFix: Boolean = false) {
         val store = scoped()
         runBlocking {
             store.swap(store.stage(ScopedSnapshot("{\"id\":\"test\"}", null, emptyList(), emptyList(), emptyList(), emptyList())),
@@ -68,7 +115,7 @@ class DiagnosticVisitTest {
         store.close()
         val location = object : VisitLocation {
             override val requiresPermission = false
-            override suspend fun fix() = JSONObject().put("latitude", 0).put("longitude", 0)
+            override suspend fun fix(): JSONObject? = if (missingFix) null else JSONObject().put("latitude", 0).put("longitude", 0)
                 .put("accuracyMeters", 10).put("fixTime", System.currentTimeMillis())
                 .put("provider", "gps").put("mockSignal", true)
         }
@@ -86,9 +133,11 @@ class DiagnosticVisitTest {
         com.sunpride.field.captureCalmScreenshot("${if (dark) "dark" else "light"}-visit-before")
         rule.onNodeWithText("Planned · Not started").assertExists()
         rule.onNodeWithTag("unplanned-toggle").assertDoesNotExist()
-        rule.onNodeWithTag("diagnostic-checkin").performClick()
+        rule.onNodeWithTag("diagnostic-checkin").assertTextContains("Start").performClick()
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-operation").fetchSemanticsNodes().size == 1 }
         rule.onNodeWithTag("diagnostic-operation").assertTextContains("Waiting", substring = true)
+        rule.onNodeWithTag("diagnostic-checkout").assertTextContains("End call").assertIsNotEnabled()
+        rule.onNodeWithTag("diagnostic-outcome").performScrollTo().performClick()
         rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("diagnostic-checkout").assertIsEnabled() }.isSuccess }
         rule.onNodeWithTag("diagnostic-note").performTextInput("Stock checked")
         rule.onNodeWithTag("diagnostic-add-note").performClick()
@@ -108,7 +157,15 @@ class DiagnosticVisitTest {
         rule.onNodeWithTag("diagnostic-checkout").performClick()
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-operation").fetchSemanticsNodes().size == 3 }
         val reopened = scoped()
-        try { assertEquals(3, runBlocking { reopened.pending().size }) }
-        finally { reopened.close() }
+        try {
+            val history = runBlocking { reopened.history() }
+            assertEquals(3, history.size)
+            for ((intent, _) in history.filter { it.first.kind != "visit.activity" }) {
+                val payload = JSONObject(intent.serializedOperation).getJSONObject("payload")
+                if (missingFix) org.junit.Assert.assertTrue(payload.isNull("location"))
+                else assertEquals("gps", payload.getJSONObject("location").getString("provider"))
+            }
+        } finally { reopened.close() }
+        rule.onNodeWithTag("call-time-spent").performScrollTo().assertTextContains("min", substring = true)
     }
 }

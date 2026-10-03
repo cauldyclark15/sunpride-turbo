@@ -8,6 +8,9 @@ import com.sunpride.field.storage.EncryptedFieldDatabase
 import kotlinx.coroutines.runBlocking
 import com.sunpride.field.storage.RoomFieldStore
 import com.sunpride.field.storage.StoreScope
+import com.sunpride.field.storage.SnapshotItem
+import com.sunpride.field.storage.VisitCallRules
+import com.sunpride.field.storage.VisitRuleFailure
 import com.sunpride.field.sync.BootstrapClient
 import com.sunpride.field.sync.BootstrapFailure
 import com.sunpride.field.sync.LiveBootstrapTransport
@@ -55,7 +58,8 @@ interface FieldBackend {
 }
 
 data class VisitDisplay(val outlet: String, val planned: String, val status: String,
-    val outletId: String = "", val plannedVisitId: String? = null, val intents: List<String> = emptyList())
+    val outletId: String = "", val plannedVisitId: String? = null, val intents: List<String> = emptyList(),
+    val sequence: Int? = null, val listPosition: Int? = null, val timeSpent: String? = null)
 data class TodayData(val visits: List<VisitDisplay> = emptyList(), val lastSynced: Long? = null,
                      val stale: Boolean = true, val warning: String? = null, val updateRequired: Boolean = false,
                      val reviewCount: Int = 0, val queuedCount: Int = 0,
@@ -94,8 +98,7 @@ class LiveFieldBackend(
     }
     override fun schedulePendingWork() {
         val status = syncStatus()
-        if (status.queued + status.sending > 0 && status.held == 0 &&
-            !status.leaseExpired(System.currentTimeMillis()))
+        if (status.queued + status.sending > 0 && status.held == 0 && status.health != "held_for_review")
             com.sunpride.field.sync.work.SyncWork.enqueue(context)
     }
     override fun queueVisit(kind: String, clientVisitId: String?, checkInRequestId: String?, previousRequestId: String?,
@@ -218,7 +221,8 @@ class LiveFieldBackend(
                     val v = JSONObject(row.json)
                     VisitDisplay(outlets[v.optString("outletId")] ?: "Outlet unavailable", "Planned", "Scheduled",
                         v.getString("outletId"), v.getString("id"),
-                        v.optJSONArray("intents")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList())
+                        v.optJSONArray("intents")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
+                        VisitCallRules.sequence(row), row.listPosition)
                 }
                 val history = store.history()
                 val decorated = visits.map { visit ->
@@ -226,15 +230,16 @@ class LiveFieldBackend(
                         val op = JSONObject(intent.serializedOperation)
                         val payload = op.getJSONObject("payload")
                         intent.kind == "visit.checkIn" && payload.optString("outletId") == visit.outletId &&
-                            payload.optString("plannedVisitId") == visit.plannedVisitId
+                            payload.optString("serviceDate") == day && payload.optString("plannedVisitId") == visit.plannedVisitId
                     }.map { it.first.clientVisitId }.toSet()
                     val related = history.filter { it.first.clientVisitId in own }
+                    val call = related.map { it.first to it.second.state }
                     visit.copy(status = when {
                         related.any { it.second.state == "review" } -> "Needs review"
-                        related.any { it.second.state == "pending" } -> "Queued"
-                        related.isNotEmpty() -> "Accepted"
+                        VisitCallRules.closed(call) -> "Done"
+                        VisitCallRules.started(call) -> "In progress"
                         else -> visit.status
-                    })
+                    }, timeSpent = VisitCallRules.timeSpent(call))
                 }
                 val held = db.rows().heldCount(subject, deviceId)
                 val result = TodayData(decorated, store.status().lastSuccess,
@@ -247,7 +252,7 @@ class LiveFieldBackend(
                     outlets.map { (id, name) -> VisitDisplay(name, "Unplanned", "Reason required", id) },
                     store.status())
                 if (scheduleRemainder && sync && result.syncStatus.queued + result.syncStatus.sending > 0 &&
-                    result.syncStatus.held == 0 && !result.syncStatus.leaseExpired(System.currentTimeMillis()))
+                    result.syncStatus.held == 0 && result.syncStatus.health != "held_for_review")
                     com.sunpride.field.sync.work.SyncWork.enqueue(context)
                 result
             }
@@ -284,6 +289,7 @@ class FieldController(
     val io: CoroutineDispatcher = Dispatchers.IO,
     /** Compose state is only written here (main thread in the app; tests may pass EmptyCoroutineContext). */
     private val ui: CoroutineContext = Dispatchers.Main.immediate,
+    private val now: () -> Long = System::currentTimeMillis,
     private val onKeyLoaded: (DeviceKeyInfo) -> Unit = {}
 ) {
     var state by mutableStateOf<EnrollmentState>(EnrollmentState.SignedOut); private set
@@ -295,32 +301,45 @@ class FieldController(
     var diagnosticRows by mutableStateOf<List<Pair<com.sunpride.field.storage.IntentRow, String>>>(emptyList()); private set
     var diagnosticError by mutableStateOf<String?>(null); private set
     fun openDiagnostic(visit: VisitDisplay) = scope.launch(ui) {
-        diagnostic = visit; refreshDiagnostic()
+        diagnostic = visit; diagnosticError = null; diagnosticFailure = null; refreshDiagnostic()
     }
-    fun closeDiagnostic() { diagnostic = null; diagnosticError = null }
+    var diagnosticFailure by mutableStateOf<VisitRuleFailure.Code?>(null); private set
+    fun closeDiagnostic() = scope.launch(ui) { diagnostic = null; diagnosticError = null; diagnosticFailure = null }
+    private fun serviceDay() = java.time.Instant.ofEpochMilli(now()).atZone(ZoneId.of("Asia/Manila")).toLocalDate().toString()
+    private fun plans() = today.visits.mapIndexed { index, visit ->
+        val json = JSONObject().put("outletId", visit.outletId)
+        visit.sequence?.let { json.put("sequence", it) }
+        SnapshotItem(visit.plannedVisitId ?: "", json.toString(), serviceDay(), visit.listPosition ?: index)
+    }
+    fun relatedCall(visit: VisitDisplay) = VisitCallRules.related(visit.plannedVisitId, visit.outletId, serviceDay(), diagnosticRows)
+    fun startFailure(visit: VisitDisplay) = VisitCallRules.startFailure(visit.plannedVisitId, visit.outletId,
+        serviceDay(), plans(), diagnosticRows)
     private suspend fun refreshDiagnostic() {
         diagnosticRows = withContext(io) { backend.visitStates() }
     }
     fun queueDiagnostic(kind: String, reason: String?, note: String?, outcome: String?, location: JSONObject?) = scope.launch(ui) {
         val visit = diagnostic ?: return@launch
-        busy = true; diagnosticError = null
+        if (busy) return@launch
+        busy = true; diagnosticError = null; diagnosticFailure = null
         try {
-            val rows = diagnosticRows.filter { it.first.kind == "visit.checkIn" &&
-                JSONObject(it.first.serializedOperation).getJSONObject("payload").optString("outletId") == visit.outletId &&
-                it.second != "review" }
-            val checkin = rows.lastOrNull()?.first
-            val related = if (checkin == null) emptyList() else diagnosticRows.filter { it.first.clientVisitId == checkin.clientVisitId }
-            if (kind != "visit.checkIn" && checkin == null) error("Check in first")
-            if (kind == "visit.checkIn" && checkin != null) error("Already checked in")
-            if (kind == "visit.checkOut" && related.any { it.first.kind == "visit.checkOut" }) error("Already checked out")
+            refreshDiagnostic() // Re-read before enforcing, never trust a stale screen projection.
+            val related = relatedCall(visit)
+            val checkin = related.lastOrNull { it.first.kind == "visit.checkIn" && it.second != "review" }?.first
+            if (kind == "visit.checkIn") VisitCallRules.requireStart(visit.plannedVisitId, visit.outletId,
+                serviceDay(), plans(), diagnosticRows)
+            if (kind != "visit.checkIn" && checkin == null) throw VisitRuleFailure(VisitRuleFailure.Code.CALL_NOT_OPEN)
+            if (kind == "visit.checkOut") VisitCallRules.requireEnd(checkin!!.clientVisitId,
+                JSONObject().put("outcome", outcome ?: JSONObject.NULL).put("reasonCode", reason ?: JSONObject.NULL), diagnosticRows)
             withContext(io) {
                 backend.queueVisit(kind, checkin?.clientVisitId, checkin?.requestId,
                     related.lastOrNull()?.first?.requestId, visit.plannedVisitId, visit.outletId, visit.intents,
-                    reason, note, outcome, if (outcome == "nonproductive") "other" else null, location)
+                    reason, note, outcome, if (outcome == "nonproductive") reason?.trim() else null, location)
             }
             refreshDiagnostic()
             loadToday(sync = false)
-        } catch (_: Exception) { diagnosticError = "Could not queue visit. Check the offline lease and required fields." }
+        } catch (e: VisitRuleFailure) { diagnosticFailure = e.code; diagnosticError = e.code.text }
+        catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (_: Exception) { diagnosticError = "Could not queue visit. Sync for access and check required fields." }
         finally { busy = false }
     }
     private var signer: DeviceSigner? = null

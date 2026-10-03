@@ -173,6 +173,11 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "sequence": {
+                "description": "Optional MCP order of the day (lower first). Added 2026-10; older servers omit it.",
+                "type": "integer",
+                "minimum": 0
               }
             },
             "required": [
@@ -978,6 +983,11 @@
                   "evidence_pending_review",
                   "invalid_request"
                 ]
+              },
+              "reason": {
+                "description": "Optional specific rule behind a rejection (e.g. call_open, mcp_order, wrong_date); code stays a frozen v1 value. Clients treat unknown reasons as code.",
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]{0,63}$"
               },
               "ack": {
                 "type": "object",

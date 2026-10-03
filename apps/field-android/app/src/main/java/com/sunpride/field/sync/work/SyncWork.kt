@@ -48,7 +48,7 @@ class VisitSyncWorker(context: Context, parameters: WorkerParameters) : Coroutin
             if (!backend.isSignedIn) return Result.success()
             val device = backend.cachedDeviceId ?: return Result.success()
             val before = backend.syncStatus()
-            if (!before.pending || before.held > 0 || before.leaseExpired(System.currentTimeMillis()))
+            if (!before.pending || before.held > 0 || before.health == "held_for_review")
                 return Result.success()
             SafeLog.event(app, "sync_started")
             val data = backend.today(device, backend.loadSigner(), sync = true, scheduleRemainder = false)

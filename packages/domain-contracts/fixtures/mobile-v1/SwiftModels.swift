@@ -99,6 +99,8 @@ struct BootstrapResponsePlannedVisitsItem {
   let planVersion: Int64
   // schema-field: bootstrapResponse.plannedVisits[].intents
   let intents: [String]
+  // schema-field: bootstrapResponse.plannedVisits[].sequence
+  let sequence: OptionalField<Int64>
 }
 // schema-object: bootstrapResponse.outlets[]
 struct BootstrapResponseOutletsItem {
@@ -416,6 +418,8 @@ struct PushResponseResultsItem {
   let status: PushResponseResultsItemStatusEnum
   // schema-field: pushResponse.results[].code
   let code: OptionalField<PushResponseResultsItemCodeEnum>
+  // schema-field: pushResponse.results[].reason
+  let reason: OptionalField<String>
   // schema-field: pushResponse.results[].ack
   let ack: OptionalField<PushResponseResultsItemAck>
 }

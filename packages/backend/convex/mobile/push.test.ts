@@ -269,6 +269,12 @@ describe("ordered push", () => {
       }),
     ).toEqual({ status: "rejected", code: "unsupported_operation" });
     expect((await f.apply(f.check(5))).status).toBe("accepted");
+    // MCP order: the next store cannot start while the first call is open.
+    await expect(f.apply(f.check(7))).rejects.toThrow(/call_open/);
+    await f.t.run(async (ctx) => {
+      for (const visit of await ctx.db.query("visitExecutions").collect())
+        await ctx.db.patch(visit._id, { state: "checked-out" });
+    });
     expect((await f.apply(f.check(7))).status).toBe("accepted");
     expect(await f.counts()).toEqual([2, 0, 2, 2, 2]);
   });

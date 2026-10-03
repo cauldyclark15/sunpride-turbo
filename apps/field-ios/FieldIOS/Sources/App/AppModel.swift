@@ -34,6 +34,30 @@ final class AppModel {
     struct TodayVisit: Identifiable {
         let id: String; let outletId: String; let outlet: String
         let serviceDate: String; let intents: [String]; let planned: Bool; let status: String
+        var sequence: Int? = nil
+        var startedAt: Date? = nil
+        var endedAt: Date? = nil
+        var timeSpent: String? {
+            guard let startedAt, let endedAt else { return nil }
+            return "\(max(0, Int(endedAt.timeIntervalSince(startedAt) / 60))) min"
+        }
+    }
+    enum CallFailure: Error, Equatable {
+        case callOpen, mcpOrder, alreadyStarted, notStarted, alreadyClosed
+        var message: String {
+            switch self {
+            case .callOpen: "Finish the open call first"
+            case .mcpOrder: "Visit stores in plan order"
+            case .alreadyStarted: "Call already started"
+            case .notStarted: "Start the call first"
+            case .alreadyClosed: "Call already ended"
+            }
+        }
+    }
+    private struct LocalCall {
+        let initial: VisitIntent
+        let end: VisitIntent?
+        var closed: Bool { end != nil }
     }
     private struct ProfileIdentity: Decodable { let _id: String; let authSubject: String }
     private struct CachedPartition: Codable { let subject: String; let deviceId: String; let scope: String }
@@ -47,6 +71,7 @@ final class AppModel {
     @ObservationIgnored private let http: HTTPClient?
     @ObservationIgnored private let loadKey: () throws -> any DeviceSigningKey
     @ObservationIgnored private var fieldStore: EncryptedFieldStore?
+    @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var activeStoragePartition: StorePartition?
     @ObservationIgnored private var bootstrapping = false
     @ObservationIgnored private let networkMonitor = NWPathMonitor()
@@ -94,7 +119,8 @@ final class AppModel {
 
     init(auth: AuthClient, registry: DeviceRegistry, store: SecretStore,
          pollInterval: Duration = .seconds(10), site: URL? = nil, functions: ConvexFunctions? = nil,
-         http: HTTPClient? = nil, loadKey: @escaping () throws -> any DeviceSigningKey) {
+         http: HTTPClient? = nil, localStore: EncryptedFieldStore? = nil,
+         now: @escaping () -> Date = { Date() }, loadKey: @escaping () throws -> any DeviceSigningKey) {
         self.auth = auth
         self.registry = registry
         self.secrets = store
@@ -102,6 +128,8 @@ final class AppModel {
         self.functions = functions
         self.http = http
         self.loadKey = loadKey
+        self.fieldStore = localStore
+        self.now = now
         enrollment = Enrollment(registry: registry, store: store, pollInterval: pollInterval)
         enrollment.onSessionEnded = { [weak self] in
             Task { @MainActor in await self?.sessionEnded() }
@@ -189,20 +217,20 @@ final class AppModel {
 
     func refreshStatus() {
         guard let partition = activeStoragePartition, let store = fieldStore else { syncStatus = nil; return }
-        syncStatus = try? FieldSyncStatus.read(store: store, partition: partition, now: Date(),
+        syncStatus = try? FieldSyncStatus.read(store: store, partition: partition, now: now(),
                                                sending: syncing, offline: isOffline)
     }
 
     func refreshToday() {
         guard let partition = activeStoragePartition, let store = try? storage(for: partition) else { return }
         do {
-            let day = BootstrapClient.manilaDay(Date())
+            let day = BootstrapClient.manilaDay(now())
             let outlets = Dictionary(uniqueKeysWithValues: try store.outlets(for: partition).map { ($0.id, $0.name) })
             let planned = try store.todayVisits(day, for: partition)
             let localOutlets = try store.outlets(for: partition)
             let rows = planned.map { visit in
                 TodayVisit(id: visit.id, outletId: visit.outletId, outlet: outlets[visit.outletId] ?? "Unknown outlet",
-                    serviceDate: visit.serviceDate, intents: visit.intents, planned: true, status: "Planned")
+                    serviceDate: visit.serviceDate, intents: visit.intents, planned: true, status: "Planned", sequence: visit.sequence)
             } + localOutlets.filter { outlet in !planned.contains(where: { $0.outletId == outlet.id }) }.map { outlet in
                 TodayVisit(id: "unplanned-\(outlet.id)", outletId: outlet.id, outlet: outlet.name,
                     serviceDate: day, intents: [], planned: false, status: "Unplanned")
@@ -218,34 +246,29 @@ final class AppModel {
                     "conflict": "Conflicts with server record", "dependency_missing": "Check-in was not accepted",
                     "unsupported_operation": "Operation not supported", "out_of_scope": "Outside current scope",
                     "evidence_pending_review": "Evidence needs review", "invalid_transition": "Visit state changed",
+                    "call_open": "Finish the open call first", "mcp_order": "Visit stores in plan order",
+                    "wrong_date": "Visit date does not match the phone date",
                     "unknown_code": "Unrecognized server reason", "unknown_status": "Unrecognized server status"
                 ]
                 return "\(item.intent.kind) · \(reasons[item.code] ?? "Unknown outcome — ask supervisor")"
             }
             if try store.isHeld(partition), !intents.isEmpty { review.append("Unsent work held — verify account and scope") }
             if try store.hasOtherHeldWork(for: partition) { review.append("Prior scope has unsent work held for supervised review") }
+            let calls = localCalls(intents: intents, rejected: Set(rejected.map { $0.intent.requestId }))
             visits = rows.map { visit in
+                let initial = intents.first { $0.matches(visit) }
                 let related = intents.filter { intent in
-                    guard let object = try? JSONSerialization.jsonObject(with: intent.operationJSON) as? [String: Any],
-                          let payload = object["payload"] as? [String: Any] else { return false }
-                    if intent.kind == "visit.checkIn" { return payload["plannedVisitId"] as? String == visit.id ||
-                        (payload["plannedVisitId"] is NSNull && payload["outletId"] as? String == visit.outletId) }
-                    let dependency = (object["dependsOn"] as? [String])?.first
-                    return intents.contains { initial in
-                        guard initial.kind == "visit.checkIn", initial.requestId.uuidString.lowercased() == dependency,
-                              let original = try? JSONSerialization.jsonObject(with: initial.operationJSON) as? [String: Any],
-                              let body = original["payload"] as? [String: Any] else { return false }
-                        return body["plannedVisitId"] as? String == visit.id ||
-                            (body["plannedVisitId"] is NSNull && body["outletId"] as? String == visit.outletId)
-                    }
+                    intent.matches(visit) || initial.map { start in intent.dependencies.contains(start.requestId.uuidString.lowercased()) } == true
                 }
+                let call = calls.first { $0.initial.matches(visit) }
                 let status: String
                 if related.contains(where: { intent in rejected.contains(where: { $0.intent.requestId == intent.requestId }) }) { status = "Needs review" }
                 else if related.contains(where: { queued.contains($0.requestId) }) { status = syncing ? "Sending" : "Queued" }
                 else if !related.isEmpty { status = "Accepted" }
                 else { status = visit.status }
                 return TodayVisit(id: visit.id, outletId: visit.outletId, outlet: visit.outlet,
-                                  serviceDate: visit.serviceDate, intents: visit.intents, planned: visit.planned, status: status)
+                                  serviceDate: visit.serviceDate, intents: visit.intents, planned: visit.planned, status: status,
+                                  sequence: visit.sequence, startedAt: call?.initial.deviceTime, endedAt: call?.end?.deviceTime)
             }
             lastSyncedAt = try store.syncHealth(for: partition).flatMap { $0.lastSuccessfulSyncAt }
                 .map { Date(timeIntervalSince1970: Double($0) / 1000) }
@@ -253,61 +276,84 @@ final class AppModel {
         } catch { syncMessage = "Cached visits are unavailable." }
     }
 
+    private func localCalls(intents: [VisitIntent], rejected: Set<UUID>) -> [LocalCall] {
+        intents.filter { $0.kind == "visit.checkIn" && !rejected.contains($0.requestId) }.map { initial in
+            let end = intents.first { $0.kind == "visit.checkOut" && !rejected.contains($0.requestId) &&
+                $0.dependencies.contains(initial.requestId.uuidString.lowercased()) &&
+                ["completed", "nonproductive"].contains($0.payload?["outcome"] as? String ?? "") &&
+                ($0.payload?["outcome"] as? String != "nonproductive" ||
+                 ($0.payload?["reasonCode"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+            }
+            return LocalCall(initial: initial, end: end)
+        }
+    }
+    /// UI and commands share this durable guard; a queued End is enough to move on offline.
+    func startFailure(for visit: TodayVisit) -> CallFailure? {
+        do { try validateStart(visit); return nil }
+        catch let error as CallFailure { return error }
+        catch { return .notStarted }
+    }
+    private func validateStart(_ visit: TodayVisit) throws {
+        guard let partition = activeStoragePartition else { throw StoreError.invalidInput }
+        let store = try storage(for: partition)
+        let intents = try store.intents(for: partition)
+        if intents.contains(where: { $0.matches(visit) }) { throw CallFailure.alreadyStarted }
+        let rejected = Set(try store.reviewOutbox(for: partition).map { $0.intent.requestId })
+        let calls = localCalls(intents: intents, rejected: rejected)
+        if calls.contains(where: { $0.initial.payload?["serviceDate"] as? String == visit.serviceDate && !$0.closed }) {
+            throw CallFailure.callOpen
+        }
+        guard visit.planned else { return }
+        // Read the authoritative saved plan, not sequence supplied by a stale view/caller.
+        let planned = try store.snapshot(for: partition)?.visits.filter { $0.serviceDate == visit.serviceDate } ?? []
+        guard let index = planned.firstIndex(where: { $0.id == visit.id }) else { throw StoreError.invalidInput }
+        let sequence = planned[index].sequence ?? index
+        for (position, earlier) in planned.enumerated() where (earlier.sequence ?? position) < sequence {
+            guard calls.contains(where: { $0.initial.payload?["plannedVisitId"] as? String == earlier.id &&
+                $0.initial.payload?["serviceDate"] as? String == visit.serviceDate && $0.closed }) else { throw CallFailure.mcpOrder }
+        }
+    }
     private func checkIn(for visit: TodayVisit) throws -> (VisitIntent, any FieldLocalStore, StorePartition) {
         guard let partition = activeStoragePartition else { throw StoreError.invalidInput }
         let store = try storage(for: partition)
-        guard let intent = try store.intents(for: partition).first(where: { item in
-            guard item.kind == "visit.checkIn",
-                  let object = try? JSONSerialization.jsonObject(with: item.operationJSON) as? [String: Any],
-                  let payload = object["payload"] as? [String: Any] else { return false }
-            return payload["plannedVisitId"] as? String == visit.id ||
-                (payload["plannedVisitId"] is NSNull && payload["outletId"] as? String == visit.outletId)
-        }) else { throw StoreError.invalidInput }
+        guard let intent = try store.intents(for: partition).first(where: { $0.matches(visit) }) else { throw CallFailure.notStarted }
         return (intent, store, partition)
     }
-    func queueCheckIn(_ visit: TodayVisit, unplannedReason: String?, location: VisitLocation) throws {
+    func queueCheckIn(_ visit: TodayVisit, unplannedReason: String?, location: VisitLocation?) throws {
+        try validateStart(visit)
         guard let partition = activeStoragePartition else { throw StoreError.invalidInput }
-        if !visit.planned && unplannedReason == nil { throw DiagnosticOperation.Failure.invalidReason }
         let store = try storage(for: partition)
-        guard !(try store.intents(for: partition)).contains(where: { item in
-            guard item.kind == "visit.checkIn",
-                  let object = try? JSONSerialization.jsonObject(with: item.operationJSON) as? [String: Any],
-                  let payload = object["payload"] as? [String: Any] else { return false }
-            return payload["plannedVisitId"] as? String == visit.id ||
-                (payload["plannedVisitId"] is NSNull && payload["outletId"] as? String == visit.outletId)
-        }) else { throw StoreError.alreadyResolved }
-        let intent = try DiagnosticOperation.checkIn(plannedId: unplannedReason == nil ? visit.id : nil,
-            outletId: visit.outletId, day: visit.serviceDate, intents: unplannedReason == nil ? visit.intents : [],
-            reason: unplannedReason, location: location)
-        try store.enqueue(intent, for: partition, now: Date())
-        refreshToday()
-        breadcrumb(.workQueued)
-        BackgroundRetry.shared.scheduleIfNeeded()
+        let timestamp = now()
+        let intent = try DiagnosticOperation.checkIn(plannedId: visit.planned ? visit.id : nil,
+            outletId: visit.outletId, day: visit.serviceDate, intents: visit.planned ? visit.intents : [],
+            reason: visit.planned ? nil : unplannedReason, location: location, now: timestamp)
+        try store.enqueue(intent, for: partition, now: timestamp)
+        didQueueWork()
     }
     func queueNote(_ note: String, for visit: TodayVisit) throws {
         let (initial, store, partition) = try checkIn(for: visit)
-        guard !(try store.intents(for: partition)).contains(where: { item in
-            item.kind == "visit.checkOut" &&
-            ((try? JSONSerialization.jsonObject(with: item.operationJSON) as? [String: Any])?["dependsOn"] as? [String])?.contains(initial.requestId.uuidString.lowercased()) == true
-        }) else { throw StoreError.alreadyResolved }
+        guard !(try store.intents(for: partition)).contains(where: { $0.kind == "visit.checkOut" &&
+            $0.dependencies.contains(initial.requestId.uuidString.lowercased()) }) else { throw CallFailure.alreadyClosed }
         let ack = try store.ack(for: initial.requestId, in: partition)
-        let intent = try DiagnosticOperation.note(note, checkIn: initial.requestId, visitId: ack?.entityId)
-        if ack == nil { try store.enqueueDeferred(intent, for: partition, now: Date()) }
-        else { try store.enqueue(intent, for: partition, now: Date()) }
-        refreshToday()
-        breadcrumb(.workQueued)
-        BackgroundRetry.shared.scheduleIfNeeded()
+        let timestamp = now()
+        let intent = try DiagnosticOperation.note(note, checkIn: initial.requestId, visitId: ack?.entityId, now: timestamp)
+        if ack == nil { try store.enqueueDeferred(intent, for: partition, now: timestamp) }
+        else { try store.enqueue(intent, for: partition, now: timestamp) }
+        didQueueWork()
     }
-    func queueCheckOut(outcome: String, reason: String?, for visit: TodayVisit) throws {
+    func queueCheckOut(outcome: String, reason: String?, for visit: TodayVisit, location: VisitLocation? = nil) throws {
         let (initial, store, partition) = try checkIn(for: visit)
         guard !(try store.intents(for: partition)).contains(where: { $0.kind == "visit.checkOut" &&
-            ((try? JSONSerialization.jsonObject(with: $0.operationJSON) as? [String: Any])?["dependsOn"] as? [String])?.contains(initial.requestId.uuidString.lowercased()) == true
-        }) else { throw StoreError.alreadyResolved }
+            $0.dependencies.contains(initial.requestId.uuidString.lowercased()) }) else { throw CallFailure.alreadyClosed }
         let ack = try store.ack(for: initial.requestId, in: partition)
+        let timestamp = now()
         let intent = try DiagnosticOperation.checkOut(outcome: outcome, reason: reason,
-            checkIn: initial.requestId, visitId: ack?.entityId)
-        if ack == nil { try store.enqueueDeferred(intent, for: partition, now: Date()) }
-        else { try store.enqueue(intent, for: partition, now: Date()) }
+            checkIn: initial.requestId, visitId: ack?.entityId, location: location, now: timestamp)
+        if ack == nil { try store.enqueueDeferred(intent, for: partition, now: timestamp) }
+        else { try store.enqueue(intent, for: partition, now: timestamp) }
+        didQueueWork()
+    }
+    private func didQueueWork() {
         refreshToday()
         breadcrumb(.workQueued)
         BackgroundRetry.shared.scheduleIfNeeded()

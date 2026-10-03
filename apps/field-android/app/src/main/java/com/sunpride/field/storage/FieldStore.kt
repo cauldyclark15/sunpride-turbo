@@ -18,7 +18,7 @@ data class StoreScope(val account: String, val deviceId: String, val fingerprint
 data class ScopedSnapshot(val employeeJson: String, val routeJson: String?,
     val visits: List<SnapshotItem>, val outlets: List<SnapshotItem>,
     val localCustomers: List<SnapshotItem>, val tasks: List<SnapshotItem>)
-data class SnapshotItem(val id: String, val json: String, val serviceDate: String? = null)
+data class SnapshotItem(val id: String, val json: String, val serviceDate: String? = null, val listPosition: Int? = null)
 
 interface FieldStore {
     /** Stage all pages under a unique generation. No reader sees these rows before promotion. */
@@ -64,12 +64,19 @@ object EncryptedFieldDatabase {
             db.execSQL("ALTER TABLE `partitions` ADD COLUMN `lastSuccessfulSync` INTEGER")
         }
     }
+    val MIGRATION_3_4 = object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            // Existing rows keep their former entityId order; new bootstraps retain wire list order.
+            db.execSQL("ALTER TABLE `snapshots` ADD COLUMN `snapshotOrder` INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("UPDATE snapshots SET snapshotOrder = (SELECT COUNT(*) FROM snapshots AS prior WHERE prior.account=snapshots.account AND prior.deviceId=snapshots.deviceId AND prior.scope=snapshots.scope AND prior.generation=snapshots.generation AND prior.kind=snapshots.kind AND prior.entityId<snapshots.entityId)")
+        }
+    }
     fun open(context: Context): StoreDatabase {
         System.loadLibrary("sqlcipher")
         val passphrase = PassphraseVault(context).passphrase()
         return Room.databaseBuilder(context.applicationContext, StoreDatabase::class.java, PassphraseVault.DB_NAME)
             .openHelperFactory(SupportOpenHelperFactory(passphrase))
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
             .build()
     }
 
@@ -96,9 +103,9 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
         val groups = listOf("visit" to snapshot.visits, "outlet" to snapshot.outlets,
             "customer" to snapshot.localCustomers, "task" to snapshot.tasks)
         db.withTransaction {
-            for ((kind, items) in groups) for (item in items) {
+            for ((kind, items) in groups) for ((position, item) in items.withIndex()) {
                 require(item.id.isNotBlank() && item.json.isNotBlank())
-                dao.insertSnapshot(SnapshotRow(a, d, s, generation, kind, item.id, item.json, item.serviceDate))
+                dao.insertSnapshot(SnapshotRow(a, d, s, generation, kind, item.id, item.json, item.serviceDate, position))
             }
             // Stage metadata is deliberately not active. Empty snapshots are valid; marker row carries metadata.
             dao.insertSnapshot(SnapshotRow(a, d, s, generation, "meta", "bootstrap",
@@ -129,9 +136,10 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
 
     private suspend fun read(kind: String, day: String? = null): List<SnapshotItem> {
         val generation = metadata().activeGeneration ?: return emptyList()
-        return dao.snapshot(a, d, s, generation, kind, day).map { SnapshotItem(it.entityId, it.json, it.serviceDate) }
+        return dao.snapshot(a, d, s, generation, kind, day).map { SnapshotItem(it.entityId, it.json, it.serviceDate, it.snapshotOrder) }
     }
-    override suspend fun todaysVisits(day: String): List<SnapshotItem> = read("visit", day)
+    override suspend fun todaysVisits(day: String): List<SnapshotItem> =
+        VisitCallRules.ordered(read("visit", day))
     override suspend fun outlets(): List<SnapshotItem> = read("outlet")
     override suspend fun isLeaseValid(now: Long): Boolean = metadata().let {
         !it.held && it.leaseExpiresAt != null && now < it.leaseExpiresAt && it.activeGeneration != null
@@ -147,6 +155,15 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             intent.serializedOperation.isNotBlank())
         db.withTransaction {
             check(isLeaseValid(now)) { "Offline lease expired or held" }
+            val payload = JSONObject(intent.serializedOperation).optJSONObject("payload")
+            if (intent.kind == "visit.checkIn") {
+                val day = payload?.getString("serviceDate") ?: error("Missing service date")
+                VisitCallRules.requireStart(payload.optString("plannedVisitId").takeUnless { it.isBlank() || it == "null" },
+                    payload.getString("outletId"), day, todaysVisits(day), history().map { it.first to it.second.state })
+            } else if (intent.kind == "visit.checkOut") {
+                VisitCallRules.requireEnd(intent.clientVisitId, payload ?: error("Missing outcome"),
+                    history().map { it.first to it.second.state })
+            }
             val orderedAt = maxOf(intent.createdAt, (dao.latestCreatedAt(a, d, s) ?: Long.MIN_VALUE) + 1)
             dao.insertIntent(intent.copy(createdAt = orderedAt))
             checkpoint()
@@ -204,7 +221,7 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
     }
     override suspend fun status(offline: Boolean): com.sunpride.field.ui.syncstatus.SyncStatus =
         com.sunpride.field.ui.syncstatus.SyncStatus.fromRoom(dao.partition(a, d, s),
-            dao.outstandingForDevice(a, d), offline)
+            dao.outstandingForDevice(a, d), offline, history().map { it.first })
     override suspend fun history(): List<Pair<IntentRow, OutboxRow>> = dao.allOutbox(a, d, s)
         .map { row -> (dao.intent(a, d, s, row.requestId) ?: error("Orphaned outbox")) to row }
     override suspend fun intent(requestId: String): IntentRow? = dao.intent(a, d, s, requestId)

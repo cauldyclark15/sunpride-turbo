@@ -26,7 +26,8 @@
       "serviceDate": "2026-09-26",
       "planId": "plan-1",
       "planVersion": 1,
-      "intents": ["merchandise"]
+      "intents": ["merchandise"],
+      "sequence": 1
     }
   ],
   "outlets": [

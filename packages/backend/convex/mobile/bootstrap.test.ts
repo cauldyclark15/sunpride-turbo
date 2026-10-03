@@ -6,6 +6,7 @@ import { internal } from "../_generated/api";
 import schema from "../schema";
 import { modules } from "../test.setup";
 import { manilaDate } from "../coverage/validation";
+import { nextDayCloseAt } from "../visits/policy";
 import type { AuthorizedDevice } from "./types";
 
 const SECRET = "test-only-mobile-cursor-secret-32-bytes-long";
@@ -275,8 +276,17 @@ describe("mobile day bootstrap", () => {
       actor: f.actor,
     });
     expect(r.plannedVisits).toMatchObject([
-      { id: f.ids.visit, planId: f.ids.plan },
+      { id: f.ids.visit, planId: f.ids.plan, sequence: 1 },
     ]);
+    // Client answer 14: the offline lease ends at the next 10 PM Manila close.
+    const close = nextDayCloseAt(r.serverTime);
+    expect(r.appConfig.offlineLeaseExpiresAt).toBe(close);
+    expect(r.appConfig.cacheExpiresAt).toBe(close);
+    expect(new Date(close + 8 * 3_600_000).toISOString().slice(11, 16)).toBe(
+      "22:00",
+    );
+    expect(close - r.serverTime).toBeGreaterThan(0);
+    expect(close - r.serverTime).toBeLessThanOrEqual(86_400_000);
     expect(r.outlets).toEqual([
       { id: f.ids.outlet, name: "Signed outlet", routeId: null },
     ]);

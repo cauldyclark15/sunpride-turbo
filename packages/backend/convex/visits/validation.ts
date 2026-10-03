@@ -7,16 +7,24 @@ import { requireCapability } from "../lib/capabilities";
 import type { AuthorizedDevice } from "../mobile/types";
 import { activeAt } from "../org/validation";
 import { outletRows, resolveOutletScopeAt } from "../outlets/validation";
-import { VISIT_LOCATION_POLICY } from "./policy";
+import { dayCloseAt, FIELD_DAY_POLICY, VISIT_LOCATION_POLICY } from "./policy";
 
 type Ctx = MutationCtx | QueryCtx;
+const DAY_MS = 86_400_000;
+/** Device time: at most the clock skew ahead of the server, and no older than the
+ * late-delivery window (queued work from an earlier day is accepted and flagged late). */
 export function validTime(time: number, now: number) {
   if (
     !Number.isSafeInteger(time) ||
     time < 0 ||
-    Math.abs(now - time) > VISIT_LOCATION_POLICY.maxDeviceSkewMs
+    time - now > VISIT_LOCATION_POLICY.maxDeviceSkewMs ||
+    now - time > (FIELD_DAY_POLICY.lateWindowDays + 1) * DAY_MS
   )
     throw new ConvexError("invalid_request");
+}
+/** True once the 10 PM Manila close of the service date has passed. */
+export function isLate(serviceDate: string, now: number) {
+  return now > dayCloseAt(serviceDate);
 }
 export function boundedText(text: string, max = 200) {
   if (!text.trim() || text.length > max)
@@ -109,8 +117,20 @@ export async function visitTarget(
   if (links.length > 1) throw new ConvexError("invalid_request");
   return { current, customerId: links[0]?.customerId };
 }
-export function assertToday(date: string, now: number) {
+/** The check-in's service date is the Manila date the phone recorded it on. Today, or
+ * an earlier day still inside the late window (that work is accepted and flagged late). */
+export function assertServiceDay(
+  date: string,
+  deviceTime: number,
+  now: number,
+) {
   localDate(date);
-  if (date !== manilaDate(now + VISIT_LOCATION_POLICY.checkInGraceMs))
+  const today = manilaDate(now + VISIT_LOCATION_POLICY.checkInGraceMs);
+  const oldest = manilaDate(now - FIELD_DAY_POLICY.lateWindowDays * DAY_MS);
+  if (
+    date !== manilaDate(deviceTime + VISIT_LOCATION_POLICY.checkInGraceMs) ||
+    date > today ||
+    date < oldest
+  )
     throw new ConvexError("wrong_date");
 }

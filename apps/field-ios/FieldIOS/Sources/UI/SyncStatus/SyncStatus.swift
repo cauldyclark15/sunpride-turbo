@@ -14,11 +14,13 @@ struct FieldSyncStatus: Equatable {
     let cacheStale: Bool
     let offline: Bool
     var accessUntil: Date? = nil
+    var lateWork = false
+    var accessUntilLabel: String { accessUntil.map(FieldDay.closeTimeLabel) ?? "Unavailable" }
 
     var label: String {
         if held > 0 || otherHeldWork { return "Held · needs supervisor" }
         if needsReview > 0 { return "Needs review" }
-        if queued + sending > 0 { return sending > 0 ? "Sending · not synced" : "Waiting · not synced" }
+        if queued + sending > 0 { return lateWork ? "Late · held for review" : "Sync before 10 PM" }
         if lastErrorCode != nil { return "Sync unavailable · saved cache" }
         if cacheStale || leaseExpired { return "Stale · pending" }
         if offline { return "Offline · saved cache" }
@@ -28,7 +30,9 @@ struct FieldSyncStatus: Equatable {
                      sending: Bool, offline: Bool) throws -> FieldSyncStatus {
         let heldPartition = try store.isHeld(partition)
         let held = heldPartition ? try store.heldOutbox(for: partition).count + store.deferredOutbox(for: partition).count : 0
-        let pending = heldPartition ? 0 : try store.pendingOutbox(for: partition).count + store.deferredOutbox(for: partition).count
+        let pendingItems = heldPartition ? [] : try store.pendingOutbox(for: partition) + store.deferredOutbox(for: partition)
+        let pending = pendingItems.count
+        let intents = try store.intents(for: partition)
         let health = try store.syncHealth(for: partition)
         let cacheExpiry = try store.cacheExpiry(for: partition)
         var status = FieldSyncStatus(queued: sending ? 0 : pending, sending: sending ? pending : 0,
@@ -39,6 +43,13 @@ struct FieldSyncStatus: Equatable {
             cacheStale: cacheExpiry.map { Double($0) <= now.timeIntervalSince1970 * 1000 } ?? true,
             offline: offline)
         status.accessUntil = try store.leaseExpiry(for: partition).map { Date(timeIntervalSince1970: Double($0) / 1000) }
+        status.lateWork = pendingItems.contains { item in
+            let initial = item.intent.kind == "visit.checkIn" ? item.intent : intents.first {
+                $0.kind == "visit.checkIn" && item.intent.dependencies.contains($0.requestId.uuidString.lowercased())
+            }
+            let serviceDay = initial?.payload?["serviceDate"] as? String ?? item.intent.deviceTime.map(BootstrapClient.manilaDay)
+            return serviceDay.flatMap(FieldDay.close).map { now >= $0 } ?? false
+        }
         return status
     }
 }
@@ -76,9 +87,7 @@ struct SyncStatusDetail: View {
                                     $0.formatted(Date.FormatStyle(date: .omitted, time: .shortened, timeZone: TimeZone(identifier: "Asia/Manila")!))
                                 } ?? "Never")
                                 divider
-                                DetailRow(label: "Access until", value: status.accessUntil.map {
-                                    $0.formatted(Date.FormatStyle(date: .abbreviated, time: .omitted, timeZone: TimeZone(identifier: "Asia/Manila")!))
-                                } ?? "Unavailable")
+                                DetailRow(label: "Access until", value: status.accessUntilLabel)
                             }
                         }
                         if status.needsReview > 0 {

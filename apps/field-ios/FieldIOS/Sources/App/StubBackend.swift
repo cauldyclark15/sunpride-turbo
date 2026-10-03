@@ -117,16 +117,21 @@ final class StubBackend: URLProtocol {
             state.withLock { $0.nonce = nil }
             let now = Int64(Date().timeIntervalSince1970 * 1000)
             let today = BootstrapClient.manilaDay(Date())
+            let close = Int64(FieldDay.nextClose(after: Date(timeIntervalSince1970: Double(now) / 1000)).timeIntervalSince1970 * 1000)
             return (200, [:], json([
                 "type": "bootstrap.response", "contractVersion": 1, "serverTime": now,
                 "permissions": ["visit.read", "visit.record"],
                 "employee": ["id": "profile-1", "role": "sales", "orgUnitId": "unit-1"],
                 "scope": ["fingerprint": "stub-scope-1", "orgUnitIds": ["unit-1"]],
-                "appConfig": ["offlineLeaseExpiresAt": now + 86_400_000, "cacheExpiresAt": now + 86_400_000,
+                "appConfig": ["offlineLeaseExpiresAt": close, "cacheExpiresAt": close,
                               "orderCaptureEnabled": false, "priceAvailability": "unavailable", "promotionsAvailability": "unavailable"],
                 "plannedVisits": [["id": "planned-stub-1", "outletId": "outlet-stub-1", "serviceDate": today,
-                                   "planId": "plan-stub-1", "planVersion": 1, "intents": ["audit"]]],
-                "outlets": [["id": "outlet-stub-1", "name": "Stub Outlet", "routeId": NSNull()]],
+                                   "planId": "plan-stub-1", "planVersion": 1, "intents": ["audit"], "sequence": 0],
+                                  ["id": "planned-stub-2", "outletId": "outlet-stub-2", "serviceDate": today,
+                                   "planId": "plan-stub-1", "planVersion": 1, "intents": ["audit"], "sequence": 1]],
+                "outlets": [["id": "outlet-stub-1", "name": "Stub Outlet", "routeId": NSNull()],
+                            ["id": "outlet-stub-2", "name": "Next Stub Outlet", "routeId": NSNull()],
+                            ["id": "outlet-stub-extra", "name": "Extra Stub Outlet", "routeId": NSNull()]],
                 "localCustomers": [], "route": NSNull(), "tasks": [], "productCatalog": [],
                 "page": 1, "nextPageCursor": NSNull(), "syncCursor": "stub-cursor"
             ]))

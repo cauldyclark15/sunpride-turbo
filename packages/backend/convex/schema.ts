@@ -1955,7 +1955,27 @@ export default defineSchema({
     skippedAt: v.optional(v.number()),
     rescheduledAt: v.optional(v.number()),
     missedAt: v.optional(v.number()),
+    // Field-day rules (client call 2 Oct 2026). Start = check-in on arrival, End =
+    // check-out after the call; both are phone clock times so offline days measure
+    // real time per account.
+    startedAt: v.optional(v.number()),
+    endedAt: v.optional(v.number()),
+    callDurationMs: v.optional(v.number()),
+    // Work for the day that reached the server after its 10 PM Manila close.
+    lateSyncAt: v.optional(v.number()),
+    lateReviewStatus: v.optional(
+      v.union(
+        v.literal("pending_review"),
+        v.literal("accepted"),
+        v.literal("rejected"),
+      ),
+    ),
   })
+    .index("by_orgUnitId_and_lateReviewStatus_and_serviceDate", [
+      "orgUnitId",
+      "lateReviewStatus",
+      "serviceDate",
+    ])
     .index("by_organizationId_and_assigneeProfileId_and_serviceDate", [
       "organizationId",
       "assigneeProfileId",
