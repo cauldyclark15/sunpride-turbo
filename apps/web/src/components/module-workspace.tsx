@@ -22,6 +22,7 @@ import { SalesForcePanels } from "./coverage-workspace";
 import { ImportsWorkspace } from "./imports-workspace";
 import { InventoryWorkspace } from "./inventory-workspace";
 import { SupervisionWorkspace } from "./supervision/supervision-workspace";
+import { CallSheetsWorkspace } from "./call-sheets/call-sheets-workspace";
 
 const modules = {
   dashboard: { title: "Home" },
@@ -30,6 +31,7 @@ const modules = {
   inventory: { title: "Inventory" },
   "sales-force": { title: "Coverage" },
   supervision: { title: "Supervision" },
+  "call-sheets": { title: "Call sheets" },
   orders: { title: "Orders" },
   "sap-integration": { title: "Integration" },
   workflows: { title: "Approvals" },
@@ -471,6 +473,7 @@ function ModuleContent({
   if (module === "admin") return <AdminWorkspace />;
   if (module === "sales-force") return <SalesForcePanels />;
   if (module === "supervision") return <SupervisionWorkspace />;
+  if (module === "call-sheets") return <CallSheetsWorkspace />;
 
   return (
     <Card label="Integration" icon={<WorkspaceIcon name="operations" />}>

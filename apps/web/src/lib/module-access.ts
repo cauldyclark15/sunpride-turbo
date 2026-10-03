@@ -118,6 +118,7 @@ export const MODULE_ROLES = {
   inventory: allReaders, // inventory.read
   "sales-force": MCP_PANEL_ROLES["mcp.read"], // all roles with MCP read
   supervision: supervisors, // people.read + visit.read
+  "call-sheets": allReaders, // outlet.read + visit.read; editing needs outlet.manage
   orders: orderActors, // union of order.create and order.approve
   "sap-integration": integrationReaders, // integration.read
   workflows: orderApprovers, // order.approve

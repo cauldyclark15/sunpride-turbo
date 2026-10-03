@@ -33,6 +33,8 @@ const expectedCapabilities = {
   "sales-force": ["mcp.read"],
   // Supervision needs people.read AND visit.read; people.read is the narrower set.
   supervision: ["people.read"],
+  // Call sheets need outlet.read AND visit.read; both are granted to every role.
+  "call-sheets": ["outlet.read"],
   orders: ["order.create", "order.approve"],
   "sap-integration": ["integration.read"],
   workflows: ["order.approve"],
@@ -49,6 +51,7 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
     "inventory",
     "sales-force",
     "supervision",
+    "call-sheets",
     "sap-integration",
     "admin",
     "analytics",
@@ -59,6 +62,7 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
     "imports",
     "inventory",
     "sales-force",
+    "call-sheets",
     "sap-integration",
     "analytics",
   ],
@@ -68,6 +72,7 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
     "inventory",
     "sales-force",
     "supervision",
+    "call-sheets",
     "orders",
     "workflows",
     "analytics",
@@ -76,19 +81,35 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
     "dashboard",
     "inventory",
     "sales-force",
+    "call-sheets",
     "orders",
     "workflows",
     "analytics",
   ],
-  sales: ["dashboard", "inventory", "sales-force", "orders", "analytics"],
+  sales: [
+    "dashboard",
+    "inventory",
+    "sales-force",
+    "call-sheets",
+    "orders",
+    "analytics",
+  ],
   analyst: [
     "dashboard",
     "inventory",
     "sales-force",
     "supervision",
+    "call-sheets",
     "analytics",
   ],
-  viewer: ["dashboard", "inventory", "sales-force", "supervision", "analytics"],
+  viewer: [
+    "dashboard",
+    "inventory",
+    "sales-force",
+    "supervision",
+    "call-sheets",
+    "analytics",
+  ],
 };
 
 describe("web module access", () => {
@@ -178,6 +199,14 @@ describe("web module access", () => {
     expect(canAccessWebModule("issues", "sales")).toBe(false);
     expect(canAccessWebModule("issues", "viewer")).toBe(false);
     expect(canAccessWebModule("issues", null)).toBe(false);
+  });
+
+  it("opens call sheets to every outlet and visit reader", () => {
+    for (const role of roles)
+      expect(canAccessWebModule("call-sheets", role)).toBe(
+        (CAPABILITIES["outlet.read"] as readonly string[]).includes(role) &&
+          (CAPABILITIES["visit.read"] as readonly string[]).includes(role),
+      );
   });
 
   it("keeps field sales and approvers out of supervision", () => {
