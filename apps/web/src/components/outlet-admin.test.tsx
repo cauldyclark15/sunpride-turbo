@@ -21,6 +21,9 @@ vi.mock("convex/react", () => ({
   },
   useMutation: () => vi.fn(),
 }));
+vi.mock("./new-store-approvals", () => ({
+  NewStoreApprovals: () => createElement("p", null, "Mounted new stores"),
+}));
 vi.mock("react", async (original) => {
   const actual = await original<typeof import("react")>();
   return {
@@ -124,6 +127,25 @@ describe("Outlet admin (unmounted)", () => {
     expect(row).toContain("Corner Store");
     expect(row).toContain("Open</button>");
     expect(row).not.toContain("Active</span>");
+  });
+  it("mounts the new-store approvals and flags provisional outlets", () => {
+    state.values["outlets/queries:list"] = {
+      page: [{ ...outlet, status: "active", enrolmentStatus: "provisional" }],
+      isDone: true,
+      continueCursor: "",
+    };
+    state.values["outlets/queries:detail"] = {
+      outlet: { ...outlet, status: "active", enrolmentStatus: "provisional" },
+      customerLink: null,
+      pin: null,
+    };
+    state.selected = outlet._id;
+    const view = render();
+    expect(view).toContain("Mounted new stores");
+    const row =
+      view.match(/<ul aria-label="Outlet list"[^>]*>(.*?)<\/ul>/)?.[1] ?? "";
+    expect(row).toContain("Provisional");
+    expect(view).toContain("awaiting supervisor or manager approval");
   });
   it("shows history, verification, and disables self-review controls", () => {
     state.selected = outlet._id;

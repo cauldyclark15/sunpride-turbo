@@ -67,6 +67,9 @@ export const CAPABILITIES = {
   "route.manage": ["super_admin", "admin", "operations"],
   "outlet.manage": ["super_admin", "admin", "operations"],
   "outlet.verify": ["super_admin", "admin", "manager"],
+  // CALL-07 new-store enrolment: the field proposes, a supervisor/manager approves.
+  "outlet.enrol.propose": ["super_admin", "manager", "sales"],
+  "outlet.enrol.approve": ["super_admin", "manager"],
   "outlet.assign": ["super_admin", "admin", "operations"],
   "masterdata.manage": ["super_admin", "admin", "operations"],
   "inventory.read": [

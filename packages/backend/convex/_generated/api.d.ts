@@ -89,6 +89,7 @@ import type * as org_mutations from "../org/mutations.js";
 import type * as org_queries from "../org/queries.js";
 import type * as org_validation from "../org/validation.js";
 import type * as outlets_assignments from "../outlets/assignments.js";
+import type * as outlets_enrolment from "../outlets/enrolment.js";
 import type * as outlets_mutations from "../outlets/mutations.js";
 import type * as outlets_queries from "../outlets/queries.js";
 import type * as outlets_validation from "../outlets/validation.js";
@@ -203,6 +204,7 @@ declare const fullApi: ApiFromModules<{
   "org/queries": typeof org_queries;
   "org/validation": typeof org_validation;
   "outlets/assignments": typeof outlets_assignments;
+  "outlets/enrolment": typeof outlets_enrolment;
   "outlets/mutations": typeof outlets_mutations;
   "outlets/queries": typeof outlets_queries;
   "outlets/validation": typeof outlets_validation;
