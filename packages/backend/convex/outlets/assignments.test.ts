@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import schema from "../schema";
+import { manilaDate } from "../coverage/validation";
 import { modules } from "../test.setup";
 
 async function setup() {
@@ -128,12 +129,14 @@ describe("effective-dated outlet assignments", () => {
       },
     );
     const owner = (await f.root.query(api.domains.profiles.current, {}))!._id;
+    // A fixed calendar date goes stale: the invalidation only scans today and later.
+    const serviceDate = manilaDate(Date.now() + 86_400_000);
     await f.t.run(async (ctx) => {
       const now = Date.now();
       const planId = await ctx.db.insert("coveragePlans", {
         organizationId: "sunpride",
         assigneeProfileId: owner,
-        localMonth: "2026-09",
+        localMonth: serviceDate.slice(0, 7),
         version: 1,
         cycleType: "monthly",
         orgUnitId: f.east,
@@ -155,7 +158,7 @@ describe("effective-dated outlet assignments", () => {
         slotKey: "feed",
         planId,
         assigneeProfileId: owner,
-        serviceDate: "2026-09-30",
+        serviceDate,
         kind: "outlet_visit",
         outletId,
         requiredObjectives: [],
@@ -186,7 +189,7 @@ describe("effective-dated outlet assignments", () => {
         planSlotId: slotId,
         assigneeProfileId: owner,
         outletId,
-        serviceDate: "2026-09-30",
+        serviceDate,
         status: "planned",
         approvedSnapshot: {
           outletId,

@@ -15,6 +15,7 @@ import { useMutation, useQuery } from "convex/react";
 import type { FunctionArgs } from "convex/server";
 import { useState, type FormEvent } from "react";
 import { formatManilaDate, futureManilaDateToUtcMs } from "../lib/manila-date";
+import { NewStoreApprovals } from "./new-store-approvals";
 
 type Action =
   | "create"
@@ -190,361 +191,379 @@ export function OutletAdmin() {
   const customerName = (id: Id<"customers">) =>
     customers?.find((c) => c._id === id)?.name ?? id;
   return (
-    <Card
-      label="Outlets"
-      count={list?.page.length}
-      icon={<WorkspaceIcon name="field" />}
-      actions={
-        canManage ? (
-          <Button
-            variant="outline"
-            className="h-8"
-            onPress={() => setAction("create")}
-          >
-            Create outlet
-          </Button>
-        ) : undefined
-      }
-    >
-      <div className="grid gap-4">
-        {list === undefined ? (
-          <p>Loading outlets…</p>
-        ) : (
-          <ul
-            aria-label="Outlet list"
-            className="overflow-hidden rounded-xl border border-border"
-          >
-            {list.page.map((row) => (
-              <li key={row._id}>
-                <ListRow
-                  icon={<WorkspaceIcon name="field" />}
-                  title={row.name}
-                  meta={row.code}
-                  value={
-                    row.status !== "active" ? (
-                      <StatusPill tone="neutral">{row.status}</StatusPill>
-                    ) : undefined
-                  }
-                  action={
-                    <Button
-                      variant="outline"
-                      className="h-8"
-                      onPress={() => {
-                        setSelectedId(row._id);
-                        setAction(null);
-                      }}
-                    >
-                      Open
-                    </Button>
-                  }
-                />
-              </li>
-            ))}
-          </ul>
-        )}
-        <Pager
-          page={cursors.length}
-          canPrevious={cursors.length > 1}
-          canNext={!!list && !list.isDone}
-          onPrevious={() => setCursors((old) => old.slice(0, -1))}
-          onNext={() => {
-            if (list && !list.isDone)
-              setCursors((old) => [...old, list.continueCursor]);
-          }}
-          label="Outlets pages"
-        />
-        {detail && (
-          <section
-            aria-label="Outlet profile"
-            className="grid gap-2 rounded border border-border p-3"
-          >
-            <h3>
-              {detail.outlet.name} · {detail.outlet.code}
-            </h3>
-            <p>
-              {detail.outlet.status[0]?.toUpperCase()}
-              {detail.outlet.status.slice(1)} ·{" "}
-              {detail.outlet.channel ?? "Channel not set"} ·{" "}
-              {detail.outlet.address ?? "Address not set"}
-            </p>
-            <p>
-              Customer:{" "}
-              {detail.customerLink
-                ? customerName(detail.customerLink.customerId)
-                : "Unlinked prospect / site"}
-            </p>
-            <p>
-              Route:{" "}
-              {detail.assignment
-                ? `${detail.assignment.territoryId} / ${detail.assignment.routeId ?? "no route"}${detail.assignment.sequence ? ` · stop ${detail.assignment.sequence}` : ""}`
-                : "Unassigned"}
-            </p>
-            <p>
-              Verified pin:{" "}
-              {detail.pin
-                ? `${detail.pin.latitude}, ${detail.pin.longitude} · ${detail.pin.radiusMeters} m`
-                : "None"}
-            </p>
-            {canManage && (
-              <div className="flex gap-2">
-                <button type="button" onClick={() => setAction("edit")}>
-                  Edit profile
-                </button>
-                <button type="button" onClick={() => setAction("link")}>
-                  Change customer link
-                </button>
-                <button type="button" onClick={() => setAction("deactivate")}>
-                  Deactivate
-                </button>
-              </div>
-            )}
-            <h4>Customer history</h4>
-            <ul>
-              {links?.map((row) => (
+    <>
+      <NewStoreApprovals />
+      <Card
+        label="Outlets"
+        count={list?.page.length}
+        icon={<WorkspaceIcon name="field" />}
+        actions={
+          canManage ? (
+            <Button
+              variant="outline"
+              className="h-8"
+              onPress={() => setAction("create")}
+            >
+              Create outlet
+            </Button>
+          ) : undefined
+        }
+      >
+        <div className="grid gap-4">
+          {list === undefined ? (
+            <p>Loading outlets…</p>
+          ) : (
+            <ul
+              aria-label="Outlet list"
+              className="overflow-hidden rounded-xl border border-border"
+            >
+              {list.page.map((row) => (
                 <li key={row._id}>
-                  {customerName(row.customerId)} · {row.source} ·{" "}
-                  {formatManilaDate(row.effectiveFrom)}–
-                  {row.effectiveTo
-                    ? formatManilaDate(row.effectiveTo)
-                    : "Current"}{" "}
-                  · {row.reason}
-                </li>
-              ))}
-            </ul>
-            <h4>Verification</h4>
-            {canManage && (
-              <button type="button" onClick={() => setAction("propose")}>
-                Propose GPS pin
-              </button>
-            )}
-            <ul>
-              {pins?.map((pin) => (
-                <li key={pin._id}>
-                  {pin.status[0]?.toUpperCase()}
-                  {pin.status.slice(1)} · {pin.latitude}, {pin.longitude} ·{" "}
-                  {pin.radiusMeters} m · {pin.source} ·{" "}
-                  {pin.evidenceNote ?? "No note"} · proposed by {pin.proposedBy}
-                  {pin.verifiedBy && (
-                    <>
-                      {" "}
-                      · reviewed by {pin.verifiedBy}: {pin.reviewerReason}
-                    </>
-                  )}
-                  {pin.status === "verified" && (
-                    <>
-                      {" "}
-                      · {formatManilaDate(pin.effectiveFrom)}–
-                      {pin.effectiveTo
-                        ? formatManilaDate(pin.effectiveTo)
-                        : "Current"}
-                    </>
-                  )}
-                  {pin.status === "pending" && canVerify && (
-                    <>
-                      <button
-                        type="button"
-                        disabled={
-                          !profile || profile.authSubject === pin.proposedBy
-                        }
-                        onClick={() => {
-                          setPendingPin(pin._id);
-                          setAction("verified");
+                  <ListRow
+                    icon={<WorkspaceIcon name="field" />}
+                    title={row.name}
+                    meta={row.code}
+                    value={
+                      row.status !== "active" ? (
+                        <StatusPill tone="neutral">{row.status}</StatusPill>
+                      ) : row.enrolmentStatus === "provisional" ? (
+                        <StatusPill tone="warning">Provisional</StatusPill>
+                      ) : undefined
+                    }
+                    action={
+                      <Button
+                        variant="outline"
+                        className="h-8"
+                        onPress={() => {
+                          setSelectedId(row._id);
+                          setAction(null);
                         }}
                       >
-                        Approve
-                      </button>
-                      <button
-                        type="button"
-                        disabled={
-                          !profile || profile.authSubject === pin.proposedBy
-                        }
-                        onClick={() => {
-                          setPendingPin(pin._id);
-                          setAction("rejected");
-                        }}
-                      >
-                        Reject
-                      </button>
-                    </>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-        {action && (
-          <form
-            key={`${action}-${selectedId}`}
-            onSubmit={submit}
-            className="grid gap-3 rounded border border-border p-3 sm:grid-cols-2 lg:grid-cols-3"
-            aria-label="Outlet action"
-          >
-            <h3>
-              {action === "create"
-                ? "Create outlet"
-                : action === "edit"
-                  ? "Edit profile"
-                  : action === "link"
-                    ? "Change customer link"
-                    : action === "propose"
-                      ? "Propose GPS pin"
-                      : action === "deactivate"
-                        ? "Deactivate outlet"
-                        : `${action === "verified" ? "Approve" : "Reject"} pin`}
-            </h3>
-            {(action === "create" || action === "edit") && (
-              <>
-                {action === "create" && (
-                  <>
-                    <FormField label="Code">
-                      <input name="code" required />
-                    </FormField>
-                    <FormField label="Custodian unit">
-                      <select name="custodianOrgUnitId" required>
-                        <option value="">Select unit</option>
-                        {units
-                          ?.filter((u) => u.status === "active")
-                          .map((u) => (
-                            <option key={u._id} value={u._id}>
-                              {u.name}
-                            </option>
-                          ))}
-                      </select>
-                    </FormField>
-                  </>
-                )}
-                <FormField label="Name">
-                  <input
-                    name="name"
-                    defaultValue={detail?.outlet.name}
-                    required
+                        Open
+                      </Button>
+                    }
                   />
-                </FormField>
-                <FormField label="Site status">
-                  <select
-                    name="status"
-                    defaultValue={detail?.outlet.status ?? "prospect"}
-                  >
-                    <option value="prospect">Prospect / unlinked</option>
-                    <option value="active">Active</option>
-                  </select>
-                </FormField>
-                {(
-                  [
-                    "channel",
-                    "subchannel",
-                    "classification",
-                    "address",
-                    "directions",
-                    "visitWindow",
-                  ] as const
-                ).map((key) => (
-                  <FormField key={key} label={key}>
-                    <input name={key} defaultValue={detail?.outlet[key]} />
-                  </FormField>
+                </li>
+              ))}
+            </ul>
+          )}
+          <Pager
+            page={cursors.length}
+            canPrevious={cursors.length > 1}
+            canNext={!!list && !list.isDone}
+            onPrevious={() => setCursors((old) => old.slice(0, -1))}
+            onNext={() => {
+              if (list && !list.isDone)
+                setCursors((old) => [...old, list.continueCursor]);
+            }}
+            label="Outlets pages"
+          />
+          {detail && (
+            <section
+              aria-label="Outlet profile"
+              className="grid gap-2 rounded border border-border p-3"
+            >
+              <h3>
+                {detail.outlet.name} · {detail.outlet.code}
+              </h3>
+              {detail.outlet.enrolmentStatus === "provisional" && (
+                <p>
+                  <StatusPill tone="warning">Provisional</StatusPill> New store
+                  awaiting supervisor or manager approval; the customer code is
+                  issued on approval.
+                </p>
+              )}
+              <p>
+                {detail.outlet.status[0]?.toUpperCase()}
+                {detail.outlet.status.slice(1)} ·{" "}
+                {detail.outlet.channel ?? "Channel not set"} ·{" "}
+                {detail.outlet.address ?? "Address not set"}
+              </p>
+              <p>
+                Customer:{" "}
+                {detail.customerLink
+                  ? customerName(detail.customerLink.customerId)
+                  : "Unlinked prospect / site"}
+              </p>
+              <p>
+                Route:{" "}
+                {detail.assignment
+                  ? `${detail.assignment.territoryId} / ${detail.assignment.routeId ?? "no route"}${detail.assignment.sequence ? ` · stop ${detail.assignment.sequence}` : ""}`
+                  : "Unassigned"}
+              </p>
+              <p>
+                Verified pin:{" "}
+                {detail.pin
+                  ? `${detail.pin.latitude}, ${detail.pin.longitude} · ${detail.pin.radiusMeters} m`
+                  : "None"}
+              </p>
+              {canManage && (
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setAction("edit")}>
+                    Edit profile
+                  </button>
+                  <button type="button" onClick={() => setAction("link")}>
+                    Change customer link
+                  </button>
+                  <button type="button" onClick={() => setAction("deactivate")}>
+                    Deactivate
+                  </button>
+                </div>
+              )}
+              <h4>Customer history</h4>
+              <ul>
+                {links?.map((row) => (
+                  <li key={row._id}>
+                    {customerName(row.customerId)} · {row.source} ·{" "}
+                    {formatManilaDate(row.effectiveFrom)}–
+                    {row.effectiveTo
+                      ? formatManilaDate(row.effectiveTo)
+                      : "Current"}{" "}
+                    · {row.reason}
+                  </li>
                 ))}
-                <FormField label="Contact name">
-                  <input
-                    name="contactName"
-                    defaultValue={detail?.outlet.contacts?.[0]?.name}
-                  />
-                </FormField>
-                <FormField label="Contact phone">
-                  <input
-                    name="contactPhone"
-                    defaultValue={detail?.outlet.contacts?.[0]?.phone}
-                  />
-                </FormField>
-                <FormField label="Sales potential">
-                  <input
-                    type="number"
-                    min="0"
-                    name="salesPotential"
-                    defaultValue={detail?.outlet.salesPotential}
-                  />
-                </FormField>
-                <FormField label="Preferred weekday (0–6)">
-                  <input
-                    type="number"
-                    min="0"
-                    max="6"
-                    name="preferredWeekday"
-                    defaultValue={detail?.outlet.preferredWeekday}
-                  />
-                </FormField>
-                <FormField label="Visit frequency (days)">
-                  <input
-                    type="number"
-                    min="1"
-                    max="365"
-                    name="visitFrequencyDays"
-                    defaultValue={detail?.outlet.visitFrequencyDays}
-                  />
-                </FormField>
-              </>
-            )}
-            {action === "link" && (
-              <>
-                <FormField label="Existing customer">
-                  <select name="customerId">
-                    <option value="">Unlink (prospect)</option>
-                    {customers
-                      ?.filter((c) => c.active)
-                      .map((c) => (
-                        <option key={c._id} value={c._id}>
-                          {c.name} · {c.code}
-                        </option>
-                      ))}
-                  </select>
-                </FormField>
-                <FormField label="Source">
-                  <input name="source" defaultValue="local" required />
-                </FormField>
-                <FormField label="Effective date">
-                  <input type="date" name="effectiveDate" required />
-                </FormField>
-              </>
-            )}
-            {action === "propose" && (
-              <>
-                <FormField label="Latitude">
-                  <input name="latitude" type="number" step="any" required />
-                </FormField>
-                <FormField label="Longitude">
-                  <input name="longitude" type="number" step="any" required />
-                </FormField>
-                <FormField label="Radius meters (default 75)">
-                  <input name="radiusMeters" type="number" min="1" max="500" />
-                </FormField>
-                <FormField label="Source">
-                  <input name="source" required />
-                </FormField>
-                <FormField label="Evidence note">
-                  <input name="evidenceNote" />
-                </FormField>
-                <FormField label="Future effective date (optional)">
-                  <input name="effectiveDate" type="date" />
-                </FormField>
-              </>
-            )}
-            <FormField label="Reason">
-              <input name="reason" required />
-            </FormField>
-            <button type="submit" disabled={pending}>
-              Save {action}
-            </button>
-            <button type="button" onClick={() => setAction(null)}>
-              Cancel
-            </button>
-          </form>
-        )}
-        {error && (
-          <p role="alert" className="text-danger">
-            {error}
-          </p>
-        )}
-        {notice && <p role="status">{notice}</p>}
-      </div>
-    </Card>
+              </ul>
+              <h4>Verification</h4>
+              {canManage && (
+                <button type="button" onClick={() => setAction("propose")}>
+                  Propose GPS pin
+                </button>
+              )}
+              <ul>
+                {pins?.map((pin) => (
+                  <li key={pin._id}>
+                    {pin.status[0]?.toUpperCase()}
+                    {pin.status.slice(1)} · {pin.latitude}, {pin.longitude} ·{" "}
+                    {pin.radiusMeters} m · {pin.source} ·{" "}
+                    {pin.evidenceNote ?? "No note"} · proposed by{" "}
+                    {pin.proposedBy}
+                    {pin.verifiedBy && (
+                      <>
+                        {" "}
+                        · reviewed by {pin.verifiedBy}: {pin.reviewerReason}
+                      </>
+                    )}
+                    {pin.status === "verified" && (
+                      <>
+                        {" "}
+                        · {formatManilaDate(pin.effectiveFrom)}–
+                        {pin.effectiveTo
+                          ? formatManilaDate(pin.effectiveTo)
+                          : "Current"}
+                      </>
+                    )}
+                    {pin.status === "pending" && canVerify && (
+                      <>
+                        <button
+                          type="button"
+                          disabled={
+                            !profile || profile.authSubject === pin.proposedBy
+                          }
+                          onClick={() => {
+                            setPendingPin(pin._id);
+                            setAction("verified");
+                          }}
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          disabled={
+                            !profile || profile.authSubject === pin.proposedBy
+                          }
+                          onClick={() => {
+                            setPendingPin(pin._id);
+                            setAction("rejected");
+                          }}
+                        >
+                          Reject
+                        </button>
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {action && (
+            <form
+              key={`${action}-${selectedId}`}
+              onSubmit={submit}
+              className="grid gap-3 rounded border border-border p-3 sm:grid-cols-2 lg:grid-cols-3"
+              aria-label="Outlet action"
+            >
+              <h3>
+                {action === "create"
+                  ? "Create outlet"
+                  : action === "edit"
+                    ? "Edit profile"
+                    : action === "link"
+                      ? "Change customer link"
+                      : action === "propose"
+                        ? "Propose GPS pin"
+                        : action === "deactivate"
+                          ? "Deactivate outlet"
+                          : `${action === "verified" ? "Approve" : "Reject"} pin`}
+              </h3>
+              {(action === "create" || action === "edit") && (
+                <>
+                  {action === "create" && (
+                    <>
+                      <FormField label="Code">
+                        <input name="code" required />
+                      </FormField>
+                      <FormField label="Custodian unit">
+                        <select name="custodianOrgUnitId" required>
+                          <option value="">Select unit</option>
+                          {units
+                            ?.filter((u) => u.status === "active")
+                            .map((u) => (
+                              <option key={u._id} value={u._id}>
+                                {u.name}
+                              </option>
+                            ))}
+                        </select>
+                      </FormField>
+                    </>
+                  )}
+                  <FormField label="Name">
+                    <input
+                      name="name"
+                      defaultValue={detail?.outlet.name}
+                      required
+                    />
+                  </FormField>
+                  <FormField label="Site status">
+                    <select
+                      name="status"
+                      defaultValue={detail?.outlet.status ?? "prospect"}
+                    >
+                      <option value="prospect">Prospect / unlinked</option>
+                      <option value="active">Active</option>
+                    </select>
+                  </FormField>
+                  {(
+                    [
+                      "channel",
+                      "subchannel",
+                      "classification",
+                      "address",
+                      "directions",
+                      "visitWindow",
+                    ] as const
+                  ).map((key) => (
+                    <FormField key={key} label={key}>
+                      <input name={key} defaultValue={detail?.outlet[key]} />
+                    </FormField>
+                  ))}
+                  <FormField label="Contact name">
+                    <input
+                      name="contactName"
+                      defaultValue={detail?.outlet.contacts?.[0]?.name}
+                    />
+                  </FormField>
+                  <FormField label="Contact phone">
+                    <input
+                      name="contactPhone"
+                      defaultValue={detail?.outlet.contacts?.[0]?.phone}
+                    />
+                  </FormField>
+                  <FormField label="Sales potential">
+                    <input
+                      type="number"
+                      min="0"
+                      name="salesPotential"
+                      defaultValue={detail?.outlet.salesPotential}
+                    />
+                  </FormField>
+                  <FormField label="Preferred weekday (0–6)">
+                    <input
+                      type="number"
+                      min="0"
+                      max="6"
+                      name="preferredWeekday"
+                      defaultValue={detail?.outlet.preferredWeekday}
+                    />
+                  </FormField>
+                  <FormField label="Visit frequency (days)">
+                    <input
+                      type="number"
+                      min="1"
+                      max="365"
+                      name="visitFrequencyDays"
+                      defaultValue={detail?.outlet.visitFrequencyDays}
+                    />
+                  </FormField>
+                </>
+              )}
+              {action === "link" && (
+                <>
+                  <FormField label="Existing customer">
+                    <select name="customerId">
+                      <option value="">Unlink (prospect)</option>
+                      {customers
+                        ?.filter((c) => c.active)
+                        .map((c) => (
+                          <option key={c._id} value={c._id}>
+                            {c.name} · {c.code}
+                          </option>
+                        ))}
+                    </select>
+                  </FormField>
+                  <FormField label="Source">
+                    <input name="source" defaultValue="local" required />
+                  </FormField>
+                  <FormField label="Effective date">
+                    <input type="date" name="effectiveDate" required />
+                  </FormField>
+                </>
+              )}
+              {action === "propose" && (
+                <>
+                  <FormField label="Latitude">
+                    <input name="latitude" type="number" step="any" required />
+                  </FormField>
+                  <FormField label="Longitude">
+                    <input name="longitude" type="number" step="any" required />
+                  </FormField>
+                  <FormField label="Radius meters (default 75)">
+                    <input
+                      name="radiusMeters"
+                      type="number"
+                      min="1"
+                      max="500"
+                    />
+                  </FormField>
+                  <FormField label="Source">
+                    <input name="source" required />
+                  </FormField>
+                  <FormField label="Evidence note">
+                    <input name="evidenceNote" />
+                  </FormField>
+                  <FormField label="Future effective date (optional)">
+                    <input name="effectiveDate" type="date" />
+                  </FormField>
+                </>
+              )}
+              <FormField label="Reason">
+                <input name="reason" required />
+              </FormField>
+              <button type="submit" disabled={pending}>
+                Save {action}
+              </button>
+              <button type="button" onClick={() => setAction(null)}>
+                Cancel
+              </button>
+            </form>
+          )}
+          {error && (
+            <p role="alert" className="text-danger">
+              {error}
+            </p>
+          )}
+          {notice && <p role="status">{notice}</p>}
+        </div>
+      </Card>
+    </>
   );
 }

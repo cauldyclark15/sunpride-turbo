@@ -1349,6 +1349,14 @@ export default defineSchema({
     preferredWeekday: v.optional(v.number()),
     visitFrequencyDays: v.optional(v.number()),
     visitWindow: v.optional(v.string()),
+    // CALL-07 field enrolment: absent for imported/office-created outlets.
+    enrolmentStatus: v.optional(
+      v.union(
+        v.literal("provisional"),
+        v.literal("approved"),
+        v.literal("rejected"),
+      ),
+    ),
     createdAt: v.number(),
     updatedAt: v.number(),
     createdBy: v.string(),
@@ -1412,6 +1420,73 @@ export default defineSchema({
     .index("by_outletId_and_effectiveFrom", ["outletId", "effectiveFrom"])
     .index("by_territoryId_and_effectiveFrom", ["territoryId", "effectiveFrom"])
     .index("by_routeId_and_effectiveFrom", ["routeId", "effectiveFrom"]),
+  // CALL-07: a salesperson/DSP proposes a new store (provisional outlet); a supervisor
+  // or manager in scope (never the proposer) approves, which issues the customer code.
+  outletEnrolments: defineTable({
+    organizationId: v.string(),
+    outletId: v.id("outlets"),
+    orgUnitId: v.id("orgUnits"),
+    territoryId: v.optional(v.id("territories")),
+    pinId: v.id("outletPins"),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("approved"),
+      v.literal("rejected"),
+    ),
+    provisionalCode: v.string(),
+    assignedCode: v.optional(v.string()),
+    cisStorageId: v.optional(v.id("_storage")),
+    photoStorageIds: v.array(v.id("_storage")),
+    clientRequestId: v.string(),
+    proposedBy: v.string(),
+    proposedByProfileId: v.id("profiles"),
+    proposedAt: v.number(),
+    decidedBy: v.optional(v.string()),
+    decidedAt: v.optional(v.number()),
+    decisionReason: v.optional(v.string()),
+  })
+    .index("by_organizationId_and_status_and_proposedAt", [
+      "organizationId",
+      "status",
+      "proposedAt",
+    ])
+    .index("by_proposedByProfileId_and_proposedAt", [
+      "proposedByProfileId",
+      "proposedAt",
+    ])
+    .index("by_proposedBy_and_clientRequestId", [
+      "proposedBy",
+      "clientRequestId",
+    ])
+    .index("by_outletId", ["outletId"]),
+  // Status-change feed for admins and leaders (in-app notification list).
+  outletEnrolmentEvents: defineTable({
+    organizationId: v.string(),
+    enrolmentId: v.id("outletEnrolments"),
+    outletId: v.id("outlets"),
+    orgUnitId: v.id("orgUnits"),
+    kind: v.union(
+      v.literal("proposed"),
+      v.literal("approved"),
+      v.literal("rejected"),
+    ),
+    outletName: v.string(),
+    outletCode: v.string(),
+    actorName: v.string(),
+    proposedByProfileId: v.id("profiles"),
+    reason: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
+  // One row per organization: customer-code format and sequence counters.
+  outletCodeSettings: defineTable({
+    organizationId: v.string(),
+    prefix: v.string(),
+    digits: v.number(),
+    nextSequence: v.number(),
+    nextProvisionalSequence: v.number(),
+    updatedBy: v.string(),
+    updatedAt: v.number(),
+  }).index("by_organizationId", ["organizationId"]),
   // Group-05 MCP: localMonth/serviceDate are Asia/Manila calendar strings;
   // all effective intervals are half-open UTC instants. Signed rows are versioned,
   // never folded into the legacy salesAssignments or visits tables.
