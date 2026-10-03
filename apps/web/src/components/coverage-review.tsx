@@ -13,6 +13,12 @@ import { useMutation, useQuery } from "convex/react";
 import type { FunctionArgs } from "convex/server";
 import { useState } from "react";
 import { currentManilaMonth } from "../lib/coverage-calendar";
+import {
+  capacityLabel,
+  deadlineDate,
+  deadlineStateLabel,
+} from "../lib/mcp-deadlines";
+import { SupervisorAwayPanel } from "./coverage-deadlines";
 import { manilaDateToUtcMs } from "../lib/manila-date";
 
 type Mode = "review" | "visits" | "history";
@@ -313,6 +319,71 @@ function SlotRow({
   );
 }
 
+type ApprovalView = NonNullable<
+  ReturnType<typeof useQuery<typeof api.coverage.calendar.approvalView>>
+>;
+
+/** CALL-06: who approves this MCP, the deadline, and the recorded approval capacity. */
+export function ApprovalRouteNotice({
+  view,
+  status,
+  canApprove,
+}: {
+  view: ApprovalView;
+  status: Doc<"coveragePlans">["status"];
+  canApprove: boolean;
+}) {
+  const deadline = view.deadlineState
+    ? deadlineStateLabel(view.deadlineState)
+    : null;
+  return (
+    <aside aria-label="MCP approval" className="grid gap-1 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <strong>MCP approval</strong>
+        {deadline && (
+          <StatusPill tone={deadline.tone}>{deadline.label}</StatusPill>
+        )}
+        <span className="text-muted">
+          Approve by {deadlineDate(view.deadlines.approvalDueDate)}
+          {view.submittedLate ? " · submitted late" : ""}
+        </span>
+      </div>
+      <p>
+        {view.supervisorName
+          ? `Direct supervisor: ${view.supervisorName}`
+          : "No direct supervisor recorded; any MCP approver in scope may approve."}
+      </p>
+      {view.supervisorAway && (
+        <p role="status">
+          {view.supervisorName} is away
+          {view.awayUntilDate
+            ? ` until ${deadlineDate(view.awayUntilDate)}`
+            : ""}
+          ;{" "}
+          {view.backupName
+            ? `${view.backupName} approves as backup.`
+            : "an MCP approver above the supervisor's unit approves as backup."}
+        </p>
+      )}
+      {view.approvedCapacity && (
+        <p>
+          Approved by {view.approverName ?? "—"} as{" "}
+          {capacityLabel(view.approvedCapacity).toLowerCase()}
+          {view.onBehalfOfName ? ` for ${view.onBehalfOfName}` : ""}
+          {view.approvedLate ? " · approved late" : ""}
+        </p>
+      )}
+      {canApprove && status === "submitted" && (
+        <p role="status">
+          {view.viewerCapacity
+            ? `You approve as ${capacityLabel(view.viewerCapacity).toLowerCase()}.`
+            : (view.viewerBlockedReason ?? "")}
+        </p>
+      )}
+    </aside>
+  );
+}
+
 function SelectedPlan({
   planId,
   mode,
@@ -348,6 +419,10 @@ function SelectedPlan({
     visitIds: Id<"plannedVisits">[];
   } | null>(null);
   const [openedAt] = useState(Date.now);
+  const route = useQuery(api.coverage.calendar.approvalView, {
+    planId,
+    asOf: openedAt,
+  });
   if (!detail || detail.plan._id !== planId) return <p>Loading plan…</p>;
   const { plan, slots, warnings } = detail;
   const independent =
@@ -356,7 +431,9 @@ function SelectedPlan({
     reviewerId !== plan.assigneeProfileId;
   const blocked = !independent
     ? "An independent reviewer must differ from the preparer, submitter and assignee."
-    : "";
+    : route && !route.viewerCapacity
+      ? (route.viewerBlockedReason ?? "You cannot approve this MCP.")
+      : "";
   const effective = plan.status === "active" || plan.effectiveFrom <= openedAt;
   async function act(fn: () => Promise<unknown>, success: string) {
     if (busy) return;
@@ -403,6 +480,22 @@ function SelectedPlan({
             {stamp(plan.approvedAt)}
           </p>
         )}
+        {route && (
+          <ApprovalRouteNotice
+            view={route}
+            status={plan.status}
+            canApprove={canApprove}
+          />
+        )}
+        {mode === "review" &&
+          route?.viewerIsBackupManager &&
+          !route.supervisorAway &&
+          route.supervisorProfileId && (
+            <SupervisorAwayPanel
+              profileId={route.supervisorProfileId}
+              label={`Record ${route.supervisorName ?? "supervisor"} away`}
+            />
+          )}
         {plan.basedOnPlanId && (
           <p>
             Revision of {plan.basedOnPlanId}; reason:{" "}

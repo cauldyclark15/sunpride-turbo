@@ -5,6 +5,7 @@ import type { Id } from "../_generated/dataModel";
 import schema from "../schema";
 import { modules } from "../test.setup";
 import { localDate, manilaDate, monthBounds } from "./validation";
+import { mcpDeadlines } from "./calendar_rules";
 
 async function setup() {
   const t = convexTest(schema, modules);
@@ -262,6 +263,7 @@ async function setup() {
   return {
     t,
     root,
+    rootUnitId,
     east,
     west,
     position,
@@ -1214,5 +1216,244 @@ describe("MCP authoring and approval", () => {
     expect(events.every((e) => e.before && e.after && e.actorSubject)).toBe(
       true,
     );
+  });
+});
+
+describe("MCP approval routing and deadlines (CALL-06)", () => {
+  async function chain() {
+    const f = await setup();
+    const boss = await f.person("manager", f.rootUnitId, "cov-boss");
+    const peer = await f.person("manager", f.east, "cov-peer");
+    await f.t.run(async (ctx) => {
+      for (const [profileId, supervisorId] of [
+        [f.sales.id, f.manager.id],
+        [f.manager.id, boss.id],
+      ] as const) {
+        const row = await ctx.db
+          .query("employeeAssignments")
+          .withIndex("by_profileId_and_effectiveFrom", (q) =>
+            q.eq("profileId", profileId),
+          )
+          .unique();
+        await ctx.db.patch(row!._id, { supervisorId });
+      }
+    });
+    const today = manilaDate(Date.now());
+    const later = manilaDate(Date.now() + 3 * 86400000);
+    return { ...f, boss, peer, today, later };
+  }
+
+  it("lets the direct supervisor approve and records the capacity", async () => {
+    const f = await chain();
+    const plan = await f.create();
+    await f.schedule(plan._id);
+    await expect(
+      f.peer.actor.mutation(api.coverage.plans.approve, { planId: plan._id }),
+    ).rejects.toThrow(/direct supervisor approves/);
+    await expect(
+      f.boss.actor.mutation(api.coverage.plans.approve, { planId: plan._id }),
+    ).rejects.toThrow(/only while the supervisor is away/);
+    await expect(
+      f.peer.actor.mutation(api.coverage.plans.returnPlan, {
+        planId: plan._id,
+        reason: "nope",
+      }),
+    ).rejects.toThrow(/direct supervisor approves/);
+    const view = await f.manager.actor.query(
+      api.coverage.calendar.approvalView,
+      { planId: plan._id, asOf: Date.now() },
+    );
+    expect(view).toMatchObject({
+      supervisorName: "cov-manager@example.test",
+      supervisorAway: false,
+      backupName: "cov-boss@example.test",
+      viewerCapacity: "supervisor",
+    });
+    const signed = await f.manager.actor.mutation(api.coverage.plans.approve, {
+      planId: plan._id,
+    });
+    expect(signed).toMatchObject({
+      approverProfileId: f.manager.id,
+      approvalCapacity: "supervisor",
+    });
+    expect(signed.approvedOnBehalfOfProfileId).toBeUndefined();
+  });
+
+  it("routes to the supervisor's manager only while an away period is in effect", async () => {
+    const f = await chain();
+    const plan = await f.create();
+    await f.schedule(plan._id);
+    await expect(
+      f.sales.actor.mutation(api.coverage.away.record, {
+        profileId: f.manager.id,
+        fromDate: f.today,
+        toDate: f.later,
+        reason: "leave",
+      }),
+    ).rejects.toThrow(/Only the supervisor|Insufficient permission/);
+    await expect(
+      f.manager.actor.mutation(api.coverage.away.record, {
+        profileId: f.manager.id,
+        fromDate: manilaDate(Date.now() - 2 * 86400000),
+        toDate: f.later,
+        reason: "leave",
+      }),
+    ).rejects.toThrow(/backdated/);
+    const away = await f.manager.actor.mutation(api.coverage.away.record, {
+      profileId: f.manager.id,
+      fromDate: f.today,
+      toDate: f.later,
+      reason: "Annual leave",
+    });
+    await expect(
+      f.boss.actor.mutation(api.coverage.away.record, {
+        profileId: f.manager.id,
+        fromDate: f.later,
+        toDate: f.later,
+        reason: "overlap",
+      }),
+    ).rejects.toThrow(/Overlaps/);
+    expect(
+      await f.manager.actor.query(api.coverage.away.list, {
+        profileId: f.manager.id,
+        asOf: Date.now(),
+      }),
+    ).toHaveLength(1);
+    const view = await f.boss.actor.query(api.coverage.calendar.approvalView, {
+      planId: plan._id,
+      asOf: Date.now(),
+    });
+    expect(view).toMatchObject({
+      supervisorAway: true,
+      awayUntilDate: f.later,
+      viewerCapacity: "backup",
+      viewerIsBackupManager: true,
+    });
+    await expect(
+      f.peer.actor.mutation(api.coverage.plans.approve, { planId: plan._id }),
+    ).rejects.toThrow(/only the supervisor's manager/);
+    const signed = await f.boss.actor.mutation(api.coverage.plans.approve, {
+      planId: plan._id,
+    });
+    expect(signed).toMatchObject({
+      approverProfileId: f.boss.id,
+      approvalCapacity: "backup",
+      approvedOnBehalfOfProfileId: f.manager.id,
+    });
+    const approvedView = await f.manager.actor.query(
+      api.coverage.calendar.approvalView,
+      { planId: plan._id, asOf: Date.now() },
+    );
+    expect(approvedView).toMatchObject({
+      approvedCapacity: "backup",
+      approverName: "cov-boss@example.test",
+      onBehalfOfName: "cov-manager@example.test",
+    });
+    const ended = await f.boss.actor.mutation(api.coverage.away.end, {
+      awayId: away._id,
+    });
+    expect(ended.effectiveTo).toBeLessThanOrEqual(Date.now());
+    expect(ended.endedAt).toBeDefined();
+    await expect(
+      f.boss.actor.mutation(api.coverage.away.end, { awayId: away._id }),
+    ).rejects.toThrow(/already ended/);
+  });
+
+  it("falls back to an approver above the supervisor's unit when no manager is recorded", async () => {
+    const f = await chain();
+    await f.t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("employeeAssignments")
+        .withIndex("by_profileId_and_effectiveFrom", (q) =>
+          q.eq("profileId", f.manager.id),
+        )
+        .unique();
+      await ctx.db.patch(row!._id, { supervisorId: undefined });
+    });
+    const plan = await f.create();
+    await f.schedule(plan._id);
+    await f.manager.actor.mutation(api.coverage.away.record, {
+      profileId: f.manager.id,
+      fromDate: f.today,
+      toDate: f.today,
+      reason: "Training",
+    });
+    await expect(
+      f.peer.actor.mutation(api.coverage.plans.approve, { planId: plan._id }),
+    ).rejects.toThrow(/above the supervisor's unit/);
+    const signed = await f.boss.actor.mutation(api.coverage.plans.approve, {
+      planId: plan._id,
+    });
+    expect(signed.approvalCapacity).toBe("backup");
+  });
+
+  it("keeps the scoped-approver rule when no supervisor is recorded", async () => {
+    const f = await setup();
+    const plan = await f.create();
+    await f.schedule(plan._id);
+    const signed = await f.manager.actor.mutation(api.coverage.plans.approve, {
+      planId: plan._id,
+    });
+    expect(signed.approvalCapacity).toBe("scope_approver");
+  });
+
+  it("lists people without a submitted MCP as due or overdue and tracks approval lateness", async () => {
+    const f = await chain();
+    const window = mcpDeadlines(f.month);
+    const page = async (asOf: number) =>
+      (
+        await f.manager.actor.query(api.coverage.calendar.status, {
+          localMonth: f.month,
+          asOf,
+          paginationOpts: { numItems: 50, cursor: null },
+        })
+      ).page;
+    const overdue = await page(window.submissionDueAt + 1);
+    expect(overdue.map((row) => [row.name, row.state]).sort()).toEqual([
+      ["cov-other@example.test", "overdue"],
+      ["cov-sales@example.test", "overdue"],
+    ]);
+    expect(
+      overdue.find((r) => r.name === "cov-sales@example.test")?.supervisorName,
+    ).toBe("cov-manager@example.test");
+    expect(
+      (await page(window.submissionOpensAt)).every((r) => r.state === "due"),
+    ).toBe(true);
+    // Another unit's manager sees none of these people.
+    expect(
+      (
+        await f.westManager.actor.query(api.coverage.calendar.status, {
+          localMonth: f.month,
+          asOf: window.submissionOpensAt,
+          paginationOpts: { numItems: 50, cursor: null },
+        })
+      ).page,
+    ).toEqual([]);
+    // Sales sees only their own row.
+    const own = await f.sales.actor.query(api.coverage.calendar.status, {
+      localMonth: f.month,
+      asOf: window.submissionOpensAt,
+      paginationOpts: { numItems: 50, cursor: null },
+    });
+    expect(own.page.map((r) => r.name)).toEqual(["cov-sales@example.test"]);
+    expect(own.deadlines.approvalDueDate).toBe(`${f.month}-07`);
+
+    const plan = await f.create();
+    await f.schedule(plan._id);
+    const submitted = await page(window.approvalDueAt);
+    expect(
+      submitted.find((r) => r.name === "cov-sales@example.test"),
+    ).toMatchObject({
+      state: "approval_overdue",
+      planStatus: "submitted",
+    });
+    await f.manager.actor.mutation(api.coverage.plans.approve, {
+      planId: plan._id,
+    });
+    expect(
+      (await page(window.approvalDueAt)).find(
+        (r) => r.name === "cov-sales@example.test",
+      ),
+    ).toMatchObject({ state: "approved", approvalCapacity: "supervisor" });
   });
 });

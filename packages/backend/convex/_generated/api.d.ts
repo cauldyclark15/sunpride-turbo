@@ -11,7 +11,11 @@
 import type * as auth from "../auth.js";
 import type * as authPolicy from "../authPolicy.js";
 import type * as coverage_activation from "../coverage/activation.js";
+import type * as coverage_approval_route from "../coverage/approval_route.js";
 import type * as coverage_audit from "../coverage/audit.js";
+import type * as coverage_away from "../coverage/away.js";
+import type * as coverage_calendar from "../coverage/calendar.js";
+import type * as coverage_calendar_rules from "../coverage/calendar_rules.js";
 import type * as coverage_discovery from "../coverage/discovery.js";
 import type * as coverage_exception_policy from "../coverage/exception_policy.js";
 import type * as coverage_exceptions from "../coverage/exceptions.js";
@@ -128,7 +132,11 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   authPolicy: typeof authPolicy;
   "coverage/activation": typeof coverage_activation;
+  "coverage/approval_route": typeof coverage_approval_route;
   "coverage/audit": typeof coverage_audit;
+  "coverage/away": typeof coverage_away;
+  "coverage/calendar": typeof coverage_calendar;
+  "coverage/calendar_rules": typeof coverage_calendar_rules;
   "coverage/discovery": typeof coverage_discovery;
   "coverage/exception_policy": typeof coverage_exception_policy;
   "coverage/exceptions": typeof coverage_exceptions;

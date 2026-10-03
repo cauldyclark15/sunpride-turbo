@@ -10,6 +10,7 @@ import { at } from "../territories/route_validation";
 import { frequency, slotKind, weekday } from "./validators";
 import { auditPlan, planState } from "./audit";
 import { assertNoBlockingExceptions } from "./exceptions";
+import { approvalCapacity } from "./approval_route";
 import {
   MAX_PLAN_ROWS,
   assertOutletsScoped,
@@ -771,6 +772,12 @@ export const returnPlan = mutation({
     if (plan.status !== "submitted")
       throw new ConvexError("Only submitted plans can be returned");
     const message = required(reason, "Return reason");
+    const { capacity } = await approvalCapacity(
+      ctx,
+      plan,
+      access.profile,
+      Date.now(),
+    );
     await ctx.db.patch(planId, {
       status: "draft",
       updatedBy: access.identity.tokenIdentifier,
@@ -782,7 +789,7 @@ export const returnPlan = mutation({
       access.identity.tokenIdentifier,
       "plan.returned",
       planState(plan),
-      { ...planState(plan), status: "draft" },
+      { ...planState(plan), status: "draft", decidedInCapacity: capacity },
       { reason: message },
     );
     return (await ctx.db.get(planId))!;
@@ -802,6 +809,13 @@ export const approve = mutation({
       throw new ConvexError("Only submitted plans can be approved");
     if (plan.preparedBy === actor || plan.submittedBy === actor)
       throw new ConvexError("Independent approver required");
+    // CALL-06: direct supervisor, or the backup while the supervisor is away.
+    const { capacity, onBehalfOf } = await approvalCapacity(
+      ctx,
+      plan,
+      access.profile,
+      Date.now(),
+    );
     planWindow(plan.localMonth, plan.effectiveFrom, plan.effectiveTo);
     const rows = await planRows(ctx, planId);
     if (!rows.slots.length)
@@ -929,6 +943,9 @@ export const approve = mutation({
       approvedAt,
       approvalSignature,
       contentHash,
+      approverProfileId: access.profile._id,
+      approvalCapacity: capacity,
+      approvedOnBehalfOfProfileId: onBehalfOf,
       updatedBy: actor,
       updatedAt: approvedAt,
     });
@@ -938,7 +955,12 @@ export const approve = mutation({
       actor,
       "plan.approved",
       planState(plan),
-      { ...planState(plan), status: "approved", contentHash },
+      {
+        ...planState(plan),
+        status: "approved",
+        contentHash,
+        approvalCapacity: capacity,
+      },
       { approvalSignatureRef: approvalSignature },
     );
     return (await ctx.db.get(planId))!;

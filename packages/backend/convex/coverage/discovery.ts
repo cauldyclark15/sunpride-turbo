@@ -36,7 +36,7 @@ const row = v.object({
   orgUnitId: v.id("orgUnits"),
 });
 
-async function scopeFor(ctx: QueryCtx) {
+export async function scopeFor(ctx: QueryCtx) {
   const { profile } = await requireCapability(ctx, "mcp.read");
   const national = profile.role === "super_admin" || profile.role === "analyst";
   const units = national

@@ -676,3 +676,85 @@ describe("approval signature label", () => {
     expect(signatureLabel("opaque")).toBe("signed");
   });
 });
+
+describe("MCP approval routing (CALL-06)", () => {
+  const view = {
+    supervisorName: "Manager",
+    supervisorAway: false,
+    backupName: "Boss",
+    backupRule: "recorded_manager",
+    viewerIsBackupManager: false,
+    supervisorProfileId: "manager",
+    deadlines: {
+      localMonth: "2026-10",
+      submissionOpensDate: "2026-09-24",
+      submissionDueDate: "2026-09-30",
+      approvalDueDate: "2026-10-07",
+      submissionOpensAt: 0,
+      submissionDueAt: 0,
+      approvalDueAt: 0,
+    },
+    deadlineState: "awaiting_approval",
+    submittedLate: false,
+    approvedLate: false,
+  };
+  const open = (overrides: Record<string, unknown>) => {
+    state.hooks[0] = "2026-10";
+    state.hooks[1] = plan._id;
+    state.values["coverage/calendar:approvalView"] = { ...view, ...overrides };
+    return render();
+  };
+
+  it("names the direct supervisor, the approve-by date and the viewer's capacity", () => {
+    const html = open({ viewerCapacity: "supervisor" });
+    expect(html).toContain("Direct supervisor: Manager");
+    expect(html).toContain("Approve by 7 Oct 2026");
+    expect(html).toContain("Awaiting approval");
+    expect(html).toContain("You approve as direct supervisor.");
+    expect(html).not.toMatch(/disabled=""[^>]*>Approve/);
+    expect(
+      state.calls.find((c) => c.name === "coverage/calendar:approvalView")
+        ?.args,
+    ).toMatchObject({ planId: plan._id });
+  });
+
+  it("shows the backup approver while the supervisor is away", () => {
+    const html = open({
+      supervisorAway: true,
+      awayUntilDate: "2026-10-05",
+      viewerCapacity: "backup",
+      deadlineState: "approval_overdue",
+      submittedLate: true,
+    });
+    expect(html).toContain("Manager is away until 5 Oct 2026");
+    expect(html).toContain("Boss approves as backup.");
+    expect(html).toContain("You approve as backup approver (supervisor away).");
+    expect(html).toContain("Approval late");
+    expect(html).toContain("submitted late");
+  });
+
+  it("disables approve and return when routing blocks the viewer", () => {
+    const html = open({
+      viewerBlockedReason:
+        "The direct supervisor approves this MCP; backup approval applies only while the supervisor is away",
+    });
+    expect(html).toContain("backup approval applies only while");
+    expect(html).toMatch(/disabled=""[^>]*>Approve/);
+    expect(html).toMatch(/disabled=""[^>]*>Return plan/);
+  });
+
+  it("records the approval capacity and offers the manager an away form for the supervisor", () => {
+    const html = open({
+      approvedCapacity: "backup",
+      approverName: "Boss",
+      onBehalfOfName: "Manager",
+      approvedLate: true,
+      viewerIsBackupManager: true,
+    });
+    expect(html).toContain(
+      "Approved by Boss as backup approver (supervisor away) for Manager · approved late",
+    );
+    expect(html).toContain("Record Manager away");
+    expect(html).toContain("Record away period");
+  });
+});
