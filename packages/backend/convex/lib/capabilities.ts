@@ -124,6 +124,8 @@ export const CAPABILITIES = {
   ],
   "order.create": ["super_admin", "manager", "sales"],
   "order.approve": ["super_admin", "manager", "approver"],
+  // CALL-09: the sales admin (office) encodes a PO a store sent outside its MCP day.
+  "order.encode": ["super_admin", "admin", "operations"],
   "deliverable.submit": ["super_admin", "manager", "sales"],
   "deliverable.review": ["super_admin", "manager"],
   "perdiem.submit": ["super_admin", "manager", "sales"],

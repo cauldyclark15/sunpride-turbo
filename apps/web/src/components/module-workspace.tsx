@@ -21,6 +21,7 @@ import { AdminWorkspace } from "./admin-workspace";
 import { SalesForcePanels } from "./coverage-workspace";
 import { ImportsWorkspace } from "./imports-workspace";
 import { InventoryWorkspace } from "./inventory-workspace";
+import { OutsideCallOrders } from "./outside-call-orders";
 import { SupervisionWorkspace } from "./supervision/supervision-workspace";
 
 const modules = {
@@ -31,6 +32,7 @@ const modules = {
   "sales-force": { title: "Coverage" },
   supervision: { title: "Supervision" },
   orders: { title: "Orders" },
+  "outside-calls": { title: "Commercial" },
   "sap-integration": { title: "Integration" },
   workflows: { title: "Approvals" },
   admin: { title: "Administration" },
@@ -471,6 +473,7 @@ function ModuleContent({
   if (module === "admin") return <AdminWorkspace />;
   if (module === "sales-force") return <SalesForcePanels />;
   if (module === "supervision") return <SupervisionWorkspace />;
+  if (module === "outside-calls") return <OutsideCallOrders />;
 
   return (
     <Card label="Integration" icon={<WorkspaceIcon name="operations" />}>

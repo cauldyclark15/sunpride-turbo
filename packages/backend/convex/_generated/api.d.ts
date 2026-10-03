@@ -89,6 +89,7 @@ import type * as mobile_projection from "../mobile/projection.js";
 import type * as mobile_pull from "../mobile/pull.js";
 import type * as mobile_push from "../mobile/push.js";
 import type * as mobile_types from "../mobile/types.js";
+import type * as orders_outside_calls from "../orders/outside_calls.js";
 import type * as org_mutations from "../org/mutations.js";
 import type * as org_queries from "../org/queries.js";
 import type * as org_validation from "../org/validation.js";
@@ -217,6 +218,7 @@ declare const fullApi: ApiFromModules<{
   "mobile/pull": typeof mobile_pull;
   "mobile/push": typeof mobile_push;
   "mobile/types": typeof mobile_types;
+  "orders/outside_calls": typeof orders_outside_calls;
   "org/mutations": typeof org_mutations;
   "org/queries": typeof org_queries;
   "org/validation": typeof org_validation;
