@@ -113,6 +113,7 @@ import type * as visits_events from "../visits/events.js";
 import type * as visits_evidence from "../visits/evidence.js";
 import type * as visits_location from "../visits/location.js";
 import type * as visits_policy from "../visits/policy.js";
+import type * as visits_review from "../visits/review.js";
 import type * as visits_validation from "../visits/validation.js";
 
 import type {
@@ -227,6 +228,7 @@ declare const fullApi: ApiFromModules<{
   "visits/evidence": typeof visits_evidence;
   "visits/location": typeof visits_location;
   "visits/policy": typeof visits_policy;
+  "visits/review": typeof visits_review;
   "visits/validation": typeof visits_validation;
 }>;
 

@@ -46,25 +46,34 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
     val scope = rememberCoroutineScope()
     var reason by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
-    var outcome by remember { mutableStateOf("completed") }
+    var outcome by remember { mutableStateOf<String?>(null) }
+    var reasonCode by remember { mutableStateOf("") }
     var locationError by remember { mutableStateOf<String?>(null) }
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (!granted) locationError = "Location off · Allow precise location"
-        else scope.launch {
-            val fix = location.fix()
-            if (fix == null) locationError = "No location fix · Try outdoors"
-            else controller.queueDiagnostic("visit.checkIn", reason, null, null, fix)
-        }
+    var capturing by remember { mutableStateOf(false) }
+    var pendingKind by remember { mutableStateOf("visit.checkIn") }
+    suspend fun captureAndQueue(kind: String) {
+        try {
+            // Even a precise-permission denial may leave approximate/network location available.
+            val fix = location.captureOrNull()
+            locationError = if (fix == null) "Location unavailable · recorded for review" else null
+            controller.queueDiagnostic(kind, if (kind == "visit.checkIn") reason else reasonCode,
+                null, if (kind == "visit.checkOut") outcome else null, fix).join()
+        } finally { capturing = false }
     }
-    val related = controller.diagnosticRows.filter { row ->
-        row.first.kind == "visit.checkIn" &&
-            JSONObject(row.first.serializedOperation).getJSONObject("payload").optString("outletId") == visit.outletId ||
-            controller.diagnosticRows.any { it.first.kind == "visit.checkIn" &&
-                JSONObject(it.first.serializedOperation).getJSONObject("payload").optString("outletId") == visit.outletId &&
-                it.first.clientVisitId == row.first.clientVisitId }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        scope.launch { captureAndQueue(pendingKind) }
     }
-    val checkedIn = related.any { it.first.kind == "visit.checkIn" && it.second != "review" }
-    val checkedOut = related.any { it.first.kind == "visit.checkOut" }
+    fun record(kind: String) {
+        locationError = null; capturing = true; pendingKind = kind
+        if (location.requiresPermission && ContextCompat.checkSelfPermission(context,
+                Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED)
+            launcher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        else scope.launch { captureAndQueue(kind) }
+    }
+    val related = controller.relatedCall(visit)
+    val checkedIn = com.sunpride.field.storage.VisitCallRules.started(related)
+    val checkedOut = com.sunpride.field.storage.VisitCallRules.closed(related)
+    val startFailure = controller.startFailure(visit)
     Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -73,7 +82,7 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
             Text(listOfNotNull(visit.planned.takeUnless { it == "Scheduled" },
                 when { checkedOut -> "Done"; checkedIn -> "In progress"; else -> "Not started" }).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (!checkedIn && visit.plannedVisitId == null) SectionCard("Check in") {
+            if (!checkedIn && visit.plannedVisitId == null) SectionCard("Start") {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween) {
@@ -112,7 +121,7 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                         androidx.compose.material3.Surface(onClick = { outcome = if (outcome == "completed") "nonproductive" else "completed" },
                             modifier = Modifier.fillMaxWidth().height(48.dp).testTag("diagnostic-outcome")) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text(if (outcome == "completed") "Completed" else "Not productive",
+                                Text(when (outcome) { "completed" -> "Completed"; "nonproductive" -> "Not productive"; else -> "Choose outcome" },
                                     style = MaterialTheme.typography.bodyMedium)
                                 Text("⌄", color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
@@ -120,12 +129,22 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                     }
                 }
             }
-            if (checkedOut) SectionCard("Done") { Text("Visit saved", Modifier.padding(16.dp)) }
+            if (checkedIn && !checkedOut && outcome == "nonproductive") SectionCard("Nonproductive reason") {
+                LabeledField("Reason code", reasonCode, { reasonCode = it },
+                    Modifier.fillMaxWidth().padding(16.dp).testTag("diagnostic-reason"))
+            }
+            if (checkedOut) SectionCard("Done") {
+                Text("Visit saved · ${com.sunpride.field.storage.VisitCallRules.timeSpent(related) ?: "0 min"}",
+                    Modifier.padding(16.dp).testTag("call-time-spent"))
+            }
+            if (!checkedIn) startFailure?.let {
+                Text(it.code.text, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("start-blocked"))
+            }
             if (related.isNotEmpty()) SectionCard("Activity · ${related.size}") {
                 related.forEach { (intent, state) ->
                     ListRow(when (intent.kind) {
-                        "visit.checkIn" -> "Check-in"; "visit.activity" -> "Note";
-                        "visit.checkOut" -> "Check-out"; else -> "Visit action"
+                        "visit.checkIn" -> "Start"; "visit.activity" -> "Note";
+                        "visit.checkOut" -> "End call"; else -> "Visit action"
                     }, when (state) { "pending" -> "Waiting"; "done" -> "Accepted"; else -> "Needs review" },
                         "activity", Modifier.testTag("diagnostic-operation"))
                 }
@@ -136,20 +155,10 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
             androidx.compose.foundation.layout.Spacer(Modifier.height(16.dp).testTag("visit-bottom-space"))
         }
         if (!checkedOut) androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp))
-        if (!checkedIn) PrimaryBottomButton("Check in", {
-            locationError = null
-            if (location.requiresPermission && ContextCompat.checkSelfPermission(context,
-                    Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED)
-                launcher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-            else scope.launch {
-                val fix = location.fix()
-                if (fix == null) locationError = "No location fix · Try outdoors"
-                else controller.queueDiagnostic("visit.checkIn", reason, null, null, fix)
-            }
-        }, Modifier.testTag("diagnostic-checkin"),
-            !controller.busy && (visit.plannedVisitId != null || reason.isNotBlank()))
-        else if (!checkedOut) PrimaryBottomButton("Check out",
-            { controller.queueDiagnostic("visit.checkOut", null, null, outcome, null) },
-            Modifier.testTag("diagnostic-checkout"), !controller.busy)
+        if (!checkedIn) PrimaryBottomButton("Start", { record("visit.checkIn") }, Modifier.testTag("diagnostic-checkin"),
+            !controller.busy && !capturing && startFailure == null && (visit.plannedVisitId != null || reason.isNotBlank()))
+        else if (!checkedOut) PrimaryBottomButton("End call", { record("visit.checkOut") },
+            Modifier.testTag("diagnostic-checkout"), !controller.busy && !capturing && outcome != null &&
+                (outcome != "nonproductive" || reasonCode.isNotBlank()))
     }
 }

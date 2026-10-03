@@ -23,7 +23,7 @@ class EncryptedFieldStoreTest {
     private fun snapshot(text: String = "visit") = ScopedSnapshot("{\"id\":\"employee\"}", null,
         listOf(item(text)), listOf(SnapshotItem("outlet-1", "outlet")), emptyList(), emptyList())
     private fun intent(request: String = UUID.randomUUID().toString()) = IntentRow(scope.account, scope.deviceId,
-        scope.fingerprint, request, UUID.randomUUID().toString(), "visit.checkIn", "{\"kind\":\"visit.checkIn\"}", 123L)
+        scope.fingerprint, request, UUID.randomUUID().toString(), "visit.activity", "{\"kind\":\"visit.activity\"}", 123L)
     private suspend fun ready(store: RoomFieldStore, text: String = "visit") {
         store.swap(store.stage(snapshot(text)), "opaque-cursor", 2000, 2000)
     }
@@ -240,7 +240,7 @@ class EncryptedFieldStoreTest {
         ready(store())
         val i = intent()
         store().enqueue(i, 100)
-        assertEquals("Queued · not synced", store().status().label(100))
+        assertEquals("Sync before 10 PM", store().status().label(100))
         store().markSending(listOf(i.requestId))
         assertEquals(1, store().status().sending)
         db.close(); db = EncryptedFieldDatabase.open(context)

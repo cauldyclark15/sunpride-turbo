@@ -61,8 +61,14 @@ export async function recordLocation(
       p.status === "verified" &&
       activeAt(p.effectiveFrom, p.effectiveTo, serverTime),
   );
-  if (pins.length > 1) throw new ConvexError("invalid_pin_state");
-  const pin = pins[0];
+  // No distance limit (client answer 13): pin problems or a far fix are flagged for
+  // supervisor review, never a reason to refuse the check-in.
+  const pin =
+    pins.length === 1 &&
+    Number.isFinite(pins[0]!.radiusMeters) &&
+    pins[0]!.radiusMeters > 0
+      ? pins[0]
+      : undefined;
   if (
     location &&
     (!Number.isFinite(location.latitude) ||
@@ -78,8 +84,6 @@ export async function recordLocation(
   const radius = pin
     ? Math.min(pin.radiusMeters, policy.radiusMeters)
     : undefined;
-  if (pin && (!Number.isFinite(radius) || radius! <= 0 || radius! > 500))
-    throw new ConvexError("invalid_pin_state");
   const distance = location && pin ? haversine(location, pin) : undefined;
   const unreliable =
     !!location &&
@@ -87,7 +91,9 @@ export async function recordLocation(
       location.provider === "unknown" ||
       location.accuracyMeters > policy.maxAccuracyMeters ||
       location.fixTime > serverTime ||
-      serverTime - location.fixTime > policy.maxFixAgeMs);
+      // Fix age is measured at the moment of the check-in/out, so a day delivered late
+      // offline is not mislabelled unreliable merely because it arrived later.
+      Math.abs(deviceTime - location.fixTime) > policy.maxFixAgeMs);
   const result =
     !location || !pin
       ? "unavailable"

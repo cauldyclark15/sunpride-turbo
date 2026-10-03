@@ -7,6 +7,7 @@ import { modules } from "../test.setup";
 import type { AuthorizedDevice } from "../mobile/types";
 import { applyVisitOperation } from "./commands";
 import { manilaDate } from "../coverage/validation";
+import { dayCloseAt, nextDayCloseAt } from "./policy";
 
 const now = Date.parse("2026-09-28T04:00:00Z");
 const uuid = (n: number) =>
@@ -641,6 +642,313 @@ describe("visit execution", () => {
       expect(
         await f.t.run((ctx) => ctx.db.query("executionEvents").collect()),
       ).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("field day rules (client call 2 Oct 2026)", () => {
+  const HOUR = 3_600_000;
+  type F = Awaited<ReturnType<typeof fixture>>;
+  const checkOut = (
+    f: F,
+    n: number,
+    visitId: Id<"visitExecutions">,
+    deviceTime = Date.now(),
+  ) =>
+    f.apply({
+      kind: "visit.checkOut",
+      clientRequestId: uuid(n),
+      payload: {
+        visitId,
+        outcome: "completed",
+        reasonCode: null,
+        deviceTime,
+        location: { ...f.fix, fixTime: deviceTime },
+      },
+    });
+  const unplanned = (f: F, n: number, deviceTime = Date.now()) => ({
+    ...f.check(n, { ...f.fix, fixTime: deviceTime }),
+    payload: {
+      ...f.check(n).payload,
+      plannedVisitId: null,
+      intents: [],
+      unplannedReason: "new_store_found",
+      deviceTime,
+      location: { ...f.fix, fixTime: deviceTime },
+    },
+  });
+
+  it("closes the day at 10 PM Manila", () => {
+    expect(dayCloseAt("2026-09-28")).toBe(Date.parse("2026-09-28T14:00:00Z"));
+    expect(nextDayCloseAt(now)).toBe(Date.parse("2026-09-28T14:00:00Z"));
+    expect(nextDayCloseAt(Date.parse("2026-09-28T14:00:00Z"))).toBe(
+      Date.parse("2026-09-29T14:00:00Z"),
+    );
+    expect(nextDayCloseAt(Date.parse("2026-09-28T15:30:00Z"))).toBe(
+      Date.parse("2026-09-29T14:00:00Z"),
+    );
+    // 00:30 Manila on the 29th is still before that day's close.
+    expect(nextDayCloseAt(Date.parse("2026-09-28T16:30:00Z"))).toBe(
+      Date.parse("2026-09-29T14:00:00Z"),
+    );
+  });
+
+  it("has no distance limit: far fixes and bad pin data are recorded and flagged, never refused", async () => {
+    const f = await fixture();
+    try {
+      const far = await f.apply(f.check(1, { ...f.fix, latitude: 14.7 }));
+      const visitId = far.entityId as Id<"visitExecutions">;
+      await f.t.run(async (ctx) => {
+        // A second verified pin (bad master data) must not block the check-out either.
+        const pin = (await ctx.db.get(f.ids.pin))!;
+        const { _id, _creationTime, ...copy } = pin;
+        void _id;
+        void _creationTime;
+        await ctx.db.insert("outletPins", { ...copy, radiusMeters: 900 });
+      });
+      await checkOut(f, 2, visitId);
+      const evidence = await f.t.run((ctx) =>
+        ctx.db
+          .query("visitLocationEvidence")
+          .withIndex("by_visitId_and_serverTime", (q) =>
+            q.eq("visitId", visitId),
+          )
+          .collect(),
+      );
+      expect(evidence.map((e) => [e.event, e.result, e.reviewStatus])).toEqual([
+        ["check_in", "outside_radius", "pending_review"],
+        ["check_out", "unavailable", "pending_review"],
+      ]);
+      expect(evidence[0]).toMatchObject({
+        latitude: 14.7,
+        accuracyMeters: 5,
+        provider: "gps",
+      });
+      expect(evidence[0]!.distanceMeters).toBeGreaterThan(10_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("allows one open call at a time and records Start, End and time per account", async () => {
+    const f = await fixture();
+    try {
+      const start = now - 30 * 60_000;
+      const ack = await f.apply({
+        ...f.check(1, { ...f.fix, fixTime: start }),
+        payload: {
+          ...f.check(1).payload,
+          deviceTime: start,
+          location: { ...f.fix, fixTime: start },
+        },
+      });
+      const visitId = ack.entityId as Id<"visitExecutions">;
+      await expect(f.apply(unplanned(f, 2))).rejects.toThrow(/call_open/);
+      await checkOut(f, 3, visitId, now);
+      expect(
+        await f.sales.query(api.visits.commands.detail, { visitId }),
+      ).toMatchObject({
+        state: "checked-out",
+        startedAt: start,
+        endedAt: now,
+        callDurationMs: 30 * 60_000,
+        lateReviewStatus: null,
+      });
+      expect((await f.apply(unplanned(f, 4))).entityId).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("follows the MCP order: an earlier planned stop must be closed first", async () => {
+    const f = await fixture();
+    try {
+      const earlier = await f.t.run(async (ctx) => {
+        await ctx.db.patch(f.ids.slot, { sequence: 2 });
+        const slot = (await ctx.db.get(f.ids.slot))!;
+        const planned = (await ctx.db.get(f.ids.planned))!;
+        const outlet = await ctx.db.insert("outlets", {
+          organizationId: "sunpride",
+          code: "FIRST",
+          name: "First stop",
+          status: "active",
+          custodianOrgUnitId: f.ids.unit,
+          createdAt: now,
+          updatedAt: now,
+          createdBy: "fixture",
+        });
+        const { _id: s, _creationTime: sc, ...slotCopy } = slot;
+        void s;
+        void sc;
+        const firstSlot = await ctx.db.insert("coveragePlanSlots", {
+          ...slotCopy,
+          slotKey: "zero",
+          outletId: outlet,
+          sequence: 1,
+        });
+        const { _id: p, _creationTime: pc, ...plannedCopy } = planned;
+        void p;
+        void pc;
+        return ctx.db.insert("plannedVisits", {
+          ...plannedCopy,
+          generationKey: "first",
+          planSlotId: firstSlot,
+          outletId: outlet,
+        });
+      });
+      await expect(f.apply(f.check(1))).rejects.toThrow(/mcp_order/);
+      // Unplanned calls only need no open call.
+      const extra = await f.apply(unplanned(f, 2));
+      await checkOut(f, 3, extra.entityId as Id<"visitExecutions">);
+      await expect(f.apply(f.check(4))).rejects.toThrow(/mcp_order/);
+      await f.t.run(async (ctx) => {
+        const stop = (await ctx.db.get(earlier))!;
+        await ctx.db.insert("visitExecutions", {
+          organizationId: "sunpride",
+          clientVisitId: uuid(900),
+          plannedVisitId: earlier,
+          assigneeProfileId: f.ids.sales,
+          outletId: stop.outletId,
+          orgUnitId: f.ids.unit,
+          serviceDate: f.ids.date,
+          source: "planned",
+          intents: ["sell"],
+          state: "checked-out",
+          productivity: "nonproductive",
+          createdAt: now,
+          lastServerTime: now,
+        });
+      });
+      expect((await f.apply(f.check(5))).entityId).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("accepts work after the 10 PM close, flags it late and holds it for supervisor review", async () => {
+    const f = await fixture();
+    try {
+      vi.setSystemTime(dayCloseAt(f.ids.date) + 30 * 60_000);
+      const ack = await f.apply(f.check(1));
+      const visitId = ack.entityId as Id<"visitExecutions">;
+      const visit = await f.t.run((ctx) => ctx.db.get(visitId));
+      expect(visit).toMatchObject({
+        lateReviewStatus: "pending_review",
+        lateSyncAt: dayCloseAt(f.ids.date) + 30 * 60_000,
+        startedAt: now,
+      });
+      const events = await f.t.run((ctx) =>
+        ctx.db.query("executionEvents").collect(),
+      );
+      expect(events[0]?.summary).toEqual({
+        after: "checked-in",
+        reasonCode: "late_sync",
+      });
+      const queue = await f.manager.query(api.visits.review.lateQueue, {
+        orgUnitId: f.ids.unit,
+        paginationOpts: { numItems: 10, cursor: null },
+      });
+      expect(queue.page.map((row) => row.visitId)).toEqual([visitId]);
+      await expect(
+        f.sales.query(api.visits.review.lateQueue, {
+          orgUnitId: f.ids.unit,
+          paginationOpts: { numItems: 10, cursor: null },
+        }),
+      ).rejects.toThrow();
+      await expect(
+        f.sales.mutation(api.visits.review.decideLateSync, {
+          visitId,
+          decision: "accept",
+          reason: "self",
+        }),
+      ).rejects.toThrow();
+      expect(
+        await f.manager.mutation(api.visits.review.decideLateSync, {
+          visitId,
+          decision: "accept",
+          reason: "no_signal_area",
+        }),
+      ).toEqual({ lateReviewStatus: "accepted" });
+      await expect(
+        f.manager.mutation(api.visits.review.decideLateSync, {
+          visitId,
+          decision: "reject",
+          reason: "again",
+        }),
+      ).rejects.toThrow(/already_reviewed/);
+      // Further late work for the same call reopens the hold.
+      await checkOut(f, 2, visitId, now + HOUR);
+      expect(
+        await f.sales.query(api.visits.commands.detail, { visitId }),
+      ).toMatchObject({
+        lateReviewStatus: "pending_review",
+        callDurationMs: HOUR,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("accepts a day delivered the next morning, but never a check-in dated off the phone clock", async () => {
+    const f = await fixture();
+    try {
+      vi.setSystemTime(now + 20 * HOUR); // 08:00 Manila the next day
+      await expect(
+        f.apply({
+          ...f.check(1),
+          payload: { ...f.check(1).payload, deviceTime: now + 20 * HOUR },
+        }),
+      ).rejects.toThrow(/wrong_date/);
+      const ack = await f.apply(f.check(2));
+      expect(
+        (
+          await f.t.run((ctx) =>
+            ctx.db.get(ack.entityId as Id<"visitExecutions">),
+          )
+        )?.lateReviewStatus,
+      ).toBe("pending_review");
+      // The fix was taken at check-in time, so a late delivery is not "unreliable".
+      expect(
+        (await f.t.run((ctx) => ctx.db.query("visitLocationEvidence").first()))
+          ?.result,
+      ).toBe("within_radius");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives supervisors a per-day trace of check-in and check-out fixes", async () => {
+    const f = await fixture();
+    try {
+      const ack = await f.apply(f.check(1, { ...f.fix, accuracyMeters: 12 }));
+      const visitId = ack.entityId as Id<"visitExecutions">;
+      vi.setSystemTime(now + 60_000);
+      await checkOut(f, 2, visitId, now + 60_000);
+      const trace = await f.manager.query(api.visits.review.trace, {
+        profileId: f.ids.sales,
+        serviceDate: f.ids.date,
+      });
+      expect(trace.closeAt).toBe(dayCloseAt(f.ids.date));
+      expect(
+        trace.points.map((p) => [p.event, p.accuracyMeters, p.result, p.late]),
+      ).toEqual([
+        ["check_in", 12, "within_radius", false],
+        ["check_out", 5, "within_radius", false],
+      ]);
+      expect(trace.points[0]).toMatchObject({
+        visitId,
+        outletName: "Prospect",
+        latitude: 14.6,
+        longitude: 121,
+      });
+      await expect(
+        f.sales.query(api.visits.review.trace, {
+          profileId: f.ids.sales,
+          serviceDate: f.ids.date,
+        }),
+      ).rejects.toThrow();
     } finally {
       vi.useRealTimers();
     }

@@ -9,6 +9,36 @@ struct ResponseValue: Codable, Equatable, Sendable {
     func isKnown(_ values: Set<String>) -> Bool { values.contains(rawValue) }
 }
 
+/// All field-day boundaries are Manila civil time, independent of the handset timezone.
+enum FieldDay {
+    static let timeZone = TimeZone(identifier: "Asia/Manila")!
+    static var calendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        return calendar
+    }
+    static func close(serviceDay: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+        guard let date = formatter.date(from: serviceDay), formatter.string(from: date) == serviceDay else { return nil }
+        return calendar.date(bySettingHour: 22, minute: 0, second: 0, of: date)
+    }
+    static func nextClose(after date: Date) -> Date {
+        let today = calendar.date(bySettingHour: 22, minute: 0, second: 0, of: date)!
+        return date < today ? today : calendar.date(byAdding: .day, value: 1, to: today)!
+    }
+    static func closeTimeLabel(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "h:mm a"
+        return formatter.string(from: date)
+    }
+}
+
 enum BootstrapV1 {
     enum WireError: Error, Equatable { case invalidEnvelope, unsupportedVersion, unsafeValue }
 
@@ -79,6 +109,8 @@ enum BootstrapV1 {
             scope = try c.decode(Scope.self, forKey: .scope)
             appConfig = try c.decode(Config.self, forKey: .appConfig)
             plannedVisits = try c.decode([StoreSnapshot.Visit].self, forKey: .plannedVisits)
+            // Additive v1 field: old bootstraps omit sequence and retain their list order.
+            guard plannedVisits.allSatisfy({ $0.sequence == nil || $0.sequence! >= 0 }) else { throw WireError.unsafeValue }
             outlets = try c.decode([StoreSnapshot.Outlet].self, forKey: .outlets)
             localCustomers = try c.decode([StoreSnapshot.Customer].self, forKey: .localCustomers)
             // Required explicit nullable fields: missing is not equivalent to null.
@@ -147,6 +179,8 @@ enum BootstrapV1 {
             let clientRequestId: String
             let status: ResponseValue
             let code: ResponseValue?
+            /// Additive v1 field: the specific rule behind a rejection (call_open, mcp_order, wrong_date).
+            let reason: String?
             let ack: Ack?
             var isAccepted: Bool { status.rawValue == "accepted" && ack != nil }
         }

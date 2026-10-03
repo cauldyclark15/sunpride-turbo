@@ -129,8 +129,10 @@ final class VisitSyncClient {
                         serverTime: ack.serverTime), for: item.intent.requestId, in: partition)
                 case "rejected", "conflict":
                     let allowedCodes: Set<String> = ["invalid_request", "invalid_plan", "conflict", "dependency_missing",
-                        "unsupported_operation", "out_of_scope", "evidence_pending_review", "invalid_transition"]
-                    let raw = outcome.code?.rawValue ?? outcome.status.rawValue
+                        "unsupported_operation", "out_of_scope", "evidence_pending_review", "invalid_transition", "call_open", "mcp_order",
+                        "wrong_date"]
+                    let raw = outcome.reason.flatMap { allowedCodes.contains($0) ? $0 : nil }
+                        ?? outcome.code?.rawValue ?? outcome.status.rawValue
                     try store.recordRejection(code: allowedCodes.contains(raw) ? raw : "unknown_code",
                         for: item.intent.requestId, in: partition)
                 default:

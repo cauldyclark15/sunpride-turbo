@@ -20,6 +20,9 @@ const businessCodes = new Set([
   "out_of_scope",
   "evidence_pending_review",
 ]);
+/** Field-day rules (client call 2 Oct 2026). v1 `code` values are frozen, so these go out
+ * as code `invalid_request` with the specific rule in the additive optional `reason`. */
+const reasonCodes = new Set(["call_open", "mcp_order", "wrong_date"]);
 type Route = "bootstrap" | "pull" | "push";
 type RecordValue = Record<string, unknown>;
 const record = (value: unknown): value is RecordValue =>
@@ -51,6 +54,7 @@ function coded(error: unknown): string | null {
   const text = error instanceof Error ? error.message : "";
   for (const code of [
     ...businessCodes,
+    ...reasonCodes,
     "rebootstrap_required",
     "invalid_cursor",
   ]) {
@@ -465,6 +469,16 @@ export async function handleMobile(
         );
       } catch (error) {
         const code = coded(error);
+        if (code && reasonCodes.has(code)) {
+          results.push({
+            kind: entry.kind,
+            clientRequestId: entry.clientRequestId,
+            status: "rejected",
+            code: "invalid_request",
+            reason: code,
+          });
+          continue;
+        }
         if (!code || !businessCodes.has(code)) throw error;
         results.push({
           kind: entry.kind,

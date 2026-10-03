@@ -37,19 +37,23 @@ struct TodayScreen: View {
             DiagnosticVisitScreen(model: model, visit: visit)
         } label: {
             CalmListRow(symbol: unplanned ? "plus.circle" : "storefront", title: unplanned ? "Unplanned visit · \(visit.outlet)" : visit.outlet,
-                        meta: unplanned ? "" : statusMeta(visit), trailing: "chevron.right")
+                        meta: statusMeta(visit), trailing: "chevron.right")
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("visit-\(visit.id)")
         #else
         CalmListRow(symbol: unplanned ? "plus.circle" : "storefront", title: unplanned ? "Unplanned visit · \(visit.outlet)" : visit.outlet,
-                    meta: unplanned ? "" : statusMeta(visit), trailing: "chevron.right")
+                    meta: statusMeta(visit), trailing: "chevron.right")
             .accessibilityIdentifier("visit-\(visit.id)")
         #endif
     }
     private func statusMeta(_ visit: AppModel.TodayVisit) -> String {
+        if visit.status == "Needs review" { return "To review" }
+        if let spent = visit.timeSpent { return "Done · \(spent)" }
+        if visit.startedAt != nil { return "In progress" }
+        if let failure = model.startFailure(for: visit) { return failure.message }
         switch visit.status {
-        case "Planned", "Scheduled": return ""
+        case "Planned", "Scheduled", "Unplanned": return ""
         case "Accepted": return "Done"
         case "Queued": return "Waiting"
         case "Needs review": return "To review"

@@ -314,6 +314,49 @@ final class VisitSyncTests: XCTestCase {
         XCTAssertEqual(try store.ack(for: intent.requestId, in: partition)?.entityId, "server-visit-1")
         XCTAssertTrue(try store.pendingOutbox(for: partition).isEmpty)
     }
+    func testCallOpenAndMCPOrderRejectCodesAreRetainedForReview() async throws {
+        // The server sends the frozen v1 code `invalid_request` plus the additive `reason`.
+        for (code, reason, expected) in [("call_open", nil, "call_open"), ("invalid_request", "call_open", "call_open"),
+                                         ("invalid_request", "mcp_order", "mcp_order"), ("invalid_request", "wrong_date", "wrong_date"),
+                                         ("invalid_request", "future_rule", "invalid_request")] as [(String, String?, String)] {
+            let initial = try DiagnosticOperation.checkIn(plannedId: "planned-1", outletId: "outlet-1",
+                day: BootstrapClient.manilaDay(Date()), intents: [], reason: nil, location: nil)
+            try store.enqueue(initial, for: partition, now: Date())
+            install { request in
+                let op = ((try? JSONSerialization.jsonObject(with: request.body) as? [String: Any])?["operations"] as? [[String: Any]])?.first
+                var result: [String: Any] = ["kind": "visit.checkIn", "clientRequestId": op?["clientRequestId"] ?? "",
+                                             "status": "rejected", "code": code]
+                if let reason { result["reason"] = reason }
+                return .reply(.json(200, ["type": "push.response", "contractVersion": 1, "serverTime": 1_800_000_000_000,
+                    "results": [result]]))
+            }
+            try await client().push(store: store, partition: partition)
+            XCTAssertEqual(try store.reviewOutbox(for: partition).last?.code, expected)
+        }
+    }
+    func testLateWorkStillPushesAndOfflineCallsKeepEndBeforeNextStart() async throws {
+        let earlier = Date().addingTimeInterval(-86_400)
+        let initial = try DiagnosticOperation.checkIn(plannedId: "planned-1", outletId: "outlet-1",
+            day: BootstrapClient.manilaDay(earlier), intents: [], reason: nil, location: nil, now: earlier)
+        try store.enqueue(initial, for: partition, now: Date())
+        let end = try DiagnosticOperation.checkOut(outcome: "completed", reason: nil, checkIn: initial.requestId,
+                                                   visitId: nil, now: earlier.addingTimeInterval(1_440))
+        try store.enqueueDeferred(end, for: partition, now: Date())
+        let next = try DiagnosticOperation.checkIn(plannedId: "planned-2", outletId: "outlet-2",
+            day: BootstrapClient.manilaDay(earlier), intents: [], reason: nil, location: nil, now: earlier.addingTimeInterval(1_500))
+        try store.enqueue(next, for: partition, now: Date())
+        XCTAssertEqual(try FieldSyncStatus.read(store: store, partition: partition, now: Date(), sending: false, offline: false).label,
+                       "Late · held for review")
+        install { request in Self.accepted(request) }
+        try await client().push(store: store, partition: partition)
+        let sent = try StubURLProtocol.requests(to: "/mobile/v1/push").flatMap { request in
+            try XCTUnwrap(object(request.body)["operations"] as? [[String: Any]]).map { $0["kind"] as? String }
+        }
+        XCTAssertEqual(sent, ["visit.checkIn", "visit.checkOut", "visit.checkIn"])
+        XCTAssertTrue(try store.pendingOutbox(for: partition).isEmpty)
+        XCTAssertTrue(try store.deferredOutbox(for: partition).isEmpty)
+    }
+
     func testHeldOutboxNeverPushes() async throws {
         _ = try checkIn()
         try store.holdForReview(partition)

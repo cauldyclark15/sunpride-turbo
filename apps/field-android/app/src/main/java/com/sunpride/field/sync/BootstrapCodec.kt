@@ -83,6 +83,10 @@ object BootstrapCodec {
         }
         val visits = items(o, "plannedVisits", { v ->
             v.str("outletId"); LocalDate.parse(v.str("serviceDate")); v.str("planId"); v.num("planVersion"); strings(v.arr("intents"))
+            if (v.has("sequence")) {
+                val sequence = v.num("sequence")
+                if (sequence !in 0..Int.MAX_VALUE.toLong()) throw WireFailure("Invalid sequence")
+            }
         }, true)
         val outlets = items(o, "outlets", { v -> v.str("name"); v.nullable("routeId") })
         val customers = items(o, "localCustomers", { it.str("code") })

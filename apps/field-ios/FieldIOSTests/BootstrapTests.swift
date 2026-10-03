@@ -93,6 +93,30 @@ final class BootstrapTests: XCTestCase {
         XCTAssertThrowsError(try JSONDecoder().decode(BootstrapV1.Page.self, from: altered("bootstrap-response") { $0["appConfig"] = NSNull() }))
     }
 
+    func testOptionalPlanSequencePresentAbsentAndInvalid() throws {
+        let old = try altered("bootstrap-response") { object in
+            var visits = object["plannedVisits"] as! [[String: Any]]
+            visits[0].removeValue(forKey: "sequence"); object["plannedVisits"] = visits
+        }
+        XCTAssertNil(try JSONDecoder().decode(BootstrapV1.Page.self, from: old).plannedVisits[0].sequence)
+        for sequence in [0, 3] {
+            let data = try altered("bootstrap-response") { object in
+                var visits = object["plannedVisits"] as! [[String: Any]]
+                visits[0]["sequence"] = sequence; object["plannedVisits"] = visits
+            }
+            let page = try JSONDecoder().decode(BootstrapV1.Page.self, from: data)
+            XCTAssertEqual(page.plannedVisits[0].sequence, sequence)
+            XCTAssertEqual(try JSONDecoder().decode(BootstrapV1.Page.self, from: JSONEncoder().encode(page)).plannedVisits[0].sequence, sequence)
+        }
+        for invalid in [-1, 1.5, "1"] as [Any] {
+            let data = try altered("bootstrap-response") { object in
+                var visits = object["plannedVisits"] as! [[String: Any]]
+                visits[0]["sequence"] = invalid; object["plannedVisits"] = visits
+            }
+            XCTAssertThrowsError(try JSONDecoder().decode(BootstrapV1.Page.self, from: data))
+        }
+    }
+
     func testTwoPagesSignedFreshChallengesAndAtomicPromotion() async throws {
         let first = try fixture("bootstrap-next-page"), second = try fixture("bootstrap-response")
         protocolStub(first, next: try altered("bootstrap-response") {

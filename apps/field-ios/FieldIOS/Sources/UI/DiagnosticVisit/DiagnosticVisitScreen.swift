@@ -13,21 +13,23 @@ struct DiagnosticVisitScreen: View {
     }
     @State private var reason = ""
     @State private var note = ""
-    @State private var outcome = "completed"
+    @State private var outcome = ""
     @State private var busy = false
     @State private var message: String?
-    @State private var checkedIn = false
-    @State private var checkedOut = false
+    private var currentVisit: AppModel.TodayVisit { model.visits.first { $0.id == visit.id } ?? visit }
+    private var checkedIn: Bool { currentVisit.startedAt != nil }
+    private var checkedOut: Bool { currentVisit.endedAt != nil }
+    private var startFailure: AppModel.CallFailure? { model.startFailure(for: currentVisit) }
     @State private var noteQueued = false
     @FocusState private var noteFocused: Bool
     @Environment(\.dismiss) private var dismiss
 
     private var displayStatus: String {
         let status = model.visits.first(where: { $0.id == visit.id })?.status ?? visit.status
-        if checkedOut || status == "Accepted" { return "Done" }
-        if checkedIn || status == "Queued" { return "In progress" }
-        if status == "Planned" || status == "Unplanned" || status == "Scheduled" { return "Not started" }
         if status == "Needs review" { return "To review" }
+        if checkedOut { return "Done" }
+        if checkedIn { return "In progress" }
+        if status == "Planned" || status == "Unplanned" || status == "Scheduled" { return "Not started" }
         return status
     }
 
@@ -57,8 +59,13 @@ struct DiagnosticVisitScreen: View {
                         .foregroundStyle(SunprideTokens.secondaryText)
                         .accessibilityIdentifier("diagnosticMessage")
                 }
+                if !checkedIn, let failure = startFailure {
+                    Text(failure.message).font(SunprideTokens.TypeStyle.meta)
+                        .foregroundStyle(SunprideTokens.secondaryText)
+                        .accessibilityIdentifier("callStartBlocked")
+                }
                 if !checkedIn && unplanned {
-                    SectionCard(title: "Check in") {
+                    SectionCard(title: "Start") {
                         VStack(alignment: .leading, spacing: 12) {
                             Toggle("Unplanned visit", isOn: $unplanned).disabled(!visit.planned)
                                 .font(SunprideTokens.TypeStyle.row)
@@ -79,7 +86,7 @@ struct DiagnosticVisitScreen: View {
                             }
                             SecondaryButton(title: "Add note", disabled: note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                                 do { try model.queueNote(note, for: visit); note = ""; noteFocused = false; noteQueued = true; message = nil }
-                                catch { message = "Check in first or shorten note" }
+                                catch { message = "Start first or shorten note" }
                             }
                             .accessibilityIdentifier("diagnosticAddNote")
                         }.padding(16)
@@ -91,7 +98,7 @@ struct DiagnosticVisitScreen: View {
                                 Button("Nonproductive") { outcome = "nonproductive" }
                             } label: {
                                 HStack {
-                                    Text(outcome == "completed" ? "Completed" : "Nonproductive")
+                                    Text(outcome.isEmpty ? "Select outcome" : outcome == "completed" ? "Completed" : "Nonproductive")
                                         .font(SunprideTokens.TypeStyle.row)
                                     Spacer()
                                     Image(systemName: "chevron.down")
@@ -103,27 +110,30 @@ struct DiagnosticVisitScreen: View {
                             }
                             .accessibilityIdentifier("diagnosticOutcome")
                             if outcome == "nonproductive" {
-                                CalmField(label: "Reason") { TextField("Reason", text: $reason) }
+                                CalmField(label: "Reason") {
+                                    TextField("Reason", text: $reason).accessibilityIdentifier("nonproductiveReason")
+                                }
                                     .padding(.bottom, 16)
                             }
                         }.padding(.horizontal, 16)
                     }
                 } else if checkedOut {
                     SectionCard(title: "Done") {
-                        CalmListRow(symbol: "checkmark.circle", title: "Visit complete", meta: "Saved on phone")
+                        CalmListRow(symbol: "checkmark.circle", title: "Visit complete", meta: currentVisit.timeSpent ?? "Saved on phone")
+                            .accessibilityIdentifier("callTimeSpent")
                     }
                 }
                 if checkedIn {
                     SectionCard(title: "Activity") {
                         VStack(spacing: 0) {
-                            CalmListRow(symbol: "checkmark", title: "Check-in", meta: "Waiting")
+                            CalmListRow(symbol: "checkmark", title: "Start", meta: "Waiting")
                             if noteQueued {
                                 activityDivider
                                 CalmListRow(symbol: "note.text", title: "Note", meta: "Waiting")
                             }
                             if checkedOut {
                                 activityDivider
-                                CalmListRow(symbol: "checkmark", title: "Check-out", meta: "Waiting")
+                                CalmListRow(symbol: "checkmark", title: "End call", meta: "Waiting")
                             }
                         }
                     }
@@ -135,31 +145,30 @@ struct DiagnosticVisitScreen: View {
         .background(SunprideTokens.background)
         .safeAreaInset(edge: .bottom) {
             if !checkedOut {
-                PrimaryBottomButton(title: checkedIn ? "Check out" : busy ? "Checking in…" : "Check in",
-                                    disabled: busy || (!checkedIn && unplanned && reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) || (checkedIn && outcome == "nonproductive" && reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)) {
-                    if checkedIn {
+                PrimaryBottomButton(title: busy ? "Saving…" : checkedIn ? "End call" : "Start",
+                                    disabled: busy || (!checkedIn && (startFailure != nil || (unplanned && reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))) || (checkedIn && (outcome.isEmpty || (outcome == "nonproductive" && reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)))) {
+                    let ending = checkedIn
+                    busy = true
+                    Task {
+                        // Always attempt fresh evidence for both arrival and departure. A failed
+                        // fix is serialized as null; only the supervisor decides its reliability.
+                        let fix = await location.captureIfAvailable()
                         do {
-                            try model.queueCheckOut(outcome: outcome, reason: outcome == "nonproductive" ? reason : nil, for: visit)
-                            checkedOut = true
-                            message = nil
-                        } catch { message = "Check in first or check reason" }
-                    } else {
-                        busy = true
-                        Task {
-                            do {
-                                let fix = try await location.capture()
+                            if ending {
+                                try model.queueCheckOut(outcome: outcome, reason: outcome == "nonproductive" ? reason : nil,
+                                                        for: visit, location: fix)
+                            } else {
                                 try model.queueCheckIn(visit, unplannedReason: unplanned ? reason : nil, location: fix)
-                                checkedIn = true
-                                message = nil
-                            } catch LocationCapture.Failure.denied { message = "Location denied · Enable in Settings" }
-                            catch LocationCapture.Failure.unavailable { message = "No location · Try again outdoors" }
-                            catch StoreError.leaseExpired { message = "Reconnect before check-in" }
-                            catch StoreError.heldForReview { message = "Work held · Contact supervisor" }
-                            catch StoreError.invalidInput { message = "Invalid check-in · Sync and retry" }
-                            catch StoreError.database { message = "Storage unavailable · Contact support" }
-                            catch { message = "Check-in failed · Check reason or connection" }
-                            busy = false
-                        }
+                                reason = ""
+                            }
+                            message = fix == nil ? "Location unavailable · Saved for supervisor review" : nil
+                        } catch let error as AppModel.CallFailure { message = error.message }
+                        catch StoreError.leaseExpired { message = "Day access closed · Reconnect to continue" }
+                        catch StoreError.heldForReview { message = "Work held · Contact supervisor" }
+                        catch StoreError.invalidInput { message = "Invalid call · Sync and retry" }
+                        catch StoreError.database { message = "Storage unavailable · Contact support" }
+                        catch { message = "Call not saved · Check outcome or reason" }
+                        busy = false
                     }
                 }
                 .accessibilityIdentifier(checkedIn ? "diagnosticCheckOut" : "diagnosticCheckIn")

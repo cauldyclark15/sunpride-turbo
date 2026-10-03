@@ -72,6 +72,7 @@ object VisitCodec {
     fun pull(deviceId: String, cursor: String): ByteArray = JSONObject().put("type", "pull.request")
         .put("contractVersion", 1).put("deviceId", deviceId).put("cursor", cursor)
         .put("limit", 50).toString().toByteArray(Charsets.UTF_8)
+    val reasons = setOf("call_open", "mcp_order", "wrong_date")
     fun pushResults(text: String, sent: List<IntentRow>): List<JSONObject> {
         val o = JSONObject(text)
         check(o.getString("type") == "push.response" && o.getInt("contractVersion") == 1 && o.has("serverTime"))
@@ -111,9 +112,19 @@ class VisitSync(private val gateway: SignedVisitGateway, private val store: Fiel
             if (store.syncHealth() == "held_for_review") return@withContext true
             try {
                 pull()
-                if (store.isLeaseValid(now())) push() else if (store.pending().isNotEmpty())
-                    throw BootstrapFailure(BootstrapFailure.Kind.RESTART)
+                // The day-close limits new offline work, not delivery of already-durable intents.
+                // Late work is accepted and held for supervisor review by the server.
+                push()
                 pull()
+                if (!store.isLeaseValid(now())) {
+                    // Renew next day's offline authority only after attempting delivery. Expiry
+                    // must not strand late intents, nor leave new work blocked forever.
+                    store.holdForReview()
+                    bootstrap()
+                    if (store.syncHealth() == "held_for_review") return@withContext true
+                    freezeInvalidAfterBootstrap()
+                    push()
+                }
                 retry.set(0)
                 store.markSyncSuccess(now())
             } catch (e: BootstrapFailure) {
@@ -126,7 +137,7 @@ class VisitSync(private val gateway: SignedVisitGateway, private val store: Fiel
                         bootstrap()
                         if (store.syncHealth() != "held_for_review") {
                             freezeInvalidAfterBootstrap()
-                            if (store.isLeaseValid(now())) push()
+                            push()
                             pull()
                             store.markSyncSuccess(now())
                         }
@@ -142,15 +153,20 @@ class VisitSync(private val gateway: SignedVisitGateway, private val store: Fiel
         }
     }
     private suspend fun freezeInvalidAfterBootstrap() {
-        val day = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Manila")).toString()
-        val planned = store.todaysVisits(day).associateBy { it.id }
+        val today = java.time.Instant.ofEpochMilli(now()).atZone(java.time.ZoneId.of("Asia/Manila")).toLocalDate()
         val outlets = store.outlets().map { it.id }.toSet()
         for ((intent, _) in store.pending()) {
             if (intent.kind != "visit.checkIn") continue
             val payload = JSONObject(intent.serializedOperation).getJSONObject("payload")
             val plan = payload.optString("plannedVisitId").takeIf { it.isNotBlank() && it != "null" }
-            val valid = payload.optString("serviceDate") == day && payload.optString("outletId") in outlets &&
-                (plan == null || planned[plan]?.let {
+            val day = payload.optString("serviceDate")
+            val deviceDay = java.time.Instant.ofEpochMilli(payload.getLong("deviceTime"))
+                .atZone(java.time.ZoneId.of("Asia/Manila")).toLocalDate()
+            val age = java.time.temporal.ChronoUnit.DAYS.between(deviceDay, today)
+            val planned = store.todaysVisits(day).associateBy { it.id }
+            val valid = day == deviceDay.toString() && age in 0..7 && payload.optString("outletId") in outlets &&
+                // A new day bootstrap may omit yesterday's plan. Keep late work for server validation.
+                (plan == null || (deviceDay < today && planned[plan] == null) || planned[plan]?.let {
                     val row = JSONObject(it.json)
                     row.optString("outletId") == payload.optString("outletId") && row.optString("serviceDate") == day
                 } == true)
@@ -233,8 +249,10 @@ class VisitSync(private val gateway: SignedVisitGateway, private val store: Fiel
                         val events = ack.getJSONArray("eventIds")
                         store.recordAck(requestId, ack.getString("entityId"), events.toString(), ack.getLong("serverTime"))
                     }
+                    // Additive v1 `reason` (call_open, mcp_order, wrong_date) is more specific than `code`.
                     else -> store.recordRejection(requestId,
-                        result.optString("code").takeIf { it.isNotBlank() } ?: "unknown_status")
+                        result.optString("reason").takeIf { it in VisitCodec.reasons }
+                            ?: result.optString("code").takeIf { it.isNotBlank() } ?: "unknown_status")
                 }
             }
         }
