@@ -18,6 +18,7 @@ import {
 } from "./issues/validators";
 import { employmentTypeValidator, roleValidator } from "./lib/roles";
 import { positionCategoryValidator } from "./sfa/constants";
+import { productiveCallRuleValidator } from "./sfa/productive_call";
 import {
   allocationPolicyValidator,
   approvalStatusValidator,
@@ -1670,6 +1671,10 @@ export default defineSchema({
     productiveCallTargetPct: v.optional(v.number()),
     workWithWeeklyMin: v.optional(v.number()),
     workWithMonthlyMin: v.optional(v.number()),
+    // Productive-call rule and selling week (sfa/productive_call.ts, sfa/selling_days.ts).
+    productiveCallRule: v.optional(productiveCallRuleValidator),
+    sellingWeekdays: v.optional(v.array(v.number())), // Sunday=0 … Saturday=6
+    notes: v.optional(v.string()),
     sourceRef: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),

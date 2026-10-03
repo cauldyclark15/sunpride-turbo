@@ -181,6 +181,9 @@ vi.mock("./inventory-workspace", () => ({ InventoryWorkspace: () => null }));
 vi.mock("./coverage-planner", () => ({
   CoveragePlanner: () => createElement("p", null, "Mounted planner"),
 }));
+vi.mock("./standards/position-standards-panel", () => ({
+  PositionStandardsPanel: () => createElement("p", null, "Mounted standards"),
+}));
 const render = (
   module:
     | "sales-force"
@@ -305,6 +308,7 @@ describe("sales force coverage module", () => {
       "Workload",
       "Exceptions",
       "Export",
+      "Standards",
     ])
       expect(html).toContain(`>${tab}</button>`);
     expect(html).not.toContain(">Review</button>");
@@ -317,6 +321,16 @@ describe("sales force coverage module", () => {
       true,
     );
     expect(state.calls.some((c) => c.name.startsWith("people/"))).toBe(false);
+  });
+  it("mounts call standards without a month or plan picker", () => {
+    state.tab = "standards";
+    const html = render();
+    expect(html).toContain(">Standards</button>");
+    expect(html).not.toContain('aria-label="Coverage month"');
+    expect(html).not.toContain('aria-label="Scoped coverage plan"');
+    expect(state.calls.some((c) => c.name === "coverage/discovery:list")).toBe(
+      false,
+    );
   });
   it("shows Setup last only with editor capabilities and mounts one editor at a time", () => {
     expect(render()).not.toContain(">Setup</button>");

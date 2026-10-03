@@ -33,6 +33,11 @@ const CoverageExceptions = dynamic(() =>
 const CoverageExport = dynamic(() =>
   import("./coverage-export").then((m) => m.CoverageExport),
 );
+const PositionStandardsPanel = dynamic(() =>
+  import("./standards/position-standards-panel").then(
+    (m) => m.PositionStandardsPanel,
+  ),
+);
 type CoverageTab =
   | "plan"
   | "review"
@@ -44,6 +49,7 @@ type CoverageTab =
   | "workload"
   | "exceptions"
   | "export"
+  | "standards"
   | "setup";
 type SetupSection = "routes" | "outlets" | "assignments";
 type SelectedPlan = {
@@ -210,8 +216,12 @@ export function SalesForcePanels() {
   const needsPlan =
     coverageTab !== "plan" &&
     coverageTab !== "setup" &&
+    coverageTab !== "standards" &&
     coverageTab !== "workload";
-  const needsMonth = coverageTab !== "plan" && coverageTab !== "setup";
+  const needsMonth =
+    coverageTab !== "plan" &&
+    coverageTab !== "setup" &&
+    coverageTab !== "standards";
   const coverageTabs: [CoverageTab, string][] = [
     ["plan", "Plan"],
     ...(canApprove ? ([["review", "Review"]] as [CoverageTab, string][]) : []),
@@ -222,6 +232,7 @@ export function SalesForcePanels() {
     ["route", "Route"],
     ["map", "Map"],
     ["workload", "Workload"],
+    ["standards", "Standards"],
     ["export", "Export"],
     ...(setupSections.length
       ? ([["setup", "Setup"]] as [CoverageTab, string][])
@@ -274,6 +285,10 @@ export function SalesForcePanels() {
               </PanelErrorBoundary>
             ) : coverageTab === "setup" ? (
               setupContent
+            ) : coverageTab === "standards" ? (
+              <PanelErrorBoundary key="standards" label="Call standards">
+                <PositionStandardsPanel />
+              </PanelErrorBoundary>
             ) : coverageTab === "review" ||
               coverageTab === "visits" ||
               coverageTab === "history" ? (
