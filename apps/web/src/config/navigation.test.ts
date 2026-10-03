@@ -13,6 +13,7 @@ describe("web navigation", () => {
     ["/imports", "commercial"],
     ["/inventory", "inventory"],
     ["/sales-force", "field"],
+    ["/supervision", "field"],
     ["/sap-integration", "operations"],
     ["/workflows", "approvals"],
     ["/analytics", "reports"],
@@ -64,6 +65,11 @@ describe("web navigation", () => {
     ]);
     expect(getWebModuleTabs("/sales-force").map((item) => item.href)).toEqual([
       "/sales-force",
+      "/supervision",
+    ]);
+    expect(getWebModuleTabs("/supervision").map((item) => item.label)).toEqual([
+      "Coverage",
+      "Supervision",
     ]);
     expect(getWebModuleTabs("/mobile")).toEqual([]);
     expect(getWebModuleTabs("/dashboard")).toEqual([]);

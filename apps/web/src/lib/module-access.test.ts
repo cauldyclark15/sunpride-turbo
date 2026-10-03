@@ -31,6 +31,8 @@ const expectedCapabilities = {
   ],
   inventory: ["inventory.read"],
   "sales-force": ["mcp.read"],
+  // Supervision needs people.read AND visit.read; people.read is the narrower set.
+  supervision: ["people.read"],
   orders: ["order.create", "order.approve"],
   "sap-integration": ["integration.read"],
   workflows: ["order.approve"],
@@ -46,6 +48,7 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
     "imports",
     "inventory",
     "sales-force",
+    "supervision",
     "sap-integration",
     "admin",
     "analytics",
@@ -64,6 +67,7 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
     "imports",
     "inventory",
     "sales-force",
+    "supervision",
     "orders",
     "workflows",
     "analytics",
@@ -77,8 +81,14 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
     "analytics",
   ],
   sales: ["dashboard", "inventory", "sales-force", "orders", "analytics"],
-  analyst: ["dashboard", "inventory", "sales-force", "analytics"],
-  viewer: ["dashboard", "inventory", "sales-force", "analytics"],
+  analyst: [
+    "dashboard",
+    "inventory",
+    "sales-force",
+    "supervision",
+    "analytics",
+  ],
+  viewer: ["dashboard", "inventory", "sales-force", "supervision", "analytics"],
 };
 
 describe("web module access", () => {
@@ -168,6 +178,15 @@ describe("web module access", () => {
     expect(canAccessWebModule("issues", "sales")).toBe(false);
     expect(canAccessWebModule("issues", "viewer")).toBe(false);
     expect(canAccessWebModule("issues", null)).toBe(false);
+  });
+
+  it("keeps field sales and approvers out of supervision", () => {
+    for (const role of roles)
+      expect(canAccessWebModule("supervision", role)).toBe(
+        (CAPABILITIES["people.read"] as readonly string[]).includes(role) &&
+          (CAPABILITIES["visit.read"] as readonly string[]).includes(role),
+      );
+    expect(canAccessWebModule("supervision", "sales")).toBe(false);
   });
 
   it("refuses unknown, retired, and unassigned modules and roles", () => {
