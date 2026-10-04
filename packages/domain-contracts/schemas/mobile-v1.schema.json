@@ -783,6 +783,50 @@
               "type": "null"
             }
           ]
+        },
+        "dayTarget": {
+          "description": "Optional daily position standard for the Today screen (client memo 2026-01-20, call answer 1). Added 2026-10; older servers and people without a position standard omit it.",
+          "type": "object",
+          "properties": {
+            "dailyCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "productivePct": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "sourceRef": {
+              "type": "string",
+              "minLength": 1
+            },
+            "productiveCallRule": {
+              "description": "Governed productive-call rule of the position (sfa/productive_call.ts): any_listed_activity or truck_seller. Absent means any_listed_activity; an open string so a later rule is not a breaking change.",
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "daySales": {
+          "description": "Optional sales of the Manila day as the server has them, counted like the Daily Sales Report, in PHP centavos. Added 2026-10; older servers omit it, and it is omitted when the day exceeds one bounded read.",
+          "type": "object",
+          "properties": {
+            "amountMinor": {
+              "type": "integer"
+            },
+            "orders": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "targetMinor": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": ["amountMinor", "orders"],
+          "additionalProperties": false
         }
       },
       "required": [

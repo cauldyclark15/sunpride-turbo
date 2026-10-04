@@ -47,6 +47,8 @@ final class BootstrapClient {
         var customers: [StoreSnapshot.Customer] = []
         var tasks: [StoreSnapshot.Task] = []
         var route: StoreSnapshot.Route?
+        var dayTarget: StoreSnapshot.DayTarget?
+        var daySales: StoreSnapshot.DaySales?
         var next: String?
         var seen = Set<String>()
         var lease = Int64.max, cache = Int64.max
@@ -71,6 +73,17 @@ final class BootstrapClient {
             inventory += page.inventoryAvailability
             customers += page.localCustomers
             tasks += page.tasks
+            if let target = page.dayTarget {
+                // Every page reads the same standard; a mid-download change restarts the bootstrap.
+                if let previousTarget = dayTarget, previousTarget != target { throw Failure.restartRequired }
+                dayTarget = target
+            }
+            // Sales can grow between pages (an order lands mid-download): keep the latest, stamped
+            // with that page's server time, instead of restarting the bootstrap.
+            if var sales = page.daySales {
+                sales.asOf = page.serverTime
+                daySales = sales
+            }
             if let r = page.route {
                 if let previousRoute = route,
                    (previousRoute.id != r.id || previousRoute.code != r.code) { throw Failure.invalidResponse }
@@ -96,7 +109,8 @@ final class BootstrapClient {
                   visits.allSatisfy({ visit in uniqueOutlets.contains(where: { $0.id == visit.outletId }) }) else { throw Failure.invalidResponse }
             let snapshot = StoreSnapshot(employee: initial.employee, visits: visits, outlets: uniqueOutlets,
                                          customers: uniqueCustomers, route: route, tasks: tasks, callSheets: uniqueCallSheets,
-                                         productCatalog: uniqueProducts, inventoryAvailability: uniqueInventory)
+                                         productCatalog: uniqueProducts, inventoryAvailability: uniqueInventory,
+                                         dayTarget: dayTarget, daySales: daySales)
             try store.saveSnapshot(snapshot, cursor: cursor, leaseExpiresAt: lease, cacheExpiresAt: cache, for: partition)
             try store.setSyncHealth(SyncHealth(lastSuccessfulSyncAt: page.serverTime, lastErrorCode: nil), for: partition)
             return partition

@@ -65,6 +65,30 @@ struct BootstrapResponse {
   let nextPageCursor: String?
   // schema-field: bootstrapResponse.syncCursor
   let syncCursor: String?
+  // schema-field: bootstrapResponse.dayTarget
+  let dayTarget: OptionalField<BootstrapResponseDayTarget>
+  // schema-field: bootstrapResponse.daySales
+  let daySales: OptionalField<BootstrapResponseDaySales>
+}
+// schema-object: bootstrapResponse.dayTarget
+struct BootstrapResponseDayTarget {
+  // schema-field: bootstrapResponse.dayTarget.dailyCalls
+  let dailyCalls: OptionalField<Int64>
+  // schema-field: bootstrapResponse.dayTarget.productivePct
+  let productivePct: OptionalField<Double>
+  // schema-field: bootstrapResponse.dayTarget.sourceRef
+  let sourceRef: OptionalField<String>
+  // schema-field: bootstrapResponse.dayTarget.productiveCallRule
+  let productiveCallRule: OptionalField<String>
+}
+// schema-object: bootstrapResponse.daySales
+struct BootstrapResponseDaySales {
+  // schema-field: bootstrapResponse.daySales.amountMinor
+  let amountMinor: Int64
+  // schema-field: bootstrapResponse.daySales.orders
+  let orders: Int64
+  // schema-field: bootstrapResponse.daySales.targetMinor
+  let targetMinor: OptionalField<Int64>
 }
 // schema-object: bootstrapResponse.employee
 struct BootstrapResponseEmployee {

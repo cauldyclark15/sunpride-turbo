@@ -128,11 +128,11 @@ class DiagnosticVisitTest {
         rule.setContent { FieldApp(AppEnvironment("https://team.convex.site", "https://team.convex.cloud"),
             dark = false, debug = true, backend = backend, visitLocation = location) }
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-open").fetchSemanticsNodes().isNotEmpty() }
-        rule.onNodeWithTag("diagnostic-open").performClick()
+        rule.onNodeWithTag("diagnostic-open").performScrollTo().performClick()
         // Inject a check-in without requesting or granting any device permission.
         backend.queueVisit("visit.checkIn", null, null, null, "planned-1", "outlet-1", emptyList(), null, null, null, null, null)
         rule.onNodeWithTag("visit-back").performClick()
-        rule.onNodeWithTag("diagnostic-open").performClick()
+        rule.onNodeWithTag("diagnostic-open").performScrollTo().performClick()
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("call-sheet-open").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithTag("call-sheet-open").performScrollTo().performClick()
         rule.onNodeWithTag("call-sheet-save").assertIsNotEnabled()
@@ -188,11 +188,11 @@ class DiagnosticVisitTest {
         rule.setContent { FieldApp(AppEnvironment("https://team.convex.site", "https://team.convex.cloud"),
             dark = false, debug = true, backend = backend, visitLocation = location) }
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-open").fetchSemanticsNodes().isNotEmpty() }
-        rule.onNodeWithTag("diagnostic-open").performClick()
+        rule.onNodeWithTag("diagnostic-open").performScrollTo().performClick()
         rule.onNodeWithTag("photo-open").assertDoesNotExist() // no photos before Start
         backend.queueVisit("visit.checkIn", null, null, null, "planned-1", "outlet-1", emptyList(), null, null, null, null, null)
         rule.onNodeWithTag("visit-back").performClick()
-        rule.onNodeWithTag("diagnostic-open").performClick()
+        rule.onNodeWithTag("diagnostic-open").performScrollTo().performClick()
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("photo-open").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithTag("photo-open").performScrollTo().performClick()
         rule.onNodeWithTag("photo-take").assertIsNotEnabled() // type first
@@ -308,19 +308,19 @@ class DiagnosticVisitTest {
             dark = false, debug = true, backend = backend, visitLocation = location) }
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-open").fetchSemanticsNodes().size == 2 }
         rule.onAllNodesWithTag("diagnostic-open")[0].assertTextContains("First", substring = true)
-        rule.onAllNodesWithTag("diagnostic-open")[1].performClick()
+        rule.onAllNodesWithTag("diagnostic-open")[1].performScrollTo().performClick()
         rule.onNodeWithTag("diagnostic-checkin").assertIsNotEnabled()
         rule.onNodeWithTag("start-blocked").assertTextContains("Visit stores in plan order")
         rule.onNodeWithTag("visit-back").performClick()
-        rule.onAllNodesWithTag("diagnostic-open")[0].performClick()
+        rule.onAllNodesWithTag("diagnostic-open")[0].performScrollTo().performClick()
         rule.onNodeWithTag("diagnostic-checkin").performClick()
         rule.waitUntil(10_000) { backend.visitStates().size == 1 }
         rule.onNodeWithTag("visit-back").performClick()
-        rule.onAllNodesWithTag("diagnostic-open")[1].performClick()
+        rule.onAllNodesWithTag("diagnostic-open")[1].performScrollTo().performClick()
         rule.onNodeWithTag("diagnostic-checkin").assertIsNotEnabled()
         rule.onNodeWithTag("start-blocked").assertTextContains("Finish the open call first")
         rule.onNodeWithTag("visit-back").performClick()
-        rule.onAllNodesWithTag("diagnostic-open")[0].performClick()
+        rule.onAllNodesWithTag("diagnostic-open")[0].performScrollTo().performClick()
         rule.onNodeWithTag("diagnostic-checkout").assertIsNotEnabled()
         rule.onNodeWithTag("diagnostic-outcome").performScrollTo().performClick() // completed
         rule.onNodeWithTag("diagnostic-outcome").performClick() // nonproductive
@@ -333,7 +333,7 @@ class DiagnosticVisitTest {
         rule.onNodeWithTag("diagnostic-confirm-end").performClick()
         rule.waitUntil(10_000) { backend.visitStates().size == 2 }
         rule.onNodeWithTag("visit-back").performClick()
-        rule.onAllNodesWithTag("diagnostic-open")[1].performClick()
+        rule.onAllNodesWithTag("diagnostic-open")[1].performScrollTo().performClick()
         rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("diagnostic-checkin").assertIsEnabled() }.isSuccess }
     }
     @Test fun missingLocationNeverBlocksStartOrEnd() = runScenario(false, missingFix = true)
@@ -360,7 +360,7 @@ class DiagnosticVisitTest {
         rule.setContent { FieldApp(AppEnvironment("https://team.convex.site", "https://team.convex.cloud"),
             dark = dark, debug = true, backend = Backend(), visitLocation = location) }
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-open").fetchSemanticsNodes().isNotEmpty() }
-        rule.onNodeWithTag("diagnostic-open").performClick()
+        rule.onNodeWithTag("diagnostic-open").performScrollTo().performClick()
         rule.runOnUiThread {
             androidx.core.view.WindowCompat.getInsetsController(rule.activity.window,
                 rule.activity.window.decorView).isAppearanceLightStatusBars = !dark

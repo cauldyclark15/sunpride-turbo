@@ -35,10 +35,54 @@ struct StoreSnapshot: Sendable {
             }.map(\.element)
         }
     }
-    struct Outlet: Codable, Sendable { let id: String; let name: String; let routeId: String? }
+    struct Coordinate: Codable, Sendable, Equatable { let latitude: Double; let longitude: Double }
+    /// code/customerId/address/latitude/longitude are additive v1 route-screen fields; older feeds omit them.
+    struct Outlet: Codable, Sendable {
+        let id: String; let name: String; let routeId: String?
+        var code: String? = nil
+        var customerId: String? = nil
+        var address: String? = nil
+        /// Current verified pin, sent flat on the wire: both or neither.
+        var latitude: Double? = nil
+        var longitude: Double? = nil
+
+        init(id: String, name: String, routeId: String?, code: String? = nil, customerId: String? = nil,
+             address: String? = nil, location: Coordinate? = nil) {
+            self.id = id; self.name = name; self.routeId = routeId
+            self.code = code; self.customerId = customerId; self.address = address
+            latitude = location?.latitude; longitude = location?.longitude
+        }
+
+        var location: Coordinate? {
+            guard let latitude, let longitude else { return nil }
+            return Coordinate(latitude: latitude, longitude: longitude)
+        }
+    }
     struct Customer: Codable, Sendable { let id: String; let code: String }
     struct Route: Codable, Sendable { let id: String; let code: String }
     struct Task: Codable, Sendable { let id: String; let kind: String; let required: Bool }
+    /// Daily position standard (client memo; call answer 1: targets are per day, per route).
+    struct DayTarget: Codable, Sendable, Equatable {
+        var dailyCalls: Int? = nil
+        var productivePct: Double? = nil
+        var sourceRef: String? = nil
+        /// Governed productive-call rule (server sfa/productive_call.ts); absent = any listed activity.
+        var productiveCallRule: String? = nil
+        var isValid: Bool {
+            (dailyCalls.map { $0 >= 0 } ?? true) && (productivePct.map { $0.isFinite && (0...100).contains($0) } ?? true)
+                && (sourceRef.map { !$0.isEmpty } ?? true) && (productiveCallRule.map { !$0.isEmpty } ?? true)
+        }
+    }
+    /// Today's sales as the server counted them (Daily Sales Report rules), PHP centavos, as of
+    /// the bootstrap's server time. Order capture is not on the phone, so this is the day's total.
+    struct DaySales: Codable, Sendable, Equatable {
+        let amountMinor: Int64
+        let orders: Int
+        var targetMinor: Int64? = nil
+        /// Server time of the download (epoch ms); set by the phone, never read from the wire.
+        var asOf: Int64? = nil
+        var isValid: Bool { orders >= 0 && (targetMinor.map { $0 >= 0 } ?? true) }
+    }
     let employee: Employee
     let visits: [Visit]
     let outlets: [Outlet]
@@ -48,13 +92,17 @@ struct StoreSnapshot: Sendable {
     let callSheets: [CallSheet]
     let productCatalog: [BootstrapV1.Product]
     let inventoryAvailability: [BootstrapV1.InventoryAvailability]
+    var dayTarget: DayTarget? = nil
+    var daySales: DaySales? = nil
 
     init(employee: Employee, visits: [Visit], outlets: [Outlet], customers: [Customer],
          route: Route?, tasks: [Task], callSheets: [CallSheet] = [],
-         productCatalog: [BootstrapV1.Product] = [], inventoryAvailability: [BootstrapV1.InventoryAvailability] = []) {
+         productCatalog: [BootstrapV1.Product] = [], inventoryAvailability: [BootstrapV1.InventoryAvailability] = [],
+         dayTarget: DayTarget? = nil, daySales: DaySales? = nil) {
         self.employee = employee; self.visits = visits; self.outlets = outlets
         self.customers = customers; self.route = route; self.tasks = tasks; self.callSheets = callSheets
         self.productCatalog = productCatalog; self.inventoryAvailability = inventoryAvailability
+        self.dayTarget = dayTarget; self.daySales = daySales
     }
 }
 
@@ -414,6 +462,8 @@ final class EncryptedFieldStore: FieldLocalStore {
         for v in snapshot.customers { rows.append(("customer", v.id, nil, try encode(v))) }
         if let route = snapshot.route { rows.append(("route", route.id, nil, try encode(route))) }
         for v in snapshot.tasks { rows.append(("task", v.id, nil, try encode(v))) }
+        if let target = snapshot.dayTarget { rows.append(("dayTarget", "today", nil, try encode(target))) }
+        if let sales = snapshot.daySales { rows.append(("daySales", "today", nil, try encode(sales))) }
         guard rows.allSatisfy({ !$0.1.isEmpty }), snapshot.callSheets.allSatisfy(\.isValid),
               snapshot.callSheets.allSatisfy({ sheet in snapshot.outlets.contains { $0.id == sheet.outletId } }) else { throw StoreError.invalidInput }
         guard snapshot.productCatalog.allSatisfy(\.isValid), snapshot.inventoryAvailability.allSatisfy(\.isValid) else {
@@ -504,7 +554,9 @@ final class EncryptedFieldStore: FieldLocalStore {
             route: entities(StoreSnapshot.Route.self, kind: "route", partition: partition).first,
             tasks: entities(StoreSnapshot.Task.self, kind: "task", partition: partition),
             callSheets: callSheets(for: partition), productCatalog: catalog(for: partition),
-            inventoryAvailability: referenceRows(BootstrapV1.InventoryAvailability.self, entity: "inventory", partition: partition))
+            inventoryAvailability: referenceRows(BootstrapV1.InventoryAvailability.self, entity: "inventory", partition: partition),
+            dayTarget: entities(StoreSnapshot.DayTarget.self, kind: "dayTarget", partition: partition).first,
+            daySales: entities(StoreSnapshot.DaySales.self, kind: "daySales", partition: partition).first)
     }
     func leaseExpiry(for partition: StorePartition) throws -> Int64? {
         try query("SELECT lease_expiry FROM partitions WHERE \(Self.predicate)", p(partition)) {
