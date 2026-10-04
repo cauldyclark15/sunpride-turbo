@@ -191,12 +191,14 @@ private fun openDialer(context: Context, uri: String): Boolean = try {
     true
 } catch (_: android.content.ActivityNotFoundException) { false }
 
-/** Hands a `geo:` URI to the user's maps app; false when none is installed. */
-private fun openMaps(context: Context, uri: String): Boolean = try {
-    context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri.toUri())
-        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-    true
-} catch (_: android.content.ActivityNotFoundException) { false }
+/** Hands a `geo:` URI to the user's maps app, else web directions; false when nothing can open either. */
+private fun openMaps(context: Context, uri: String): Boolean = com.sunpride.field.ui.route.MapLaunch.open(uri) { link ->
+    try {
+        context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, link.toUri())
+            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+        true
+    } catch (_: android.content.ActivityNotFoundException) { false }
+}
 
 private object UnconfiguredBackend : FieldBackend {
     override val isSignedIn = false
