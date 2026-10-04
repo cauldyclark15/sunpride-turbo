@@ -26,7 +26,7 @@ export class ConvexIntegrationClient {
     });
     if (!response.ok)
       throw new Error(
-        `Convex integration request failed: ${response.status} ${await response.text()}`,
+        `Convex integration request failed: ${response.status} ${(await response.text()).slice(0, 300)}`,
       );
     return response.json();
   }
