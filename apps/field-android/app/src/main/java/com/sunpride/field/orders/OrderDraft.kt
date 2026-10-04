@@ -96,6 +96,7 @@ class OrderDraftFailure(val code: Code) : IllegalStateException(code.name) {
         EMPTY("Add at least one product."),
         INVALID_QUANTITY("Use whole numbers from 1 to 99,999."),
         HELD("This phone's work is held for review. Sync and ask your administrator."),
+        LEASE_EXPIRED("Your offline day has closed. Sync to keep taking orders."),
     }
 }
 

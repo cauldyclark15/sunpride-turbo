@@ -490,7 +490,7 @@ class EncryptedFieldStoreTest {
             listOf("product-1" to 9), 600)
         assertEquals(listOf(updated), store().orderDrafts())
         assertThrows(IllegalArgumentException::class.java) {
-            runBlocking { store().saveOrderDraft(updated.copy(territoryId = marker, updatedAt = 700)) }
+            runBlocking { store().saveOrderDraft(updated.copy(territoryId = marker, updatedAt = 700), 700) }
         }
         assertEquals(listOf(updated), store().orderDrafts())
         db.close()
@@ -507,6 +507,20 @@ class EncryptedFieldStoreTest {
         store().holdForReview()
         assertTrue(runCatching { store().discardOrderDraft(draft.draftId) }.isFailure)
         assertEquals(listOf(updated), store().orderDrafts())
+    }
+
+    @Test fun leaseExpiryRefusesOrderWorkOnAnAlreadyOpenCallInTheTransaction() = runBlocking {
+        val check = orderReady() // lease ends at 2,000; the call opened at 100
+        val draft = com.sunpride.field.ui.saveOrderDraftIn(store(), null, check.clientVisitId, check.requestId,
+            listOf("product-1" to 3), 1_999)
+        for (now in listOf(2_000L, 9_000L)) {
+            val failure = runCatching { com.sunpride.field.ui.saveOrderDraftIn(store(), draft.draftId, check.clientVisitId,
+                check.requestId, listOf("product-1" to 4), now) }.exceptionOrNull() as com.sunpride.field.orders.OrderDraftFailure
+            assertEquals(com.sunpride.field.orders.OrderDraftFailure.Code.LEASE_EXPIRED, failure.code)
+            assertTrue(runCatching { com.sunpride.field.ui.saveOrderDraftIn(store(), null, check.clientVisitId,
+                check.requestId, listOf("product-1" to 1), now) }.isFailure)
+        }
+        assertEquals(listOf(draft), store().orderDrafts())
     }
 
     @Test fun discardRemovesOnlyThatDraft() = runBlocking {
