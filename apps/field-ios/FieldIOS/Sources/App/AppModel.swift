@@ -26,6 +26,10 @@ final class AppModel {
     private(set) var freshThisLaunch = false
     private(set) var review: [String] = []
     private(set) var visits: [TodayVisit] = []
+    /// Route-screen lookups from the same verified partition as `visits`.
+    private(set) var outletDetails: [String: StoreSnapshot.Outlet] = [:]
+    private(set) var customerDetails: [String: StoreSnapshot.Customer] = [:]
+    private(set) var routeCode: String?
     private(set) var callSheets: [CallSheet] = []
     private(set) var lastSyncedAt: Date?
     private(set) var syncStatus: FieldSyncStatus?
@@ -178,7 +182,7 @@ final class AppModel {
             // A prior person's cached partition cannot be shown to a new session.
             try? secrets.delete(Self.partitionAccount)
             activeStoragePartition = nil
-            visits = []; callSheets = []
+            clearToday()
             freshThisLaunch = false
             try await auth.signIn(email: email, password: password)
             signInError = nil
@@ -201,6 +205,10 @@ final class AppModel {
         refreshToday()
     }
 
+    private func clearToday() {
+        visits = []; callSheets = []; outletDetails = [:]; customerDetails = [:]; routeCode = nil
+    }
+
     /// Confirmed revocation/suspension (QSR-010): hold unsent work and drop this partition's cached
     /// plan, outlets, customers and prices from storage and memory.
     private func holdActive() {
@@ -208,7 +216,7 @@ final class AppModel {
             do { try fieldStore?.purgeCacheForReview(partition) }
             catch { try? fieldStore?.holdForReview(partition) }
         }
-        visits = []; callSheets = []
+        clearToday()
         freshThisLaunch = false
     }
 
@@ -236,6 +244,10 @@ final class AppModel {
             let outlets = Dictionary(uniqueKeysWithValues: try store.outlets(for: partition).map { ($0.id, $0.name) })
             let planned = try store.todayVisits(day, for: partition)
             let localOutlets = try store.outlets(for: partition)
+            let saved = try store.snapshot(for: partition)
+            outletDetails = Dictionary(localOutlets.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            customerDetails = Dictionary((saved?.customers ?? []).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            routeCode = saved?.route?.code
             let rows = planned.map { visit in
                 TodayVisit(id: visit.id, outletId: visit.outletId, outlet: outlets[visit.outletId] ?? "Unknown outlet",
                     serviceDate: visit.serviceDate, intents: visit.intents, planned: true, status: "Planned", sequence: visit.sequence)
@@ -591,7 +603,7 @@ final class AppModel {
         }
         activeStoragePartition = nil
         try? secrets.delete(Self.partitionAccount)
-        visits = []; callSheets = []
+        clearToday()
         lastSyncedAt = nil
         syncStatus = nil
         freshThisLaunch = false
