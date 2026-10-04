@@ -70,6 +70,12 @@ interface FieldStore {
         com.sunpride.field.ui.syncstatus.SyncStatus(offline = offline)
     /** Sign-out, revoke or scope change: freeze pending work for supervised review; never delete it. */
     suspend fun holdForReview()
+    /**
+     * QSR-010 confirmed revocation/suspension: hold as above AND drop the server-provided cache
+     * (plan, outlets, customers, call sheets and prices, employee header, deltas, team summaries,
+     * offline lease). Unsent intents, acks and photos stay encrypted for supervised recovery.
+     */
+    suspend fun purgeCacheForReview() = holdForReview()
     suspend fun history(): List<Pair<IntentRow, OutboxRow>> = emptyList()
     suspend fun intent(requestId: String): IntentRow? = null
     suspend fun delta(entity: String, id: String): DeltaRow? = null
@@ -134,6 +140,31 @@ object EncryptedFieldDatabase {
         val db = open(context)
         try { db.withTransaction { db.rows().holdAllPartitions() } }
         finally { db.close() }
+    }
+
+    /**
+     * QSR-010 sign-out and confirmed revocation: hold every partition and remove every cached server
+     * projection, keeping only unsent/acknowledged evidence (ADR-020). Freed pages are zeroed and the
+     * WAL truncated so the removed rows do not linger in the encrypted file.
+     */
+    suspend fun purgeExisting(context: Context) {
+        if (!context.databaseList().contains(PassphraseVault.DB_NAME)) return
+        val db = open(context)
+        try { purge(db, null) } finally { db.close() }
+    }
+
+    internal suspend fun purge(db: StoreDatabase, scope: StoreScope?) {
+        val dao = db.rows()
+        val (a, d, s) = Triple(scope?.account, scope?.deviceId, scope?.fingerprint)
+        db.withTransaction {
+            db.openHelper.writableDatabase.query("PRAGMA secure_delete=ON").use { it.moveToFirst() }
+            dao.purgeSnapshots(a, d, s)
+            dao.purgeCallSheets(a, d, s)
+            dao.purgeCallSheetLines(a, d, s)
+            dao.purgeDeltas(a, d, s)
+            dao.purgePartitionMetadata(a, d, s)
+        }
+        runCatching { db.openHelper.writableDatabase.query("PRAGMA wal_checkpoint(TRUNCATE)").use { it.moveToFirst() } }
     }
 }
 
@@ -375,5 +406,9 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             dao.putPartition(metadata().copy(held = true, cursor = null, syncHealth = "held_for_review"))
             // Pending rows remain durable. Reauthorization must explicitly reconcile before retry.
         }
+    }
+    override suspend fun purgeCacheForReview() {
+        dao.putPartition(metadata()) // ensure the partition row exists so the hold is recorded
+        EncryptedFieldDatabase.purge(db, identity)
     }
 }

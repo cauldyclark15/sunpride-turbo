@@ -304,6 +304,52 @@ class EncryptedFieldStoreTest {
         Unit
     }
 
+    /** QSR-010: sign-out/revocation removes cached plan, customers, prices and summaries, never unsent work. */
+    @Test fun signOutPurgeDropsServerCacheButKeepsUnsentEvidence() = runBlocking {
+        store().swap(store().stage(snapshot().copy(localCustomers = listOf(SnapshotItem("customer-1", "PRIVATE-CUSTOMER")),
+            callSheets = listOf(callSheet()))), "opaque-cursor", 2000, 2000)
+        store().putLocalCache("local.team", "2026-09-28|direct", "{\"d\":1}", 20, "2026-09-28|")
+        val i = intent()
+        store().enqueue(i, 100)
+        val other = StoreScope("issuer|person-B-${UUID.randomUUID()}", "device-A", "scope-A")
+        ready(store(other), "other-visit")
+        db.close()
+        EncryptedFieldDatabase.purgeExisting(context)
+        db = EncryptedFieldDatabase.open(context)
+        for (s in listOf(store(), store(other))) {
+            assertTrue(s.todaysVisits("2026-09-26").isEmpty())
+            assertTrue(s.outlets().isEmpty())
+            assertTrue(s.customers().isEmpty())
+            assertNull(s.callSheet("outlet-1"))
+            assertNull(s.route())
+            assertNull(s.employeeRole())
+            assertNull(s.cursor())
+            assertFalse(s.isLeaseValid(100))
+            assertEquals("held_for_review", s.syncHealth())
+        }
+        assertNull(store().localCache("local.team", "2026-09-28|direct"))
+        // The unsent intent survives, held; a verified same-partition bootstrap releases it.
+        assertEquals(i.requestId, store().pending().single().first.requestId)
+        assertThrows(IllegalStateException::class.java) { runBlocking { store().enqueue(intent(), 100) } }
+        store().swap(store().stage(snapshot("fresh")), "fresh-cursor", 3000, 3000, releaseHeld = true)
+        assertEquals("fresh", store().todaysVisits("2026-09-26").single().json)
+        assertEquals(i.requestId, store().pending().single().first.requestId)
+    }
+
+    @Test fun revocationPurgeIsScopedToOnePartition() = runBlocking {
+        ready(store())
+        val other = StoreScope(scope.account, scope.deviceId, "scope-B")
+        ready(store(other), "kept")
+        val i = intent()
+        store().enqueue(i, 100)
+        store().purgeCacheForReview()
+        assertTrue(store().todaysVisits("2026-09-26").isEmpty())
+        assertEquals("held_for_review", store().syncHealth())
+        assertEquals(i.requestId, store().pending().single().first.requestId)
+        assertEquals("kept", store(other).todaysVisits("2026-09-26").single().json)
+        assertTrue(store(other).isLeaseValid(100))
+    }
+
     @Test fun backupAndDeviceTransferExcludeDatabaseAndWrappedKey() {
         val app = context.applicationInfo
         assertEquals(0, app.flags and android.content.pm.ApplicationInfo.FLAG_ALLOW_BACKUP)
