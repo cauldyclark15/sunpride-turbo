@@ -55,8 +55,36 @@ data class CallSheetLineRow(val account: String, val deviceId: String, val scope
     val generation: String, val outletId: String, val productId: String, val position: Int,
     val code: String, val name: String, val uom: String, val barcode: String?, val pricing: String?)
 
+/**
+ * AND-016 visit photo: metadata only. The JPEG lives encrypted in no-backup app storage under
+ * [localId]; [checkInRequestId] resolves the server visit from the check-in's durable ack.
+ */
+@Entity(tableName = "evidence_photos", primaryKeys = ["account", "deviceId", "scope", "localId"],
+    indices = [Index(value = ["account", "deviceId", "scope", "clientVisitId"]),
+        Index(value = ["account", "deviceId", "scope", "state", "createdAt"])])
+data class EvidencePhotoRow(val account: String, val deviceId: String, val scope: String,
+    val localId: String, val clientVisitId: String, val checkInRequestId: String, val outletId: String,
+    val photoType: String, val mime: String, val sizeBytes: Long, val sha256: String,
+    val capturedAt: Long, val createdAt: Long, val state: String = "pending", val attempts: Int = 0,
+    val evidenceId: String? = null, val reviewCode: String? = null, val uploadedAt: Long? = null)
+
 @Dao
 interface StoreDao {
+    @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertPhoto(row: EvidencePhotoRow)
+    @Query("SELECT * FROM evidence_photos WHERE account=:account AND deviceId=:device AND scope=:scope AND clientVisitId=:clientVisitId ORDER BY createdAt, localId")
+    suspend fun visitPhotos(account: String, device: String, scope: String, clientVisitId: String): List<EvidencePhotoRow>
+    @Query("SELECT * FROM evidence_photos WHERE account=:account AND deviceId=:device AND scope=:scope AND state='pending' ORDER BY createdAt, localId")
+    suspend fun pendingPhotos(account: String, device: String, scope: String): List<EvidencePhotoRow>
+    @Query("SELECT * FROM evidence_photos WHERE account=:account AND deviceId=:device AND scope=:scope AND localId=:localId")
+    suspend fun photo(account: String, device: String, scope: String, localId: String): EvidencePhotoRow?
+    @Query("UPDATE evidence_photos SET state='uploaded', evidenceId=:evidenceId, uploadedAt=:at WHERE account=:account AND deviceId=:device AND scope=:scope AND localId=:localId AND state='pending'")
+    suspend fun markPhotoUploaded(account: String, device: String, scope: String, localId: String, evidenceId: String, at: Long): Int
+    @Query("UPDATE evidence_photos SET attempts=attempts+1 WHERE account=:account AND deviceId=:device AND scope=:scope AND localId=:localId AND state='pending'")
+    suspend fun countPhotoAttempt(account: String, device: String, scope: String, localId: String): Int
+    @Query("UPDATE evidence_photos SET state='review', reviewCode=:code WHERE account=:account AND deviceId=:device AND scope=:scope AND localId=:localId AND state='pending'")
+    suspend fun reviewPhoto(account: String, device: String, scope: String, localId: String, code: String): Int
+    @Query("SELECT COUNT(*) FROM evidence_photos WHERE account=:account AND deviceId=:device AND scope=:scope AND state='pending'")
+    suspend fun waitingPhotos(account: String, device: String, scope: String): Int
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertCallSheet(row: CallSheetRow)
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertCallSheetLine(row: CallSheetLineRow)
     @Query("SELECT * FROM call_sheets WHERE account=:account AND deviceId=:device AND scope=:scope AND generation=:generation AND outletId=:outlet")
@@ -116,8 +144,8 @@ interface StoreDao {
     suspend fun ack(account: String, device: String, scope: String, requestId: String): AckRow?
 }
 
-@Database(entities = [SnapshotRow::class, PartitionRow::class, IntentRow::class, OutboxRow::class, AckRow::class, DeltaRow::class, CallSheetRow::class, CallSheetLineRow::class],
-    version = 5, exportSchema = true)
+@Database(entities = [SnapshotRow::class, PartitionRow::class, IntentRow::class, OutboxRow::class, AckRow::class, DeltaRow::class, CallSheetRow::class, CallSheetLineRow::class, EvidencePhotoRow::class],
+    version = 6, exportSchema = true)
 abstract class StoreDatabase : RoomDatabase() {
     abstract fun rows(): StoreDao
 }

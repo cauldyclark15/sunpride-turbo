@@ -138,6 +138,20 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                         onClick = open)
                 }
             }
+            // AND-016: photos belong to the open call; after End they stay listed until uploaded.
+            val photos = controller.diagnosticPhotos
+            if (checkedIn && (!checkedOut || photos.isNotEmpty())) SectionCard("Photos · ${photos.size}",
+                Modifier.testTag("visit-photos")) {
+                Column {
+                    photos.forEach { photo ->
+                        ListRow(com.sunpride.field.storage.EvidencePhotos.label(photo.photoType, controller.diagnosticPhotoTypes),
+                            com.sunpride.field.storage.EvidencePhotos.stateLabel(photo), "photo",
+                            Modifier.semantics(mergeDescendants = true) {}.testTag("visit-photo"))
+                    }
+                    if (!checkedOut) ListRow("Take photo", "Store front, shelf, price tags and more", "photo",
+                        Modifier.testTag("photo-open"), onClick = { controller.openPhotoCapture() })
+                }
+            }
             if (checkedIn && !checkedOut) {
                 SectionCard("Call sheet") {
                     if (controller.diagnosticCallSheet == null) Text(
@@ -219,6 +233,10 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                             r.officeReview.joinToString(", ") { com.sunpride.field.storage.ActivityRules.kindLabel(it) },
                             Modifier.semantics(mergeDescendants = true) {}.testTag("result-office"))
                         com.sunpride.field.ui.ValueRow("Sync", r.sync, Modifier.semantics(mergeDescendants = true) {}.testTag("result-sync"))
+                        com.sunpride.field.storage.EvidencePhotos.summary(controller.diagnosticPhotos)?.let {
+                            com.sunpride.field.ui.ValueRow("Photos", it,
+                                Modifier.semantics(mergeDescendants = true) {}.testTag("result-photos"))
+                        }
                         Text(r.location, Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
                             .testTag(if (r.locationReview) "result-location-review" else "result-location"),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

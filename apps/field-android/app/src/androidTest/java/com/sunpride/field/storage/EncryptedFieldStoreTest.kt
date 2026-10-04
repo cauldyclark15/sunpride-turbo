@@ -35,6 +35,53 @@ class EncryptedFieldStoreTest {
         CallSheetHeader("Account", "Address", null, null, null, null, null, null, null, "SRP"),
         listOf(CallSheetProduct("product-1", "SKU", "Product", "PC", null, "₱10")))
 
+    /** AND-016: photo metadata is scoped, durable across reopen, and upload state changes are one-way. */
+    @Test fun visitPhotosAreScopedDurableAndUploadAgainstRealRoom() = runBlocking {
+        val target = store()
+        target.swap(target.stage(snapshot().copy(photoTypes = listOf(PhotoType("shelf_display", "Shelf")))),
+            "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
+        assertEquals(listOf(PhotoType("shelf_display", "Shelf")), target.photoTypes())
+        target.enqueue(com.sunpride.field.ui.diagnosticvisit.VisitIntentFactory.create(scope, "visit.checkIn", null,
+            null, null, null, "outlet-1", listOf("sell"), "walk-in", null, null, null, null), System.currentTimeMillis())
+        val start = target.history().single().first
+        val bytes = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 5, 0xFF.toByte(), 0xD9.toByte())
+        val row = EvidencePhotoRow(scope.account, scope.deviceId, scope.fingerprint, UUID.randomUUID().toString(),
+            start.clientVisitId, start.requestId, "outlet-1", "shelf_display", EvidencePhotos.MIME, bytes.size.toLong(),
+            EvidencePhotos.sha256Hex(bytes), 10, 20)
+        assertThrows(IllegalArgumentException::class.java) { runBlocking {
+            target.addPhoto(row.copy(localId = UUID.randomUUID().toString(), photoType = "storefront"), System.currentTimeMillis()) } }
+        target.addPhoto(row, System.currentTimeMillis())
+        assertTrue(store(scope.copy(fingerprint = "other")).pendingPhotos().isEmpty())
+        db.close(); db = EncryptedFieldDatabase.open(context)
+        assertEquals(listOf(row), store().pendingPhotos())
+        assertEquals(1, store().status().photosWaiting)
+        // The uploader waits for the Start ack, then attaches through the API seam.
+        val files = object : com.sunpride.field.evidence.PhotoFiles {
+            val map = mutableMapOf(row.localId to bytes)
+            override fun write(localId: String, bytes: ByteArray) { map[localId] = bytes }
+            override fun read(localId: String) = map.getValue(localId)
+            override fun delete(localId: String) { map.remove(localId) }
+        }
+        val api = object : com.sunpride.field.evidence.EvidenceApi {
+            override fun uploadUrl(visitId: String) = "https://upload" to "claim"
+            override fun upload(url: String, bytes: ByteArray, mime: String) = "storage"
+            override fun attach(claim: String, visitId: String, storageId: String, row: EvidencePhotoRow) = "evidence-$visitId"
+        }
+        assertTrue(com.sunpride.field.evidence.EvidenceUploader(store(), scope, files, api).run().retryLater)
+        store().recordAck(start.requestId, "visit-1", "[]", 1)
+        assertEquals(1, com.sunpride.field.evidence.EvidenceUploader(store(), scope, files, api).run().uploaded)
+        val uploaded = store().visitPhotos(start.clientVisitId).single()
+        assertEquals("uploaded", uploaded.state); assertEquals("evidence-visit-1", uploaded.evidenceId)
+        assertTrue(files.map.isEmpty())
+        assertEquals(0, store().status().photosWaiting)
+        // Replayed success must agree; review/attempts never apply to an uploaded photo.
+        store().markPhotoUploaded(row.localId, "evidence-visit-1", 2)
+        assertThrows(IllegalStateException::class.java) { runBlocking { store().markPhotoUploaded(row.localId, "other", 2) } }
+        assertThrows(IllegalStateException::class.java) { runBlocking { store().reviewPhoto(row.localId, "x") } }
+        assertThrows(IllegalStateException::class.java) { runBlocking { store().countPhotoAttempt(row.localId) } }
+        Unit
+    }
+
     @Test fun callSheetGenerationPromotionIsScopedAtomicAndDurable() = runBlocking {
         val target = store()
         val initial = snapshot().copy(callSheets = listOf(callSheet()))
