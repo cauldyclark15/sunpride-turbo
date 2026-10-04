@@ -1,7 +1,24 @@
 import { ConvexError, v } from "convex/values";
-import { internalQuery } from "../_generated/server";
+import { internalQuery, type QueryCtx } from "../_generated/server";
+import type { Doc, Id } from "../_generated/dataModel";
+import { standardAt, standardsFor } from "../sfa/standards";
+import { productiveCallRuleValidator } from "../sfa/productive_call";
+import {
+  DEFAULT_SELLING_WEEKDAYS,
+  isSellingDay,
+  sellingDatesInMonth,
+} from "../sfa/selling_days";
+import { subjectTargetAt } from "../targets/sales";
+import {
+  countsAsSale,
+  dailyTarget,
+  manilaDateOf,
+  monthOf,
+  saleInstant,
+  toMinor,
+} from "../dsr/model";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
-import { manilaDate } from "../coverage/validation";
+import { localDate, manilaDate, monthBounds } from "../coverage/validation";
 import { nextDayCloseAt } from "../visits/policy";
 import { activityRuleDTO } from "../visits/activity_rules";
 import {
@@ -33,6 +50,148 @@ import {
   pageEnd,
   WORKING_SET_TOO_LARGE,
 } from "./budget";
+
+const MAX_ASSIGNMENT_HISTORY = 50;
+
+/** Additive optional v1 field: the person's daily position standard (client memo, call answer 1). */
+const dayTargetValidator = v.object({
+  dailyCalls: v.optional(v.number()),
+  productivePct: v.optional(v.number()),
+  sourceRef: v.optional(v.string()),
+  /** The governed productive-call rule (sfa/productive_call.ts) the phone counts calls with. */
+  productiveCallRule: v.optional(productiveCallRuleValidator),
+});
+
+/**
+ * Additive optional v1 field: today's sales as the server has them (Manila day, centavos), with
+ * the person's daily sales target. The phone shows them as of the last sync; order capture is
+ * not on the phone, so the server total is the whole of the day's sales.
+ */
+const daySalesValidator = v.object({
+  amountMinor: v.number(),
+  orders: v.number(),
+  targetMinor: v.optional(v.number()),
+});
+
+/** A salesman's orders on one day; well above a field day's calls. */
+const MAX_DAY_ORDERS = 500;
+
+/**
+ * The standard in effect now (bootstrap only serves Manila today), resolved through the
+ * current employee assignment like the manager's daily scorecard (sfa/standards.ts). Read at
+ * `now`, not Manila noon, so a person assigned after noon still gets today's target.
+ */
+async function currentStandard(
+  ctx: QueryCtx,
+  profileId: Id<"profiles">,
+  instant: number,
+) {
+  const assignments = await ctx.db
+    .query("employeeAssignments")
+    .withIndex("by_profileId_and_effectiveFrom", (q) =>
+      q.eq("profileId", profileId).lte("effectiveFrom", instant),
+    )
+    .order("desc")
+    .take(MAX_ASSIGNMENT_HISTORY);
+  const assignment = assignments.find(
+    (row) => row.effectiveTo === undefined || row.effectiveTo > instant,
+  );
+  const positionId =
+    assignment?.positionId ?? (await ctx.db.get(profileId))?.positionId;
+  if (!positionId) return null;
+  return standardAt(await standardsFor(ctx, positionId), instant);
+}
+
+/**
+ * Omitted when the person has no position standard or it sets neither call targets nor a
+ * productive-call rule ("No target set"; the phone then applies the default rule).
+ */
+function dayTarget(standard: Doc<"positionStandards"> | null) {
+  if (
+    !standard ||
+    (standard.dailyCallsTarget === undefined &&
+      standard.productiveCallTargetPct === undefined &&
+      standard.productiveCallRule === undefined)
+  )
+    return undefined;
+  return {
+    ...(standard.dailyCallsTarget === undefined
+      ? {}
+      : { dailyCalls: standard.dailyCallsTarget }),
+    ...(standard.productiveCallTargetPct === undefined
+      ? {}
+      : { productivePct: standard.productiveCallTargetPct }),
+    sourceRef: standard.sourceRef,
+    ...(standard.productiveCallRule === undefined
+      ? {}
+      : { productiveCallRule: standard.productiveCallRule }),
+  };
+}
+
+/**
+ * Today's sales, counted like the Daily Sales Report (dsr/report.ts): the person's orders that
+ * became a sale, attributed to the day the salesman wrote them. The daily target is the set
+ * daily sales target, else the monthly one spread over the position's selling days. Omitted
+ * (the phone says "Not available") when the day has more orders than one bounded read.
+ */
+async function daySales(
+  ctx: QueryCtx,
+  profileId: Id<"profiles">,
+  standard: Doc<"positionStandards"> | null,
+  day: string,
+  now: number,
+) {
+  const person = await ctx.db.get(profileId);
+  if (!person) return undefined;
+  const dayStart = localDate(day);
+  const orders = await ctx.db
+    .query("orders")
+    .withIndex("by_salespersonSubject_and_createdAt", (q) =>
+      q
+        .eq("salespersonSubject", person.authSubject)
+        .gte("createdAt", dayStart)
+        .lte("createdAt", now),
+    )
+    .take(MAX_DAY_ORDERS + 1);
+  if (orders.length > MAX_DAY_ORDERS) return undefined;
+  const sales = orders.filter(
+    (order) =>
+      (order.organizationId === undefined ||
+        order.organizationId === SUNPRIDE_ORGANIZATION_ID) &&
+      countsAsSale(order.status) &&
+      manilaDateOf(saleInstant(order)) === day,
+  );
+  const localMonth = monthOf(day);
+  const sellingWeekdays = standard?.sellingWeekdays ?? [
+    ...DEFAULT_SELLING_WEEKDAYS,
+  ];
+  const subject = { kind: "employee" as const, profileId };
+  const daily = await subjectTargetAt(
+    ctx,
+    subject,
+    "daily",
+    "sales_value",
+    dayStart,
+  );
+  const monthly = await subjectTargetAt(
+    ctx,
+    subject,
+    "monthly",
+    "sales_value",
+    monthBounds(localMonth).from,
+  );
+  const target = dailyTarget({
+    daily: daily?.value ?? null,
+    monthly: monthly?.value ?? null,
+    sellingDay: isSellingDay(day, sellingWeekdays),
+    sellingDaysInMonth: sellingDatesInMonth(localMonth, sellingWeekdays).length,
+  }).value;
+  return {
+    amountMinor: sales.reduce((sum, order) => sum + toMinor(order.total), 0),
+    orders: sales.length,
+    ...(target === null ? {} : { targetMinor: target }),
+  };
+}
 
 export const snapshot = internalQuery({
   args: {
@@ -74,6 +233,8 @@ export const snapshot = internalQuery({
     page: v.number(),
     nextPageCursor: v.union(v.string(), v.null()),
     syncCursor: v.union(v.string(), v.null()),
+    dayTarget: v.optional(dayTargetValidator),
+    daySales: v.optional(daySalesValidator),
   }),
   handler: async (ctx, { actor, dayFrom, pageCursor, limit }) => {
     const now = Date.now();
@@ -175,6 +336,9 @@ export const snapshot = internalQuery({
     const next = cursor.after + pageEntries.length;
     const hasMore = next < entries.length;
     const base = { ...cursor, after: next, page: cursor.page + 1 };
+    const standard = await currentStandard(ctx, actor.profileId, now);
+    const target = dayTarget(standard);
+    const sales = await daySales(ctx, actor.profileId, standard, day, now);
     return {
       type: "bootstrap.response" as const,
       contractVersion: 1 as const,
@@ -223,6 +387,8 @@ export const snapshot = internalQuery({
       syncCursor: hasMore
         ? null
         : await signCursor({ ...base, kind: "pull", after: cursor.watermark }),
+      ...(target ? { dayTarget: target } : {}),
+      ...(sales ? { daySales: sales } : {}),
     };
   },
 });
