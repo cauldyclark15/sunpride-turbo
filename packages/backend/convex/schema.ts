@@ -34,6 +34,11 @@ import {
   workWithTrainingLog,
 } from "./supervision/work_with_model";
 import {
+  talkSheetItemStatus,
+  talkSheetStatus,
+  talkSheetTopic,
+} from "./supervision/talk_sheet_model";
+import {
   targetMetricValidator,
   targetPeriodValidator,
   targetSubjectKindValidator,
@@ -1923,6 +1928,60 @@ export default defineSchema({
       "serviceDate",
     ])
     .index("by_orgUnitId_and_serviceDate", ["orgUnitId", "serviceDate"]),
+  /**
+   * SOP-011 Talk Sheet (memo Annex E): one meeting between an SFI sales representative
+   * (`ownerProfileId`, "Discussed by") and an Area Distribution Partner. Sheets of the same
+   * `orgUnitId` + `partnerKey` form a chain; a new sheet copies the previous final sheet's
+   * open (On-going/Overdue) items. `final` is signed off and immutable.
+   */
+  talkSheets: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    partnerName: v.string(),
+    partnerKey: v.string(),
+    ownerProfileId: v.id("profiles"),
+    meetingDate: v.string(), // YYYY-MM-DD, Manila
+    nextContactDate: v.optional(v.string()),
+    acknowledgedByName: v.optional(v.string()),
+    status: talkSheetStatus,
+    previousSheetId: v.optional(v.id("talkSheets")),
+    finalizedAt: v.optional(v.number()),
+    createdBy: v.string(),
+    createdAt: v.number(),
+    updatedBy: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_orgUnitId_and_partnerKey_and_meetingDate", [
+      "orgUnitId",
+      "partnerKey",
+      "meetingDate",
+    ])
+    .index("by_orgUnitId_and_meetingDate", ["orgUnitId", "meetingDate"])
+    .index("by_ownerProfileId_and_meetingDate", [
+      "ownerProfileId",
+      "meetingDate",
+    ]),
+  /**
+   * One gap/issue line of a Talk Sheet. A carried line keeps `openedOn` (when the issue
+   * was first raised) and points at its origin and the line it was copied from; it can
+   * close only by reaching `completed`, never by being removed.
+   */
+  talkSheetItems: defineTable({
+    organizationId: v.string(),
+    sheetId: v.id("talkSheets"),
+    position: v.number(),
+    topic: talkSheetTopic,
+    gap: v.string(),
+    agreement: v.string(),
+    correctiveAction: v.string(),
+    responsible: v.string(),
+    timeline: v.string(), // YYYY-MM-DD
+    status: talkSheetItemStatus,
+    rootCause: v.optional(v.string()),
+    openedOn: v.string(), // meeting date the issue was first raised
+    originItemId: v.optional(v.id("talkSheetItems")),
+    carriedFromItemId: v.optional(v.id("talkSheetItems")),
+  }).index("by_sheetId_and_position", ["sheetId", "position"]),
   /**
    * Sales targets (CVX-017): one number per subject (employee, team or territory), period
    * (daily or monthly) and metric, effective-dated with the document it came from. Exactly
