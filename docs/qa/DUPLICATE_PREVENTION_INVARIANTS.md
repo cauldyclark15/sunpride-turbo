@@ -67,9 +67,8 @@ same `processedMobileOperations` registry and add a replay test here.
 - **Payments.** There is no payment/collection writer, so duplicate prevention for payments cannot be
   proven yet; only the "unsupported, key not consumed" behaviour above is tested. Proof belongs to the
   issue that adds the collections writer.
-
-- **Connector → SAP.** Convex never requeues an accepted document, but if SAP accepts a document and
-  the connector times out before acking, the connector's retry reaches SAP again. Whether SAP rejects
+- **Connector → SAP.** Separately from the late-ack gap above (which can requeue an accepted document
+  in this release), if SAP accepts a document and the connector times out before acking, the connector's retry reaches SAP again. Whether SAP rejects
   it depends on the connector sending the stable `eventId` as SAP's external reference (for example
   `NumAtCard`) and SAP checking it. That needs the SAP connector owner and a SAP test system.
 - **Native outbox.** The server guards above assume the phone keeps the same `clientRequestId`,
