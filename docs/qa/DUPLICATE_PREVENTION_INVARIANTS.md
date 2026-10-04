@@ -50,14 +50,23 @@ same `processedMobileOperations` registry and add a replay test here.
 
 ## SAP documents
 
-| Direction                              | Guard                                                                                            | Test                                                                                   |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
-| Inbound event re-delivery              | `integrationEvents.by_event_id`                                                                  | `integration/sap.test.ts` "deduplicates event ids…", "posts an approved SAP movement…" |
-| Outbound sales order                   | One event per order, `eventId = order-<orderId>`, created only on the single approval transition | `acceptance/sfa_pilot.acceptance.test.ts` UAT-E2E-01                                   |
-| Connector ack retried or arriving late | `acknowledgeTask`: `completed` is terminal; acks for inbound events are ignored                  | `integration/sap.test.ts` "treats an accepted SAP document as final…"                  |
-| SAP failures                           | Backoff, dead letter on the tenth failure; order stays approved                                  | `acceptance/sfa_pilot.acceptance.test.ts` UAT-E2E-03b                                  |
+| Direction                              | Guard                                                                                                | Test                                                                                   |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Inbound event re-delivery              | `integrationEvents.by_event_id`                                                                      | `integration/sap.test.ts` "deduplicates event ids…", "posts an approved SAP movement…" |
+| Outbound sales order                   | One event per order, `eventId = order-<orderId>`, created only on the single approval transition     | `acceptance/sfa_pilot.acceptance.test.ts` UAT-E2E-01                                   |
+| Connector ack retried or arriving late | **Not guarded in this release** (SAP work is out of the authorized no-SAP scope); see residual risks | —                                                                                      |
+| SAP failures                           | Backoff, dead letter on the tenth failure; order stays approved                                      | `acceptance/sfa_pilot.acceptance.test.ts` UAT-E2E-03b                                  |
 
 ## Residual risks (not provable in convex-test)
+
+- **Late or repeated connector ack (SAP, deferred).** `integration/sap.acknowledgeTask` still patches
+  any event it finds: a failure ack arriving after SAP accepted a document can put it back in the send
+  queue, and an inbound event id can be acked. The fix (treat `completed` as terminal, ignore
+  non-outbound events) was built and tested but removed from SP-0024 because this release excludes
+  SAP changes; it must ship with the SAP connector work.
+- **Payments.** There is no payment/collection writer, so duplicate prevention for payments cannot be
+  proven yet; only the "unsupported, key not consumed" behaviour above is tested. Proof belongs to the
+  issue that adds the collections writer.
 
 - **Connector → SAP.** Convex never requeues an accepted document, but if SAP accepts a document and
   the connector times out before acking, the connector's retry reaches SAP again. Whether SAP rejects

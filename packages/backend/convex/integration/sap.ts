@@ -368,10 +368,7 @@ export const acknowledgeTask = internalMutation({
       .query("integrationEvents")
       .withIndex("by_event_id", (q) => q.eq("eventId", args.eventId))
       .unique();
-    if (!event || event.direction !== "outbound") return null;
-    // Completed is terminal. A connector retry or a late failure ack after SAP accepted the
-    // document must not requeue it (a second SAP document) or replace its document number.
-    if (event.status === "completed") return null;
+    if (!event) return null;
     const now = Date.now();
     await ctx.db.patch(event._id, {
       status: args.success
