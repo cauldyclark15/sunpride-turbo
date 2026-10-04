@@ -121,6 +121,21 @@ class OrderSubmissionTest {
         assertNull(store.orderDrafts().single().submittedRequestId)
     }
 
+    /** Submitting order B under draft A must not freeze A while B goes out. */
+    @Test fun aDraftIsFrozenOnlyByItsOwnOrderRequest() = runBlocking {
+        val store = ready(); val check = checkIn(store)
+        val a = saveOrderDraftIn(store, null, check.clientVisitId, check.requestId, listOf("product-2" to 12), 500)
+        val b = saveOrderDraftIn(store, null, check.clientVisitId, check.requestId, listOf("product-2" to 3), 510)
+        val intentB = OrderSubmission.intent(scope, b, check.requestId, 600)
+        assertTrue(runCatching { store.submitOrderDraft(a.draftId, intentB, 600) }.exceptionOrNull()
+            is IllegalArgumentException)
+        assertEquals(1, store.history().size)
+        assertTrue(store.orderDrafts().all { it.submittedRequestId == null })
+        store.submitOrderDraft(b.draftId, intentB, 600)
+        assertEquals(intentB.requestId, store.orderDrafts().single { it.draftId == b.draftId }.submittedRequestId)
+        assertNull(store.orderDrafts().single { it.draftId == a.draftId }.submittedRequestId)
+    }
+
     @Test fun reviewChecksReportEndedCallChangedSetupAndExpiredAccess() = runBlocking {
         val store = ready(lease = 1_000); val check = checkIn(store)
         val draft = saveOrderDraftIn(store, null, check.clientVisitId, check.requestId, listOf("product-1" to 2), 500)

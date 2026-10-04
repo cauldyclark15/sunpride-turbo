@@ -2811,6 +2811,16 @@ export default defineSchema({
   })
     .index("by_outletId", ["outletId"])
     .index("by_organizationId_and_updatedAt", ["organizationId", "updatedAt"]),
+  // SP-0060: the products each replaced call sheet revision authorized, so a field order
+  // queued offline against that day's catalog stays valid after an office edit.
+  callSheetAccountRevisions: defineTable({
+    organizationId: v.string(),
+    outletId: v.id("outlets"),
+    revision: v.number(),
+    productIds: v.array(v.id("products")),
+    effectiveFrom: v.number(),
+    supersededAt: v.number(),
+  }).index("by_outletId_and_supersededAt", ["outletId", "supersededAt"]),
   // One captured product row per call_sheet visit activity; week 1-4 of the Manila month.
   callSheetEntries: defineTable({
     organizationId: v.string(),

@@ -439,6 +439,7 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
                 ?: error("Unknown draft")
             if (existing.submittedRequestId != null)
                 throw com.sunpride.field.orders.OrderDraftFailure(com.sunpride.field.orders.OrderDraftFailure.Code.SUBMITTED)
+            com.sunpride.field.orders.OrderQueueRules.requireIntentFor(draftId, intent)
             // Order rules first, so an ended call reads as an order refusal (CALL_ENDED), not a generic visit one.
             com.sunpride.field.orders.OrderQueueRules.validate(this@RoomFieldStore, intent)
             enqueue(intent, now) // OrderQueueRules re-checks the request against this unsent draft.

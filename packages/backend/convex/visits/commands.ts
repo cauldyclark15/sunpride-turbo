@@ -476,8 +476,7 @@ export async function applyVisitOperation(
     if (p.activity.kind === "order_intent" && p.activity.lines !== undefined)
       await validateFieldOrder(
         ctx,
-        visit._id,
-        visit.outletId,
+        visit,
         p.activity.clientOrderId,
         p.activity.lines,
       );

@@ -28,7 +28,8 @@ enum class OrderStatus(val label: String) {
     DRAFT("Draft · not sent"),
     QUEUED("Waiting to send"),
     SENDING("Sending"),
-    RECEIVED("Received by office"),
+    // The office has the order; it is not yet a priced, posted sales order (no price list yet).
+    RECEIVED("Received by office · not yet posted"),
     NEEDS_REVIEW("Not accepted · needs review"),
     NOT_SENT("Not sent · call ended"),
 }
@@ -152,6 +153,19 @@ object OrderQueueRules {
             payload.getString("visitId") == "@checkin:${draft.checkInRequestId}") { "Order does not match its call" }
         require(OrderSubmission.sameActivity(OrderSubmission.activity(draft), activity)) { "Order lines changed" }
         OrderDraftRules.validate(store, draft, null)
+    }
+
+    /**
+     * A draft is frozen only by its own request: [intent] must be the order_intent activity whose
+     * clientOrderId is [draftId], or submitting order B with draft A would lock A while sending B.
+     */
+    fun requireIntentFor(draftId: String, intent: IntentRow) {
+        val activity = runCatching {
+            JSONObject(intent.serializedOperation).getJSONObject("payload").getJSONObject("activity")
+        }.getOrNull()
+        require(intent.kind == "visit.activity" && activity != null &&
+            activity.optString("kind") == OrderSubmission.KIND &&
+            activity.optString("clientOrderId") == draftId) { "Request is not this draft's order" }
     }
 }
 

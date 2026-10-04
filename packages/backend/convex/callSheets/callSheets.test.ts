@@ -571,9 +571,23 @@ describe("field order submission (SP-0060)", () => {
       },
     });
 
+  const saveLines = (
+    f: Awaited<ReturnType<typeof fixture>>,
+    expectedRevision: number | null,
+    productIds: Id<"products">[],
+  ) =>
+    f.as("ops").mutation(api.callSheets.accounts.save, {
+      outletId: f.ids.outlet,
+      expectedRevision,
+      header: f.header,
+      lines: productIds.map((productId) => ({ productId })),
+    });
+
   it("records the order's lines on the visit's order activity", async () => {
     const f = await fixture();
-    await f.saveAccount();
+    // The phone took its catalog with `extra`; the office removed it later that day.
+    await saveLines(f, null, [f.ids.hotdog, f.ids.corned, f.ids.extra]);
+    await saveLines(f, 1, [f.ids.hotdog, f.ids.corned]);
     const visitId = await f.checkIn();
     const ack = await order(f, 2, visitId, uuid(900), [
       { productId: f.ids.hotdog, uom: "CAN", quantity: 12 },
@@ -593,6 +607,38 @@ describe("field order submission (SP-0060)", () => {
       ],
     });
     expect(rows.events.map((e) => e.kind)).toContain("activity.order_intent");
+  });
+
+  it("refuses an active product with the right unit that the account never authorized that day", async () => {
+    const f = await fixture();
+    // `extra` is active, nationwide and in CAN, but this account never listed it.
+    await f.saveAccount();
+    const visitId = await f.checkIn();
+    const extra = { productId: f.ids.extra, uom: "CAN", quantity: 1 };
+    await expect(order(f, 2, visitId, uuid(900), [extra])).rejects.toThrow(
+      "invalid_request",
+    );
+    // Listed once, but removed before the service day: no longer authorized either.
+    await saveLines(f, 1, [f.ids.hotdog, f.ids.extra]);
+    await saveLines(f, 2, [f.ids.hotdog]);
+    await f.t.run(async (ctx) => {
+      const rows = await ctx.db.query("callSheetAccountRevisions").collect();
+      expect(rows.map((row) => row.revision)).toEqual([1, 2]);
+      for (const row of rows)
+        await ctx.db.patch(row._id, { supersededAt: now - 86_400_000 });
+    });
+    await expect(order(f, 3, visitId, uuid(901), [extra])).rejects.toThrow(
+      "invalid_request",
+    );
+    expect(
+      await f.t.run((ctx) => ctx.db.query("visitActivities").collect()),
+    ).toEqual([]);
+    // The current revision still authorizes its own products.
+    await expect(
+      order(f, 4, visitId, uuid(902), [
+        { productId: f.ids.hotdog, uom: "CAN", quantity: 1 },
+      ]),
+    ).resolves.toMatchObject({ entityId: expect.any(String) });
   });
 
   it("keeps a line-less order intent valid without an account setup", async () => {

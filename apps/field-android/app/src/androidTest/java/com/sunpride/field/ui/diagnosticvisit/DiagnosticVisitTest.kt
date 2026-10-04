@@ -207,10 +207,10 @@ class DiagnosticVisitTest {
         rule.setContent { FieldApp(AppEnvironment("https://team.convex.site", "https://team.convex.cloud"),
             dark = false, debug = true, backend = backend, visitLocation = location) }
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-open").fetchSemanticsNodes().isNotEmpty() }
-        rule.onNodeWithTag("diagnostic-open").performClick()
+        rule.onNodeWithTag("diagnostic-open").performScrollTo().performClick()
         backend.queueVisit("visit.checkIn", null, null, null, "planned-1", "outlet-1", emptyList(), null, null, null, null, null)
         rule.onNodeWithTag("visit-back").performClick()
-        rule.onNodeWithTag("diagnostic-open").performClick()
+        rule.onNodeWithTag("diagnostic-open").performScrollTo().performClick()
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("order-new").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithTag("order-new").performScrollTo().performClick()
         rule.onNodeWithTag("order-title").assertTextContains("New order")
@@ -276,10 +276,10 @@ class DiagnosticVisitTest {
         rule.setContent { FieldApp(AppEnvironment("https://team.convex.site", "https://team.convex.cloud"),
             dark = false, debug = true, backend = backend, visitLocation = location) }
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-open").fetchSemanticsNodes().isNotEmpty() }
-        rule.onNodeWithTag("diagnostic-open").performClick()
+        rule.onNodeWithTag("diagnostic-open").performScrollTo().performClick()
         backend.queueVisit("visit.checkIn", null, null, null, "planned-1", "outlet-1", emptyList(), null, null, null, null, null)
         rule.onNodeWithTag("visit-back").performClick()
-        rule.onNodeWithTag("diagnostic-open").performClick()
+        rule.onNodeWithTag("diagnostic-open").performScrollTo().performClick()
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("order-new").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithTag("order-new").performScrollTo().performClick()
         rule.onNodeWithTag("order-products").performScrollToNode(hasTestTag("order-qty-product-1"))

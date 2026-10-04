@@ -554,4 +554,21 @@ class EncryptedFieldStoreTest {
         assertEquals(com.sunpride.field.orders.OrderStatus.RECEIVED,
             com.sunpride.field.orders.OrderSubmission.status(stored, store().history().map { it.first to it.second.state }))
     }
+
+    /** SP-0060: order B's request under draft A rolls back in SQLCipher; neither draft freezes. */
+    @Test fun aDraftIsFrozenOnlyByItsOwnOrderRequest() = runBlocking {
+        val check = orderReady()
+        val a = com.sunpride.field.ui.saveOrderDraftIn(store(), null, check.clientVisitId, check.requestId,
+            listOf("product-1" to 7), 500)
+        val b = com.sunpride.field.ui.saveOrderDraftIn(store(), null, check.clientVisitId, check.requestId,
+            listOf("product-1" to 2), 510)
+        val intentB = com.sunpride.field.orders.OrderSubmission.intent(scope, b, check.requestId, 600)
+        assertTrue(runCatching { store().submitOrderDraft(a.draftId, intentB, 600) }.exceptionOrNull()
+            is IllegalArgumentException)
+        assertEquals(listOf("visit.checkIn"), store().history().map { it.first.kind })
+        assertTrue(store().orderDrafts().all { it.submittedRequestId == null })
+        store().submitOrderDraft(b.draftId, intentB, 600)
+        assertEquals(intentB.requestId, store().orderDrafts().single { it.draftId == b.draftId }.submittedRequestId)
+        assertNull(store().orderDrafts().single { it.draftId == a.draftId }.submittedRequestId)
+    }
 }
