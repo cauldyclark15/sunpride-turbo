@@ -129,6 +129,19 @@ export type BootstrapResponse = {
   page: number;
   nextPageCursor: string | null;
   syncCursor: string | null;
+  dayTarget?: {
+    dailyCalls?: number;
+    productivePct?: number;
+    sourceRef?: string;
+    /** "any_listed_activity" | "truck_seller"; open string, unknown means the default rule. */
+    productiveCallRule?: string;
+  };
+  /** Today's sales (PHP centavos), as of serverTime. Optional: added after v1 shipped. */
+  daySales?: {
+    amountMinor: number;
+    orders: number;
+    targetMinor?: number;
+  };
 };
 export type PullRequest = {
   type: "pull.request";

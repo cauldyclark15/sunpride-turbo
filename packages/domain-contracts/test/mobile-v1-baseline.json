@@ -52,6 +52,8 @@
     "bootstrapResponse.callSheets[].outletId",
     "bootstrapResponse.callSheets[].revision",
     "bootstrapResponse.contractVersion",
+    "bootstrapResponse.daySales.amountMinor",
+    "bootstrapResponse.daySales.orders",
     "bootstrapResponse.employee",
     "bootstrapResponse.employee.id",
     "bootstrapResponse.employee.orgUnitId",

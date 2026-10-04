@@ -38,7 +38,14 @@ final class AppModel {
     private(set) var lastSyncedAt: Date?
     private(set) var syncStatus: FieldSyncStatus?
     private(set) var isOffline = false
+    private(set) var dayTarget: StoreSnapshot.DayTarget?
     let enrollment: Enrollment
+    /// Today's summary (date, target, calls, completion, next outlet, ordered route), store-derived.
+    private(set) var daySales: StoreSnapshot.DaySales?
+    var dashboard: TodayDashboard {
+        TodayDashboard.make(visits: visits, target: dayTarget, sales: daySales, now: now(),
+                            canStart: { [weak self] in self?.startFailure(for: $0) == nil })
+    }
 
     struct TodayVisit: Identifiable {
         let id: String; let outletId: String; let outlet: String
@@ -46,6 +53,12 @@ final class AppModel {
         var sequence: Int? = nil
         var startedAt: Date? = nil
         var endedAt: Date? = nil
+        /// End outcome recorded on this phone ("completed" or "nonproductive"), queued or synced.
+        var outcome: String? = nil
+        /// Activity kinds recorded in this call on this phone (queued or synced, never rejected).
+        var activityKinds: [String] = []
+        /// End reason code (e.g. the truck seller's "no_sales_due_to_inventory").
+        var reasonCode: String? = nil
         var timeSpent: String? {
             guard let startedAt, let endedAt else { return nil }
             return "\(max(0, Int(endedAt.timeIntervalSince(startedAt) / 60))) min"
@@ -211,7 +224,7 @@ final class AppModel {
 
     private func clearToday() {
         visits = []; callSheets = []; outletDetails = [:]; customerDetails = [:]; routeCode = nil
-        customers = []; dayTasks = []
+        customers = []; dayTasks = []; dayTarget = nil; daySales = nil
     }
 
     /// Confirmed revocation/suspension (QSR-010): hold unsent work and drop this partition's cached
@@ -291,9 +304,18 @@ final class AppModel {
                 else if related.contains(where: { queued.contains($0.requestId) }) { status = syncing ? "Sending" : "Queued" }
                 else if !related.isEmpty { status = "Accepted" }
                 else { status = visit.status }
+                let activityKinds = call.map { open in
+                    intents.filter { intent in
+                        intent.kind == "visit.activity" &&
+                        intent.dependencies.contains(open.initial.requestId.uuidString.lowercased()) &&
+                        !rejected.contains(where: { $0.intent.requestId == intent.requestId })
+                    }.compactMap { ($0.payload?["activity"] as? [String: Any])?["kind"] as? String }
+                } ?? []
                 return TodayVisit(id: visit.id, outletId: visit.outletId, outlet: visit.outlet,
                                   serviceDate: visit.serviceDate, intents: visit.intents, planned: visit.planned, status: status,
-                                  sequence: visit.sequence, startedAt: call?.initial.deviceTime, endedAt: call?.end?.deviceTime)
+                                  sequence: visit.sequence, startedAt: call?.initial.deviceTime, endedAt: call?.end?.deviceTime,
+                                  outcome: call?.end?.payload?["outcome"] as? String,
+                                  activityKinds: activityKinds, reasonCode: call?.end?.payload?["reasonCode"] as? String)
             }
             let held = try store.isHeld(partition)
             let rejectedIds = Set(rejected.map { $0.intent.requestId })
@@ -305,6 +327,8 @@ final class AppModel {
                 return (intent, state)
             })
             dayTasks = saved?.tasks ?? []
+            dayTarget = saved?.dayTarget
+            daySales = saved?.daySales
             lastSyncedAt = try store.syncHealth(for: partition).flatMap { $0.lastSuccessfulSyncAt }
                 .map { Date(timeIntervalSince1970: Double($0) / 1000) }
             refreshStatus()

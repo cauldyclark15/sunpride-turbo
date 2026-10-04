@@ -4,9 +4,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { internal } from "../_generated/api";
 import type { Doc } from "../_generated/dataModel";
 import { fixture } from "./bootstrap.test";
+import type { Id } from "../_generated/dataModel";
 import {
   ACCOUNT_SUMMARY_MAX_BYTES,
   MAX_SUMMARY_ORDERS,
+  accountSummary,
   summarizeOrders,
 } from "./account_summary";
 import { jsonBytes } from "./budget";
@@ -103,6 +105,7 @@ describe("bootstrap account summaries", () => {
     total: number,
     status: Order["status"],
     createdAt: number,
+    extra: Partial<Doc<"orders">> = {},
   ) {
     await f.t.run((ctx) =>
       ctx.db.insert("orders", {
@@ -111,6 +114,7 @@ describe("bootstrap account summaries", () => {
         orderNumber: `SO-${total}`,
         customerCode: code,
         salespersonSubject: f.actor.subject,
+        ...extra,
         status,
         subtotal: total,
         total,
@@ -257,5 +261,157 @@ describe("bootstrap account summaries", () => {
     ]);
     expect(second.plannedVisits).toHaveLength(1);
     expect(second.accountSummaries).toEqual([]);
+  });
+  async function linkPlannedOutlet(f: Awaited<ReturnType<typeof fixture>>) {
+    await f.t.run((ctx) =>
+      ctx.db.insert("outletCustomerLinks", {
+        outletId: f.ids.outlet,
+        customerId: f.ids.snapshot.customerId,
+        source: "fixture",
+        effectiveFrom: f.now - 10_000,
+        actorSubject: f.actor.subject,
+        reason: "fixture",
+        createdAt: f.now - 10_000,
+      }),
+    );
+  }
+
+  async function location(
+    f: Awaited<ReturnType<typeof fixture>>,
+    code: string,
+    orgUnitId: Id<"orgUnits"> | undefined,
+  ) {
+    return f.t.run((ctx) =>
+      ctx.db.insert("inventoryLocations", {
+        organizationId: "sunpride",
+        ...(orgUnitId ? { orgUnitId } : {}),
+        siteCode: code,
+        code,
+        name: code,
+        type: "truck",
+        active: true,
+        allowsPicking: true,
+        allowsReceiving: true,
+        allowsSale: true,
+        allowsProduction: false,
+        createdAt: f.now,
+        updatedAt: f.now,
+      }),
+    );
+  }
+
+  async function colleague(
+    f: Awaited<ReturnType<typeof fixture>>,
+    subject: string,
+    orgUnitId: Id<"orgUnits">,
+  ) {
+    await f.t.run((ctx) =>
+      ctx.db.insert("profiles", {
+        authSubject: subject,
+        name: subject,
+        email: `${subject.split("|")[1]}@test.local`,
+        role: "sales",
+        status: "active",
+        orgUnitId,
+        updatedAt: f.now,
+      }),
+    );
+  }
+
+  it("never counts a foreign salesperson's order on a planned local account", async () => {
+    // Release probe: the outlet is linked only to LOCAL-C, yet an order by the foreign-region
+    // salesperson shares that customer code.
+    const f = await fixture();
+    await linkPlannedOutlet(f);
+    await addOrder(f, "LOCAL-C", 4321, "posted", f.now - 1000, {
+      salespersonSubject: "https://auth.fixture|foreign",
+    });
+    await addOrder(f, "LOCAL-C", 4322, "approved", f.now - 900, {
+      salespersonSubject: "https://auth.fixture|foreign",
+    });
+    await addOrder(f, "LOCAL-C", 100, "posted", f.now - 2000);
+    const r = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+    });
+    const text = JSON.stringify(r);
+    expect(text).not.toContain("432100");
+    expect(text).not.toContain("432200");
+    expect(r.accountSummaries[0]).toMatchObject({
+      availability: "available",
+      openOrders: { count: 0, amountMinor: 0 },
+      sales: { orders: 1, amountMinor: 10_000 },
+    });
+  });
+
+  it("counts only a salesperson's own orders, from in-scope source locations", async () => {
+    const f = await fixture();
+    await linkPlannedOutlet(f);
+    await colleague(f, "https://auth.fixture|teammate", f.ids.unit);
+    const local = await location(f, "TRUCK-L", f.ids.unit);
+    const foreign = await location(f, "TRUCK-F", f.ids.foreignUnit);
+    const unmapped = await location(f, "TRUCK-U", undefined);
+    // A same-unit teammate's order: the web's orderAccessible hides it from a sales role.
+    await addOrder(f, "LOCAL-C", 501, "posted", f.now - 1000, {
+      salespersonSubject: "https://auth.fixture|teammate",
+    });
+    // Own orders sold from another region's or an unmapped truck stay out.
+    await addOrder(f, "LOCAL-C", 502, "posted", f.now - 900, {
+      sourceLocationId: foreign,
+    });
+    await addOrder(f, "LOCAL-C", 503, "posted", f.now - 800, {
+      sourceLocationId: unmapped,
+    });
+    await addOrder(f, "LOCAL-C", 200, "posted", f.now - 700, {
+      sourceLocationId: local,
+    });
+    const r = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+    });
+    expect(r.accountSummaries[0]?.sales).toMatchObject({
+      orders: 1,
+      amountMinor: 20_000,
+      lastOrderAmountMinor: 20_000,
+    });
+  });
+
+  it("gives a supervisor current-subtree orders only, never a moved author's history", async () => {
+    const f = await fixture();
+    await linkPlannedOutlet(f);
+    await colleague(f, "https://auth.fixture|teammate", f.ids.unit);
+    await colleague(f, "https://auth.fixture|moved", f.ids.foreignUnit);
+    await addOrder(f, "LOCAL-C", 300, "posted", f.now - 1000, {
+      salespersonSubject: "https://auth.fixture|teammate",
+    });
+    // Authored while in this region, but the author now belongs to the foreign region.
+    await addOrder(f, "LOCAL-C", 601, "posted", f.now - 2 * DAY, {
+      salespersonSubject: "https://auth.fixture|moved",
+    });
+    await addOrder(f, "LOCAL-C", 602, "posted", f.now - 900, {
+      salespersonSubject: "https://auth.fixture|foreign",
+    });
+    const summary = await f.t.run((ctx) =>
+      accountSummary(
+        ctx,
+        f.ids.outlet,
+        f.ids.snapshot.customerId as Id<"customers">,
+        new Set([f.ids.outlet as string]),
+        {
+          subject: "https://auth.fixture|manager",
+          role: "manager",
+          units: new Set([f.ids.unit]),
+        },
+        f.now,
+      ),
+    );
+    expect(summary.sales).toMatchObject({ orders: 1, amountMinor: 30_000 });
+  });
+
+  it("flags a capped read whose orders are all out of scope as incomplete", () => {
+    const { sales } = summarizeOrders([], "2026-10-05", true);
+    expect(sales).toMatchObject({
+      from: "2026-10-05",
+      complete: false,
+      orders: 0,
+    });
   });
 });

@@ -158,7 +158,9 @@ final class StubBackend: URLProtocol {
                      "openOrders": ["count": 1, "amountMinor": 410_000]],
                     ["outletId": "outlet-stub-2", "asOfDate": today, "availability": "withheld",
                      "creditLimitMinor": NSNull(), "sales": NSNull(), "openOrders": NSNull()]],
-                "page": 1, "nextPageCursor": NSNull(), "syncCursor": "stub-cursor"
+                "page": 1, "nextPageCursor": NSNull(), "syncCursor": "stub-cursor",
+                "dayTarget": ["dailyCalls": 30, "productivePct": 85, "sourceRef": "stub-memo"],
+                "daySales": ["amountMinor": 175_050, "orders": 2, "targetMinor": 500_000]
             ]))
         case "/mobile/v1/push", "/mobile/v1/pull":
             let h = Dictionary(uniqueKeysWithValues: headers.map { ($0.key.lowercased(), $0.value) })

@@ -9,12 +9,19 @@
  * customer is on this person's own downloaded plan (each of those was already verified to be
  * in the person's own unit). Otherwise the summary is `withheld` with no figures.
  *
+ * Current outlet membership is still not authorization for the account's ORDERS: each source
+ * order is gated like `domains/orders.orderAccessible` — a `sales` person counts only their own
+ * orders, anyone else only orders whose author is an active profile currently in their unit
+ * subtree, and an order's source location (when set) must be an active location in that subtree.
+ * Foreign or historical-region orders sharing the customer code never contribute.
+ *
  * There is no receivables (AR) feed in the platform, so "outstanding" here is open orders,
  * never an invoice balance.
  */
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
+import { collectScopeUnitIds } from "../lib/scope";
 import { countsAsSale, manilaDateOf, saleInstant, toMinor } from "../dsr/model";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
 import { activeAt } from "../org/validation";
@@ -86,7 +93,11 @@ export function summarizeOrders(
   let from = addDays(asOfDate, -(SUMMARY_DAYS - 1));
   const recentFrom = addDays(asOfDate, -(RECENT_DAYS - 1));
   let complete = true;
-  if (capped && orders.length > 0) {
+  if (capped && orders.length === 0) {
+    // Every order read was out of scope: nothing in the window can be vouched for.
+    from = asOfDate;
+    complete = false;
+  } else if (capped) {
     const oldest = manilaDateOf(saleInstant(orders[orders.length - 1]!));
     if (oldest > from) {
       from = oldest;
@@ -137,6 +148,66 @@ export function summarizeOrders(
   return { sales, openOrders: open };
 }
 
+/** The person the summary is built for; `units` is their current org-unit subtree. */
+export type SummaryViewer = {
+  subject: string;
+  role: Doc<"profiles">["role"];
+  units: ReadonlySet<Id<"orgUnits">>;
+};
+
+export async function summaryViewer(
+  ctx: QueryCtx,
+  actor: {
+    subject: string;
+    role: Doc<"profiles">["role"];
+    orgUnitId: Id<"orgUnits">;
+  },
+): Promise<SummaryViewer> {
+  return {
+    subject: actor.subject,
+    role: actor.role,
+    units: new Set(await collectScopeUnitIds(ctx, actor.orgUnitId)),
+  };
+}
+
+/** Source-order scope: author and source location, read from the persisted order. */
+function orderScopeCheck(ctx: QueryCtx, viewer: SummaryViewer) {
+  const authors = new Map<string, boolean>();
+  const locations = new Map<string, boolean>();
+  return async (order: Doc<"orders">) => {
+    if (viewer.role === "sales" && order.salespersonSubject !== viewer.subject)
+      return false;
+    let author = authors.get(order.salespersonSubject);
+    if (author === undefined) {
+      const profile = await ctx.db
+        .query("profiles")
+        .withIndex("by_subject", (q) =>
+          q.eq("authSubject", order.salespersonSubject),
+        )
+        .unique();
+      author =
+        profile?.status === "active" &&
+        !!profile.orgUnitId &&
+        viewer.units.has(profile.orgUnitId);
+      authors.set(order.salespersonSubject, author);
+    }
+    if (!author) return false;
+    if (!order.sourceLocationId) return true;
+    let located = locations.get(order.sourceLocationId);
+    if (located === undefined) {
+      const location = await ctx.db.get(order.sourceLocationId);
+      located =
+        !!location &&
+        location.active &&
+        location.organizationId === SUNPRIDE_ORGANIZATION_ID &&
+        !!location.orgUnitId &&
+        viewer.units.has(location.orgUnitId);
+      locations.set(order.sourceLocationId, located);
+    }
+    return located;
+  };
+}
+
 /**
  * The summary for one planned outlet. `planOutlets` is every outlet on this person's verified
  * downloaded plan. Three index ranges: customer, links, orders.
@@ -146,6 +217,7 @@ export async function accountSummary(
   outletId: string,
   customerId: Id<"customers">,
   planOutlets: ReadonlySet<string>,
+  viewer: SummaryViewer,
   now: number,
 ): Promise<AccountSummary> {
   const asOfDate = manilaDateOf(now);
@@ -177,7 +249,10 @@ export async function accountSummary(
     .take(MAX_SUMMARY_ORDERS + 1);
   const capped = orders.length > MAX_SUMMARY_ORDERS;
   if (capped) orders.length = MAX_SUMMARY_ORDERS;
-  const { sales, openOrders } = summarizeOrders(orders, asOfDate, capped);
+  const inScope = orderScopeCheck(ctx, viewer);
+  const visible: Doc<"orders">[] = [];
+  for (const order of orders) if (await inScope(order)) visible.push(order);
+  const { sales, openOrders } = summarizeOrders(visible, asOfDate, capped);
   return {
     outletId,
     asOfDate,
