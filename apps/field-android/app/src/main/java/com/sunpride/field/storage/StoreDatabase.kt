@@ -55,8 +55,37 @@ data class CallSheetLineRow(val account: String, val deviceId: String, val scope
     val generation: String, val outletId: String, val productId: String, val position: Int,
     val code: String, val name: String, val uom: String, val barcode: String?, val pricing: String?)
 
+@Entity(tableName = "catalog_products", primaryKeys = ["account", "deviceId", "scope", "generation", "id"])
+data class CatalogProductRow(val account: String, val deviceId: String, val scope: String,
+    val generation: String, val id: String, val code: String, val revision: Long, val json: String)
+
+@Entity(tableName = "inventory_availability", primaryKeys = ["account", "deviceId", "scope", "generation", "id"],
+    indices = [Index(value = ["account", "deviceId", "scope", "generation", "productId"])])
+data class InventoryAvailabilityRow(val account: String, val deviceId: String, val scope: String,
+    val generation: String, val id: String, val productId: String, val locationCode: String,
+    val revision: Long, val json: String)
+
 @Dao
 interface StoreDao {
+    @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertProduct(row: CatalogProductRow)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putProduct(row: CatalogProductRow)
+    @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertAvailability(row: InventoryAvailabilityRow)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putAvailability(row: InventoryAvailabilityRow)
+    @Query("SELECT * FROM catalog_products WHERE account=:account AND deviceId=:device AND scope=:scope AND generation=:generation ORDER BY code,id")
+    suspend fun catalog(account: String, device: String, scope: String, generation: String): List<CatalogProductRow>
+    @Query("SELECT * FROM catalog_products WHERE account=:account AND deviceId=:device AND scope=:scope AND generation=:generation AND id=:id")
+    suspend fun product(account: String, device: String, scope: String, generation: String, id: String): CatalogProductRow?
+    @Query("SELECT * FROM inventory_availability WHERE account=:account AND deviceId=:device AND scope=:scope AND generation=:generation AND productId=:productId ORDER BY locationCode,id")
+    suspend fun availability(account: String, device: String, scope: String, generation: String, productId: String): List<InventoryAvailabilityRow>
+    @Query("SELECT * FROM inventory_availability WHERE account=:account AND deviceId=:device AND scope=:scope AND generation=:generation AND id=:id")
+    suspend fun inventory(account: String, device: String, scope: String, generation: String, id: String): InventoryAvailabilityRow?
+    @Query("DELETE FROM catalog_products WHERE account=:account AND deviceId=:device AND scope=:scope AND generation!=:generation")
+    suspend fun discardOldProducts(account: String, device: String, scope: String, generation: String)
+    @Query("DELETE FROM inventory_availability WHERE account=:account AND deviceId=:device AND scope=:scope AND generation!=:generation")
+    suspend fun discardOldAvailability(account: String, device: String, scope: String, generation: String)
+    @Query("UPDATE call_sheet_lines SET code=:code,name=:name,uom=:uom,barcode=:barcode WHERE account=:account AND deviceId=:device AND scope=:scope AND productId=:productId")
+    suspend fun refreshCallSheetProduct(account: String, device: String, scope: String, productId: String,
+        code: String, name: String, uom: String, barcode: String?)
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertCallSheet(row: CallSheetRow)
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertCallSheetLine(row: CallSheetLineRow)
     @Query("SELECT * FROM call_sheets WHERE account=:account AND deviceId=:device AND scope=:scope AND generation=:generation AND outletId=:outlet")
@@ -116,8 +145,8 @@ interface StoreDao {
     suspend fun ack(account: String, device: String, scope: String, requestId: String): AckRow?
 }
 
-@Database(entities = [SnapshotRow::class, PartitionRow::class, IntentRow::class, OutboxRow::class, AckRow::class, DeltaRow::class, CallSheetRow::class, CallSheetLineRow::class],
-    version = 5, exportSchema = true)
+@Database(entities = [SnapshotRow::class, PartitionRow::class, IntentRow::class, OutboxRow::class, AckRow::class, DeltaRow::class, CallSheetRow::class, CallSheetLineRow::class, CatalogProductRow::class, InventoryAvailabilityRow::class],
+    version = 6, exportSchema = true)
 abstract class StoreDatabase : RoomDatabase() {
     abstract fun rows(): StoreDao
 }
