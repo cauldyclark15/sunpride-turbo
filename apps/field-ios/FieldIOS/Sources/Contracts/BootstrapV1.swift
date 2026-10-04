@@ -92,11 +92,15 @@ enum BootstrapV1 {
         let page: Int
         let nextPageCursor: String?
         let syncCursor: String?
+        /// Additive optional v1 field: the person's daily position standard. Absent on older servers.
+        let dayTarget: StoreSnapshot.DayTarget?
+        /// Additive optional v1 field: today's sales and daily sales target. Absent on older servers.
+        let daySales: StoreSnapshot.DaySales?
 
         enum CodingKeys: String, CodingKey {
             case type, contractVersion, serverTime, permissions, employee, scope, appConfig,
                  plannedVisits, outlets, localCustomers, route, tasks, productCatalog, page,
-                 nextPageCursor, syncCursor, callSheets
+                 nextPageCursor, syncCursor, callSheets, dayTarget, daySales
         }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -113,6 +117,11 @@ enum BootstrapV1 {
             // Additive v1 field: old bootstraps omit sequence and retain their list order.
             guard plannedVisits.allSatisfy({ $0.sequence == nil || $0.sequence! >= 0 }) else { throw WireError.unsafeValue }
             outlets = try c.decode([StoreSnapshot.Outlet].self, forKey: .outlets)
+            // Additive route-screen pin: an out-of-range coordinate is a corrupt feed, never a map target.
+            guard outlets.allSatisfy({ ($0.latitude == nil) == ($0.longitude == nil) }),
+                  outlets.allSatisfy({ outlet in outlet.location.map { RouteMath.isValid($0) } ?? true }) else {
+                throw WireError.unsafeValue
+            }
             localCustomers = try c.decode([StoreSnapshot.Customer].self, forKey: .localCustomers)
             // Required explicit nullable fields: missing is not equivalent to null.
             guard c.contains(.route), c.contains(.nextPageCursor), c.contains(.syncCursor) else { throw WireError.invalidEnvelope }
@@ -125,6 +134,13 @@ enum BootstrapV1 {
             page = try c.decode(Int.self, forKey: .page)
             nextPageCursor = try c.decodeIfPresent(String.self, forKey: .nextPageCursor)
             syncCursor = try c.decodeIfPresent(String.self, forKey: .syncCursor)
+            dayTarget = try c.decodeIfPresent(StoreSnapshot.DayTarget.self, forKey: .dayTarget)
+            guard dayTarget?.isValid ?? true else { throw WireError.unsafeValue }
+            // `asOf` is not a wire field: the client stamps the page's serverTime.
+            daySales = try c.decodeIfPresent(StoreSnapshot.DaySales.self, forKey: .daySales).map {
+                StoreSnapshot.DaySales(amountMinor: $0.amountMinor, orders: $0.orders, targetMinor: $0.targetMinor)
+            }
+            guard daySales?.isValid ?? true else { throw WireError.unsafeValue }
             guard Set(callSheets.map(\.outletId)).count == callSheets.count,
                   callSheets.allSatisfy({ sheet in plannedVisits.contains { $0.outletId == sheet.outletId } }) else {
                 throw WireError.unsafeValue
@@ -150,6 +166,8 @@ enum BootstrapV1 {
             try c.encode(productCatalog, forKey: .productCatalog); try c.encode(page, forKey: .page)
             try c.encode(nextPageCursor, forKey: .nextPageCursor); try c.encode(syncCursor, forKey: .syncCursor)
             try c.encode(callSheets, forKey: .callSheets)
+            try c.encodeIfPresent(dayTarget, forKey: .dayTarget)
+            try c.encodeIfPresent(daySales, forKey: .daySales)
         }
     }
 

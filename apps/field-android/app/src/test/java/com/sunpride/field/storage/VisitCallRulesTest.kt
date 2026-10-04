@@ -40,6 +40,31 @@ class VisitCallRulesTest {
         VisitCallRules.requireStart("b", "b", day, plans, rows)
         assertEquals("24 min", VisitCallRules.timeSpent(rows))
     }
+    @Test fun productiveFactsComeFromRecordedActivitiesNotTheEndOutcome() {
+        val a = start("a")
+        fun activity(kind: String) = VisitIntentFactory.create(scope, "visit.activity", a.clientVisitId, a.requestId,
+            a.requestId, null, "a", emptyList(), null, if (kind == "note") "Owner away" else null, null, null, null,
+            at + 60_000, activity = if (kind == "note") null else JSONObject().put("kind", kind))
+        assertNull(ProductiveCall.factsOf(listOf(a to "pending", activity("merchandising") to "pending")))
+        // A completed End with only a note is a call, but not a productive one.
+        val noteOnly = ProductiveCall.factsOf(listOf(a to "done", activity("note") to "done", end(a) to "pending"))!!
+        assertEquals(emptyList<String>(), noteOnly.codes)
+        assertFalse(ProductiveCall.productive(noteOnly, ProductiveCall.ANY_LISTED_ACTIVITY))
+        // A "not productive" End still counts recorded activities, as the server does.
+        val merch = ProductiveCall.factsOf(listOf(a to "done", activity("price_check") to "done",
+            end(a, "nonproductive", "closed") to "done"))!!
+        assertEquals(listOf("merchandising"), merch.codes)
+        assertTrue(ProductiveCall.productive(merch, ProductiveCall.ANY_LISTED_ACTIVITY))
+        assertFalse(ProductiveCall.productive(merch, ProductiveCall.TRUCK_SELLER))
+        val marked = ProductiveCall.factsOf(listOf(a to "done", activity("merchandising") to "done",
+            end(a, "nonproductive", "No_Sales_Due_To_Inventory") to "done"))!!
+        assertTrue(marked.noSalesDueToInventory)
+        assertTrue(ProductiveCall.productive(marked, ProductiveCall.TRUCK_SELLER))
+        // Activities held for review do not count; an End held for review leaves the call unfinished.
+        assertEquals(emptyList<String>(), ProductiveCall.factsOf(listOf(a to "done",
+            activity("inventory_check") to "review", end(a) to "done"))!!.codes)
+        assertNull(ProductiveCall.factsOf(listOf(a to "done", end(a) to "review")))
+    }
     @Test fun absentSequenceStillEnforcesOriginalListOrder() {
         failure(VisitRuleFailure.Code.MCP_ORDER) {
             VisitCallRules.requireStart("a", "a", day, listOf(plan("z"), plan("a")), emptyList())

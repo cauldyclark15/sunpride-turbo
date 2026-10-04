@@ -78,12 +78,12 @@ fun IconTile(initial: String) {
 
 @Composable
 fun ListRow(title: String, meta: String, glyph: String, modifier: Modifier = Modifier,
-    trailing: String? = null, onClick: (() -> Unit)? = null) {
+    trailing: String? = null, onClick: (() -> Unit)? = null, tile: String? = null) {
     Surface(onClick = onClick ?: {}, enabled = onClick != null, color = MaterialTheme.colorScheme.surface,
         tonalElevation = 0.dp, modifier = modifier.fillMaxWidth().semantics(mergeDescendants = true) {}) {
         Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (glyph == "store") IconTile(title.trim().take(1).uppercase())
+            if (glyph == "store") IconTile(tile ?: title.trim().take(1).uppercase())
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (meta.isNotEmpty()) Text(meta, style = MaterialTheme.typography.bodySmall,

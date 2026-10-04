@@ -31,6 +31,18 @@ class FieldDayStoreTest {
         start.requestId, start.requestId, null, "", emptyList(), null, null, "completed", null, null, at + 24 * 60_000)
     @Before fun open() { db = EncryptedFieldDatabase.open(context) }
     @After fun close() { db.close() }
+    @Test fun routeCodeComesFromThePromotedSnapshotOnly() = runBlocking {
+        assertNull(store().routeCode())
+        val generation = store().stage(ScopedSnapshot("{}", JSONObject().put("id", "r1").put("code", "R-07").toString(),
+            listOf(plan("a", 0)), emptyList(), emptyList(), emptyList()))
+        assertNull(store().routeCode()) // staged, not yet promoted
+        store().swap(generation, "cursor", at + 100_000_000, at + 100_000_000)
+        db.close(); db = EncryptedFieldDatabase.open(context)
+        assertEquals("R-07", store().routeCode())
+        ready(listOf(plan("a", 0))) // a later day without a route clears it
+        assertNull(store().routeCode())
+        Unit
+    }
     @Test fun absentSequenceRetainsOriginalBootstrapListOrderAcrossReopen() = runBlocking {
         ready(listOf(plan("z"), plan("a")))
         db.close(); db = EncryptedFieldDatabase.open(context)
