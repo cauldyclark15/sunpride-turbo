@@ -18,6 +18,8 @@ import type * as analytics_productivity from "../analytics/productivity.js";
 import type * as analytics_productivity_model from "../analytics/productivity_model.js";
 import type * as analytics_rollups from "../analytics/rollups.js";
 import type * as analytics_rollups_model from "../analytics/rollups_model.js";
+import type * as analytics_sku from "../analytics/sku.js";
+import type * as analytics_sku_model from "../analytics/sku_model.js";
 import type * as analytics_territory from "../analytics/territory.js";
 import type * as analytics_territory_model from "../analytics/territory_model.js";
 import type * as auth from "../auth.js";
@@ -181,6 +183,8 @@ declare const fullApi: ApiFromModules<{
   "analytics/productivity_model": typeof analytics_productivity_model;
   "analytics/rollups": typeof analytics_rollups;
   "analytics/rollups_model": typeof analytics_rollups_model;
+  "analytics/sku": typeof analytics_sku;
+  "analytics/sku_model": typeof analytics_sku_model;
   "analytics/territory": typeof analytics_territory;
   "analytics/territory_model": typeof analytics_territory_model;
   auth: typeof auth;
