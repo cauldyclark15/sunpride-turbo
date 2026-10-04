@@ -181,12 +181,15 @@ final class FieldDayCallTests: XCTestCase {
         XCTAssertEqual(board.route.map(\.state), [.inProgress, .upcoming])
 
         clock.advance(20 * 60)
+        try model.queueNote("Talked to the buyer", for: try visit("first"))
         try model.queueCheckOut(outcome: "completed", reason: nil, for: try visit("first"))
         board = model.dashboard
         XCTAssertEqual(board.next?.id, "second")
         XCTAssertEqual(board.route.first?.timeSpent, "20 min")
         XCTAssertEqual(board.callsLabel, "1 of 30")
-        XCTAssertEqual(board.productiveLabel, "1 · 100% of 85%")
+        XCTAssertEqual(try visit("first").activityKinds, ["note"])
+        // Governed rule (sfa/productive_call.ts): a completed End with only a note is not productive.
+        XCTAssertEqual(board.productiveLabel, "0 · 0% of 85%")
 
         // Offline: queued work and the saved target survive a relaunch without a network round trip.
         model.enrollment.signedOut()
@@ -198,8 +201,31 @@ final class FieldDayCallTests: XCTestCase {
         XCTAssertTrue(board.dayComplete)
         XCTAssertNil(board.next)
         XCTAssertEqual(board.completionLabel, "2 of 2 stores")
-        XCTAssertEqual(board.productiveLabel, "1 · 50% of 85%")
-        XCTAssertEqual(try store.pendingOutbox(for: partition).count + store.deferredOutbox(for: partition).count, 4)
+        XCTAssertEqual(board.productiveLabel, "0 · 0% of 85%")
+        XCTAssertEqual(try store.pendingOutbox(for: partition).count + store.deferredOutbox(for: partition).count, 5)
+    }
+    func testTodayDashboardNeverOffersAStopTheStartGuardRefuses() throws {
+        // A rejected first check-in: AppModel refuses stop two (plan order), so it is not "Next".
+        try start(try visit("first"))
+        let checkIn = try XCTUnwrap(store.pendingOutbox(for: partition).first?.intent)
+        try store.recordRejection(code: "invalid_plan", for: checkIn.requestId, in: partition)
+        model.refreshToday()
+        XCTAssertEqual(model.startFailure(for: try visit("second")), .mcpOrder)
+        let board = model.dashboard
+        XCTAssertEqual(board.route.map(\.state), [.review, .upcoming])
+        XCTAssertNil(board.next)
+        XCTAssertNil(board.current)
+    }
+    func testTodayDashboardShowsSavedServerSalesOffline() throws {
+        let expiry = Int64(FieldDay.nextClose(after: clock.now).timeIntervalSince1970 * 1000)
+        try store.saveSnapshot(.init(employee: .init(id: "seller", role: "sales", orgUnitId: "unit"),
+            visits: [planned("first", sequence: 0)], outlets: [.init(id: "first", name: "first", routeId: nil)],
+            customers: [], route: nil, tasks: [],
+            daySales: .init(amountMinor: 175_050, orders: 2, targetMinor: 500_000)),
+            cursor: "cursor", leaseExpiresAt: expiry, cacheExpiresAt: expiry, for: partition)
+        model.refreshToday()
+        XCTAssertEqual(model.dashboard.sales?.amountMinor, 175_050)
+        XCTAssertEqual(model.dashboard.salesLabel, "₱1,750.50 of ₱5,000.00")
     }
     func testTodayDashboardRejectedEndNeedsReviewAndDoesNotCount() throws {
         try start(try visit("first"))

@@ -129,10 +129,13 @@ final class StubBackend: URLProtocol {
                                    "planId": "plan-stub-1", "planVersion": 1, "intents": ["audit"], "sequence": 0],
                                   ["id": "planned-stub-2", "outletId": "outlet-stub-2", "serviceDate": today,
                                    "planId": "plan-stub-1", "planVersion": 1, "intents": ["audit"], "sequence": 1]],
-                "outlets": [["id": "outlet-stub-1", "name": "Stub Outlet", "routeId": NSNull()],
+                // Stub fix is (0, 0): outlet 1 sits ~500 m away; outlet 2 has no pin or address.
+                "outlets": [["id": "outlet-stub-1", "name": "Stub Outlet", "routeId": NSNull(), "code": "STUB-1",
+                             "customerId": "customer-stub-1", "address": "1 Stub Street",
+                             "latitude": 0.0, "longitude": 0.0045],
                             ["id": "outlet-stub-2", "name": "Next Stub Outlet", "routeId": NSNull()],
                             ["id": "outlet-stub-extra", "name": "Extra Stub Outlet", "routeId": NSNull()]],
-                "localCustomers": [], "route": NSNull(), "tasks": [], "productCatalog": [],
+                "localCustomers": [["id": "customer-stub-1", "code": "C-STUB-1"]], "route": NSNull(), "tasks": [], "productCatalog": [],
                 "callSheets": [["outletId": "outlet-stub-1", "revision": 1,
                     "header": ["accountName": "Stub Outlet", "address": NSNull(), "buyerName": "Stub Buyer",
                         "contactNumber": NSNull(), "accountInCharge": NSNull(), "receivingInCharge": NSNull(),
@@ -140,7 +143,8 @@ final class StubBackend: URLProtocol {
                     "lines": [["productId": "product-stub-1", "code": "SUNP-001", "name": "Sunpride Hotdog 1kg",
                                "uom": "PC", "barcode": NSNull(), "pricing": "₱189.00"]]]],
                 "page": 1, "nextPageCursor": NSNull(), "syncCursor": "stub-cursor",
-                "dayTarget": ["dailyCalls": 30, "productivePct": 85, "sourceRef": "stub-memo"]
+                "dayTarget": ["dailyCalls": 30, "productivePct": 85, "sourceRef": "stub-memo"],
+                "daySales": ["amountMinor": 175_050, "orders": 2, "targetMinor": 500_000]
             ]))
         case "/mobile/v1/push", "/mobile/v1/pull":
             let h = Dictionary(uniqueKeysWithValues: headers.map { ($0.key.lowercased(), $0.value) })

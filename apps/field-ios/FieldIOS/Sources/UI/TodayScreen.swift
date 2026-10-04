@@ -16,7 +16,16 @@ struct TodayScreen: View {
         VStack(alignment: .leading, spacing: 16) {
             summaryCard(dashboard)
             nextCard(dashboard)
-            SectionCard(title: "Route · \(dashboard.route.count)") {
+            if !dashboard.route.isEmpty {
+                SectionCard(title: "Route") {
+                    NavigationLink { RouteScreen(model: model) } label: {
+                        CalmListRow(symbol: "map", title: "Today's route", meta: routeMeta, trailing: "chevron.right")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("openRoute")
+                }
+            }
+            SectionCard(title: "Visits · \(dashboard.route.count)") {
                 if dashboard.route.isEmpty {
                     CalmListRow(symbol: "calendar", title: "No visits today", meta: "")
                 } else {
@@ -54,7 +63,7 @@ struct TodayScreen: View {
                 divider
                 DetailRow(label: "Visits done", value: dashboard.completionLabel).accessibilityIdentifier("dashboardCompletion")
                 divider
-                DetailRow(label: "Sales", value: TodayDashboard.salesLabel).accessibilityIdentifier("dashboardSales")
+                DetailRow(label: "Sales", value: dashboard.salesLabel).accessibilityIdentifier("dashboardSales")
                 divider
                 DetailRow(label: "Sync", value: syncLine).accessibilityIdentifier("dashboardSync")
             }
@@ -120,6 +129,11 @@ struct TodayScreen: View {
         case .next: return "Next"
         case .done, .upcoming: return statusMeta(visit)
         }
+    }
+    private var routeMeta: String {
+        let count = "\(dashboard.route.count) \(dashboard.route.count == 1 ? "stop" : "stops")"
+        guard let next = dashboard.next else { return count }
+        return "\(count) · Next: \(next.outlet)"
     }
     private func statusMeta(_ visit: AppModel.TodayVisit) -> String {
         if visit.status == "Needs review" { return "To review" }

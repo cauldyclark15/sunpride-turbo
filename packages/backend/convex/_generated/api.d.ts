@@ -8,10 +8,18 @@
  * @module
  */
 
+import type * as analytics_compliance from "../analytics/compliance.js";
+import type * as analytics_compliance_model from "../analytics/compliance_model.js";
+import type * as analytics_customer from "../analytics/customer.js";
+import type * as analytics_customer_model from "../analytics/customer_model.js";
 import type * as analytics_execution from "../analytics/execution.js";
 import type * as analytics_model from "../analytics/model.js";
 import type * as analytics_productivity from "../analytics/productivity.js";
 import type * as analytics_productivity_model from "../analytics/productivity_model.js";
+import type * as analytics_rollups from "../analytics/rollups.js";
+import type * as analytics_rollups_model from "../analytics/rollups_model.js";
+import type * as analytics_territory from "../analytics/territory.js";
+import type * as analytics_territory_model from "../analytics/territory_model.js";
 import type * as auth from "../auth.js";
 import type * as authPolicy from "../authPolicy.js";
 import type * as callSheets_accounts from "../callSheets/accounts.js";
@@ -163,10 +171,18 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  "analytics/compliance": typeof analytics_compliance;
+  "analytics/compliance_model": typeof analytics_compliance_model;
+  "analytics/customer": typeof analytics_customer;
+  "analytics/customer_model": typeof analytics_customer_model;
   "analytics/execution": typeof analytics_execution;
   "analytics/model": typeof analytics_model;
   "analytics/productivity": typeof analytics_productivity;
   "analytics/productivity_model": typeof analytics_productivity_model;
+  "analytics/rollups": typeof analytics_rollups;
+  "analytics/rollups_model": typeof analytics_rollups_model;
+  "analytics/territory": typeof analytics_territory;
+  "analytics/territory_model": typeof analytics_territory_model;
   auth: typeof auth;
   authPolicy: typeof authPolicy;
   "callSheets/accounts": typeof callSheets_accounts;

@@ -61,7 +61,9 @@ data class BootstrapResponse(
   // schema-field: bootstrapResponse.syncCursor
   val syncCursor: String?,
   // schema-field: bootstrapResponse.dayTarget
-  val dayTarget: OptionalField<BootstrapResponseDayTarget>
+  val dayTarget: OptionalField<BootstrapResponseDayTarget>,
+  // schema-field: bootstrapResponse.daySales
+  val daySales: OptionalField<BootstrapResponseDaySales>
 )
 // schema-object: bootstrapResponse.dayTarget
 data class BootstrapResponseDayTarget(
@@ -70,7 +72,18 @@ data class BootstrapResponseDayTarget(
   // schema-field: bootstrapResponse.dayTarget.productivePct
   val productivePct: OptionalField<Double>,
   // schema-field: bootstrapResponse.dayTarget.sourceRef
-  val sourceRef: OptionalField<String>
+  val sourceRef: OptionalField<String>,
+  // schema-field: bootstrapResponse.dayTarget.productiveCallRule
+  val productiveCallRule: OptionalField<String>
+)
+// schema-object: bootstrapResponse.daySales
+data class BootstrapResponseDaySales(
+  // schema-field: bootstrapResponse.daySales.amountMinor
+  val amountMinor: Long,
+  // schema-field: bootstrapResponse.daySales.orders
+  val orders: Long,
+  // schema-field: bootstrapResponse.daySales.targetMinor
+  val targetMinor: OptionalField<Long>
 )
 // schema-object: bootstrapResponse.employee
 data class BootstrapResponseEmployee(

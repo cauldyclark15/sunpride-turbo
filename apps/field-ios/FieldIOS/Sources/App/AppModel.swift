@@ -26,6 +26,10 @@ final class AppModel {
     private(set) var freshThisLaunch = false
     private(set) var review: [String] = []
     private(set) var visits: [TodayVisit] = []
+    /// Route-screen lookups from the same verified partition as `visits`.
+    private(set) var outletDetails: [String: StoreSnapshot.Outlet] = [:]
+    private(set) var customerDetails: [String: StoreSnapshot.Customer] = [:]
+    private(set) var routeCode: String?
     private(set) var callSheets: [CallSheet] = []
     private(set) var lastSyncedAt: Date?
     private(set) var syncStatus: FieldSyncStatus?
@@ -33,7 +37,11 @@ final class AppModel {
     private(set) var dayTarget: StoreSnapshot.DayTarget?
     let enrollment: Enrollment
     /// Today's summary (date, target, calls, completion, next outlet, ordered route), store-derived.
-    var dashboard: TodayDashboard { TodayDashboard.make(visits: visits, target: dayTarget, now: now()) }
+    private(set) var daySales: StoreSnapshot.DaySales?
+    var dashboard: TodayDashboard {
+        TodayDashboard.make(visits: visits, target: dayTarget, sales: daySales, now: now(),
+                            canStart: { [weak self] in self?.startFailure(for: $0) == nil })
+    }
 
     struct TodayVisit: Identifiable {
         let id: String; let outletId: String; let outlet: String
@@ -43,6 +51,10 @@ final class AppModel {
         var endedAt: Date? = nil
         /// End outcome recorded on this phone ("completed" or "nonproductive"), queued or synced.
         var outcome: String? = nil
+        /// Activity kinds recorded in this call on this phone (queued or synced, never rejected).
+        var activityKinds: [String] = []
+        /// End reason code (e.g. the truck seller's "no_sales_due_to_inventory").
+        var reasonCode: String? = nil
         var timeSpent: String? {
             guard let startedAt, let endedAt else { return nil }
             return "\(max(0, Int(endedAt.timeIntervalSince(startedAt) / 60))) min"
@@ -183,8 +195,7 @@ final class AppModel {
             // A prior person's cached partition cannot be shown to a new session.
             try? secrets.delete(Self.partitionAccount)
             activeStoragePartition = nil
-            visits = []; callSheets = []
-            dayTarget = nil
+            clearToday()
             freshThisLaunch = false
             try await auth.signIn(email: email, password: password)
             signInError = nil
@@ -207,6 +218,11 @@ final class AppModel {
         refreshToday()
     }
 
+    private func clearToday() {
+        visits = []; callSheets = []; outletDetails = [:]; customerDetails = [:]; routeCode = nil
+        dayTarget = nil; daySales = nil
+    }
+
     /// Confirmed revocation/suspension (QSR-010): hold unsent work and drop this partition's cached
     /// plan, outlets, customers and prices from storage and memory.
     private func holdActive() {
@@ -214,7 +230,7 @@ final class AppModel {
             do { try fieldStore?.purgeCacheForReview(partition) }
             catch { try? fieldStore?.holdForReview(partition) }
         }
-        visits = []; callSheets = []
+        clearToday()
         freshThisLaunch = false
     }
 
@@ -242,6 +258,10 @@ final class AppModel {
             let outlets = Dictionary(uniqueKeysWithValues: try store.outlets(for: partition).map { ($0.id, $0.name) })
             let planned = try store.todayVisits(day, for: partition)
             let localOutlets = try store.outlets(for: partition)
+            let saved = try store.snapshot(for: partition)
+            outletDetails = Dictionary(localOutlets.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            customerDetails = Dictionary((saved?.customers ?? []).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            routeCode = saved?.route?.code
             let rows = planned.map { visit in
                 TodayVisit(id: visit.id, outletId: visit.outletId, outlet: outlets[visit.outletId] ?? "Unknown outlet",
                     serviceDate: visit.serviceDate, intents: visit.intents, planned: true, status: "Planned", sequence: visit.sequence)
@@ -280,12 +300,21 @@ final class AppModel {
                 else if related.contains(where: { queued.contains($0.requestId) }) { status = syncing ? "Sending" : "Queued" }
                 else if !related.isEmpty { status = "Accepted" }
                 else { status = visit.status }
+                let activityKinds = call.map { open in
+                    intents.filter { intent in
+                        intent.kind == "visit.activity" &&
+                        intent.dependencies.contains(open.initial.requestId.uuidString.lowercased()) &&
+                        !rejected.contains(where: { $0.intent.requestId == intent.requestId })
+                    }.compactMap { ($0.payload?["activity"] as? [String: Any])?["kind"] as? String }
+                } ?? []
                 return TodayVisit(id: visit.id, outletId: visit.outletId, outlet: visit.outlet,
                                   serviceDate: visit.serviceDate, intents: visit.intents, planned: visit.planned, status: status,
                                   sequence: visit.sequence, startedAt: call?.initial.deviceTime, endedAt: call?.end?.deviceTime,
-                                  outcome: call?.end?.payload?["outcome"] as? String)
+                                  outcome: call?.end?.payload?["outcome"] as? String,
+                                  activityKinds: activityKinds, reasonCode: call?.end?.payload?["reasonCode"] as? String)
             }
-            dayTarget = try store.snapshot(for: partition)?.dayTarget
+            dayTarget = saved?.dayTarget
+            daySales = saved?.daySales
             lastSyncedAt = try store.syncHealth(for: partition).flatMap { $0.lastSuccessfulSyncAt }
                 .map { Date(timeIntervalSince1970: Double($0) / 1000) }
             refreshStatus()
@@ -599,8 +628,7 @@ final class AppModel {
         }
         activeStoragePartition = nil
         try? secrets.delete(Self.partitionAccount)
-        visits = []; callSheets = []
-        dayTarget = nil
+        clearToday()
         lastSyncedAt = nil
         syncStatus = nil
         freshThisLaunch = false
