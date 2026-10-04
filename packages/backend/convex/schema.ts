@@ -2586,11 +2586,14 @@ export default defineSchema({
       serverTime: v.number(),
     }),
     serverAt: v.number(),
-  }).index("by_organizationId_and_kind_and_clientRequestId", [
-    "organizationId",
-    "kind",
-    "clientRequestId",
-  ]),
+  })
+    .index("by_organizationId_and_kind_and_clientRequestId", [
+      "organizationId",
+      "kind",
+      "clientRequestId",
+    ])
+    // Lost-device reconciliation: what the server acknowledged from one phone.
+    .index("by_deviceId_and_serverAt", ["deviceId", "serverAt"]),
   mobileChanges: defineTable({
     organizationId: v.string(),
     orgUnitId: v.id("orgUnits"),
