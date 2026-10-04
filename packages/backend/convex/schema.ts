@@ -1125,7 +1125,12 @@ export default defineSchema({
     .index("by_client_request", ["clientRequestId"])
     .index("by_status", ["status"])
     .index("by_customer", ["customerCode"])
-    .index("by_created_at", ["createdAt"]),
+    .index("by_created_at", ["createdAt"])
+    // SOP-007 Daily Sales Report: one salesman's orders for a month to date.
+    .index("by_salespersonSubject_and_createdAt", [
+      "salespersonSubject",
+      "createdAt",
+    ]),
   orderLines: defineTable({
     orderId: v.id("orders"),
     productCode: v.string(),

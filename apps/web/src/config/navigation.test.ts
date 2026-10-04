@@ -16,6 +16,7 @@ describe("web navigation", () => {
     ["/sales-force", "field"],
     ["/supervision", "field"],
     ["/call-sheets", "field"],
+    ["/daily-sales", "field"],
     ["/sap-integration", "operations"],
     ["/workflows", "approvals"],
     ["/analytics", "reports"],
@@ -71,16 +72,19 @@ describe("web navigation", () => {
       "/sales-force",
       "/supervision",
       "/call-sheets",
+      "/daily-sales",
     ]);
     expect(getWebModuleTabs("/supervision").map((item) => item.label)).toEqual([
       "Coverage",
       "Supervision",
       "Call sheets",
+      "Daily sales report",
     ]);
     expect(getWebModuleTabs("/call-sheets").map((item) => item.href)).toEqual([
       "/sales-force",
       "/supervision",
       "/call-sheets",
+      "/daily-sales",
     ]);
     expect(getWebModuleTabs("/mobile")).toEqual([]);
     expect(getWebModuleTabs("/dashboard")).toEqual([]);
