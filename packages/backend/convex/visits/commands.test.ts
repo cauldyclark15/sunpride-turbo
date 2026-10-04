@@ -695,6 +695,38 @@ describe("field day rules (client call 2 Oct 2026)", () => {
     );
   });
 
+  it("records an Android fused fix with distance, radius, policy and mock indicator", async () => {
+    const f = await fixture();
+    try {
+      // Exactly the wire shape the Android fused capture sends (mockSignal always explicit).
+      await f.apply(
+        f.check(1, {
+          ...f.fix,
+          provider: "fused",
+          accuracyMeters: 12,
+          mockSignal: false,
+        } as unknown as typeof f.fix),
+      );
+      const evidence = await f.t.run((ctx) =>
+        ctx.db.query("visitLocationEvidence").first(),
+      );
+      expect(evidence).toMatchObject({
+        event: "check_in",
+        provider: "fused",
+        accuracyMeters: 12,
+        mockSignal: false,
+        result: "within_radius",
+        reviewStatus: "verified",
+        policyVersion: "field-day-2026-10-v2",
+      });
+      expect(evidence?.radiusMeters).toBeGreaterThan(0);
+      expect(evidence?.distanceMeters).toBeGreaterThanOrEqual(0);
+      expect(evidence?.pinId).toBe(f.ids.pin);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("has no distance limit: far fixes and bad pin data are recorded and flagged, never refused", async () => {
     const f = await fixture();
     try {

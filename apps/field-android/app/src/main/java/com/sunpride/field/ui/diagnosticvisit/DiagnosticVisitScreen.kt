@@ -48,26 +48,29 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
     var note by remember { mutableStateOf("") }
     var outcome by remember { mutableStateOf<String?>(null) }
     var reasonCode by remember { mutableStateOf("") }
-    var locationError by remember { mutableStateOf<String?>(null) }
+    var locationNotice by remember { mutableStateOf<LocationNotice?>(null) }
     var capturing by remember { mutableStateOf(false) }
     var pendingKind by remember { mutableStateOf("visit.checkIn") }
     suspend fun captureAndQueue(kind: String) {
         try {
             // Even a precise-permission denial may leave approximate/network location available.
-            val fix = location.captureOrNull()
-            locationError = if (fix == null) "Location unavailable · recorded for review" else null
+            val capture = location.captureOrUnavailable()
+            // Governed exception: a missing, weak, old or mock fix is recorded and flagged for supervisor
+            // review on the server (pin distance/geofence result), never a reason to refuse Start or End.
+            locationNotice = LocationAssessment.notice(capture, System.currentTimeMillis())
             controller.queueDiagnostic(kind, if (kind == "visit.checkIn") reason else reasonCode,
-                null, if (kind == "visit.checkOut") outcome else null, fix).join()
+                null, if (kind == "visit.checkOut") outcome else null, capture.wire).join()
         } finally { capturing = false }
     }
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         scope.launch { captureAndQueue(pendingKind) }
     }
     fun record(kind: String) {
-        locationError = null; capturing = true; pendingKind = kind
+        locationNotice = null; capturing = true; pendingKind = kind
+        // Ask for precise and approximate together so Android 12+ lets the person choose either.
         if (location.requiresPermission && ContextCompat.checkSelfPermission(context,
                 Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED)
-            launcher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+            launcher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
         else scope.launch { captureAndQueue(kind) }
     }
     val related = controller.relatedCall(visit)
@@ -159,7 +162,9 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                         "activity", Modifier.testTag("diagnostic-operation"))
                 }
             }
-            locationError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("location-error")) }
+            locationNotice?.let { Text(it.text, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag(if (it.review) "location-review" else "location-recorded")) }
             controller.diagnosticError?.let { Text(it, color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.testTag("queue-error")) }
             androidx.compose.foundation.layout.Spacer(Modifier.height(16.dp).testTag("visit-bottom-space"))
