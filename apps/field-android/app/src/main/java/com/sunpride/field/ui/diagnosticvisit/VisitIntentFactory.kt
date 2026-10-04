@@ -37,7 +37,9 @@ object VisitIntentFactory {
                     payload.put("activity", callSheet)
                 } else if (activity != null) {
                     // AND-013 structured form, already built by ActivityForms (re-validated in the store).
-                    require(activity.getString("kind") in setOf("merchandising", "promotion", "inventory_check", "price_check"))
+                    if (activity.getString("kind") == com.sunpride.field.orders.OrderSubmission.KIND)
+                        com.sunpride.field.orders.OrderSubmission.validateActivity(activity) // SP-0060 submitted order
+                    else require(activity.getString("kind") in setOf("merchandising", "promotion", "inventory_check", "price_check"))
                     payload.put("activity", JSONObject(activity.toString()))
                 } else {
                     require(!note.isNullOrBlank())

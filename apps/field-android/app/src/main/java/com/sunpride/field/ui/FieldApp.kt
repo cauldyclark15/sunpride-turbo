@@ -112,6 +112,8 @@ fun FieldApp(
                             when {
                                 controller.photoCaptureOpen -> controller.closePhotoCapture()
                                 controller.activityForm != null -> controller.closeActivityForm()
+                                controller.orderOpen && controller.orderReview -> controller.closeOrderReview()
+                                controller.orderOpen -> controller.closeOrder()
                                 controller.callSheetOpen -> controller.closeCallSheet()
                                 else -> controller.closeDiagnostic()
                             }
@@ -120,7 +122,8 @@ fun FieldApp(
                         }
                         Text(if (controller.photoCaptureOpen) "Photo" else controller.activityForm?.let {
                             com.sunpride.field.storage.ActivityRules.kindLabel(it) }
-                            ?: if (controller.callSheetOpen) "Call sheet" else "Visit", style = MaterialTheme.typography.titleMedium)
+                            ?: if (controller.orderOpen && controller.orderReview) "Review" else if (controller.orderOpen) "Order"
+                            else if (controller.callSheetOpen) "Call sheet" else "Visit", style = MaterialTheme.typography.titleMedium)
                     } else if (page == "account" || page == "sync" || page == "support" ||
                         (ready && (page == "route" || page == "customers" || page == "customer" || page == "team"))) Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { page = when (page) { "support" -> "account"; "customer" -> "customers"; else -> "home" } },
@@ -167,6 +170,11 @@ fun FieldApp(
                     com.sunpride.field.ui.diagnosticvisit.PhotoCaptureScreen(controller, modifier)
                 controller.diagnostic != null && debug && ready && controller.activityForm != null ->
                     com.sunpride.field.ui.diagnosticvisit.ActivityFormScreen(controller.activityForm!!, controller, modifier)
+                controller.diagnostic != null && debug && ready && controller.orderOpen && controller.orderReview ->
+                    com.sunpride.field.ui.orders.OrderReviewScreen(controller.diagnostic!!, controller, modifier)
+                controller.diagnostic != null && debug && ready && controller.orderOpen && controller.diagnosticCallSheet != null ->
+                    com.sunpride.field.ui.orders.OrderDraftScreen(controller.diagnostic!!, controller.diagnosticCallSheet!!,
+                        controller, modifier)
                 controller.diagnostic != null && debug && ready && controller.callSheetOpen && controller.diagnosticCallSheet != null ->
                     com.sunpride.field.ui.diagnosticvisit.CallSheetScreen(controller.diagnosticCallSheet!!, controller, modifier)
                 controller.diagnostic != null && debug && ready -> com.sunpride.field.ui.diagnosticvisit.DiagnosticVisitScreen(
@@ -262,6 +270,10 @@ fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: (
             java.time.format.DateTimeFormatter.ofPattern("EEE, MMM d", java.util.Locale.ENGLISH)),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
+        val summary = com.sunpride.field.ui.today.TodaySummary.of(data)
+        if (summary.planned > 0) com.sunpride.field.ui.today.CallProgressCard(summary)
+        if (summary.planned > 0) com.sunpride.field.ui.today.NextStoreCard(summary,
+            onOpen = if (diagnosticEnabled) onVisit else null)
         if (onRoute != null && data.visits.isNotEmpty()) SectionCard("Route") {
             val next = com.sunpride.field.ui.route.DailyRoutes.build(data.visits, null).next
             ListRow(next?.let { "Next: ${it.visit.outlet}" } ?: "All stops done",
@@ -277,18 +289,22 @@ fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: (
                 else "${data.customers.size} outlets saved on this phone", "search",
                 Modifier.testTag("customers-open"), onClick = onCustomers)
         }
-        SectionCard("Visits · ${data.visits.size}") {
+        SectionCard(summary.routeCode?.let { "Route $it · ${summary.planned} stops" } ?: "Visits · ${summary.planned}",
+            Modifier.testTag("today-route")) {
             if (data.visits.isEmpty()) Text("No visits today", Modifier.padding(16.dp).testTag("today-empty"))
-            data.visits.withIndex().sortedBy { it.value.sequence ?: it.value.listPosition ?: it.index }.forEach { (_, visit) ->
+            summary.stops.forEach { stop ->
+                val visit = stop.visit
                 val facts = listOfNotNull(visit.planned.takeUnless { it == "Planned" || it == "Scheduled" || it.isBlank() },
                     visit.status.takeUnless { it == "Planned" || it == "Scheduled" || it == "Pending" || it.isBlank() }
-                        ?.replace("Queued", "Waiting"), visit.timeSpent)
+                        ?.replace("Queued", "Waiting"), com.sunpride.field.ui.today.outcomeLabel(summary, stop), visit.timeSpent)
                 if (diagnosticEnabled) androidx.compose.foundation.layout.Box(Modifier.testTag("today-visit")) {
                     ListRow(visit.outlet, facts.joinToString(" · "), "store", Modifier.testTag("diagnostic-open"),
-                        onClick = { onVisit(visit) })
-                } else ListRow(visit.outlet, facts.joinToString(" · "), "store", Modifier.testTag("today-visit"))
+                        onClick = { onVisit(visit) }, tile = stop.stop.toString())
+                } else ListRow(visit.outlet, facts.joinToString(" · "), "store", Modifier.testTag("today-visit"),
+                    tile = stop.stop.toString())
             }
         }
+        com.sunpride.field.ui.today.SalesCard(data.sales)
         if (diagnosticEnabled && data.unplannedOutlets.isNotEmpty()) SectionCard("Unplanned visit") {
             data.unplannedOutlets.forEach { outlet -> ListRow(outlet.outlet, "", "store",
                 Modifier.testTag("unplanned-open"), onClick = { onVisit(outlet) }) }

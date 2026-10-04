@@ -23,7 +23,13 @@ import {
   callSheetHeaderValidator,
   callSheetTemplateLineValidator,
 } from "./callSheets/validators";
+import { fieldOrderLineValidator } from "./orders/field_order_validators";
 import { productiveCallRuleValidator } from "./sfa/productive_call";
+import {
+  contributionFields,
+  rollupMetricsFields,
+  skuMetricsFields,
+} from "./analytics/rollups_model";
 import {
   availabilityStatus,
   competitorObservationKind,
@@ -1322,6 +1328,80 @@ export default defineSchema({
     salesToday: v.number(),
     updatedAt: v.number(),
   }).index("by_key", ["key"]),
+  /**
+   * CVX-032 daily rollups (analytics/rollups.ts). Derived data only; orders, visits and
+   * planned visits stay authoritative. `orgUnitId` is the territory's owner on the day
+   * (else the outlet custodian / seller's unit) and is the scope key for readers.
+   */
+  dailyTerritoryMetrics: defineTable({
+    organizationId: v.string(),
+    serviceDate: v.string(), // YYYY-MM-DD, Manila
+    orgUnitId: v.id("orgUnits"),
+    territoryId: v.id("territories"),
+    ...rollupMetricsFields,
+    /** Customers of this territory with at least one sale order on the day. */
+    buyingCustomers: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_territoryId_and_serviceDate", ["territoryId", "serviceDate"])
+    .index("by_organizationId_and_serviceDate", [
+      "organizationId",
+      "serviceDate",
+    ])
+    .index("by_orgUnitId_and_serviceDate", ["orgUnitId", "serviceDate"]),
+  dailyCustomerMetrics: defineTable({
+    organizationId: v.string(),
+    serviceDate: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    customerCode: v.string(),
+    customerId: v.optional(v.id("customers")),
+    territoryId: v.optional(v.id("territories")),
+    ...rollupMetricsFields,
+    updatedAt: v.number(),
+  })
+    .index("by_customerCode_and_serviceDate", ["customerCode", "serviceDate"])
+    .index("by_organizationId_and_serviceDate", [
+      "organizationId",
+      "serviceDate",
+    ])
+    .index("by_orgUnitId_and_serviceDate", ["orgUnitId", "serviceDate"])
+    .index("by_territoryId_and_serviceDate", ["territoryId", "serviceDate"]),
+  dailySkuMetrics: defineTable({
+    organizationId: v.string(),
+    serviceDate: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    productCode: v.string(),
+    ...skuMetricsFields,
+    updatedAt: v.number(),
+  })
+    .index("by_productCode_and_serviceDate", ["productCode", "serviceDate"])
+    .index("by_organizationId_and_serviceDate", [
+      "organizationId",
+      "serviceDate",
+    ])
+    .index("by_orgUnitId_and_serviceDate", ["orgUnitId", "serviceDate"]),
+  /** What each source document currently adds to the daily rollups (one row per source). */
+  rollupContributions: defineTable({
+    sourceKind: v.union(
+      v.literal("order"),
+      v.literal("visit"),
+      v.literal("planned"),
+    ),
+    sourceId: v.string(),
+    ...contributionFields,
+    version: v.string(),
+    computedAt: v.number(),
+  }).index("by_sourceKind_and_sourceId", ["sourceKind", "sourceId"]),
+  /** Pending rollup refreshes: at most one per source document, deleted when it runs. */
+  rollupRefreshes: defineTable({
+    sourceKind: v.union(
+      v.literal("order"),
+      v.literal("visit"),
+      v.literal("planned"),
+    ),
+    sourceId: v.string(),
+    requestedAt: v.number(),
+  }).index("by_sourceKind_and_sourceId", ["sourceKind", "sourceId"]),
   orgUnitTypes: defineTable({
     organizationId: v.string(),
     code: v.string(),
@@ -2308,6 +2388,8 @@ export default defineSchema({
       "serviceDate",
     ])
     .index("by_plannedVisitId", ["plannedVisitId"])
+    // ANA-005 customer execution dashboard: one store's visits over a period.
+    .index("by_outletId_and_serviceDate", ["outletId", "serviceDate"])
     .index("by_organizationId_and_clientVisitId", [
       "organizationId",
       "clientVisitId",
@@ -2359,6 +2441,8 @@ export default defineSchema({
         kind: v.literal("order_intent"),
         clientOrderId: v.string(),
         note: v.optional(v.string()),
+        // SP-0060: the submitted field order's lines (quantities only, no prices).
+        lines: v.optional(v.array(fieldOrderLineValidator)),
       }),
       v.object({ kind: v.literal("note"), text: v.string() }),
       callSheetActivityValidator,
@@ -2727,6 +2811,16 @@ export default defineSchema({
   })
     .index("by_outletId", ["outletId"])
     .index("by_organizationId_and_updatedAt", ["organizationId", "updatedAt"]),
+  // SP-0060: the products each replaced call sheet revision authorized, so a field order
+  // queued offline against that day's catalog stays valid after an office edit.
+  callSheetAccountRevisions: defineTable({
+    organizationId: v.string(),
+    outletId: v.id("outlets"),
+    revision: v.number(),
+    productIds: v.array(v.id("products")),
+    effectiveFrom: v.number(),
+    supersededAt: v.number(),
+  }).index("by_outletId_and_supersededAt", ["outletId", "supersededAt"]),
   // One captured product row per call_sheet visit activity; week 1-4 of the Manila month.
   callSheetEntries: defineTable({
     organizationId: v.string(),

@@ -61,6 +61,30 @@ struct BootstrapResponse {
   let nextPageCursor: String?
   // schema-field: bootstrapResponse.syncCursor
   let syncCursor: String?
+  // schema-field: bootstrapResponse.dayTarget
+  let dayTarget: OptionalField<BootstrapResponseDayTarget>
+  // schema-field: bootstrapResponse.daySales
+  let daySales: OptionalField<BootstrapResponseDaySales>
+}
+// schema-object: bootstrapResponse.dayTarget
+struct BootstrapResponseDayTarget {
+  // schema-field: bootstrapResponse.dayTarget.dailyCalls
+  let dailyCalls: OptionalField<Int64>
+  // schema-field: bootstrapResponse.dayTarget.productivePct
+  let productivePct: OptionalField<Double>
+  // schema-field: bootstrapResponse.dayTarget.sourceRef
+  let sourceRef: OptionalField<String>
+  // schema-field: bootstrapResponse.dayTarget.productiveCallRule
+  let productiveCallRule: OptionalField<String>
+}
+// schema-object: bootstrapResponse.daySales
+struct BootstrapResponseDaySales {
+  // schema-field: bootstrapResponse.daySales.amountMinor
+  let amountMinor: Int64
+  // schema-field: bootstrapResponse.daySales.orders
+  let orders: Int64
+  // schema-field: bootstrapResponse.daySales.targetMinor
+  let targetMinor: OptionalField<Int64>
 }
 // schema-object: bootstrapResponse.employee
 struct BootstrapResponseEmployee {
@@ -120,6 +144,10 @@ struct BootstrapResponseOutletsItem {
   let code: OptionalField<String>
   // schema-field: bootstrapResponse.outlets[].customerId
   let customerId: OptionalField<String>
+  // schema-field: bootstrapResponse.outlets[].territoryId
+  let territoryId: OptionalField<String>
+  // schema-field: bootstrapResponse.outlets[].territoryCode
+  let territoryCode: OptionalField<String>
   // schema-field: bootstrapResponse.outlets[].address
   let address: OptionalField<String>
   // schema-field: bootstrapResponse.outlets[].latitude
@@ -330,6 +358,17 @@ struct PushRequestOperationsItemVariant1PayloadActivityVariant4 {
   let clientOrderId: String
   // schema-field: pushRequest.operations[]#1.payload.activity#4.note
   let note: OptionalField<String>
+  // schema-field: pushRequest.operations[]#1.payload.activity#4.lines
+  let lines: OptionalField<[PushRequestOperationsItemVariant1PayloadActivityVariant4LinesItem]>
+}
+// schema-object: pushRequest.operations[]#1.payload.activity#4.lines[]
+struct PushRequestOperationsItemVariant1PayloadActivityVariant4LinesItem {
+  // schema-field: pushRequest.operations[]#1.payload.activity#4.lines[].productId
+  let productId: String
+  // schema-field: pushRequest.operations[]#1.payload.activity#4.lines[].uom
+  let uom: String
+  // schema-field: pushRequest.operations[]#1.payload.activity#4.lines[].quantity
+  let quantity: Int64
 }
 // schema-object: pushRequest.operations[]#1.payload.activity#5
 struct PushRequestOperationsItemVariant1PayloadActivityVariant5 {

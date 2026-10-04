@@ -15,6 +15,7 @@ import { activeAt } from "../org/validation";
 import {
   evaluateProductiveCall,
   PRODUCTIVE_CALL_RULE_VERSION,
+  productiveCallRuleValidator,
   productiveCodesFromVisitRecords,
   summarizeCalls,
   type CallEvaluation,
@@ -115,6 +116,8 @@ const reportValidator = v.object({
     productivePct: v.union(v.number(), v.null()),
     dailyCallsTarget: v.union(v.number(), v.null()),
     productiveCallTargetPct: v.union(v.number(), v.null()),
+    /** The position's governed rule, so field apps evaluate unsent calls the same way. */
+    productiveCallRule: productiveCallRuleValidator,
   }),
   customers: v.array(customerRow),
   categories: v.array(
@@ -601,6 +604,7 @@ export const day = query({
         ...callSummary,
         dailyCallsTarget: standard?.dailyCallsTarget ?? null,
         productiveCallTargetPct: standard?.productiveCallTargetPct ?? null,
+        productiveCallRule: rule,
       },
       customers,
       categories: [...categories.entries()]

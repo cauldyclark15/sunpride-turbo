@@ -15,6 +15,11 @@ import { VISIT_LOCATION_POLICY } from "./policy";
 import { missingKinds, rulesAt, ruleVersionFor } from "./activity_rules";
 import { callSheetActivityValidator } from "../callSheets/validators";
 import {
+  fieldOrderLineValidator,
+  validateFieldOrderLines,
+} from "../orders/field_order_validators";
+import { validateFieldOrder } from "../orders/field_order";
+import {
   accountFor,
   callSheetWeek,
   usableProduct,
@@ -169,6 +174,7 @@ const activity = v.union(
     kind: v.literal("order_intent"),
     clientOrderId: v.string(),
     note: v.optional(v.string()),
+    lines: v.optional(v.array(fieldOrderLineValidator)),
   }),
   v.object({ kind: v.literal("note"), text: v.string() }),
   callSheetActivityValidator,
@@ -239,6 +245,7 @@ function safeActivity(a: Infer<typeof activity>) {
     requireUuid(a.clientOrderId);
     if (a.note !== undefined && a.note.length > 500)
       throw new ConvexError("invalid_request");
+    if (a.lines !== undefined) validateFieldOrderLines(a.lines);
   }
   if (
     a.kind === "inventory_check" &&
@@ -466,6 +473,13 @@ export async function applyVisitOperation(
         if (!usableProduct(await ctx.db.get(line.productId)))
           throw new ConvexError("invalid_request");
     }
+    if (p.activity.kind === "order_intent" && p.activity.lines !== undefined)
+      await validateFieldOrder(
+        ctx,
+        visit,
+        p.activity.clientOrderId,
+        p.activity.lines,
+      );
     const activityId = await ctx.db.insert("visitActivities", {
       organizationId: SUNPRIDE_ORGANIZATION_ID,
       orgUnitId: visit.orgUnitId,
