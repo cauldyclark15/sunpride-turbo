@@ -1,0 +1,80 @@
+{
+  "type": "bootstrap.response",
+  "contractVersion": 1,
+  "serverTime": 1790380800000,
+  "permissions": ["visit.record", "visit.read"],
+  "employee": {
+    "id": "profile-1",
+    "role": "sales",
+    "orgUnitId": "unit-1"
+  },
+  "scope": {
+    "fingerprint": "scope-v1",
+    "orgUnitIds": ["unit-1"]
+  },
+  "appConfig": {
+    "offlineLeaseExpiresAt": 1790467200000,
+    "cacheExpiresAt": 1790467200000,
+    "orderCaptureEnabled": false,
+    "priceAvailability": "unavailable",
+    "promotionsAvailability": "unavailable"
+  },
+  "plannedVisits": [
+    {
+      "id": "planned-1",
+      "outletId": "outlet-1",
+      "serviceDate": "2026-09-26",
+      "planId": "plan-1",
+      "planVersion": 1,
+      "intents": ["merchandise"],
+      "sequence": 1
+    }
+  ],
+  "outlets": [
+    {
+      "id": "outlet-1",
+      "name": "Outlet One",
+      "routeId": null,
+      "code": "OUT-0001",
+      "address": "12 Rizal Avenue, Pasig",
+      "latitude": 14.5764,
+      "longitude": 121.0851,
+      "customerId": "customer-1"
+    }
+  ],
+  "localCustomers": [
+    {
+      "id": "customer-1",
+      "code": "CUST-0001"
+    }
+  ],
+  "route": null,
+  "tasks": [],
+  "productCatalog": [],
+  "page": 1,
+  "nextPageCursor": null,
+  "syncCursor": "opaque-start",
+  "accountSummaries": [
+    {
+      "outletId": "outlet-1",
+      "asOfDate": "2026-09-26",
+      "availability": "available",
+      "creditLimitMinor": 5000000,
+      "sales": {
+        "from": "2026-06-28",
+        "to": "2026-09-26",
+        "complete": true,
+        "orders": 9,
+        "amountMinor": 4825050,
+        "recentOrders": 3,
+        "recentAmountMinor": 1590000,
+        "lastOrderDate": "2026-09-22",
+        "lastOrderAmountMinor": 530000
+      },
+      "openOrders": {
+        "count": 1,
+        "amountMinor": 410000
+      }
+    }
+  ]
+}

@@ -292,6 +292,9 @@ describe("QSR-013 mobile bootstrap size and duration", () => {
     const ranges = await indexRanges(f);
     console.info(`[QSR-013] bound: ranges=${ranges}`);
     expect(ranges).toBeLessThan(CONVEX_INDEX_RANGE_LIMIT);
+    // IOS-011: a page also reads each newly shipped account summary (customer, links, orders:
+    // three ranges) for at most 100 page entries.
+    expect(ranges + 3 * 100).toBeLessThan(CONVEX_INDEX_RANGE_LIMIT);
     const { pages, bytes } = await download(f);
     expect(pages.flatMap((p) => p.plannedVisits)).toHaveLength(outlets + 1);
     expect(pages.length).toBeLessThanOrEqual(MAX_BOOTSTRAP_PAGES);

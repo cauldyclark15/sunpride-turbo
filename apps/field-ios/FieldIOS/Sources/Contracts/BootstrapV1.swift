@@ -89,6 +89,8 @@ enum BootstrapV1 {
         let tasks: [StoreSnapshot.Task]
         let productCatalog: [Product]
         let callSheets: [CallSheet]
+        /// IOS-011 additive field: cached account figures for this page's newly shipped outlets.
+        let accountSummaries: [AccountSummary]
         let page: Int
         let nextPageCursor: String?
         let syncCursor: String?
@@ -96,11 +98,13 @@ enum BootstrapV1 {
         let dayTarget: StoreSnapshot.DayTarget?
         /// Additive optional v1 field: today's sales and daily sales target. Absent on older servers.
         let daySales: StoreSnapshot.DaySales?
+        /// Additive optional v1 field (IOS-013): activity-form rules per visit intent. nil = older server.
+        let activityRules: [ActivityRule]?
 
         enum CodingKeys: String, CodingKey {
             case type, contractVersion, serverTime, permissions, employee, scope, appConfig,
                  plannedVisits, outlets, localCustomers, route, tasks, productCatalog, page,
-                 nextPageCursor, syncCursor, callSheets, dayTarget, daySales
+                 nextPageCursor, syncCursor, callSheets, accountSummaries, dayTarget, daySales, activityRules
         }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -131,6 +135,9 @@ enum BootstrapV1 {
             if c.contains(.callSheets) {
                 callSheets = try c.decode([CallSheet].self, forKey: .callSheets)
             } else { callSheets = [] } // Old servers omit the additive field.
+            if c.contains(.accountSummaries) {
+                accountSummaries = try c.decode([AccountSummary].self, forKey: .accountSummaries)
+            } else { accountSummaries = [] } // Old servers omit the additive field.
             page = try c.decode(Int.self, forKey: .page)
             nextPageCursor = try c.decodeIfPresent(String.self, forKey: .nextPageCursor)
             syncCursor = try c.decodeIfPresent(String.self, forKey: .syncCursor)
@@ -141,8 +148,20 @@ enum BootstrapV1 {
                 StoreSnapshot.DaySales(amountMinor: $0.amountMinor, orders: $0.orders, targetMinor: $0.targetMinor)
             }
             guard daySales?.isValid ?? true else { throw WireError.unsafeValue }
+            // Strict when present; explicit null is not an omission.
+            if c.contains(.activityRules) {
+                let rules = try c.decode([ActivityRule].self, forKey: .activityRules)
+                guard rules.count <= 32, Set(rules.map(\.intent)).count == rules.count else { throw WireError.unsafeValue }
+                activityRules = rules
+            } else { activityRules = nil }
             guard Set(callSheets.map(\.outletId)).count == callSheets.count,
                   callSheets.allSatisfy({ sheet in plannedVisits.contains { $0.outletId == sheet.outletId } }) else {
+                throw WireError.unsafeValue
+            }
+            // One summary per outlet, only for an outlet on this page, internally consistent.
+            guard Set(accountSummaries.map(\.outletId)).count == accountSummaries.count,
+                  accountSummaries.allSatisfy(\.isValid),
+                  accountSummaries.allSatisfy({ summary in outlets.contains { $0.id == summary.outletId } }) else {
                 throw WireError.unsafeValue
             }
             guard page > 0, serverTime > 0, !scope.fingerprint.isEmpty,
@@ -166,8 +185,10 @@ enum BootstrapV1 {
             try c.encode(productCatalog, forKey: .productCatalog); try c.encode(page, forKey: .page)
             try c.encode(nextPageCursor, forKey: .nextPageCursor); try c.encode(syncCursor, forKey: .syncCursor)
             try c.encode(callSheets, forKey: .callSheets)
+            try c.encode(accountSummaries, forKey: .accountSummaries)
             try c.encodeIfPresent(dayTarget, forKey: .dayTarget)
             try c.encodeIfPresent(daySales, forKey: .daySales)
+            try c.encodeIfPresent(activityRules, forKey: .activityRules)
         }
     }
 
