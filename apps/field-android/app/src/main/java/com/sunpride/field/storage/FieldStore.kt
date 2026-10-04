@@ -210,6 +210,7 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
                 VisitCallRules.requireEnd(intent.clientVisitId, payload ?: error("Missing outcome"),
                     history().map { it.first to it.second.state })
             }
+            VisitCompletion.requireOpenForActivity(intent, history().map { it.first to it.second.state })
             CallSheetQueueRules.validate(this@RoomFieldStore, intent)
             ActivityQueueRules.validate(this@RoomFieldStore, intent)
             val orderedAt = maxOf(intent.createdAt, (dao.latestCreatedAt(a, d, s) ?: Long.MIN_VALUE) + 1)

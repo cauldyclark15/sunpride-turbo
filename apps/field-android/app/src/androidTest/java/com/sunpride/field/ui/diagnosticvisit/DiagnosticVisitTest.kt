@@ -194,7 +194,15 @@ class DiagnosticVisitTest {
         rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("diagnostic-checkout").assertIsEnabled() }.isSuccess }
         rule.onNodeWithTag("activities-missing").assertDoesNotExist()
         rule.onNodeWithTag("diagnostic-checkout").performClick()
+        // AND-017: End is reviewed first; nothing is queued until the person confirms.
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("end-review").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("end-review-activities").performScrollTo().assertTextContains("Merchandising, Note", substring = true)
+        assertEquals(3, backend.visitStates().size)
+        rule.onNodeWithTag("diagnostic-confirm-end").performClick()
         rule.waitUntil(10_000) { backend.visitStates().size == 4 }
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("visit-result").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("result-outcome").performScrollTo().assertTextContains("Completed", substring = true)
+        rule.onNodeWithTag("diagnostic-note").assertDoesNotExist() // final: nothing more can be added
         val activity = JSONObject(backend.visitStates()[1].first.serializedOperation).getJSONObject("payload").getJSONObject("activity")
         assertEquals(mapOf("kind" to "merchandising", "displayCondition" to "needs_action", "actionTaken" to "Re-faced shelf"),
             activity.keys().asSequence().associateWith { activity.get(it) })
@@ -242,6 +250,9 @@ class DiagnosticVisitTest {
         rule.onNodeWithTag("diagnostic-reason").performScrollTo().performTextInput("other")
         androidx.test.espresso.Espresso.pressBack()
         rule.onNodeWithTag("diagnostic-checkout").performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-confirm-end").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("end-review-outcome").performScrollTo().assertTextContains("Not productive · other", substring = true)
+        rule.onNodeWithTag("diagnostic-confirm-end").performClick()
         rule.waitUntil(10_000) { backend.visitStates().size == 2 }
         rule.onNodeWithTag("visit-back").performClick()
         rule.onAllNodesWithTag("diagnostic-open")[1].performClick()
@@ -307,6 +318,12 @@ class DiagnosticVisitTest {
         Thread.sleep(350)
         com.sunpride.field.captureCalmScreenshot("${if (dark) "dark" else "light"}-visit-queued")
         rule.onNodeWithTag("diagnostic-checkout").performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-confirm-end").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("end-review-back").performClick() // Back keeps the call open and queues nothing
+        rule.onNodeWithTag("end-review").assertDoesNotExist()
+        rule.onNodeWithTag("diagnostic-checkout").performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-confirm-end").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("diagnostic-confirm-end").performClick()
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-operation").fetchSemanticsNodes().size == 3 }
         val reopened = scoped()
         try {
@@ -319,5 +336,9 @@ class DiagnosticVisitTest {
             }
         } finally { reopened.close() }
         rule.onNodeWithTag("call-time-spent").performScrollTo().assertTextContains("min", substring = true)
+        // The End fix (mock or missing) is shown on the final record as flagged for review.
+        rule.onNodeWithTag("result-location-review").performScrollTo().assertTextContains(
+            if (missingFix) "End location unavailable" else "mock location detected", substring = true)
+        rule.onNodeWithTag("result-sync").assertTextContains("Waiting to send", substring = true)
     }
 }

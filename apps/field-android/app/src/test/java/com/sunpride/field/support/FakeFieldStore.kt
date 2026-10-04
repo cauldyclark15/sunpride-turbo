@@ -38,6 +38,7 @@ class FakeFieldStore(val identity: StoreScope) : FieldStore {
         require(intent.requestId.isNotBlank() && intent.clientVisitId.isNotBlank() &&
             intent.kind in setOf("visit.checkIn", "visit.activity", "visit.checkOut") && intent.serializedOperation.isNotBlank())
         check(isLeaseValid(now))
+        VisitCompletion.requireOpenForActivity(intent, rows.map { it.first to it.second.state })
         CallSheetQueueRules.validate(this, intent)
         ActivityQueueRules.validate(this, intent)
         check(rows.none { it.first.requestId == intent.requestId })
