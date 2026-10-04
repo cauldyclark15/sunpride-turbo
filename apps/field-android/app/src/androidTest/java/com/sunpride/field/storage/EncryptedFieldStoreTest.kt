@@ -340,4 +340,61 @@ class EncryptedFieldStoreTest {
         try { scenario.recreate() } finally { scenario.close() }
         assertEquals(i.requestId, store().pending().single().first.requestId)
     }
+
+    private suspend fun orderReady(): IntentRow {
+        val outlet = org.json.JSONObject().put("id", "outlet-1").put("name", "Outlet").put("routeId", "route-1")
+            .put("customerId", "customer-1").put("territoryId", "territory-1").put("territoryCode", "T-1")
+        store().swap(store().stage(ScopedSnapshot("{\"id\":\"employee\"}", null, emptyList(),
+            listOf(SnapshotItem("outlet-1", outlet.toString())),
+            listOf(SnapshotItem("customer-1", "{\"id\":\"customer-1\",\"code\":\"C-1\"}")), emptyList(),
+            listOf(callSheet()))), "cursor", 2000, 2000)
+        return com.sunpride.field.ui.diagnosticvisit.VisitIntentFactory.create(scope, "visit.checkIn", null, null, null,
+            "planned-1", "outlet-1", emptyList(), null, null, null, null, null, at = 100).also { store().enqueue(it, 100) }
+    }
+
+    @Test fun orderDraftsPersistEncryptedScopedAndNeverEnterTheOutbox() = runBlocking {
+        val check = orderReady()
+        val marker = "ORDERMARKER${UUID.randomUUID().toString().take(8)}"
+        val draft = com.sunpride.field.ui.saveOrderDraftIn(store(), null, check.clientVisitId, check.requestId,
+            listOf("product-1" to 7), 500)
+        assertEquals("territory-1", draft.territoryId); assertEquals("C-1", draft.customerCode)
+        // Reopen: the draft survives a process restart in SQLCipher, partitioned by subject/device/scope.
+        db.close(); db = EncryptedFieldDatabase.open(context)
+        assertEquals(listOf(draft), store().orderDrafts())
+        assertTrue(store(scope.copy(account = "other")).orderDrafts().isEmpty())
+        assertTrue(store(scope.copy(fingerprint = "other")).orderDrafts().isEmpty())
+        assertEquals(listOf("visit.checkIn"), store().history().map { it.first.kind })
+        // Update in place; a forged association is refused inside the transaction.
+        val updated = com.sunpride.field.ui.saveOrderDraftIn(store(), draft.draftId, check.clientVisitId, check.requestId,
+            listOf("product-1" to 9), 600)
+        assertEquals(listOf(updated), store().orderDrafts())
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { store().saveOrderDraft(updated.copy(territoryId = marker, updatedAt = 700)) }
+        }
+        assertEquals(listOf(updated), store().orderDrafts())
+        db.close()
+        val bytes = context.getDatabasePath(PassphraseVault.DB_NAME).readBytes().toString(Charsets.ISO_8859_1)
+        assertFalse(bytes.contains("territory-1") && bytes.contains(updated.draftId))
+        db = EncryptedFieldDatabase.open(context)
+        // After End call the draft is frozen; holdForReview freezes discard too.
+        store().enqueue(com.sunpride.field.ui.diagnosticvisit.VisitIntentFactory.create(scope, "visit.checkOut",
+            check.clientVisitId, check.requestId, check.requestId, null, "outlet-1", emptyList(), null, null,
+            "completed", null, null, at = 200), 200)
+        val ended = runCatching { com.sunpride.field.ui.saveOrderDraftIn(store(), draft.draftId, check.clientVisitId,
+            check.requestId, listOf("product-1" to 1), 800) }.exceptionOrNull() as com.sunpride.field.orders.OrderDraftFailure
+        assertEquals(com.sunpride.field.orders.OrderDraftFailure.Code.CALL_ENDED, ended.code)
+        store().holdForReview()
+        assertTrue(runCatching { store().discardOrderDraft(draft.draftId) }.isFailure)
+        assertEquals(listOf(updated), store().orderDrafts())
+    }
+
+    @Test fun discardRemovesOnlyThatDraft() = runBlocking {
+        val check = orderReady()
+        val one = com.sunpride.field.ui.saveOrderDraftIn(store(), null, check.clientVisitId, check.requestId, listOf("product-1" to 1), 1)
+        val two = com.sunpride.field.ui.saveOrderDraftIn(store(), null, check.clientVisitId, check.requestId, listOf("product-1" to 2), 2)
+        store().discardOrderDraft(one.draftId)
+        assertEquals(listOf(two), store().orderDrafts())
+        assertThrows(IllegalStateException::class.java) { runBlocking { store().discardOrderDraft(one.draftId) } }
+        Unit
+    }
 }

@@ -80,6 +80,8 @@ export type BootstrapResponse = {
     routeId: string | null;
     code?: string;
     customerId?: string;
+    territoryId?: string;
+    territoryCode?: string;
     address?: string;
     latitude?: number;
     longitude?: number;

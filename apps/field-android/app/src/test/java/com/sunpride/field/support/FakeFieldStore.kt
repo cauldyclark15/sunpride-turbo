@@ -78,4 +78,17 @@ class FakeFieldStore(val identity: StoreScope) : FieldStore {
     override suspend fun syncHealth() = health
     override suspend fun setSyncHealth(value: String) { require(value.isNotBlank()); check(!held || value == "held_for_review"); health = value }
     override suspend fun holdForReview() { held = true; token = null; health = "held_for_review" }
+    override suspend fun customers() = active?.localCustomers ?: emptyList()
+    private val drafts = linkedMapOf<String, com.sunpride.field.orders.OrderDraft>()
+    override suspend fun orderDrafts() = drafts.values.sortedWith(compareBy({ it.createdAt }, { it.draftId }))
+    override suspend fun saveOrderDraft(draft: com.sunpride.field.orders.OrderDraft) {
+        if (held) throw com.sunpride.field.orders.OrderDraftFailure(com.sunpride.field.orders.OrderDraftFailure.Code.HELD)
+        check(active != null)
+        com.sunpride.field.orders.OrderDraftRules.validate(this, draft, drafts[draft.draftId])
+        drafts[draft.draftId] = draft
+    }
+    override suspend fun discardOrderDraft(draftId: String) {
+        if (held) throw com.sunpride.field.orders.OrderDraftFailure(com.sunpride.field.orders.OrderDraftFailure.Code.HELD)
+        check(drafts.remove(draftId) != null)
+    }
 }

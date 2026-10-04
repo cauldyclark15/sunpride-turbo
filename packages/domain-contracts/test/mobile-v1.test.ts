@@ -147,6 +147,39 @@ describe("mobile v1 canonical contract", () => {
     expect(validate(noName)).toBe(false);
   });
 
+  test("keeps outlet territory fields additive, paired and nonempty", async () => {
+    const original = await Bun.file(
+      new URL("../fixtures/mobile-v1/bootstrap-response.json", import.meta.url),
+    ).json();
+    const outlet = original.outlets[0];
+    const withOutlet = (value: Record<string, unknown>) => ({
+      ...original,
+      outlets: [value],
+    });
+    expect(validate(original), JSON.stringify(validate.errors)).toBe(true);
+    const withoutTerritory = { ...outlet };
+    delete withoutTerritory.territoryId;
+    delete withoutTerritory.territoryCode;
+    expect(validate(withOutlet(withoutTerritory))).toBe(true);
+    expect(
+      validate(
+        withOutlet({ ...withoutTerritory, territoryId: outlet.territoryId }),
+      ),
+    ).toBe(false);
+    expect(
+      validate(
+        withOutlet({
+          ...withoutTerritory,
+          territoryCode: outlet.territoryCode,
+        }),
+      ),
+    ).toBe(false);
+    for (const field of ["territoryId", "territoryCode"]) {
+      expect(validate(withOutlet({ ...outlet, [field]: "" }))).toBe(false);
+      expect(validate(withOutlet({ ...outlet, [field]: null }))).toBe(false);
+    }
+  });
+
   test("keeps daily-route outlet fields additive; a pin is both coordinates or none", async () => {
     const original = await Bun.file(
       new URL("../fixtures/mobile-v1/bootstrap-response.json", import.meta.url),

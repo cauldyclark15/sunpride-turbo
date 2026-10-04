@@ -38,6 +38,9 @@ export const outletDTO = v.object({
   /** Current verified pin; both present or both absent. */
   latitude: v.optional(v.number()),
   longitude: v.optional(v.number()),
+  /** Order drafts (SP-0061); optional in contract v1. */
+  territoryId: v.optional(v.string()),
+  territoryCode: v.optional(v.string()),
 });
 export const customerDTO = v.object({ id: v.string(), code: v.string() });
 export const routeDTO = v.union(
@@ -217,6 +220,8 @@ async function visitProjection(
       routeId: s.routeId ?? null,
       code: s.outletCode,
       ...(s.customerId ? { customerId: s.customerId } : {}),
+      territoryId: s.territoryId,
+      territoryCode: s.territoryCode,
       ...(address ? { address } : {}),
       ...(pin ? { latitude: pin.latitude, longitude: pin.longitude } : {}),
     },

@@ -42,6 +42,32 @@ class StoreMigrationTest {
             }
         }
     }
+    @Test fun v5ToV6KeepsCallSheetsAndOutboxAndAddsLocalOrderDrafts() {
+        val name = "migration-order-drafts-v5.db"
+        helper.createDatabase(name, 5).apply {
+            execSQL("INSERT INTO call_sheets (account,deviceId,scope,generation,outletId,revision,headerJson) VALUES ('a','d','s','g','o',2,'{}')")
+            execSQL("INSERT INTO intents (account,deviceId,scope,requestId,clientVisitId,kind,serializedOperation,createdAt) VALUES ('a','d','s','r','v','visit.checkIn','immutable',1)")
+            execSQL("INSERT INTO outbox (account,deviceId,scope,requestId,createdAt,state) VALUES ('a','d','s','r',1,'pending')")
+            close()
+        }
+        helper.runMigrationsAndValidate(name, 6, true, EncryptedFieldDatabase.MIGRATION_5_6).use { db ->
+            db.query("SELECT revision FROM call_sheets WHERE outletId='o'").use { c ->
+                assertEquals(true, c.moveToFirst()); assertEquals(2, c.getInt(0))
+            }
+            db.query("SELECT serializedOperation,state FROM intents JOIN outbox USING (account,deviceId,scope,requestId)").use { c ->
+                assertEquals(true, c.moveToFirst()); assertEquals("immutable", c.getString(0)); assertEquals("pending", c.getString(1))
+            }
+            db.execSQL("INSERT INTO order_drafts (account,deviceId,scope,draftId,clientVisitId,outletId,serviceDate,json,createdAt,updatedAt) VALUES ('a','d','s','x','v','o','2026-10-04','{}',1,1)")
+            db.query("SELECT COUNT(*) FROM order_drafts").use { c -> c.moveToFirst(); assertEquals(1, c.getInt(0)) }
+        }
+    }
+    @Test fun completeV1ToV6ChainValidates() {
+        val name = "migration-order-drafts-v1.db"
+        helper.createDatabase(name, 1).close()
+        helper.runMigrationsAndValidate(name, 6, true, EncryptedFieldDatabase.MIGRATION_1_2,
+            EncryptedFieldDatabase.MIGRATION_2_3, EncryptedFieldDatabase.MIGRATION_3_4,
+            EncryptedFieldDatabase.MIGRATION_4_5, EncryptedFieldDatabase.MIGRATION_5_6).close()
+    }
     @Test fun completeV1ToV5ChainValidates() {
         val name = "migration-call-sheet-v1.db"
         helper.createDatabase(name, 1).close()

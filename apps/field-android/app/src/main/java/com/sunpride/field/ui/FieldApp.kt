@@ -107,6 +107,7 @@ fun FieldApp(
                         IconButton(onClick = {
                             when {
                                 controller.activityForm != null -> controller.closeActivityForm()
+                                controller.orderOpen -> controller.closeOrder()
                                 controller.callSheetOpen -> controller.closeCallSheet()
                                 else -> controller.closeDiagnostic()
                             }
@@ -114,7 +115,8 @@ fun FieldApp(
                             Text("‹", style = MaterialTheme.typography.titleLarge)
                         }
                         Text(controller.activityForm?.let { com.sunpride.field.storage.ActivityRules.kindLabel(it) }
-                            ?: if (controller.callSheetOpen) "Call sheet" else "Visit", style = MaterialTheme.typography.titleMedium)
+                            ?: if (controller.orderOpen) "Order" else if (controller.callSheetOpen) "Call sheet" else "Visit",
+                            style = MaterialTheme.typography.titleMedium)
                     } else if (page == "account" || page == "sync" || page == "support" ||
                         (ready && (page == "route" || page == "customers" || page == "customer"))) Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { page = when (page) { "support" -> "account"; "customer" -> "customers"; else -> "home" } },
@@ -157,6 +159,9 @@ fun FieldApp(
                     onSync = controller::syncNow, busy = controller.busy, modifier = modifier)
                 controller.diagnostic != null && debug && ready && controller.activityForm != null ->
                     com.sunpride.field.ui.diagnosticvisit.ActivityFormScreen(controller.activityForm!!, controller, modifier)
+                controller.diagnostic != null && debug && ready && controller.orderOpen && controller.diagnosticCallSheet != null ->
+                    com.sunpride.field.ui.orders.OrderDraftScreen(controller.diagnostic!!, controller.diagnosticCallSheet!!,
+                        controller, modifier)
                 controller.diagnostic != null && debug && ready && controller.callSheetOpen && controller.diagnosticCallSheet != null ->
                     com.sunpride.field.ui.diagnosticvisit.CallSheetScreen(controller.diagnosticCallSheet!!, controller, modifier)
                 controller.diagnostic != null && debug && ready -> com.sunpride.field.ui.diagnosticvisit.DiagnosticVisitScreen(
