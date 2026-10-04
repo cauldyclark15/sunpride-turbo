@@ -28,6 +28,7 @@ import { DailySalesWorkspace } from "./daily-sales/daily-sales-workspace";
 import { TrainingWorkspace } from "./training/trainer-forms";
 import { ActivityReportsWorkspace } from "./activity-reports/activity-reports-workspace";
 import { ExecutionDashboard } from "./analytics/execution-dashboard";
+import { TerritoryPerformance } from "./analytics/territory-performance";
 
 const modules = {
   dashboard: { title: "Home" },
@@ -234,6 +235,7 @@ function ModuleContent({
         {module === "analytics" && canAccessWebModule("supervision", role) ? (
           <ExecutionDashboard />
         ) : null}
+        {module === "analytics" ? <TerritoryPerformance /> : null}
       </>
     );
 
