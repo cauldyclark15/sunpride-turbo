@@ -180,6 +180,18 @@ final class StubBackend: URLProtocol {
             switch name {
             case "domains/profiles:current":
                 return ["status": "success", "value": ["_id": "profile-1", "authSubject": "stub-issuer|seller"]]
+            case "analytics/suggested_orders:forOutlet":
+                guard args["outletId"] as? String == "outlet-stub-1",
+                      let day = args["asOfDate"] as? String else {
+                    return ["status": "error", "errorMessage": "Outlet not available"]
+                }
+                return ["status": "success", "value": [
+                    "version": "suggested-order/v1/2026-10-05", "asOfDate": day,
+                    "coverDays": 8, "leadTimeDays": 1, "leadTimeProvisional": true,
+                    "nextVisit": ["days": 7], "outlet": ["outletId": "outlet-stub-1"],
+                    "lines": [["productId": "product-stub-1", "code": "SUNP-001", "name": "Sunpride Hotdog 1kg",
+                        "unit": "PC", "status": "suggest", "suggestedQuantity": 8,
+                        "reasons": ["Bought 84 PC in 84 days: 1 a day", "Cover 8 day(s) (7 to next visit + 1 lead time): 8 needed"]]]]]
             case "mobile/devices:mine":
                 s.lookups += 1
                 s.key = args["publicKey"] as? String

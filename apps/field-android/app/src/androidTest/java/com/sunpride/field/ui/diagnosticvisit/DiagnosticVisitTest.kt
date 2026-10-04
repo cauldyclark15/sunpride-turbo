@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -51,6 +52,8 @@ class DiagnosticVisitTest {
             return try { runBlocking { store.history().map { it.first to it.second.state } } }
             finally { store.close() }
         }
+        var suggestion: SuggestedOrderView? = null
+        override fun suggestedOrder(outletId: String) = suggestion ?: super.suggestedOrder(outletId)
         override fun callSheet(outletId: String): CallSheet? {
             val store = scoped()
             return try { runBlocking { store.callSheet(outletId) } } finally { store.close() }
@@ -163,6 +166,65 @@ class DiagnosticVisitTest {
         androidx.test.espresso.Espresso.pressBack()
         rule.onNodeWithTag("call-sheet-save").performClick()
         rule.waitUntil(10_000) { backend.visitStates().count { it.first.kind == "visit.activity" } == 2 }
+    }
+    /** ANA-010: a suggestion fills Order only when tapped, stays editable, and nothing queues before Save. */
+    @Test fun suggestedOrderIsAcceptedEditedAndNeverQueuedUntilSave() {
+        val sheet = CallSheet("outlet-1", 1, CallSheetHeader("Test account", null, null, null, null, null, null,
+            null, null, null), listOf(CallSheetProduct("product-1", "SKU-1", "Test product", "PC", null, null),
+                CallSheetProduct("product-2", "SKU-2", "Stocked product", "CAN", null, null)))
+        val store = scoped()
+        runBlocking {
+            store.swap(store.stage(ScopedSnapshot("{\"id\":\"test\"}", null, emptyList(), emptyList(),
+                emptyList(), emptyList(), listOf(sheet))), "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
+        }
+        store.close()
+        val backend = Backend().apply {
+            suggestion = SuggestedOrderView(SuggestedOrder("v1", "2026-09-29", "outlet-1", 8, 7, 1, true, listOf(
+                SuggestedLine("product-1", "SKU-1", "Test product", "PC", "suggest", 8.0,
+                    listOf("Bought 84 PC in 84 days: 1 a day", "Suggest 8 PC")),
+                SuggestedLine("product-2", "SKU-2", "Stocked product", "CAN", "enough_stock", 0.0,
+                    listOf("Store stock covers the period")),
+                SuggestedLine("product-9", "SKU-9", "Off-sheet product", "PC", "suggest", 3.0, emptyList()))))
+        }
+        val location = object : VisitLocation {
+            override val requiresPermission = false
+            override suspend fun fix(): JSONObject? = null
+        }
+        rule.setContent { FieldApp(AppEnvironment("https://team.convex.site", "https://team.convex.cloud"),
+            dark = false, debug = true, backend = backend, visitLocation = location) }
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-open").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("diagnostic-open").performClick()
+        backend.queueVisit("visit.checkIn", null, null, null, "planned-1", "outlet-1", emptyList(), null, null, null, null, null)
+        rule.onNodeWithTag("visit-back").performClick()
+        rule.onNodeWithTag("diagnostic-open").performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("call-sheet-open").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("call-sheet-open").performScrollTo().performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("suggested-order-summary").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("suggested-order-summary").assertTextContains("2 product(s) suggested", substring = true)
+        rule.onNodeWithText("SKU-9 Off-sheet product — 3 PC").assertExists()
+        rule.onNodeWithTag("call-sheet-products").performScrollToNode(hasTestTag("suggestion-product-2"))
+        rule.onNodeWithTag("suggestion-product-2").assertTextContains("Enough stock", substring = true)
+        rule.onNodeWithTag("call-sheet-products").performScrollToNode(hasTestTag("suggestion-use-product-1"))
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("suggestion-use-product-1").assertIsEnabled() }.isSuccess }
+        rule.onNodeWithTag("suggestion-product-1").assertTextContains("Suggested: 8 PC")
+        rule.onNodeWithTag("suggestion-use-product-1").performClick()
+        rule.onNodeWithTag("call-sheet-products").performScrollToNode(hasTestTag("call-sheet-product-1-order"))
+        rule.onNodeWithTag("call-sheet-product-1-order").assertTextContains("8")
+        // Accepting queued nothing: the outbox still holds only the check-in.
+        assertEquals(listOf("visit.checkIn"), backend.visitStates().map { it.first.kind })
+        rule.onNodeWithTag("call-sheet-product-1-order").performTextClearance()
+        rule.onNodeWithTag("call-sheet-product-1-order").performTextInput("6")
+        androidx.test.espresso.Espresso.pressBack()
+        assertEquals(listOf("visit.checkIn"), backend.visitStates().map { it.first.kind })
+        rule.onNodeWithTag("call-sheet-save").assertIsEnabled().performClick()
+        rule.waitUntil(10_000) { backend.visitStates().count { it.first.kind == "visit.activity" } == 1 }
+        val reopened = scoped()
+        try { runBlocking {
+            val lines = JSONObject(reopened.history().last().first.serializedOperation).getJSONObject("payload")
+                .getJSONObject("activity").getJSONArray("lines")
+            assertEquals(1, lines.length())
+            assertEquals(6, lines.getJSONObject(0).getInt("order"))
+        } } finally { reopened.close() }
     }
     @After fun cleanup() {
         KeystoreDeviceKey.delete(alias)

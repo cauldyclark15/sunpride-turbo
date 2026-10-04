@@ -1,0 +1,156 @@
+{
+  "asOfDate": "2026-09-29",
+  "coverDays": 8,
+  "customer": {
+    "code": "C1",
+    "name": "Customer C1"
+  },
+  "historyDays": 84,
+  "historyFrom": "2026-07-08",
+  "leadTimeDays": 1,
+  "leadTimeProvisional": true,
+  "lines": [
+    {
+      "available": null,
+      "cappedByAvailability": false,
+      "code": "P1",
+      "dailyDemand": 1,
+      "daysSinceLastPurchase": 7,
+      "historyQuantity": 84,
+      "icoQuantity": 8,
+      "lastPurchaseDate": "2026-09-22",
+      "name": "Product P1",
+      "productId": "000000000000000000010022products",
+      "promotion": null,
+      "reasons": [
+        "Bought 84 CS in 84 days: 1 a day",
+        "Last bought 4 on 2026-09-22, 7 day(s) ago; about 0 left",
+        "Cover 8 day(s) (7 to next visit + 1 lead time): 8 needed",
+        "Suggest 8 CS"
+      ],
+      "required": true,
+      "status": "suggest",
+      "stockSource": "estimated",
+      "storeStock": 0,
+      "suggestedQuantity": 8,
+      "unit": "CS"
+    },
+    {
+      "available": null,
+      "cappedByAvailability": false,
+      "code": "P2",
+      "dailyDemand": 0.5,
+      "daysSinceLastPurchase": 4,
+      "historyQuantity": 42,
+      "icoQuantity": 4,
+      "lastPurchaseDate": "2026-09-25",
+      "name": "Product P2",
+      "productId": "000000000000000000010023products",
+      "promotion": null,
+      "reasons": [
+        "Bought 42 CS in 84 days: 0.50 a day",
+        "Store counted 1 on 2026-09-28; 1 day(s) of sales leave about 0.50",
+        "Cover 8 day(s) (7 to next visit + 1 lead time): 4 needed",
+        "Suggest 4 CS"
+      ],
+      "required": false,
+      "status": "suggest",
+      "stockSource": "counted",
+      "storeStock": 0.5,
+      "suggestedQuantity": 4,
+      "unit": "CS"
+    },
+    {
+      "available": null,
+      "cappedByAvailability": false,
+      "code": "P4",
+      "dailyDemand": 1,
+      "daysSinceLastPurchase": 83,
+      "historyQuantity": 84,
+      "icoQuantity": 8,
+      "lastPurchaseDate": "2026-07-08",
+      "name": "Product P4",
+      "productId": "000000000000000000010025products",
+      "promotion": null,
+      "reasons": [
+        "Bought 84 CS in 84 days: 1 a day",
+        "Store had none on 2026-09-28",
+        "Cover 8 day(s) (7 to next visit + 1 lead time): 8 needed",
+        "Suggest 8 CS"
+      ],
+      "required": false,
+      "status": "suggest",
+      "stockSource": "reported_out",
+      "storeStock": 0,
+      "suggestedQuantity": 8,
+      "unit": "CS"
+    },
+    {
+      "available": null,
+      "cappedByAvailability": false,
+      "code": "P5",
+      "dailyDemand": 0.33,
+      "daysSinceLastPurchase": 1,
+      "historyQuantity": 28,
+      "icoQuantity": 0,
+      "lastPurchaseDate": "2026-09-28",
+      "name": "Product P5",
+      "productId": "000000000000000000010026products",
+      "promotion": null,
+      "reasons": [
+        "Bought 28 CS in 84 days: 0.33 a day",
+        "Last bought 20 on 2026-09-28, 1 day(s) ago; about 19.67 left",
+        "Cover 8 day(s) (7 to next visit + 1 lead time): 2.67 needed",
+        "Store stock covers the period"
+      ],
+      "required": false,
+      "status": "enough_stock",
+      "stockSource": "estimated",
+      "storeStock": 19.67,
+      "suggestedQuantity": 0,
+      "unit": "CS"
+    },
+    {
+      "available": null,
+      "cappedByAvailability": false,
+      "code": "P3",
+      "dailyDemand": 0,
+      "daysSinceLastPurchase": null,
+      "historyQuantity": 0,
+      "icoQuantity": 0,
+      "lastPurchaseDate": null,
+      "name": "Product P3",
+      "productId": "000000000000000000010024products",
+      "promotion": null,
+      "reasons": [
+        "No orders in the last 84 days, so no velocity to suggest from"
+      ],
+      "required": true,
+      "status": "no_history",
+      "stockSource": "none",
+      "storeStock": 0,
+      "suggestedQuantity": 0,
+      "unit": "CS"
+    }
+  ],
+  "location": null,
+  "nextVisit": {
+    "date": null,
+    "days": 7,
+    "source": "cycle"
+  },
+  "outlet": {
+    "code": "O1",
+    "name": "Store O1",
+    "outletId": "0000000000000000000010019outlets"
+  },
+  "sourceRef": "Client call 2 Oct 2026 (ICO = daily demand × (days to next visit + lead time) − store stock); blueprint §15; ANA-009",
+  "totals": {
+    "cappedSkus": 0,
+    "skus": 5,
+    "suggestedQuantity": 20,
+    "suggestedSkus": 3
+  },
+  "truncated": false,
+  "version": "suggested-order/v1/2026-10-05"
+}

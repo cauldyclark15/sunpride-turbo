@@ -61,6 +61,10 @@ android {
     sourceSets.getByName("test").resources.srcDir(
         rootProject.file("../../packages/domain-contracts/fixtures/mobile-v1")
     )
+    // ANA-010: the suggested-order sample response shared with iOS, read in place.
+    sourceSets.getByName("test").resources.srcDir(
+        rootProject.file("../../packages/domain-contracts/fixtures/suggested-order")
+    )
     sourceSets.getByName("androidTest").assets.srcDir("schemas")
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 }

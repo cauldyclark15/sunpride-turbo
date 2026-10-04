@@ -180,6 +180,38 @@ final class FieldIOSUITests: XCTestCase {
         XCTAssertFalse(offline.staticTexts["Ready"].exists)
     }
 
+    @MainActor
+    func testSuggestedOrderAcceptEditNeverQueuesUntilSave() {
+        let app = launchStub("registers")
+        signIn(app, password: "correct-horse")
+        XCTAssertTrue(app.buttons["visit-planned-stub-1"].waitForExistence(timeout: 20))
+        app.buttons["visit-planned-stub-1"].tap()
+        app.buttons["diagnosticCheckIn"].tap()
+        XCTAssertTrue(app.buttons["openCallSheet"].waitForExistence(timeout: 10))
+        app.buttons["openCallSheet"].tap()
+        XCTAssertTrue(app.otherElements["suggestedOrder"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["useAllSuggestions"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Suggestions only. Nothing is ordered until you save the call sheet."].exists)
+        let use = app.buttons["useSuggestion-product-stub-1"]
+        // SwiftUI can report a clipped button as hittable beneath the sticky Save footer.
+        for _ in 0..<4 where !use.isHittable || use.frame.maxY >= app.buttons["saveCallSheet"].frame.minY { app.swipeUp() }
+        XCTAssertTrue(use.isHittable)
+        XCTAssertEqual(use.label, "Use 8")
+        XCTAssertEqual(app.staticTexts["suggestion-product-stub-1"].label, "Suggested: 8 PC")
+        XCTAssertFalse(app.otherElements["callSheetStatus"].exists || app.staticTexts["callSheetStatus"].exists)
+        use.tap()
+        let order = app.textFields["callSheet-product-stub-1-order"]
+        for _ in 0..<4 where !order.isHittable || order.frame.maxY >= app.buttons["saveCallSheet"].frame.minY { app.swipeUp() }
+        XCTAssertEqual(order.value as? String, "8")
+        XCTAssertFalse(app.otherElements["callSheetStatus"].exists || app.staticTexts["callSheetStatus"].exists)
+        order.tap(); order.typeText("2")
+        XCTAssertEqual(order.value as? String, "82", "accepted quantity is an ordinary editable field")
+        XCTAssertFalse(app.otherElements["callSheetStatus"].exists || app.staticTexts["callSheetStatus"].exists)
+        app.buttons["saveCallSheet"].tap()
+        XCTAssertTrue(app.otherElements["callSheetStatus"].waitForExistence(timeout: 5) || app.staticTexts["callSheetStatus"].exists)
+        capture(app, "suggested-order-accepted-and-edited")
+    }
+
     func testCallSheetOfflineCaptureQueuesAndSurvivesRelaunchThenSends() {
         let app = launchStub("registers")
         signIn(app, password: "correct-horse")

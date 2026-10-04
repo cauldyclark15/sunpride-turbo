@@ -31,6 +31,7 @@ final class AppModel {
     private(set) var syncStatus: FieldSyncStatus?
     private(set) var isOffline = false
     let enrollment: Enrollment
+    let suggestedOrders: SuggestedOrderLoader
 
     struct TodayVisit: Identifiable {
         let id: String; let outletId: String; let outlet: String
@@ -113,6 +114,7 @@ final class AppModel {
         if fieldStore == nil { _ = try storageForBootstrap() }
         if let previous = activeStoragePartition, previous != partition {
             try fieldStore?.holdForReview(previous)
+            suggestedOrders.clear()
         }
         activeStoragePartition = partition
         return fieldStore!
@@ -131,6 +133,10 @@ final class AppModel {
         self.loadKey = loadKey
         self.fieldStore = localStore
         self.now = now
+        suggestedOrders = SuggestedOrderLoader(now: now) { request in
+            guard let functions else { throw MobileError.offline }
+            return try await functions.query("analytics/suggested_orders:forOutlet", request, as: SuggestedOrder.self)
+        }
         enrollment = Enrollment(registry: registry, store: store, pollInterval: pollInterval)
         enrollment.onSessionEnded = { [weak self] in
             Task { @MainActor in await self?.sessionEnded() }
@@ -179,6 +185,7 @@ final class AppModel {
             try? secrets.delete(Self.partitionAccount)
             activeStoragePartition = nil
             visits = []; callSheets = []
+            suggestedOrders.clear()
             freshThisLaunch = false
             try await auth.signIn(email: email, password: password)
             signInError = nil
@@ -209,6 +216,7 @@ final class AppModel {
             catch { try? fieldStore?.holdForReview(partition) }
         }
         visits = []; callSheets = []
+        suggestedOrders.clear()
         freshThisLaunch = false
     }
 
@@ -480,6 +488,7 @@ final class AppModel {
             }
             // A changed scope never resumes the prior partition's unsent work automatically.
             let scopeChanged = activeStoragePartition.map { $0 != partition } ?? false
+            if scopeChanged { suggestedOrders.clear() }
             try store.releaseHeld(partition)
             if let prior = activeStoragePartition, prior != partition { try store.holdForReview(prior) }
             activeStoragePartition = partition
@@ -592,6 +601,7 @@ final class AppModel {
         activeStoragePartition = nil
         try? secrets.delete(Self.partitionAccount)
         visits = []; callSheets = []
+        suggestedOrders.clear()
         lastSyncedAt = nil
         syncStatus = nil
         freshThisLaunch = false

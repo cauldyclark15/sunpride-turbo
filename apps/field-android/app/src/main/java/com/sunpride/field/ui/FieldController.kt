@@ -77,6 +77,10 @@ interface FieldBackend {
     /** AND-020: today's team summary (live, else saved on this phone); the server enforces scope. */
     fun team(directOnly: Boolean): com.sunpride.field.ui.team.TeamView =
         com.sunpride.field.ui.team.TeamView(message = "Team view isn't available on this phone.")
+    /** ANA-010: today's suggested order for a call-sheet store (live, else saved today). Read-only. */
+    fun suggestedOrder(outletId: String): com.sunpride.field.ui.diagnosticvisit.SuggestedOrderView =
+        com.sunpride.field.ui.diagnosticvisit.SuggestedOrderView(
+            message = com.sunpride.field.ui.diagnosticvisit.SuggestedOrderRepository.CONNECTION)
 }
 
 data class VisitDisplay(val outlet: String, val planned: String, val status: String,
@@ -116,6 +120,7 @@ data class TodayData(val visits: List<VisitDisplay> = emptyList(), val lastSynce
                      val supervisor: Boolean = false)
 
 private const val TEAM_CACHE = "local.team"
+private const val SUGGESTED_ORDER_CACHE = "local.suggestedOrder"
 
 class LiveFieldBackend(
     environment: AppEnvironment,
@@ -422,6 +427,26 @@ class LiveFieldBackend(
             }
         } finally { store.close() }
     }
+    override fun suggestedOrder(outletId: String): com.sunpride.field.ui.diagnosticvisit.SuggestedOrderView {
+        val repo = com.sunpride.field.ui.diagnosticvisit.SuggestedOrderRepository
+        val scope = storedScope() ?: return com.sunpride.field.ui.diagnosticvisit.SuggestedOrderView(message = repo.CONNECTION)
+        val day = LocalDate.now(ZoneId.of("Asia/Manila")).toString()
+        val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+        try {
+            val cache = object : com.sunpride.field.ui.diagnosticvisit.SuggestedOrderCache {
+                override fun read(key: String) = runBlocking { store.localCache(SUGGESTED_ORDER_CACHE, key) }
+                    ?.let { row -> row.json?.let { it to row.revision } }
+                override fun write(key: String, json: String, savedAt: Long) = runBlocking {
+                    store.putLocalCache(SUGGESTED_ORDER_CACHE, key, json, savedAt, "$day|")
+                }
+            }
+            return repo.load(outletId, day, cache, System.currentTimeMillis()) {
+                val value = functions.query(com.sunpride.field.ui.diagnosticvisit.SuggestedOrderCodec.PATH,
+                    com.sunpride.field.ui.diagnosticvisit.SuggestedOrderCodec.args(outletId, day))
+                (value as? JSONObject)?.toString() ?: throw com.sunpride.field.ui.diagnosticvisit.SuggestedOrderWireFailure()
+            }
+        } finally { store.close() }
+    }
     override val cachedDeviceId get() = vault.deviceId
     override val isSignedIn get() = auth.isSignedIn
     override fun loadSigner() = signerLoader()
@@ -469,7 +494,25 @@ class FieldController(
     var diagnosticError by mutableStateOf<String?>(null); private set
     var diagnosticCallSheet by mutableStateOf<CallSheet?>(null); private set
     var callSheetOpen by mutableStateOf(false); private set
-    fun openCallSheet() = scope.launch(ui) { callSheetOpen = true; diagnosticError = null; endReview = null }
+    fun openCallSheet() = scope.launch(ui) {
+        callSheetOpen = true; diagnosticError = null; endReview = null
+        diagnosticCallSheet?.outletId?.let { loadSuggestedOrder(it) }
+    }
+    /** ANA-010 suggested order for the open call sheet; only ever fills local Order fields. */
+    var suggestedOrder by mutableStateOf(com.sunpride.field.ui.diagnosticvisit.SuggestedOrderView()); private set
+    private var suggestedOrderFor: String? = null
+    fun loadSuggestedOrder(outletId: String) = scope.launch(ui) {
+        if (state !is EnrollmentState.Ready || (suggestedOrder.loading && suggestedOrderFor == outletId)) return@launch
+        suggestedOrderFor = outletId
+        suggestedOrder = com.sunpride.field.ui.diagnosticvisit.SuggestedOrderView(loading = true,
+            message = com.sunpride.field.ui.diagnosticvisit.SuggestedOrderRepository.LOADING)
+        val result = try { withContext(io) { backend.suggestedOrder(outletId) } }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (_: Exception) { com.sunpride.field.ui.diagnosticvisit.SuggestedOrderView(
+                message = com.sunpride.field.ui.diagnosticvisit.SuggestedOrderRepository.CONNECTION) }
+        // A different store opened meanwhile: drop this answer rather than show it on the wrong sheet.
+        if (suggestedOrderFor == outletId) suggestedOrder = result
+    }
     fun closeCallSheet() = scope.launch(ui) { callSheetOpen = false; diagnosticError = null }
     /** AND-013: downloaded activity-form rules, the open form, and an unplanned visit's chosen purposes. */
     var diagnosticRules by mutableStateOf<List<com.sunpride.field.storage.ActivityRule>>(emptyList()); private set
@@ -778,6 +821,7 @@ class FieldController(
         runCatching { withContext(io) { backend.signOut() } }
         state = EnrollmentState.SignedOut; today = TodayData(); error = null; busy = false
         team = com.sunpride.field.ui.team.TeamView(); teamDirectOnly = true
+        suggestedOrder = com.sunpride.field.ui.diagnosticvisit.SuggestedOrderView(); suggestedOrderFor = null
     }
 
     companion object {

@@ -7,6 +7,12 @@ struct CallSheetScreen: View {
     @State private var message: String?
     @FocusState private var focusedField: String?
 
+    private var suggestions: SuggestedOrderLoader.State {
+        model.suggestedOrders.state(outletId: visit.outletId)
+    }
+    private var rules: SuggestedOrderRules? {
+        suggestions.order.map { SuggestedOrderRules(order: $0) }
+    }
     private var status: String? {
         _ = model.visits // Observe durable outbox refreshes, including background acknowledgements.
         return model.callSheetStatus(for: visit)
@@ -25,6 +31,7 @@ struct CallSheetScreen: View {
                     header(sheet.header)
                     Text("Record whole numbers. Leave a field blank if not captured. The week follows this visit’s service date.")
                         .font(SunprideTokens.TypeStyle.meta).foregroundStyle(SunprideTokens.secondaryText)
+                    suggestedOrder(sheet)
                     ForEach(sheet.lines, id: \.productId) { product in
                         SectionCard(title: product.code) {
                             VStack(alignment: .leading, spacing: 12) {
@@ -34,6 +41,21 @@ struct CallSheetScreen: View {
                                 if let pricing = product.pricing {
                                     Text(pricing).font(SunprideTokens.TypeStyle.meta)
                                         .foregroundStyle(SunprideTokens.secondaryText)
+                                }
+                                if let rules, let line = rules.suggestion(for: product.productId) {
+                                    Text(SuggestedOrderRules.statusText(line))
+                                        .font(SunprideTokens.TypeStyle.meta)
+                                        .accessibilityIdentifier("suggestion-\(product.productId)")
+                                    ForEach(Array(line.reasons.enumerated()), id: \.offset) { _, reason in
+                                        Text(reason).font(SunprideTokens.TypeStyle.caption)
+                                            .foregroundStyle(SunprideTokens.secondaryText)
+                                    }
+                                    if line.canUse {
+                                        SecondaryButton(title: "Use \(line.quantityText)") {
+                                            drafts = rules.useSuggestion(drafts, productId: product.productId)
+                                        }
+                                        .accessibilityIdentifier("useSuggestion-\(product.productId)")
+                                    }
                                 }
                                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12)], spacing: 12) {
                                     ForEach(CallSheetMeasure.allCases, id: \.self) { measure in
@@ -61,6 +83,11 @@ struct CallSheetScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .scrollDismissesKeyboard(.interactively)
+        .task {
+            if let sheet = model.callSheet(for: visit) {
+                await model.suggestedOrders.load(outletId: sheet.outletId, offline: model.isOffline)
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             if model.callSheet(for: visit) != nil {
                 VStack(alignment: .leading, spacing: 12) {
@@ -80,6 +107,38 @@ struct CallSheetScreen: View {
                 .background(SunprideTokens.background)
             }
         }
+    }
+    private func suggestedOrder(_ sheet: CallSheet) -> some View {
+        SectionCard(title: "Suggested order") {
+            VStack(alignment: .leading, spacing: 12) {
+                if let message = suggestions.message {
+                    Text(message).font(SunprideTokens.TypeStyle.meta)
+                        .foregroundStyle(SunprideTokens.secondaryText)
+                }
+                if let rules {
+                    Text(rules.summary).font(SunprideTokens.TypeStyle.meta)
+                    if rules.hasApplicableLine(sheet: sheet) {
+                        SecondaryButton(title: "Use all suggestions") {
+                            drafts = rules.useAll(drafts, sheet: sheet)
+                        }
+                        .accessibilityIdentifier("useAllSuggestions")
+                    }
+                    let missing = rules.notOnSheet(sheet)
+                    if !missing.isEmpty {
+                        Text("Not on this call sheet").font(SunprideTokens.TypeStyle.meta.weight(.medium))
+                        ForEach(Array(missing.enumerated()), id: \.offset) { _, line in
+                            Text("\(line.code) \(line.name) — \(line.quantityText) \(line.unit)")
+                                .font(SunprideTokens.TypeStyle.meta)
+                                .foregroundStyle(SunprideTokens.secondaryText)
+                        }
+                    }
+                }
+                Text(SuggestedOrderRules.note).font(SunprideTokens.TypeStyle.meta)
+                    .foregroundStyle(SunprideTokens.secondaryText)
+            }.padding(16)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("suggestedOrder")
     }
     private func save() {
         do {

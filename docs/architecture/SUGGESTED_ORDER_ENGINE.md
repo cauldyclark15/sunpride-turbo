@@ -48,6 +48,27 @@ One store per call; reads at most 400 of the customer's orders, 150 orders' line
 and 200 SKUs. `truncated` reports anything cut short. Quantities are in each SKU's selling unit
 (`products.uom`) as written on order lines; no unit conversion in v1.
 
+## Field apps (ANA-010 · SP-0067)
+
+The iOS and Android call sheets show the suggestion for the store being visited. Code:
+`apps/field-ios/FieldIOS/Sources/Contracts/SuggestedOrder.swift` + `App/SuggestedOrderLoader.swift`,
+`apps/field-android/.../ui/diagnosticvisit/SuggestedOrder.kt`; shared sample response
+`packages/domain-contracts/fixtures/suggested-order/for-outlet.json`.
+
+- When the call sheet opens, the app calls `forOutlet` online with only `{outletId, asOfDate}` (today, Manila).
+  The server's access rules apply unchanged; no selling location is sent, so availability is not capped.
+- A "Suggested order" card shows the summary (products suggested, cover days, provisional lead time), the fixed
+  note "Suggestions only. Nothing is ordered until you save the call sheet." and suggested products that are not
+  on this call sheet (read-only). Each call-sheet product shows its status and the engine's reasons.
+- Accept: "Use N" writes N into that product's Order field; "Use all suggestions" fills only empty Order fields.
+  The field stays editable. Nothing is queued or sent until the salesperson taps "Save call sheet", and the saved
+  call-sheet payload is unchanged (no suggestion data goes on the wire; the mobile v1 contract is untouched).
+- Offline: Android keeps today's answer per store in the encrypted local cache, iOS in memory for the session;
+  either shows "Offline — showing suggestions loaded at h:mm". A refusal or unreadable answer never shows saved
+  data. Without a connection or a saved answer the card says to enter the order as usual.
+- Not recorded in v1: whether the salesperson accepted or changed a suggestion (would need a mobile contract
+  change).
+
 ## Open questions (for Sunpride)
 
 1. The standard ICO form / Excel (promised on the 2 Oct call): confirms rounding, columns, and
@@ -55,4 +76,6 @@ and 200 SKUs. `truncated` reports anything cut short. Quantities are in each SKU
 2. Delivery lead time per channel / depot (v1 uses 1 day).
 3. Promotion master (ARCH-006 / SP-0033 samples): v1 keeps a per-SKU national uplift until real
    promotions exist; it will read from the promotion master once it lands.
-4. Which depot or truck sells to each store, so availability can be chosen automatically.
+4. Which depot or truck sells to each store, so availability can be chosen automatically (the field apps
+   cannot cap by availability until then).
+5. Whether Sunpride wants to measure how often salespeople accept or change the suggestion.

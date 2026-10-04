@@ -39,6 +39,13 @@ class CallSheetControllerTest {
         override fun refreshEnrollment(signer: DeviceSigner) = EnrollmentState.Ready(scope.deviceId)
         override fun visitStates() = runBlocking { store.history().map { it.first to it.second.state } }
         override fun callSheet(outletId: String) = runBlocking { store.callSheet(outletId) }
+        val suggestionCalls = mutableListOf<String>()
+        override fun suggestedOrder(outletId: String): SuggestedOrderView {
+            suggestionCalls += outletId
+            return SuggestedOrderView(SuggestedOrder("v1", "2026-09-29", outletId, 8, 7, 1, true, listOf(
+                SuggestedLine("product-1", "SUNP-001", "Hotdog", "PC", "suggest", 8.0, listOf("Suggest 8 PC")),
+                SuggestedLine("product-2", "HOL-010", "Corned beef", "CAN", "enough_stock", 0.0, emptyList()))))
+        }
         override fun queueVisit(kind: String, clientVisitId: String?, checkInRequestId: String?, previousRequestId: String?,
             plannedVisitId: String?, outletId: String, intents: List<String>, unplannedReason: String?, note: String?,
             outcome: String?, reasonCode: String?, location: JSONObject?) = runBlocking {
@@ -117,6 +124,30 @@ class CallSheetControllerTest {
         assertFalse(String(transport.sent[1]).contains("@checkin:"))
         controller.openDiagnostic(visit).join()
         assertEquals("done", controller.diagnosticRows.last().second)
+    }
+    @Test fun openingTheCallSheetLoadsSuggestionsButQueuesNothingUntilSave() = runBlocking {
+        val store = FakeFieldStore(scope)
+        store.swap(store.stage(snapshot()), "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
+        val backend = Backend(store)
+        val controller = FieldController(backend, this, Dispatchers.Unconfined, EmptyCoroutineContext, now = { 100L })
+        controller.start().join(); controller.openDiagnostic(visit).join()
+        controller.queueDiagnostic("visit.checkIn", null, null, null, null).join()
+        controller.openCallSheet().join()
+        assertEquals(listOf("outlet-1"), backend.suggestionCalls)
+        val order = controller.suggestedOrder.order!!
+        val sheet = controller.diagnosticCallSheet!!
+        // Accepting fills a local draft only: still just the check-in in the outbox.
+        val drafts = SuggestedOrderRules.useAll(order, sheet, sheet.lines.map { CallSheetDraftLine(it.productId) })
+        assertEquals(listOf("8", ""), drafts.map { it.order })
+        assertEquals(1, store.history().size)
+        // The salesperson edits the accepted number before saving; the edit is what is saved.
+        controller.queueCallSheet(drafts.map { if (it.productId == "product-1") it.copy(order = "6") else it }).join()
+        assertEquals(2, store.history().size)
+        val lines = JSONObject(store.history().last().first.serializedOperation).getJSONObject("payload")
+            .getJSONObject("activity").getJSONArray("lines")
+        assertEquals(1, lines.length()); assertEquals(6, lines.getJSONObject(0).getInt("order"))
+        controller.signOut().join()
+        assertNull(controller.suggestedOrder.order)
     }
     @Test fun twoPlannedVisitsAtOneOutletKeepSeparateCheckInAndCallSheetChains() = runBlocking {
         val store = FakeFieldStore(scope)
