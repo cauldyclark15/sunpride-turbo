@@ -45,6 +45,14 @@ enum DiagnosticOperation {
         if let visitId { payload["visitId"] = visitId }
         return try make("visit.activity", payload: payload, dependency: checkIn)
     }
+    static func callSheet(_ sheet: CallSheet, drafts: [String: CallSheetDraft],
+                          checkIn: UUID, visitId: String?, now: Date = Date()) throws -> VisitIntent {
+        let lines = try CallSheetPayload.lines(sheet: sheet, drafts: drafts)
+        var payload: [String: Any] = ["activity": ["kind": "call_sheet", "lines": lines],
+            "deviceTime": Int64(now.timeIntervalSince1970 * 1000)]
+        if let visitId { payload["visitId"] = visitId }
+        return try make("visit.activity", payload: payload, dependency: checkIn)
+    }
     static func checkOut(outcome: String, reason: String?, checkIn: UUID, visitId: String?, location: VisitLocation? = nil, now: Date = Date()) throws -> VisitIntent {
         guard ["completed", "nonproductive"].contains(outcome),
               outcome != "nonproductive" || reason?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else { throw Failure.invalidOutcome }

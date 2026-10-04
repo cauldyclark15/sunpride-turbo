@@ -11,6 +11,48 @@ export type BootstrapRequest = {
   pageCursor?: string;
   limit?: number;
 };
+/** One visit intent's required/optional activity forms (kind is an open string). */
+export type ActivityRuleV1 = {
+  intent: string;
+  version: string;
+  activities: Array<{ kind: string; required: boolean }>;
+};
+/** AND-016: one visit photo type (code is an open string; label is display text). */
+export type PhotoTypeV1 = { code: string; label: string };
+export type CallSheetV1 = {
+  outletId: string;
+  revision: number;
+  header: {
+    accountName: string;
+    address: string | null;
+    buyerName: string | null;
+    contactNumber: string | null;
+    accountInCharge: string | null;
+    receivingInCharge: string | null;
+    distributorName: string | null;
+    distributorSchedule: string | null;
+    foc: string | null;
+    pricing: string | null;
+  };
+  lines: Array<{
+    productId: string;
+    code: string;
+    name: string;
+    uom: string;
+    barcode: string | null;
+    pricing: string | null;
+  }>;
+};
+/** One account product row of an Annex C call sheet; null = not captured on this visit. */
+export type CallSheetLineV1 = {
+  productId: string;
+  order: number | null;
+  beginningInventory: number | null;
+  take: number | null;
+  delivered: number | null;
+  offtake: number | null;
+  endInventory: number | null;
+};
 export type BootstrapResponse = {
   type: "bootstrap.response";
   contractVersion: 1;
@@ -41,9 +83,10 @@ export type BootstrapResponse = {
     code?: string;
     customerId?: string;
     address?: string;
-    location?: { latitude: number; longitude: number };
+    latitude?: number;
+    longitude?: number;
   }>;
-  localCustomers: Array<{ id: string; code: string; name?: string }>;
+  localCustomers: Array<{ id: string; code: string }>;
   route: { id: string; code: string } | null;
   tasks: Array<{ id: string; kind: string; required: boolean }>;
   productCatalog: Array<{
@@ -52,6 +95,12 @@ export type BootstrapResponse = {
     name: string;
     uom: string;
   }>;
+  /** Annex C call sheets for this page's accounts. Optional: added after v1 shipped. */
+  callSheets?: Array<CallSheetV1>;
+  /** AND-013 activity-form rules per visit intent. Optional: added after v1 shipped. */
+  activityRules?: Array<ActivityRuleV1>;
+  /** AND-016 visit photo types. Optional: added after v1 shipped. */
+  photoTypes?: Array<PhotoTypeV1>;
   page: number;
   nextPageCursor: string | null;
   syncCursor: string | null;
@@ -145,7 +194,8 @@ export type PushRequest = {
                 finding: "executed" | "not_executed" | "not_applicable";
               }
             | { kind: "order_intent"; clientOrderId: string; note?: string }
-            | { kind: "note"; text: string };
+            | { kind: "note"; text: string }
+            | { kind: "call_sheet"; lines: Array<CallSheetLineV1> };
           deviceTime: number;
         };
       }

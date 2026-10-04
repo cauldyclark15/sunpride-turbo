@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		0635E1F51801CA375D10E1E5 /* SignInShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3982CC5A0CA421700FA09534 /* SignInShell.swift */; };
+		077C269FB887AC4400655A8E /* push-call-sheet-request.json in Resources */ = {isa = PBXBuildFile; fileRef = 741715CCE9A30E0A6CAB2388 /* push-call-sheet-request.json */; };
 		0BEFB2B58A9259F661FDC760 /* DeviceKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 160B275247E3A5924861969B /* DeviceKey.swift */; };
 		0CB8035598BB2A1C4F963E31 /* ConvexFunctions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 893C59F3DA031CA5D0C2B141 /* ConvexFunctions.swift */; };
 		129DBC23616AE7E74B3C6CEE /* push-conflict-response.json in Resources */ = {isa = PBXBuildFile; fileRef = 830ED0313630CB455C793F66 /* push-conflict-response.json */; };
@@ -20,6 +21,7 @@
 		1FD0BD3E381C33C5188EF348 /* error-invalid-cursor.json in Resources */ = {isa = PBXBuildFile; fileRef = 8F626903C9302C449A4403E9 /* error-invalid-cursor.json */; };
 		202ACDE9965B8233D862F667 /* EnrollmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0608947B65A82B5F8B21C25E /* EnrollmentTests.swift */; };
 		23CFA1558A3AB9C20C2394DD /* bootstrap-response.json in Resources */ = {isa = PBXBuildFile; fileRef = 17F3F78AC72BBD184D7C500B /* bootstrap-response.json */; };
+		296F893B61E8A5BD4F7DCE75 /* CallSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2940D6571ED66ECA44D1992C /* CallSheet.swift */; };
 		2D2AF89E1DE8A888F5B8C173 /* DailyRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCFDE73882F9D934C843B5EE /* DailyRoute.swift */; };
 		2DF5D0926C2BE40C90203705 /* error-device-revoked.json in Resources */ = {isa = PBXBuildFile; fileRef = 50C89E8332E726978C3CDA26 /* error-device-revoked.json */; };
 		2FB160C38A277E7BD637AD2A /* pull-response.json in Resources */ = {isa = PBXBuildFile; fileRef = 46B68A2170A0D64993298BA6 /* pull-response.json */; };
@@ -27,6 +29,7 @@
 		323A2CAF34C3A58926CBAEC0 /* bootstrap-request.json in Resources */ = {isa = PBXBuildFile; fileRef = F45DC51927E23CAD17C5A007 /* bootstrap-request.json */; };
 		40A01E41B3D2AD453DED068A /* VisitSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34E3AD9EF21188447D122D5F /* VisitSyncTests.swift */; };
 		4192A817C9B71449CE92A730 /* StubBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 770ABB24A61E17AE7FC352FC /* StubBackend.swift */; };
+		484419BBDF9801E380B47DBC /* CallSheetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6212BDC1724FBEC20D95D50E /* CallSheetTests.swift */; };
 		4D8F664E645626879B9AEA6C /* SupportInfoScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEFC4C65AAB7AE9A26456383 /* SupportInfoScreen.swift */; };
 		4E5E84FFA3CC0B9FB9204B61 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDE9BD20A693C17022A70C2E /* AppEnvironment.swift */; };
 		4EA5FE9BB6D34CC90FFD08CD /* CalmComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = BED6899F18ED0393B156EC02 /* CalmComponents.swift */; };
@@ -40,6 +43,8 @@
 		7A245815BC1605BD4C8609F4 /* AuthClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DB5C91CB702257E69CAEEE0 /* AuthClient.swift */; };
 		7A3DB86936D018D089DA9D55 /* AuthClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3ED3ADFB05AAF26B358710EC /* AuthClientTests.swift */; };
 		7C05447D9086CD072D7D1C77 /* BackgroundRetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAD5B0648D1286B6E477AE6E /* BackgroundRetry.swift */; };
+		7D13BA8F588682BA35C84457 /* bootstrap-call-sheet-response.json in Resources */ = {isa = PBXBuildFile; fileRef = 5F7623E910A379D74DA606C5 /* bootstrap-call-sheet-response.json */; };
+		88EC02EB2A7A37BDE47BC202 /* CallSheetScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DFB348A3DA8ACCDA0313DDD /* CallSheetScreen.swift */; };
 		89BC70BD1F6001CC39FF6BCD /* AccountScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A06A9EAE1322958F12F980 /* AccountScreen.swift */; };
 		91F5C66ED0720AEAE7975A75 /* DiagnosticOperation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F8DAC201386E8BFBC99C007 /* DiagnosticOperation.swift */; };
 		9D1E244483FED57D037FCE63 /* SQLCipher in Frameworks */ = {isa = PBXBuildFile; productRef = AC26302E2781E047B9486E5D /* SQLCipher */; };
@@ -100,6 +105,7 @@
 		1D11B7EFAA970A27286927AA /* bootstrap-next-page.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "bootstrap-next-page.json"; sourceTree = "<group>"; };
 		20A2E27FA2580A5F7FD421D1 /* DesignTokensPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignTokensPreview.swift; sourceTree = "<group>"; };
 		26021CCFB0A859FEF974770E /* ConvexFunctionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConvexFunctionsTests.swift; sourceTree = "<group>"; };
+		2940D6571ED66ECA44D1992C /* CallSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallSheet.swift; sourceTree = "<group>"; };
 		2A61F2253C7ADE1EFCA16D50 /* FieldIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = FieldIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		329AC521CDFBA9C961E9A8BB /* HTTPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPClient.swift; sourceTree = "<group>"; };
 		34E3AD9EF21188447D122D5F /* VisitSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitSyncTests.swift; sourceTree = "<group>"; };
@@ -117,9 +123,12 @@
 		5346E87A86751D4CA1ADD0EE /* RequestSigner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RequestSigner.swift; sourceTree = "<group>"; };
 		55F4CAC5815B97242F3EC921 /* SyncStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncStatus.swift; sourceTree = "<group>"; };
 		58B7CCC550A3AFB371BE691A /* Enrollment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Enrollment.swift; sourceTree = "<group>"; };
+		5F7623E910A379D74DA606C5 /* bootstrap-call-sheet-response.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "bootstrap-call-sheet-response.json"; sourceTree = "<group>"; };
+		6212BDC1724FBEC20D95D50E /* CallSheetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallSheetTests.swift; sourceTree = "<group>"; };
 		643649FC187291287C83F0BA /* FieldIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FieldIOSApp.swift; sourceTree = "<group>"; };
 		655CA3FD10811B759492AE0B /* LocationCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationCapture.swift; sourceTree = "<group>"; };
 		6AD00CE0DB5536F7ED709072 /* FieldIOSTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FieldIOSTests.swift; sourceTree = "<group>"; };
+		741715CCE9A30E0A6CAB2388 /* push-call-sheet-request.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "push-call-sheet-request.json"; sourceTree = "<group>"; };
 		768EE84295679AB410817800 /* VisitSyncClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitSyncClient.swift; sourceTree = "<group>"; };
 		770ABB24A61E17AE7FC352FC /* StubBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StubBackend.swift; sourceTree = "<group>"; };
 		7D5900677E6C2A5A588D21F8 /* request-proof.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = "request-proof.json"; path = "../../../packages/domain-contracts/fixtures/mobile-v1/crypto/request-proof.json"; sourceTree = "<group>"; };
@@ -131,6 +140,7 @@
 		8F626903C9302C449A4403E9 /* error-invalid-cursor.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "error-invalid-cursor.json"; sourceTree = "<group>"; };
 		930F787C27D8364206637A1B /* StorageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageTests.swift; sourceTree = "<group>"; };
 		935415C15AFDBF5B04EEF4B6 /* FieldDayCallTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FieldDayCallTests.swift; sourceTree = "<group>"; };
+		9DFB348A3DA8ACCDA0313DDD /* CallSheetScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallSheetScreen.swift; sourceTree = "<group>"; };
 		A0ABFC89807D314D2B62A458 /* SecureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureStore.swift; sourceTree = "<group>"; };
 		A0D318C2DF743A813CFFBD3F /* DiagnosticVisitScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticVisitScreen.swift; sourceTree = "<group>"; };
 		A1C55A56816AD79DD3A593FE /* RouteScreenTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteScreenTests.swift; sourceTree = "<group>"; };
@@ -182,6 +192,7 @@
 		05FBA7922F63C1905C9254E3 /* mobile-v1 */ = {
 			isa = PBXGroup;
 			children = (
+				5F7623E910A379D74DA606C5 /* bootstrap-call-sheet-response.json */,
 				1D11B7EFAA970A27286927AA /* bootstrap-next-page.json */,
 				F45DC51927E23CAD17C5A007 /* bootstrap-request.json */,
 				17F3F78AC72BBD184D7C500B /* bootstrap-response.json */,
@@ -191,6 +202,7 @@
 				DD3C888EFA33F9873F0E5114 /* error-version-unsupported.json */,
 				E5F2F2988F1E0705B09A032A /* pull-request.json */,
 				46B68A2170A0D64993298BA6 /* pull-response.json */,
+				741715CCE9A30E0A6CAB2388 /* push-call-sheet-request.json */,
 				830ED0313630CB455C793F66 /* push-conflict-response.json */,
 				4EC4BFB9438F9F630833C6F1 /* push-planned-request.json */,
 				C865A091C309EA198C90CE83 /* push-request.json */,
@@ -264,6 +276,7 @@
 		52766CED171A97857143FDDF /* DiagnosticVisit */ = {
 			isa = PBXGroup;
 			children = (
+				9DFB348A3DA8ACCDA0313DDD /* CallSheetScreen.swift */,
 				3F8DAC201386E8BFBC99C007 /* DiagnosticOperation.swift */,
 				A0D318C2DF743A813CFFBD3F /* DiagnosticVisitScreen.swift */,
 				655CA3FD10811B759492AE0B /* LocationCapture.swift */,
@@ -284,6 +297,7 @@
 			children = (
 				3ED3ADFB05AAF26B358710EC /* AuthClientTests.swift */,
 				A6AEF2385449EF460EF630E8 /* BootstrapTests.swift */,
+				6212BDC1724FBEC20D95D50E /* CallSheetTests.swift */,
 				26021CCFB0A859FEF974770E /* ConvexFunctionsTests.swift */,
 				0608947B65A82B5F8B21C25E /* EnrollmentTests.swift */,
 				935415C15AFDBF5B04EEF4B6 /* FieldDayCallTests.swift */,
@@ -406,6 +420,7 @@
 			isa = PBXGroup;
 			children = (
 				D9096C036A0AF31336E412AC /* BootstrapV1.swift */,
+				2940D6571ED66ECA44D1992C /* CallSheet.swift */,
 			);
 			path = Contracts;
 			sourceTree = "<group>";
@@ -572,6 +587,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7D13BA8F588682BA35C84457 /* bootstrap-call-sheet-response.json in Resources */,
 				EDE0256B7738351089891CCB /* bootstrap-next-page.json in Resources */,
 				323A2CAF34C3A58926CBAEC0 /* bootstrap-request.json in Resources */,
 				23CFA1558A3AB9C20C2394DD /* bootstrap-response.json in Resources */,
@@ -581,6 +597,7 @@
 				DA72415371E8E17D74906021 /* error-version-unsupported.json in Resources */,
 				AA472A624DEF399E7CFC56AB /* pull-request.json in Resources */,
 				2FB160C38A277E7BD637AD2A /* pull-response.json in Resources */,
+				077C269FB887AC4400655A8E /* push-call-sheet-request.json in Resources */,
 				129DBC23616AE7E74B3C6CEE /* push-conflict-response.json in Resources */,
 				BEB050F87BCC532997978A29 /* push-planned-request.json in Resources */,
 				ED7938BC552661C42A7A2373 /* push-request.json in Resources */,
@@ -615,6 +632,7 @@
 			files = (
 				7A3DB86936D018D089DA9D55 /* AuthClientTests.swift in Sources */,
 				B9CB1F9595BF18411447620E /* BootstrapTests.swift in Sources */,
+				484419BBDF9801E380B47DBC /* CallSheetTests.swift in Sources */,
 				DC1B6727F5D883AC9A4E241C /* ConvexFunctionsTests.swift in Sources */,
 				202ACDE9965B8233D862F667 /* EnrollmentTests.swift in Sources */,
 				1A31FB31DA2821804428C5D8 /* FieldDayCallTests.swift in Sources */,
@@ -640,6 +658,8 @@
 				7C05447D9086CD072D7D1C77 /* BackgroundRetry.swift in Sources */,
 				175FED769643F1295AF5F3CB /* BootstrapClient.swift in Sources */,
 				B7E270651827014478F190BE /* BootstrapV1.swift in Sources */,
+				296F893B61E8A5BD4F7DCE75 /* CallSheet.swift in Sources */,
+				88EC02EB2A7A37BDE47BC202 /* CallSheetScreen.swift in Sources */,
 				4EA5FE9BB6D34CC90FFD08CD /* CalmComponents.swift in Sources */,
 				0CB8035598BB2A1C4F963E31 /* ConvexFunctions.swift in Sources */,
 				2D2AF89E1DE8A888F5B8C173 /* DailyRoute.swift in Sources */,

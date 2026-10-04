@@ -23,6 +23,13 @@ import { ImportsWorkspace } from "./imports-workspace";
 import { InventoryWorkspace } from "./inventory-workspace";
 import { OutsideCallOrders } from "./outside-call-orders";
 import { SupervisionWorkspace } from "./supervision/supervision-workspace";
+import { CallSheetsWorkspace } from "./call-sheets/call-sheets-workspace";
+import { DailySalesWorkspace } from "./daily-sales/daily-sales-workspace";
+import { TrainingWorkspace } from "./training/trainer-forms";
+import { ActivityReportsWorkspace } from "./activity-reports/activity-reports-workspace";
+import { CustomerExecution } from "./analytics/customer-execution";
+import { ExecutionDashboard } from "./analytics/execution-dashboard";
+import { TerritoryPerformance } from "./analytics/territory-performance";
 
 const modules = {
   dashboard: { title: "Home" },
@@ -31,6 +38,10 @@ const modules = {
   inventory: { title: "Inventory" },
   "sales-force": { title: "Coverage" },
   supervision: { title: "Supervision" },
+  "call-sheets": { title: "Call sheets" },
+  "daily-sales": { title: "Daily sales report" },
+  training: { title: "Training" },
+  "activity-reports": { title: "DAR / ROAR" },
   orders: { title: "Orders" },
   "outside-calls": { title: "Commercial" },
   "sap-integration": { title: "Integration" },
@@ -114,6 +125,7 @@ function AllowedModuleWorkspace({
         module={module}
         setupMessage={setupMessage}
         commercialTabs={commercialTabs}
+        role={role}
       />
     </div>
   );
@@ -123,10 +135,12 @@ function ModuleContent({
   module,
   setupMessage,
   commercialTabs,
+  role,
 }: {
   module: ModuleKey;
   setupMessage: string;
   commercialTabs: ReactNode;
+  role: string;
 }) {
   const metrics = useQuery(
     api.domains.dashboard.summary,
@@ -217,6 +231,16 @@ function ModuleContent({
             value={metrics ? money.format(metrics.salesToday) : "—"}
           />
         </div>
+        {/* ANA-002: supervision readers (people.read + visit.read) get the daily execution
+            dashboard; the endpoints enforce scope. */}
+        {module === "analytics" && canAccessWebModule("supervision", role) ? (
+          <ExecutionDashboard />
+        ) : null}
+        {module === "analytics" ? <TerritoryPerformance /> : null}
+        {/* ANA-005: the same readers get one store's customer execution. */}
+        {module === "analytics" && canAccessWebModule("supervision", role) ? (
+          <CustomerExecution />
+        ) : null}
       </>
     );
 
@@ -473,6 +497,10 @@ function ModuleContent({
   if (module === "admin") return <AdminWorkspace />;
   if (module === "sales-force") return <SalesForcePanels />;
   if (module === "supervision") return <SupervisionWorkspace />;
+  if (module === "call-sheets") return <CallSheetsWorkspace />;
+  if (module === "daily-sales") return <DailySalesWorkspace />;
+  if (module === "training") return <TrainingWorkspace />;
+  if (module === "activity-reports") return <ActivityReportsWorkspace />;
   if (module === "outside-calls") return <OutsideCallOrders />;
 
   return (

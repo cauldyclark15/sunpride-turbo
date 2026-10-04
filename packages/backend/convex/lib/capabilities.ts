@@ -140,6 +140,8 @@ export const CAPABILITIES = {
     "analyst",
     "viewer",
   ],
+  // CVX-017: set and end sales targets for people, teams and territories in subtree.
+  "target.manage": ["super_admin", "admin", "manager"],
   "integration.read": ["super_admin", "admin", "operations"],
   "integration.manage": ["super_admin", "admin"],
   // In-app issue tracker. Internal staff only — field `sales` never sees it. `analyst` is

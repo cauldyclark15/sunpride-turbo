@@ -63,12 +63,12 @@ final class RouteScreenTests: XCTestCase {
             "o-b": .init(id: "o-b", name: "Store b", routeId: nil, address: "2 Mabini St"),
             "o-c": .init(id: "o-c", name: "Store c", routeId: nil, location: .init(latitude: 200, longitude: 0))
         ]
-        let customers = ["cust-a": StoreSnapshot.Customer(id: "cust-a", code: "C-001", name: "Aling Nena Store")]
+        let customers = ["cust-a": StoreSnapshot.Customer(id: "cust-a", code: "C-001")]
         let stops = DailyRoute.stops(visits: [visit("a"), visit("b"), visit("c"), visit("d")],
                                      outlets: outlets, customers: customers, here: manila)
         XCTAssertEqual(try XCTUnwrap(stops[0].distanceMeters), 500, accuracy: 5)
         XCTAssertEqual(stops[0].distanceLabel, "500 m away")
-        XCTAssertEqual(stops[0].customerLabel, "C-001 · Aling Nena Store")
+        XCTAssertEqual(stops[0].customerLabel, "C-001")
         XCTAssertEqual(stops[0].outletCode, "OUT-A")
         let pinURL = try XCTUnwrap(stops[0].directionsURL)
         let items = try XCTUnwrap(URLComponents(url: pinURL, resolvingAgainstBaseURL: false)?.queryItems)
@@ -93,13 +93,19 @@ final class RouteScreenTests: XCTestCase {
         let data = try Data(contentsOf: url)
         let page = try JSONDecoder().decode(BootstrapV1.Page.self, from: data)
         let outlet = try XCTUnwrap(page.outlets.first)
-        XCTAssertEqual(outlet.code, "O-1")
-        XCTAssertEqual(outlet.address, "1 Rizal Ave, Manila")
-        XCTAssertEqual(outlet.location, .init(latitude: 14.5995, longitude: 120.9842))
+        XCTAssertEqual(outlet.code, "OUT-0001")
+        XCTAssertEqual(outlet.address, "12 Rizal Avenue, Pasig")
+        XCTAssertEqual(outlet.location, .init(latitude: 14.5764, longitude: 121.0851))
         XCTAssertNil(outlet.customerId)
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         var outlets = try XCTUnwrap(object["outlets"] as? [[String: Any]])
-        outlets[0]["location"] = ["latitude": 95.0, "longitude": 0.0]
+        outlets[0]["latitude"] = 95.0
+        object["outlets"] = outlets
+        XCTAssertThrowsError(try JSONDecoder().decode(BootstrapV1.Page.self,
+                                                      from: JSONSerialization.data(withJSONObject: object)))
+        // Half a pin is a corrupt feed too: both coordinates or neither.
+        outlets[0]["latitude"] = 14.5764
+        outlets[0].removeValue(forKey: "longitude")
         object["outlets"] = outlets
         XCTAssertThrowsError(try JSONDecoder().decode(BootstrapV1.Page.self,
                                                       from: JSONSerialization.data(withJSONObject: object)))
@@ -128,7 +134,7 @@ final class RouteScreenTests: XCTestCase {
             outlets: [.init(id: "first", name: "First", routeId: "r1", code: "F-1", customerId: "c1",
                             address: "1 Rizal Ave", location: manila),
                       .init(id: "second", name: "Second", routeId: "r1")],
-            customers: [.init(id: "c1", code: "C-001", name: "First Customer")],
+            customers: [.init(id: "c1", code: "C-001")],
             route: .init(id: "r1", code: "R-01"), tasks: []),
             cursor: "cursor", leaseExpiresAt: expiry, cacheExpiresAt: expiry, for: partition)
         try secrets.save(Data("test-session".utf8), for: StoreAccount.session)
@@ -144,14 +150,14 @@ final class RouteScreenTests: XCTestCase {
 
         XCTAssertEqual(model.routeCode, "R-01")
         XCTAssertEqual(model.outletDetails["first"]?.location, manila)
-        XCTAssertEqual(model.customerDetails["c1"]?.name, "First Customer")
+        XCTAssertEqual(model.customerDetails["c1"]?.code, "C-001")
         let route = { DailyRoute.stops(visits: model.visits, outlets: model.outletDetails, customers: model.customerDetails,
                                        here: self.manila, canStart: { model.startFailure(for: $0) == nil }) }
         var stops = route()
         XCTAssertEqual(stops.map(\.id), ["first", "second"])
         XCTAssertEqual(stops.map(\.state), [.next, .notStarted])
         XCTAssertEqual(stops[0].distanceLabel, "0 m away")
-        XCTAssertEqual(stops[0].customerLabel, "C-001 · First Customer")
+        XCTAssertEqual(stops[0].customerLabel, "C-001")
 
         let first = try XCTUnwrap(model.visits.first { $0.id == "first" })
         try model.queueCheckIn(first, unplannedReason: nil, location: nil)

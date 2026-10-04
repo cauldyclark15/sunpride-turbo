@@ -6,7 +6,11 @@ import { internal } from "../_generated/api";
 import schema from "../schema";
 import { modules } from "../test.setup";
 import { manilaDate } from "../coverage/validation";
-import { nextDayCloseAt } from "../visits/policy";
+import { EVIDENCE_PHOTO_TYPES, nextDayCloseAt } from "../visits/policy";
+import {
+  DEFAULT_ACTIVITY_RULE_VERSION,
+  VISIT_INTENTS,
+} from "../visits/activity_rules";
 import type { AuthorizedDevice } from "./types";
 
 const SECRET = "test-only-mobile-cursor-secret-32-bytes-long";
@@ -287,18 +291,17 @@ describe("mobile day bootstrap", () => {
     );
     expect(close - r.serverTime).toBeGreaterThan(0);
     expect(close - r.serverTime).toBeLessThanOrEqual(86_400_000);
-    // No verified pin and no address: the route screen shows no distance or map link.
     expect(r.outlets).toEqual([
       {
         id: f.ids.outlet,
         name: "Signed outlet",
         routeId: null,
         code: "O",
-        customerId: r.localCustomers[0]!.id,
+        customerId: f.ids.snapshot.customerId,
       },
     ]);
     expect(r.localCustomers).toEqual([
-      { id: expect.any(String), code: "LOCAL-C", name: "Local" },
+      { id: expect.any(String), code: "LOCAL-C" },
     ]);
     expect(r.productCatalog).toEqual([]);
     expect(r.appConfig).toMatchObject({
@@ -309,45 +312,273 @@ describe("mobile day bootstrap", () => {
     expect(r.syncCursor).toBeTruthy();
     expect(JSON.stringify(r)).not.toContain(f.actor.subject);
   });
-  it("adds the address and the single verified pin in effect for the route screen", async () => {
+  it("gives the daily route the single current verified pin and address, never a pending or ambiguous pin", async () => {
     const f = await fixture();
-    const pin = (status: "verified" | "pending", latitude: number) => ({
-      outletId: f.ids.outlet,
-      latitude,
-      longitude: 121.05,
-      radiusMeters: 75,
-      source: "fixture",
-      status,
-      effectiveFrom: f.now - 50_000,
-      proposedBy: f.actor.subject,
-      proposedAt: f.now - 60_000,
-      createdAt: f.now - 60_000,
-    });
-    await f.t.run(async (ctx) => {
-      await ctx.db.patch(f.ids.outlet, { address: "  12 Rizal Ave, Manila  " });
-      await ctx.db.insert("outletPins", pin("verified", 14.6));
-      await ctx.db.insert("outletPins", pin("pending", 10));
-      // Superseded history does not count as the pin in effect.
-      await ctx.db.insert("outletPins", {
-        ...pin("verified", 11),
-        effectiveFrom: f.now - 90_000,
-        effectiveTo: f.now - 50_000,
-      });
-    });
-    const r = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+    const pin = (status: "verified" | "pending", latitude: number) =>
+      f.t.run((ctx) =>
+        ctx.db.insert("outletPins", {
+          outletId: f.ids.outlet,
+          latitude,
+          longitude: 121.05,
+          radiusMeters: 75,
+          source: "fixture",
+          status,
+          effectiveFrom: f.now - 50_000,
+          proposedBy: f.actor.subject,
+          proposedAt: f.now - 50_000,
+          createdAt: f.now - 50_000,
+        }),
+      );
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.ids.outlet, { address: "  12 Rizal Ave, Pasig  " }),
+    );
+    await pin("pending", 10);
+    const first = await f.caller.query(internal.mobile.bootstrap.snapshot, {
       actor: f.actor,
     });
-    expect(r.outlets[0]).toMatchObject({
-      address: "12 Rizal Ave, Manila",
-      location: { latitude: 14.6, longitude: 121.05 },
+    expect(first.outlets[0]).toMatchObject({ address: "12 Rizal Ave, Pasig" });
+    expect(first.outlets[0]).not.toHaveProperty("latitude");
+    expect(first.outlets[0]).not.toHaveProperty("longitude");
+    const verified = await pin("verified", 14.58);
+    const second = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
     });
-    // Two overlapping verified pins are ambiguous: omit rather than guess.
-    await f.t.run((ctx) => ctx.db.insert("outletPins", pin("verified", 15)));
+    expect(second.outlets[0]).toMatchObject({
+      latitude: 14.58,
+      longitude: 121.05,
+    });
+    await f.t.run((ctx) =>
+      ctx.db.insert("plannedVisits", {
+        generationKey: "second-stop",
+        planId: f.ids.plan,
+        planVersion: 1,
+        planSlotId: f.ids.slot,
+        assigneeProfileId: f.ids.person,
+        outletId: f.ids.outlet,
+        serviceDate: f.day,
+        status: "planned",
+        approvedSnapshot: f.ids.snapshot,
+        requiredObjectives: [],
+        intents: [],
+        expectedDurationMinutes: 15,
+        generatedAt: f.now,
+      }),
+    );
+    const paged = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+      limit: 1,
+    });
+    expect(paged.nextPageCursor).toBeTruthy();
+    // A moved pin changes the signed manifest, so a half-finished download restarts.
+    await f.t.run((ctx) => ctx.db.patch(verified, { latitude: 14.59 }));
+    await expect(
+      f.caller.query(internal.mobile.bootstrap.snapshot, {
+        actor: f.actor,
+        pageCursor: paged.nextPageCursor!,
+        limit: 1,
+      }),
+    ).rejects.toThrow("rebootstrap_required");
+    const extra = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+    });
+    expect(extra.outlets[0]!.latitude).toBe(14.59);
+    await pin("verified", 14.6);
     const ambiguous = await f.caller.query(internal.mobile.bootstrap.snapshot, {
       actor: f.actor,
     });
-    expect(ambiguous.outlets[0]!.location).toBeUndefined();
-    expect(ambiguous.outlets[0]!.address).toBe("12 Rizal Ave, Manila");
+    expect(ambiguous.outlets[0]).not.toHaveProperty("latitude");
+    expect(ambiguous.outlets[0]).not.toHaveProperty("longitude");
+  });
+  it("ships each visited account's Annex C call sheet once; an office edit forces a fresh snapshot", async () => {
+    const f = await fixture();
+    const empty = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+    });
+    expect(empty.callSheets).toEqual([]);
+    const ids = await f.t.run(async (ctx) => {
+      const product = (code: string, active: boolean) =>
+        ctx.db.insert("products", {
+          code,
+          name: `Product ${code}`,
+          category: "canned",
+          uom: "CAN",
+          unitPrice: 0,
+          active,
+          updatedAt: f.now,
+        });
+      const active = await product("SUNP-001", true);
+      const retired = await product("HOL-OLD", false);
+      const uom = await ctx.db.insert("unitsOfMeasure", {
+        organizationId: "sunpride",
+        code: "CAN",
+        name: "Can",
+        dimension: "count",
+        decimalPlaces: 0,
+        active: true,
+        createdAt: f.now,
+        updatedAt: f.now,
+      });
+      await ctx.db.insert("productBarcodes", {
+        organizationId: "sunpride",
+        productId: active,
+        barcode: "4800000000017",
+        uomId: uom,
+        active: true,
+        source: "fixture",
+        createdAt: f.now,
+        updatedAt: f.now,
+      });
+      // A second planned day at the same outlet must not duplicate the sheet.
+      await ctx.db.insert("plannedVisits", {
+        generationKey: "tomorrow",
+        planId: f.ids.plan,
+        planVersion: 1,
+        planSlotId: f.ids.slot,
+        assigneeProfileId: f.ids.person,
+        outletId: f.ids.outlet,
+        serviceDate: manilaDate(f.now + 86_400_000),
+        status: "planned",
+        approvedSnapshot: f.ids.snapshot,
+        requiredObjectives: [],
+        intents: ["sell"],
+        expectedDurationMinutes: 30,
+        generatedAt: f.now,
+      });
+      const account = await ctx.db.insert("callSheetAccounts", {
+        organizationId: "sunpride",
+        outletId: f.ids.outlet,
+        revision: 1,
+        header: { accountName: "Signed outlet", buyerName: "A. Buyer" },
+        lines: [
+          { productId: active, pricing: "₱189.00" },
+          { productId: retired },
+        ],
+        updatedAt: f.now,
+        updatedBy: "fixture",
+      });
+      return { active, account };
+    });
+    const first = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+      limit: 1,
+    });
+    expect(first.callSheets).toEqual([
+      {
+        outletId: f.ids.outlet,
+        revision: 1,
+        header: {
+          accountName: "Signed outlet",
+          address: null,
+          buyerName: "A. Buyer",
+          contactNumber: null,
+          accountInCharge: null,
+          receivingInCharge: null,
+          distributorName: null,
+          distributorSchedule: null,
+          foc: null,
+          pricing: null,
+        },
+        lines: [
+          {
+            productId: ids.active,
+            code: "SUNP-001",
+            name: "Product SUNP-001",
+            uom: "CAN",
+            barcode: "4800000000017",
+            pricing: "₱189.00",
+          },
+        ],
+      },
+    ]);
+    const all = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+    });
+    expect(all.plannedVisits).toHaveLength(2);
+    expect(all.callSheets).toHaveLength(1);
+    await f.t.run((ctx) =>
+      ctx.db.patch(ids.account, {
+        revision: 2,
+        header: { accountName: "Renamed account" },
+        updatedAt: f.now + 1,
+      }),
+    );
+    await expect(
+      f.caller.query(internal.mobile.bootstrap.snapshot, {
+        actor: f.actor,
+        pageCursor: first.nextPageCursor!,
+        limit: 1,
+      }),
+    ).rejects.toThrow("rebootstrap_required");
+  });
+  it("ships the activity-form rules on every page; an office rule change restarts a download", async () => {
+    const f = await fixture();
+    await f.t.run((ctx) =>
+      ctx.db.insert("plannedVisits", {
+        generationKey: "second-stop",
+        planId: f.ids.plan,
+        planVersion: 1,
+        planSlotId: f.ids.slot,
+        assigneeProfileId: f.ids.person,
+        outletId: f.ids.outlet,
+        serviceDate: f.day,
+        status: "planned",
+        approvedSnapshot: f.ids.snapshot,
+        requiredObjectives: [],
+        intents: ["merchandise", "complaint"],
+        expectedDurationMinutes: 15,
+        generatedAt: f.now,
+      }),
+    );
+    const first = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+      limit: 1,
+    });
+    expect(first.nextPageCursor).toBeTruthy();
+    expect(first.activityRules.map((r) => r.intent)).toEqual([
+      ...VISIT_INTENTS,
+    ]);
+    expect(first.activityRules.find((r) => r.intent === "merchandise")).toEqual(
+      {
+        intent: "merchandise",
+        version: DEFAULT_ACTIVITY_RULE_VERSION,
+        activities: [
+          { kind: "merchandising", required: true },
+          { kind: "price_check", required: false },
+        ],
+      },
+    );
+    // Office-only provenance never reaches the phone.
+    expect(JSON.stringify(first.activityRules)).not.toContain("sourceRef");
+    const second = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+      pageCursor: first.nextPageCursor!,
+      limit: 1,
+    });
+    expect(second.activityRules).toEqual(first.activityRules);
+    // AND-016: every page carries the same configured photo types, codes and labels only.
+    expect(first.photoTypes).toEqual(
+      EVIDENCE_PHOTO_TYPES.map(({ code, label }) => ({ code, label })),
+    );
+    expect(second.photoTypes).toEqual(first.photoTypes);
+    await f.t.run((ctx) =>
+      ctx.db.insert("visitActivityRules", {
+        organizationId: "sunpride",
+        intent: "complaint",
+        activities: [{ kind: "note", required: false }],
+        effectiveFrom: f.now - 1,
+        sourceRef: "Office",
+        provisional: false,
+        actorSubject: "fixture",
+        createdAt: f.now,
+      }),
+    );
+    await expect(
+      f.caller.query(internal.mobile.bootstrap.snapshot, {
+        actor: f.actor,
+        pageCursor: first.nextPageCursor!,
+        limit: 1,
+      }),
+    ).rejects.toThrow("rebootstrap_required");
   });
   it("does not expose cancelled predecessor visits while retaining the active day", async () => {
     const f = await fixture();

@@ -1,0 +1,41 @@
+@media print {
+  body:has(.call-sheet-print-view) * {
+    visibility: hidden !important;
+  }
+  body:has(.call-sheet-print-view) .call-sheet-print-view,
+  body:has(.call-sheet-print-view) .call-sheet-print-view * {
+    visibility: visible !important;
+  }
+  .call-sheet-print-view {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    color: #000;
+    background: #fff;
+  }
+  .call-sheet-print-view .overflow-x-auto {
+    overflow: visible;
+    border: 0;
+  }
+  .call-sheet-print-view table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 8pt;
+  }
+  .call-sheet-print-view th,
+  .call-sheet-print-view td {
+    border: 1px solid #777;
+    padding: 2px 3px;
+  }
+  .call-sheet-print-view thead {
+    display: table-header-group;
+  }
+  .call-sheet-print-view tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+}

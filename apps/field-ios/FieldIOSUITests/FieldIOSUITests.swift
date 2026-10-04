@@ -180,6 +180,52 @@ final class FieldIOSUITests: XCTestCase {
         XCTAssertFalse(offline.staticTexts["Ready"].exists)
     }
 
+    func testCallSheetOfflineCaptureQueuesAndSurvivesRelaunchThenSends() {
+        let app = launchStub("registers")
+        signIn(app, password: "correct-horse")
+        XCTAssertTrue(app.staticTexts["Stub Outlet"].waitForExistence(timeout: 20))
+        app.terminate()
+        let offline = launchStub("offline")
+        let row = offline.buttons["visit-planned-stub-1"]
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
+        row.tap()
+        offline.buttons["diagnosticCheckIn"].tap()
+        XCTAssertTrue(offline.buttons["openCallSheet"].waitForExistence(timeout: 10))
+        offline.buttons["openCallSheet"].tap()
+        XCTAssertTrue(offline.staticTexts["Stub Buyer"].waitForExistence(timeout: 5))
+        offline.buttons["saveCallSheet"].tap()
+        XCTAssertTrue(offline.staticTexts["Enter at least one number before saving."].waitForExistence(timeout: 5))
+        let order = offline.textFields["callSheet-product-stub-1-order"]
+        if !order.isHittable { offline.swipeUp() }
+        XCTAssertTrue(order.waitForExistence(timeout: 5))
+        order.tap(); order.typeText("24")
+        let beginning = offline.textFields["callSheet-product-stub-1-beginningInventory"]
+        beginning.tap(); beginning.typeText("0")
+        offline.buttons["saveCallSheet"].tap()
+        XCTAssertTrue(offline.otherElements["callSheetStatus"].waitForExistence(timeout: 5) || offline.staticTexts["callSheetStatus"].exists)
+        XCTAssertTrue(offline.staticTexts["Call sheet · Queued"].exists)
+        // A second save is a new durable activity, not an edit of previously queued bytes.
+        if !order.isHittable { offline.swipeUp() }
+        order.tap(); order.typeText("25")
+        offline.buttons["saveCallSheet"].tap()
+        XCTAssertTrue(offline.staticTexts["Call sheet · Queued"].exists)
+        capture(offline, "call-sheet-offline-queued")
+        offline.terminate()
+        let retained = launchStub("offline")
+        XCTAssertTrue(retained.buttons["visit-planned-stub-1"].waitForExistence(timeout: 15))
+        retained.buttons["visit-planned-stub-1"].tap()
+        XCTAssertTrue(retained.buttons["openCallSheet"].waitForExistence(timeout: 5))
+        retained.buttons["openCallSheet"].tap()
+        XCTAssertTrue(retained.staticTexts["Call sheet · Queued"].waitForExistence(timeout: 5))
+        retained.terminate()
+        let online = launchStub("online")
+        XCTAssertTrue(online.buttons["visit-planned-stub-1"].waitForExistence(timeout: 15))
+        online.buttons["visit-planned-stub-1"].tap()
+        XCTAssertTrue(online.buttons["openCallSheet"].waitForExistence(timeout: 5))
+        online.buttons["openCallSheet"].tap()
+        XCTAssertTrue(online.staticTexts["Call sheet · Sent"].waitForExistence(timeout: 10))
+    }
+
     func testPlanOrderOpenCallRelaunchAndDeniedGPSStillAllowsStartEnd() {
         let app = launchStub("registers")
         signIn(app, password: "correct-horse")
@@ -277,7 +323,7 @@ final class FieldIOSUITests: XCTestCase {
         let deadline = Date().addingTimeInterval(15)
         while !first.label.contains("500 m away") && Date() < deadline { _ = first.waitForExistence(timeout: 0.5); usleep(300_000) }
         XCTAssertTrue(first.label.contains("500 m away"), first.label)
-        XCTAssertTrue(first.label.contains("C-STUB-1 · Stub Customer"))
+        XCTAssertTrue(first.label.contains("C-STUB-1"))
         XCTAssertTrue(app.buttons["routeDirections-planned-stub-1"].exists)
         XCTAssertFalse(app.buttons["routeDirections-planned-stub-2"].exists, "no pin and no address")
         first.tap()

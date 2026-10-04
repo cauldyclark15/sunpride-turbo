@@ -49,11 +49,7 @@ struct RouteStop: Identifiable {
         return waitingToSend && state != .needsReview ? "\(base) · waiting to send" : base
     }
     var distanceLabel: String? { distanceMeters.map { "\(RouteMath.label(meters: $0)) away" } }
-    var customerLabel: String? {
-        guard let customer else { return nil }
-        guard let name = customer.name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else { return customer.code }
-        return "\(customer.code) · \(name)"
-    }
+    var customerLabel: String? { customer?.code }
 }
 
 /// Today's planned visits as a route: MCP order, call state, distance and map/customer access.

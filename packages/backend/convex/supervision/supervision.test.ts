@@ -4,6 +4,7 @@ import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import schema from "../schema";
 import { modules } from "../test.setup";
+import { MOBILE_EXCEPTION_LIMIT } from "./mobile";
 import {
   channelOf,
   dayCloseAt,
@@ -654,5 +655,121 @@ describe("field activity map", () => {
       point: { latitude: 14.53, longitude: 121 },
     });
     expect(ana.stops.every((s) => s.fix === null)).toBe(true);
+  });
+});
+
+describe("mobile supervisor summary (AND-020)", () => {
+  it("returns direct-report coverage and exceptions by default", async () => {
+    const { ids, as } = await fixture();
+    const result = await as("managerA").query(api.supervision.mobile.team, {
+      serviceDate: date,
+    });
+    expect(result.directOnly).toBe(true);
+    expect(result.generatedAt).toBe(now);
+    expect(result.dayCloseAt).toBe(dayCloseAt(date));
+    expect(result.people.map((p) => p.name)).toEqual(["Ana"]);
+    expect(result.people[0]).toMatchObject({
+      profileId: ids.s1.id,
+      direct: true,
+      planned: 3,
+      plannedDone: 2,
+      productive: 1,
+      nonproductive: 1,
+      unplanned: 1,
+      outOfSequence: 1,
+      openExceptions: 2,
+      lateSync: 1,
+    });
+    expect(result.openExceptions).toBe(2);
+    expect(result.totalExceptions).toBe(6);
+    expect(result.exceptions.slice(0, 2).every((e) => e.open)).toBe(true);
+    expect(result.exceptions.map((e) => e.kind).sort()).toEqual([
+      "location",
+      "location",
+      "nonproductive",
+      "not_visited",
+      "out_of_sequence",
+      "unplanned",
+    ]);
+    expect(
+      result.exceptions.find((e) => e.kind === "out_of_sequence"),
+    ).toMatchObject({ sequence: 1, after: 2, outletName: "Outlet 1" });
+    // Compact: no raw fixes, actor tokens or audit history reach the phone.
+    const text = JSON.stringify(result);
+    expect(text).not.toContain(`${ISSUER}|`);
+    expect(text).not.toContain("14.7");
+    expect(text).not.toContain("history");
+    expect(result.truncated).toBe(false);
+  });
+
+  it("widens to the whole subtree only on request, never beyond scope", async () => {
+    const { as } = await fixture();
+    const all = await as("managerA").query(api.supervision.mobile.team, {
+      serviceDate: date,
+      directOnly: false,
+    });
+    expect(all.directOnly).toBe(false);
+    expect(all.people.map((p) => [p.name, p.direct])).toEqual([
+      ["Ana", true],
+      ["Ben", false],
+    ]);
+    expect(all.exceptions.some((e) => e.personName === "Cara")).toBe(false);
+    const other = await as("managerB").query(api.supervision.mobile.team, {
+      serviceDate: date,
+      directOnly: false,
+    });
+    expect(other.people.map((p) => p.name)).toEqual(["Cara"]);
+    // managerB supervises nobody directly: the default view is empty, not widened.
+    const otherDirect = await as("managerB").query(
+      api.supervision.mobile.team,
+      { serviceDate: date },
+    );
+    expect(otherDirect.people).toEqual([]);
+    expect(otherDirect.exceptions).toEqual([]);
+  });
+
+  it("refuses field sales, the unauthenticated and invalid dates", async () => {
+    const { t, as } = await fixture();
+    await expect(
+      as("Ana").query(api.supervision.mobile.team, { serviceDate: date }),
+    ).rejects.toThrow(/Insufficient permission/);
+    await expect(
+      t.query(api.supervision.mobile.team, { serviceDate: date }),
+    ).rejects.toThrow();
+    await expect(
+      as("managerA").query(api.supervision.mobile.team, {
+        serviceDate: "2026-13-01",
+      }),
+    ).rejects.toThrow(/Invalid Manila date/);
+  });
+
+  it("caps the exception list and reports truncation", async () => {
+    const { t, ids, as } = await fixture();
+    await t.run(async (ctx) => {
+      for (let n = 0; n < MOBILE_EXCEPTION_LIMIT; n++)
+        await ctx.db.insert("visitExecutions", {
+          organizationId: "sunpride",
+          clientVisitId: `extra-${n}`,
+          assigneeProfileId: ids.s1.id,
+          outletId: (await ctx.db.query("outlets").first())!._id,
+          orgUnitId: ids.regionA,
+          serviceDate: date,
+          source: "unplanned",
+          intents: ["sell"],
+          state: "checked-in",
+          productivity: "pending",
+          createdAt: at("10:30"),
+          lastServerTime: at("10:30"),
+          checkedInAt: at("10:30"),
+          unplannedReason: "Walk-in",
+        });
+    });
+    const result = await as("managerA").query(api.supervision.mobile.team, {
+      serviceDate: date,
+    });
+    expect(result.exceptions).toHaveLength(MOBILE_EXCEPTION_LIMIT);
+    expect(result.totalExceptions).toBeGreaterThan(MOBILE_EXCEPTION_LIMIT);
+    expect(result.truncated).toBe(true);
+    expect(result.exceptions.slice(0, 2).every((e) => e.open)).toBe(true);
   });
 });

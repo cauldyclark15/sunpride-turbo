@@ -26,6 +26,7 @@ import {
   type AssignableRole,
 } from "./people-admin";
 import { TeamsAdmin } from "./teams-admin";
+import { DevicesAdmin } from "./devices-admin";
 
 const readableError = (error: unknown) =>
   error instanceof Error ? error.message : "Access update failed. Try again.";
@@ -39,6 +40,7 @@ const tabs = [
   ["routes", "Routes"],
   ["outlets", "Outlets"],
   ["assignments", "Assignments"],
+  ["devices", "Phones"],
 ] as const;
 type AdminTab = (typeof tabs)[number][0];
 
@@ -66,6 +68,8 @@ export function AdminWorkspace() {
         <OutletAdmin />
       ) : tab === "assignments" ? (
         <OutletAssignments />
+      ) : tab === "devices" ? (
+        <DevicesAdmin />
       ) : (
         <InvitationsAdmin />
       )}

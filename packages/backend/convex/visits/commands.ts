@@ -12,6 +12,14 @@ import type { AuthorizedDevice } from "../mobile/types";
 import { append } from "./events";
 import { locationValidator, recordLocation } from "./location";
 import { VISIT_LOCATION_POLICY } from "./policy";
+import { missingKinds, rulesAt, ruleVersionFor } from "./activity_rules";
+import { callSheetActivityValidator } from "../callSheets/validators";
+import {
+  accountFor,
+  callSheetWeek,
+  usableProduct,
+  validateCaptureLines,
+} from "../callSheets/model";
 import {
   accessOwnedVisit,
   accessVisit,
@@ -37,6 +45,7 @@ export const CLOSED_CALL_STATES = new Set([
   "missed",
 ]);
 const MAX_DAY_CALLS = 200;
+const MAX_VISIT_ACTIVITIES = 500;
 
 /**
  * MCP order (client call 2 Oct 2026): a salesperson cannot start another store while a
@@ -91,7 +100,7 @@ async function assertCallOrder(
 }
 
 /** Work for a day reaching the server after its 10 PM close is kept and held for review. */
-async function flagLateWork(
+export async function flagLateWork(
   ctx: MutationCtx,
   visit: Doc<"visitExecutions">,
   now: number,
@@ -162,6 +171,7 @@ const activity = v.union(
     note: v.optional(v.string()),
   }),
   v.object({ kind: v.literal("note"), text: v.string() }),
+  callSheetActivityValidator,
 );
 export const visitOperationValidator = v.union(
   v.object({
@@ -217,6 +227,7 @@ function requireUuid(value: string) {
 }
 function safeActivity(a: Infer<typeof activity>) {
   if (a.kind === "note") boundedText(a.text, 2000);
+  if (a.kind === "call_sheet") validateCaptureLines(a.lines);
   if (
     a.kind === "merchandising" &&
     a.actionTaken !== undefined &&
@@ -443,6 +454,18 @@ export async function applyVisitOperation(
       !(await ctx.db.get(p.activity.uomId))
     )
       throw new ConvexError("invalid_request");
+    // Annex C needs an office-maintained account sheet. Products are not restricted to its
+    // current rows so an office edit during the day never strands a queued phone capture.
+    const account =
+      p.activity.kind === "call_sheet"
+        ? await accountFor(ctx, visit.outletId)
+        : null;
+    if (p.activity.kind === "call_sheet") {
+      if (!account) throw new ConvexError("invalid_request");
+      for (const line of p.activity.lines)
+        if (!usableProduct(await ctx.db.get(line.productId)))
+          throw new ConvexError("invalid_request");
+    }
     const activityId = await ctx.db.insert("visitActivities", {
       organizationId: SUNPRIDE_ORGANIZATION_ID,
       orgUnitId: visit.orgUnitId,
@@ -454,6 +477,24 @@ export async function applyVisitOperation(
       deviceTime: p.deviceTime,
       serverTime: now,
     });
+    if (p.activity.kind === "call_sheet" && account) {
+      const { localMonth, week } = callSheetWeek(visit.serviceDate);
+      for (const line of p.activity.lines)
+        await ctx.db.insert("callSheetEntries", {
+          organizationId: SUNPRIDE_ORGANIZATION_ID,
+          orgUnitId: visit.orgUnitId,
+          outletId: visit.outletId,
+          visitId: visit._id,
+          activityId,
+          assigneeProfileId: actor.profileId,
+          serviceDate: visit.serviceDate,
+          localMonth,
+          week,
+          templateRevision: account.revision,
+          ...line,
+          serverTime: now,
+        });
+    }
     await ctx.db.patch(visit._id, {
       state: "in-progress",
       lastServerTime: now,
@@ -489,7 +530,26 @@ export async function applyVisitOperation(
   // No automatic certification or per-diem here; productive-call evaluation is separate.
   // End = phone time after the call; time per account is End - Start on the phone clock.
   const startedAt = visit.startedAt ?? visit.checkedInAt ?? p.deviceTime;
+  // AND-013: never refuse a queued End; record which required forms are missing under the
+  // rules in effect when the call started (the phone downloaded those with its day).
+  const recorded = await ctx.db
+    .query("visitActivities")
+    .withIndex("by_visitId_and_serverTime", (q) => q.eq("visitId", visit._id))
+    .take(MAX_VISIT_ACTIVITIES + 1);
+  if (recorded.length > MAX_VISIT_ACTIVITIES)
+    throw new ConvexError("invalid_request");
+  const rules = await rulesAt(ctx, startedAt);
+  const missingActivities =
+    p.outcome === "completed"
+      ? missingKinds(
+          rules,
+          visit.intents,
+          recorded.map((row) => row.activity.kind),
+        )
+      : [];
   await ctx.db.patch(visit._id, {
+    activityRuleVersion: ruleVersionFor(rules, visit.intents),
+    missingActivities,
     state: "checked-out",
     outcome: p.outcome,
     ...(p.reasonCode != null ? { reasonCode: p.reasonCode } : {}),
@@ -534,6 +594,9 @@ const visitDTO = v.object({
   productivity: v.string(),
   unplannedReason: v.union(v.string(), v.null()),
   plannedVisitId: v.union(v.id("plannedVisits"), v.null()),
+  /** The visit's objectives and, after End, required activity forms not recorded. */
+  intents: v.array(v.string()),
+  missingActivities: v.union(v.array(v.string()), v.null()),
   checkedInAt: v.union(v.number(), v.null()),
   checkedOutAt: v.union(v.number(), v.null()),
   /** Start (arrival) and End (after the call), phone clock; time per account. */
@@ -558,6 +621,8 @@ function dto(row: Doc<"visitExecutions">) {
     productivity: row.productivity,
     unplannedReason: row.unplannedReason ?? null,
     plannedVisitId: row.plannedVisitId ?? null,
+    intents: row.intents,
+    missingActivities: row.missingActivities ?? null,
     checkedInAt: row.checkedInAt ?? null,
     checkedOutAt: row.checkedOutAt ?? null,
     startedAt: row.startedAt ?? null,

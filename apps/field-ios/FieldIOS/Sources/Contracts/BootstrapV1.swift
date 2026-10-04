@@ -88,6 +88,7 @@ enum BootstrapV1 {
         let route: StoreSnapshot.Route?
         let tasks: [StoreSnapshot.Task]
         let productCatalog: [Product]
+        let callSheets: [CallSheet]
         let page: Int
         let nextPageCursor: String?
         let syncCursor: String?
@@ -95,7 +96,7 @@ enum BootstrapV1 {
         enum CodingKeys: String, CodingKey {
             case type, contractVersion, serverTime, permissions, employee, scope, appConfig,
                  plannedVisits, outlets, localCustomers, route, tasks, productCatalog, page,
-                 nextPageCursor, syncCursor
+                 nextPageCursor, syncCursor, callSheets
         }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -113,17 +114,26 @@ enum BootstrapV1 {
             guard plannedVisits.allSatisfy({ $0.sequence == nil || $0.sequence! >= 0 }) else { throw WireError.unsafeValue }
             outlets = try c.decode([StoreSnapshot.Outlet].self, forKey: .outlets)
             // Additive route-screen pin: an out-of-range coordinate is a corrupt feed, never a map target.
-            guard outlets.allSatisfy({ outlet in outlet.location.map { RouteMath.isValid($0) } ?? true }),
-                  outlets.allSatisfy({ ($0.address?.count ?? 0) <= 500 }) else { throw WireError.unsafeValue }
+            guard outlets.allSatisfy({ ($0.latitude == nil) == ($0.longitude == nil) }),
+                  outlets.allSatisfy({ outlet in outlet.location.map { RouteMath.isValid($0) } ?? true }) else {
+                throw WireError.unsafeValue
+            }
             localCustomers = try c.decode([StoreSnapshot.Customer].self, forKey: .localCustomers)
             // Required explicit nullable fields: missing is not equivalent to null.
             guard c.contains(.route), c.contains(.nextPageCursor), c.contains(.syncCursor) else { throw WireError.invalidEnvelope }
             route = try c.decodeIfPresent(StoreSnapshot.Route.self, forKey: .route)
             tasks = try c.decode([StoreSnapshot.Task].self, forKey: .tasks)
             productCatalog = try c.decode([Product].self, forKey: .productCatalog)
+            if c.contains(.callSheets) {
+                callSheets = try c.decode([CallSheet].self, forKey: .callSheets)
+            } else { callSheets = [] } // Old servers omit the additive field.
             page = try c.decode(Int.self, forKey: .page)
             nextPageCursor = try c.decodeIfPresent(String.self, forKey: .nextPageCursor)
             syncCursor = try c.decodeIfPresent(String.self, forKey: .syncCursor)
+            guard Set(callSheets.map(\.outletId)).count == callSheets.count,
+                  callSheets.allSatisfy({ sheet in plannedVisits.contains { $0.outletId == sheet.outletId } }) else {
+                throw WireError.unsafeValue
+            }
             guard page > 0, serverTime > 0, !scope.fingerprint.isEmpty,
                   !employee.id.isEmpty, appConfig.offlineLeaseExpiresAt > serverTime,
                   appConfig.cacheExpiresAt > serverTime,
@@ -144,6 +154,7 @@ enum BootstrapV1 {
             try c.encode(route, forKey: .route); try c.encode(tasks, forKey: .tasks)
             try c.encode(productCatalog, forKey: .productCatalog); try c.encode(page, forKey: .page)
             try c.encode(nextPageCursor, forKey: .nextPageCursor); try c.encode(syncCursor, forKey: .syncCursor)
+            try c.encode(callSheets, forKey: .callSheets)
         }
     }
 
