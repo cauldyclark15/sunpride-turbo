@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 6,
-    "identityHash": "c295a1373afd373b9b7db059f1921826",
+    "identityHash": "39d40e34bbe4d5156442fd73b87c454a",
     "entities": [
       {
         "tableName": "snapshots",
@@ -568,8 +568,8 @@
         }
       },
       {
-        "tableName": "catalog_products",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`account` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `scope` TEXT NOT NULL, `generation` TEXT NOT NULL, `id` TEXT NOT NULL, `code` TEXT NOT NULL, `revision` INTEGER NOT NULL, `json` TEXT NOT NULL, PRIMARY KEY(`account`, `deviceId`, `scope`, `generation`, `id`))",
+        "tableName": "evidence_photos",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`account` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `scope` TEXT NOT NULL, `localId` TEXT NOT NULL, `clientVisitId` TEXT NOT NULL, `checkInRequestId` TEXT NOT NULL, `outletId` TEXT NOT NULL, `photoType` TEXT NOT NULL, `mime` TEXT NOT NULL, `sizeBytes` INTEGER NOT NULL, `sha256` TEXT NOT NULL, `capturedAt` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `state` TEXT NOT NULL, `attempts` INTEGER NOT NULL, `evidenceId` TEXT, `reviewCode` TEXT, `uploadedAt` INTEGER, PRIMARY KEY(`account`, `deviceId`, `scope`, `localId`))",
         "fields": [
           {
             "fieldPath": "account",
@@ -590,34 +590,91 @@
             "notNull": true
           },
           {
-            "fieldPath": "generation",
-            "columnName": "generation",
+            "fieldPath": "localId",
+            "columnName": "localId",
             "affinity": "TEXT",
             "notNull": true
           },
           {
-            "fieldPath": "id",
-            "columnName": "id",
+            "fieldPath": "clientVisitId",
+            "columnName": "clientVisitId",
             "affinity": "TEXT",
             "notNull": true
           },
           {
-            "fieldPath": "code",
-            "columnName": "code",
+            "fieldPath": "checkInRequestId",
+            "columnName": "checkInRequestId",
             "affinity": "TEXT",
             "notNull": true
           },
           {
-            "fieldPath": "revision",
-            "columnName": "revision",
+            "fieldPath": "outletId",
+            "columnName": "outletId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "photoType",
+            "columnName": "photoType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mime",
+            "columnName": "mime",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sizeBytes",
+            "columnName": "sizeBytes",
             "affinity": "INTEGER",
             "notNull": true
           },
           {
-            "fieldPath": "json",
-            "columnName": "json",
+            "fieldPath": "sha256",
+            "columnName": "sha256",
             "affinity": "TEXT",
             "notNull": true
+          },
+          {
+            "fieldPath": "capturedAt",
+            "columnName": "capturedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "attempts",
+            "columnName": "attempts",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "evidenceId",
+            "columnName": "evidenceId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "reviewCode",
+            "columnName": "reviewCode",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "uploadedAt",
+            "columnName": "uploadedAt",
+            "affinity": "INTEGER"
           }
         ],
         "primaryKey": {
@@ -626,100 +683,41 @@
             "account",
             "deviceId",
             "scope",
-            "generation",
-            "id"
-          ]
-        }
-      },
-      {
-        "tableName": "inventory_availability",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`account` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `scope` TEXT NOT NULL, `generation` TEXT NOT NULL, `id` TEXT NOT NULL, `productId` TEXT NOT NULL, `locationCode` TEXT NOT NULL, `revision` INTEGER NOT NULL, `json` TEXT NOT NULL, PRIMARY KEY(`account`, `deviceId`, `scope`, `generation`, `id`))",
-        "fields": [
-          {
-            "fieldPath": "account",
-            "columnName": "account",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "deviceId",
-            "columnName": "deviceId",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "scope",
-            "columnName": "scope",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "generation",
-            "columnName": "generation",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "id",
-            "columnName": "id",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "productId",
-            "columnName": "productId",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "locationCode",
-            "columnName": "locationCode",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "revision",
-            "columnName": "revision",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "json",
-            "columnName": "json",
-            "affinity": "TEXT",
-            "notNull": true
-          }
-        ],
-        "primaryKey": {
-          "autoGenerate": false,
-          "columnNames": [
-            "account",
-            "deviceId",
-            "scope",
-            "generation",
-            "id"
+            "localId"
           ]
         },
         "indices": [
           {
-            "name": "index_inventory_availability_account_deviceId_scope_generation_productId",
+            "name": "index_evidence_photos_account_deviceId_scope_clientVisitId",
             "unique": false,
             "columnNames": [
               "account",
               "deviceId",
               "scope",
-              "generation",
-              "productId"
+              "clientVisitId"
             ],
             "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_inventory_availability_account_deviceId_scope_generation_productId` ON `${TABLE_NAME}` (`account`, `deviceId`, `scope`, `generation`, `productId`)"
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_evidence_photos_account_deviceId_scope_clientVisitId` ON `${TABLE_NAME}` (`account`, `deviceId`, `scope`, `clientVisitId`)"
+          },
+          {
+            "name": "index_evidence_photos_account_deviceId_scope_state_createdAt",
+            "unique": false,
+            "columnNames": [
+              "account",
+              "deviceId",
+              "scope",
+              "state",
+              "createdAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_evidence_photos_account_deviceId_scope_state_createdAt` ON `${TABLE_NAME}` (`account`, `deviceId`, `scope`, `state`, `createdAt`)"
           }
         ]
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'c295a1373afd373b9b7db059f1921826')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '39d40e34bbe4d5156442fd73b87c454a')"
     ]
   }
 }

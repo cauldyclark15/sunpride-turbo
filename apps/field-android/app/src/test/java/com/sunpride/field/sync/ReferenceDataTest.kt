@@ -22,7 +22,7 @@ class ReferenceDataTest {
         listOf(CallSheetProduct("p", "OLD", "Old", "PC", "old-barcode", "line-price"),
             CallSheetProduct("untouched", "U", "Other", "PC", null, null)))
     private fun snapshot() = ScopedSnapshot("{}", null, emptyList(), emptyList(), emptyList(), emptyList(),
-        listOf(sheet, sheet.copy(outletId = "o2")), listOf(product), listOf(stock))
+        listOf(sheet, sheet.copy(outletId = "o2")), productCatalog = listOf(product), inventoryAvailability = listOf(stock))
     private fun delta(p: CatalogProduct) = DeltaRow(scope.account, scope.deviceId, scope.fingerprint,
         "product", p.id, p.revision, ReferenceDataCodec.encode(p).toString(), false)
     private fun delta(i: InventoryAvailability) = DeltaRow(scope.account, scope.deviceId, scope.fingerprint,

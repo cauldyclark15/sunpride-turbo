@@ -4,7 +4,7 @@ import type { QueryCtx } from "../_generated/server";
 import { employeeAt, manilaDate } from "../coverage/validation";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
 import { capabilityRoles } from "../lib/capabilities";
-import { resolveOutletScopeAt } from "../outlets/validation";
+import { outletRows, resolveOutletScopeAt } from "../outlets/validation";
 import { activeAt } from "../org/validation";
 import type { AuthorizedDevice } from "./types";
 import {
@@ -18,6 +18,22 @@ import {
   phoneCallSheet,
   type PhoneCallSheet,
 } from "../callSheets/model";
+import { phoneRules, rulesAt } from "../visits/activity_rules";
+import {
+  EVIDENCE_PHOTO_TYPES,
+  EVIDENCE_PHOTO_TYPES_VERSION,
+} from "../visits/policy";
+import {
+  MAX_WORKING_SET_PRODUCTS,
+  MAX_WORKING_SET_VISITS,
+  WORKING_SET_TOO_LARGE,
+} from "./budget";
+
+/** AND-016 phone wire: the photo types visit evidence may carry. */
+export const photoTypeDTO = v.object({ code: v.string(), label: v.string() });
+export function phonePhotoTypes() {
+  return EVIDENCE_PHOTO_TYPES.map(({ code, label }) => ({ code, label }));
+}
 
 export const DAY_MS = 86_400_000;
 export const HORIZON_DAYS = 3;
@@ -36,6 +52,13 @@ export const outletDTO = v.object({
   id: v.string(),
   name: v.string(),
   routeId: v.union(v.string(), v.null()),
+  /** Daily route screen (AND-010); optional in contract v1, older servers omit them. */
+  code: v.optional(v.string()),
+  customerId: v.optional(v.string()),
+  address: v.optional(v.string()),
+  /** Current verified pin; both present or both absent. */
+  latitude: v.optional(v.number()),
+  longitude: v.optional(v.number()),
 });
 export const customerDTO = v.object({ id: v.string(), code: v.string() });
 export const routeDTO = v.union(
@@ -81,6 +104,15 @@ type CallSheetCache = {
     { sheet: PhoneCallSheet; stamp: string; membershipStamp: string } | null
   >;
   products: Parameters<typeof phoneCallSheet>[2];
+  /** QSR-013: one read per plan/outlet per snapshot keeps the transaction within its range budget. */
+  plans: Map<Id<"coveragePlans">, Doc<"coveragePlans"> | null>;
+  outlets: Map<
+    Id<"outlets">,
+    {
+      current: Awaited<ReturnType<typeof resolveOutletScopeAt>>;
+      pins: Doc<"outletPins">[];
+    }
+  >;
 };
 export type Visit = typeof visitDTO.type;
 export type Task = typeof taskDTO.type;
@@ -149,7 +181,11 @@ async function visitProjection(
   cache: CallSheetCache,
   reference: boolean,
 ): Promise<Projected> {
-  const plan = await ctx.db.get(row.planId);
+  let plan = cache.plans.get(row.planId);
+  if (plan === undefined) {
+    plan = await ctx.db.get(row.planId);
+    cache.plans.set(row.planId, plan);
+  }
   const s = row.approvedSnapshot;
   if (
     !plan ||
@@ -162,7 +198,15 @@ async function visitProjection(
     row.status !== "planned"
   )
     throw new ConvexError("rebootstrap_required");
-  const current = await resolveOutletScopeAt(ctx, row.outletId, now);
+  let outletState = cache.outlets.get(row.outletId);
+  if (!outletState) {
+    outletState = {
+      current: await resolveOutletScopeAt(ctx, row.outletId, now),
+      pins: await outletRows(ctx, "outletPins", row.outletId),
+    };
+    cache.outlets.set(row.outletId, outletState);
+  }
+  const current = outletState.current;
   // No inherited unit/territory grant for a field phone: only its own current unit.
   if (
     current.orgUnitId !== actor.orgUnitId ||
@@ -183,6 +227,21 @@ async function visitProjection(
       : null;
     cache.accounts.set(row.outletId, callSheet);
   }
+  // Navigation target: only an unambiguous current verified pin. Missing or conflicting
+  // pins send no coordinates (the phone falls back to the address), never a guess.
+  const pins = outletState.pins.filter(
+    (p) =>
+      p.status === "verified" && activeAt(p.effectiveFrom, p.effectiveTo, now),
+  );
+  const pin =
+    pins.length === 1 &&
+    Number.isFinite(pins[0]!.latitude) &&
+    Math.abs(pins[0]!.latitude) <= 90 &&
+    Number.isFinite(pins[0]!.longitude) &&
+    Math.abs(pins[0]!.longitude) <= 180
+      ? pins[0]!
+      : null;
+  const address = current.outlet.address?.trim() || undefined;
   return {
     visit: {
       id: row._id,
@@ -193,12 +252,20 @@ async function visitProjection(
       intents: row.intents,
       sequence: slot.sequence,
     },
-    outlet: { id: s.outletId, name: s.outletName, routeId: s.routeId ?? null },
+    outlet: {
+      id: s.outletId,
+      name: s.outletName,
+      routeId: s.routeId ?? null,
+      code: s.outletCode,
+      ...(s.customerId ? { customerId: s.customerId } : {}),
+      ...(address ? { address } : {}),
+      ...(pin ? { latitude: pin.latitude, longitude: pin.longitude } : {}),
+    },
     customer: customer ? { id: customer._id, code: customer.code } : null,
     route:
       s.routeId && s.routeCode ? { id: s.routeId, code: s.routeCode } : null,
     callSheet: callSheet?.sheet ?? null,
-    stamp: `${(reference ? callSheet?.membershipStamp : callSheet?.stamp) ?? ""}|${row._id}|${row.status}|${row._creationTime}|${row.generatedAt}|${JSON.stringify(s)}|${JSON.stringify(row.intents)}|${current.assignment?._id ?? ""}|${current.assignment?.routeId ?? ""}|${current.assignment?.sequence ?? ""}|${current.orgUnitId}|${current.outlet.status}|${customer?.code ?? ""}|${slot.sequence}`,
+    stamp: `${(reference ? callSheet?.membershipStamp : callSheet?.stamp) ?? ""}|${row._id}|${row.status}|${row._creationTime}|${row.generatedAt}|${JSON.stringify(s)}|${JSON.stringify(row.intents)}|${current.assignment?._id ?? ""}|${current.assignment?.routeId ?? ""}|${current.assignment?.sequence ?? ""}|${current.orgUnitId}|${current.outlet.status}|${customer?.code ?? ""}|${slot.sequence}|${address ?? ""}|${pin?._id ?? ""}|${pin?.latitude ?? ""}|${pin?.longitude ?? ""}`,
   };
 }
 
@@ -222,6 +289,7 @@ export async function dayProjection(
 ): Promise<{
   entries: DayEntry[];
   manifest: string;
+  activityRules: ReturnType<typeof phoneRules>;
   reference: ReferenceProjection | null;
 }> {
   const start = Date.parse(`${day}T00:00:00Z`);
@@ -232,7 +300,13 @@ export async function dayProjection(
   )
     throw new ConvexError("rebootstrap_required");
   const visits: Projected[] = [];
-  const cache: CallSheetCache = { accounts: new Map(), products: new Map() };
+  const cache: CallSheetCache = {
+    accounts: new Map(),
+    products: new Map(),
+    plans: new Map(),
+    outlets: new Map(),
+  };
+  const planned: Doc<"plannedVisits">[] = [];
   for (let i = 0; i < HORIZON_DAYS; i++) {
     const date = new Date(start + i * DAY_MS).toISOString().slice(0, 10);
     const rows = await ctx.db
@@ -243,13 +317,19 @@ export async function dayProjection(
       .take(MAX_DAY_ROWS + 1);
     if (rows.length > MAX_DAY_ROWS)
       throw new ConvexError("rebootstrap_required");
-    for (const row of rows) {
-      // Superseded/cancelled lineage remains in storage but is not a phone assignment.
-      if (row.status === "planned")
-        visits.push(
-          await visitProjection(ctx, row, actor, now, cache, reference),
-        );
-    }
+    // Superseded/cancelled lineage remains in storage but is not a phone assignment.
+    planned.push(...rows.filter((row) => row.status === "planned"));
+  }
+  // QSR-013: refuse an oversized working set explicitly before reading its projection
+  // (no silent truncation); the office has to split the plan.
+  if (planned.length > MAX_WORKING_SET_VISITS)
+    throw new ConvexError(WORKING_SET_TOO_LARGE);
+  for (const row of planned) {
+    visits.push(
+      await visitProjection(ctx, row, actor, now, cache, reference),
+    );
+    if (cache.products.size > MAX_WORKING_SET_PRODUCTS)
+      throw new ConvexError(WORKING_SET_TOO_LARGE);
   }
   const end = start + HORIZON_DAYS * DAY_MS - 8 * 3_600_000;
   const tasks = await ctx.db
@@ -329,10 +409,15 @@ export async function dayProjection(
       .filter((r) => activeAt(r.effectiveFrom, r.effectiveTo, now))
       .map((r) => [r._id, r.routeId, r.primary]),
   ];
+  // AND-013: activity-form rules in effect now; a rule change forces a fresh snapshot.
+  const activityRules = phoneRules(await rulesAt(ctx, now));
   // Never a nationwide catalog: only the reference opt-in's call-sheet products (SP-0051).
   const manifestInput = JSON.stringify({
     day,
     memberships,
+    activityRules,
+    // AND-016: a photo-type list change forces a fresh snapshot, like a rule change.
+    photoTypes: EVIDENCE_PHOTO_TYPES_VERSION,
     visits: visits.map((v) => v.stamp),
     tasks: relevant.map((t) => [
       t._id,
@@ -352,5 +437,5 @@ export async function dayProjection(
   const manifest = Array.from(new Uint8Array(digest), (b) =>
     b.toString(16).padStart(2, "0"),
   ).join("");
-  return { entries, manifest, reference: referenceData };
+  return { entries, manifest, activityRules, reference: referenceData };
 }

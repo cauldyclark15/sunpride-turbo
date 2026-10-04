@@ -33,7 +33,7 @@ class ReferenceDataStoreTest {
         listOf(CallSheetProduct("p", "OLD", "Old", "PC", "old", "line-price"),
             CallSheetProduct("untouched", "U", "Other", "PC", null, null)))
     private fun snapshot() = ScopedSnapshot("{}", null, emptyList(), emptyList(), emptyList(), emptyList(),
-        listOf(sheet, sheet.copy(outletId = "o2")), listOf(product), listOf(stock))
+        listOf(sheet, sheet.copy(outletId = "o2")), productCatalog = listOf(product), inventoryAvailability = listOf(stock))
     private fun delta(p: CatalogProduct) = DeltaRow(scope.account, scope.deviceId, scope.fingerprint,
         "product", p.id, p.revision, ReferenceDataCodec.encode(p).toString(), false)
     private fun delta(i: InventoryAvailability) = DeltaRow(scope.account, scope.deviceId, scope.fingerprint,
@@ -99,6 +99,23 @@ class ReferenceDataStoreTest {
         assertEquals(listOf("balance", "balance2"), store().availability("p").map { it.id })
         assertEquals(queued.serializedOperation, store().pending().single().first.serializedOperation)
         store().applyDelta(emptyList(), "empty-page"); reopen(); assertEquals("empty-page", store().cursor())
+        Unit
+    }
+
+    /** QSR-010: confirmed revocation drops cached products and stock with the rest of the server cache. */
+    @Test fun cachePurgeDropsProductsAndStockForThisPartitionOnly() = runBlocking {
+        val other = store(scope.copy(fingerprint = "purge-other"))
+        ready(); other.swap(other.stage(snapshot()), "other", Long.MAX_VALUE, Long.MAX_VALUE)
+        store().purgeCacheForReview()
+        reopen()
+        assertTrue(store().catalog().isEmpty()); assertTrue(store().availability("p").isEmpty())
+        assertNull(store().delta("product", "p"))
+        val kept = store(scope.copy(fingerprint = "purge-other"))
+        assertEquals(listOf(product), kept.catalog()); assertEquals(listOf(stock), kept.availability("p"))
+        db.query("SELECT (SELECT COUNT(*) FROM catalog_products WHERE account=? AND scope=?) + (SELECT COUNT(*) FROM inventory_availability WHERE account=? AND scope=?)",
+            arrayOf(scope.account, scope.fingerprint, scope.account, scope.fingerprint)).use {
+            it.moveToFirst(); assertEquals(0, it.getInt(0))
+        }
         Unit
     }
 

@@ -129,7 +129,10 @@ class VisitSync(private val gateway: SignedVisitGateway, private val store: Fiel
                 store.markSyncSuccess(now())
             } catch (e: BootstrapFailure) {
                 when (e.kind) {
-                    BootstrapFailure.Kind.REMOVED, BootstrapFailure.Kind.UNAUTHORIZED,
+                    // A confirmed removal also drops the cached plan/prices (QSR-010); an unexplained
+                    // 401 or an update gate only holds, so a recoverable state keeps offline reads.
+                    BootstrapFailure.Kind.REMOVED -> store.purgeCacheForReview()
+                    BootstrapFailure.Kind.UNAUTHORIZED,
                     BootstrapFailure.Kind.UPDATE_REQUIRED -> store.holdForReview()
                     BootstrapFailure.Kind.RESTART -> {
                         store.holdForReview()

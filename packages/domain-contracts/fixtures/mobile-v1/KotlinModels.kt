@@ -54,6 +54,10 @@ data class BootstrapResponse(
   val callSheets: OptionalField<List<BootstrapResponseCallSheetsItem>>,
   // schema-field: bootstrapResponse.inventoryAvailability
   val inventoryAvailability: OptionalField<List<BootstrapResponseInventoryAvailabilityItem>>,
+  // schema-field: bootstrapResponse.activityRules
+  val activityRules: OptionalField<List<BootstrapResponseActivityRulesItem>>,
+  // schema-field: bootstrapResponse.photoTypes
+  val photoTypes: OptionalField<List<BootstrapResponsePhotoTypesItem>>,
   // schema-field: bootstrapResponse.page
   val page: Long,
   // schema-field: bootstrapResponse.nextPageCursor
@@ -114,7 +118,17 @@ data class BootstrapResponseOutletsItem(
   // schema-field: bootstrapResponse.outlets[].name
   val name: String,
   // schema-field: bootstrapResponse.outlets[].routeId
-  val routeId: String?
+  val routeId: String?,
+  // schema-field: bootstrapResponse.outlets[].code
+  val code: OptionalField<String>,
+  // schema-field: bootstrapResponse.outlets[].customerId
+  val customerId: OptionalField<String>,
+  // schema-field: bootstrapResponse.outlets[].address
+  val address: OptionalField<String>,
+  // schema-field: bootstrapResponse.outlets[].latitude
+  val latitude: OptionalField<Double>,
+  // schema-field: bootstrapResponse.outlets[].longitude
+  val longitude: OptionalField<Double>
 )
 // schema-object: bootstrapResponse.localCustomers[]
 data class BootstrapResponseLocalCustomersItem(
@@ -735,6 +749,31 @@ data class BootstrapResponseCallSheetsItemLinesItem(
   val barcode: String?,
   // schema-field: bootstrapResponse.callSheets[].lines[].pricing
   val pricing: String?
+)
+// Additive after v1 shipped: visit activity-form rules per intent (AND-013).
+// schema-object: bootstrapResponse.activityRules[]
+data class BootstrapResponseActivityRulesItem(
+  // schema-field: bootstrapResponse.activityRules[].intent
+  val intent: String,
+  // schema-field: bootstrapResponse.activityRules[].version
+  val version: String,
+  // schema-field: bootstrapResponse.activityRules[].activities
+  val activities: List<BootstrapResponseActivityRulesItemActivitiesItem>
+)
+// schema-object: bootstrapResponse.activityRules[].activities[]
+data class BootstrapResponseActivityRulesItemActivitiesItem(
+  // schema-field: bootstrapResponse.activityRules[].activities[].kind
+  val kind: String,
+  // schema-field: bootstrapResponse.activityRules[].activities[].required
+  val required: Boolean
+)
+// Additive after v1 shipped: visit photo types (AND-016).
+// schema-object: bootstrapResponse.photoTypes[]
+data class BootstrapResponsePhotoTypesItem(
+  // schema-field: bootstrapResponse.photoTypes[].code
+  val code: String,
+  // schema-field: bootstrapResponse.photoTypes[].label
+  val label: String
 )
 // schema-object: pushRequest.operations[]#1.payload.activity#6
 data class PushRequestOperationsItemVariant1PayloadActivityVariant6(

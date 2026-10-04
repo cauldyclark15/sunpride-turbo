@@ -109,6 +109,50 @@ describe("mobile v1 canonical contract", () => {
     expect(validate(empty)).toBe(false);
   });
 
+  test("bootstrap stays valid with or without the additive photoTypes field", async () => {
+    const withTypes = await Bun.file(
+      new URL(
+        "../fixtures/mobile-v1/bootstrap-photo-types-response.json",
+        import.meta.url,
+      ),
+    ).json();
+    expect(validate(withTypes), JSON.stringify(validate.errors)).toBe(true);
+    const withoutTypes = { ...withTypes };
+    delete withoutTypes.photoTypes;
+    expect(validate(withoutTypes)).toBe(true);
+    const noLabel = structuredClone(withTypes);
+    delete noLabel.photoTypes[0].label;
+    expect(validate(noLabel)).toBe(false);
+    const extra = structuredClone(withTypes);
+    extra.photoTypes[0].required = true;
+    expect(validate(extra)).toBe(false);
+    const emptyCode = structuredClone(withTypes);
+    emptyCode.photoTypes[0].code = "";
+    expect(validate(emptyCode)).toBe(false);
+  });
+
+  test("bootstrap stays valid with or without the additive activityRules field", async () => {
+    const withRules = await Bun.file(
+      new URL(
+        "../fixtures/mobile-v1/bootstrap-activity-rules-response.json",
+        import.meta.url,
+      ),
+    ).json();
+    expect(validate(withRules), JSON.stringify(validate.errors)).toBe(true);
+    const withoutRules = { ...withRules };
+    delete withoutRules.activityRules;
+    expect(validate(withoutRules)).toBe(true);
+    const noVersion = structuredClone(withRules);
+    delete noVersion.activityRules[0].version;
+    expect(validate(noVersion)).toBe(false);
+    const extra = structuredClone(withRules);
+    extra.activityRules[0].activities[0].label = "Merchandising";
+    expect(validate(extra)).toBe(false);
+    const notBoolean = structuredClone(withRules);
+    notBoolean.activityRules[0].activities[0].required = "yes";
+    expect(validate(notBoolean)).toBe(false);
+  });
+
   test("bootstrap stays valid with or without the additive callSheets field", async () => {
     const withSheets = await Bun.file(
       new URL(
@@ -123,5 +167,25 @@ describe("mobile v1 canonical contract", () => {
     const noName = structuredClone(withSheets);
     noName.callSheets[0].header.accountName = "";
     expect(validate(noName)).toBe(false);
+  });
+
+  test("keeps daily-route outlet fields additive; a pin is both coordinates or none", async () => {
+    const original = await Bun.file(
+      new URL("../fixtures/mobile-v1/bootstrap-response.json", import.meta.url),
+    ).json();
+    const outlet = original.outlets[0];
+    expect(validate(original), JSON.stringify(validate.errors)).toBe(true);
+    const withOutlet = (value: Record<string, unknown>) => ({
+      ...original,
+      outlets: [value],
+    });
+    expect(
+      validate(withOutlet({ id: outlet.id, name: outlet.name, routeId: null })),
+    ).toBe(true);
+    const latitudeOnly = { ...outlet };
+    delete latitudeOnly.longitude;
+    expect(validate(withOutlet(latitudeOnly))).toBe(false);
+    expect(validate(withOutlet({ ...outlet, latitude: 91 }))).toBe(false);
+    expect(validate(withOutlet({ ...outlet, address: "" }))).toBe(false);
   });
 });

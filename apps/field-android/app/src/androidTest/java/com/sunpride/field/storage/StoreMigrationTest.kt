@@ -42,9 +42,38 @@ class StoreMigrationTest {
             }
         }
     }
-    @Test fun v5ToV6RetainsCallSheetsOutboxAndCursorAndAddsScopedReferenceTables() {
-        val name = "migration-reference-v5.db"
+    /** AND-016: photo metadata is a new table; every existing row and the outbox survive untouched. */
+    @Test fun v5ToV6KeepsWorkAndAddsEvidencePhotos() {
+        val name = "migration-photos-v5.db"
         helper.createDatabase(name, 5).apply {
+            execSQL("INSERT INTO partitions (account,deviceId,scope,activeGeneration,cursor,syncHealth,held,lastSuccessfulSync) VALUES ('a','d','s','g','cursor','synced',0,123)")
+            execSQL("INSERT INTO intents (account,deviceId,scope,requestId,clientVisitId,kind,serializedOperation,createdAt) VALUES ('a','d','s','r','v','visit.checkIn','immutable',1)")
+            execSQL("INSERT INTO outbox (account,deviceId,scope,requestId,createdAt,state) VALUES ('a','d','s','r',1,'pending')")
+            execSQL("INSERT INTO call_sheets (account,deviceId,scope,generation,outletId,revision,headerJson) VALUES ('a','d','s','g','o',1,'{}')")
+            close()
+        }
+        helper.runMigrationsAndValidate(name, 6, true, EncryptedFieldDatabase.MIGRATION_5_6).use { db ->
+            db.query("SELECT serializedOperation,state FROM intents JOIN outbox USING (account,deviceId,scope,requestId) WHERE requestId='r'").use { c ->
+                assertEquals(true, c.moveToFirst()); assertEquals("immutable", c.getString(0)); assertEquals("pending", c.getString(1))
+            }
+            db.query("SELECT COUNT(*) FROM call_sheets").use { c -> c.moveToFirst(); assertEquals(1, c.getInt(0)) }
+            db.execSQL("INSERT INTO evidence_photos (account,deviceId,scope,localId,clientVisitId,checkInRequestId,outletId,photoType,mime,sizeBytes,sha256,capturedAt,createdAt,state,attempts) VALUES ('a','d','s','p','v','r','o','shelf_display','image/jpeg',10,'aa',1,2,'pending',0)")
+            db.query("SELECT state,evidenceId FROM evidence_photos WHERE localId='p'").use { c ->
+                assertEquals(true, c.moveToFirst()); assertEquals("pending", c.getString(0)); assertEquals(true, c.isNull(1))
+            }
+        }
+    }
+    @Test fun completeV1ToV6ChainValidates() {
+        val name = "migration-photos-v1.db"
+        helper.createDatabase(name, 1).close()
+        helper.runMigrationsAndValidate(name, 6, true, EncryptedFieldDatabase.MIGRATION_1_2,
+            EncryptedFieldDatabase.MIGRATION_2_3, EncryptedFieldDatabase.MIGRATION_3_4,
+            EncryptedFieldDatabase.MIGRATION_4_5, EncryptedFieldDatabase.MIGRATION_5_6).close()
+    }
+    @Test fun v6ToV7RetainsPhotosCallSheetsOutboxAndCursorAndAddsScopedReferenceTables() {
+        val name = "migration-reference-v6.db"
+        helper.createDatabase(name, 6).apply {
+            execSQL("INSERT INTO evidence_photos (account,deviceId,scope,localId,clientVisitId,checkInRequestId,outletId,photoType,mime,sizeBytes,sha256,capturedAt,createdAt,state,attempts) VALUES ('a','d','s','p','v','r','o','shelf_display','image/jpeg',10,'aa',1,2,'pending',0)")
             execSQL("INSERT INTO call_sheets (account,deviceId,scope,generation,outletId,revision,headerJson) VALUES ('a','d','s','g','o',9,'{}')")
             execSQL("INSERT INTO call_sheet_lines (account,deviceId,scope,generation,outletId,productId,position,code,name,uom,barcode,pricing) VALUES ('a','d','s','g','o','p',2,'SKU','Product','CAN','barcode','price')")
             execSQL("INSERT INTO partitions (account,deviceId,scope,activeGeneration,cursor,syncHealth,held,lastSuccessfulSync) VALUES ('a','d','s','g','cursor','synced',0,123)")
@@ -52,7 +81,10 @@ class StoreMigrationTest {
             execSQL("INSERT INTO outbox (account,deviceId,scope,requestId,createdAt,state) VALUES ('a','d','s','r',1,'pending')")
             close()
         }
-        helper.runMigrationsAndValidate(name, 6, true, EncryptedFieldDatabase.MIGRATION_5_6).use { db ->
+        helper.runMigrationsAndValidate(name, 7, true, EncryptedFieldDatabase.MIGRATION_6_7).use { db ->
+            db.query("SELECT state FROM evidence_photos WHERE localId='p'").use { c ->
+                assertEquals(true, c.moveToFirst()); assertEquals("pending", c.getString(0))
+            }
             db.query("SELECT position,barcode,pricing FROM call_sheet_lines").use { c ->
                 assertEquals(true, c.moveToFirst()); assertEquals(2, c.getInt(0))
                 assertEquals("barcode", c.getString(1)); assertEquals("price", c.getString(2))
@@ -73,13 +105,14 @@ class StoreMigrationTest {
             }
         }
     }
-    @Test fun v4ToV6AndCompleteV1ToV6ChainsValidate() {
+    @Test fun v4ToV7AndCompleteV1ToV7ChainsValidate() {
         for (version in listOf(1, 4)) {
             val name = "migration-reference-v$version.db"
             helper.createDatabase(name, version).close()
-            helper.runMigrationsAndValidate(name, 6, true, EncryptedFieldDatabase.MIGRATION_1_2,
+            helper.runMigrationsAndValidate(name, 7, true, EncryptedFieldDatabase.MIGRATION_1_2,
                 EncryptedFieldDatabase.MIGRATION_2_3, EncryptedFieldDatabase.MIGRATION_3_4,
-                EncryptedFieldDatabase.MIGRATION_4_5, EncryptedFieldDatabase.MIGRATION_5_6).close()
+                EncryptedFieldDatabase.MIGRATION_4_5, EncryptedFieldDatabase.MIGRATION_5_6,
+                EncryptedFieldDatabase.MIGRATION_6_7).close()
         }
     }
     @Test fun completeV1ToV5ChainValidates() {

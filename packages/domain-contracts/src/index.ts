@@ -47,6 +47,14 @@ export type InventoryAvailabilityV1 = {
   revision: number;
   asOf: number;
 };
+/** One visit intent's required/optional activity forms (kind is an open string). */
+export type ActivityRuleV1 = {
+  intent: string;
+  version: string;
+  activities: Array<{ kind: string; required: boolean }>;
+};
+/** AND-016: one visit photo type (code is an open string; label is display text). */
+export type PhotoTypeV1 = { code: string; label: string };
 export type CallSheetV1 = {
   outletId: string;
   revision: number;
@@ -104,7 +112,16 @@ export type BootstrapResponse = {
     intents: Array<string>;
     sequence?: number;
   }>;
-  outlets: Array<{ id: string; name: string; routeId: string | null }>;
+  outlets: Array<{
+    id: string;
+    name: string;
+    routeId: string | null;
+    code?: string;
+    customerId?: string;
+    address?: string;
+    latitude?: number;
+    longitude?: number;
+  }>;
   localCustomers: Array<{ id: string; code: string }>;
   route: { id: string; code: string } | null;
   tasks: Array<{ id: string; kind: string; required: boolean }>;
@@ -113,6 +130,10 @@ export type BootstrapResponse = {
   callSheets?: Array<CallSheetV1>;
   /** Stock for catalog products (referenceData only). Optional: added after v1 shipped. */
   inventoryAvailability?: Array<InventoryAvailabilityV1>;
+  /** AND-013 activity-form rules per visit intent. Optional: added after v1 shipped. */
+  activityRules?: Array<ActivityRuleV1>;
+  /** AND-016 visit photo types. Optional: added after v1 shipped. */
+  photoTypes?: Array<PhotoTypeV1>;
   page: number;
   nextPageCursor: string | null;
   syncCursor: string | null;

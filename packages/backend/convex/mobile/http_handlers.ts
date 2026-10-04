@@ -7,6 +7,7 @@ import {
   MAX_CALL_SHEET_LINES,
   MAX_CALL_SHEET_QUANTITY,
 } from "../callSheets/validators";
+import { acceptsGzip, GZIP_MIN_BYTES, WORKING_SET_TOO_LARGE } from "./budget";
 
 const MAX_BYTES = 128 * 1024;
 const kinds = new Set([
@@ -42,6 +43,38 @@ const json = (body: unknown, status = 200): Response =>
       "cache-control": "no-store",
     },
   });
+/**
+ * QSR-013: bootstrap/pull bodies are gzipped when the phone accepts it (OkHttp and URLSession
+ * ask for gzip and inflate transparently). If the runtime has no CompressionStream, or
+ * compression fails, the identical JSON goes out uncompressed.
+ */
+async function readJson(request: Request, body: unknown): Promise<Response> {
+  const text = JSON.stringify(body);
+  const headers = {
+    "content-type": "application/json",
+    "cache-control": "no-store",
+    vary: "accept-encoding",
+  };
+  if (
+    text.length >= GZIP_MIN_BYTES &&
+    acceptsGzip(request.headers.get("accept-encoding")) &&
+    typeof CompressionStream === "function"
+  ) {
+    try {
+      const stream = new Response(text).body!.pipeThrough(
+        new CompressionStream("gzip"),
+      );
+      const bytes = await new Response(stream).arrayBuffer();
+      return new Response(bytes, {
+        status: 200,
+        headers: { ...headers, "content-encoding": "gzip" },
+      });
+    } catch {
+      // Fall through to the uncompressed body.
+    }
+  }
+  return new Response(text, { status: 200, headers });
+}
 const failure = (code: string, status: number): Response =>
   json(
     {
@@ -62,6 +95,7 @@ function coded(error: unknown): string | null {
     ...reasonCodes,
     "rebootstrap_required",
     "invalid_cursor",
+    WORKING_SET_TOO_LARGE,
   ]) {
     if (new RegExp(`(?:^|[:\\s])${code}(?:$|[\\s\\n])`).test(text)) return code;
   }
@@ -440,7 +474,7 @@ export async function handleMobile(
         limit: body.limit as number | undefined,
         referenceData: body.referenceData as boolean | undefined,
       });
-      return json(value);
+      return await readJson(request, value);
     }
     if (route === "pull") {
       const value = await ctx.runQuery(internal.mobile.pull.delta, {
@@ -448,7 +482,7 @@ export async function handleMobile(
         cursor: body.cursor as string,
         limit: body.limit as number | undefined,
       });
-      return json(value);
+      return await readJson(request, value);
     }
     const results: unknown[] = [];
     for (const entry of body.operations as RecordValue[]) {
@@ -528,6 +562,9 @@ export async function handleMobile(
     const code = coded(error);
     if (code === "rebootstrap_required" || code === "invalid_cursor")
       return failure(code, 409);
+    // The v1 error codes are frozen: an over-budget working set is a non-retryable
+    // invalid_request until the office splits the plan (docs/qa/MOBILE_BOOTSTRAP_BUDGET.md).
+    if (code === WORKING_SET_TOO_LARGE) return failure("invalid_request", 413);
     return failure("temporarily_unavailable", 500);
   }
 }

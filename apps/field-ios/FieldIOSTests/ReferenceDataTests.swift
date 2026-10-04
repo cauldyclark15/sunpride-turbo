@@ -156,6 +156,21 @@ final class ReferenceDataTests: XCTestCase {
         }
     }
 
+    /// QSR-010: sign-out and revocation drop cached products and stock with the rest of the server cache.
+    func testCachePurgeDropsProductsAndStock() throws {
+        try seed(ReferenceDataFixture.snapshot())
+        try store.purgeCacheForReview(partition)
+        XCTAssertTrue(try store.catalog(for: partition).isEmpty)
+        XCTAssertTrue(try store.availability(productId: "product-1", for: partition).isEmpty)
+        try seed(ReferenceDataFixture.snapshot())
+        try store.releaseHeld(partition)
+        XCTAssertFalse(try store.catalog(for: partition).isEmpty)
+        try store.purgeAllCachesForReview()
+        store.close(); store = try open()
+        XCTAssertTrue(try store.catalog(for: partition).isEmpty)
+        XCTAssertTrue(try store.availability(productId: "product-1", for: partition).isEmpty)
+    }
+
     func testSnapshotReferenceInsertRollbackAndGenerationReplacement() throws {
         let snapshot = ReferenceDataFixture.snapshot()
         try seed(snapshot)
