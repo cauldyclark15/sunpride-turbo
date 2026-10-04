@@ -3,12 +3,16 @@
  * decides whether a fix is flagged for supervisor review; it never blocks a check-in.
  * Replace via effective-dated outlet policy only after a client-approved policy table exists. */
 export const VISIT_LOCATION_POLICY = {
-  version: "field-day-2026-10-v2",
+  version: "field-day-2026-10-v3",
   source:
     "Client call 2 Oct 2026 (answers 13, 14); ADR-017 thresholds kept as flags",
-  radiusMeters: 75,
+  /* The radius is the outlet's verified pin radius (default 75 m, up to 500 m for malls and
+   * warehouses through the two-person pin verification), never clamped to the default. */
   maxAccuracyMeters: 50,
   maxFixAgeMs: 60_000,
+  /** A fix stamped this far ahead of the server clock is still trusted (minor phone clock
+   * drift); beyond it the device time does not match and the fix goes to review. */
+  maxFixClockDriftMs: 120_000,
   checkInGraceMs: 0,
   /** A device clock may run this far ahead of the server. */
   maxDeviceSkewMs: 24 * 60 * 60_000,
