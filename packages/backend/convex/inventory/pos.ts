@@ -5,6 +5,7 @@ import { mutation, query } from "../_generated/server";
 import { requireIdentity, requireRole } from "../lib/auth";
 import { requireNationalScope, requireScopedRole } from "../lib/scope";
 import { SUNPRIDE_ORGANIZATION_ID } from "./constants";
+import { queueAgentDayForOrder } from "../analytics/agent_metrics";
 import {
   findExistingCommand,
   hashPayload,
@@ -195,6 +196,7 @@ export const postSale = mutation({
       inventoryMovementId: movement.movementId,
       updatedAt: Date.now(),
     });
+    await queueAgentDayForOrder(ctx, orderId);
     await ctx.db.patch(args.routeSessionId, {
       lastAcknowledgedSequence: args.deviceSequence,
       leaseExpiresAt: Date.now() + 15 * 60_000,
@@ -243,6 +245,7 @@ export const voidSale = mutation({
       voidedBy: identity.tokenIdentifier,
       updatedAt: Date.now(),
     });
+    await queueAgentDayForOrder(ctx, order._id);
     return movement.movementId;
   },
 });
@@ -438,6 +441,8 @@ export const returnSale = mutation({
         returnedBase === originalTotalBase ? "returned" : "partially_voided",
       updatedAt: Date.now(),
     });
+    await queueAgentDayForOrder(ctx, returnOrderId);
+    await queueAgentDayForOrder(ctx, original._id);
     return {
       returnOrderId,
       movementId: movement.movementId,

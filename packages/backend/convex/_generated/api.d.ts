@@ -8,6 +8,8 @@
  * @module
  */
 
+import type * as analytics_agent_metrics from "../analytics/agent_metrics.js";
+import type * as analytics_agent_metrics_model from "../analytics/agent_metrics_model.js";
 import type * as auth from "../auth.js";
 import type * as authPolicy from "../authPolicy.js";
 import type * as callSheets_accounts from "../callSheets/accounts.js";
@@ -156,6 +158,8 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  "analytics/agent_metrics": typeof analytics_agent_metrics;
+  "analytics/agent_metrics_model": typeof analytics_agent_metrics_model;
   auth: typeof auth;
   authPolicy: typeof authPolicy;
   "callSheets/accounts": typeof callSheets_accounts;
