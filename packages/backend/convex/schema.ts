@@ -25,6 +25,15 @@ import {
 } from "./callSheets/validators";
 import { productiveCallRuleValidator } from "./sfa/productive_call";
 import {
+  workWithMode,
+  workWithObjective,
+  workWithObservation,
+  workWithPostCall,
+  workWithPreCall,
+  workWithStatus,
+  workWithTrainingLog,
+} from "./supervision/work_with_model";
+import {
   allocationPolicyValidator,
   approvalStatusValidator,
   commandStatusValidator,
@@ -1864,6 +1873,46 @@ export default defineSchema({
       "organizationId",
       "effectiveFrom",
     ]),
+  /**
+   * SOP-005 Work-With coaching session (memo §III): its own record, never a visit note.
+   * The trainer writes it; `orgUnitId` is the trainee's unit when it was started and is the
+   * scope key for supervisors. Only `completed` sessions count toward the cadence minimum.
+   */
+  workWithSessions: defineTable({
+    organizationId: v.string(),
+    trainerProfileId: v.id("profiles"),
+    trainerPositionId: v.optional(v.id("positions")),
+    traineeProfileId: v.id("profiles"),
+    orgUnitId: v.id("orgUnits"),
+    serviceDate: v.string(), // YYYY-MM-DD, Manila
+    objective: workWithObjective,
+    mode: workWithMode,
+    truckReference: v.optional(v.string()),
+    rodeWithTruck: v.optional(v.boolean()),
+    status: workWithStatus,
+    trainingLog: v.optional(workWithTrainingLog),
+    observations: v.array(workWithObservation),
+    preCall: v.optional(workWithPreCall),
+    postCall: v.optional(workWithPostCall),
+    mcpPlanned: v.optional(v.number()), // frozen at completion
+    mcpDone: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    cancelledAt: v.optional(v.number()),
+    cancelReason: v.optional(v.string()),
+    createdBy: v.string(),
+    createdAt: v.number(),
+    updatedBy: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_trainerProfileId_and_serviceDate", [
+      "trainerProfileId",
+      "serviceDate",
+    ])
+    .index("by_traineeProfileId_and_serviceDate", [
+      "traineeProfileId",
+      "serviceDate",
+    ])
+    .index("by_orgUnitId_and_serviceDate", ["orgUnitId", "serviceDate"]),
   productBarcodes: defineTable({
     organizationId: v.string(),
     productId: v.id("products"),

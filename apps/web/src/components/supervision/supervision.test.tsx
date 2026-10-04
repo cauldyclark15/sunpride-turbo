@@ -355,6 +355,7 @@ describe("supervision screens", () => {
     expect(html).toContain("Region B");
     expect(html).toContain("All channels");
     expect(html).toContain("My team only");
+    expect(html).toContain("Work-With");
     expect(html).toContain("Ana");
   });
 });
