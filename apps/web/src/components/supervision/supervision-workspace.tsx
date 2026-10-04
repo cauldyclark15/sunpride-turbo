@@ -8,6 +8,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { PanelErrorBoundary } from "../panel-error-boundary";
 import { ExceptionQueue } from "./exception-queue";
+import { PerDiem } from "./per-diem";
 import { manilaToday, type SupervisionFilters } from "./supervision-model";
 import { TeamExecution } from "./team-execution";
 import { WorkWith } from "./work-with";
@@ -17,12 +18,13 @@ const ActivityMap = dynamic(
   { ssr: false },
 );
 
-type SupervisionTab = "team" | "exceptions" | "map" | "workwith";
+type SupervisionTab = "team" | "exceptions" | "map" | "workwith" | "perdiem";
 const TABS: [SupervisionTab, string][] = [
   ["team", "Team"],
   ["exceptions", "Exceptions"],
   ["map", "Map"],
   ["workwith", "Work-With"],
+  ["perdiem", "Per diem"],
 ];
 
 /** The viewer's clock, refreshed every minute, for time-based statuses. */
@@ -130,6 +132,8 @@ export function SupervisionWorkspace() {
             <ExceptionQueue filters={filters} now={now} />
           ) : tab === "workwith" ? (
             <WorkWith filters={filters} />
+          ) : tab === "perdiem" ? (
+            <PerDiem filters={filters} />
           ) : (
             <ActivityMap filters={filters} />
           )}

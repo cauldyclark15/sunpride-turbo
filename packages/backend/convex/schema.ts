@@ -1919,6 +1919,34 @@ export default defineSchema({
     ])
     .index("by_orgUnitId_and_serviceDate", ["orgUnitId", "serviceDate"]),
   /**
+   * SOP-004 per-diem validation decisions: a supervisor validates or returns one person's
+   * claim period against the approved MCP. Append-only; the latest row per period wins.
+   * Counts and dates are frozen as decided; no amount (the rate lives outside the system).
+   */
+  perDiemValidations: defineTable({
+    organizationId: v.string(),
+    profileId: v.id("profiles"),
+    orgUnitId: v.id("orgUnits"),
+    localMonth: v.string(), // YYYY-MM
+    periodFrom: v.string(), // YYYY-MM-DD, Manila
+    periodTo: v.string(),
+    decision: v.union(v.literal("validated"), v.literal("returned")),
+    note: v.optional(v.string()),
+    contentHash: v.string(),
+    ruleVersion: v.string(),
+    plannedStops: v.number(),
+    validCalls: v.number(),
+    invalidCalls: v.number(),
+    notVisited: v.number(),
+    validDays: v.number(),
+    validDates: v.array(v.string()), // at most 31
+    decidedBy: v.string(),
+    deciderProfileId: v.id("profiles"),
+    decidedAt: v.number(),
+  })
+    .index("by_profileId_and_localMonth", ["profileId", "localMonth"])
+    .index("by_orgUnitId_and_localMonth", ["orgUnitId", "localMonth"]),
+  /**
    * Sales targets (CVX-017): one number per subject (employee, team or territory), period
    * (daily or monthly) and metric, effective-dated with the document it came from. Exactly
    * one of profileId/teamId/territoryId is set, matching `subjectKind`. Rows of one
