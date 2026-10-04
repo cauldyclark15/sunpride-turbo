@@ -53,6 +53,12 @@ export type CallSheetLineV1 = {
   offtake: number | null;
   endInventory: number | null;
 };
+/** One submitted field order line: a whole quantity in the product's unit (SP-0060). */
+export type FieldOrderLineV1 = {
+  productId: string;
+  uom: string;
+  quantity: number;
+};
 export type BootstrapResponse = {
   type: "bootstrap.response";
   contractVersion: 1;
@@ -82,6 +88,8 @@ export type BootstrapResponse = {
     routeId: string | null;
     code?: string;
     customerId?: string;
+    territoryId?: string;
+    territoryCode?: string;
     address?: string;
     latitude?: number;
     longitude?: number;
@@ -206,7 +214,13 @@ export type PushRequest = {
                 programRef: string;
                 finding: "executed" | "not_executed" | "not_applicable";
               }
-            | { kind: "order_intent"; clientOrderId: string; note?: string }
+            | {
+                kind: "order_intent";
+                clientOrderId: string;
+                note?: string;
+                /** SP-0060 submitted field order lines; quantities only, never prices. */
+                lines?: Array<FieldOrderLineV1>;
+              }
             | { kind: "note"; text: string }
             | { kind: "call_sheet"; lines: Array<CallSheetLineV1> };
           deviceTime: number;
