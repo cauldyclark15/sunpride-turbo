@@ -51,19 +51,28 @@ Fault words used below:
 
 ### CHAOS-01 · A whole day saved offline drains exactly once
 
-- Transactions: check-in, note, call sheet, check-out at two stores (phones); on the
-  server also a planned MCP day: planned check-in against the signed plan, every structured
-  activity form (ICO inventory check, merchandising, price check, promotion, order intent,
-  call sheet, note), a completed check-out, then the next planned stop closed as
-  nonproductive.
+- Transactions: check-in, note, call sheet, check-out at two stores (phones); a planned MCP
+  day on all three suites. Server: planned check-in against the signed plan, every
+  structured activity form (ICO inventory check, merchandising, price check, promotion,
+  order intent, call sheet, note), a completed check-out, then the next planned stop closed
+  as nonproductive. Android: the same planned day with every form the phone captures (note,
+  call sheet, merchandising, promotion, inventory check, price check) and a "no sale" close.
+  iPhone: the planned day queued through the app's own Start/End commands (note, call sheet,
+  completed close, then a "no sale" close at the next stop). The phone-side fake servers
+  apply the server's call rules (one open call, plan order, one check-in per planned stop, a
+  reason for "no sale"), so a phone that sent anything out of order fails the run.
 - Fault: airplane mode, then a mix of lost requests, lost acknowledgements, duplicates,
-  mid-batch failures and restarts, over 30–50 random seeds.
+  mid-batch failures and restarts, over 12–50 random seeds.
 - Expected: both calls reach the server once, in order; each planned stop is linked to
-  exactly one call; replaying the whole queue after reconnect changes nothing.
+  exactly one call; replaying the whole queue after reconnect changes nothing. Offline, the
+  phone refuses the next planned stop until the earlier one is started and ended, refuses a
+  second start of the same stop, and refuses a "no sale" close without a reason.
 - Automated: `packages/backend/convex/mobile/chaos.test.ts` — "drains a two-store offline day exactly once under 40 seeded mixes of airplane mode, lost requests, lost acks, duplicates and restart replays"
 - Automated: `packages/backend/convex/mobile/chaos.test.ts` — "drains a planned MCP day with every structured activity form and a nonproductive stop exactly once under 30 seeded fault mixes"
 - Automated: `apps/field-android/app/src/test/java/com/sunpride/field/sync/ChaosSyncTest.kt` — "seededOfflineDayTwoStoresDrainsExactlyOnceInEnqueueOrder"
+- Automated: `apps/field-android/app/src/test/java/com/sunpride/field/sync/ChaosSyncTest.kt` — "plannedDayEveryFormAndNoSaleStopDrainsExactlyOnceUnderSeededFaults"
 - Automated: `apps/field-ios/FieldIOSTests/ChaosSyncTests.swift` — "testSeededOfflineDayDrainsTwoStoresExactlyOnceInEnqueueOrder"
+- Automated: `apps/field-ios/FieldIOSTests/ChaosSyncTests.swift` — "testPlannedDayStopOrderAndNoSaleCloseDrainExactlyOnceUnderSeededFaults"
 - Device check: protocol steps D1–D4.
 
 ### CHAOS-02 · The answer is lost after the server saved the work
@@ -199,8 +208,11 @@ emulator console `network delay`/`network speed`; iPhone simulator with the Netw
 Conditioner "100% Loss" and "Very Bad Network" profiles. The dry run does not replace the
 real phones.
 
-- D1 Airplane mode: turn airplane mode on. Check in, add a note and a call sheet, check
-  out at store 1; repeat at store 2. The status must read "Saved on device • N pending".
+- D1 Airplane mode: turn airplane mode on. On today's plan, check in at planned store 1, add
+  a note and a call sheet (Android: also each visit form), check out as completed; at
+  planned store 2 check in and end the call as not productive with a reason. Before ending
+  store 1, try to start store 2: the phone must refuse. The status must read
+  "Saved on device • N pending".
 - D2 Restart: with airplane mode still on, force-close the app (swipe away) and reopen it
   after each of D1's saves. Nothing saved may disappear.
 - D3 Intermittent: turn airplane mode off for 2–3 seconds and on again, ten times, while
@@ -248,27 +260,46 @@ real phones.
   structured activity form, nonproductive close), MCP stop order under reordering and
   lost-answer photo retries all held under fault injection. No defects found.
 
+- Phones, third run (5 October 2026): the planned day with a "no sale" stop on Android
+  (30 seeds, every form the phone captures) and iPhone (12 seeds, through the app's own
+  Start/End commands), against fake servers that apply the server's call rules. Every run
+  sent each call once, in plan order, with the reason kept on the "no sale" close; the
+  phones refused out-of-order, repeated and reasonless starts and ends while offline. No
+  defects found. The iPhone run is capped at 12 seeds because its retry back-off waits on
+  the real clock.
+
 ## Coverage status by transaction
 
-| Transaction                                          | Server    | Android | iPhone    | Real phones |
-| ---------------------------------------------------- | --------- | ------- | --------- | ----------- |
-| Unplanned check-in, note, check-out                  | Yes       | Yes     | Yes       | Not run     |
-| Planned (MCP) check-in and stop order                | Yes       | No      | No        | Not run     |
-| Structured activity forms                            | Yes       | Partial | Partial   | Not run     |
-| Nonproductive check-out                              | Yes       | No      | No        | Not run     |
-| Photo evidence upload                                | Yes       | Yes     | Not built | Not run     |
-| Delta pull and day download                          | n/a       | Yes     | Yes       | Not run     |
-| Collections, task completion                         | Not built | —       | —         | —           |
-| Van POS (sell, collect, receipt, truck stock, count) | Not built | —       | —         | —           |
+| Transaction                                          | Server    | Android         | iPhone          | Real phones |
+| ---------------------------------------------------- | --------- | --------------- | --------------- | ----------- |
+| Unplanned check-in, note, check-out                  | Yes       | Yes             | Yes             | Not run     |
+| Planned (MCP) check-in and stop order                | Yes       | Yes             | Yes             | Not run     |
+| Structured activity forms                            | Yes       | Yes (see below) | Yes (see below) | Not run     |
+| Nonproductive ("no sale") check-out                  | Yes       | Yes             | Yes             | Not run     |
+| Photo evidence upload                                | Yes       | Yes             | Not built       | Not run     |
+| Delta pull and day download                          | n/a       | Yes             | Yes             | Not run     |
+| Collections, task completion                         | Not built | —               | —               | —           |
+| Van POS (sell, collect, receipt, truck stock, count) | Not built | —               | —               | —           |
 
-"Partial": the Android suite injects faults on the call sheet and merchandising forms, the
-iPhone suite on the call sheet; the other forms go through the same outbox code as frozen
-bytes but are not separately faulted on the phones. "No": the phone suites do not yet send
-planned check-ins or nonproductive check-outs; the outbox treats them as opaque bytes and
-the plan and stop-order checks run only on the server, which is why the server suite
-covers them. "Not built": the server refuses collections and task completion
-(`unsupported_operation`), and the van POS app does not exist. "Not run": D1–D8 need the
-pilot phones and testers; the sign-off sheet above is still empty.
+Forms per phone: Android faults every form it can capture (note, call sheet,
+merchandising, promotion, inventory check, price check); the iPhone app captures only the
+note and call sheet, and both are faulted. Order intent is faulted on the server only:
+neither phone captures orders yet (order capture is switched off in the downloaded
+settings). "Not built": the server refuses collections and task completion
+(`unsupported_operation`), the van POS app does not exist, and the iPhone app has no photo
+capture. "Not run": D1–D8 need the pilot phones and testers; the sign-off sheet above is
+still empty.
+
+## Acceptance status
+
+Everything the field apps and server can do today is fault-tested on every commit. The
+issue is not complete until both of these are done; neither can be done in code:
+
+1. Real-phone run: D1–D8 on one Android pilot phone and one iPhone, with the sheet above
+   signed. D5 needs a phone left offline for more than a day. Owner and date to be agreed.
+2. Dependency acceptance: collections, task completion, iPhone photos and the van POS app
+   get their chaos scenarios when they are built (tracked as follow-up work, not as part of
+   this run).
 
 ## Not yet testable
 

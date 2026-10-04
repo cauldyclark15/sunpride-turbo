@@ -124,11 +124,11 @@ class ChaosSyncTest {
     private class Ids(private var n: Long = 0L) { fun next() = UUID(0L, ++n).toString() }
     private suspend fun enqueue(store: Store, ids: Ids, kind: String, outlet: Int = 1,
         check: IntentRow? = null, previous: IntentRow? = check, callSheet: JSONObject? = null,
-        activity: JSONObject? = null): IntentRow {
+        activity: JSONObject? = null, outcome: String = "completed", reason: String? = null): IntentRow {
         val row = VisitIntentFactory.create(store.identity, kind, check?.clientVisitId, check?.requestId,
             previous?.requestId, "planned-$outlet", "outlet-$outlet", emptyList(), null,
             if (kind == "visit.activity") "Offline note: quote \" and braces { } · seed-safe" else null,
-            if (kind == "visit.checkOut") "completed" else null, null, null,
+            if (kind == "visit.checkOut") outcome else null, if (kind == "visit.checkOut") reason else null, null,
             at = start, uuid = ids::next, callSheet = callSheet, activity = activity)
         store.enqueue(row, store.clock)
         return row
@@ -169,6 +169,31 @@ class ChaosSyncTest {
         val deliveries = mutableMapOf<String, Int>()
         val pages = mutableMapOf<String, String>()
         var bootstrapPages = listOf(envelope())
+        /** Mirrors mobile/push MCP rules: one open call, plan order, one check-in per stop, a reason for "no sale". */
+        val plannedOrder = listOf("planned-1", "planned-2")
+        val visitPlans = linkedMapOf<String, String?>()
+        val closedVisits = mutableSetOf<String>()
+        val outcomes = mutableListOf<Triple<String?, String, String?>>()
+        private fun text(o: JSONObject, key: String) = o.optString(key).takeUnless { it.isBlank() || it == "null" }
+        private fun applyCallRules(kind: String, payload: JSONObject, entity: String) {
+            if (kind == "visit.checkIn") {
+                assertTrue("call_open: a check-in arrived while a call is still open", visitPlans.keys.all { it in closedVisits })
+                val planned = text(payload, "plannedVisitId")
+                if (planned != null) {
+                    assertFalse("A planned stop must be checked in once", planned in visitPlans.values)
+                    plannedOrder.takeWhile { it != planned }.forEach { earlier ->
+                        assertTrue("mcp_order: $planned before $earlier was closed",
+                            visitPlans.any { (visit, plan) -> plan == earlier && visit in closedVisits })
+                    }
+                }
+                visitPlans[entity] = planned
+            } else if (kind == "visit.checkOut") {
+                val outcome = payload.getString("outcome"); val reason = text(payload, "reasonCode")
+                assertTrue("A nonproductive close needs a reason", outcome == "completed" || (outcome == "nonproductive" && reason != null))
+                assertTrue(entity in visitPlans && closedVisits.add(entity))
+                outcomes += Triple(visitPlans[entity], outcome, reason)
+            } else assertFalse("Activity after the call closed", entity in closedVisits)
+        }
         fun accept(raw: ByteArray): JSONObject {
             val op = JSONObject(raw.toString(Charsets.UTF_8))
             val id = op.getString("clientRequestId")
@@ -186,6 +211,7 @@ class ChaosSyncTest {
                 assertFalse(payload.getString("visitId").startsWith("@checkin:"))
             }
             val entity = if (kind == "visit.checkIn") "server-visit-$id" else payload.getString("visitId")
+            applyCallRules(kind, payload, entity)
             val result = JSONObject().put("kind", kind).put("clientRequestId", id).put("status", "accepted")
                 .put("ack", JSONObject().put("entityId", entity).put("eventIds", JSONArray().put("event-$id"))
                     .put("serverTime", start + receipts.size))
@@ -338,6 +364,68 @@ class ChaosSyncTest {
             engine(store, transport).sync()
             assertEquals("seed=$seed", 1, transport.partialBatches.coerceAtMost(1))
             assertDrained(store, server, transport, original)
+            exercised += transport.attempts.map { it.fault }
+        }
+        assertEquals(Fault.entries.toSet(), exercised)
+    }
+
+    /** A planned MCP day: every form at stop 1, a completed close, then stop 2 closed as "no sale". */
+    private suspend fun plannedDay(store: Store): List<IntentRow> {
+        val ids = Ids(); val sheet = store.callSheet("outlet-1")!!
+        // The same durable guard Room runs inside its enqueue transaction (FieldStore.enqueueWithCheckpoint).
+        suspend fun refusal(outlet: Int) = VisitCallRules.startFailure("planned-$outlet", "outlet-$outlet", day,
+            store.todaysVisits(day), store.history().map { it.first to it.second.state })?.code
+        assertEquals(VisitRuleFailure.Code.MCP_ORDER, refusal(2))
+        val check = enqueue(store, ids, "visit.checkIn", 1)
+        assertEquals(VisitRuleFailure.Code.CALL_OPEN, refusal(2))
+        var previous = enqueue(store, ids, "visit.activity", 1, check)
+        for (form in listOf(
+            CallSheetPayload.activity(sheet, listOf(CallSheetDraftLine("product-1", order = "12", take = "0"))),
+            ActivityForms.merchandising("compliant", "Faced the shelf"),
+            ActivityForms.promotion("September hotdog bundle", "executed"),
+            ActivityForms.inventoryCheck(sheet, "product-1", "present", "24"),
+            ActivityForms.priceCheck(sheet, "product-1", "189.50", true),
+        )) previous = if (form.getString("kind") == "call_sheet") enqueue(store, ids, "visit.activity", 1, check, previous, callSheet = form)
+            else enqueue(store, ids, "visit.activity", 1, check, previous, activity = form)
+        enqueue(store, ids, "visit.checkOut", 1, check, previous)
+        assertEquals(VisitRuleFailure.Code.ALREADY_STARTED, refusal(1))
+        assertNull(refusal(2)) // A queued, unsent End is enough to move on offline.
+        val second = enqueue(store, ids, "visit.checkIn", 2)
+        assertEquals(VisitRuleFailure.Code.REASON_REQUIRED, assertThrows(VisitRuleFailure::class.java) {
+            runBlocking { enqueue(store, ids, "visit.checkOut", 2, second, outcome = "nonproductive") }
+        }.code)
+        enqueue(store, ids, "visit.checkOut", 2, second, outcome = "nonproductive", reason = "STORE_CLOSED")
+        return store.history().map { it.first }
+    }
+
+    @Test fun plannedDayEveryFormAndNoSaleStopDrainsExactlyOnceUnderSeededFaults() = runBlocking {
+        val exercised = mutableSetOf<Fault>()
+        repeat(30) { seed ->
+            val store = store("planned-$seed"); val original = plannedDay(store)
+            assertEquals(10, original.size)
+            val server = Server(); val transport = Transport(store, server, 1_000 + seed)
+            store.observe = { runBlocking { assertVisible(store, transport.airplane) } }
+            transport.airplane = true
+            repeat(2) { engine(store, transport).sync(); assertFrozen(store, original) }
+            assertTrue(server.receipts.isEmpty())
+            transport.airplane = false; transport.randomFaults = true; transport.interruptFirstMultiBatch = true
+            var sync = engine(store, transport)
+            repeat(30) { step ->
+                if (step % 3 == 0) sync = engine(store, transport) // Restart: fresh engine, same persisted store.
+                assertTrue("seed=$seed step=$step", sync.sync()); assertFrozen(store, original); assertVisible(store)
+            }
+            transport.randomFaults = false
+            // Reconnect: the scripted mid-batch drop may land on the first clean sync; the next one finishes.
+            repeat(2) { if (store.pending().isNotEmpty()) engine(store, transport).sync() }
+            assertTrue("seed=$seed", transport.partialBatches >= 1)
+            assertDrained(store, server, transport, original)
+            assertEquals("seed=$seed", listOf("planned-1", "planned-2"), server.visitPlans.values.toList())
+            assertEquals(listOf(Triple<String?, String, String?>("planned-1", "completed", null),
+                Triple("planned-2", "nonproductive", "STORE_CLOSED")), server.outcomes)
+            assertEquals(listOf("note", "call_sheet", "merchandising", "promotion", "inventory_check", "price_check"),
+                server.receipts.values.map { JSONObject(it.bytes.toString(Charsets.UTF_8)) }
+                    .filter { it.getString("kind") == "visit.activity" }
+                    .map { it.getJSONObject("payload").getJSONObject("activity").getString("kind") })
             exercised += transport.attempts.map { it.fault }
         }
         assertEquals(Fault.entries.toSet(), exercised)
@@ -612,6 +700,14 @@ class ChaosSyncTest {
         assertEquals("conflict", server.accept(whitespaceOnly).getString("status"))
         assertEquals(first, server.accept(bytes).toString()); assertEquals(1, server.appliedEvents.size)
         assertArrayEquals(bytes, server.receipts.values.single().bytes)
+        // The oracle applies the MCP call rules, so a phone that sent out of order would fail the suite.
+        val planned = plannedDay(store("server-mcp")).filter { it.kind == "visit.checkIn" }
+            .map { it.serializedOperation.toByteArray(Charsets.UTF_8) }
+        val mcp = Server()
+        assertThrows(AssertionError::class.java) { mcp.accept(planned[1]) } // mcp_order
+        mcp.accept(planned[0])
+        assertThrows(AssertionError::class.java) { mcp.accept(planned[1]) } // call_open
+        assertEquals(1, mcp.receipts.size)
     }
 
     // A 409 whose rebootstrap loses the network leaves the partition held (cursor cleared). By

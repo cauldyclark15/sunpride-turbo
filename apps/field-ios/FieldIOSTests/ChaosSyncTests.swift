@@ -236,6 +236,57 @@ final class ChaosSyncTests: XCTestCase {
         XCTAssertGreaterThan(partialCommits, 0, "At least one multi-operation batch must fail after a prefix commit")
     }
 
+    /// A planned MCP day queued through the real AppModel commands and its durable stop-order guard,
+    /// then drained through seeded faults and restarts against a fake server that applies the MCP rules.
+    func testPlannedDayStopOrderAndNoSaleCloseDrainExactlyOnceUnderSeededFaults() async throws {
+        var observed = Set<ChaosTransport.Fault>()
+        for seed in UInt64(41)...52 { // Real retry backoff runs on the wall clock: keep the suite inside its time budget.
+            model?.enrollment.signedOut()
+            model = nil
+            try reset(seed: seed)
+            let registry = FakeRegistry()
+            registry.lastMine = .success(.init(deviceId: partition.deviceId, status: "active", bound: true, allowedApp: "IOS"))
+            await launchModel(registry)
+            let app = try XCTUnwrap(model)
+            app.refreshToday()
+            func stop(_ id: String) throws -> AppModel.TodayVisit { try XCTUnwrap(app.visits.first { $0.id == id }) }
+            XCTAssertEqual(app.startFailure(for: try stop("planned-2")), .mcpOrder)
+            try app.queueCheckIn(try stop("planned-1"), unplannedReason: nil, location: nil)
+            XCTAssertEqual(app.startFailure(for: try stop("planned-2")), .callOpen)
+            XCTAssertThrowsError(try app.queueCheckIn(try stop("planned-1"), unplannedReason: nil, location: nil)) {
+                XCTAssertEqual($0 as? AppModel.CallFailure, .alreadyStarted)
+            }
+            try app.queueNote("Planned stop, offline", for: try stop("planned-1"))
+            try app.queueCallSheet(["product-1": .init(values: [.order: "12", .endInventory: "0"])], for: try stop("planned-1"))
+            try app.queueCheckOut(outcome: "completed", reason: nil, for: try stop("planned-1"))
+            XCTAssertNil(app.startFailure(for: try stop("planned-2")), "A queued, unsent End is enough to move on offline")
+            try app.queueCheckIn(try stop("planned-2"), unplannedReason: nil, location: nil)
+            XCTAssertThrowsError(try app.queueCheckOut(outcome: "nonproductive", reason: nil, for: try stop("planned-2"))) {
+                XCTAssertEqual($0 as? DiagnosticOperation.Failure, .invalidOutcome)
+            }
+            try app.queueCheckOut(outcome: "nonproductive", reason: "STORE_CLOSED", for: try stop("planned-2"))
+            let operations = try store.intents(for: partition)
+            XCTAssertEqual(operations.map(\.kind), ["visit.checkIn", "visit.activity", "visit.activity", "visit.checkOut",
+                                                    "visit.checkIn", "visit.checkOut"])
+            try assertNotSynced(offline: true)
+            app.enrollment.signedOut()
+            model = nil
+            try restart()
+            transport.randomizePushes(10)
+            for _ in 0..<20 where BackgroundRetry.hasRetryableWork(store: store, partition: partition) {
+                do { try await XCTUnwrap(engine).push(store: store, partition: partition) }
+                catch { XCTAssertEqual(error as? VisitSyncClient.Failure, .retryable, "seed \(seed)") }
+                if BackgroundRetry.hasRetryableWork(store: store, partition: partition) { try assertNotSynced() }
+                try restart()
+            }
+            try assertFinished(operations)
+            XCTAssertEqual(transport.ledger.outcomes, ["planned-1|completed|", "planned-2|nonproductive|STORE_CLOSED"], "seed \(seed)")
+            XCTAssertEqual(transport.ledger.visitPlans.values.sorted(), ["planned-1", "planned-2"])
+            observed.formUnion(transport.ledger.faults)
+        }
+        XCTAssertTrue(Set([.airplane, .lostAck, .duplicate, .midBatch] as [ChaosTransport.Fault]).isSubset(of: observed))
+    }
+
     func testRestartBetweenEveryStepReplaysFrozenBytesAndFinishesOnce() async throws {
         let operations = try day(seed: 1, restartAfterEnqueue: true)
         // Pause AFTER server commit but BEFORE response delivery. Cancellation substitutes only
@@ -530,6 +581,10 @@ private final class ChaosTransport: Sendable {
         var faults: [Fault] = []
         var partialCommits = 0
         var pauses = 0
+        /// MCP call rules mirrored from mobile/push: server visit ID → planned stop ("" when unplanned).
+        var visitPlans: [String: String] = [:]
+        var closed = Set<String>()
+        var outcomes: [String] = []
     }
     private struct State: Sendable {
         var seed: UInt64
@@ -691,11 +746,45 @@ private final class ChaosTransport: Sendable {
         }
         let entityId = kind == "visit.activity" ? "activity-\(id)" :
             (kind == "visit.checkIn" ? "visit-\(id)" : payload["visitId"] as? String ?? "")
+        applyCallRules(kind: kind, payload: payload, visit: kind == "visit.checkIn" ? entityId : payload["visitId"] as? String ?? "",
+                       ledger: &state.ledger)
         let ack = ServerAck(entityId: entityId, eventIds: ["event-\(id)"], serverTime: serverTime + Int64(state.ledger.order.count))
         state.ledger.commits[id] = Commit(bytes: bytes, ack: ack, count: 1)
         state.ledger.order.append(id)
         result["status"] = "accepted"
         result["ack"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(ack))
         return result
+    }
+    private static let plannedOrder = ["planned-1", "planned-2"]
+    /// The phone must never send what mobile/push would refuse: a second open call, a planned stop
+    /// out of plan order or twice, a "no sale" close without a reason, or work on a closed call.
+    private func applyCallRules(kind: String, payload: [String: Any], visit: String, ledger: inout Ledger) {
+        switch kind {
+        case "visit.checkIn":
+            if ledger.visitPlans.keys.contains(where: { !ledger.closed.contains($0) }) {
+                ledger.violations.append("call_open: check-in \(visit) while a call is open")
+            }
+            let planned = payload["plannedVisitId"] as? String ?? ""
+            if !planned.isEmpty {
+                if ledger.visitPlans.values.contains(planned) { ledger.violations.append("Second check-in for \(planned)") }
+                for earlier in Self.plannedOrder.prefix(while: { $0 != planned })
+                where !ledger.visitPlans.contains(where: { $0.value == earlier && ledger.closed.contains($0.key) }) {
+                    ledger.violations.append("mcp_order: \(planned) before \(earlier) was closed")
+                }
+            }
+            ledger.visitPlans[visit] = planned
+        case "visit.checkOut":
+            let outcome = payload["outcome"] as? String ?? ""
+            let reason = payload["reasonCode"] as? String ?? ""
+            if !(outcome == "completed" || (outcome == "nonproductive" && !reason.isEmpty)) {
+                ledger.violations.append("Invalid close \(outcome)/\(reason)")
+            }
+            if ledger.visitPlans[visit] == nil || !ledger.closed.insert(visit).inserted {
+                ledger.violations.append("Close for an unknown or already closed call")
+            }
+            ledger.outcomes.append("\(ledger.visitPlans[visit] ?? "?")|\(outcome)|\(reason)")
+        default:
+            if ledger.closed.contains(visit) { ledger.violations.append("Activity after the call closed") }
+        }
     }
 }
