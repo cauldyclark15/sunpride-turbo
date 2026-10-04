@@ -16,8 +16,14 @@ const body = {
   contractVersion: 1,
   deviceId: "device",
 };
-function harness(auth = true) {
+function harness(auth = true, backoffMs = 0) {
   const burned = new Set<string>();
+  const failures: string[] = [];
+  const backoff = vi.fn(async () => backoffMs);
+  const recordFailure = vi.fn(async (args: { subject: string }) => {
+    failures.push(args.subject);
+    return 0;
+  });
   const registry = new Map<string, unknown>();
   const authorize = vi.fn(async (args: { nonce: string; proof: string }) => {
     if (args.proof !== "signed" || burned.has(args.nonce))
@@ -51,16 +57,29 @@ function harness(auth = true) {
     runMutation: vi.fn(async (_fn: unknown, args: Record<string, unknown>) =>
       "operation" in args
         ? apply(args as Parameters<typeof apply>[0])
-        : authorize(args as Parameters<typeof authorize>[0]),
+        : "proof" in args
+          ? authorize(args as Parameters<typeof authorize>[0])
+          : recordFailure(args as { subject: string }),
     ),
-    runQuery: vi.fn(async () => ({
-      type: "bootstrap.response",
-      contractVersion: 1,
-      serverTime: 123,
-      plannedVisits: [],
-    })),
+    runQuery: vi.fn(async (_fn: unknown, args: Record<string, unknown>) =>
+      "actor" in args
+        ? {
+            type: "bootstrap.response",
+            contractVersion: 1,
+            serverTime: 123,
+            plannedVisits: [],
+          }
+        : backoff(),
+    ),
   };
-  return { ctx: ctx as unknown as ActionCtx, authorize, apply };
+  return {
+    ctx: ctx as unknown as ActionCtx,
+    authorize,
+    apply,
+    backoff,
+    recordFailure,
+    failures,
+  };
 }
 async function request(
   route: "bootstrap" | "pull" | "push",
@@ -376,5 +395,122 @@ describe("mobile HTTP boundary", () => {
       ).toBe(400);
       expect(h.authorize).not.toHaveBeenCalled();
     }
+  });
+  describe("abuse and rate controls (QSR-009)", () => {
+    it("spends the identity's invalid-request budget only on rejected requests", async () => {
+      const h = harness();
+      expect(
+        (
+          await handleMobile(
+            h.ctx,
+            await request("bootstrap", body, { "x-mobile-signature": "bad" }),
+            "bootstrap",
+          )
+        ).status,
+      ).toBe(401);
+      expect(
+        (
+          await handleMobile(
+            h.ctx,
+            await request("bootstrap", { ...body, limit: 101 }),
+            "bootstrap",
+          )
+        ).status,
+      ).toBe(400);
+      expect(
+        (
+          await handleMobile(
+            h.ctx,
+            await request("bootstrap", { ...body, extra: "x".repeat(131072) }),
+            "bootstrap",
+          )
+        ).status,
+      ).toBe(413);
+      expect(h.failures).toEqual([actor.subject, actor.subject, actor.subject]);
+      expect(
+        (
+          await handleMobile(
+            h.ctx,
+            await request("bootstrap", body),
+            "bootstrap",
+          )
+        ).status,
+      ).toBe(200);
+      expect(h.recordFailure).toHaveBeenCalledTimes(3);
+    });
+    it("counts a tampered cursor but not a legitimate rebootstrap", async () => {
+      const pull = {
+        type: "pull.request",
+        contractVersion: 1,
+        deviceId: "device",
+        cursor: "c",
+      };
+      for (const [code, counted] of [
+        ["invalid_cursor", 1],
+        ["rebootstrap_required", 0],
+      ] as const) {
+        const h = harness();
+        (h.ctx.runQuery as ReturnType<typeof vi.fn>).mockImplementation(
+          async (_fn: unknown, args: Record<string, unknown>) => {
+            if ("actor" in args)
+              throw new Error(`Uncaught ConvexError: ${code}`);
+            return 0;
+          },
+        );
+        const r = await handleMobile(
+          h.ctx,
+          await request("pull", pull),
+          "pull",
+        );
+        expect(r.status).toBe(409);
+        expect((await r.json()).code).toBe(code);
+        expect(h.recordFailure).toHaveBeenCalledTimes(counted);
+      }
+    });
+    it("tells a throttled identity to back off before parsing or verifying proof", async () => {
+      const h = harness(true, 12_345);
+      const r = await handleMobile(
+        h.ctx,
+        await request("bootstrap", body),
+        "bootstrap",
+      );
+      expect(r.status).toBe(429);
+      expect(r.headers.get("retry-after")).toBe("13");
+      expect(await r.json()).toMatchObject({
+        type: "error.response",
+        contractVersion: 1,
+        code: "temporarily_unavailable",
+        retryable: true,
+      });
+      expect(h.authorize).not.toHaveBeenCalled();
+      expect(h.recordFailure).not.toHaveBeenCalled();
+    });
+    it("never checks the budget for an unauthenticated request", async () => {
+      const h = harness(false);
+      expect(
+        (
+          await handleMobile(
+            h.ctx,
+            await request("bootstrap", body),
+            "bootstrap",
+          )
+        ).status,
+      ).toBe(401);
+      expect(h.backoff).not.toHaveBeenCalled();
+      expect(h.recordFailure).not.toHaveBeenCalled();
+    });
+    it("keeps the client error when failure accounting itself fails", async () => {
+      const h = harness();
+      h.recordFailure.mockRejectedValueOnce(new Error("conflict"));
+      expect(
+        (
+          await handleMobile(
+            h.ctx,
+            await request("bootstrap", body, { "x-mobile-signature": "bad" }),
+            "bootstrap",
+          )
+        ).status,
+      ).toBe(401);
+    });
   });
 });

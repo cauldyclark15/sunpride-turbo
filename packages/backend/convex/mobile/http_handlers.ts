@@ -7,8 +7,9 @@ import {
   MAX_CALL_SHEET_LINES,
   MAX_CALL_SHEET_QUANTITY,
 } from "../callSheets/validators";
+import { MOBILE_LIMITS } from "./rate_limits";
 
-const MAX_BYTES = 128 * 1024;
+const MAX_BYTES = MOBILE_LIMITS.maxBodyBytes;
 const kinds = new Set([
   "visit.checkIn",
   "visit.activity",
@@ -54,6 +55,32 @@ const failure = (code: string, status: number): Response =>
     },
     status,
   );
+/** QSR-009 back-off: frozen v1 code, retryable, with a standard Retry-After (seconds). */
+const throttled = (retryAfterMs: number): Response => {
+  const response = json(
+    {
+      type: "error.response",
+      contractVersion: 1,
+      serverTime: Date.now(),
+      code: "temporarily_unavailable",
+      message: "temporarily_unavailable",
+      retryable: true,
+    },
+    429,
+  );
+  response.headers.set(
+    "retry-after",
+    String(Math.max(1, Math.ceil(retryAfterMs / 1000))),
+  );
+  return response;
+};
+/** Rejections that spend the caller's invalid-request budget; 409 rebootstrap is legitimate. */
+async function invalidAttempt(response: Response): Promise<boolean> {
+  if ([400, 401, 413].includes(response.status)) return true;
+  if (response.status !== 409) return false;
+  const body = (await response.clone().json()) as { code?: string };
+  return body.code === "invalid_cursor";
+}
 function coded(error: unknown): string | null {
   // Convex wraps ConvexError messages when crossing the action/mutation boundary.
   const text = error instanceof Error ? error.message : "";
@@ -335,6 +362,32 @@ export async function handleMobile(
   }
   if (!bearer || !/^Bearer [^\s]+$/.test(bearer) || !identity)
     return failure("unauthorized", 401);
+  const subject = identity.tokenIdentifier;
+  // QSR-009: an identity that spent its invalid-request budget backs off before any
+  // body parsing, proof verification or database work.
+  const wait = await ctx.runQuery(internal.mobile.rate_limits.backoff, {
+    subject,
+    now: Date.now(),
+  });
+  if (wait > 0) return throttled(wait);
+  const response = await serve(ctx, request, route);
+  if (await invalidAttempt(response)) {
+    try {
+      await ctx.runMutation(internal.mobile.rate_limits.recordFailure, {
+        subject,
+      });
+    } catch {
+      // Accounting must never turn a client error into a server failure.
+    }
+  }
+  return response;
+}
+
+async function serve(
+  ctx: ActionCtx,
+  request: Request,
+  route: Route,
+): Promise<Response> {
   const bytes = await rawBody(request);
   if (!bytes) return failure("invalid_request", 413);
   if (
@@ -384,11 +437,14 @@ export async function handleMobile(
       body.limit !== undefined &&
       (!Number.isSafeInteger(body.limit) ||
         (body.limit as number) < 1 ||
-        (body.limit as number) > (route === "pull" ? 50 : 100))) ||
+        (body.limit as number) >
+          (route === "pull"
+            ? MOBILE_LIMITS.maxPullLimit
+            : MOBILE_LIMITS.maxBootstrapLimit))) ||
     (route === "push" &&
       (!Array.isArray(body.operations) ||
         body.operations.length < 1 ||
-        body.operations.length > 20 ||
+        body.operations.length > MOBILE_LIMITS.maxPushOperations ||
         !body.operations.every(validOperation)))
   )
     return failure("invalid_request", 400);

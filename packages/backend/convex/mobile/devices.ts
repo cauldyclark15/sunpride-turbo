@@ -20,6 +20,7 @@ import {
   importDeviceKey,
   verifyDeviceSignature,
 } from "./device_auth";
+import { takeChallenge } from "./rate_limits";
 
 const appValidator = v.union(
   v.literal("IOS"),
@@ -193,9 +194,11 @@ export const challenge = mutation({
   args: { deviceId: v.id("registeredDevices") },
   returns: v.object({ nonce: v.string(), expiresAt: v.number() }),
   handler: async (ctx, { deviceId }) => {
-    const { device } = await devicePerson(ctx, deviceId);
+    const { device, subject } = await devicePerson(ctx, deviceId);
     if (!device.publicKey) throw new ConvexError("Missing enrolled key");
     const now = Date.now();
+    // QSR-009: bounds every signed sync request and bind attempt for this device.
+    await takeChallenge(ctx, deviceId, subject, now);
     const nonce = crypto.randomUUID();
     const expiresAt = now + CHALLENGE_TTL_MS;
     await ctx.db.insert("deviceChallenges", {
