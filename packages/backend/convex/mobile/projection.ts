@@ -16,7 +16,6 @@ import {
 export const DAY_MS = 86_400_000;
 export const HORIZON_DAYS = 3;
 export const MAX_DAY_ROWS = 500;
-export const leaseMs = DAY_MS;
 export const visitDTO = v.object({
   id: v.string(),
   outletId: v.string(),
@@ -24,6 +23,8 @@ export const visitDTO = v.object({
   planId: v.string(),
   planVersion: v.number(),
   intents: v.array(v.string()),
+  /** MCP order of the day (lower first); optional in contract v1. */
+  sequence: v.optional(v.number()),
 });
 export const outletDTO = v.object({
   id: v.string(),
@@ -165,6 +166,9 @@ async function visitProjection(
     throw new ConvexError("rebootstrap_required");
   const customer = s.customerId ? await ctx.db.get(s.customerId) : null;
   if (s.customerId && !customer) throw new ConvexError("rebootstrap_required");
+  const slot = await ctx.db.get(row.planSlotId);
+  if (!slot || slot.planId !== row.planId)
+    throw new ConvexError("rebootstrap_required");
   // Annex C account sheet; office edits change the stamp and force a fresh snapshot.
   let callSheet = cache.accounts.get(row.outletId);
   if (callSheet === undefined) {
@@ -182,13 +186,14 @@ async function visitProjection(
       planId: row.planId,
       planVersion: row.planVersion,
       intents: row.intents,
+      sequence: slot.sequence,
     },
     outlet: { id: s.outletId, name: s.outletName, routeId: s.routeId ?? null },
     customer: customer ? { id: customer._id, code: customer.code } : null,
     route:
       s.routeId && s.routeCode ? { id: s.routeId, code: s.routeCode } : null,
     callSheet: callSheet?.sheet ?? null,
-    stamp: `${callSheet?.stamp ?? ""}|${row._id}|${row.status}|${row._creationTime}|${row.generatedAt}|${JSON.stringify(s)}|${JSON.stringify(row.intents)}|${current.assignment?._id ?? ""}|${current.assignment?.routeId ?? ""}|${current.assignment?.sequence ?? ""}|${current.orgUnitId}|${current.outlet.status}|${customer?.code ?? ""}`,
+    stamp: `${callSheet?.stamp ?? ""}|${row._id}|${row.status}|${row._creationTime}|${row.generatedAt}|${JSON.stringify(s)}|${JSON.stringify(row.intents)}|${current.assignment?._id ?? ""}|${current.assignment?.routeId ?? ""}|${current.assignment?.sequence ?? ""}|${current.orgUnitId}|${current.outlet.status}|${customer?.code ?? ""}|${slot.sequence}`,
   };
 }
 

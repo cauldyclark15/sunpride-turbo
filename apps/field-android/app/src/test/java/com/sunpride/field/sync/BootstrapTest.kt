@@ -112,6 +112,18 @@ class BootstrapTest {
         }
         assertNull(store.snapshot); assertEquals(0, store.swaps)
     }
+    @Test fun optionalSequenceIsValidatedAndRoundTripsWithoutRequiringIt() {
+        val absent = JSONObject(first).apply { getJSONArray("plannedVisits").getJSONObject(0).remove("sequence") }
+        assertFalse(JSONObject(BootstrapCodec.page(absent.toString()).visits.single().json).has("sequence"))
+        for (value in listOf(0, 4, Int.MAX_VALUE)) {
+            val wire = JSONObject(absent.toString()).apply { getJSONArray("plannedVisits").getJSONObject(0).put("sequence", value) }
+            assertEquals(value, JSONObject(BootstrapCodec.page(wire.toString()).visits.single().json).getInt("sequence"))
+        }
+        for (value in listOf(-1, 1.5, "2", true, JSONObject.NULL, 2147483648L)) {
+            val wire = JSONObject(absent.toString()).apply { getJSONArray("plannedVisits").getJSONObject(0).put("sequence", value) }
+            assertThrows(WireFailure::class.java) { BootstrapCodec.page(wire.toString()) }
+        }
+    }
     private class Store : FieldStore {
         var snapshot: ScopedSnapshot? = null; var token: String? = "old"; var held = false; var swaps = 0
         override suspend fun stage(snapshot: ScopedSnapshot): String { this.snapshot = snapshot; return "generation" }

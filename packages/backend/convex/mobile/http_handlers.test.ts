@@ -247,6 +247,35 @@ describe("mobile HTTP boundary", () => {
     expect(fail.status).toBe(500);
     expect((await fail.json()).code).toBe("temporarily_unavailable");
   });
+  it.each(["call_open", "mcp_order", "wrong_date"])(
+    "returns field-day rule %s as invalid_request with an additive reason",
+    async (reason) => {
+      const h = harness();
+      h.apply.mockRejectedValueOnce(
+        new Error(`Uncaught ConvexError: ${reason}\n    at handler`),
+      );
+      const r = await handleMobile(
+        h.ctx,
+        await request("push", {
+          type: "push.request",
+          contractVersion: 1,
+          deviceId: "device",
+          operations: [
+            { kind: "task.complete", clientRequestId: uuid, payload: {} },
+          ],
+        }),
+        "push",
+      );
+      expect(r.status).toBe(200);
+      expect((await r.json()).results[0]).toEqual({
+        kind: "task.complete",
+        clientRequestId: uuid,
+        status: "rejected",
+        code: "invalid_request",
+        reason,
+      });
+    },
+  );
   it("rejects malformed operation variants before consuming proof", async () => {
     const h = harness();
     const payload = {

@@ -19,7 +19,7 @@ data class ScopedSnapshot(val employeeJson: String, val routeJson: String?,
     val visits: List<SnapshotItem>, val outlets: List<SnapshotItem>,
     val localCustomers: List<SnapshotItem>, val tasks: List<SnapshotItem>,
     val callSheets: List<CallSheet> = emptyList())
-data class SnapshotItem(val id: String, val json: String, val serviceDate: String? = null)
+data class SnapshotItem(val id: String, val json: String, val serviceDate: String? = null, val listPosition: Int? = null)
 
 interface FieldStore {
     /** Stage all pages under a unique generation. No reader sees these rows before promotion. */
@@ -68,6 +68,14 @@ object EncryptedFieldDatabase {
     }
     val MIGRATION_3_4 = object : Migration(3, 4) {
         override fun migrate(db: SupportSQLiteDatabase) {
+            // Existing rows keep their former entityId order; new bootstraps retain wire list order.
+            db.execSQL("ALTER TABLE `snapshots` ADD COLUMN `snapshotOrder` INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("UPDATE snapshots SET snapshotOrder = (SELECT COUNT(*) FROM snapshots AS prior WHERE prior.account=snapshots.account AND prior.deviceId=snapshots.deviceId AND prior.scope=snapshots.scope AND prior.generation=snapshots.generation AND prior.kind=snapshots.kind AND prior.entityId<snapshots.entityId)")
+        }
+    }
+    /** Annex C account sheets (SP-0007) layered on main's v4 field-day schema. */
+    val MIGRATION_4_5 = object : Migration(4, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL("CREATE TABLE IF NOT EXISTS `call_sheets` (`account` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `scope` TEXT NOT NULL, `generation` TEXT NOT NULL, `outletId` TEXT NOT NULL, `revision` INTEGER NOT NULL, `headerJson` TEXT NOT NULL, PRIMARY KEY(`account`, `deviceId`, `scope`, `generation`, `outletId`))")
             db.execSQL("CREATE TABLE IF NOT EXISTS `call_sheet_lines` (`account` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `scope` TEXT NOT NULL, `generation` TEXT NOT NULL, `outletId` TEXT NOT NULL, `productId` TEXT NOT NULL, `position` INTEGER NOT NULL, `code` TEXT NOT NULL, `name` TEXT NOT NULL, `uom` TEXT NOT NULL, `barcode` TEXT, `pricing` TEXT, PRIMARY KEY(`account`, `deviceId`, `scope`, `generation`, `outletId`, `productId`))")
         }
@@ -77,7 +85,7 @@ object EncryptedFieldDatabase {
         val passphrase = PassphraseVault(context).passphrase()
         return Room.databaseBuilder(context.applicationContext, StoreDatabase::class.java, PassphraseVault.DB_NAME)
             .openHelperFactory(SupportOpenHelperFactory(passphrase))
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
             .build()
     }
 
@@ -104,9 +112,9 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
         val groups = listOf("visit" to snapshot.visits, "outlet" to snapshot.outlets,
             "customer" to snapshot.localCustomers, "task" to snapshot.tasks)
         db.withTransaction {
-            for ((kind, items) in groups) for (item in items) {
+            for ((kind, items) in groups) for ((position, item) in items.withIndex()) {
                 require(item.id.isNotBlank() && item.json.isNotBlank())
-                dao.insertSnapshot(SnapshotRow(a, d, s, generation, kind, item.id, item.json, item.serviceDate))
+                dao.insertSnapshot(SnapshotRow(a, d, s, generation, kind, item.id, item.json, item.serviceDate, position))
             }
             for (sheet in snapshot.callSheets) {
                 // Validate before storing: empty setup lines are allowed, duplicate products are not.
@@ -149,9 +157,10 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
 
     private suspend fun read(kind: String, day: String? = null): List<SnapshotItem> {
         val generation = metadata().activeGeneration ?: return emptyList()
-        return dao.snapshot(a, d, s, generation, kind, day).map { SnapshotItem(it.entityId, it.json, it.serviceDate) }
+        return dao.snapshot(a, d, s, generation, kind, day).map { SnapshotItem(it.entityId, it.json, it.serviceDate, it.snapshotOrder) }
     }
-    override suspend fun todaysVisits(day: String): List<SnapshotItem> = read("visit", day)
+    override suspend fun todaysVisits(day: String): List<SnapshotItem> =
+        VisitCallRules.ordered(read("visit", day))
     override suspend fun outlets(): List<SnapshotItem> = read("outlet")
     override suspend fun callSheet(outletId: String): CallSheet? = db.withTransaction {
         val generation = metadata().activeGeneration ?: return@withTransaction null
@@ -175,6 +184,15 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             intent.serializedOperation.isNotBlank())
         db.withTransaction {
             check(isLeaseValid(now)) { "Offline lease expired or held" }
+            val payload = JSONObject(intent.serializedOperation).optJSONObject("payload")
+            if (intent.kind == "visit.checkIn") {
+                val day = payload?.getString("serviceDate") ?: error("Missing service date")
+                VisitCallRules.requireStart(payload.optString("plannedVisitId").takeUnless { it.isBlank() || it == "null" },
+                    payload.getString("outletId"), day, todaysVisits(day), history().map { it.first to it.second.state })
+            } else if (intent.kind == "visit.checkOut") {
+                VisitCallRules.requireEnd(intent.clientVisitId, payload ?: error("Missing outcome"),
+                    history().map { it.first to it.second.state })
+            }
             CallSheetQueueRules.validate(this@RoomFieldStore, intent)
             val orderedAt = maxOf(intent.createdAt, (dao.latestCreatedAt(a, d, s) ?: Long.MIN_VALUE) + 1)
             dao.insertIntent(intent.copy(createdAt = orderedAt))
@@ -233,7 +251,7 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
     }
     override suspend fun status(offline: Boolean): com.sunpride.field.ui.syncstatus.SyncStatus =
         com.sunpride.field.ui.syncstatus.SyncStatus.fromRoom(dao.partition(a, d, s),
-            dao.outstandingForDevice(a, d), offline)
+            dao.outstandingForDevice(a, d), offline, history().map { it.first })
     override suspend fun history(): List<Pair<IntentRow, OutboxRow>> = dao.allOutbox(a, d, s)
         .map { row -> (dao.intent(a, d, s, row.requestId) ?: error("Orphaned outbox")) to row }
     override suspend fun intent(requestId: String): IntentRow? = dao.intent(a, d, s, requestId)

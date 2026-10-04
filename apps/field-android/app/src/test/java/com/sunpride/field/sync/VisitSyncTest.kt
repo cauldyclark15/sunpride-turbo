@@ -32,7 +32,7 @@ class VisitSyncTest {
         val rows = mutableListOf<Pair<IntentRow, OutboxRow>>()
         val acks = mutableMapOf<String, AckRow>()
         val deltas = mutableMapOf<String, DeltaRow>()
-        var token: String? = "old"; var health = "synced"; var held = false
+        var token: String? = "old"; var health = "synced"; var held = false; var expired = false
         var visits: List<SnapshotItem> = emptyList(); var outlets: List<SnapshotItem> = emptyList()
         override suspend fun stage(snapshot: ScopedSnapshot) = "g"
         override suspend fun swap(generation: String, cursor: String, leaseExpiresAt: Long, cacheExpiresAt: Long, releaseHeld: Boolean) {
@@ -40,7 +40,7 @@ class VisitSyncTest {
         }
         override suspend fun todaysVisits(day: String) = visits
         override suspend fun outlets() = outlets
-        override suspend fun isLeaseValid(now: Long) = !held
+        override suspend fun isLeaseValid(now: Long) = !held && !expired
         override suspend fun enqueue(intent: IntentRow, now: Long) {
             check(!held && rows.none { it.first.requestId == intent.requestId })
             rows += intent to OutboxRow(intent.account, intent.deviceId, intent.scope, intent.requestId, intent.createdAt)
@@ -125,6 +125,20 @@ class VisitSyncTest {
         runBlocking { store.enqueue(row, 1) }
         return row
     }
+    @Test fun alreadyQueuedWorkPushesAfterDayCloseThenRenewsAccessWithoutDropping() = runBlocking {
+        val store = Store(); val transport = Transport(); val queued = enqueue(store, "visit.checkIn")
+        store.expired = true
+        var bootstraps = 0
+        transport.handler = { path, body -> if (path.endsWith("push")) 200 to pushResult(body.getJSONArray("operations")) else 200 to pull() }
+        engine(store, transport) {
+            assertEquals("done", store.history().single().second.state) // Delivery precedes access renewal.
+            bootstraps++; store.expired = false; store.swap("g", "fresh", 999, 999, true)
+        }.sync()
+        assertEquals(1, bootstraps)
+        assertEquals("done", store.history().single().second.state)
+        assertEquals(queued.serializedOperation, store.history().single().first.serializedOperation)
+        assertEquals(1, transport.sent.count { it.first.endsWith("push") })
+    }
     @Test fun offlineEnqueueReplaySameKeyAndExactBytesAfterUncertainAcceptance() = runBlocking {
         val store = Store(); val t = Transport(); val check = enqueue(store, "visit.checkIn")
         var attempts = 0
@@ -160,6 +174,23 @@ class VisitSyncTest {
         assertEquals(listOf("invalid_plan", "dependency_missing"), store2.rows.map { it.second.rejectionCode })
         assertEquals(1, t2.sent.count { it.first.endsWith("push") })
     }
+    @Test fun fieldDayReasonIsMoreSpecificThanFrozenCode() = runBlocking {
+        for (reason in listOf("call_open", "mcp_order", "wrong_date")) {
+            val store = Store(); val t = Transport(); enqueue(store, "visit.checkIn")
+            t.handler = { path, body -> if (path.endsWith("pull")) 200 to pull() else
+                200 to JSONObject(pushResult(body.getJSONArray("operations"), "rejected", "invalid_request")).also { r ->
+                    r.getJSONArray("results").getJSONObject(0).put("reason", reason) }.toString() }
+            engine(store, t).sync()
+            assertEquals(reason, store.rows.single().second.rejectionCode)
+        }
+        // An unknown reason falls back to the frozen v1 code.
+        val store = Store(); val t = Transport(); enqueue(store, "visit.checkIn")
+        t.handler = { path, body -> if (path.endsWith("pull")) 200 to pull() else
+            200 to JSONObject(pushResult(body.getJSONArray("operations"), "rejected", "invalid_request")).also { r ->
+                r.getJSONArray("results").getJSONObject(0).put("reason", "future_rule") }.toString() }
+        engine(store, t).sync()
+        assertEquals("invalid_request", store.rows.single().second.rejectionCode)
+    }
     @Test fun unknownConflictUnsupportedNeverAccepted() = runBlocking {
         for ((status, code) in listOf("conflict" to "conflict", "rejected" to "unsupported_operation", "future" to "future")) {
             val store = Store(); val t = Transport(); enqueue(store, "visit.checkIn")
@@ -184,6 +215,11 @@ class VisitSyncTest {
     @Test fun rebootstrapPreservesPendingAndRevocationHolds() = runBlocking {
         val store = Store(); val t = Transport(); enqueue(store, "visit.checkIn")
         val day = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Manila")).toString()
+        // Factory dates are derived from deviceTime now; this recovery case is today's work.
+        val row = store.rows.single()
+        store.rows[0] = row.first.copy(serializedOperation = JSONObject(row.first.serializedOperation).apply {
+            getJSONObject("payload").put("deviceTime", System.currentTimeMillis()).put("serviceDate", day)
+        }.toString()) to row.second
         store.visits = listOf(SnapshotItem("planned-1", JSONObject().put("outletId", "outlet-1")
             .put("serviceDate", day).toString(), day))
         store.outlets = listOf(SnapshotItem("outlet-1", "{}"))
@@ -199,6 +235,22 @@ class VisitSyncTest {
         denied.replies.add(401 to "")
         engine(other, denied).sync()
         assertTrue(other.held); assertEquals("pending", other.rows.single().second.state)
+    }
+    @Test fun rebootstrapKeepsValidPastDayEvenWhenNewBootstrapOmitsItsPlan() = runBlocking {
+        val store = Store(); val transport = Transport()
+        val at = java.time.Instant.parse("2026-10-02T02:00:00Z").toEpochMilli()
+        val now = java.time.Instant.parse("2026-10-04T02:00:00Z").toEpochMilli()
+        val intent = VisitIntentFactory.create(identity, "visit.checkIn", null, null, null,
+            "past-plan", "outlet-1", emptyList(), null, null, null, null, null, at)
+        store.enqueue(intent, at)
+        store.outlets = listOf(SnapshotItem("outlet-1", "{}"))
+        transport.replies.add(409 to fixture("error-invalid-cursor.json"))
+        transport.replies.add(200 to pushResult(JSONArray().put(JSONObject(intent.serializedOperation))))
+        transport.replies.add(200 to pull("after"))
+        VisitSync(SignedVisitGateway(transport, Signer(), identity.deviceId, { 0L }), store, identity,
+            bootstrap = { store.swap("g", "fresh", 999, 999, true) }, now = { now }, pause = {}, jitter = { 0 }).sync()
+        assertEquals("done", store.history().single().second.state)
+        assertEquals(intent.serializedOperation, store.history().single().first.serializedOperation)
     }
     @Test fun rebootstrapChangedPlanFreezesLocalWork() = runBlocking {
         val store = Store(); val t = Transport(); val check = enqueue(store, "visit.checkIn")

@@ -89,12 +89,15 @@ fun FieldApp(
             controller.checkAgain(quiet = true)
         }
     }
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) { while (true) { delay(1_000); now = System.currentTimeMillis() } }
     val ready = controller.state is EnrollmentState.Ready
     val status = controller.today.syncStatus.copy(offline = offline)
     MaterialTheme(colorScheme = if (dark) SunprideTokens.darkColors else SunprideTokens.lightColors,
         shapes = SunprideTokens.shapes, typography = SunprideTokens.typography) {
         Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
             Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp, modifier = Modifier.statusBarsPadding()) {
+                Column {
                 Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 20.dp),
                     horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     if (controller.diagnostic != null && ready && page == "home") Row(verticalAlignment = Alignment.CenterVertically) {
@@ -117,19 +120,14 @@ fun FieldApp(
                             modifier = if (page == "account") Modifier.testTag("account-title") else Modifier)
                     } else Text("Sunpride Field", style = MaterialTheme.typography.titleMedium)
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (ready) StatusPill(when {
-                            status.offline -> "Offline"
-                            status.review + status.held > 0 -> "${status.review + status.held} to review"
-                            controller.busy -> "Syncing"
-                            status.queued + status.sending > 0 -> "${status.queued + status.sending} waiting"
-                            else -> "Synced"
-                        }, Modifier.testTag("sync-status"),
-                            onClick = { page = "sync" })
                         if (controller.state != EnrollmentState.SignedOut) IconButton(onClick = { page = "account" },
                             modifier = Modifier.height(48.dp).testTag("account-open")) {
                             AccountGlyph()
                         }
                     }
+                }
+                if (ready) StatusPill(status.label(now), Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp)
+                    .testTag("sync-status"), onClick = { page = "sync" })
                 }
             }
         }) { padding ->
@@ -206,10 +204,10 @@ fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: (
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         SectionCard("Visits · ${data.visits.size}") {
             if (data.visits.isEmpty()) Text("No visits today", Modifier.padding(16.dp).testTag("today-empty"))
-            data.visits.forEach { visit ->
+            data.visits.withIndex().sortedBy { it.value.sequence ?: it.value.listPosition ?: it.index }.forEach { (_, visit) ->
                 val facts = listOfNotNull(visit.planned.takeUnless { it == "Planned" || it == "Scheduled" || it.isBlank() },
                     visit.status.takeUnless { it == "Planned" || it == "Scheduled" || it == "Pending" || it.isBlank() }
-                        ?.replace("Queued", "Waiting"))
+                        ?.replace("Queued", "Waiting"), visit.timeSpent)
                 if (diagnosticEnabled) androidx.compose.foundation.layout.Box(Modifier.testTag("today-visit")) {
                     ListRow(visit.outlet, facts.joinToString(" · "), "store", Modifier.testTag("diagnostic-open"),
                         onClick = { onVisit(visit) })

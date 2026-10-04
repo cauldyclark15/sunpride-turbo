@@ -84,7 +84,7 @@ class CallSheetControllerTest {
     @Test fun controllerQueueAckMaterializationAndUncertainReplayKeepStableBytes() = runBlocking {
         val store = FakeFieldStore(scope)
         store.swap(store.stage(snapshot()), "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
-        val controller = FieldController(Backend(store), this, Dispatchers.Unconfined, EmptyCoroutineContext)
+        val controller = FieldController(Backend(store), this, Dispatchers.Unconfined, EmptyCoroutineContext, now = { 100L })
         controller.start().join(); controller.openDiagnostic(visit).join()
         assertNotNull(controller.diagnosticCallSheet)
         controller.queueDiagnostic("visit.checkIn", null, null, null, null).join()
@@ -121,12 +121,18 @@ class CallSheetControllerTest {
     @Test fun twoPlannedVisitsAtOneOutletKeepSeparateCheckInAndCallSheetChains() = runBlocking {
         val store = FakeFieldStore(scope)
         store.swap(store.stage(snapshot()), "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
-        val controller = FieldController(Backend(store), this, Dispatchers.Unconfined, EmptyCoroutineContext)
+        val controller = FieldController(Backend(store), this, Dispatchers.Unconfined, EmptyCoroutineContext, now = { 100L })
         controller.openDiagnostic(visit).join()
         controller.queueDiagnostic("visit.checkIn", null, null, null, null).join()
         controller.queueCallSheet(listOf(CallSheetDraftLine("product-1", order = "1"))).join()
         val firstCheckIn = store.history().first().first
+        // Field-day rule: the open call must end before the next planned call starts.
         val secondVisit = visit.copy(plannedVisitId = "planned-2")
+        controller.openDiagnostic(secondVisit).join()
+        controller.queueDiagnostic("visit.checkIn", null, null, null, null).join()
+        assertEquals(VisitRuleFailure.Code.CALL_OPEN, controller.diagnosticFailure)
+        controller.openDiagnostic(visit).join()
+        controller.queueDiagnostic("visit.checkOut", null, null, "completed", null).join()
         controller.openDiagnostic(secondVisit).join()
         assertTrue(controller.relatedVisitRows(secondVisit).isEmpty())
         controller.queueDiagnostic("visit.checkIn", null, null, null, null).join()
@@ -137,13 +143,13 @@ class CallSheetControllerTest {
         assertEquals(secondCheckIn.requestId, secondSheet.getJSONArray("dependsOn").getString(0))
         assertEquals("@checkin:${secondCheckIn.requestId}", secondSheet.getJSONObject("payload").getString("visitId"))
         assertNotEquals(firstCheckIn.clientVisitId, secondCheckIn.clientVisitId)
-        assertEquals(2, controller.relatedVisitRows(visit).size)
+        assertEquals(3, controller.relatedVisitRows(visit).size)
         assertEquals(2, controller.relatedVisitRows(secondVisit).size)
     }
     @Test fun missingCallSheetSetupDoesNotQueueActivity() = runBlocking {
         val store = FakeFieldStore(scope)
         store.swap(store.stage(snapshot().copy(callSheets = emptyList())), "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
-        val controller = FieldController(Backend(store), this, Dispatchers.Unconfined, EmptyCoroutineContext)
+        val controller = FieldController(Backend(store), this, Dispatchers.Unconfined, EmptyCoroutineContext, now = { 100L })
         controller.openDiagnostic(visit).join()
         assertNull(controller.diagnosticCallSheet)
         controller.queueDiagnostic("visit.checkIn", null, null, null, null).join()
@@ -153,7 +159,7 @@ class CallSheetControllerTest {
     @Test fun repeatedSavesAreSeparateActivitiesOrderedBehindPriorRequest() = runBlocking {
         val store = FakeFieldStore(scope)
         store.swap(store.stage(snapshot()), "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
-        val controller = FieldController(Backend(store), this, Dispatchers.Unconfined, EmptyCoroutineContext)
+        val controller = FieldController(Backend(store), this, Dispatchers.Unconfined, EmptyCoroutineContext, now = { 100L })
         controller.openDiagnostic(visit).join(); controller.queueDiagnostic("visit.checkIn", null, null, null, null).join()
         repeat(2) { controller.queueCallSheet(listOf(CallSheetDraftLine("product-2", take = "0"))).join() }
         val rows = store.history().map { it.first }
@@ -163,7 +169,7 @@ class CallSheetControllerTest {
     @Test fun emptyInvalidUncheckedAndClosedVisitDoNotQueueOrClearDrafts() = runBlocking {
         val store = FakeFieldStore(scope)
         store.swap(store.stage(snapshot()), "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
-        val controller = FieldController(Backend(store), this, Dispatchers.Unconfined, EmptyCoroutineContext)
+        val controller = FieldController(Backend(store), this, Dispatchers.Unconfined, EmptyCoroutineContext, now = { 100L })
         controller.openDiagnostic(visit).join()
         val drafts = listOf(CallSheetDraftLine("product-1", order = "1"))
         var cleared = 0

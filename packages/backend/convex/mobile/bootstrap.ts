@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values";
 import { internalQuery } from "../_generated/server";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
 import { manilaDate } from "../coverage/validation";
+import { nextDayCloseAt } from "../visits/policy";
 import {
   actorValidator,
   CURSOR_TTL_MS,
@@ -14,7 +15,6 @@ import {
   callSheetDTO,
   customerDTO,
   dayProjection,
-  leaseMs,
   outletDTO,
   productDTO,
   routeDTO,
@@ -140,8 +140,9 @@ export const snapshot = internalQuery({
         orgUnitIds: [actor.orgUnitId],
       },
       appConfig: {
-        offlineLeaseExpiresAt: now + leaseMs,
-        cacheExpiresAt: now + leaseMs,
+        // Client answer 14: the field day closes at 10 PM Manila (no 24-hour lease).
+        offlineLeaseExpiresAt: nextDayCloseAt(now),
+        cacheExpiresAt: nextDayCloseAt(now),
         orderCaptureEnabled: false,
         priceAvailability: "unavailable" as const,
         promotionsAvailability: "unavailable" as const,

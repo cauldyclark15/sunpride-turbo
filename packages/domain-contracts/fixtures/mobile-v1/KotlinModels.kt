@@ -99,7 +99,9 @@ data class BootstrapResponsePlannedVisitsItem(
   // schema-field: bootstrapResponse.plannedVisits[].planVersion
   val planVersion: Long,
   // schema-field: bootstrapResponse.plannedVisits[].intents
-  val intents: List<String>
+  val intents: List<String>,
+  // schema-field: bootstrapResponse.plannedVisits[].sequence
+  val sequence: OptionalField<Long>
 )
 // schema-object: bootstrapResponse.outlets[]
 data class BootstrapResponseOutletsItem(
@@ -417,6 +419,8 @@ data class PushResponseResultsItem(
   val status: PushResponseResultsItemStatusEnum,
   // schema-field: pushResponse.results[].code
   val code: OptionalField<PushResponseResultsItemCodeEnum>,
+  // schema-field: pushResponse.results[].reason
+  val reason: OptionalField<String>,
   // schema-field: pushResponse.results[].ack
   val ack: OptionalField<PushResponseResultsItemAck>
 )

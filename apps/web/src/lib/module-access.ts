@@ -36,6 +36,14 @@ const orderActors = [
   "sales",
   "approver",
 ] as const satisfies readonly AppRole[];
+// CALL-09: order.encode (sales admin) plus visit.record (the credited salesperson).
+const outsideCallActors = [
+  "super_admin",
+  "admin",
+  "operations",
+  "manager",
+  "sales",
+] as const satisfies readonly AppRole[];
 const orderApprovers = [
   "super_admin",
   "manager",
@@ -120,6 +128,7 @@ export const MODULE_ROLES = {
   supervision: supervisors, // people.read + visit.read
   "call-sheets": allReaders, // outlet.read + visit.read; editing needs outlet.manage
   orders: orderActors, // union of order.create and order.approve
+  "outside-calls": outsideCallActors, // union of order.encode and visit.record
   "sap-integration": integrationReaders, // integration.read
   workflows: orderApprovers, // order.approve
   admin: administrators, // admin.manage

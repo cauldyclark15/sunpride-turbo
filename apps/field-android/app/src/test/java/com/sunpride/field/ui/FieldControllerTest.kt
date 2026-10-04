@@ -7,10 +7,12 @@ import com.sunpride.field.device.DeviceSigner
 import com.sunpride.field.device.JcaDeviceSigner
 import com.sunpride.field.device.KeyProtection
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.coroutines.EmptyCoroutineContext
 
@@ -22,9 +24,20 @@ class FieldControllerTest {
         var signOuts = 0
         var cached: String? = null
         val todaySyncs = mutableListOf<Boolean>()
+        var todayResult: TodayData? = null
+        val calls = mutableListOf<Pair<com.sunpride.field.storage.IntentRow, String>>()
+        override fun visitStates() = calls.toList()
+        override fun queueVisit(kind: String, clientVisitId: String?, checkInRequestId: String?, previousRequestId: String?,
+            plannedVisitId: String?, outletId: String, intents: List<String>, unplannedReason: String?, note: String?,
+            outcome: String?, reasonCode: String?, location: org.json.JSONObject?) {
+            calls += com.sunpride.field.ui.diagnosticvisit.VisitIntentFactory.create(
+                com.sunpride.field.storage.StoreScope("a", "d", "s"), kind, clientVisitId, checkInRequestId,
+                previousRequestId, plannedVisitId, outletId, intents, unplannedReason, note, outcome, reasonCode, location) to "pending"
+        }
         override val cachedDeviceId get() = cached
         override fun today(deviceId: String, signer: DeviceSigner, sync: Boolean): TodayData {
             todaySyncs += sync
+            todayResult?.let { return it }
             return if (sync) TodayData(lastSynced = 150, stale = false) else TodayData()
         }
         override val isSignedIn get() = signedIn
@@ -122,6 +135,54 @@ class FieldControllerTest {
         assertEquals(EnrollmentState.SignedOut, c.state)
     }
 
+    @Test fun controllerEnforcesTypedCallOrderEvenWithoutUiAndAllowsNullLocation() = run { c, b, _ ->
+        val first = VisitDisplay("First", "Planned", "Scheduled", "a", "p1", sequence = 0)
+        val next = VisitDisplay("Next", "Planned", "Scheduled", "b", "p2", sequence = 1)
+        b.todayResult = TodayData(visits = listOf(next, first))
+        b.results += { EnrollmentState.Ready("d") }
+        c.signIn("a@example.test", "fake").join()
+        c.openDiagnostic(next).join()
+        c.queueDiagnostic("visit.checkIn", null, null, null, null).join()
+        assertEquals(com.sunpride.field.storage.VisitRuleFailure.Code.MCP_ORDER, c.diagnosticFailure)
+        assertEquals(0, b.calls.size)
+        c.openDiagnostic(first).join()
+        c.queueDiagnostic("visit.checkIn", null, null, null, null).join()
+        assertEquals(1, b.calls.size)
+        c.openDiagnostic(next).join()
+        c.queueDiagnostic("visit.checkIn", null, null, null, null).join()
+        assertEquals(com.sunpride.field.storage.VisitRuleFailure.Code.CALL_OPEN, c.diagnosticFailure)
+        c.openDiagnostic(first).join()
+        c.queueDiagnostic("visit.checkOut", null, null, null, null).join()
+        assertEquals(com.sunpride.field.storage.VisitRuleFailure.Code.OUTCOME_REQUIRED, c.diagnosticFailure)
+        c.queueDiagnostic("visit.checkOut", null, null, "nonproductive", null).join()
+        assertEquals(com.sunpride.field.storage.VisitRuleFailure.Code.REASON_REQUIRED, c.diagnosticFailure)
+        c.queueDiagnostic("visit.checkOut", "other", null, "nonproductive", null).join()
+        c.openDiagnostic(next).join()
+        c.queueDiagnostic("visit.checkIn", null, null, null, null).join()
+        assertEquals(3, b.calls.size)
+        assertNull(c.diagnosticFailure)
+        assertTrue(org.json.JSONObject(b.calls.first().first.serializedOperation).getJSONObject("payload").isNull("location"))
+    }
+    @Test fun uiStateChangesStayOnConfiguredUiDispatcherWhileBackendUsesIo() = runBlocking {
+        val uiThread = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "field-ui-test") }
+        val ioThread = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "field-io-test") }
+        val ui = uiThread.asCoroutineDispatcher()
+        val io = ioThread.asCoroutineDispatcher()
+        val writes = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val observer = androidx.compose.runtime.snapshots.Snapshot.registerGlobalWriteObserver { writes += Thread.currentThread().name }
+        try {
+            val backend = FakeBackend()
+            var callbackThread: String? = null
+            val c = FieldController(backend, this, io, ui) { callbackThread = Thread.currentThread().name }
+            c.start(configured = false).join()
+            assertTrue(callbackThread!!.startsWith("field-io-test"))
+            c.openDiagnostic(VisitDisplay("Store", "Planned", "Scheduled")).join()
+            c.closeDiagnostic().join()
+            assertNull(c.diagnostic)
+            assertTrue(writes.isNotEmpty())
+            assertTrue(writes.all { it.startsWith("field-ui-test") })
+        } finally { observer.dispose(); ui.close(); io.close() }
+    }
     @Test fun pillMapping() {
         assertEquals(StatusPill.OFFLINE, StatusPill.of(EnrollmentState.SignedOut))
         assertEquals(StatusPill.UNREGISTERED, StatusPill.of(EnrollmentState.Unregistered))

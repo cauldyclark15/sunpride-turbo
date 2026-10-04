@@ -2,11 +2,11 @@
   "formatVersion": 1,
   "database": {
     "version": 4,
-    "identityHash": "98a05b1f699163e4c4e6df858faab39e",
+    "identityHash": "9348033a9bd09a0d7be8507e2f1d9fa3",
     "entities": [
       {
         "tableName": "snapshots",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`account` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `scope` TEXT NOT NULL, `generation` TEXT NOT NULL, `kind` TEXT NOT NULL, `entityId` TEXT NOT NULL, `json` TEXT NOT NULL, `serviceDate` TEXT, PRIMARY KEY(`account`, `deviceId`, `scope`, `generation`, `kind`, `entityId`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`account` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `scope` TEXT NOT NULL, `generation` TEXT NOT NULL, `kind` TEXT NOT NULL, `entityId` TEXT NOT NULL, `json` TEXT NOT NULL, `serviceDate` TEXT, `snapshotOrder` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`account`, `deviceId`, `scope`, `generation`, `kind`, `entityId`))",
         "fields": [
           {
             "fieldPath": "account",
@@ -54,6 +54,13 @@
             "fieldPath": "serviceDate",
             "columnName": "serviceDate",
             "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "snapshotOrder",
+            "columnName": "snapshotOrder",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
           }
         ],
         "primaryKey": {
@@ -414,156 +421,11 @@
             "entityId"
           ]
         }
-      },
-      {
-        "tableName": "call_sheets",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`account` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `scope` TEXT NOT NULL, `generation` TEXT NOT NULL, `outletId` TEXT NOT NULL, `revision` INTEGER NOT NULL, `headerJson` TEXT NOT NULL, PRIMARY KEY(`account`, `deviceId`, `scope`, `generation`, `outletId`))",
-        "fields": [
-          {
-            "fieldPath": "account",
-            "columnName": "account",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "deviceId",
-            "columnName": "deviceId",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "scope",
-            "columnName": "scope",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "generation",
-            "columnName": "generation",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "outletId",
-            "columnName": "outletId",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "revision",
-            "columnName": "revision",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "headerJson",
-            "columnName": "headerJson",
-            "affinity": "TEXT",
-            "notNull": true
-          }
-        ],
-        "primaryKey": {
-          "autoGenerate": false,
-          "columnNames": [
-            "account",
-            "deviceId",
-            "scope",
-            "generation",
-            "outletId"
-          ]
-        }
-      },
-      {
-        "tableName": "call_sheet_lines",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`account` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `scope` TEXT NOT NULL, `generation` TEXT NOT NULL, `outletId` TEXT NOT NULL, `productId` TEXT NOT NULL, `position` INTEGER NOT NULL, `code` TEXT NOT NULL, `name` TEXT NOT NULL, `uom` TEXT NOT NULL, `barcode` TEXT, `pricing` TEXT, PRIMARY KEY(`account`, `deviceId`, `scope`, `generation`, `outletId`, `productId`))",
-        "fields": [
-          {
-            "fieldPath": "account",
-            "columnName": "account",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "deviceId",
-            "columnName": "deviceId",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "scope",
-            "columnName": "scope",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "generation",
-            "columnName": "generation",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "outletId",
-            "columnName": "outletId",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "productId",
-            "columnName": "productId",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "position",
-            "columnName": "position",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "code",
-            "columnName": "code",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "name",
-            "columnName": "name",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "uom",
-            "columnName": "uom",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "barcode",
-            "columnName": "barcode",
-            "affinity": "TEXT"
-          },
-          {
-            "fieldPath": "pricing",
-            "columnName": "pricing",
-            "affinity": "TEXT"
-          }
-        ],
-        "primaryKey": {
-          "autoGenerate": false,
-          "columnNames": [
-            "account",
-            "deviceId",
-            "scope",
-            "generation",
-            "outletId",
-            "productId"
-          ]
-        }
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '98a05b1f699163e4c4e6df858faab39e')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '9348033a9bd09a0d7be8507e2f1d9fa3')"
     ]
   }
 }

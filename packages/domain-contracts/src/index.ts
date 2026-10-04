@@ -66,6 +66,7 @@ export type BootstrapResponse = {
     planId: string;
     planVersion: number;
     intents: Array<string>;
+    sequence?: number;
   }>;
   outlets: Array<{ id: string; name: string; routeId: string | null }>;
   localCustomers: Array<{ id: string; code: string }>;
@@ -230,6 +231,7 @@ export type PushResponse = {
       | "out_of_scope"
       | "evidence_pending_review"
       | "invalid_request";
+    reason?: string;
     ack?: { entityId: string; eventIds: Array<string>; serverTime: number };
   }>;
 };

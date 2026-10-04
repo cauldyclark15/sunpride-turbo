@@ -3,7 +3,7 @@ import type { Infer } from "convex/values";
 import { query } from "../_generated/server";
 import type { MutationCtx } from "../_generated/server";
 import { paginationOptsValidator } from "convex/server";
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
 import { requireCapability } from "../lib/capabilities";
 import { employeeAt, localDate } from "../coverage/validation";
@@ -22,11 +22,95 @@ import {
 import {
   accessOwnedVisit,
   accessVisit,
-  assertToday,
+  assertServiceDay,
   boundedText,
+  isLate,
   validTime,
   visitTarget,
 } from "./validation";
+
+/** Visit states that hold the salesperson at the current store. */
+export const OPEN_CALL_STATES = new Set([
+  "arrived",
+  "checked-in",
+  "in-progress",
+]);
+/** Visit states that close a call (End recorded, or resolved by a supervisor). */
+export const CLOSED_CALL_STATES = new Set([
+  "checked-out",
+  "completed",
+  "skipped",
+  "rescheduled",
+  "missed",
+]);
+const MAX_DAY_CALLS = 200;
+
+/**
+ * MCP order (client call 2 Oct 2026): a salesperson cannot start another store while a
+ * call is open, and cannot start a planned store before every planned store with a
+ * lower sequence that day is closed with its productivity recorded.
+ */
+async function assertCallOrder(
+  ctx: MutationCtx,
+  actor: AuthorizedDevice,
+  serviceDate: string,
+  planned?: { id: Id<"plannedVisits">; sequence: number },
+) {
+  const calls = await ctx.db
+    .query("visitExecutions")
+    .withIndex("by_organizationId_and_assigneeProfileId_and_serviceDate", (q) =>
+      q
+        .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
+        .eq("assigneeProfileId", actor.profileId)
+        .eq("serviceDate", serviceDate),
+    )
+    .take(MAX_DAY_CALLS + 1);
+  if (calls.length > MAX_DAY_CALLS) throw new ConvexError("invalid_request");
+  if (calls.some((call) => OPEN_CALL_STATES.has(call.state)))
+    throw new ConvexError("call_open");
+  if (!planned) return;
+  const closed = new Set(
+    calls.flatMap((call) =>
+      CLOSED_CALL_STATES.has(call.state) && call.plannedVisitId
+        ? [call.plannedVisitId]
+        : [],
+    ),
+  );
+  const stops = await ctx.db
+    .query("plannedVisits")
+    .withIndex("by_assigneeProfileId_and_serviceDate", (q) =>
+      q.eq("assigneeProfileId", actor.profileId).eq("serviceDate", serviceDate),
+    )
+    .take(MAX_DAY_CALLS + 1);
+  if (stops.length > MAX_DAY_CALLS) throw new ConvexError("invalid_request");
+  for (const stop of stops) {
+    if (
+      stop._id === planned.id ||
+      stop.status !== "planned" ||
+      stop.replacedByVisitId ||
+      closed.has(stop._id)
+    )
+      continue;
+    const slot = await ctx.db.get(stop.planSlotId);
+    if (slot && slot.sequence < planned.sequence)
+      throw new ConvexError("mcp_order");
+  }
+}
+
+/** Work for a day reaching the server after its 10 PM close is kept and held for review. */
+async function flagLateWork(
+  ctx: MutationCtx,
+  visit: Doc<"visitExecutions">,
+  now: number,
+) {
+  if (!isLate(visit.serviceDate, now)) return false;
+  if (visit.lateReviewStatus !== "pending_review")
+    await ctx.db.patch(visit._id, {
+      lateSyncAt: visit.lateSyncAt ?? now,
+      lateReviewStatus: "pending_review",
+    });
+  return true;
+}
 
 const intent = v.union(
   ...(
@@ -184,8 +268,8 @@ export async function applyVisitOperation(
   if (operation.kind === "visit.checkIn") {
     const p = operation.payload;
     requireUuid(p.clientVisitId);
-    assertToday(p.serviceDate, now);
     validTime(p.deviceTime, now);
+    assertServiceDay(p.serviceDate, p.deviceTime, now);
     if (p.intents.length > 8 || new Set(p.intents).size !== p.intents.length)
       throw new ConvexError("invalid_request");
     const { current, customerId } = await visitTarget(
@@ -233,6 +317,7 @@ export async function applyVisitOperation(
       planVersion: number | undefined;
     let intents = p.intents;
     let unplannedReason: string | undefined;
+    let plannedOrder: { id: Id<"plannedVisits">; sequence: number } | undefined;
     if (p.plannedVisitId) {
       const planned = await ctx.db.get(p.plannedVisitId);
       if (
@@ -285,9 +370,12 @@ export async function applyVisitOperation(
       if (JSON.stringify(intents) !== JSON.stringify(planned.intents))
         throw new ConvexError("invalid_plan");
       intents = planned.intents as typeof intents;
+      plannedOrder = { id: planned._id, sequence: slot.sequence };
     } else {
       unplannedReason = boundedText(p.unplannedReason ?? "", 500);
     }
+    await assertCallOrder(ctx, actor, p.serviceDate, plannedOrder);
+    const late = isLate(p.serviceDate, now);
     const visitId = await ctx.db.insert("visitExecutions", {
       organizationId: SUNPRIDE_ORGANIZATION_ID,
       clientVisitId: p.clientVisitId,
@@ -310,6 +398,10 @@ export async function applyVisitOperation(
       createdAt: now,
       lastServerTime: now,
       checkedInAt: now,
+      startedAt: p.deviceTime,
+      ...(late
+        ? { lateSyncAt: now, lateReviewStatus: "pending_review" as const }
+        : {}),
     });
     const visit = (await ctx.db.get(visitId))!;
     await recordLocation(ctx, visit, "check_in", p.location, p.deviceTime, now);
@@ -327,7 +419,10 @@ export async function applyVisitOperation(
       occurredAt: p.deviceTime,
       serverAt: now,
       ownerProfileId: actor.profileId,
-      summary: { after: "checked-in" },
+      summary: {
+        after: "checked-in",
+        ...(late ? { reasonCode: "late_sync" } : {}),
+      },
       policyVersion: VISIT_LOCATION_POLICY.version,
     });
     return { entityId: visitId, eventIds: [eventId], serverTime: now };
@@ -402,6 +497,7 @@ export async function applyVisitOperation(
       state: "in-progress",
       lastServerTime: now,
     });
+    const late = await flagLateWork(ctx, visit, now);
     const eventId = await append(ctx, {
       orgUnitId: visit.orgUnitId,
       entityType: "activity",
@@ -416,7 +512,10 @@ export async function applyVisitOperation(
       occurredAt: p.deviceTime,
       serverAt: now,
       ownerProfileId: actor.profileId,
-      summary: { after: p.activity.kind },
+      summary: {
+        after: p.activity.kind,
+        ...(late ? { reasonCode: "late_sync" } : {}),
+      },
     });
     return { entityId: activityId, eventIds: [eventId], serverTime: now };
   }
@@ -426,15 +525,20 @@ export async function applyVisitOperation(
   if (p.outcome === "nonproductive") boundedText(p.reasonCode ?? "");
   else if (p.reasonCode) boundedText(p.reasonCode);
   await recordLocation(ctx, visit, "check_out", p.location, p.deviceTime, now);
-  // No automatic certification, productivity or per-diem: a separate rule needs client sign-off.
+  // No automatic certification or per-diem here; productive-call evaluation is separate.
+  // End = phone time after the call; time per account is End - Start on the phone clock.
+  const startedAt = visit.startedAt ?? visit.checkedInAt ?? p.deviceTime;
   await ctx.db.patch(visit._id, {
     state: "checked-out",
     outcome: p.outcome,
     ...(p.reasonCode != null ? { reasonCode: p.reasonCode } : {}),
     checkedOutAt: now,
     lastServerTime: now,
+    endedAt: p.deviceTime,
+    callDurationMs: Math.max(0, p.deviceTime - startedAt),
     productivity: p.outcome === "nonproductive" ? "nonproductive" : "pending",
   });
+  const late = await flagLateWork(ctx, visit, now);
   const eventId = await append(ctx, {
     orgUnitId: visit.orgUnitId,
     entityType: "visit",
@@ -449,7 +553,11 @@ export async function applyVisitOperation(
     occurredAt: p.deviceTime,
     serverAt: now,
     ownerProfileId: actor.profileId,
-    summary: { before: visit.state, after: "checked-out" },
+    summary: {
+      before: visit.state,
+      after: "checked-out",
+      ...(late ? { reasonCode: "late_sync" } : {}),
+    },
     policyVersion: VISIT_LOCATION_POLICY.version,
   });
   return { entityId: visit._id, eventIds: [eventId], serverTime: now };
@@ -467,19 +575,19 @@ const visitDTO = v.object({
   plannedVisitId: v.union(v.id("plannedVisits"), v.null()),
   checkedInAt: v.union(v.number(), v.null()),
   checkedOutAt: v.union(v.number(), v.null()),
+  /** Start (arrival) and End (after the call), phone clock; time per account. */
+  startedAt: v.union(v.number(), v.null()),
+  endedAt: v.union(v.number(), v.null()),
+  callDurationMs: v.union(v.number(), v.null()),
+  /** Set when the day's work reached the server after its 10 PM close. */
+  lateReviewStatus: v.union(
+    v.literal("pending_review"),
+    v.literal("accepted"),
+    v.literal("rejected"),
+    v.null(),
+  ),
 });
-function dto(row: {
-  _id: Id<"visitExecutions">;
-  outletId: Id<"outlets">;
-  serviceDate: string;
-  state: string;
-  source: string;
-  productivity: string;
-  unplannedReason?: string;
-  plannedVisitId?: Id<"plannedVisits">;
-  checkedInAt?: number;
-  checkedOutAt?: number;
-}) {
+function dto(row: Doc<"visitExecutions">) {
   return {
     id: row._id,
     outletId: row.outletId,
@@ -491,6 +599,10 @@ function dto(row: {
     plannedVisitId: row.plannedVisitId ?? null,
     checkedInAt: row.checkedInAt ?? null,
     checkedOutAt: row.checkedOutAt ?? null,
+    startedAt: row.startedAt ?? null,
+    endedAt: row.endedAt ?? null,
+    callDurationMs: row.callDurationMs ?? null,
+    lateReviewStatus: row.lateReviewStatus ?? null,
   };
 }
 export const detail = query({

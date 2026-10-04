@@ -10,7 +10,7 @@ struct VisitLocation: Encodable {
     init(_ location: CLLocation) throws {
         guard location.horizontalAccuracy >= 0, location.horizontalAccuracy.isFinite,
               abs(location.coordinate.latitude) <= 90, abs(location.coordinate.longitude) <= 180,
-              abs(Date().timeIntervalSince(location.timestamp)) < 120 else { throw LocationCapture.Failure.unavailable }
+              location.timestamp.timeIntervalSince1970.isFinite else { throw LocationCapture.Failure.unavailable }
         latitude = location.coordinate.latitude
         longitude = location.coordinate.longitude
         accuracyMeters = location.horizontalAccuracy
@@ -30,9 +30,21 @@ final class LocationCapture: NSObject, @preconcurrency CLLocationManagerDelegate
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyBest
     }
+    /// Best effort evidence only. Permission, accuracy or timeout must never gate a call.
+    func captureIfAvailable() async -> VisitLocation? { try? await capture() }
+
     func capture() async throws -> VisitLocation {
+        guard permission == nil, fix == nil else { throw Failure.unavailable }
+        let timeout = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .seconds(10)) } catch { return }
+            guard let self else { return }
+            self.permission?.resume(throwing: Failure.unavailable); self.permission = nil
+            self.fix?.resume(throwing: Failure.unavailable); self.fix = nil
+        }
+        defer { timeout.cancel() }
         #if DEBUG
         if StubBackend.scenario != nil {
+            if ProcessInfo.processInfo.environment["FIELD_STUB_LOCATION"] == "denied" { throw Failure.denied }
             // In-process UI backend only; no OS permission dialog and no real coordinates in test artifacts.
             return try VisitLocation(CLLocation(latitude: 0, longitude: 0))
         }

@@ -23,6 +23,35 @@ class SyncStatusTest {
         assertEquals("All synced", SyncStatus.fromRoom(partition, emptyList()).label(1100))
     }
 
+    @Test fun closeBoundaryAndLateOldServiceDaysUseManilaNotUtc() {
+        val before = java.time.Instant.parse("2026-10-02T13:59:59.999Z").toEpochMilli()
+        val close = java.time.Instant.parse("2026-10-02T14:00:00Z").toEpochMilli()
+        val nextMorning = java.time.Instant.parse("2026-10-03T01:00:00Z").toEpochMilli()
+        assertEquals(close, dayClose("2026-10-02"))
+        val pending = SyncStatus(queued = 1, earliestUnsentCloseAt = close)
+        assertEquals("Sync before 10 PM", pending.label(before))
+        assertEquals("Late · held for review", pending.label(close))
+        assertEquals("Late · held for review", pending.label(nextMorning))
+        assertEquals("Held · needs review", pending.copy(held = 1).label(close))
+        assertEquals("Needs review · not synced", pending.copy(review = 1).label(close))
+        assertEquals("Sync before 10 PM", pending.copy(offline = true).label(before))
+        assertTrue(closeTime(close).contains("10:00 PM · Asia/Manila"))
+        assertEquals("Finish the open call first", SyncStatus.plainReason("call_open"))
+        assertEquals("Visit stores in plan order", SyncStatus.plainReason("mcp_order"))
+    }
+    @Test fun dependentWorkUsesCheckInServiceDayEvenIfEndQueuedNextMorning() {
+        val scope = com.sunpride.field.storage.StoreScope("account", "device", "scope")
+        val startAt = java.time.Instant.parse("2026-10-02T13:00:00Z").toEpochMilli()
+        val endAt = java.time.Instant.parse("2026-10-03T01:00:00Z").toEpochMilli()
+        val start = com.sunpride.field.ui.diagnosticvisit.VisitIntentFactory.create(scope, "visit.checkIn", null, null, null,
+            "p", "o", emptyList(), null, null, null, null, null, startAt)
+        val end = com.sunpride.field.ui.diagnosticvisit.VisitIntentFactory.create(scope, "visit.checkOut", start.clientVisitId,
+            start.requestId, start.requestId, "p", "o", emptyList(), null, null, "completed", null, null, endAt)
+        val status = SyncStatus.fromRoom(partition, listOf(OutboxRow("account", "device", "scope", end.requestId, endAt)),
+            intents = listOf(start, end))
+        assertEquals(dayClose("2026-10-02"), status.earliestUnsentCloseAt)
+        assertEquals("Late · held for review", status.label(endAt))
+    }
     @Test fun countsAndExpiryAreRoomDerived() {
         val rows = listOf(row("pending"), row("sending"), row("review", code = "conflict"), row("pending", "old-scope"))
         val status = SyncStatus.fromRoom(partition, rows)

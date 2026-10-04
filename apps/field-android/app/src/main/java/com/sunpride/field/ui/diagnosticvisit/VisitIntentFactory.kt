@@ -4,7 +4,7 @@ import com.sunpride.field.storage.IntentRow
 import com.sunpride.field.storage.StoreScope
 import org.json.JSONArray
 import org.json.JSONObject
-import java.time.LocalDate
+import java.time.Instant
 import java.time.ZoneId
 import java.util.UUID
 
@@ -23,7 +23,7 @@ object VisitIntentFactory {
         if (kind == "visit.checkIn") {
             require(outletId.isNotBlank() && (plannedVisitId != null || !unplannedReason.isNullOrBlank()))
             payload.put("clientVisitId", visit).put("plannedVisitId", plannedVisitId ?: JSONObject.NULL)
-                .put("outletId", outletId).put("serviceDate", LocalDate.now(ZoneId.of("Asia/Manila")).toString())
+                .put("outletId", outletId).put("serviceDate", Instant.ofEpochMilli(at).atZone(ZoneId.of("Asia/Manila")).toLocalDate().toString())
                 .put("deviceTime", at).put("location", location ?: JSONObject.NULL)
                 .put("intents", JSONArray(intents))
             if (plannedVisitId == null) payload.put("unplannedReason", unplannedReason!!.trim().take(500))
@@ -40,7 +40,7 @@ object VisitIntentFactory {
                     payload.put("activity", JSONObject().put("kind", "note").put("text", note.trim().take(500)))
                 }
             } else {
-                require(outcome in setOf("completed", "nonproductive"))
+                com.sunpride.field.storage.VisitCallRules.requireOutcome(outcome, reasonCode)
                 payload.put("outcome", outcome).put("reasonCode", reasonCode ?: JSONObject.NULL)
                     .put("location", location ?: JSONObject.NULL)
             }

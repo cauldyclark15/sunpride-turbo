@@ -62,10 +62,11 @@ object CallSheetCodec {
 object CallSheetQueueRules {
     suspend fun validate(store: FieldStore, intent: IntentRow) {
         if (intent.kind != "visit.activity") return
-        val op = JSONObject(intent.serializedOperation)
-        val payload = op.getJSONObject("payload")
-        val activity = payload.getJSONObject("activity")
-        if (activity.getString("kind") != "call_sheet") return
+        // Only call-sheet activities are checked here; other activities keep their own validation.
+        val op = runCatching { JSONObject(intent.serializedOperation) }.getOrNull() ?: return
+        val payload = op.optJSONObject("payload") ?: return
+        val activity = payload.optJSONObject("activity") ?: return
+        if (activity.optString("kind") != "call_sheet") return
         val reference = payload.getString("visitId")
         require(reference.startsWith("@checkin:")) { "A local check-in reference is required" }
         val checkIn = store.intent(reference.removePrefix("@checkin:")) ?: error("Check in first")

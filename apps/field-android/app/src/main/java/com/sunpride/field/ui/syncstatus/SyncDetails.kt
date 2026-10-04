@@ -47,7 +47,11 @@ fun SyncDetails(status: SyncStatus, onDismiss: () -> Unit, onSync: () -> Unit = 
                 if (status.held > 0) ValueRow("Held", "${status.held}")
                 if (status.sending > 0) ValueRow("Sending", "${status.sending}")
                 ValueRow("Last sync", manilaTime(status.lastSuccess))
-                ValueRow("Access until", manilaTime(status.leaseExpiresAt))
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Day close", style = MaterialTheme.typography.bodyMedium)
+                    Text(closeTime(status.leaseExpiresAt), style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("day-close-time"))
+                }
             }
             if (status.reviewReasons.isNotEmpty()) SectionCard("To review · ${status.review}") {
                 status.reviewReasons.forEach { Text(it, Modifier.padding(16.dp)) }

@@ -9,6 +9,7 @@ describe("web navigation", () => {
   it.each([
     ["/dashboard", "home"],
     ["/orders", "commercial"],
+    ["/outside-calls", "commercial"],
     ["/master-data", "commercial"],
     ["/imports", "commercial"],
     ["/inventory", "inventory"],
@@ -56,11 +57,13 @@ describe("web navigation", () => {
   it("provides in-content tabs only for real subdivisions", () => {
     expect(getWebModuleTabs("/orders").map((item) => item.href)).toEqual([
       "/orders",
+      "/outside-calls",
       "/master-data",
       "/imports",
     ]);
     expect(getWebModuleTabs("/imports").map((item) => item.href)).toEqual([
       "/orders",
+      "/outside-calls",
       "/master-data",
       "/imports",
     ]);

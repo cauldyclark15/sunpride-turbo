@@ -21,6 +21,19 @@ struct StoreSnapshot: Sendable {
     struct Visit: Codable, Sendable {
         let id: String; let outletId: String; let serviceDate: String
         let planId: String; let planVersion: Int; let intents: [String]
+        let sequence: Int?
+        init(id: String, outletId: String, serviceDate: String, planId: String, planVersion: Int,
+             intents: [String], sequence: Int? = nil) {
+            self.id = id; self.outletId = outletId; self.serviceDate = serviceDate
+            self.planId = planId; self.planVersion = planVersion; self.intents = intents; self.sequence = sequence
+        }
+        /// Stable fallback for old feeds: an absent sequence uses the original list position.
+        static func ordered(_ visits: [Visit]) -> [Visit] {
+            visits.enumerated().sorted {
+                let a = $0.element.sequence ?? $0.offset, b = $1.element.sequence ?? $1.offset
+                return a == b ? $0.offset < $1.offset : a < b
+            }.map(\.element)
+        }
     }
     struct Outlet: Codable, Sendable { let id: String; let name: String; let routeId: String? }
     struct Customer: Codable, Sendable { let id: String; let code: String }
@@ -396,13 +409,13 @@ final class EncryptedFieldStore: FieldLocalStore {
     }
     private func entities<T: Decodable>(_ type: T.Type, kind: String, partition: StorePartition, date: String? = nil) throws -> [T] {
         guard let (generation, _) = try state(partition), generation > 0 else { return [] }
-        let sql = "SELECT body FROM snapshot WHERE \(Self.predicate) AND generation=? AND kind=?" + (date == nil ? "" : " AND service_date=?") + " ORDER BY id"
+        let sql = "SELECT body FROM snapshot WHERE \(Self.predicate) AND generation=? AND kind=?" + (date == nil ? "" : " AND service_date=?") + (kind == "visit" ? " ORDER BY rowid" : " ORDER BY id")
         return try query(sql, p(partition) + [.integer(generation), .text(kind)] + (date.map { [.text($0)] } ?? [])) {
             try decode(type, Self.data($0, 0))
         }
     }
     func todayVisits(_ date: String, for partition: StorePartition) throws -> [StoreSnapshot.Visit] {
-        try entities(StoreSnapshot.Visit.self, kind: "visit", partition: partition, date: date)
+        StoreSnapshot.Visit.ordered(try entities(StoreSnapshot.Visit.self, kind: "visit", partition: partition, date: date))
     }
     func outlets(for partition: StorePartition) throws -> [StoreSnapshot.Outlet] {
         try entities(StoreSnapshot.Outlet.self, kind: "outlet", partition: partition)

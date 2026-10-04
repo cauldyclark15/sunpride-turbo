@@ -1,5 +1,6 @@
 package com.sunpride.field.storage
 
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -15,7 +16,7 @@ import androidx.room.RoomDatabase
     indices = [Index(value = ["account", "deviceId", "scope", "generation"])])
 data class SnapshotRow(val account: String, val deviceId: String, val scope: String,
     val generation: String, val kind: String, val entityId: String, val json: String,
-    val serviceDate: String? = null)
+    val serviceDate: String? = null, @ColumnInfo(defaultValue = "0") val snapshotOrder: Int = 0)
 
 @Entity(tableName = "partitions", primaryKeys = ["account", "deviceId", "scope"])
 data class PartitionRow(val account: String, val deviceId: String, val scope: String,
@@ -88,7 +89,7 @@ interface StoreDao {
     suspend fun heldCount(account: String, device: String): Int
     @Query("SELECT * FROM partitions WHERE account=:account AND deviceId=:device AND scope=:scope")
     suspend fun partition(account: String, device: String, scope: String): PartitionRow?
-    @Query("SELECT * FROM snapshots WHERE account=:account AND deviceId=:device AND scope=:scope AND generation=:generation AND kind=:kind AND (:day IS NULL OR serviceDate=:day) ORDER BY entityId")
+    @Query("SELECT * FROM snapshots WHERE account=:account AND deviceId=:device AND scope=:scope AND generation=:generation AND kind=:kind AND (:day IS NULL OR serviceDate=:day) ORDER BY snapshotOrder, entityId")
     suspend fun snapshot(account: String, device: String, scope: String, generation: String,
         kind: String, day: String?): List<SnapshotRow>
     @Query("DELETE FROM snapshots WHERE account=:account AND deviceId=:device AND scope=:scope AND generation!=:generation")
@@ -116,7 +117,7 @@ interface StoreDao {
 }
 
 @Database(entities = [SnapshotRow::class, PartitionRow::class, IntentRow::class, OutboxRow::class, AckRow::class, DeltaRow::class, CallSheetRow::class, CallSheetLineRow::class],
-    version = 4, exportSchema = true)
+    version = 5, exportSchema = true)
 abstract class StoreDatabase : RoomDatabase() {
     abstract fun rows(): StoreDao
 }
