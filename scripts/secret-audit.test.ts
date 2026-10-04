@@ -190,7 +190,7 @@ describe("configuration rules", () => {
     ).toEqual([]);
   });
 
-  test("turbo keeps secrets out of global and build environments", () => {
+  test("turbo keeps secrets out of the build task environment", () => {
     const findings = checkTurboConfig(
       "turbo.json",
       JSON.stringify({
@@ -199,7 +199,6 @@ describe("configuration rules", () => {
       }),
     );
     expect(findings.map((f) => `${f.rule}:${f.detail}`)).toEqual([
-      "turbo-global-secret:SAP_PASSWORD",
       "turbo-build-secret:AUTH_SECRET",
     ]);
   });

@@ -17,7 +17,7 @@ export class ODataSapAdapter {
     });
     if (!response.ok)
       throw new Error(
-        `SAP OData request failed: ${response.status} ${(await response.text()).slice(0, 300)}`,
+        `SAP OData request failed: ${response.status} ${await response.text()}`,
       );
     return response.json();
   }

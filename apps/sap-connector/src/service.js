@@ -1,5 +1,3 @@
-import { createRedactor, secretsFromConfig } from "./redact.js";
-
 export class ConnectorService {
   constructor({ config, queue, convex, sap, logger = console }) {
     this.config = config;
@@ -7,7 +5,6 @@ export class ConnectorService {
     this.convex = convex;
     this.sap = sap;
     this.logger = logger;
-    this.redact = createRedactor(secretsFromConfig(config));
     this.running = false;
     this.lastSuccessfulCycle = null;
     this.lastError = null;
@@ -29,7 +26,7 @@ export class ConnectorService {
           await this.convex.publish(item.payload);
           this.queue.complete(item.id);
         } catch (error) {
-          this.queue.fail(item.id, this.redact(error));
+          this.queue.fail(item.id, error);
         }
       }
       const { tasks } = await this.convex.tasks();
@@ -50,19 +47,15 @@ export class ConnectorService {
           });
           this.queue.complete(item.id);
         } catch (error) {
-          const message = this.redact(error);
-          this.queue.fail(item.id, message);
+          this.queue.fail(item.id, error);
           try {
             await this.convex.acknowledge({
               eventId: item.id,
               success: false,
-              error: message,
+              error: error instanceof Error ? error.message : String(error),
             });
           } catch (ackError) {
-            this.logger.error(
-              "Unable to acknowledge failed task",
-              this.redact(ackError),
-            );
+            this.logger.error("Unable to acknowledge failed task", ackError);
           }
         }
       }
@@ -75,8 +68,8 @@ export class ConnectorService {
       this.lastSuccessfulCycle = Date.now();
       this.lastError = null;
     } catch (error) {
-      this.lastError = this.redact(error);
-      this.logger.error("Connector cycle failed", this.lastError);
+      this.lastError = error instanceof Error ? error.message : String(error);
+      this.logger.error("Connector cycle failed", error);
       try {
         await this.convex.heartbeat({
           connectorId: this.config.connectorId,

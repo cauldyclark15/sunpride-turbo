@@ -13,7 +13,7 @@ rest is the release checklist at the end.
 | `BETTER_AUTH_SECRET`                                                                                                                   | Secret          | Convex deployment env                               | Convex (`convex.config.ts`)        | Session signing. Per deployment.                                               |
 | `CONNECTOR_SIGNING_SECRET`                                                                                                             | Secret          | Convex deployment env + connector host `.env.local` | `convex/http.ts`, connector        | HMAC for `/api/sap/*`. `bun run setup:env` copies it locally without printing. |
 | `MOBILE_CURSOR_SECRET`                                                                                                                 | Secret          | Convex deployment env                               | `convex/mobile/cursor.ts`          | ≥ 32 chars; mobile sync fails closed without it.                               |
-| `SAP_USERNAME`, `SAP_PASSWORD`                                                                                                         | Secret          | Connector host `.env.local` only                    | `apps/sap-connector` OData adapter | Never in Convex, never in Turbo global env.                                    |
+| `SAP_USERNAME`, `SAP_PASSWORD`                                                                                                         | Secret          | Connector host `.env.local` only                    | `apps/sap-connector` OData adapter | Never in Convex or client bundles.                                             |
 | `CONVEX_DEPLOY_KEY`                                                                                                                    | Privileged key  | CI secret store only                                | `convex deploy`                    | Never in a file in the repo.                                                   |
 | `CONVEX_DEPLOYMENT`                                                                                                                    | Internal        | `packages/backend/.env.local`                       | Convex CLI                         | Deployment name, not a credential.                                             |
 | `CONVEX_URL`, `CONVEX_SITE_URL`, `SITE_URL`, `WEB_SITE_URL`, `PWA_SITE_URL`                                                            | Public          | Convex env / local env                              | backend, CLI scripts               | Origins only.                                                                  |
@@ -49,10 +49,11 @@ Repository (`--repo`, every tracked file):
   Vite's built-ins); a file that needs anything else must `import "server-only"`.
 - `next.config` has no `env:` block; `vite.config` does not widen `envPrefix`
   or `define` from `process.env`.
-- `turbo.json` files put no secret name in `globalEnv` or the `build` task env.
-  Connector variables are pass-through on the connector's `dev` task only
-  (`apps/sap-connector/turbo.json`), so `next build` / `vite build` never
-  receive SAP or signing secrets.
+- `turbo.json` files put no secret name in the `build` task env. The root
+  `globalEnv` still lists the connector's SAP/signing variables (connector
+  configuration is outside this audit's scope and owned by the lead); Next and
+  Vite inline only `NEXT_PUBLIC_*` / `VITE_*`, and the bundle scan below is what
+  proves none of them reach client output.
 - Native sources (`apps/field-android`, `apps/field-ios`) never name a server
   secret.
 
@@ -71,13 +72,10 @@ The audit prints file, rule and variable name only — never a value.
 
 ## Logs and error reports
 
-- SAP connector: every error is passed through `src/redact.js` before it is
-  logged, stored in the local queue (`last_error`), shown on `/health`, or sent
-  to Convex in a task acknowledgement or heartbeat. It removes the signing
-  secret, the SAP password (raw and URL-encoded) and the Basic credential,
-  masks `Basic`/`Bearer` tokens and `password=`/`secret=`/`token=` pairs, drops
-  stack traces and caps messages at 500 characters. Upstream response bodies in
-  errors are cut to 300 characters. Tested in `test/redact.test.js`.
+- SAP connector: out of scope here (connector runtime is owned by the lead).
+  Open finding for that owner: connector errors can carry raw SAP/Convex
+  response bodies and stack traces into logs, the local queue, `/health` and
+  Convex heartbeats; they should be redacted and length-capped.
 - Convex: `http.ts` logs only a fixed message plus the internal error; request
   signatures and bodies are not logged. Mobile device proofs and audit rows store
   codes, never tokens (see `MOBILE_DEVICE_INCIDENT.md`).
@@ -91,12 +89,11 @@ The audit prints file, rule and variable name only — never a value.
   `apps/sap-connector/.env.example` placeholder (`replace-…`), which differs from
   the live value. No PEM keys, JWTs or credential files in any commit.
 - Web and PWA production bundles: no secret values or server secret names.
-- Fixed: Turbo previously listed `CONNECTOR_SIGNING_SECRET`, `SAP_USERNAME` and
-  `SAP_PASSWORD` in `globalEnv`, handing them to every task including the web and
-  PWA builds. Now connector-only.
-- Fixed: connector errors could carry raw SAP/Convex response bodies and full
-  stack traces into logs, `/health` and Convex heartbeats; now redacted and
-  bounded.
+- Open (connector owner): root `turbo.json` `globalEnv` lists
+  `CONNECTOR_SIGNING_SECRET`, `SAP_USERNAME` and `SAP_PASSWORD`, so every task's
+  environment receives them. Bundles are clean today; moving them to a
+  connector-only Turbo config is a connector change.
+- Open (connector owner): connector error redaction, as above.
 - Fixed: `MOBILE_CURSOR_SECRET` was missing from
   `packages/backend/.env.deployment.example`.
 

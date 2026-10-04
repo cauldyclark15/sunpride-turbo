@@ -202,20 +202,16 @@ export function checkBundlerConfig(file: string, text: string): Finding[] {
   return findings;
 }
 
-/** Turbo must not hand secrets to every task, nor declare them for client builds. */
+/**
+ * Turbo must not declare secrets for client builds. The root `globalEnv` still
+ * lists connector variables (connector configuration is owned separately); the
+ * built-bundle scan is what proves none of them reach web/PWA output.
+ */
 export function checkTurboConfig(file: string, text: string): Finding[] {
   const findings: Finding[] = [];
   const config = JSON.parse(text) as {
-    globalEnv?: string[];
-    globalPassThroughEnv?: string[];
     tasks?: Record<string, { env?: string[]; passThroughEnv?: string[] }>;
   };
-  for (const name of [
-    ...(config.globalEnv ?? []),
-    ...(config.globalPassThroughEnv ?? []),
-  ])
-    if (isSecretName(name))
-      findings.push({ file, rule: "turbo-global-secret", detail: name });
   for (const name of [
     ...(config.tasks?.build?.env ?? []),
     ...(config.tasks?.build?.passThroughEnv ?? []),

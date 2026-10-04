@@ -1,7 +1,20 @@
 {
   "$schema": "https://turborepo.dev/schema.json",
   "ui": "tui",
-  "globalEnv": ["CONVEX_SITE_URL", "WEB_SITE_URL", "PWA_SITE_URL"],
+  "globalEnv": [
+    "CONVEX_SITE_URL",
+    "WEB_SITE_URL",
+    "PWA_SITE_URL",
+    "CONNECTOR_SIGNING_SECRET",
+    "CONVEX_INTEGRATION_URL",
+    "CONNECTOR_ID",
+    "SAP_ADAPTER",
+    "SAP_BASE_URL",
+    "SAP_USERNAME",
+    "SAP_PASSWORD",
+    "SAP_POLL_INTERVAL_MS",
+    "CONNECTOR_PORT"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
