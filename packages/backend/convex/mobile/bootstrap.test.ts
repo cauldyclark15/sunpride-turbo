@@ -288,7 +288,13 @@ describe("mobile day bootstrap", () => {
     expect(close - r.serverTime).toBeGreaterThan(0);
     expect(close - r.serverTime).toBeLessThanOrEqual(86_400_000);
     expect(r.outlets).toEqual([
-      { id: f.ids.outlet, name: "Signed outlet", routeId: null },
+      {
+        id: f.ids.outlet,
+        name: "Signed outlet",
+        routeId: null,
+        code: "O",
+        customerId: f.ids.snapshot.customerId,
+      },
     ]);
     expect(r.localCustomers).toEqual([
       { id: expect.any(String), code: "LOCAL-C" },
@@ -301,6 +307,83 @@ describe("mobile day bootstrap", () => {
     });
     expect(r.syncCursor).toBeTruthy();
     expect(JSON.stringify(r)).not.toContain(f.actor.subject);
+  });
+  it("gives the daily route the single current verified pin and address, never a pending or ambiguous pin", async () => {
+    const f = await fixture();
+    const pin = (status: "verified" | "pending", latitude: number) =>
+      f.t.run((ctx) =>
+        ctx.db.insert("outletPins", {
+          outletId: f.ids.outlet,
+          latitude,
+          longitude: 121.05,
+          radiusMeters: 75,
+          source: "fixture",
+          status,
+          effectiveFrom: f.now - 50_000,
+          proposedBy: f.actor.subject,
+          proposedAt: f.now - 50_000,
+          createdAt: f.now - 50_000,
+        }),
+      );
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.ids.outlet, { address: "  12 Rizal Ave, Pasig  " }),
+    );
+    await pin("pending", 10);
+    const first = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+    });
+    expect(first.outlets[0]).toMatchObject({ address: "12 Rizal Ave, Pasig" });
+    expect(first.outlets[0]).not.toHaveProperty("latitude");
+    expect(first.outlets[0]).not.toHaveProperty("longitude");
+    const verified = await pin("verified", 14.58);
+    const second = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+    });
+    expect(second.outlets[0]).toMatchObject({
+      latitude: 14.58,
+      longitude: 121.05,
+    });
+    await f.t.run((ctx) =>
+      ctx.db.insert("plannedVisits", {
+        generationKey: "second-stop",
+        planId: f.ids.plan,
+        planVersion: 1,
+        planSlotId: f.ids.slot,
+        assigneeProfileId: f.ids.person,
+        outletId: f.ids.outlet,
+        serviceDate: f.day,
+        status: "planned",
+        approvedSnapshot: f.ids.snapshot,
+        requiredObjectives: [],
+        intents: [],
+        expectedDurationMinutes: 15,
+        generatedAt: f.now,
+      }),
+    );
+    const paged = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+      limit: 1,
+    });
+    expect(paged.nextPageCursor).toBeTruthy();
+    // A moved pin changes the signed manifest, so a half-finished download restarts.
+    await f.t.run((ctx) => ctx.db.patch(verified, { latitude: 14.59 }));
+    await expect(
+      f.caller.query(internal.mobile.bootstrap.snapshot, {
+        actor: f.actor,
+        pageCursor: paged.nextPageCursor!,
+        limit: 1,
+      }),
+    ).rejects.toThrow("rebootstrap_required");
+    const extra = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+    });
+    expect(extra.outlets[0]!.latitude).toBe(14.59);
+    await pin("verified", 14.6);
+    const ambiguous = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+    });
+    expect(ambiguous.outlets[0]).not.toHaveProperty("latitude");
+    expect(ambiguous.outlets[0]).not.toHaveProperty("longitude");
   });
   it("ships each visited account's Annex C call sheet once; an office edit forces a fresh snapshot", async () => {
     const f = await fixture();

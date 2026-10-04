@@ -4,7 +4,7 @@ import type { QueryCtx } from "../_generated/server";
 import { employeeAt, manilaDate } from "../coverage/validation";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
 import { capabilityRoles } from "../lib/capabilities";
-import { resolveOutletScopeAt } from "../outlets/validation";
+import { outletRows, resolveOutletScopeAt } from "../outlets/validation";
 import { activeAt } from "../org/validation";
 import type { AuthorizedDevice } from "./types";
 import {
@@ -30,6 +30,13 @@ export const outletDTO = v.object({
   id: v.string(),
   name: v.string(),
   routeId: v.union(v.string(), v.null()),
+  /** Daily route screen (AND-010); optional in contract v1, older servers omit them. */
+  code: v.optional(v.string()),
+  customerId: v.optional(v.string()),
+  address: v.optional(v.string()),
+  /** Current verified pin; both present or both absent. */
+  latitude: v.optional(v.number()),
+  longitude: v.optional(v.number()),
 });
 export const customerDTO = v.object({ id: v.string(), code: v.string() });
 export const routeDTO = v.union(
@@ -178,6 +185,21 @@ async function visitProjection(
       : null;
     cache.accounts.set(row.outletId, callSheet);
   }
+  // Navigation target: only an unambiguous current verified pin. Missing or conflicting
+  // pins send no coordinates (the phone falls back to the address), never a guess.
+  const pins = (await outletRows(ctx, "outletPins", row.outletId)).filter(
+    (p) =>
+      p.status === "verified" && activeAt(p.effectiveFrom, p.effectiveTo, now),
+  );
+  const pin =
+    pins.length === 1 &&
+    Number.isFinite(pins[0]!.latitude) &&
+    Math.abs(pins[0]!.latitude) <= 90 &&
+    Number.isFinite(pins[0]!.longitude) &&
+    Math.abs(pins[0]!.longitude) <= 180
+      ? pins[0]!
+      : null;
+  const address = current.outlet.address?.trim() || undefined;
   return {
     visit: {
       id: row._id,
@@ -188,12 +210,20 @@ async function visitProjection(
       intents: row.intents,
       sequence: slot.sequence,
     },
-    outlet: { id: s.outletId, name: s.outletName, routeId: s.routeId ?? null },
+    outlet: {
+      id: s.outletId,
+      name: s.outletName,
+      routeId: s.routeId ?? null,
+      code: s.outletCode,
+      ...(s.customerId ? { customerId: s.customerId } : {}),
+      ...(address ? { address } : {}),
+      ...(pin ? { latitude: pin.latitude, longitude: pin.longitude } : {}),
+    },
     customer: customer ? { id: customer._id, code: customer.code } : null,
     route:
       s.routeId && s.routeCode ? { id: s.routeId, code: s.routeCode } : null,
     callSheet: callSheet?.sheet ?? null,
-    stamp: `${callSheet?.stamp ?? ""}|${row._id}|${row.status}|${row._creationTime}|${row.generatedAt}|${JSON.stringify(s)}|${JSON.stringify(row.intents)}|${current.assignment?._id ?? ""}|${current.assignment?.routeId ?? ""}|${current.assignment?.sequence ?? ""}|${current.orgUnitId}|${current.outlet.status}|${customer?.code ?? ""}|${slot.sequence}`,
+    stamp: `${callSheet?.stamp ?? ""}|${row._id}|${row.status}|${row._creationTime}|${row.generatedAt}|${JSON.stringify(s)}|${JSON.stringify(row.intents)}|${current.assignment?._id ?? ""}|${current.assignment?.routeId ?? ""}|${current.assignment?.sequence ?? ""}|${current.orgUnitId}|${current.outlet.status}|${customer?.code ?? ""}|${slot.sequence}|${address ?? ""}|${pin?._id ?? ""}|${pin?.latitude ?? ""}|${pin?.longitude ?? ""}`,
   };
 }
 

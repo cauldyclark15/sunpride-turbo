@@ -124,6 +124,24 @@ class BootstrapTest {
             assertThrows(WireFailure::class.java) { BootstrapCodec.page(wire.toString()) }
         }
     }
+    @Test fun optionalRouteOutletFieldsAreValidatedAndOlderServersStillDecode() {
+        val outlet = BootstrapCodec.page(first).outlets.single()
+        val json = JSONObject(outlet.json)
+        assertEquals("OUT-0001", json.getString("code"))
+        assertEquals(14.5764, json.getDouble("latitude"), 0.0)
+        val bare = JSONObject(first).apply {
+            val o = getJSONArray("outlets").getJSONObject(0)
+            listOf("code", "address", "latitude", "longitude").forEach { o.remove(it) }
+        }
+        assertFalse(JSONObject(BootstrapCodec.page(bare.toString()).outlets.single().json).has("latitude"))
+        val bad = listOf<(JSONObject) -> Unit>(
+            { it.remove("longitude") }, { it.put("latitude", 91) }, { it.put("longitude", "121") },
+            { it.put("address", "") }, { it.put("customerId", 7) }, { it.put("code", 5) })
+        for (mutate in bad) {
+            val wire = JSONObject(first).apply { mutate(getJSONArray("outlets").getJSONObject(0)) }
+            assertThrows(WireFailure::class.java) { BootstrapCodec.page(wire.toString()) }
+        }
+    }
     private class Store : FieldStore {
         var snapshot: ScopedSnapshot? = null; var token: String? = "old"; var held = false; var swaps = 0
         override suspend fun stage(snapshot: ScopedSnapshot): String { this.snapshot = snapshot; return "generation" }

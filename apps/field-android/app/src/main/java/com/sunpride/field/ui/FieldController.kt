@@ -65,7 +65,29 @@ interface FieldBackend {
 
 data class VisitDisplay(val outlet: String, val planned: String, val status: String,
     val outletId: String = "", val plannedVisitId: String? = null, val intents: List<String> = emptyList(),
-    val sequence: Int? = null, val listPosition: Int? = null, val timeSpent: String? = null)
+    val sequence: Int? = null, val listPosition: Int? = null, val timeSpent: String? = null,
+    /** Daily route facts from the cached snapshot; absent when an older server omitted them. */
+    val outletCode: String? = null, val customerCode: String? = null, val address: String? = null,
+    val latitude: Double? = null, val longitude: Double? = null)
+/** Planned row + cached outlet/customer JSON → what Today and the daily route show. Pure for tests. */
+fun plannedVisitDisplay(row: SnapshotItem, outlets: Map<String, JSONObject>, customers: Map<String, String>): VisitDisplay {
+    val v = JSONObject(row.json)
+    val outlet = outlets[v.optString("outletId")]
+    fun text(key: String) = outlet?.takeIf { it.has(key) && !it.isNull(key) }?.opt(key)
+        ?.let { it as? String }?.takeIf { it.isNotBlank() }
+    fun number(key: String) = outlet?.takeIf { it.has(key) && !it.isNull(key) }?.opt(key)
+        ?.let { (it as? Number)?.toDouble() }?.takeIf { it.isFinite() }
+    val latitude = number("latitude")?.takeIf { it in -90.0..90.0 }
+    val longitude = number("longitude")?.takeIf { it in -180.0..180.0 }
+    val pinned = latitude != null && longitude != null
+    return VisitDisplay(outlet?.optString("name", "Outlet") ?: "Outlet unavailable", "Planned", "Scheduled",
+        v.getString("outletId"), v.getString("id"),
+        v.optJSONArray("intents")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
+        VisitCallRules.sequence(row), row.listPosition,
+        outletCode = text("code"), customerCode = text("customerId")?.let { customers[it] }?.takeIf { it.isNotBlank() },
+        address = text("address"), latitude = latitude.takeIf { pinned }, longitude = longitude.takeIf { pinned })
+}
+
 data class TodayData(val visits: List<VisitDisplay> = emptyList(), val lastSynced: Long? = null,
                      val stale: Boolean = true, val warning: String? = null, val updateRequired: Boolean = false,
                      val reviewCount: Int = 0, val queuedCount: Int = 0,
@@ -242,14 +264,10 @@ class LiveFieldBackend(
             val store = RoomFieldStore(db, StoreScope(subject, deviceId, fingerprint))
             return runBlocking {
                 val day = LocalDate.now(ZoneId.of("Asia/Manila")).toString()
-                val outlets = store.outlets().associate { it.id to JSONObject(it.json).optString("name", "Outlet") }
-                val visits = store.todaysVisits(day).map { row ->
-                    val v = JSONObject(row.json)
-                    VisitDisplay(outlets[v.optString("outletId")] ?: "Outlet unavailable", "Planned", "Scheduled",
-                        v.getString("outletId"), v.getString("id"),
-                        v.optJSONArray("intents")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
-                        VisitCallRules.sequence(row), row.listPosition)
-                }
+                val outletRows = store.outlets().associate { it.id to JSONObject(it.json) }
+                val outlets = outletRows.mapValues { it.value.optString("name", "Outlet") }
+                val customers = store.customers().associate { it.id to JSONObject(it.json).optString("code") }
+                val visits = store.todaysVisits(day).map { row -> plannedVisitDisplay(row, outletRows, customers) }
                 val history = store.history()
                 val decorated = visits.map { visit ->
                     val own = history.filter { (intent, _) ->

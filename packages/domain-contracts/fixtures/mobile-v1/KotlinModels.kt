@@ -110,7 +110,17 @@ data class BootstrapResponseOutletsItem(
   // schema-field: bootstrapResponse.outlets[].name
   val name: String,
   // schema-field: bootstrapResponse.outlets[].routeId
-  val routeId: String?
+  val routeId: String?,
+  // schema-field: bootstrapResponse.outlets[].code
+  val code: OptionalField<String>,
+  // schema-field: bootstrapResponse.outlets[].customerId
+  val customerId: OptionalField<String>,
+  // schema-field: bootstrapResponse.outlets[].address
+  val address: OptionalField<String>,
+  // schema-field: bootstrapResponse.outlets[].latitude
+  val latitude: OptionalField<Double>,
+  // schema-field: bootstrapResponse.outlets[].longitude
+  val longitude: OptionalField<Double>
 )
 // schema-object: bootstrapResponse.localCustomers[]
 data class BootstrapResponseLocalCustomersItem(

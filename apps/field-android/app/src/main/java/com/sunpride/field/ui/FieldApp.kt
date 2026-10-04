@@ -43,6 +43,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
+import androidx.core.net.toUri
 import com.sunpride.field.AppEnvironment
 import com.sunpride.field.BuildConfig
 import com.sunpride.field.auth.EnrollmentState
@@ -100,24 +101,27 @@ fun FieldApp(
                 Column {
                 Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 20.dp),
                     horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    if (controller.diagnostic != null && ready && page == "home") Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (controller.diagnostic != null && ready && (page == "home" || page == "route")) Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = {
                             if (controller.callSheetOpen) controller.closeCallSheet() else controller.closeDiagnostic()
                         }, modifier = Modifier.height(48.dp).testTag("visit-back")) {
                             Text("‹", style = MaterialTheme.typography.titleLarge)
                         }
                         Text(if (controller.callSheetOpen) "Call sheet" else "Visit", style = MaterialTheme.typography.titleMedium)
-                    } else if (page == "account" || page == "sync" || page == "support") Row(verticalAlignment = Alignment.CenterVertically) {
+                    } else if (page == "account" || page == "sync" || page == "support" || (page == "route" && ready)) Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { page = if (page == "support") "account" else "home" },
                             modifier = Modifier.height(48.dp).testTag(when (page) {
-                                "sync" -> "sync-back"; "support" -> "support-back"; else -> "account-back"
+                                "sync" -> "sync-back"; "support" -> "support-back"; "route" -> "route-back"; else -> "account-back"
                             })) {
                             Text("‹", style = MaterialTheme.typography.titleLarge)
                         }
                         Text(when (page) {
-                            "sync" -> "Sync"; "support" -> "Support info"; else -> "Account"
+                            "sync" -> "Sync"; "support" -> "Support info"; "route" -> "Route"; else -> "Account"
                         }, style = MaterialTheme.typography.titleMedium,
-                            modifier = if (page == "account") Modifier.testTag("account-title") else Modifier)
+                            modifier = when (page) {
+                                "account" -> Modifier.testTag("account-title"); "route" -> Modifier.testTag("route-title")
+                                else -> Modifier
+                            })
                     } else Text("Sunpride Field", style = MaterialTheme.typography.titleMedium)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (controller.state != EnrollmentState.SignedOut) IconButton(onClick = { page = "account" },
@@ -144,9 +148,13 @@ fun FieldApp(
                     com.sunpride.field.ui.diagnosticvisit.CallSheetScreen(controller.diagnosticCallSheet!!, controller, modifier)
                 controller.diagnostic != null && debug && ready -> com.sunpride.field.ui.diagnosticvisit.DiagnosticVisitScreen(
                     controller.diagnostic!!, controller, location, controller::closeDiagnostic, modifier)
+                ready && page == "route" -> com.sunpride.field.ui.route.RouteScreen(controller.today, location,
+                    onNavigate = { uri -> openMaps(context, uri) }, modifier = modifier,
+                    onVisit = controller::openDiagnostic, visitEnabled = debug, offline = offline)
                 ready -> TodayScreen(controller.today, controller.busy,
                     onSync = controller::syncNow, onSignOut = controller::signOut,
-                    onVisit = controller::openDiagnostic, diagnosticEnabled = debug, modifier = modifier, offline = offline)
+                    onVisit = controller::openDiagnostic, diagnosticEnabled = debug, modifier = modifier, offline = offline,
+                    onRoute = { page = "route" })
                 else -> EnrollmentScreen(controller.state, controller.key, controller.busy, controller.error,
                     onCheck = { controller.checkAgain() }, onSignOut = { controller.signOut() }, modifier = modifier,
                     unsent = status.queued + status.sending + status.review + status.held)
@@ -154,6 +162,13 @@ fun FieldApp(
         }
     }
 }
+
+/** Hands a `geo:` URI to the user's maps app; false when none is installed. */
+private fun openMaps(context: Context, uri: String): Boolean = try {
+    context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri.toUri())
+        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+    true
+} catch (_: android.content.ActivityNotFoundException) { false }
 
 private object UnconfiguredBackend : FieldBackend {
     override val isSignedIn = false
@@ -194,7 +209,7 @@ private fun SignInScreen(environment: AppEnvironment, busy: Boolean, error: Stri
 @Composable
 fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: () -> Unit,
     modifier: Modifier = Modifier, onVisit: (VisitDisplay) -> Unit = {}, diagnosticEnabled: Boolean = false,
-    offline: Boolean = false) {
+    offline: Boolean = false, onRoute: (() -> Unit)? = null) {
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())
         .padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Today", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.testTag("today-title"))
@@ -202,6 +217,12 @@ fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: (
             java.time.format.DateTimeFormatter.ofPattern("EEE, MMM d", java.util.Locale.ENGLISH)),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (onRoute != null && data.visits.isNotEmpty()) SectionCard("Route") {
+            val next = com.sunpride.field.ui.route.DailyRoutes.build(data.visits, null).next
+            ListRow(next?.let { "Next: ${it.visit.outlet}" } ?: "All stops done",
+                "${data.visits.size} stops · distance and directions", "route", Modifier.testTag("route-open"),
+                onClick = onRoute)
+        }
         SectionCard("Visits · ${data.visits.size}") {
             if (data.visits.isEmpty()) Text("No visits today", Modifier.padding(16.dp).testTag("today-empty"))
             data.visits.withIndex().sortedBy { it.value.sequence ?: it.value.listPosition ?: it.index }.forEach { (_, visit) ->
