@@ -120,6 +120,8 @@ import type * as supervision_activity from "../supervision/activity.js";
 import type * as supervision_exceptions from "../supervision/exceptions.js";
 import type * as supervision_model from "../supervision/model.js";
 import type * as supervision_team from "../supervision/team.js";
+import type * as supervision_trainer_forms from "../supervision/trainer_forms.js";
+import type * as supervision_trainer_forms_model from "../supervision/trainer_forms_model.js";
 import type * as supervision_work_with from "../supervision/work_with.js";
 import type * as supervision_work_with_model from "../supervision/work_with_model.js";
 import type * as targets_model from "../targets/model.js";
@@ -260,6 +262,8 @@ declare const fullApi: ApiFromModules<{
   "supervision/exceptions": typeof supervision_exceptions;
   "supervision/model": typeof supervision_model;
   "supervision/team": typeof supervision_team;
+  "supervision/trainer_forms": typeof supervision_trainer_forms;
+  "supervision/trainer_forms_model": typeof supervision_trainer_forms_model;
   "supervision/work_with": typeof supervision_work_with;
   "supervision/work_with_model": typeof supervision_work_with_model;
   "targets/model": typeof targets_model;

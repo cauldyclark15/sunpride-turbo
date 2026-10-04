@@ -16,6 +16,7 @@ import {
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { useState } from "react";
+import { SessionTrainerForms } from "../training/trainer-forms";
 import type { SupervisionFilters } from "./supervision-model";
 import {
   cadenceCell,
@@ -769,15 +770,18 @@ function SessionEditor({
   if (detail === undefined)
     return <span className="text-[13px] text-muted">Loading session…</span>;
   return (
-    <WorkWithEditorView
-      // Re-seed the form when the session closes elsewhere.
-      key={`${sessionId}-${detail.session.status}`}
-      detail={detail}
-      save={save}
-      complete={complete}
-      cancel={cancel}
-      onClose={onClose}
-    />
+    <div className="grid gap-4">
+      <WorkWithEditorView
+        // Re-seed the form when the session closes elsewhere.
+        key={`${sessionId}-${detail.session.status}`}
+        detail={detail}
+        save={save}
+        complete={complete}
+        cancel={cancel}
+        onClose={onClose}
+      />
+      <SessionTrainerForms sessionId={sessionId} />
+    </div>
   );
 }
 
