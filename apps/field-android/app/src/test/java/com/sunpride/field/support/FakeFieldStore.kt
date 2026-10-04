@@ -40,6 +40,7 @@ class FakeFieldStore(val identity: StoreScope) : FieldStore {
         check(isLeaseValid(now))
         CallSheetQueueRules.validate(this, intent)
         ActivityQueueRules.validate(this, intent)
+        com.sunpride.field.orders.OrderQueueRules.validate(this, intent)
         check(rows.none { it.first.requestId == intent.requestId })
         val at = maxOf(intent.createdAt, (rows.maxOfOrNull { it.second.createdAt } ?: Long.MIN_VALUE) + 1)
         rows += intent.copy(createdAt = at) to OutboxRow(intent.account, intent.deviceId, intent.scope, intent.requestId, at)
@@ -89,6 +90,20 @@ class FakeFieldStore(val identity: StoreScope) : FieldStore {
     }
     override suspend fun discardOrderDraft(draftId: String) {
         if (held) throw com.sunpride.field.orders.OrderDraftFailure(com.sunpride.field.orders.OrderDraftFailure.Code.HELD)
+        val existing = drafts[draftId] ?: error("Unknown draft")
+        if (existing.submittedRequestId != null)
+            throw com.sunpride.field.orders.OrderDraftFailure(com.sunpride.field.orders.OrderDraftFailure.Code.SUBMITTED)
         check(drafts.remove(draftId) != null)
+    }
+    /** Same all-or-nothing contract as Room: a failed enqueue leaves the draft editable. */
+    override suspend fun submitOrderDraft(draftId: String, intent: IntentRow, now: Long) {
+        if (held) throw com.sunpride.field.orders.OrderDraftFailure(com.sunpride.field.orders.OrderDraftFailure.Code.HELD)
+        if (!isLeaseValid(now))
+            throw com.sunpride.field.orders.OrderDraftFailure(com.sunpride.field.orders.OrderDraftFailure.Code.OFFLINE_EXPIRED)
+        val existing = drafts[draftId] ?: error("Unknown draft")
+        if (existing.submittedRequestId != null)
+            throw com.sunpride.field.orders.OrderDraftFailure(com.sunpride.field.orders.OrderDraftFailure.Code.SUBMITTED)
+        enqueue(intent, now)
+        drafts[draftId] = existing.copy(submittedRequestId = intent.requestId, submittedAt = now)
     }
 }

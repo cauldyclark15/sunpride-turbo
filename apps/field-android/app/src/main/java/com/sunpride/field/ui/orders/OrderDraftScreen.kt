@@ -65,8 +65,8 @@ fun OrderDraftScreen(visit: VisitDisplay, sheet: CallSheet, controller: FieldCon
                     modifier = Modifier.testTag("order-title"))
                 Text(orderAssociation(visit, draft), style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("order-association"))
-                Text("Saved on this phone. Review and send come next. Prices are set by the office; " +
-                    "this draft records quantities only.", style = MaterialTheme.typography.bodySmall,
+                Text("Saved on this phone until you review and send it. Prices are set by the office; " +
+                    "this order records quantities only.", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("order-price-note"))
             }
             item {
@@ -126,7 +126,11 @@ fun OrderDraftScreen(visit: VisitDisplay, sheet: CallSheet, controller: FieldCon
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (draft != null) SecondaryButton("Discard", { controller.discardOrderDraft() },
                 Modifier.weight(1f).testTag("order-discard"), !controller.busy, danger = true)
-            PrimaryBottomButton("Save draft", { controller.saveOrderDraft(quantities) },
+            // SP-0060: once the screen matches the saved draft, the next step is review.
+            val unsaved = draft == null || quantities.toSet() != draft.lines.map { it.productId to it.quantity }.toSet()
+            if (!unsaved && stale.isEmpty()) PrimaryBottomButton("Review order", { controller.openOrderReview() },
+                Modifier.weight(1f).testTag("order-review"), !controller.busy)
+            else PrimaryBottomButton("Save draft", { controller.saveOrderDraft(quantities) },
                 Modifier.weight(1f).testTag("order-save"), !controller.busy && !invalid && quantities.isNotEmpty())
         }
     }

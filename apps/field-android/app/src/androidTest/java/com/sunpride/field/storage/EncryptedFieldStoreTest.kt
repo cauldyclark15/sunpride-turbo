@@ -397,4 +397,40 @@ class EncryptedFieldStoreTest {
         assertThrows(IllegalStateException::class.java) { runBlocking { store().discardOrderDraft(one.draftId) } }
         Unit
     }
+
+    /** SP-0060: queueing the order and freezing its draft commit together in SQLCipher, or not at all. */
+    @Test fun submittedOrderQueuesAtomicallyAndSurvivesReopen() = runBlocking {
+        val check = orderReady()
+        val draft = com.sunpride.field.ui.saveOrderDraftIn(store(), null, check.clientVisitId, check.requestId,
+            listOf("product-1" to 7), 500)
+        // A request whose lines differ from the draft rolls back: nothing queued, draft still editable.
+        val forged = com.sunpride.field.orders.OrderSubmission.intent(scope,
+            draft.copy(lines = listOf(draft.lines.single().copy(quantity = 8))), check.requestId, 600)
+        assertTrue(runCatching { store().submitOrderDraft(draft.draftId, forged, 600) }.isFailure)
+        assertEquals(listOf("visit.checkIn"), store().history().map { it.first.kind })
+        assertNull(store().orderDrafts().single().submittedRequestId)
+
+        val sent = com.sunpride.field.orders.submitOrderDraftIn(store(), scope, draft.draftId, check.requestId, 600)
+        db.close(); db = EncryptedFieldDatabase.open(context)
+        val stored = store().orderDrafts().single()
+        assertEquals(sent, stored)
+        val queued = store().pending().last().first
+        assertEquals(stored.submittedRequestId, queued.requestId)
+        val activity = org.json.JSONObject(queued.serializedOperation).getJSONObject("payload").getJSONObject("activity")
+        assertEquals("order_intent", activity.getString("kind")); assertEquals(draft.draftId, activity.getString("clientOrderId"))
+        assertEquals(com.sunpride.field.orders.OrderStatus.QUEUED,
+            com.sunpride.field.orders.OrderSubmission.status(stored, store().history().map { it.first to it.second.state }))
+        // Sent orders never queue twice, change or disappear.
+        for (attempt in listOf<suspend () -> Unit>(
+            { com.sunpride.field.orders.submitOrderDraftIn(store(), scope, draft.draftId, queued.requestId, 700) },
+            { com.sunpride.field.ui.saveOrderDraftIn(store(), draft.draftId, check.clientVisitId, check.requestId, listOf("product-1" to 1), 700) },
+            { store().discardOrderDraft(draft.draftId) })) {
+            val e = runCatching { attempt() }.exceptionOrNull() as com.sunpride.field.orders.OrderDraftFailure
+            assertEquals(com.sunpride.field.orders.OrderDraftFailure.Code.SUBMITTED, e.code)
+        }
+        assertEquals(2, store().history().size)
+        store().recordAck(queued.requestId, "server-activity", "[]", 1)
+        assertEquals(com.sunpride.field.orders.OrderStatus.RECEIVED,
+            com.sunpride.field.orders.OrderSubmission.status(stored, store().history().map { it.first to it.second.state }))
+    }
 }

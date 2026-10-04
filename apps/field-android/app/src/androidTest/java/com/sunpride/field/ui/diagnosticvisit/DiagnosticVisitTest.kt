@@ -92,6 +92,16 @@ class DiagnosticVisitTest {
             val store = scoped()
             try { runBlocking { store.discardOrderDraft(draftId) } } finally { store.close() }
         }
+        override fun orderChecks(draftId: String): List<com.sunpride.field.orders.OrderCheck> {
+            val store = scoped()
+            return try { runBlocking { com.sunpride.field.orders.OrderSubmission.checks(store,
+                store.orderDrafts().single { it.draftId == draftId }, System.currentTimeMillis()) } } finally { store.close() }
+        }
+        override fun submitOrderDraft(draftId: String, previousRequestId: String): com.sunpride.field.orders.OrderDraft {
+            val store = scoped()
+            return try { runBlocking { com.sunpride.field.orders.submitOrderDraftIn(store, identity, draftId,
+                previousRequestId, System.currentTimeMillis()) } } finally { store.close() }
+        }
         override fun queueVisit(kind: String, clientVisitId: String?, checkInRequestId: String?, previousRequestId: String?,
             plannedVisitId: String?, outletId: String, intents: List<String>, unplannedReason: String?, note: String?,
             outcome: String?, reasonCode: String?, location: JSONObject?) {
@@ -221,6 +231,68 @@ class DiagnosticVisitTest {
         rule.onNodeWithTag("order-discard").performClick()
         rule.waitUntil(10_000) { backend.orderDrafts().isEmpty() }
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("order-new").fetchSemanticsNodes().isNotEmpty() }
+    }
+    /** SP-0060: save → review totals and checks → send queues one order; the order then shows its status. */
+    @Test fun reviewAndSendOrderQueuesItOnceAndShowsStatus() {
+        val sheet = CallSheet("outlet-1", 1, CallSheetHeader("Test account", null, null, null, null, null, null, null, null, "SRP"),
+            listOf(CallSheetProduct("product-1", "SKU-1", "Sunpride Hotdog 1kg", "PC", null, null),
+                CallSheetProduct("product-2", "SKU-2", "Holiday Corned Beef 150g", "CAN", null, null)))
+        val outlet = JSONObject().put("id", "outlet-1").put("name", "Test outlet").put("routeId", "route-1")
+            .put("customerId", "customer-1").put("territoryId", "territory-1").put("territoryCode", "PASIG-01")
+        val store = scoped()
+        runBlocking {
+            store.swap(store.stage(ScopedSnapshot("{\"id\":\"test\"}", null, emptyList(),
+                listOf(SnapshotItem("outlet-1", outlet.toString())),
+                listOf(SnapshotItem("customer-1", "{\"id\":\"customer-1\",\"code\":\"CUST-1\"}")), emptyList(),
+                listOf(sheet))), "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
+        }
+        store.close()
+        val backend = Backend()
+        val location = object : VisitLocation { override val requiresPermission = false; override suspend fun fix(): JSONObject? = null }
+        rule.setContent { FieldApp(AppEnvironment("https://team.convex.site", "https://team.convex.cloud"),
+            dark = false, debug = true, backend = backend, visitLocation = location) }
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-open").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("diagnostic-open").performClick()
+        backend.queueVisit("visit.checkIn", null, null, null, "planned-1", "outlet-1", emptyList(), null, null, null, null, null)
+        rule.onNodeWithTag("visit-back").performClick()
+        rule.onNodeWithTag("diagnostic-open").performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("order-new").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("order-new").performScrollTo().performClick()
+        rule.onNodeWithTag("order-products").performScrollToNode(hasTestTag("order-qty-product-1"))
+        rule.onNodeWithTag("order-qty-product-1").performTextInput("24")
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
+        rule.onNodeWithTag("order-products").performScrollToNode(hasTestTag("order-qty-product-2"))
+        rule.onNodeWithTag("order-qty-product-2").performTextInput("12")
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
+        rule.onNodeWithTag("order-save").assertIsEnabled().performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("order-review").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("order-review").performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("order-check-ok").fetchSemanticsNodes().size == 5 }
+        rule.onNodeWithTag("order-review-title").assertTextContains("Review order")
+        rule.onNodeWithTag("order-totals").assertTextContains("2 products · 24 PC · 12 CAN")
+        rule.onNodeWithTag("order-amount").assertTextContains("priced by the office", substring = true)
+        rule.onNodeWithTag("order-status").assertTextContains("Draft · not sent")
+        rule.waitForIdle(); Thread.sleep(350)
+        com.sunpride.field.captureCalmScreenshot("light-order-review")
+        rule.onNodeWithTag("order-submit").assertIsEnabled().performClick()
+        rule.waitUntil(10_000) { backend.visitStates().any { it.first.kind == "visit.activity" } }
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("order-status").assertTextContains("Waiting to send") }.isSuccess }
+        rule.onNodeWithTag("order-submit").assertDoesNotExist()
+        rule.waitForIdle(); Thread.sleep(350)
+        com.sunpride.field.captureCalmScreenshot("light-order-sent")
+        val queued = backend.visitStates().single { it.first.kind == "visit.activity" }.first
+        val activity = JSONObject(queued.serializedOperation).getJSONObject("payload").getJSONObject("activity")
+        assertEquals("order_intent", activity.getString("kind"))
+        assertEquals(listOf("product-1" to 24, "product-2" to 12), (0 until activity.getJSONArray("lines").length()).map {
+            activity.getJSONArray("lines").getJSONObject(it).let { l -> l.getString("productId") to l.getInt("quantity") } })
+        assertEquals(queued.requestId, backend.orderDrafts().single().submittedRequestId)
+        // Back closes the sent order; the visit lists it with its status and nothing is left unsent.
+        rule.onNodeWithTag("visit-back").performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("order-sent").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("order-sent").performScrollTo().assertTextContains("Waiting to send", substring = true)
+        rule.onNodeWithTag("order-unsent").assertDoesNotExist()
+        rule.onNodeWithTag("activity-order_intent").assertDoesNotExist() // no office rule asks for an order here
+        assertEquals(2, backend.visitStates().size)
     }
     @After fun cleanup() { KeystoreDeviceKey.delete(alias) }
     /** AND-013: an unplanned multi-purpose visit fills the backend-required forms before a completed End. */

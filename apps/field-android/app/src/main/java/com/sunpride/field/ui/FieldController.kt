@@ -74,6 +74,10 @@ interface FieldBackend {
     fun saveOrderDraft(draftId: String?, clientVisitId: String, checkInRequestId: String,
         quantities: List<Pair<String, Int>>): OrderDraft = error("No local store")
     fun discardOrderDraft(draftId: String) { error("No local store") }
+    /** SP-0060: the review screen's locally checkable rules for one draft. */
+    fun orderChecks(draftId: String): List<com.sunpride.field.orders.OrderCheck> = emptyList()
+    /** Queue the reviewed draft's order after [previousRequestId] and mark it sent, in one transaction. */
+    fun submitOrderDraft(draftId: String, previousRequestId: String): OrderDraft = error("No local store")
     val cachedDeviceId: String? get() = null
 }
 
@@ -220,6 +224,19 @@ class LiveFieldBackend(
         saveOrderDraftIn(it, draftId, clientVisitId, checkInRequestId, quantities, System.currentTimeMillis())
     }
     override fun discardOrderDraft(draftId: String) = withStore { it.discardOrderDraft(draftId) }
+    override fun orderChecks(draftId: String): List<com.sunpride.field.orders.OrderCheck> = withStore { store ->
+        val draft = store.orderDrafts().firstOrNull { it.draftId == draftId } ?: return@withStore emptyList()
+        com.sunpride.field.orders.OrderSubmission.checks(store, draft, System.currentTimeMillis())
+    }
+    override fun submitOrderDraft(draftId: String, previousRequestId: String): OrderDraft {
+        val scope = storedScope() ?: error("No verified local partition")
+        val sent = withStore {
+            com.sunpride.field.orders.submitOrderDraftIn(it, scope, draftId, previousRequestId, System.currentTimeMillis())
+        }
+        // Only after the committed transaction: a scheduler failure cannot uncommit the queued order.
+        runCatching { com.sunpride.field.sync.work.SyncWork.enqueue(context) }
+        return sent
+    }
     private fun sessionKey(): String? = vault.readSession()?.let {
         MessageDigest.getInstance("SHA-256").digest(it.toByteArray(Charsets.UTF_8))
             .joinToString("") { b -> "%02x".format(b.toInt() and 255) }
@@ -429,19 +446,67 @@ class FieldController(
         selectedIntents = if (intent in selectedIntents) selectedIntents - intent
             else com.sunpride.field.storage.ActivityRules.INTENTS.filter { it in selectedIntents || it == intent }
     }
-    fun openOrder(draftId: String? = null) = scope.launch(ui) { orderOpen = true; orderDraftId = draftId; diagnosticError = null }
-    fun closeOrder() = scope.launch(ui) { orderOpen = false; orderDraftId = null; diagnosticError = null }
+    /** SP-0060: review step of the open draft, and its locally checked rules. */
+    var orderReview by mutableStateOf(false); private set
+    var orderChecks by mutableStateOf<List<com.sunpride.field.orders.OrderCheck>>(emptyList()); private set
+    /** A sent order opens straight to its read-only review/status. */
+    fun openOrder(draftId: String? = null) = scope.launch(ui) {
+        orderOpen = true; orderDraftId = draftId; diagnosticError = null
+        orderReview = draftId != null && visitOrderDrafts.firstOrNull { it.draftId == draftId }?.submittedRequestId != null
+        if (orderReview) loadOrderChecks()
+    }
+    fun closeOrder() = scope.launch(ui) {
+        orderOpen = false; orderDraftId = null; orderReview = false; orderChecks = emptyList(); diagnosticError = null
+    }
+    fun openOrderReview() = scope.launch(ui) {
+        if (orderDraftId == null) return@launch
+        orderReview = true; diagnosticError = null; loadOrderChecks()
+    }
+    fun closeOrderReview() = scope.launch(ui) {
+        orderReview = false; orderChecks = emptyList(); diagnosticError = null
+        // A sent order has no editor to go back to.
+        if (openOrderDraft?.submittedRequestId != null) { orderOpen = false; orderDraftId = null }
+    }
+    private suspend fun loadOrderChecks() {
+        val id = orderDraftId ?: return
+        orderChecks = runCatching { withContext(io) { backend.orderChecks(id) } }.getOrDefault(emptyList())
+    }
+    /** What the person sees about a draft's journey to the office (outbox state). */
+    fun orderStatus(draft: OrderDraft) = com.sunpride.field.orders.OrderSubmission.status(draft, diagnosticRows)
+    /** Submit the reviewed draft: queue its order request behind the call's latest request. */
+    fun submitOrder() = scope.launch(ui) {
+        val visit = diagnostic ?: return@launch
+        val id = orderDraftId ?: return@launch
+        if (busy) return@launch
+        busy = true; diagnosticError = null
+        try {
+            refreshDiagnostic() // Re-read before enforcing, never trust a stale screen projection.
+            val draft = visitOrderDrafts.firstOrNull { it.draftId == id } ?: throw OrderDraftFailure(OrderDraftFailure.Code.CALL_NOT_OPEN)
+            if (draft.submittedRequestId != null) throw OrderDraftFailure(OrderDraftFailure.Code.SUBMITTED)
+            val related = diagnosticRows.filter { it.first.clientVisitId == draft.clientVisitId }
+            if (related.any { it.first.kind == "visit.checkOut" }) throw OrderDraftFailure(OrderDraftFailure.Code.CALL_ENDED)
+            val previous = related.lastOrNull()?.first?.requestId ?: throw OrderDraftFailure(OrderDraftFailure.Code.CALL_NOT_OPEN)
+            withContext(io) { backend.submitOrderDraft(id, previous) }
+            refreshDiagnostic(); loadToday(sync = false)
+        } catch (e: OrderDraftFailure) { diagnosticError = e.code.text }
+        catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (_: Exception) { diagnosticError = "Could not send the order. Check the lines and try again." }
+        finally {
+            busy = false
+            if (diagnostic == visit) loadOrderChecks()
+        }
+    }
     fun openDiagnostic(visit: VisitDisplay) = scope.launch(ui) {
         diagnostic = visit; diagnosticError = null; diagnosticFailure = null
         callSheetOpen = false; diagnosticCallSheet = null; activityForm = null; selectedIntents = emptyList()
-        orderOpen = false; orderDraftId = null; visitOrderDrafts = emptyList()
+        orderOpen = false; orderDraftId = null; visitOrderDrafts = emptyList(); orderReview = false; orderChecks = emptyList()
         refreshDiagnostic()
     }
     var diagnosticFailure by mutableStateOf<VisitRuleFailure.Code?>(null); private set
     fun closeDiagnostic() = scope.launch(ui) {
         diagnostic = null; diagnosticError = null; diagnosticFailure = null; callSheetOpen = false; diagnosticCallSheet = null
         activityForm = null; selectedIntents = emptyList()
-        orderOpen = false; orderDraftId = null; visitOrderDrafts = emptyList()
+        orderOpen = false; orderDraftId = null; visitOrderDrafts = emptyList(); orderReview = false; orderChecks = emptyList()
     }
     private fun openCheckIn(visit: VisitDisplay) = relatedCall(visit).lastOrNull { (row, state) ->
         row.kind == "visit.checkIn" && state != "review"

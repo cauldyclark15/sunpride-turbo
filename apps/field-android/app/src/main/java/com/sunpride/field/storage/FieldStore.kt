@@ -67,6 +67,11 @@ interface FieldStore {
     suspend fun saveOrderDraft(draft: com.sunpride.field.orders.OrderDraft): Unit = error("Order drafts unavailable")
     /** The salesperson discards their own unsent draft; a held partition stays frozen. */
     suspend fun discardOrderDraft(draftId: String): Unit = error("Order drafts unavailable")
+    /**
+     * SP-0060: enqueue the reviewed draft's `order_intent` [intent] and mark the draft sent in ONE
+     * transaction, so a crash never leaves a queued order with an editable draft (or the reverse).
+     */
+    suspend fun submitOrderDraft(draftId: String, intent: IntentRow, now: Long): Unit = error("Order drafts unavailable")
     fun close() {}
 }
 
@@ -224,6 +229,7 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             }
             CallSheetQueueRules.validate(this@RoomFieldStore, intent)
             ActivityQueueRules.validate(this@RoomFieldStore, intent)
+            com.sunpride.field.orders.OrderQueueRules.validate(this@RoomFieldStore, intent)
             val orderedAt = maxOf(intent.createdAt, (dao.latestCreatedAt(a, d, s) ?: Long.MIN_VALUE) + 1)
             dao.insertIntent(intent.copy(createdAt = orderedAt))
             checkpoint()
@@ -318,7 +324,25 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
     override suspend fun discardOrderDraft(draftId: String) {
         db.withTransaction {
             if (metadata().held) throw com.sunpride.field.orders.OrderDraftFailure(com.sunpride.field.orders.OrderDraftFailure.Code.HELD)
+            val existing = dao.orderDraft(a, d, s, draftId) ?: error("Unknown draft")
+            if (com.sunpride.field.orders.OrderDraftCodec.decode(existing.json).submittedRequestId != null)
+                throw com.sunpride.field.orders.OrderDraftFailure(com.sunpride.field.orders.OrderDraftFailure.Code.SUBMITTED)
             check(dao.deleteOrderDraft(a, d, s, draftId) == 1) { "Unknown draft" }
+        }
+    }
+    override suspend fun submitOrderDraft(draftId: String, intent: IntentRow, now: Long) {
+        db.withTransaction {
+            if (metadata().held) throw com.sunpride.field.orders.OrderDraftFailure(com.sunpride.field.orders.OrderDraftFailure.Code.HELD)
+            if (!isLeaseValid(now))
+                throw com.sunpride.field.orders.OrderDraftFailure(com.sunpride.field.orders.OrderDraftFailure.Code.OFFLINE_EXPIRED)
+            val existing = dao.orderDraft(a, d, s, draftId)?.let { com.sunpride.field.orders.OrderDraftCodec.decode(it.json) }
+                ?: error("Unknown draft")
+            if (existing.submittedRequestId != null)
+                throw com.sunpride.field.orders.OrderDraftFailure(com.sunpride.field.orders.OrderDraftFailure.Code.SUBMITTED)
+            enqueue(intent, now) // OrderQueueRules re-checks the request against this unsent draft.
+            val sent = existing.copy(submittedRequestId = intent.requestId, submittedAt = now)
+            dao.putOrderDraft(OrderDraftRow(a, d, s, sent.draftId, sent.clientVisitId, sent.outletId, sent.serviceDate,
+                com.sunpride.field.orders.OrderDraftCodec.encode(sent), sent.createdAt, sent.updatedAt))
         }
     }
     override suspend fun holdForReview() {
