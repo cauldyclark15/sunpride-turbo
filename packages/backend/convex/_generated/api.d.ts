@@ -114,6 +114,8 @@ import type * as supervision_activity from "../supervision/activity.js";
 import type * as supervision_exceptions from "../supervision/exceptions.js";
 import type * as supervision_model from "../supervision/model.js";
 import type * as supervision_team from "../supervision/team.js";
+import type * as targets_model from "../targets/model.js";
+import type * as targets_sales from "../targets/sales.js";
 import type * as teams_mutations from "../teams/mutations.js";
 import type * as teams_queries from "../teams/queries.js";
 import type * as teams_validation from "../teams/validation.js";
@@ -243,6 +245,8 @@ declare const fullApi: ApiFromModules<{
   "supervision/exceptions": typeof supervision_exceptions;
   "supervision/model": typeof supervision_model;
   "supervision/team": typeof supervision_team;
+  "targets/model": typeof targets_model;
+  "targets/sales": typeof targets_sales;
   "teams/mutations": typeof teams_mutations;
   "teams/queries": typeof teams_queries;
   "teams/validation": typeof teams_validation;
