@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 6,
-    "identityHash": "b42df671d2499a334057f9aaf22258df",
+    "identityHash": "39d40e34bbe4d5156442fd73b87c454a",
     "entities": [
       {
         "tableName": "snapshots",
@@ -568,8 +568,8 @@
         }
       },
       {
-        "tableName": "order_drafts",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`account` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `scope` TEXT NOT NULL, `draftId` TEXT NOT NULL, `clientVisitId` TEXT NOT NULL, `outletId` TEXT NOT NULL, `serviceDate` TEXT NOT NULL, `json` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`account`, `deviceId`, `scope`, `draftId`))",
+        "tableName": "evidence_photos",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`account` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `scope` TEXT NOT NULL, `localId` TEXT NOT NULL, `clientVisitId` TEXT NOT NULL, `checkInRequestId` TEXT NOT NULL, `outletId` TEXT NOT NULL, `photoType` TEXT NOT NULL, `mime` TEXT NOT NULL, `sizeBytes` INTEGER NOT NULL, `sha256` TEXT NOT NULL, `capturedAt` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `state` TEXT NOT NULL, `attempts` INTEGER NOT NULL, `evidenceId` TEXT, `reviewCode` TEXT, `uploadedAt` INTEGER, PRIMARY KEY(`account`, `deviceId`, `scope`, `localId`))",
         "fields": [
           {
             "fieldPath": "account",
@@ -590,8 +590,8 @@
             "notNull": true
           },
           {
-            "fieldPath": "draftId",
-            "columnName": "draftId",
+            "fieldPath": "localId",
+            "columnName": "localId",
             "affinity": "TEXT",
             "notNull": true
           },
@@ -602,21 +602,45 @@
             "notNull": true
           },
           {
+            "fieldPath": "checkInRequestId",
+            "columnName": "checkInRequestId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
             "fieldPath": "outletId",
             "columnName": "outletId",
             "affinity": "TEXT",
             "notNull": true
           },
           {
-            "fieldPath": "serviceDate",
-            "columnName": "serviceDate",
+            "fieldPath": "photoType",
+            "columnName": "photoType",
             "affinity": "TEXT",
             "notNull": true
           },
           {
-            "fieldPath": "json",
-            "columnName": "json",
+            "fieldPath": "mime",
+            "columnName": "mime",
             "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sizeBytes",
+            "columnName": "sizeBytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sha256",
+            "columnName": "sha256",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "capturedAt",
+            "columnName": "capturedAt",
+            "affinity": "INTEGER",
             "notNull": true
           },
           {
@@ -626,10 +650,31 @@
             "notNull": true
           },
           {
-            "fieldPath": "updatedAt",
-            "columnName": "updatedAt",
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "attempts",
+            "columnName": "attempts",
             "affinity": "INTEGER",
             "notNull": true
+          },
+          {
+            "fieldPath": "evidenceId",
+            "columnName": "evidenceId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "reviewCode",
+            "columnName": "reviewCode",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "uploadedAt",
+            "columnName": "uploadedAt",
+            "affinity": "INTEGER"
           }
         ],
         "primaryKey": {
@@ -638,14 +683,41 @@
             "account",
             "deviceId",
             "scope",
-            "draftId"
+            "localId"
           ]
-        }
+        },
+        "indices": [
+          {
+            "name": "index_evidence_photos_account_deviceId_scope_clientVisitId",
+            "unique": false,
+            "columnNames": [
+              "account",
+              "deviceId",
+              "scope",
+              "clientVisitId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_evidence_photos_account_deviceId_scope_clientVisitId` ON `${TABLE_NAME}` (`account`, `deviceId`, `scope`, `clientVisitId`)"
+          },
+          {
+            "name": "index_evidence_photos_account_deviceId_scope_state_createdAt",
+            "unique": false,
+            "columnNames": [
+              "account",
+              "deviceId",
+              "scope",
+              "state",
+              "createdAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_evidence_photos_account_deviceId_scope_state_createdAt` ON `${TABLE_NAME}` (`account`, `deviceId`, `scope`, `state`, `createdAt`)"
+          }
+        ]
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'b42df671d2499a334057f9aaf22258df')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '39d40e34bbe4d5156442fd73b87c454a')"
     ]
   }
 }

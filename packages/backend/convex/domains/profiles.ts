@@ -452,10 +452,15 @@ export const setRole = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { identity, profile: actor } = await requireRole(ctx, ["admin"]);
-    assertCanAssignRole(actor.role, args.role);
+    await requireRole(ctx, ["admin"]);
     const target = await ctx.db.get(args.profileId);
     if (!target) throw new ConvexError("Profile not found");
+    // QSR-006: a regional admin changes roles only inside their subtree; an
+    // unassigned person is national data, as in assignPersona.
+    const { identity, profile: actor } = target.orgUnitId
+      ? await requireCapability(ctx, "admin.manage", target.orgUnitId)
+      : await requireNationalScope(ctx, ["admin"]);
+    assertCanAssignRole(actor.role, args.role);
     if (target.role === "super_admin")
       throw new ConvexError("The super admin role cannot be changed");
     if (actor.role !== "super_admin" && target.role === "admin")

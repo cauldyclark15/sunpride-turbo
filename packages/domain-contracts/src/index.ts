@@ -11,6 +11,14 @@ export type BootstrapRequest = {
   pageCursor?: string;
   limit?: number;
 };
+/** One visit intent's required/optional activity forms (kind is an open string). */
+export type ActivityRuleV1 = {
+  intent: string;
+  version: string;
+  activities: Array<{ kind: string; required: boolean }>;
+};
+/** AND-016: one visit photo type (code is an open string; label is display text). */
+export type PhotoTypeV1 = { code: string; label: string };
 export type CallSheetV1 = {
   outletId: string;
   revision: number;
@@ -91,6 +99,10 @@ export type BootstrapResponse = {
   }>;
   /** Annex C call sheets for this page's accounts. Optional: added after v1 shipped. */
   callSheets?: Array<CallSheetV1>;
+  /** AND-013 activity-form rules per visit intent. Optional: added after v1 shipped. */
+  activityRules?: Array<ActivityRuleV1>;
+  /** AND-016 visit photo types. Optional: added after v1 shipped. */
+  photoTypes?: Array<PhotoTypeV1>;
   page: number;
   nextPageCursor: string | null;
   syncCursor: string | null;

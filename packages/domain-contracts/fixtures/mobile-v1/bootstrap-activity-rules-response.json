@@ -1,0 +1,87 @@
+{
+  "type": "bootstrap.response",
+  "contractVersion": 1,
+  "serverTime": 1790380800000,
+  "permissions": ["visit.record", "visit.read"],
+  "employee": {
+    "id": "profile-1",
+    "role": "sales",
+    "orgUnitId": "unit-1"
+  },
+  "scope": {
+    "fingerprint": "scope-v1",
+    "orgUnitIds": ["unit-1"]
+  },
+  "appConfig": {
+    "offlineLeaseExpiresAt": 1790467200000,
+    "cacheExpiresAt": 1790467200000,
+    "orderCaptureEnabled": false,
+    "priceAvailability": "unavailable",
+    "promotionsAvailability": "unavailable"
+  },
+  "plannedVisits": [
+    {
+      "id": "planned-1",
+      "outletId": "outlet-1",
+      "serviceDate": "2026-09-26",
+      "planId": "plan-1",
+      "planVersion": 1,
+      "intents": ["merchandise"],
+      "sequence": 1
+    }
+  ],
+  "outlets": [
+    {
+      "id": "outlet-1",
+      "name": "Outlet One",
+      "routeId": null,
+      "code": "OUT-0001",
+      "address": "12 Rizal Avenue, Pasig",
+      "latitude": 14.5764,
+      "longitude": 121.0851
+    }
+  ],
+  "localCustomers": [],
+  "route": null,
+  "tasks": [],
+  "productCatalog": [],
+  "page": 1,
+  "nextPageCursor": null,
+  "syncCursor": "opaque-start",
+  "activityRules": [
+    {
+      "intent": "merchandise",
+      "version": "visit-activities/2026-10-04",
+      "activities": [
+        {
+          "kind": "merchandising",
+          "required": true
+        },
+        {
+          "kind": "price_check",
+          "required": false
+        }
+      ]
+    },
+    {
+      "intent": "complaint",
+      "version": "rule:k57activityrule01",
+      "activities": [
+        {
+          "kind": "note",
+          "required": true
+        }
+      ]
+    },
+    {
+      "intent": "future-intent",
+      "version": "rule:k57activityrule02",
+      "activities": [
+        {
+          "kind": "future_form",
+          "required": true
+        }
+      ]
+    }
+  ]
+}

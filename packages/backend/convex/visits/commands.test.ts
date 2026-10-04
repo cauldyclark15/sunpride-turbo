@@ -590,6 +590,97 @@ describe("visit execution", () => {
       vi.useRealTimers();
     }
   });
+  it("AND-016: types phone photos, returns the original row on a lost-response retry and refuses a mismatched replay", async () => {
+    const f = await fixture();
+    try {
+      const ack = await f.apply(f.check());
+      const visitId = ack.entityId as Id<"visitExecutions">;
+      const checksum = "b".repeat(64);
+      // A real (unclaimed) upload: the retry's own fresh blob.
+      const retryUpload = await f.t.run((ctx) =>
+        ctx.storage.store(new Blob(["retry"])),
+      );
+      const base = {
+        visitId,
+        storageId: retryUpload,
+        mime: "image/jpeg",
+        size: 2048,
+        checksum,
+        capturedAt: now,
+        photoType: "shelf_display",
+        source: "mobile" as const,
+      };
+      // An unconfigured type never reaches the claim or storage checks.
+      await expect(
+        f.sales.mutation(api.visits.evidence.attach, {
+          ...base,
+          photoType: "selfie",
+        }),
+      ).rejects.toThrow(/invalid_request/);
+      const original = await f.t.run(async (ctx) => {
+        const visit = (await ctx.db.get(visitId))!;
+        const storageId = await ctx.storage.store(new Blob(["photo"]));
+        return ctx.db.insert("fieldEvidenceFiles", {
+          organizationId: "sunpride",
+          orgUnitId: visit.orgUnitId,
+          storageId,
+          visitId,
+          ownerProfileId: f.ids.sales,
+          outletId: visit.outletId,
+          mime: "image/jpeg",
+          sizeBytes: 2048,
+          checksum,
+          capturedAt: now,
+          photoType: "shelf_display",
+          uploadedAt: now,
+          status: "pending",
+        });
+      });
+      const claim = await f.sales.mutation(
+        api.visits.evidence.generateUploadUrl,
+        { visitId },
+      );
+      // Same bytes and metadata: the original row, no second file, the new claim untouched.
+      await expect(
+        f.sales.mutation(api.visits.evidence.attach, {
+          ...base,
+          checksum: checksum.toUpperCase(),
+          uploadTokenRef: claim.uploadTokenRef,
+        }),
+      ).resolves.toEqual({ evidenceId: original });
+      const after = await f.t.run(async (ctx) => ({
+        files: await ctx.db
+          .query("fieldEvidenceFiles")
+          .withIndex("by_visitId_and_uploadedAt", (q) =>
+            q.eq("visitId", visitId),
+          )
+          .collect(),
+        claim: await ctx.db.get(
+          claim.uploadTokenRef as Id<"evidenceUploadClaims">,
+        ),
+      }));
+      expect(after.files).toHaveLength(1);
+      expect(after.claim?.consumedAt).toBeUndefined();
+      // The same bytes claimed with different metadata are a conflict, not a replay.
+      for (const changed of [
+        { capturedAt: now - 1 },
+        { photoType: "price_tag" },
+        { size: 2049 },
+      ])
+        await expect(
+          f.sales.mutation(api.visits.evidence.attach, {
+            ...base,
+            ...changed,
+          }),
+        ).rejects.toThrow(/conflict/);
+      // Another person's identical checksum is never treated as their replay.
+      await expect(
+        f.other.mutation(api.visits.evidence.attach, base),
+      ).rejects.toThrow();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("rejects forged storage and unsupported task/collection kinds", async () => {
     const f = await fixture();
     try {
@@ -717,7 +808,7 @@ describe("field day rules (client call 2 Oct 2026)", () => {
         mockSignal: false,
         result: "within_radius",
         reviewStatus: "verified",
-        policyVersion: "field-day-2026-10-v2",
+        policyVersion: "field-day-2026-10-v3",
       });
       expect(evidence?.radiusMeters).toBeGreaterThan(0);
       expect(evidence?.distanceMeters).toBeGreaterThanOrEqual(0);
@@ -981,6 +1072,520 @@ describe("field day rules (client call 2 Oct 2026)", () => {
           serviceDate: f.ids.date,
         }),
       ).rejects.toThrow();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("GPS and geofence edge cases (QSR-005)", () => {
+  type F = Awaited<ReturnType<typeof fixture>>;
+  type Fix = Omit<F["fix"], "provider"> & {
+    provider: "gps" | "network" | "fused" | "unknown";
+    mockSignal?: boolean;
+  };
+  /** About 111.2 m per 0.001 degree of latitude. */
+  const north = (meters: number) => 14.6 + meters / 111_195;
+  const evidenceOf = (f: F) =>
+    f.t.run((ctx) =>
+      ctx.db.query("visitLocationEvidence").order("asc").collect(),
+    );
+  const checkIn = (
+    f: F,
+    location: Partial<Fix> | null,
+    deviceTime = now,
+    n = 1,
+  ) =>
+    f.apply({
+      ...f.check(n),
+      payload: {
+        ...f.check(n).payload,
+        deviceTime,
+        location: location && ({ ...f.fix, ...location } as F["fix"]),
+      },
+    });
+  const outcome = async (f: F) => {
+    const [row] = await evidenceOf(f);
+    return [row?.result, row?.reviewStatus];
+  };
+
+  it.each<[string, Partial<Fix>, string, string]>([
+    [
+      "accuracy exactly 50 m",
+      { accuracyMeters: 50 },
+      "within_radius",
+      "verified",
+    ],
+    [
+      "accuracy just over 50 m",
+      { accuracyMeters: 50.5 },
+      "unreliable",
+      "pending_review",
+    ],
+    [
+      "network fix with good accuracy",
+      { provider: "network", accuracyMeters: 30 },
+      "within_radius",
+      "verified",
+    ],
+    [
+      "indoor cell-tower fix (800 m)",
+      { provider: "network", accuracyMeters: 800 },
+      "unreliable",
+      "pending_review",
+    ],
+    [
+      "unknown provider",
+      { provider: "unknown" },
+      "unreliable",
+      "pending_review",
+    ],
+    [
+      "weak fix far away is unreliable, not outside",
+      { latitude: north(5000), accuracyMeters: 400 },
+      "unreliable",
+      "pending_review",
+    ],
+    [
+      "mock fix inside the radius",
+      { mockSignal: true },
+      "unreliable",
+      "pending_review",
+    ],
+  ])("weak accuracy: %s", async (_name, location, result, review) => {
+    const f = await fixture();
+    try {
+      expect((await checkIn(f, location)).entityId).toBeTruthy();
+      expect(await outcome(f)).toEqual([result, review]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each<[string, number, number, string]>([
+    ["default 75 m pin, 120 m away", 75, 120, "outside_radius"],
+    [
+      "mall pin 250 m, 120 m away inside the building",
+      250,
+      120,
+      "within_radius",
+    ],
+    ["warehouse pin 500 m, 480 m away in the yard", 500, 480, "within_radius"],
+    ["mall pin 250 m, 300 m away", 250, 300, "outside_radius"],
+  ])("malls and warehouses: %s", async (_name, radius, meters, result) => {
+    const f = await fixture();
+    try {
+      await f.t.run((ctx) => ctx.db.patch(f.ids.pin, { radiusMeters: radius }));
+      await checkIn(f, { latitude: north(meters) });
+      const [row] = await evidenceOf(f);
+      expect(row).toMatchObject({ result, radiusMeters: radius });
+      expect(row!.distanceMeters).toBeGreaterThan(meters - 1);
+      expect(row!.distanceMeters).toBeLessThan(meters + 1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("malls and warehouses: a scheduled wider pin applies only from its effective time; a corrupt radius is not used", async () => {
+    const f = await fixture();
+    try {
+      await f.t.run(async (ctx) => {
+        await ctx.db.patch(f.ids.pin, { effectiveTo: now + 60_000 });
+        const { _id, _creationTime, ...pin } = (await ctx.db.get(f.ids.pin))!;
+        void _id;
+        void _creationTime;
+        await ctx.db.insert("outletPins", {
+          ...pin,
+          radiusMeters: 250,
+          effectiveFrom: now + 60_000,
+          effectiveTo: undefined,
+        });
+      });
+      const first = await checkIn(f, { latitude: north(120) });
+      vi.setSystemTime(now + 120_000);
+      await f.apply({
+        kind: "visit.checkOut",
+        clientRequestId: uuid(2),
+        payload: {
+          visitId: first.entityId as Id<"visitExecutions">,
+          outcome: "completed",
+          reasonCode: null,
+          deviceTime: now + 120_000,
+          location: { ...f.fix, latitude: north(120), fixTime: now + 120_000 },
+        },
+      });
+      expect(
+        (await evidenceOf(f)).map((e) => [e.event, e.radiusMeters, e.result]),
+      ).toEqual([
+        ["check_in", 75, "outside_radius"],
+        ["check_out", 250, "within_radius"],
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+    const g = await fixture();
+    try {
+      await g.t.run((ctx) => ctx.db.patch(g.ids.pin, { radiusMeters: 5000 }));
+      await checkIn(g, { latitude: north(1000) });
+      expect(await outcome(g)).toEqual(["unavailable", "pending_review"]);
+      expect((await evidenceOf(g))[0]?.radiusMeters).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each<[string, number, string]>([
+    ["fix taken exactly 60 s before Start", -60_000, "within_radius"],
+    ["fix taken 61 s before Start", -61_000, "unreliable"],
+    ["cached fix from an hour ago", -3_600_000, "unreliable"],
+    ["fix stamped 61 s after Start", 61_000, "unreliable"],
+  ])("stale readings: %s", async (_name, offset, result) => {
+    const f = await fixture();
+    try {
+      vi.setSystemTime(now + 61_000);
+      await checkIn(f, { fixTime: now + offset });
+      expect((await outcome(f))[0]).toBe(result);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("denied permission: Start and End without a fix are recorded and held for review, never refused", async () => {
+    const f = await fixture();
+    try {
+      const ack = await checkIn(f, null);
+      const visitId = ack.entityId as Id<"visitExecutions">;
+      await f.apply({
+        kind: "visit.checkOut",
+        clientRequestId: uuid(2),
+        payload: {
+          visitId,
+          outcome: "completed",
+          reasonCode: null,
+          deviceTime: now,
+          location: null,
+        },
+      });
+      const rows = await evidenceOf(f);
+      expect(
+        rows.map((e) => [e.event, e.result, e.reviewStatus, e.provider]),
+      ).toEqual([
+        ["check_in", "unavailable", "pending_review", "unknown"],
+        ["check_out", "unavailable", "pending_review", "unknown"],
+      ]);
+      for (const row of rows) {
+        expect(row.latitude).toBeUndefined();
+        expect(row.distanceMeters).toBeUndefined();
+        expect(row.pinId).toBe(f.ids.pin);
+      }
+      expect(
+        await f.sales.query(api.visits.commands.detail, { visitId }),
+      ).toMatchObject({ state: "checked-out", productivity: "pending" });
+      const trace = await f.manager.query(api.visits.review.trace, {
+        profileId: f.ids.sales,
+        serviceDate: f.ids.date,
+      });
+      expect(trace.points.map((p) => [p.event, p.result, p.latitude])).toEqual([
+        ["check_in", "unavailable", null],
+        ["check_out", "unavailable", null],
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each<[string, Partial<Fix>]>([
+    ["latitude beyond 90", { latitude: 91 }],
+    ["longitude beyond 180", { longitude: -181 }],
+    ["negative accuracy", { accuracyMeters: -1 }],
+    ["accuracy not a number", { accuracyMeters: Number.NaN }],
+    ["fractional fix time", { fixTime: now + 0.5 }],
+  ])(
+    "impossible fix is refused before anything is written: %s",
+    async (_name, bad) => {
+      const f = await fixture();
+      try {
+        await expect(checkIn(f, bad)).rejects.toThrow(/invalid_request/);
+        const rows = await f.t.run((ctx) =>
+          Promise.all([
+            ctx.db.query("visitExecutions").collect(),
+            ctx.db.query("visitLocationEvidence").collect(),
+            ctx.db.query("executionEvents").collect(),
+          ]),
+        );
+        expect(rows.map((r) => r.length)).toEqual([0, 0, 0]);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("outside-radius exception: rejection keeps the visit and proof; only an in-scope manager decides once", async () => {
+    const f = await fixture();
+    try {
+      const ack = await checkIn(f, { latitude: north(400) });
+      const evidence = (await evidenceOf(f))[0]!;
+      expect(evidence).toMatchObject({
+        result: "outside_radius",
+        reviewStatus: "pending_review",
+      });
+      // A manager outside the visit's unit and a salesperson cannot decide.
+      await f.t.run(async (ctx) => {
+        await ctx.db.patch(f.ids.other, {
+          role: "manager",
+          orgUnitId: f.ids.otherUnit,
+        });
+        const assignment = await ctx.db
+          .query("employeeAssignments")
+          .withIndex("by_profileId_and_effectiveFrom", (q) =>
+            q.eq("profileId", f.ids.other),
+          )
+          .first();
+        await ctx.db.patch(assignment!._id, {
+          role: "manager",
+          orgUnitId: f.ids.otherUnit,
+        });
+      });
+      const decide = (who: F["manager"], reason = "not_at_store") =>
+        who.mutation(api.visits.location.decideLocationException, {
+          evidenceId: evidence._id,
+          decision: "reject",
+          reason,
+        });
+      await expect(decide(f.other)).rejects.toThrow();
+      await expect(decide(f.sales)).rejects.toThrow();
+      await expect(decide(f.manager, "free text reason")).rejects.toThrow(
+        /invalid_request/,
+      );
+      expect(await decide(f.manager)).toEqual({ reviewStatus: "rejected" });
+      await expect(decide(f.manager)).rejects.toThrow(/already_reviewed/);
+      expect(await f.t.run((ctx) => ctx.db.get(evidence._id))).toEqual(
+        evidence,
+      );
+      expect(
+        await f.t.run((ctx) =>
+          ctx.db.get(ack.entityId as Id<"visitExecutions">),
+        ),
+      ).toMatchObject({ state: "checked-in", productivity: "pending" });
+      const decisions = await f.t.run((ctx) =>
+        ctx.db
+          .query("executionEvents")
+          .withIndex("by_entityType_and_entityId_and_serverAt", (q) =>
+            q.eq("entityType", "visit").eq("entityId", evidence._id),
+          )
+          .collect(),
+      );
+      expect(decisions.map((d) => d.summary)).toEqual([
+        { after: "rejected", reasonCode: "not_at_store" },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("outside-radius exception: a verified in-radius fix has nothing to decide", async () => {
+    const f = await fixture();
+    try {
+      await checkIn(f, {});
+      const evidence = (await evidenceOf(f))[0]!;
+      expect(evidence.reviewStatus).toBe("verified");
+      await expect(
+        f.manager.mutation(api.visits.location.decideLocationException, {
+          evidenceId: evidence._id,
+          decision: "approve",
+          reason: "field_review",
+        }),
+      ).rejects.toThrow(/already_reviewed/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each<[string, number, number, string]>([
+    ["phone clock 90 s fast (minor drift)", 90_000, 90_000, "within_radius"],
+    ["phone clock 3 min fast", 180_000, 180_000, "unreliable"],
+    [
+      "phone clock 5 min slow (cannot be told from queued work)",
+      -300_000,
+      -300_000,
+      "within_radius",
+    ],
+    ["fix and Start stamps disagree by 2 min", 0, -120_000, "unreliable"],
+  ])(
+    "device time mismatch: %s",
+    async (_name, deviceOffset, fixOffset, result) => {
+      const f = await fixture();
+      try {
+        await checkIn(f, { fixTime: now + fixOffset }, now + deviceOffset);
+        expect((await outcome(f))[0]).toBe(result);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("device time mismatch: a Start dated more than a day ahead of the server is refused", async () => {
+    const f = await fixture();
+    try {
+      const ahead = now + 24 * 3_600_000 + 1;
+      await expect(checkIn(f, { fixTime: ahead }, ahead)).rejects.toThrow(
+        /invalid_request/,
+      );
+      expect(await evidenceOf(f)).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("visit intents and required activity forms (AND-013)", () => {
+  type F = Awaited<ReturnType<typeof fixture>>;
+  const activity = (
+    n: number,
+    visitId: Id<"visitExecutions">,
+    value: Parameters<typeof applyVisitOperation>[2] extends infer O
+      ? O extends { kind: "visit.activity"; payload: { activity: infer A } }
+        ? A
+        : never
+      : never,
+  ) =>
+    ({
+      kind: "visit.activity",
+      clientRequestId: uuid(n),
+      payload: { visitId, activity: value, deviceTime: Date.now() },
+    }) as const;
+  const end = (
+    f: F,
+    n: number,
+    visitId: Id<"visitExecutions">,
+    outcome: "completed" | "nonproductive" = "completed",
+  ) =>
+    f.apply({
+      kind: "visit.checkOut",
+      clientRequestId: uuid(n),
+      payload: {
+        visitId,
+        outcome,
+        reasonCode: outcome === "nonproductive" ? "store_closed" : null,
+        deviceTime: Date.now(),
+        location: f.fix,
+      },
+    });
+  const read = (f: F, visitId: Id<"visitExecutions">) =>
+    f.t.run((ctx) => ctx.db.get(visitId));
+
+  it("records a required form missing at End without refusing the queued End", async () => {
+    const f = await fixture();
+    try {
+      const visitId = (await f.apply(f.check()))
+        .entityId as Id<"visitExecutions">;
+      await f.apply(activity(2, visitId, { kind: "note", text: "Buyer away" }));
+      await end(f, 3, visitId);
+      expect(await read(f, visitId)).toMatchObject({
+        state: "checked-out",
+        intents: ["sell"],
+        missingActivities: ["call_sheet"],
+        activityRuleVersion: "sell=visit-activities/2026-10-04",
+      });
+      expect(
+        await f.sales.query(api.visits.commands.detail, { visitId }),
+      ).toMatchObject({ intents: ["sell"], missingActivities: ["call_sheet"] });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("runs a multi-intent unplanned visit and clears every intent's required form", async () => {
+    const f = await fixture();
+    try {
+      const visitId = (
+        await f.apply({
+          ...f.check(1),
+          payload: {
+            ...f.check(1).payload,
+            plannedVisitId: null,
+            intents: ["merchandise", "complaint"],
+            unplannedReason: "Buyer called",
+          },
+        })
+      ).entityId as Id<"visitExecutions">;
+      await f.apply(
+        activity(2, visitId, {
+          kind: "merchandising",
+          displayCondition: "needs_action",
+          actionTaken: "Re-faced shelf",
+        }),
+      );
+      await end(f, 3, visitId);
+      expect(await read(f, visitId)).toMatchObject({
+        intents: ["merchandise", "complaint"],
+        missingActivities: ["note"],
+      });
+      const second = (
+        await f.apply({
+          ...f.check(4),
+          payload: {
+            ...f.check(4).payload,
+            plannedVisitId: null,
+            intents: ["merchandise", "complaint"],
+            unplannedReason: "Second call",
+          },
+        })
+      ).entityId as Id<"visitExecutions">;
+      await f.apply(
+        activity(5, second, {
+          kind: "merchandising",
+          displayCondition: "compliant",
+        }),
+      );
+      await f.apply(activity(6, second, { kind: "note", text: "Fixed" }));
+      await end(f, 7, second);
+      expect((await read(f, second))?.missingActivities).toEqual([]);
+      expect((await read(f, second))?.activityRuleVersion).toBe(
+        "merchandise=visit-activities/2026-10-04,complaint=visit-activities/2026-10-04",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("requires no forms for a not-productive End", async () => {
+    const f = await fixture();
+    try {
+      const visitId = (await f.apply(f.check()))
+        .entityId as Id<"visitExecutions">;
+      await end(f, 2, visitId, "nonproductive");
+      expect((await read(f, visitId))?.missingActivities).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("judges the End by the office rule in effect when the call started", async () => {
+    const f = await fixture();
+    try {
+      await f.t.run((ctx) =>
+        ctx.db.insert("visitActivityRules", {
+          organizationId: "sunpride",
+          intent: "sell",
+          activities: [
+            { kind: "note", required: true },
+            { kind: "call_sheet", required: false },
+          ],
+          effectiveFrom: now - 60_000,
+          sourceRef: "Office rule",
+          provisional: false,
+          actorSubject: "fixture",
+          createdAt: now,
+        }),
+      );
+      const visitId = (await f.apply(f.check()))
+        .entityId as Id<"visitExecutions">;
+      await f.apply(activity(2, visitId, { kind: "note", text: "Done" }));
+      await end(f, 3, visitId);
+      const row = await read(f, visitId);
+      expect(row?.missingActivities).toEqual([]);
+      expect(row?.activityRuleVersion).toMatch(/^sell=rule:/);
     } finally {
       vi.useRealTimers();
     }

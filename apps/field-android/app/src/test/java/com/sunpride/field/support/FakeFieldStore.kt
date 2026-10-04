@@ -31,13 +31,16 @@ class FakeFieldStore(val identity: StoreScope) : FieldStore {
     override suspend fun todaysVisits(day: String) = active?.visits?.filter { it.serviceDate == day } ?: emptyList()
     override suspend fun outlets() = active?.outlets ?: emptyList()
     override suspend fun callSheet(outletId: String) = active?.callSheets?.singleOrNull { it.outletId == outletId }
+    override suspend fun activityRules() = active?.activityRules ?: emptyList()
     override suspend fun isLeaseValid(now: Long) = !held && active != null && now < lease
     override suspend fun enqueue(intent: IntentRow, now: Long) {
         require(intent.account == identity.account && intent.deviceId == identity.deviceId && intent.scope == identity.fingerprint)
         require(intent.requestId.isNotBlank() && intent.clientVisitId.isNotBlank() &&
             intent.kind in setOf("visit.checkIn", "visit.activity", "visit.checkOut") && intent.serializedOperation.isNotBlank())
         check(isLeaseValid(now))
+        VisitCompletion.requireOpenForActivity(intent, rows.map { it.first to it.second.state })
         CallSheetQueueRules.validate(this, intent)
+        ActivityQueueRules.validate(this, intent)
         check(rows.none { it.first.requestId == intent.requestId })
         val at = maxOf(intent.createdAt, (rows.maxOfOrNull { it.second.createdAt } ?: Long.MIN_VALUE) + 1)
         rows += intent.copy(createdAt = at) to OutboxRow(intent.account, intent.deviceId, intent.scope, intent.requestId, at)
@@ -88,5 +91,33 @@ class FakeFieldStore(val identity: StoreScope) : FieldStore {
     override suspend fun discardOrderDraft(draftId: String) {
         if (held) throw com.sunpride.field.orders.OrderDraftFailure(com.sunpride.field.orders.OrderDraftFailure.Code.HELD)
         check(drafts.remove(draftId) != null)
+    }
+
+    // AND-016 photos: same validation and state rules as Room.
+    val photos = mutableListOf<EvidencePhotoRow>()
+    override suspend fun photoTypes() = active?.photoTypes ?: emptyList()
+    override suspend fun addPhoto(row: EvidencePhotoRow, now: Long) {
+        require(row.account == identity.account && row.deviceId == identity.deviceId && row.scope == identity.fingerprint)
+        check(isLeaseValid(now))
+        EvidencePhotos.validate(row, photoTypes(), rows.map { it.first to it.second.state },
+            photos.count { it.clientVisitId == row.clientVisitId })
+        check(photos.none { it.localId == row.localId })
+        photos += row
+    }
+    override suspend fun visitPhotos(clientVisitId: String) = photos.filter { it.clientVisitId == clientVisitId }
+    override suspend fun pendingPhotos() = photos.filter { it.state == "pending" }.sortedBy { it.createdAt }
+    private fun photoIndex(localId: String) = photos.indexOfFirst { it.localId == localId }.also { check(it >= 0) }
+    override suspend fun markPhotoUploaded(localId: String, evidenceId: String, at: Long) {
+        val i = photoIndex(localId)
+        if (photos[i].state == "uploaded") check(photos[i].evidenceId == evidenceId)
+        else { check(photos[i].state == "pending"); photos[i] = photos[i].copy(state = "uploaded", evidenceId = evidenceId, uploadedAt = at) }
+    }
+    override suspend fun countPhotoAttempt(localId: String): Int {
+        val i = photoIndex(localId); check(photos[i].state == "pending")
+        photos[i] = photos[i].copy(attempts = photos[i].attempts + 1); return photos[i].attempts
+    }
+    override suspend fun reviewPhoto(localId: String, code: String) {
+        val i = photoIndex(localId); check(photos[i].state == "pending")
+        photos[i] = photos[i].copy(state = "review", reviewCode = code)
     }
 }
