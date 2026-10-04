@@ -12,6 +12,9 @@ import com.sunpride.field.storage.CallSheet
 import com.sunpride.field.ui.diagnosticvisit.CallSheetDraftLine
 import com.sunpride.field.ui.diagnosticvisit.CallSheetPayload
 import com.sunpride.field.storage.SnapshotItem
+import com.sunpride.field.orders.OrderDraft
+import com.sunpride.field.orders.OrderDraftFailure
+import com.sunpride.field.orders.OrderDraftRules
 import com.sunpride.field.storage.VisitCallRules
 import com.sunpride.field.storage.VisitRuleFailure
 import com.sunpride.field.sync.BootstrapClient
@@ -65,6 +68,16 @@ interface FieldBackend {
     /** Queue one structured activity form (merchandising, promotion, inventory or price check). */
     fun queueActivity(clientVisitId: String, checkInRequestId: String, previousRequestId: String,
         outletId: String, activity: JSONObject) { error("No local store") }
+    /** Local order drafts in this verified partition (SP-0061). */
+    fun orderDrafts(): List<OrderDraft> = emptyList()
+    /** Builds the association from the stored check-in and cached snapshot, then saves transactionally. */
+    fun saveOrderDraft(draftId: String?, clientVisitId: String, checkInRequestId: String,
+        quantities: List<Pair<String, Int>>): OrderDraft = error("No local store")
+    fun discardOrderDraft(draftId: String) { error("No local store") }
+    /** SP-0060: the review screen's locally checkable rules for one draft. */
+    fun orderChecks(draftId: String): List<com.sunpride.field.orders.OrderCheck> = emptyList()
+    /** Queue the reviewed draft's order after [previousRequestId] and mark it sent, in one transaction. */
+    fun submitOrderDraft(draftId: String, previousRequestId: String): OrderDraft = error("No local store")
     val cachedDeviceId: String? get() = null
     /** AND-016: configured photo types (empty → provisional defaults). */
     fun photoTypes(): List<com.sunpride.field.storage.PhotoType> = emptyList()
@@ -77,6 +90,15 @@ interface FieldBackend {
     /** AND-020: today's team summary (live, else saved on this phone); the server enforces scope. */
     fun team(directOnly: Boolean): com.sunpride.field.ui.team.TeamView =
         com.sunpride.field.ui.team.TeamView(message = "Team view isn't available on this phone.")
+}
+
+/** Shared by the live and test backends so both build drafts exactly the same way. */
+suspend fun saveOrderDraftIn(store: com.sunpride.field.storage.FieldStore, draftId: String?, clientVisitId: String,
+    checkInRequestId: String, quantities: List<Pair<String, Int>>, now: Long): OrderDraft {
+    val existing = draftId?.let { id -> store.orderDrafts().firstOrNull { it.draftId == id } ?: error("Unknown draft") }
+    val draft = OrderDraftRules.build(store, existing, clientVisitId, checkInRequestId, quantities, now)
+    store.saveOrderDraft(draft)
+    return draft
 }
 
 data class VisitDisplay(val outlet: String, val planned: String, val status: String,
@@ -256,6 +278,30 @@ class LiveFieldBackend(
                 com.sunpride.field.sync.work.SyncWork.enqueue(context)
             }
         } } finally { store.close() }
+    }
+    private fun <T> withStore(block: suspend (RoomFieldStore) -> T): T {
+        val scope = storedScope() ?: error("No verified local partition")
+        val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+        return try { runBlocking { block(store) } } finally { store.close() }
+    }
+    override fun orderDrafts(): List<OrderDraft> = if (storedScope() == null) emptyList() else withStore { it.orderDrafts() }
+    override fun saveOrderDraft(draftId: String?, clientVisitId: String, checkInRequestId: String,
+        quantities: List<Pair<String, Int>>): OrderDraft = withStore {
+        saveOrderDraftIn(it, draftId, clientVisitId, checkInRequestId, quantities, System.currentTimeMillis())
+    }
+    override fun discardOrderDraft(draftId: String) = withStore { it.discardOrderDraft(draftId) }
+    override fun orderChecks(draftId: String): List<com.sunpride.field.orders.OrderCheck> = withStore { store ->
+        val draft = store.orderDrafts().firstOrNull { it.draftId == draftId } ?: return@withStore emptyList()
+        com.sunpride.field.orders.OrderSubmission.checks(store, draft, System.currentTimeMillis())
+    }
+    override fun submitOrderDraft(draftId: String, previousRequestId: String): OrderDraft {
+        val scope = storedScope() ?: error("No verified local partition")
+        val sent = withStore {
+            com.sunpride.field.orders.submitOrderDraftIn(it, scope, draftId, previousRequestId, System.currentTimeMillis())
+        }
+        // Only after the committed transaction: a scheduler failure cannot uncommit the queued order.
+        runCatching { com.sunpride.field.sync.work.SyncWork.enqueue(context) }
+        return sent
     }
     private fun sessionKey(): String? = vault.readSession()?.let {
         MessageDigest.getInstance("SHA-256").digest(it.toByteArray(Charsets.UTF_8))
@@ -494,6 +540,12 @@ class FieldController(
     var diagnosticError by mutableStateOf<String?>(null); private set
     var diagnosticCallSheet by mutableStateOf<CallSheet?>(null); private set
     var callSheetOpen by mutableStateOf(false); private set
+    /** Order drafts that belong to this visit's calls (local only, SP-0061). */
+    var visitOrderDrafts by mutableStateOf<List<OrderDraft>>(emptyList()); private set
+    var orderOpen by mutableStateOf(false); private set
+    /** Draft being edited; null while composing a new one (set after its first save). */
+    var orderDraftId by mutableStateOf<String?>(null); private set
+    val openOrderDraft: OrderDraft? get() = orderDraftId?.let { id -> visitOrderDrafts.firstOrNull { it.draftId == id } }
     fun openCallSheet() = scope.launch(ui) { callSheetOpen = true; diagnosticError = null; endReview = null }
     fun closeCallSheet() = scope.launch(ui) { callSheetOpen = false; diagnosticError = null }
     /** AND-013: downloaded activity-form rules, the open form, and an unplanned visit's chosen purposes. */
@@ -546,9 +598,60 @@ class FieldController(
         selectedIntents = if (intent in selectedIntents) selectedIntents - intent
             else com.sunpride.field.storage.ActivityRules.INTENTS.filter { it in selectedIntents || it == intent }
     }
+    /** SP-0060: review step of the open draft, and its locally checked rules. */
+    var orderReview by mutableStateOf(false); private set
+    var orderChecks by mutableStateOf<List<com.sunpride.field.orders.OrderCheck>>(emptyList()); private set
+    /** A sent order opens straight to its read-only review/status. */
+    fun openOrder(draftId: String? = null) = scope.launch(ui) {
+        orderOpen = true; orderDraftId = draftId; diagnosticError = null; endReview = null
+        orderReview = draftId != null && visitOrderDrafts.firstOrNull { it.draftId == draftId }?.submittedRequestId != null
+        if (orderReview) loadOrderChecks()
+    }
+    fun closeOrder() = scope.launch(ui) {
+        orderOpen = false; orderDraftId = null; orderReview = false; orderChecks = emptyList(); diagnosticError = null
+    }
+    fun openOrderReview() = scope.launch(ui) {
+        if (orderDraftId == null) return@launch
+        orderReview = true; diagnosticError = null; loadOrderChecks()
+    }
+    fun closeOrderReview() = scope.launch(ui) {
+        orderReview = false; orderChecks = emptyList(); diagnosticError = null
+        // A sent order has no editor to go back to.
+        if (openOrderDraft?.submittedRequestId != null) { orderOpen = false; orderDraftId = null }
+    }
+    private suspend fun loadOrderChecks() {
+        val id = orderDraftId ?: return
+        orderChecks = runCatching { withContext(io) { backend.orderChecks(id) } }.getOrDefault(emptyList())
+    }
+    /** What the person sees about a draft's journey to the office (outbox state). */
+    fun orderStatus(draft: OrderDraft) = com.sunpride.field.orders.OrderSubmission.status(draft, diagnosticRows)
+    /** Submit the reviewed draft: queue its order request behind the call's latest request. */
+    fun submitOrder() = scope.launch(ui) {
+        val visit = diagnostic ?: return@launch
+        val id = orderDraftId ?: return@launch
+        if (busy) return@launch
+        busy = true; diagnosticError = null
+        try {
+            refreshDiagnostic() // Re-read before enforcing, never trust a stale screen projection.
+            val draft = visitOrderDrafts.firstOrNull { it.draftId == id } ?: throw OrderDraftFailure(OrderDraftFailure.Code.CALL_NOT_OPEN)
+            if (draft.submittedRequestId != null) throw OrderDraftFailure(OrderDraftFailure.Code.SUBMITTED)
+            val related = diagnosticRows.filter { it.first.clientVisitId == draft.clientVisitId }
+            if (related.any { it.first.kind == "visit.checkOut" }) throw OrderDraftFailure(OrderDraftFailure.Code.CALL_ENDED)
+            val previous = related.lastOrNull()?.first?.requestId ?: throw OrderDraftFailure(OrderDraftFailure.Code.CALL_NOT_OPEN)
+            withContext(io) { backend.submitOrderDraft(id, previous) }
+            refreshDiagnostic(); loadToday(sync = false)
+        } catch (e: OrderDraftFailure) { diagnosticError = e.code.text }
+        catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (_: Exception) { diagnosticError = "Could not send the order. Check the lines and try again." }
+        finally {
+            busy = false
+            if (diagnostic == visit) loadOrderChecks()
+        }
+    }
     fun openDiagnostic(visit: VisitDisplay) = scope.launch(ui) {
         diagnostic = visit; diagnosticError = null; diagnosticFailure = null
         callSheetOpen = false; diagnosticCallSheet = null; activityForm = null; selectedIntents = emptyList()
+        orderOpen = false; orderDraftId = null; visitOrderDrafts = emptyList(); orderReview = false; orderChecks = emptyList()
         endReview = null; photoCaptureOpen = false; diagnosticPhotos = emptyList()
         refreshDiagnostic()
     }
@@ -556,6 +659,7 @@ class FieldController(
     fun closeDiagnostic() = scope.launch(ui) {
         diagnostic = null; diagnosticError = null; diagnosticFailure = null; callSheetOpen = false; diagnosticCallSheet = null
         activityForm = null; selectedIntents = emptyList(); endReview = null
+        orderOpen = false; orderDraftId = null; visitOrderDrafts = emptyList(); orderReview = false; orderChecks = emptyList()
         photoCaptureOpen = false; diagnosticPhotos = emptyList()
     }
     /** AND-017: the End confirmation (what will be recorded) while the person decides; null otherwise. */
@@ -614,12 +718,51 @@ class FieldController(
         diagnosticRows = withContext(io) { backend.visitStates() }
         diagnosticRules = withContext(io) { backend.activityRules() }
         val sheet = visit?.outletId?.let { withContext(io) { backend.callSheet(it) } }
-        if (diagnostic == visit) diagnosticCallSheet = sheet
+        val drafts = if (visit == null) emptyList() else withContext(io) { backend.orderDrafts() }
+        if (diagnostic == visit) {
+            diagnosticCallSheet = sheet
+            val calls = visit?.let { relatedCall(it) }.orEmpty().map { it.first.clientVisitId }.toSet()
+            visitOrderDrafts = drafts.filter { it.clientVisitId in calls }
+        }
         diagnosticPhotoTypes = withContext(io) { backend.photoTypes() }
         // The visit's latest accepted-or-pending Start owns its photos (shown after End as well).
         val call = visit?.let { openCheckIn(it) }
         val photos = call?.let { withContext(io) { backend.visitPhotos(it.clientVisitId) } } ?: emptyList()
         if (diagnostic == visit) diagnosticPhotos = photos
+    }
+    /** Save the open draft (or a new one) for the open call. [quantities] = productId → whole number. */
+    fun saveOrderDraft(quantities: List<Pair<String, Int>>, onSaved: () -> Unit = {}) = scope.launch(ui) {
+        val visit = diagnostic ?: return@launch
+        if (busy) return@launch
+        busy = true; diagnosticError = null
+        try {
+            refreshDiagnostic() // Re-read before enforcing, never trust a stale screen projection.
+            val checkin = relatedCall(visit).lastOrNull { (row, state) -> row.kind == "visit.checkIn" && state != "review" }
+                ?.first ?: throw OrderDraftFailure(OrderDraftFailure.Code.CALL_NOT_OPEN)
+            val saved = withContext(io) {
+                backend.saveOrderDraft(orderDraftId, checkin.clientVisitId, checkin.requestId, quantities)
+            }
+            refreshDiagnostic()
+            // Switch the editor to the saved draft only once its row is loaded (the editor re-seeds then).
+            orderDraftId = saved.draftId
+            onSaved()
+        } catch (e: OrderDraftFailure) { diagnosticError = e.code.text }
+        catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (_: Exception) { diagnosticError = "Could not save the order draft. Check the quantities and try again." }
+        finally { busy = false }
+    }
+    fun discardOrderDraft() = scope.launch(ui) {
+        val id = orderDraftId ?: run { orderOpen = false; return@launch }
+        if (busy) return@launch
+        busy = true; diagnosticError = null
+        try {
+            withContext(io) { backend.discardOrderDraft(id) }
+            orderOpen = false; orderDraftId = null
+            refreshDiagnostic()
+        } catch (e: OrderDraftFailure) { diagnosticError = e.code.text }
+        catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (_: Exception) { diagnosticError = "Could not discard the order draft." }
+        finally { busy = false }
     }
     /** Do not mix separate planned visits to the same account in the editor or its dependency chain. */
     fun relatedVisitRows(visit: VisitDisplay): List<Pair<com.sunpride.field.storage.IntentRow, String>> = relatedCall(visit)
