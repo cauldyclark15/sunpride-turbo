@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint convex --max-warnings 0",
     "test": "vitest run --passWithNoTests",
+    "test:foundation": "vitest run convex/acceptance convex/lib/capabilities.matrix.test.ts convex/lib/scope.test.ts convex/imports convex/inventory convex/mobile/push.test.ts convex/mobile/bootstrap.test.ts convex/domains/orders.test.ts convex/integration/sap.test.ts convex/visits/commands.test.ts",
     "deploy": "convex deploy"
   },
   "dependencies": {
