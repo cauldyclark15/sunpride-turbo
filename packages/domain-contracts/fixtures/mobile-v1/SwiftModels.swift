@@ -49,6 +49,12 @@ struct BootstrapResponse {
   let tasks: [BootstrapResponseTasksItem]
   // schema-field: bootstrapResponse.productCatalog
   let productCatalog: [BootstrapResponseProductCatalogItem]
+  // schema-field: bootstrapResponse.callSheets
+  let callSheets: OptionalField<[BootstrapResponseCallSheetsItem]>
+  // schema-field: bootstrapResponse.activityRules
+  let activityRules: OptionalField<[BootstrapResponseActivityRulesItem]>
+  // schema-field: bootstrapResponse.photoTypes
+  let photoTypes: OptionalField<[BootstrapResponsePhotoTypesItem]>
   // schema-field: bootstrapResponse.page
   let page: Int64
   // schema-field: bootstrapResponse.nextPageCursor
@@ -121,6 +127,16 @@ struct BootstrapResponseOutletsItem {
   let name: String
   // schema-field: bootstrapResponse.outlets[].routeId
   let routeId: String?
+  // schema-field: bootstrapResponse.outlets[].code
+  let code: OptionalField<String>
+  // schema-field: bootstrapResponse.outlets[].customerId
+  let customerId: OptionalField<String>
+  // schema-field: bootstrapResponse.outlets[].address
+  let address: OptionalField<String>
+  // schema-field: bootstrapResponse.outlets[].latitude
+  let latitude: OptionalField<Double>
+  // schema-field: bootstrapResponse.outlets[].longitude
+  let longitude: OptionalField<Double>
 }
 // schema-object: bootstrapResponse.localCustomers[]
 struct BootstrapResponseLocalCustomersItem {
@@ -658,3 +674,104 @@ struct ErrorResponseErrorCodeEnum: Codable { let rawValue: String
   static let evidence_pending_review = ErrorResponseErrorCodeEnum(rawValue: "evidence_pending_review")
   static let temporarily_unavailable = ErrorResponseErrorCodeEnum(rawValue: "temporarily_unavailable")
 }
+// Additive after v1 shipped: Annex C call sheet (SP-0007).
+// schema-object: bootstrapResponse.callSheets[]
+struct BootstrapResponseCallSheetsItem {
+  // schema-field: bootstrapResponse.callSheets[].outletId
+  let outletId: String
+  // schema-field: bootstrapResponse.callSheets[].revision
+  let revision: Int64
+  // schema-field: bootstrapResponse.callSheets[].header
+  let header: BootstrapResponseCallSheetsItemHeader
+  // schema-field: bootstrapResponse.callSheets[].lines
+  let lines: [BootstrapResponseCallSheetsItemLinesItem]
+}
+// schema-object: bootstrapResponse.callSheets[].header
+struct BootstrapResponseCallSheetsItemHeader {
+  // schema-field: bootstrapResponse.callSheets[].header.accountName
+  let accountName: String
+  // schema-field: bootstrapResponse.callSheets[].header.address
+  let address: String?
+  // schema-field: bootstrapResponse.callSheets[].header.buyerName
+  let buyerName: String?
+  // schema-field: bootstrapResponse.callSheets[].header.contactNumber
+  let contactNumber: String?
+  // schema-field: bootstrapResponse.callSheets[].header.accountInCharge
+  let accountInCharge: String?
+  // schema-field: bootstrapResponse.callSheets[].header.receivingInCharge
+  let receivingInCharge: String?
+  // schema-field: bootstrapResponse.callSheets[].header.distributorName
+  let distributorName: String?
+  // schema-field: bootstrapResponse.callSheets[].header.distributorSchedule
+  let distributorSchedule: String?
+  // schema-field: bootstrapResponse.callSheets[].header.foc
+  let foc: String?
+  // schema-field: bootstrapResponse.callSheets[].header.pricing
+  let pricing: String?
+}
+// schema-object: bootstrapResponse.callSheets[].lines[]
+struct BootstrapResponseCallSheetsItemLinesItem {
+  // schema-field: bootstrapResponse.callSheets[].lines[].productId
+  let productId: String
+  // schema-field: bootstrapResponse.callSheets[].lines[].code
+  let code: String
+  // schema-field: bootstrapResponse.callSheets[].lines[].name
+  let name: String
+  // schema-field: bootstrapResponse.callSheets[].lines[].uom
+  let uom: String
+  // schema-field: bootstrapResponse.callSheets[].lines[].barcode
+  let barcode: String?
+  // schema-field: bootstrapResponse.callSheets[].lines[].pricing
+  let pricing: String?
+}
+// Additive after v1 shipped: visit activity-form rules per intent (AND-013).
+// schema-object: bootstrapResponse.activityRules[]
+struct BootstrapResponseActivityRulesItem {
+  // schema-field: bootstrapResponse.activityRules[].intent
+  let intent: String
+  // schema-field: bootstrapResponse.activityRules[].version
+  let version: String
+  // schema-field: bootstrapResponse.activityRules[].activities
+  let activities: [BootstrapResponseActivityRulesItemActivitiesItem]
+}
+// schema-object: bootstrapResponse.activityRules[].activities[]
+struct BootstrapResponseActivityRulesItemActivitiesItem {
+  // schema-field: bootstrapResponse.activityRules[].activities[].kind
+  let kind: String
+  // schema-field: bootstrapResponse.activityRules[].activities[].required
+  let required: Bool
+}
+// Additive after v1 shipped: visit photo types (AND-016).
+// schema-object: bootstrapResponse.photoTypes[]
+struct BootstrapResponsePhotoTypesItem {
+  // schema-field: bootstrapResponse.photoTypes[].code
+  let code: String
+  // schema-field: bootstrapResponse.photoTypes[].label
+  let label: String
+}
+// schema-object: pushRequest.operations[]#1.payload.activity#6
+struct PushRequestOperationsItemVariant1PayloadActivityVariant6 {
+  // schema-field: pushRequest.operations[]#1.payload.activity#6.kind
+  let kind: String
+  // schema-field: pushRequest.operations[]#1.payload.activity#6.lines
+  let lines: [PushRequestOperationsItemVariant1PayloadActivityVariant6LinesItem]
+}
+// schema-object: pushRequest.operations[]#1.payload.activity#6.lines[]
+struct PushRequestOperationsItemVariant1PayloadActivityVariant6LinesItem {
+  // schema-field: pushRequest.operations[]#1.payload.activity#6.lines[].productId
+  let productId: String
+  // schema-field: pushRequest.operations[]#1.payload.activity#6.lines[].order
+  let order: Int64?
+  // schema-field: pushRequest.operations[]#1.payload.activity#6.lines[].beginningInventory
+  let beginningInventory: Int64?
+  // schema-field: pushRequest.operations[]#1.payload.activity#6.lines[].take
+  let take: Int64?
+  // schema-field: pushRequest.operations[]#1.payload.activity#6.lines[].delivered
+  let delivered: Int64?
+  // schema-field: pushRequest.operations[]#1.payload.activity#6.lines[].offtake
+  let offtake: Int64?
+  // schema-field: pushRequest.operations[]#1.payload.activity#6.lines[].endInventory
+  let endInventory: Int64?
+}
+// schema-enum: pushRequest.operations[]#1.payload.activity#6.kind
+// schema-enum-value: pushRequest.operations[]#1.payload.activity#6.kind = call_sheet

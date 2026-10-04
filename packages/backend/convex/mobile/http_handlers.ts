@@ -2,6 +2,12 @@ import { httpAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { AuthorizedDevice } from "./types";
+import {
+  CALL_SHEET_MEASURES,
+  MAX_CALL_SHEET_LINES,
+  MAX_CALL_SHEET_QUANTITY,
+} from "../callSheets/validators";
+import { acceptsGzip, GZIP_MIN_BYTES, WORKING_SET_TOO_LARGE } from "./budget";
 
 const MAX_BYTES = 128 * 1024;
 const kinds = new Set([
@@ -37,6 +43,38 @@ const json = (body: unknown, status = 200): Response =>
       "cache-control": "no-store",
     },
   });
+/**
+ * QSR-013: bootstrap/pull bodies are gzipped when the phone accepts it (OkHttp and URLSession
+ * ask for gzip and inflate transparently). If the runtime has no CompressionStream, or
+ * compression fails, the identical JSON goes out uncompressed.
+ */
+async function readJson(request: Request, body: unknown): Promise<Response> {
+  const text = JSON.stringify(body);
+  const headers = {
+    "content-type": "application/json",
+    "cache-control": "no-store",
+    vary: "accept-encoding",
+  };
+  if (
+    text.length >= GZIP_MIN_BYTES &&
+    acceptsGzip(request.headers.get("accept-encoding")) &&
+    typeof CompressionStream === "function"
+  ) {
+    try {
+      const stream = new Response(text).body!.pipeThrough(
+        new CompressionStream("gzip"),
+      );
+      const bytes = await new Response(stream).arrayBuffer();
+      return new Response(bytes, {
+        status: 200,
+        headers: { ...headers, "content-encoding": "gzip" },
+      });
+    } catch {
+      // Fall through to the uncompressed body.
+    }
+  }
+  return new Response(text, { status: 200, headers });
+}
 const failure = (code: string, status: number): Response =>
   json(
     {
@@ -57,6 +95,7 @@ function coded(error: unknown): string | null {
     ...reasonCodes,
     "rebootstrap_required",
     "invalid_cursor",
+    WORKING_SET_TOO_LARGE,
   ]) {
     if (new RegExp(`(?:^|[:\\s])${code}(?:$|[\\s\\n])`).test(text)) return code;
   }
@@ -193,6 +232,27 @@ function validActivity(value: unknown): boolean {
         typeof value.currency === "string" &&
         /^[A-Z]{3}$/.test(value.currency) &&
         (value.compliant === undefined || typeof value.compliant === "boolean")
+      );
+    case "call_sheet":
+      return (
+        exact(value, ["kind", "lines"]) &&
+        Array.isArray(value.lines) &&
+        value.lines.length >= 1 &&
+        value.lines.length <= MAX_CALL_SHEET_LINES &&
+        value.lines.every(
+          (line: unknown) =>
+            record(line) &&
+            exact(line, ["productId", ...CALL_SHEET_MEASURES]) &&
+            typeof line.productId === "string" &&
+            line.productId.length > 0 &&
+            CALL_SHEET_MEASURES.every(
+              (m) =>
+                line[m] === null ||
+                (Number.isSafeInteger(line[m]) &&
+                  (line[m] as number) >= 0 &&
+                  (line[m] as number) <= MAX_CALL_SHEET_QUANTITY),
+            ),
+        )
       );
     default:
       return false;
@@ -410,7 +470,7 @@ export async function handleMobile(
         pageCursor: body.pageCursor as string | undefined,
         limit: body.limit as number | undefined,
       });
-      return json(value);
+      return await readJson(request, value);
     }
     if (route === "pull") {
       const value = await ctx.runQuery(internal.mobile.pull.delta, {
@@ -418,7 +478,7 @@ export async function handleMobile(
         cursor: body.cursor as string,
         limit: body.limit as number | undefined,
       });
-      return json(value);
+      return await readJson(request, value);
     }
     const results: unknown[] = [];
     for (const entry of body.operations as RecordValue[]) {
@@ -498,6 +558,9 @@ export async function handleMobile(
     const code = coded(error);
     if (code === "rebootstrap_required" || code === "invalid_cursor")
       return failure(code, 409);
+    // The v1 error codes are frozen: an over-budget working set is a non-retryable
+    // invalid_request until the office splits the plan (docs/qa/MOBILE_BOOTSTRAP_BUDGET.md).
+    if (code === WORKING_SET_TOO_LARGE) return failure("invalid_request", 413);
     return failure("temporarily_unavailable", 500);
   }
 }

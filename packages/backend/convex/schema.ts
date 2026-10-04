@@ -18,7 +18,45 @@ import {
 } from "./issues/validators";
 import { employmentTypeValidator, roleValidator } from "./lib/roles";
 import { positionCategoryValidator } from "./sfa/constants";
+import {
+  callSheetActivityValidator,
+  callSheetHeaderValidator,
+  callSheetTemplateLineValidator,
+} from "./callSheets/validators";
 import { productiveCallRuleValidator } from "./sfa/productive_call";
+import {
+  availabilityStatus,
+  competitorObservationKind,
+  complianceFinding,
+  complianceKind,
+} from "./merchandising/validators";
+import {
+  workWithMode,
+  workWithObjective,
+  workWithObservation,
+  workWithPostCall,
+  workWithPreCall,
+  workWithStatus,
+  workWithTrainingLog,
+} from "./supervision/work_with_model";
+import { fieldReportKind, fieldReportSummary } from "./field_reports/model";
+import {
+  talkSheetItemStatus,
+  talkSheetStatus,
+  talkSheetTopic,
+} from "./supervision/talk_sheet_model";
+import {
+  jobEvaluationContent,
+  trainerFormKind,
+  trainerFormStatus,
+  trainingProgramContent,
+  trainingSheetContent,
+} from "./supervision/trainer_forms_model";
+import {
+  targetMetricValidator,
+  targetPeriodValidator,
+  targetSubjectKindValidator,
+} from "./targets/model";
 import {
   allocationPolicyValidator,
   approvalStatusValidator,
@@ -1106,7 +1144,12 @@ export default defineSchema({
     .index("by_client_request", ["clientRequestId"])
     .index("by_status", ["status"])
     .index("by_customer", ["customerCode"])
-    .index("by_created_at", ["createdAt"]),
+    .index("by_created_at", ["createdAt"])
+    // SOP-007 Daily Sales Report: one salesman's orders for a month to date.
+    .index("by_salespersonSubject_and_createdAt", [
+      "salespersonSubject",
+      "createdAt",
+    ]),
   orderLines: defineTable({
     orderId: v.id("orders"),
     productCode: v.string(),
@@ -1859,6 +1902,212 @@ export default defineSchema({
       "organizationId",
       "effectiveFrom",
     ]),
+  /**
+   * SOP-005 Work-With coaching session (memo §III): its own record, never a visit note.
+   * The trainer writes it; `orgUnitId` is the trainee's unit when it was started and is the
+   * scope key for supervisors. Only `completed` sessions count toward the cadence minimum.
+   */
+  workWithSessions: defineTable({
+    organizationId: v.string(),
+    trainerProfileId: v.id("profiles"),
+    trainerPositionId: v.optional(v.id("positions")),
+    traineeProfileId: v.id("profiles"),
+    orgUnitId: v.id("orgUnits"),
+    serviceDate: v.string(), // YYYY-MM-DD, Manila
+    objective: workWithObjective,
+    mode: workWithMode,
+    truckReference: v.optional(v.string()),
+    rodeWithTruck: v.optional(v.boolean()),
+    status: workWithStatus,
+    trainingLog: v.optional(workWithTrainingLog),
+    observations: v.array(workWithObservation),
+    preCall: v.optional(workWithPreCall),
+    postCall: v.optional(workWithPostCall),
+    mcpPlanned: v.optional(v.number()), // frozen at completion
+    mcpDone: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    cancelledAt: v.optional(v.number()),
+    cancelReason: v.optional(v.string()),
+    createdBy: v.string(),
+    createdAt: v.number(),
+    updatedBy: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_trainerProfileId_and_serviceDate", [
+      "trainerProfileId",
+      "serviceDate",
+    ])
+    .index("by_traineeProfileId_and_serviceDate", [
+      "traineeProfileId",
+      "serviceDate",
+    ])
+    .index("by_orgUnitId_and_serviceDate", ["orgUnitId", "serviceDate"]),
+  /**
+   * SOP-011 Talk Sheet (memo Annex E): one meeting between an SFI sales representative
+   * (`ownerProfileId`, "Discussed by") and an Area Distribution Partner. Sheets of the same
+   * `orgUnitId` + `partnerKey` form a chain; a new sheet copies the previous final sheet's
+   * open (On-going/Overdue) items. `final` is signed off and immutable.
+   */
+  talkSheets: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    partnerName: v.string(),
+    partnerKey: v.string(),
+    ownerProfileId: v.id("profiles"),
+    meetingDate: v.string(), // YYYY-MM-DD, Manila
+    nextContactDate: v.optional(v.string()),
+    acknowledgedByName: v.optional(v.string()),
+    status: talkSheetStatus,
+    previousSheetId: v.optional(v.id("talkSheets")),
+    finalizedAt: v.optional(v.number()),
+    createdBy: v.string(),
+    createdAt: v.number(),
+    updatedBy: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_orgUnitId_and_partnerKey_and_meetingDate", [
+      "orgUnitId",
+      "partnerKey",
+      "meetingDate",
+    ])
+    .index("by_orgUnitId_and_meetingDate", ["orgUnitId", "meetingDate"])
+    .index("by_ownerProfileId_and_meetingDate", [
+      "ownerProfileId",
+      "meetingDate",
+    ]),
+  /**
+   * One gap/issue line of a Talk Sheet. A carried line keeps `openedOn` (when the issue
+   * was first raised) and points at its origin and the line it was copied from; it can
+   * close only by reaching `completed`, never by being removed.
+   */
+  talkSheetItems: defineTable({
+    organizationId: v.string(),
+    sheetId: v.id("talkSheets"),
+    position: v.number(),
+    topic: talkSheetTopic,
+    gap: v.string(),
+    agreement: v.string(),
+    correctiveAction: v.string(),
+    responsible: v.string(),
+    timeline: v.string(), // YYYY-MM-DD
+    status: talkSheetItemStatus,
+    rootCause: v.optional(v.string()),
+    openedOn: v.string(), // meeting date the issue was first raised
+    originItemId: v.optional(v.id("talkSheetItems")),
+    carriedFromItemId: v.optional(v.id("talkSheetItems")),
+  }).index("by_sheetId_and_position", ["sheetId", "position"]),
+  /**
+   * SOP-010 trainer forms (memo annexes D, F, G), each attached to one Work-With session.
+   * Exactly the content field matching `kind` is set. Trainer signs (frozen), trainee
+   * acknowledges. Session fields are copied so reads need no join.
+   */
+  trainerForms: defineTable({
+    organizationId: v.string(),
+    kind: trainerFormKind,
+    sessionId: v.id("workWithSessions"),
+    trainerProfileId: v.id("profiles"),
+    traineeProfileId: v.id("profiles"),
+    orgUnitId: v.id("orgUnits"),
+    serviceDate: v.string(), // the session's day
+    status: trainerFormStatus,
+    program: v.optional(trainingProgramContent),
+    sheet: v.optional(trainingSheetContent),
+    evaluation: v.optional(jobEvaluationContent),
+    /** Annex G "DATES": completed sessions trainer+trainee in the period, frozen at signing. */
+    evaluationSessions: v.optional(
+      v.array(
+        v.object({
+          sessionId: v.id("workWithSessions"),
+          serviceDate: v.string(),
+        }),
+      ),
+    ),
+    signedAt: v.optional(v.number()),
+    signedBy: v.optional(v.string()),
+    acknowledgedAt: v.optional(v.number()),
+    acknowledgedBy: v.optional(v.string()),
+    traineeComment: v.optional(v.string()),
+    createdBy: v.string(),
+    createdAt: v.number(),
+    updatedBy: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_sessionId_and_kind", ["sessionId", "kind"])
+    .index("by_trainerProfileId_and_serviceDate", [
+      "trainerProfileId",
+      "serviceDate",
+    ])
+    .index("by_traineeProfileId_and_serviceDate", [
+      "traineeProfileId",
+      "serviceDate",
+    ])
+    .index("by_orgUnitId_and_serviceDate", ["orgUnitId", "serviceDate"]),
+  /**
+   * SOP-009 DAR / ROAR submissions (field_reports/). Append-only: each submission or
+   * correction is a new revision with the generated figures frozen; the latest revision
+   * wins and the first one decides on-time vs late. `orgUnitId` is the filer's unit.
+   */
+  fieldDayReports: defineTable({
+    organizationId: v.string(),
+    profileId: v.id("profiles"),
+    orgUnitId: v.id("orgUnits"),
+    serviceDate: v.string(), // YYYY-MM-DD, Manila
+    kind: fieldReportKind,
+    revision: v.number(),
+    remarks: v.string(),
+    summary: fieldReportSummary,
+    submittedBy: v.string(),
+    submittedAt: v.number(),
+  }).index("by_profileId_and_serviceDate_and_revision", [
+    "profileId",
+    "serviceDate",
+    "revision",
+  ]),
+  /**
+   * Sales targets (CVX-017): one number per subject (employee, team or territory), period
+   * (daily or monthly) and metric, effective-dated with the document it came from. Exactly
+   * one of profileId/teamId/territoryId is set, matching `subjectKind`. Rows of one
+   * subject+period+metric never overlap; a revision closes the prior row. See targets/.
+   */
+  salesTargets: defineTable({
+    organizationId: v.string(),
+    subjectKind: targetSubjectKindValidator,
+    profileId: v.optional(v.id("profiles")),
+    teamId: v.optional(v.id("teams")),
+    territoryId: v.optional(v.id("territories")),
+    period: targetPeriodValidator,
+    metric: targetMetricValidator,
+    value: v.number(), // sales_value in PHP centavos; calls as counts
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    sourceRef: v.string(),
+    notes: v.optional(v.string()),
+    createdBy: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_profileId_and_period_and_metric_and_effectiveFrom", [
+      "profileId",
+      "period",
+      "metric",
+      "effectiveFrom",
+    ])
+    .index("by_teamId_and_period_and_metric_and_effectiveFrom", [
+      "teamId",
+      "period",
+      "metric",
+      "effectiveFrom",
+    ])
+    .index("by_territoryId_and_period_and_metric_and_effectiveFrom", [
+      "territoryId",
+      "period",
+      "metric",
+      "effectiveFrom",
+    ])
+    .index("by_organizationId_and_effectiveFrom", [
+      "organizationId",
+      "effectiveFrom",
+    ]),
   productBarcodes: defineTable({
     organizationId: v.string(),
     productId: v.id("products"),
@@ -2044,6 +2293,9 @@ export default defineSchema({
         v.literal("rejected"),
       ),
     ),
+    // AND-013: required activity forms evaluated at End (visits/activity_rules.ts).
+    activityRuleVersion: v.optional(v.string()),
+    missingActivities: v.optional(v.array(v.string())),
   })
     .index("by_orgUnitId_and_lateReviewStatus_and_serviceDate", [
       "orgUnitId",
@@ -2109,11 +2361,44 @@ export default defineSchema({
         note: v.optional(v.string()),
       }),
       v.object({ kind: v.literal("note"), text: v.string() }),
+      callSheetActivityValidator,
     ),
     evidenceIds: v.array(v.id("fieldEvidenceFiles")),
     deviceTime: v.number(),
     serverTime: v.number(),
   }).index("by_visitId_and_serverTime", ["visitId", "serverTime"]),
+  /**
+   * AND-013: required/optional activity forms per visit intent, effective-dated national
+   * master data. An intent without a row uses the provisional code default.
+   */
+  visitActivityRules: defineTable({
+    organizationId: v.string(),
+    intent: v.string(),
+    activities: v.array(
+      v.object({
+        kind: v.union(
+          v.literal("call_sheet"),
+          v.literal("merchandising"),
+          v.literal("inventory_check"),
+          v.literal("price_check"),
+          v.literal("promotion"),
+          v.literal("order_intent"),
+          v.literal("note"),
+        ),
+        required: v.boolean(),
+      }),
+    ),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    sourceRef: v.string(),
+    provisional: v.boolean(),
+    actorSubject: v.string(),
+    createdAt: v.number(),
+  }).index("by_organizationId_and_intent_and_effectiveFrom", [
+    "organizationId",
+    "intent",
+    "effectiveFrom",
+  ]),
   visitLocationEvidence: defineTable({
     organizationId: v.string(),
     orgUnitId: v.id("orgUnits"),
@@ -2237,6 +2522,8 @@ export default defineSchema({
     sizeBytes: v.number(),
     checksum: v.string(),
     capturedAt: v.number(),
+    /** AND-016 photo type code (visits/policy EVIDENCE_PHOTO_TYPES); absent on older rows. */
+    photoType: v.optional(v.string()),
     uploadedAt: v.number(),
     status: v.union(
       v.literal("pending"),
@@ -2305,11 +2592,14 @@ export default defineSchema({
       serverTime: v.number(),
     }),
     serverAt: v.number(),
-  }).index("by_organizationId_and_kind_and_clientRequestId", [
-    "organizationId",
-    "kind",
-    "clientRequestId",
-  ]),
+  })
+    .index("by_organizationId_and_kind_and_clientRequestId", [
+      "organizationId",
+      "kind",
+      "clientRequestId",
+    ])
+    // Lost-device reconciliation: what the server acknowledged from one phone.
+    .index("by_deviceId_and_serverAt", ["deviceId", "serverAt"]),
   mobileChanges: defineTable({
     organizationId: v.string(),
     orgUnitId: v.id("orgUnits"),
@@ -2425,4 +2715,134 @@ export default defineSchema({
     lastNumber: v.number(),
     updatedAt: v.number(),
   }).index("by_key", ["key"]),
+  // SOP-008 Annex C: the office-maintained account header and product rows of one outlet.
+  callSheetAccounts: defineTable({
+    organizationId: v.string(),
+    outletId: v.id("outlets"),
+    revision: v.number(),
+    header: callSheetHeaderValidator,
+    lines: v.array(callSheetTemplateLineValidator),
+    updatedAt: v.number(),
+    updatedBy: v.string(),
+  })
+    .index("by_outletId", ["outletId"])
+    .index("by_organizationId_and_updatedAt", ["organizationId", "updatedAt"]),
+  // One captured product row per call_sheet visit activity; week 1-4 of the Manila month.
+  callSheetEntries: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    outletId: v.id("outlets"),
+    visitId: v.id("visitExecutions"),
+    activityId: v.id("visitActivities"),
+    assigneeProfileId: v.id("profiles"),
+    serviceDate: v.string(),
+    localMonth: v.string(),
+    week: v.number(),
+    productId: v.id("products"),
+    templateRevision: v.number(),
+    order: v.union(v.number(), v.null()),
+    beginningInventory: v.union(v.number(), v.null()),
+    take: v.union(v.number(), v.null()),
+    delivered: v.union(v.number(), v.null()),
+    offtake: v.union(v.number(), v.null()),
+    endInventory: v.union(v.number(), v.null()),
+    serverTime: v.number(),
+  }).index("by_outletId_and_localMonth_and_week", [
+    "outletId",
+    "localMonth",
+    "week",
+  ]),
+  // CVX-030 merchandising audits (merchandising/). Required assortment of one outlet,
+  // effective-dated: one row per version; a new version closes the one it replaces.
+  outletAssortments: defineTable({
+    organizationId: v.string(),
+    outletId: v.id("outlets"),
+    productIds: v.array(v.id("products")),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    sourceRef: v.string(),
+    actorSubject: v.string(), // full identity.tokenIdentifier
+    createdAt: v.number(),
+  }).index("by_outletId_and_effectiveFrom", ["outletId", "effectiveFrom"]),
+  // One immutable audit per visit, captured during the call. Summary counts are computed
+  // server-side against the assortment in effect when the audit reached the server.
+  merchandisingAudits: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    visitId: v.id("visitExecutions"),
+    outletId: v.id("outlets"),
+    assigneeProfileId: v.id("profiles"),
+    serviceDate: v.string(),
+    clientAuditId: v.string(),
+    payloadHash: v.string(), // SHA-256 of the canonical submitted audit; replay check
+    auditVersion: v.string(),
+    assortmentId: v.optional(v.id("outletAssortments")),
+    requiredCount: v.number(),
+    requiredAvailableCount: v.number(),
+    requiredOutOfStockCount: v.number(),
+    missingRequiredProductIds: v.array(v.id("products")),
+    evidenceIds: v.array(v.id("fieldEvidenceFiles")),
+    actorSubject: v.string(), // full identity.tokenIdentifier
+    source: v.union(v.literal("mobile"), v.literal("web")),
+    deviceTime: v.number(),
+    serverTime: v.number(),
+  })
+    .index("by_visitId", ["visitId"])
+    .index("by_organizationId_and_clientAuditId", [
+      "organizationId",
+      "clientAuditId",
+    ])
+    .index("by_orgUnitId_and_serviceDate", ["orgUnitId", "serviceDate"])
+    .index("by_outletId_and_serviceDate", ["outletId", "serviceDate"]),
+  merchandisingAvailability: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    auditId: v.id("merchandisingAudits"),
+    outletId: v.id("outlets"),
+    productId: v.id("products"),
+    serviceDate: v.string(),
+    required: v.boolean(),
+    status: availabilityStatus,
+    facings: v.optional(v.number()),
+    note: v.optional(v.string()),
+    evidenceIds: v.array(v.id("fieldEvidenceFiles")),
+  })
+    .index("by_auditId", ["auditId"])
+    .index("by_productId_and_serviceDate", ["productId", "serviceDate"])
+    .index("by_orgUnitId_and_serviceDate", ["orgUnitId", "serviceDate"]),
+  merchandisingComplianceChecks: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    auditId: v.id("merchandisingAudits"),
+    outletId: v.id("outlets"),
+    serviceDate: v.string(),
+    kind: complianceKind,
+    finding: complianceFinding,
+    programRef: v.optional(v.string()),
+    shareOfShelfPercent: v.optional(v.number()),
+    actionTaken: v.optional(v.string()),
+    evidenceIds: v.array(v.id("fieldEvidenceFiles")),
+  })
+    .index("by_auditId", ["auditId"])
+    .index("by_orgUnitId_and_kind_and_serviceDate", [
+      "orgUnitId",
+      "kind",
+      "serviceDate",
+    ]),
+  competitorObservations: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    auditId: v.id("merchandisingAudits"),
+    outletId: v.id("outlets"),
+    serviceDate: v.string(),
+    kind: competitorObservationKind,
+    brand: v.string(),
+    productCategory: v.optional(v.string()),
+    observedPriceMinor: v.optional(v.int64()),
+    currency: v.optional(v.string()),
+    note: v.optional(v.string()),
+    evidenceIds: v.array(v.id("fieldEvidenceFiles")),
+  })
+    .index("by_auditId", ["auditId"])
+    .index("by_orgUnitId_and_serviceDate", ["orgUnitId", "serviceDate"]),
 });

@@ -3,12 +3,16 @@
  * decides whether a fix is flagged for supervisor review; it never blocks a check-in.
  * Replace via effective-dated outlet policy only after a client-approved policy table exists. */
 export const VISIT_LOCATION_POLICY = {
-  version: "field-day-2026-10-v2",
+  version: "field-day-2026-10-v3",
   source:
     "Client call 2 Oct 2026 (answers 13, 14); ADR-017 thresholds kept as flags",
-  radiusMeters: 75,
+  /* The radius is the outlet's verified pin radius (default 75 m, up to 500 m for malls and
+   * warehouses through the two-person pin verification), never clamped to the default. */
   maxAccuracyMeters: 50,
   maxFixAgeMs: 60_000,
+  /** A fix stamped this far ahead of the server clock is still trusted (minor phone clock
+   * drift); beyond it the device time does not match and the fix goes to review. */
+  maxFixClockDriftMs: 120_000,
   checkInGraceMs: 0,
   /** A device clock may run this far ahead of the server. */
   maxDeviceSkewMs: 24 * 60 * 60_000,
@@ -44,3 +48,22 @@ export function nextDayCloseAt(now: number) {
 
 export const MAX_EVIDENCE_BYTES = 10 * 1024 * 1024;
 export const EVIDENCE_MIME = ["image/jpeg", "image/png", "image/webp"] as const;
+
+/**
+ * AND-016: the photo types a field phone offers for visit evidence, delivered in the bootstrap
+ * (`photoTypes`) so the list changes with a backend deploy, not an app release. Provisional until
+ * Sunpride confirms its list: memo 2026-01-20 merchandising execution (display / price tagging),
+ * promotion compliance, and the 2 Oct 2026 call (a store photo verifies a new outlet).
+ */
+export const EVIDENCE_PHOTO_TYPES_VERSION = "visit-photo-types/2026-10-04";
+export const EVIDENCE_PHOTO_TYPES = [
+  { code: "storefront", label: "Store front" },
+  { code: "shelf_display", label: "Shelf and display" },
+  { code: "price_tag", label: "Price tags" },
+  { code: "promotion", label: "Promotion material" },
+  { code: "other", label: "Other" },
+] as const;
+export type EvidencePhotoType = (typeof EVIDENCE_PHOTO_TYPES)[number]["code"];
+export function isEvidencePhotoType(code: string): code is EvidencePhotoType {
+  return EVIDENCE_PHOTO_TYPES.some((type) => type.code === code);
+}

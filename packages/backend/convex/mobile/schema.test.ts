@@ -445,6 +445,15 @@ describe("mobile additive schema", () => {
       );
       await check(
         await ctx.db
+          .query("processedMobileOperations")
+          .withIndex("by_deviceId_and_serverAt", (q) =>
+            q.eq("deviceId", x.device),
+          )
+          .collect(),
+        x.processed,
+      );
+      await check(
+        await ctx.db
           .query("mobileChanges")
           .withIndex("by_organizationId_and_sequence", (q) =>
             q.eq("organizationId", org).eq("sequence", 1),

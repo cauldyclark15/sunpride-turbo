@@ -7,6 +7,11 @@ import { AdminWorkspace } from "./admin-workspace";
 import { OrgAdmin, performOrgAction } from "./org-admin";
 import { PeopleAdmin, performPeopleAssignment } from "./people-admin";
 import { TeamsAdmin, performTeamAction } from "./teams-admin";
+import {
+  DevicesAdmin,
+  deviceActionsFor,
+  performDeviceAction,
+} from "./devices-admin";
 
 const state = vi.hoisted(() => ({
   values: {} as Record<string, unknown>,
@@ -801,5 +806,133 @@ describe("Teams admin", () => {
     const view = html(createElement(TeamsAdmin));
     expect(view).not.toContain("Create team</button>");
     expect(view).not.toContain("Add member</button>");
+  });
+});
+
+describe("Phones admin", () => {
+  const deviceId = "device-1" as Id<"registeredDevices">;
+  const device = {
+    deviceId,
+    inventoryTag: "PHONE-7",
+    allowedApp: "ANDROID",
+    platform: "Android",
+    model: "Galaxy A55",
+    osVersion: "14",
+    appVersion: "1.0",
+    orgUnitId: region._id,
+    employeeName: "Ana Reyes",
+    status: "suspended",
+    statusReason: "suspected_compromise",
+    statusAt: Date.parse("2026-10-03T02:00:00Z"),
+    registeredAt: 0,
+    lastSeenAt: Date.parse("2026-10-03T01:30:00Z"),
+    bound: true,
+    offlineLeaseExpiresAt: Date.parse("2026-10-04T01:30:00Z"),
+  };
+  it("lists scoped phones from the Phones tab", () => {
+    state.tabOverride = "devices";
+    state.values["mobile/devices:list"] = {
+      page: [device],
+      continueCursor: "",
+      isDone: true,
+    };
+    const view = html(createElement(AdminWorkspace));
+    expect(view).toContain("Phones");
+    expect(view).toContain("PHONE-7");
+    expect(view).toContain("Ana Reyes");
+    expect(view).toContain("Suspended");
+    expect(state.queryCalls).toContainEqual({
+      name: "mobile/devices:list",
+      args: { paginationOpts: { numItems: 25, cursor: null } },
+    });
+  });
+  it("shows what reached the server, what did not, and the audit history", () => {
+    state.selectedOverride = deviceId;
+    state.values["mobile/devices:list"] = {
+      page: [device],
+      continueCursor: "",
+      isDone: true,
+    };
+    state.values["mobile/devices:lostDeviceReport"] = {
+      device,
+      acknowledged: [
+        {
+          kind: "visit.checkIn",
+          clientRequestId: "op-1",
+          serverAt: Date.parse("2026-10-03T01:29:00Z"),
+        },
+      ],
+      acknowledgedMore: false,
+      lastAcknowledgedAt: Date.parse("2026-10-03T01:29:00Z"),
+      history: [
+        {
+          action: "device.suspended",
+          reason: "suspected_compromise",
+          at: Date.parse("2026-10-03T02:00:00Z"),
+          actorName: "Maria Santos",
+        },
+        {
+          action: "device.registered",
+          reason: "registered",
+          at: 0,
+          actorName: null,
+        },
+      ],
+    };
+    const view = html(createElement(DevicesAdmin));
+    expect(state.queryCalls).toContainEqual({
+      name: "mobile/devices:lostDeviceReport",
+      args: { deviceId },
+    });
+    expect(view).toContain("The server now refuses this phone");
+    expect(view).toContain("has not reached the server");
+    expect(view).toContain("Check-in");
+    expect(view).toContain("Maria Santos");
+    expect(view).toContain("suspected compromise");
+    expect(view).toContain("Former user");
+    expect(view).toContain("Reinstate phone");
+    expect(view).toContain("Revoke phone");
+    expect(view).not.toContain("Suspend phone");
+  });
+  it("offers only legal transitions and sends reason codes", async () => {
+    expect(deviceActionsFor("active")).toEqual(["suspend", "revoke"]);
+    expect(deviceActionsFor("suspended")).toEqual(["reinstate", "revoke"]);
+    expect(deviceActionsFor("revoked")).toEqual([]);
+    const actions = {
+      suspend: vi.fn(),
+      revoke: vi.fn(),
+      reinstate: vi.fn(),
+    };
+    await performDeviceAction("suspend", deviceId, "lost", actions);
+    expect(actions.suspend).toHaveBeenCalledWith({ deviceId, reason: "lost" });
+    await performDeviceAction("revoke", deviceId, "replacement", actions);
+    expect(actions.revoke).toHaveBeenCalledWith({
+      deviceId,
+      reason: "replacement",
+    });
+    await performDeviceAction("reinstate", deviceId, "found", actions);
+    expect(actions.reinstate).toHaveBeenCalledWith({
+      deviceId,
+      reason: "found",
+    });
+    await expect(
+      performDeviceAction("suspend", deviceId, "replacement", actions),
+    ).rejects.toThrow("Choose a reason");
+    await expect(
+      performDeviceAction("reinstate", deviceId, "", actions),
+    ).rejects.toThrow("Choose a reason");
+  });
+  it("skips device queries without admin.manage", () => {
+    state.values["lib/capabilities:currentPermissions"] = {
+      ...permissions,
+      capabilities: ["people.read"],
+    };
+    const view = html(createElement(DevicesAdmin));
+    expect(view).toContain("Administrator access required");
+    expect(
+      state.queryCalls
+        .filter((call) => call.name.startsWith("mobile/devices"))
+        .every((call) => call.args === "skip"),
+    ).toBe(true);
   });
 });

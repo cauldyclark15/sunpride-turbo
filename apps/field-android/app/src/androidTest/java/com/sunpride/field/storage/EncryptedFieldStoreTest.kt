@@ -31,6 +31,132 @@ class EncryptedFieldStoreTest {
     @Before fun open() { db = EncryptedFieldDatabase.open(context) }
     @After fun close() { db.close() }
 
+    private fun callSheet(revision: Long = 1) = CallSheet("outlet-1", revision,
+        CallSheetHeader("Account", "Address", null, null, null, null, null, null, null, "SRP"),
+        listOf(CallSheetProduct("product-1", "SKU", "Product", "PC", null, "₱10")))
+
+    /** AND-016: photo metadata is scoped, durable across reopen, and upload state changes are one-way. */
+    @Test fun visitPhotosAreScopedDurableAndUploadAgainstRealRoom() = runBlocking {
+        val target = store()
+        target.swap(target.stage(snapshot().copy(photoTypes = listOf(PhotoType("shelf_display", "Shelf")))),
+            "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
+        assertEquals(listOf(PhotoType("shelf_display", "Shelf")), target.photoTypes())
+        target.enqueue(com.sunpride.field.ui.diagnosticvisit.VisitIntentFactory.create(scope, "visit.checkIn", null,
+            null, null, null, "outlet-1", listOf("sell"), "walk-in", null, null, null, null), System.currentTimeMillis())
+        val start = target.history().single().first
+        val bytes = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 5, 0xFF.toByte(), 0xD9.toByte())
+        val row = EvidencePhotoRow(scope.account, scope.deviceId, scope.fingerprint, UUID.randomUUID().toString(),
+            start.clientVisitId, start.requestId, "outlet-1", "shelf_display", EvidencePhotos.MIME, bytes.size.toLong(),
+            EvidencePhotos.sha256Hex(bytes), 10, 20)
+        assertThrows(IllegalArgumentException::class.java) { runBlocking {
+            target.addPhoto(row.copy(localId = UUID.randomUUID().toString(), photoType = "storefront"), System.currentTimeMillis()) } }
+        target.addPhoto(row, System.currentTimeMillis())
+        assertTrue(store(scope.copy(fingerprint = "other")).pendingPhotos().isEmpty())
+        db.close(); db = EncryptedFieldDatabase.open(context)
+        assertEquals(listOf(row), store().pendingPhotos())
+        assertEquals(1, store().status().photosWaiting)
+        // The uploader waits for the Start ack, then attaches through the API seam.
+        val files = object : com.sunpride.field.evidence.PhotoFiles {
+            val map = mutableMapOf(row.localId to bytes)
+            override fun write(localId: String, bytes: ByteArray) { map[localId] = bytes }
+            override fun read(localId: String) = map.getValue(localId)
+            override fun delete(localId: String) { map.remove(localId) }
+        }
+        val api = object : com.sunpride.field.evidence.EvidenceApi {
+            override fun uploadUrl(visitId: String) = "https://upload" to "claim"
+            override fun upload(url: String, bytes: ByteArray, mime: String) = "storage"
+            override fun attach(claim: String, visitId: String, storageId: String, row: EvidencePhotoRow) = "evidence-$visitId"
+        }
+        assertTrue(com.sunpride.field.evidence.EvidenceUploader(store(), scope, files, api).run().retryLater)
+        store().recordAck(start.requestId, "visit-1", "[]", 1)
+        assertEquals(1, com.sunpride.field.evidence.EvidenceUploader(store(), scope, files, api).run().uploaded)
+        val uploaded = store().visitPhotos(start.clientVisitId).single()
+        assertEquals("uploaded", uploaded.state); assertEquals("evidence-visit-1", uploaded.evidenceId)
+        assertTrue(files.map.isEmpty())
+        assertEquals(0, store().status().photosWaiting)
+        // Replayed success must agree; review/attempts never apply to an uploaded photo.
+        store().markPhotoUploaded(row.localId, "evidence-visit-1", 2)
+        assertThrows(IllegalStateException::class.java) { runBlocking { store().markPhotoUploaded(row.localId, "other", 2) } }
+        assertThrows(IllegalStateException::class.java) { runBlocking { store().reviewPhoto(row.localId, "x") } }
+        assertThrows(IllegalStateException::class.java) { runBlocking { store().countPhotoAttempt(row.localId) } }
+        Unit
+    }
+
+    @Test fun callSheetGenerationPromotionIsScopedAtomicAndDurable() = runBlocking {
+        val target = store()
+        val initial = snapshot().copy(callSheets = listOf(callSheet()))
+        target.swap(target.stage(initial), "before", 2000, 2000)
+        assertEquals(callSheet(), target.callSheet("outlet-1"))
+        assertNull(store(scope.copy(account = "other")).callSheet("outlet-1"))
+        assertNull(store(scope.copy(deviceId = "other")).callSheet("outlet-1"))
+        assertNull(store(scope.copy(fingerprint = "other")).callSheet("outlet-1"))
+        val generation = target.stage(initial.copy(callSheets = listOf(callSheet(2))))
+        assertEquals(1L, target.callSheet("outlet-1")!!.revision)
+        assertThrows(IllegalStateException::class.java) { runBlocking { target.swap("unstaged", "bad", 2000, 2000) } }
+        assertEquals("before", target.cursor()); assertEquals(1L, target.callSheet("outlet-1")!!.revision)
+        target.swap(generation, "after", 2000, 2000)
+        db.close(); db = EncryptedFieldDatabase.open(context)
+        assertEquals(2L, store().callSheet("outlet-1")!!.revision)
+        assertEquals("after", store().cursor())
+        store().swap(store().stage(initial.copy(callSheets = emptyList())), "old-server", 2000, 2000)
+        assertNull(store().callSheet("outlet-1"))
+        Unit
+    }
+
+    @Test fun customerDirectoryReadsOnlyThePromotedScopedGeneration() = runBlocking {
+        val target = store()
+        assertNull(target.route()); assertTrue(target.plannedVisits().isEmpty())
+        val days = listOf(SnapshotItem("visit-1", "{\"outletId\":\"outlet-1\"}", "2026-09-26"),
+            SnapshotItem("visit-2", "{\"outletId\":\"outlet-1\"}", "2026-09-27"))
+        val initial = ScopedSnapshot("{\"id\":\"employee\"}", "{\"id\":\"route-1\",\"code\":\"R1\"}", days,
+            listOf(SnapshotItem("outlet-1", "outlet")), listOf(SnapshotItem("customer-1", "{\"code\":\"C\"}")),
+            listOf(SnapshotItem("task-1", "{\"kind\":\"survey\",\"required\":true}")))
+        val generation = target.stage(initial)
+        // Staged rows stay invisible until promotion.
+        assertTrue(target.plannedVisits().isEmpty()); assertTrue(target.tasks().isEmpty()); assertNull(target.route())
+        target.swap(generation, "cursor", 2000, 2000)
+        assertEquals(listOf("visit-1", "visit-2"), target.plannedVisits().map { it.id })
+        assertEquals(listOf("2026-09-27"), target.todaysVisits("2026-09-27").map { it.serviceDate })
+        assertEquals(listOf("task-1"), target.tasks().map { it.id })
+        assertEquals("{\"id\":\"route-1\",\"code\":\"R1\"}", target.route())
+        for (other in listOf(scope.copy(account = "other"), scope.copy(deviceId = "other"), scope.copy(fingerprint = "other"))) {
+            assertTrue(store(other).plannedVisits().isEmpty()); assertTrue(store(other).tasks().isEmpty())
+            assertNull(store(other).route())
+        }
+        Unit
+    }
+
+    @Test fun callSheetEnqueueValidatesSetupProductsAndRetainsImmutableTemplate() = runBlocking {
+        val factory = com.sunpride.field.ui.diagnosticvisit.VisitIntentFactory
+        val payload = com.sunpride.field.ui.diagnosticvisit.CallSheetPayload
+        val target = store()
+        target.swap(target.stage(snapshot().copy(callSheets = listOf(callSheet()))), "cursor", 2000, 2000)
+        val check = factory.create(scope, "visit.checkIn", null, null, null, "planned-1", "outlet-1",
+            emptyList(), null, null, null, null, null, at = 100)
+        target.enqueue(check, 100)
+        val activity = payload.activity(callSheet(), listOf(com.sunpride.field.ui.diagnosticvisit.CallSheetDraftLine("product-1", order = "0")))
+        val row = factory.create(scope, "visit.activity", check.clientVisitId, check.requestId, check.requestId,
+            null, "outlet-1", emptyList(), null, null, null, null, null, at = 100, callSheet = activity)
+        val bad = org.json.JSONObject(row.serializedOperation)
+        bad.getJSONObject("payload").getJSONObject("activity").getJSONArray("lines").getJSONObject(0).put("productId", "foreign")
+        assertThrows(IllegalArgumentException::class.java) { runBlocking {
+            target.enqueue(row.copy(serializedOperation = bad.toString()), 100)
+        } }
+        assertNull(target.intent(row.requestId)); assertEquals(1, target.history().size)
+        target.enqueue(row, 100)
+        assertEquals(listOf(100L, 101L), target.history().map { it.first.createdAt })
+        target.markSending(listOf(check.requestId)); target.recordAck(check.requestId, "server-visit", "[]", 150)
+        assertEquals("done", target.history().first().second.state)
+        db.close(); db = EncryptedFieldDatabase.open(context)
+        assertEquals(row.serializedOperation, store().intent(row.requestId)!!.serializedOperation)
+        assertEquals("server-visit", store().ack(check.requestId)!!.entityId)
+        store().swap(store().stage(snapshot()), "no-setup", 2000, 2000)
+        assertEquals(row.serializedOperation, store().intent(row.requestId)!!.serializedOperation)
+        assertThrows(IllegalStateException::class.java) { runBlocking { store().enqueue(row.copy(requestId = "new"), 100) } }
+        assertEquals(2, store().history().size)
+        Unit
+    }
+
     @Test fun wrappedKeyPersistsAndCiphertextContainsNoMarkerAndWrongKeyFails() = runBlocking {
         val marker = "KNOWN_PLAINTEXT_MARKER_${UUID.randomUUID()}"
         ready(store(), marker)
@@ -136,6 +262,34 @@ class EncryptedFieldStoreTest {
         assertEquals(i.requestId, store().pending().single().first.requestId)
     }
 
+    @Test fun teamSummaryCacheIsScopedKeepsOnlyTodayAndStopsWhenHeld() = runBlocking {
+        val entity = "local.team"
+        // Nothing is saved before a bootstrap promotes a generation.
+        store().putLocalCache(entity, "2026-09-27|direct", "{\"old\":1}", 10, "2026-09-27|")
+        assertNull(store().localCache(entity, "2026-09-27|direct"))
+        store().swap(store().stage(ScopedSnapshot("{\"id\":\"employee\",\"role\":\"manager\"}", null,
+            emptyList(), emptyList(), emptyList(), emptyList())), "opaque-cursor", 2000, 2000)
+        assertEquals("manager", store().employeeRole())
+        store().putLocalCache(entity, "2026-09-27|direct", "{\"old\":1}", 10, "2026-09-27|")
+        store().putLocalCache(entity, "2026-09-28|direct", "{\"d\":1}", 20, "2026-09-28|")
+        store().putLocalCache(entity, "2026-09-28|all", "{\"a\":1}", 30, "2026-09-28|")
+        assertNull(store().localCache(entity, "2026-09-27|direct")) // yesterday's copy is dropped
+        assertEquals("{\"d\":1}" to 20L, store().localCache(entity, "2026-09-28|direct")!!.let { it.json to it.revision })
+        assertEquals("{\"a\":1}", store().localCache(entity, "2026-09-28|all")!!.json)
+        // Another account, device or scope never sees it.
+        for (other in listOf(StoreScope("issuer|person-B", scope.deviceId, scope.fingerprint),
+            StoreScope(scope.account, "device-B", scope.fingerprint), StoreScope(scope.account, scope.deviceId, "scope-B")))
+            assertNull(store(other).localCache(entity, "2026-09-28|direct"))
+        // Server deltas cannot write the reserved local entity, and the store refuses non-local entities.
+        assertThrows(IllegalArgumentException::class.java) { runBlocking { store().localCache("visit", "x") } }
+        store().holdForReview()
+        store().putLocalCache(entity, "2026-09-28|direct", "{\"d\":2}", 40, "2026-09-28|")
+        assertEquals("{\"d\":1}", store().localCache(entity, "2026-09-28|direct")!!.json)
+        db.close()
+        db = EncryptedFieldDatabase.open(context)
+        assertEquals("{\"a\":1}", store().localCache(entity, "2026-09-28|all")!!.json)
+    }
+
     @Test fun signOutHookHoldsEveryPartitionWithoutDeletingUnsentWork() = runBlocking {
         ready(store())
         val i = intent()
@@ -148,6 +302,52 @@ class EncryptedFieldStoreTest {
         assertEquals(i.requestId, store().pending().single().first.requestId)
         assertThrows(IllegalStateException::class.java) { runBlocking { store().setCursor("new-cursor") } }
         Unit
+    }
+
+    /** QSR-010: sign-out/revocation removes cached plan, customers, prices and summaries, never unsent work. */
+    @Test fun signOutPurgeDropsServerCacheButKeepsUnsentEvidence() = runBlocking {
+        store().swap(store().stage(snapshot().copy(localCustomers = listOf(SnapshotItem("customer-1", "PRIVATE-CUSTOMER")),
+            callSheets = listOf(callSheet()))), "opaque-cursor", 2000, 2000)
+        store().putLocalCache("local.team", "2026-09-28|direct", "{\"d\":1}", 20, "2026-09-28|")
+        val i = intent()
+        store().enqueue(i, 100)
+        val other = StoreScope("issuer|person-B-${UUID.randomUUID()}", "device-A", "scope-A")
+        ready(store(other), "other-visit")
+        db.close()
+        EncryptedFieldDatabase.purgeExisting(context)
+        db = EncryptedFieldDatabase.open(context)
+        for (s in listOf(store(), store(other))) {
+            assertTrue(s.todaysVisits("2026-09-26").isEmpty())
+            assertTrue(s.outlets().isEmpty())
+            assertTrue(s.customers().isEmpty())
+            assertNull(s.callSheet("outlet-1"))
+            assertNull(s.route())
+            assertNull(s.employeeRole())
+            assertNull(s.cursor())
+            assertFalse(s.isLeaseValid(100))
+            assertEquals("held_for_review", s.syncHealth())
+        }
+        assertNull(store().localCache("local.team", "2026-09-28|direct"))
+        // The unsent intent survives, held; a verified same-partition bootstrap releases it.
+        assertEquals(i.requestId, store().pending().single().first.requestId)
+        assertThrows(IllegalStateException::class.java) { runBlocking { store().enqueue(intent(), 100) } }
+        store().swap(store().stage(snapshot("fresh")), "fresh-cursor", 3000, 3000, releaseHeld = true)
+        assertEquals("fresh", store().todaysVisits("2026-09-26").single().json)
+        assertEquals(i.requestId, store().pending().single().first.requestId)
+    }
+
+    @Test fun revocationPurgeIsScopedToOnePartition() = runBlocking {
+        ready(store())
+        val other = StoreScope(scope.account, scope.deviceId, "scope-B")
+        ready(store(other), "kept")
+        val i = intent()
+        store().enqueue(i, 100)
+        store().purgeCacheForReview()
+        assertTrue(store().todaysVisits("2026-09-26").isEmpty())
+        assertEquals("held_for_review", store().syncHealth())
+        assertEquals(i.requestId, store().pending().single().first.requestId)
+        assertEquals("kept", store(other).todaysVisits("2026-09-26").single().json)
+        assertTrue(store(other).isLeaseValid(100))
     }
 
     @Test fun backupAndDeviceTransferExcludeDatabaseAndWrappedKey() {

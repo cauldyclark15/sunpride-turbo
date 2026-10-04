@@ -55,7 +55,15 @@ struct StoreSnapshot: Sendable {
     let customers: [Customer]
     let route: Route?
     let tasks: [Task]
+    let callSheets: [CallSheet]
     var dayTarget: DayTarget? = nil
+
+    init(employee: Employee, visits: [Visit], outlets: [Outlet], customers: [Customer],
+         route: Route?, tasks: [Task], callSheets: [CallSheet] = [], dayTarget: DayTarget? = nil) {
+        self.employee = employee; self.visits = visits; self.outlets = outlets
+        self.customers = customers; self.route = route; self.tasks = tasks; self.callSheets = callSheets
+        self.dayTarget = dayTarget
+    }
 }
 
 /// Exact serialized v1 operation is immutable after enqueue. Caller supplies a UUID, including for check-in.
@@ -172,6 +180,10 @@ protocol FieldLocalStore: AnyObject {
     func syncHealth(for partition: StorePartition) throws -> SyncHealth?
     func setSyncHealth(_ health: SyncHealth, for partition: StorePartition) throws
     func holdForReview(_ partition: StorePartition) throws
+    /// QSR-010 confirmed revocation: hold, then drop this partition's server cache (keeps unsent evidence).
+    func purgeCacheForReview(_ partition: StorePartition) throws
+    /// QSR-010 sign-out: hold every partition and drop every server cache (keeps unsent evidence).
+    func purgeAllCachesForReview() throws
     func releaseHeld(_ partition: StorePartition) throws
     func releaseHeld(subject: String, deviceId: String) throws
     func isHeld(_ partition: StorePartition) throws -> Bool
@@ -223,6 +235,8 @@ final class EncryptedFieldStore: FieldLocalStore {
             try exec("PRAGMA synchronous=FULL")
             try exec("PRAGMA foreign_keys=ON")
             try exec("PRAGMA temp_store=MEMORY")
+            // QSR-010: deleted cache rows are overwritten, not left in free pages.
+            try exec("PRAGMA secure_delete=ON")
             try migrate()
             try protectFiles()
         } catch {
@@ -341,8 +355,8 @@ final class EncryptedFieldStore: FieldLocalStore {
           PRIMARY KEY(subject,device,scope,entity,id));
         """
     private func migrate() throws {
-        guard let raw = try scalar("PRAGMA user_version"), let version = Int(raw), version <= 2 else { throw StoreError.unsupportedVersion }
-        if version == 2 { return }
+        guard let raw = try scalar("PRAGMA user_version"), let version = Int(raw), version <= 3 else { throw StoreError.unsupportedVersion }
+        if version == 3 { return }
         try transaction {
             if version == 0 {
                 // Legacy v0 pilot table has durable request IDs; copy, never generate replacement UUIDs.
@@ -356,7 +370,14 @@ final class EncryptedFieldStore: FieldLocalStore {
                 }
             }
             if version == 1 { try exec("CREATE TABLE delta(subject TEXT NOT NULL,device TEXT NOT NULL,scope TEXT NOT NULL,entity TEXT NOT NULL,id TEXT NOT NULL,revision INTEGER NOT NULL,body BLOB,PRIMARY KEY(subject,device,scope,entity,id))") }
-            try exec("PRAGMA user_version=2")
+            // v3: Annex C stays in the SQLCipher database and participates in generation promotion.
+            try exec("""
+                CREATE TABLE call_sheets (
+                  subject TEXT NOT NULL, device TEXT NOT NULL, scope TEXT NOT NULL,
+                  generation INTEGER NOT NULL, outlet_id TEXT NOT NULL, body BLOB NOT NULL,
+                  PRIMARY KEY(subject,device,scope,generation,outlet_id));
+                PRAGMA user_version=3;
+                """)
         }
     }
 
@@ -382,7 +403,9 @@ final class EncryptedFieldStore: FieldLocalStore {
         if let route = snapshot.route { rows.append(("route", route.id, nil, try encode(route))) }
         for v in snapshot.tasks { rows.append(("task", v.id, nil, try encode(v))) }
         if let target = snapshot.dayTarget { rows.append(("dayTarget", "today", nil, try encode(target))) }
-        guard rows.allSatisfy({ !$0.1.isEmpty }) else { throw StoreError.invalidInput }
+        guard rows.allSatisfy({ !$0.1.isEmpty }), snapshot.callSheets.allSatisfy(\.isValid),
+              snapshot.callSheets.allSatisfy({ sheet in snapshot.outlets.contains { $0.id == sheet.outletId } }) else { throw StoreError.invalidInput }
+        let sheets = try snapshot.callSheets.map { ($0.outletId, try encode($0)) }
         try transaction {
             try ensure(partition)
             let generation = (try state(partition)?.0 ?? 0) + 1
@@ -390,6 +413,11 @@ final class EncryptedFieldStore: FieldLocalStore {
                 try run("INSERT INTO snapshot(subject,device,scope,generation,kind,id,service_date,body) VALUES (?,?,?,?,?,?,?,?)",
                         p(partition) + [.integer(generation), .text(kind), .text(id), date.map(Value.text) ?? .null, body])
             }
+            for (outletId, body) in sheets {
+                try run("INSERT INTO call_sheets(subject,device,scope,generation,outlet_id,body) VALUES (?,?,?,?,?,?)",
+                        p(partition) + [.integer(generation), .text(outletId), body])
+            }
+            try run("DELETE FROM call_sheets WHERE \(Self.predicate) AND generation<>?", p(partition) + [.integer(generation)])
             try run("UPDATE partitions SET generation=?,cursor=?,lease_expiry=?,cache_expiry=? WHERE \(Self.predicate)",
                     [.integer(generation), .text(cursor), .integer(leaseExpiresAt), .integer(cacheExpiresAt)] + p(partition))
             try run("DELETE FROM snapshot WHERE \(Self.predicate) AND generation<>?", p(partition) + [.integer(generation)])
@@ -411,6 +439,11 @@ final class EncryptedFieldStore: FieldLocalStore {
     func outlets(for partition: StorePartition) throws -> [StoreSnapshot.Outlet] {
         try entities(StoreSnapshot.Outlet.self, kind: "outlet", partition: partition)
     }
+    func callSheets(for partition: StorePartition) throws -> [CallSheet] {
+        guard let (generation, _) = try state(partition), generation > 0 else { return [] }
+        return try query("SELECT body FROM call_sheets WHERE \(Self.predicate) AND generation=? ORDER BY outlet_id",
+                         p(partition) + [.integer(generation)]) { try decode(CallSheet.self, Self.data($0, 0)) }
+    }
     func snapshot(for partition: StorePartition) throws -> StoreSnapshot? {
         guard let employee = try entities(StoreSnapshot.Employee.self, kind: "employee", partition: partition).first else { return nil }
         return try StoreSnapshot(employee: employee,
@@ -419,6 +452,7 @@ final class EncryptedFieldStore: FieldLocalStore {
             customers: entities(StoreSnapshot.Customer.self, kind: "customer", partition: partition),
             route: entities(StoreSnapshot.Route.self, kind: "route", partition: partition).first,
             tasks: entities(StoreSnapshot.Task.self, kind: "task", partition: partition),
+            callSheets: callSheets(for: partition),
             dayTarget: entities(StoreSnapshot.DayTarget.self, kind: "dayTarget", partition: partition).first)
     }
     func leaseExpiry(for partition: StorePartition) throws -> Int64? {
@@ -607,6 +641,26 @@ final class EncryptedFieldStore: FieldLocalStore {
     func holdForReview(_ partition: StorePartition) throws {
         try run("UPDATE partitions SET held=1,cursor=NULL WHERE \(Self.predicate)", p(partition))
     }
+    /// QSR-010: sign-out/revocation removes the server-provided cache — plan, outlets, customers,
+    /// route, employee header, call sheets/prices, deltas and the offline lease. Intents, outbox and
+    /// acks are the person's evidence and stay encrypted and held for supervised review (ADR-020).
+    func purgeCacheForReview(_ partition: StorePartition) throws {
+        try transaction {
+            try ensure(partition)
+            try purge(where: Self.predicate, p(partition))
+        }
+        try exec("PRAGMA wal_checkpoint(TRUNCATE)")
+    }
+    func purgeAllCachesForReview() throws {
+        try transaction { try purge(where: "1=1", []) }
+        try exec("PRAGMA wal_checkpoint(TRUNCATE)")
+    }
+    private func purge(where clause: String, _ values: [Value]) throws {
+        for table in ["snapshot", "call_sheets", "delta"] {
+            try run("DELETE FROM \(table) WHERE \(clause)", values)
+        }
+        try run("UPDATE partitions SET held=1,cursor=NULL,lease_expiry=NULL,cache_expiry=NULL WHERE \(clause)", values)
+    }
     func releaseHeld(_ partition: StorePartition) throws {
         try run("UPDATE partitions SET held=0 WHERE \(Self.predicate)", p(partition))
     }
@@ -623,13 +677,19 @@ final class EncryptedFieldStore: FieldLocalStore {
     }
 
     #if DEBUG
+    /// Downgrade harness: preserve actual v2 snapshot/outbox/acks while removing only the v3 addition.
+    func prepareLegacyV2() throws {
+        try transaction { try exec("DROP TABLE call_sheets; PRAGMA user_version=2") }
+    }
+    var schemaVersion: Int { (try? scalar("PRAGMA user_version")).flatMap(Int.init) ?? -1 }
+
     /// Migration harness only. Creates an encrypted pre-v1 fixture with a caller-owned durable UUID.
     static func createLegacyV0(url: URL, secrets: SecretStore, keyAccount: String,
                                partition: StorePartition, intent: VisitIntent) throws {
         // Initialize an encrypted file, then recreate the v0 schema under its existing key.
         let store = try EncryptedFieldStore(url: url, secrets: secrets, keyAccount: keyAccount)
         try store.transaction {
-            try store.exec("DROP TABLE acks; DROP TABLE outbox; DROP TABLE intents; DROP TABLE snapshot; DROP TABLE partitions")
+            try store.exec("DROP TABLE call_sheets; DROP TABLE acks; DROP TABLE outbox; DROP TABLE intents; DROP TABLE snapshot; DROP TABLE partitions")
             try store.exec("CREATE TABLE legacy_intents(subject TEXT,device TEXT,scope TEXT,request_id TEXT,kind TEXT,body BLOB)")
             try store.run("INSERT INTO legacy_intents VALUES(?,?,?,?,?,?)", store.p(partition) + [.text(intent.requestId.uuidString.lowercased()), .text(intent.kind), .blob(intent.operationJSON)])
             try store.exec("PRAGMA user_version=0")

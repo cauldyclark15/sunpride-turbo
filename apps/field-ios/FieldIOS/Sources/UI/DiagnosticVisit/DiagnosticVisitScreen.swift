@@ -91,6 +91,23 @@ struct DiagnosticVisitScreen: View {
                             .accessibilityIdentifier("diagnosticAddNote")
                         }.padding(16)
                     }
+                    if model.callSheet(for: visit) != nil {
+                        NavigationLink {
+                            CallSheetScreen(model: model, visit: visit)
+                        } label: {
+                            SectionCard(title: "Call sheet") {
+                                CalmListRow(symbol: "tablecells", title: "Call sheet",
+                                            meta: model.callSheetStatus(for: visit) ?? "Record product quantities",
+                                            trailing: "chevron.right")
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("openCallSheet")
+                    } else {
+                        Text("No call sheet set up for this account yet. Ask your office.")
+                            .font(SunprideTokens.TypeStyle.meta)
+                            .foregroundStyle(SunprideTokens.secondaryText)
+                    }
                     SectionCard(title: "Outcome") {
                         VStack(alignment: .leading, spacing: 0) {
                             Menu {
@@ -130,6 +147,11 @@ struct DiagnosticVisitScreen: View {
                             if noteQueued {
                                 activityDivider
                                 CalmListRow(symbol: "note.text", title: "Note", meta: "Waiting")
+                            }
+                            if let status = model.callSheetStatus(for: visit) {
+                                activityDivider
+                                CalmListRow(symbol: "tablecells", title: "Call sheet", meta: status)
+                                    .accessibilityIdentifier("callSheetActivity")
                             }
                             if checkedOut {
                                 activityDivider

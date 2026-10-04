@@ -23,7 +23,9 @@ data class SyncStatus(
     val lastSuccess: Long? = null, val leaseExpiresAt: Long? = null,
     val cacheExpiresAt: Long? = null, val health: String = "never_synced",
     val offline: Boolean = false, val reviewReasons: List<String> = emptyList(),
-    val earliestUnsentCloseAt: Long? = null
+    val earliestUnsentCloseAt: Long? = null,
+    /** AND-016 photos saved on the phone and not yet uploaded. Never blocks visit sync or End. */
+    val photosWaiting: Int = 0
 ) {
     val pending get() = queued + sending + review + held > 0
     fun leaseExpired(now: Long) = leaseExpiresAt == null || now >= leaseExpiresAt
@@ -36,6 +38,7 @@ data class SyncStatus(
         offline -> "Offline · saved data"
         leaseExpired(now) -> "Day closed · sync for access"
         cacheStale(now) -> "Cache stale · not synced"
+        photosWaiting > 0 && health == "synced" -> "Visits synced · photos uploading"
         health == "synced" && lastSuccess != null -> "All synced"
         else -> "Sync pending"
     }

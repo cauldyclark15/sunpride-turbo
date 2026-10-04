@@ -282,6 +282,70 @@ final class BootstrapTests: XCTestCase {
         XCTAssertEqual(try store.todayVisits("2026-09-26", for: p).count, 1)
     }
 
+    func testCallSheetsMergeAcrossPagesAndPromoteTogether() async throws {
+        let first = try altered("bootstrap-call-sheet-response") {
+            $0["nextPageCursor"] = "page-2"; $0["syncCursor"] = NSNull()
+        }
+        let second = try altered("bootstrap-call-sheet-response") {
+            $0["page"] = 2
+            var visits = $0["plannedVisits"] as! [[String: Any]]
+            visits[0]["id"] = "planned-2"; visits[0]["outletId"] = "outlet-2"; $0["plannedVisits"] = visits
+            var outlets = $0["outlets"] as! [[String: Any]]
+            outlets[0]["id"] = "outlet-2"; $0["outlets"] = outlets
+            var sheets = $0["callSheets"] as! [[String: Any]]
+            sheets[0]["outletId"] = "outlet-2"; $0["callSheets"] = sheets
+        }
+        protocolStub(first, next: second)
+        let p = try await client().run(deviceId: device, subject: subject, store: store)
+        XCTAssertEqual(try store.snapshot(for: p)?.callSheets.map(\.outletId), ["outlet-1", "outlet-2"])
+        XCTAssertEqual(try store.todayVisits("2026-09-26", for: p).count, 2)
+        XCTAssertEqual(try store.cursor(for: p), "opaque-start")
+        store.close()
+        store = try EncryptedFieldStore(url: directory.appending(path: "field.sqlite"), secrets: secrets, keyAccount: "db")
+        XCTAssertEqual(try store.snapshot(for: p)?.callSheets.count, 2)
+    }
+    func testRepeatedCallSheetAcrossPagesRequiresIdenticalRevisionAndContent() async throws {
+        let first = try altered("bootstrap-call-sheet-response") {
+            $0["nextPageCursor"] = "page-2"; $0["syncCursor"] = NSNull()
+        }
+        let second = try altered("bootstrap-call-sheet-response") {
+            $0["page"] = 2
+            var visits = $0["plannedVisits"] as! [[String: Any]]
+            visits[0]["id"] = "planned-2"; $0["plannedVisits"] = visits
+        }
+        protocolStub(first, next: second)
+        let p = try await client().run(deviceId: device, subject: subject, store: store)
+        XCTAssertEqual(try store.snapshot(for: p)?.callSheets.count, 1)
+        let conflicting = try altered("bootstrap-call-sheet-response") {
+            $0["page"] = 2
+            var visits = $0["plannedVisits"] as! [[String: Any]]
+            visits[0]["id"] = "planned-2"; $0["plannedVisits"] = visits
+            var sheets = $0["callSheets"] as! [[String: Any]]
+            sheets[0]["revision"] = 3; $0["callSheets"] = sheets
+            $0["syncCursor"] = "bad-cursor"
+        }
+        protocolStub(first, next: conflicting)
+        do { _ = try await client().run(deviceId: device, subject: subject, store: store); XCTFail("conflicting snapshot") }
+        catch { XCTAssertEqual(error as? BootstrapClient.Failure, .invalidResponse) }
+        XCTAssertEqual(try store.snapshot(for: p)?.callSheets.first?.revision, 2)
+        XCTAssertEqual(try store.cursor(for: p), "opaque-start")
+    }
+    func testCallSheetPageFailureKeepsEntirePreviousGeneration() async throws {
+        protocolStub(try fixture("bootstrap-call-sheet-response"))
+        let p = try await client().run(deviceId: device, subject: subject, store: store)
+        let first = try altered("bootstrap-call-sheet-response") {
+            $0["nextPageCursor"] = "page-2"; $0["syncCursor"] = NSNull()
+            var sheets = $0["callSheets"] as! [[String: Any]]
+            sheets[0]["revision"] = 4; $0["callSheets"] = sheets
+        }
+        protocolStub(first, next: Data("invalid".utf8))
+        do { _ = try await client().run(deviceId: device, subject: subject, store: store); XCTFail("incomplete bootstrap") }
+        catch { XCTAssertEqual(error as? BootstrapClient.Failure, .invalidResponse) }
+        XCTAssertEqual(try store.snapshot(for: p)?.callSheets.first?.revision, 2)
+        XCTAssertEqual(try store.outlets(for: p).count, 1)
+        XCTAssertEqual(try store.cursor(for: p), "opaque-start")
+    }
+
     func testManilaBoundaryAndExpiredLease() throws {
         XCTAssertEqual(BootstrapClient.manilaDay(Date(timeIntervalSince1970: 1_790_351_999)), "2026-09-25")
         XCTAssertEqual(BootstrapClient.manilaDay(Date(timeIntervalSince1970: 1_790_352_000)), "2026-09-26")

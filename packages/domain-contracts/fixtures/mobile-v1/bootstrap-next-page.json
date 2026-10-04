@@ -34,7 +34,11 @@
     {
       "id": "outlet-1",
       "name": "Outlet One",
-      "routeId": null
+      "routeId": null,
+      "code": "OUT-0001",
+      "address": "12 Rizal Avenue, Pasig",
+      "latitude": 14.5764,
+      "longitude": 121.0851
     }
   ],
   "localCustomers": [],

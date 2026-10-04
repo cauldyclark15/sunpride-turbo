@@ -86,6 +86,45 @@ class RoomVisitSyncTest {
         SignedVisitGateway(transport, signer, scope.deviceId, { 0L }), target, scope,
         bootstrap = { error("unexpected bootstrap") }, now = { 100 }, pause = {}, jitter = { 0 })
 
+    @Test fun callSheetWaitsForDurableCheckInAckAndReplaysSameBytesAfterReopen() = runBlocking {
+        val sheet = com.sunpride.field.storage.CallSheet("outlet-1", 1,
+            com.sunpride.field.storage.CallSheetHeader("Account", null, null, null, null, null, null, null, null, null),
+            listOf(com.sunpride.field.storage.CallSheetProduct("p", "SKU", "Product", "PC", null, null)))
+        store.swap(store.stage(ScopedSnapshot("{}", null, emptyList(), emptyList(), emptyList(), emptyList(), listOf(sheet))),
+            "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
+        val check = VisitIntentFactory.create(scope, "visit.checkIn", null, null, null,
+            "planned-1", "outlet-1", emptyList(), null, null, null, null, null, at = 100)
+        val activity = VisitIntentFactory.create(scope, "visit.activity", check.clientVisitId, check.requestId,
+            check.requestId, null, "outlet-1", emptyList(), null, null, null, null, null, at = 100,
+            callSheet = com.sunpride.field.ui.diagnosticvisit.CallSheetPayload.activity(sheet,
+                listOf(com.sunpride.field.ui.diagnosticvisit.CallSheetDraftLine("p", order = "0"))))
+        store.enqueue(check, 100); store.enqueue(activity, 100)
+        val gateway = Gateway()
+        val interrupted = object : FieldStore by store {
+            override suspend fun recordAck(requestId: String, entityId: String, eventIdsJson: String, serverTime: Long) {
+                if (requestId == activity.requestId) error("interrupted after activity accepted")
+                store.recordAck(requestId, entityId, eventIdsJson, serverTime)
+            }
+        }
+        sync(gateway, interrupted).sync()
+        assertEquals("server-visit", store.ack(check.requestId)!!.entityId)
+        assertNull(store.ack(activity.requestId))
+        assertEquals(2, gateway.pushes.size)
+        db.close(); db = EncryptedFieldDatabase.open(InstrumentationRegistry.getInstrumentation().targetContext)
+        store = RoomFieldStore(db, scope)
+        sync(gateway).sync()
+        assertEquals(3, gateway.pushes.size)
+        assertArrayEquals(gateway.pushes[1], gateway.pushes[2])
+        val wire = gateway.operations[1]
+        assertEquals("server-visit", wire.getJSONObject("payload").getString("visitId"))
+        assertEquals("call_sheet", wire.getJSONObject("payload").getJSONObject("activity").getString("kind"))
+        assertEquals(check.requestId, wire.getJSONArray("dependsOn").getString(0))
+        assertEquals(activity.serializedOperation, store.intent(activity.requestId)!!.serializedOperation)
+        assertEquals("done", store.history().last().second.state)
+        assertNotNull(store.ack(activity.requestId))
+        Unit
+    }
+
     @Test fun acceptedWhileSendingCompletesCheckinNoteAndCheckout() = runBlocking {
         val intents = queuedVisit()
         val gateway = Gateway()
