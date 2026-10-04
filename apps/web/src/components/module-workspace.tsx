@@ -27,6 +27,7 @@ import { CallSheetsWorkspace } from "./call-sheets/call-sheets-workspace";
 import { DailySalesWorkspace } from "./daily-sales/daily-sales-workspace";
 import { TrainingWorkspace } from "./training/trainer-forms";
 import { ActivityReportsWorkspace } from "./activity-reports/activity-reports-workspace";
+import { CustomerExecution } from "./analytics/customer-execution";
 import { ExecutionDashboard } from "./analytics/execution-dashboard";
 import { TerritoryPerformance } from "./analytics/territory-performance";
 
@@ -236,6 +237,10 @@ function ModuleContent({
           <ExecutionDashboard />
         ) : null}
         {module === "analytics" ? <TerritoryPerformance /> : null}
+        {/* ANA-005: the same readers get one store's customer execution. */}
+        {module === "analytics" && canAccessWebModule("supervision", role) ? (
+          <CustomerExecution />
+        ) : null}
       </>
     );
 
