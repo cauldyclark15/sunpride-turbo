@@ -30,6 +30,10 @@ final class AppModel {
     private(set) var outletDetails: [String: StoreSnapshot.Outlet] = [:]
     private(set) var customerDetails: [String: StoreSnapshot.Customer] = [:]
     private(set) var routeCode: String?
+    /// IOS-011 customer directory: only outlets in the active verified scope partition, offline.
+    private(set) var customers: [CustomerRecord] = []
+    /// Day-level tasks from the same saved snapshot.
+    private(set) var dayTasks: [StoreSnapshot.Task] = []
     private(set) var callSheets: [CallSheet] = []
     /// IOS-013 activity-form rules per visit intent from the active snapshot.
     private(set) var activityRules: [ActivityRule] = []
@@ -224,7 +228,7 @@ final class AppModel {
 
     private func clearToday() {
         visits = []; callSheets = []; activityRules = []; outletDetails = [:]; customerDetails = [:]; routeCode = nil
-        dayTarget = nil; daySales = nil
+        customers = []; dayTasks = []; dayTarget = nil; daySales = nil
     }
 
     /// Confirmed revocation/suspension (QSR-010): hold unsent work and drop this partition's cached
@@ -318,6 +322,16 @@ final class AppModel {
                                   outcome: call?.end?.payload?["outcome"] as? String,
                                   activityKinds: activityKinds, reasonCode: call?.end?.payload?["reasonCode"] as? String)
             }
+            let held = try store.isHeld(partition)
+            let rejectedIds = Set(rejected.map { $0.intent.requestId })
+            customers = CustomerDirectory.build(snapshot: saved, today: visits, day: day, history: intents.map { intent in
+                let state: LocalIntentState
+                if rejectedIds.contains(intent.requestId) { state = .review }
+                else if queued.contains(intent.requestId) { state = held ? .held : .waiting }
+                else { state = .sent }
+                return (intent, state)
+            })
+            dayTasks = saved?.tasks ?? []
             dayTarget = saved?.dayTarget
             daySales = saved?.daySales
             lastSyncedAt = try store.syncHealth(for: partition).flatMap { $0.lastSuccessfulSyncAt }
