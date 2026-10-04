@@ -335,4 +335,59 @@ final class FieldIOSUITests: XCTestCase {
         XCTAssertTrue(app.buttons["diagnosticCheckIn"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["diagnosticCheckIn"].isEnabled)
     }
+
+    /// IOS-011: search only the downloaded (scoped) outlets, offline, and open an outlet's detail.
+    func testCustomerSearchAndOutletDetailWorkOfflineFromSavedScope() {
+        let app = launchStub("registers")
+        signIn(app, password: "correct-horse")
+        let open = app.buttons["openCustomers"]
+        XCTAssertTrue(open.waitForExistence(timeout: 20))
+        let loaded = Date().addingTimeInterval(15)
+        while !open.label.contains("3 outlets") && Date() < loaded { usleep(300_000) }
+        XCTAssertTrue(open.label.contains("3 outlets on this phone"), open.label)
+        open.tap()
+        XCTAssertTrue(app.staticTexts["customersTitle"].waitForExistence(timeout: 5))
+        let search = app.textFields["customerSearch"]
+        search.tap()
+        search.typeText("zzz")
+        XCTAssertTrue(app.staticTexts["customerNoMatch"].waitForExistence(timeout: 5))
+        search.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 3) + "c stub")
+        let result = app.buttons["customerResult-outlet-stub-1"]
+        XCTAssertTrue(result.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["customerResult-outlet-stub-2"].exists, "every word must match")
+        XCTAssertTrue(app.staticTexts["customerCount"].label.hasPrefix("1 of 3 outlets"))
+        result.tap()
+        XCTAssertTrue(app.staticTexts["customerTitle"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["customerTitle"].label, "Stub Outlet")
+        XCTAssertTrue(app.staticTexts["Stub Buyer"].exists)
+        XCTAssertTrue(app.staticTexts["0917 555 0101"].exists)
+        XCTAssertTrue(app.buttons["customerCall"].isEnabled)
+        XCTAssertTrue(app.buttons["customerDirections"].isEnabled)
+        XCTAssertTrue(app.staticTexts["Tomorrow"].exists, "planned visits beyond today")
+        XCTAssertTrue(app.staticTexts["Merchandise check"].exists)
+        XCTAssertTrue(app.staticTexts["Price survey"].exists, "day task")
+        XCTAssertTrue(app.staticTexts["Stop 1 of 2 · Not started"].exists)
+        XCTAssertTrue(app.staticTexts["Nothing recorded here from this phone yet"].exists)
+        app.buttons["customerVisit"].tap()
+        XCTAssertTrue(app.buttons["diagnosticCheckIn"].waitForExistence(timeout: 5))
+        app.buttons["diagnosticCheckIn"].tap()
+        XCTAssertTrue(app.buttons["diagnosticCheckOut"].waitForExistence(timeout: 10))
+        app.buttons["BackButton"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["customerTitle"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Call started"].waitForExistence(timeout: 5), "this phone's history")
+        XCTAssertTrue(app.buttons["customerVisit"].label.contains("Continue visit"))
+        app.terminate()
+
+        let offline = launchStub("offline")
+        let saved = offline.buttons["openCustomers"]
+        XCTAssertTrue(saved.waitForExistence(timeout: 15))
+        saved.tap()
+        XCTAssertTrue(offline.staticTexts["customerCount"].waitForExistence(timeout: 5))
+        XCTAssertTrue(offline.staticTexts["customerCount"].label.contains("Saved on this phone"))
+        let field = offline.textFields["customerSearch"]
+        field.tap()
+        field.typeText("next")
+        XCTAssertTrue(offline.buttons["customerResult-outlet-stub-2"].waitForExistence(timeout: 5))
+        XCTAssertFalse(offline.buttons["customerResult-outlet-stub-1"].exists)
+    }
 }

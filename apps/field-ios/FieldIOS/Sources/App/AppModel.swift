@@ -30,6 +30,10 @@ final class AppModel {
     private(set) var outletDetails: [String: StoreSnapshot.Outlet] = [:]
     private(set) var customerDetails: [String: StoreSnapshot.Customer] = [:]
     private(set) var routeCode: String?
+    /// IOS-011 customer directory: only outlets in the active verified scope partition, offline.
+    private(set) var customers: [CustomerRecord] = []
+    /// Day-level tasks from the same saved snapshot.
+    private(set) var dayTasks: [StoreSnapshot.Task] = []
     private(set) var callSheets: [CallSheet] = []
     private(set) var lastSyncedAt: Date?
     private(set) var syncStatus: FieldSyncStatus?
@@ -207,6 +211,7 @@ final class AppModel {
 
     private func clearToday() {
         visits = []; callSheets = []; outletDetails = [:]; customerDetails = [:]; routeCode = nil
+        customers = []; dayTasks = []
     }
 
     /// Confirmed revocation/suspension (QSR-010): hold unsent work and drop this partition's cached
@@ -290,6 +295,16 @@ final class AppModel {
                                   serviceDate: visit.serviceDate, intents: visit.intents, planned: visit.planned, status: status,
                                   sequence: visit.sequence, startedAt: call?.initial.deviceTime, endedAt: call?.end?.deviceTime)
             }
+            let held = try store.isHeld(partition)
+            let rejectedIds = Set(rejected.map { $0.intent.requestId })
+            customers = CustomerDirectory.build(snapshot: saved, today: visits, day: day, history: intents.map { intent in
+                let state: LocalIntentState
+                if rejectedIds.contains(intent.requestId) { state = .review }
+                else if queued.contains(intent.requestId) { state = held ? .held : .waiting }
+                else { state = .sent }
+                return (intent, state)
+            })
+            dayTasks = saved?.tasks ?? []
             lastSyncedAt = try store.syncHealth(for: partition).flatMap { $0.lastSuccessfulSyncAt }
                 .map { Date(timeIntervalSince1970: Double($0) / 1000) }
             refreshStatus()
