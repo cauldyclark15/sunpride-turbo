@@ -262,6 +262,34 @@ class EncryptedFieldStoreTest {
         assertEquals(i.requestId, store().pending().single().first.requestId)
     }
 
+    @Test fun teamSummaryCacheIsScopedKeepsOnlyTodayAndStopsWhenHeld() = runBlocking {
+        val entity = "local.team"
+        // Nothing is saved before a bootstrap promotes a generation.
+        store().putLocalCache(entity, "2026-09-27|direct", "{\"old\":1}", 10, "2026-09-27|")
+        assertNull(store().localCache(entity, "2026-09-27|direct"))
+        store().swap(store().stage(ScopedSnapshot("{\"id\":\"employee\",\"role\":\"manager\"}", null,
+            emptyList(), emptyList(), emptyList(), emptyList())), "opaque-cursor", 2000, 2000)
+        assertEquals("manager", store().employeeRole())
+        store().putLocalCache(entity, "2026-09-27|direct", "{\"old\":1}", 10, "2026-09-27|")
+        store().putLocalCache(entity, "2026-09-28|direct", "{\"d\":1}", 20, "2026-09-28|")
+        store().putLocalCache(entity, "2026-09-28|all", "{\"a\":1}", 30, "2026-09-28|")
+        assertNull(store().localCache(entity, "2026-09-27|direct")) // yesterday's copy is dropped
+        assertEquals("{\"d\":1}" to 20L, store().localCache(entity, "2026-09-28|direct")!!.let { it.json to it.revision })
+        assertEquals("{\"a\":1}", store().localCache(entity, "2026-09-28|all")!!.json)
+        // Another account, device or scope never sees it.
+        for (other in listOf(StoreScope("issuer|person-B", scope.deviceId, scope.fingerprint),
+            StoreScope(scope.account, "device-B", scope.fingerprint), StoreScope(scope.account, scope.deviceId, "scope-B")))
+            assertNull(store(other).localCache(entity, "2026-09-28|direct"))
+        // Server deltas cannot write the reserved local entity, and the store refuses non-local entities.
+        assertThrows(IllegalArgumentException::class.java) { runBlocking { store().localCache("visit", "x") } }
+        store().holdForReview()
+        store().putLocalCache(entity, "2026-09-28|direct", "{\"d\":2}", 40, "2026-09-28|")
+        assertEquals("{\"d\":1}", store().localCache(entity, "2026-09-28|direct")!!.json)
+        db.close()
+        db = EncryptedFieldDatabase.open(context)
+        assertEquals("{\"a\":1}", store().localCache(entity, "2026-09-28|all")!!.json)
+    }
+
     @Test fun signOutHookHoldsEveryPartitionWithoutDeletingUnsentWork() = runBlocking {
         ready(store())
         val i = intent()

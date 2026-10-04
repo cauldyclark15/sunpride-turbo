@@ -96,6 +96,8 @@ interface StoreDao {
     @Query("DELETE FROM call_sheet_lines WHERE account=:account AND deviceId=:device AND scope=:scope AND generation!=:generation")
     suspend fun discardOldCallSheetLines(account: String, device: String, scope: String, generation: String)
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putDelta(row: DeltaRow)
+    @Query("DELETE FROM deltas WHERE account=:account AND deviceId=:device AND scope=:scope AND entity=:entity AND substr(entityId, 1, length(:keepPrefix)) != :keepPrefix")
+    suspend fun deleteLocalDeltas(account: String, device: String, scope: String, entity: String, keepPrefix: String)
     @Query("SELECT * FROM deltas WHERE account=:account AND deviceId=:device AND scope=:scope AND entity=:entity AND entityId=:id")
     suspend fun delta(account: String, device: String, scope: String, entity: String, id: String): DeltaRow?
     @Query("SELECT MAX(createdAt) FROM outbox WHERE account=:account AND deviceId=:device AND scope=:scope")
