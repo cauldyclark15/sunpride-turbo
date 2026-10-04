@@ -74,6 +74,15 @@ interface FieldStore {
     suspend fun intent(requestId: String): IntentRow? = null
     suspend fun delta(entity: String, id: String): DeltaRow? = null
     suspend fun applyDelta(changes: List<DeltaRow>, nextCursor: String) { setCursor(nextCursor) }
+    /** Role from the active bootstrap's employee header: a UI hint only, the server authorizes. */
+    suspend fun employeeRole(): String? = null
+    /**
+     * AND-020 small server summaries saved for offline display, kept in this partition's deltas table
+     * under a reserved `local.` entity (server deltas are only `visit`/`activity`), so no migration.
+     */
+    suspend fun localCache(entity: String, key: String): DeltaRow? = null
+    /** Save one summary and drop this entity's rows whose key does not start with [keepPrefix]. */
+    suspend fun putLocalCache(entity: String, key: String, json: String, at: Long, keepPrefix: String) {}
     fun close() {}
 }
 
@@ -343,6 +352,22 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
                 if (prior == null || change.revision > prior.revision) dao.putDelta(change)
             }
             dao.putPartition(old.copy(cursor = nextCursor))
+        }
+    }
+    override suspend fun employeeRole(): String? = metadata().takeIf { it.activeGeneration != null }?.employeeJson
+        ?.let { runCatching { JSONObject(it).optString("role") }.getOrNull() }?.takeIf { it.isNotBlank() }
+    override suspend fun localCache(entity: String, key: String): DeltaRow? {
+        require(entity.startsWith("local."))
+        return dao.delta(a, d, s, entity, key)
+    }
+    override suspend fun putLocalCache(entity: String, key: String, json: String, at: Long, keepPrefix: String) {
+        require(entity.startsWith("local.") && key.startsWith(keepPrefix) && json.isNotBlank() && at > 0)
+        db.withTransaction {
+            val old = metadata()
+            // A held or never-bootstrapped partition keeps no new summaries.
+            if (old.held || old.activeGeneration == null) return@withTransaction
+            dao.deleteLocalDeltas(a, d, s, entity, keepPrefix)
+            dao.putDelta(DeltaRow(a, d, s, entity, key, at, json, false))
         }
     }
     override suspend fun holdForReview() {

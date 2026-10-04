@@ -120,6 +120,7 @@ import type * as sfa_standards from "../sfa/standards.js";
 import type * as supervision_access from "../supervision/access.js";
 import type * as supervision_activity from "../supervision/activity.js";
 import type * as supervision_exceptions from "../supervision/exceptions.js";
+import type * as supervision_mobile from "../supervision/mobile.js";
 import type * as supervision_model from "../supervision/model.js";
 import type * as supervision_talk_sheet from "../supervision/talk_sheet.js";
 import type * as supervision_talk_sheet_model from "../supervision/talk_sheet_model.js";
@@ -266,6 +267,7 @@ declare const fullApi: ApiFromModules<{
   "supervision/access": typeof supervision_access;
   "supervision/activity": typeof supervision_activity;
   "supervision/exceptions": typeof supervision_exceptions;
+  "supervision/mobile": typeof supervision_mobile;
   "supervision/model": typeof supervision_model;
   "supervision/talk_sheet": typeof supervision_talk_sheet;
   "supervision/talk_sheet_model": typeof supervision_talk_sheet_model;

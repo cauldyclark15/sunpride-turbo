@@ -74,6 +74,9 @@ interface FieldBackend {
         jpeg: ByteArray, capturedAt: Long) { error("No local store") }
     /** Upload saved photos whose call has a server visit ID (background worker). */
     fun uploadEvidence(): com.sunpride.field.evidence.UploadReport = com.sunpride.field.evidence.UploadReport()
+    /** AND-020: today's team summary (live, else saved on this phone); the server enforces scope. */
+    fun team(directOnly: Boolean): com.sunpride.field.ui.team.TeamView =
+        com.sunpride.field.ui.team.TeamView(message = "Team view isn't available on this phone.")
 }
 
 data class VisitDisplay(val outlet: String, val planned: String, val status: String,
@@ -108,7 +111,11 @@ data class TodayData(val visits: List<VisitDisplay> = emptyList(), val lastSynce
                      val syncStatus: com.sunpride.field.ui.syncstatus.SyncStatus = com.sunpride.field.ui.syncstatus.SyncStatus(),
                      /** Scoped outlet directory from the same cached snapshot (customer search/detail). */
                      val customers: List<com.sunpride.field.ui.customers.CustomerRecord> = emptyList(),
-                     val tasks: List<com.sunpride.field.ui.customers.CustomerTask> = emptyList())
+                     val tasks: List<com.sunpride.field.ui.customers.CustomerTask> = emptyList(),
+                     /** AND-020: offer the Team page (role hint from the snapshot; the server decides). */
+                     val supervisor: Boolean = false)
+
+private const val TEAM_CACHE = "local.team"
 
 class LiveFieldBackend(
     environment: AppEnvironment,
@@ -382,7 +389,8 @@ class LiveFieldBackend(
                     terminal || warning == "Update required",
                     history.count { it.second.state == "review" } + held, history.count { it.second.state == "pending" },
                     outlets.map { (id, name) -> VisitDisplay(name, "Unplanned", "Reason required", id) },
-                    store.status(), directory, tasks)
+                    store.status(), directory, tasks,
+                    com.sunpride.field.ui.team.TeamRepository.offered(store.employeeRole()))
                 if (scheduleRemainder && sync && result.syncStatus.queued + result.syncStatus.sending > 0 &&
                     result.syncStatus.held == 0 && result.syncStatus.health != "held_for_review")
                     com.sunpride.field.sync.work.SyncWork.enqueue(context)
@@ -392,6 +400,25 @@ class LiveFieldBackend(
                 result
             }
         } finally { db.close() }
+    }
+    override fun team(directOnly: Boolean): com.sunpride.field.ui.team.TeamView {
+        val scope = storedScope() ?: return com.sunpride.field.ui.team.TeamView(message = "Sync first to see your team.")
+        val day = LocalDate.now(ZoneId.of("Asia/Manila")).toString()
+        val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+        try {
+            val cache = object : com.sunpride.field.ui.team.TeamCache {
+                override fun read(key: String) = runBlocking { store.localCache(TEAM_CACHE, key) }
+                    ?.let { row -> row.json?.let { it to row.revision } }
+                override fun write(key: String, json: String, savedAt: Long) = runBlocking {
+                    store.putLocalCache(TEAM_CACHE, key, json, savedAt, "$day|")
+                }
+            }
+            return com.sunpride.field.ui.team.TeamRepository.load(day, directOnly, cache, System.currentTimeMillis()) {
+                val value = functions.query(com.sunpride.field.ui.team.TeamCodec.PATH,
+                    com.sunpride.field.ui.team.TeamCodec.args(day, directOnly))
+                (value as? JSONObject)?.toString() ?: throw com.sunpride.field.ui.team.TeamWireFailure()
+            }
+        } finally { store.close() }
     }
     override val cachedDeviceId get() = vault.deviceId
     override val isSignedIn get() = auth.isSignedIn
@@ -647,6 +674,19 @@ class FieldController(
         catch (_: Exception) { diagnosticError = "Could not queue visit. Sync for access and check required fields." }
         finally { busy = false }
     }
+    /** AND-020 Team page: the summary, its direct-reports filter and an in-flight flag. */
+    var team by mutableStateOf(com.sunpride.field.ui.team.TeamView()); private set
+    var teamDirectOnly by mutableStateOf(true); private set
+    var teamLoading by mutableStateOf(false); private set
+    fun loadTeam(directOnly: Boolean = teamDirectOnly) = scope.launch(ui) {
+        if (teamLoading || state !is EnrollmentState.Ready) return@launch
+        if (directOnly != teamDirectOnly) team = com.sunpride.field.ui.team.TeamView()
+        teamDirectOnly = directOnly; teamLoading = true
+        try { team = withContext(io) { backend.team(directOnly) } }
+        catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (_: Exception) { team = team.copy(message = "Couldn't load your team. Try again.") }
+        finally { teamLoading = false }
+    }
     private var signer: DeviceSigner? = null
 
     /** On launch: restore a stored session and re-verify the device with the server. */
@@ -732,6 +772,7 @@ class FieldController(
         busy = true
         runCatching { withContext(io) { backend.signOut() } }
         state = EnrollmentState.SignedOut; today = TodayData(); error = null; busy = false
+        team = com.sunpride.field.ui.team.TeamView(); teamDirectOnly = true
     }
 
     companion object {
