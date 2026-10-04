@@ -288,7 +288,7 @@ fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: (
                 val visit = stop.visit
                 val facts = listOfNotNull(visit.planned.takeUnless { it == "Planned" || it == "Scheduled" || it.isBlank() },
                     visit.status.takeUnless { it == "Planned" || it == "Scheduled" || it == "Pending" || it.isBlank() }
-                        ?.replace("Queued", "Waiting"), com.sunpride.field.ui.today.outcomeLabel(visit), visit.timeSpent)
+                        ?.replace("Queued", "Waiting"), com.sunpride.field.ui.today.outcomeLabel(summary, stop), visit.timeSpent)
                 if (diagnosticEnabled) androidx.compose.foundation.layout.Box(Modifier.testTag("today-visit")) {
                     ListRow(visit.outlet, facts.joinToString(" · "), "store", Modifier.testTag("diagnostic-open"),
                         onClick = { onVisit(visit) }, tile = stop.stop.toString())
@@ -296,7 +296,7 @@ fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: (
                     tile = stop.stop.toString())
             }
         }
-        com.sunpride.field.ui.today.SalesCard()
+        com.sunpride.field.ui.today.SalesCard(data.sales)
         if (diagnosticEnabled && data.unplannedOutlets.isNotEmpty()) SectionCard("Unplanned visit") {
             data.unplannedOutlets.forEach { outlet -> ListRow(outlet.outlet, "", "store",
                 Modifier.testTag("unplanned-open"), onClick = { onVisit(outlet) }) }

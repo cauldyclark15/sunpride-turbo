@@ -73,13 +73,6 @@ object VisitCallRules {
         if (closed(own)) throw VisitRuleFailure(VisitRuleFailure.Code.ALREADY_ENDED)
         requireOutcome(end.optString("outcome"), end.optString("reasonCode"))
     }
-    /** Outcome (`completed` or `nonproductive`) of the call's usable closing check-out, else null. */
-    fun outcome(rows: List<Pair<IntentRow, String>>): String? {
-        val start = rows.lastOrNull { it.first.kind == "visit.checkIn" && usable(it.second) }?.first ?: return null
-        val end = rows.lastOrNull { it.first.kind == "visit.checkOut" && usable(it.second) &&
-            it.first.clientVisitId == start.clientVisitId }?.first ?: return null
-        return payload(end).let { p -> p.optString("outcome").takeIf { validOutcome(it, p.optString("reasonCode")) } }
-    }
     fun timeSpent(rows: List<Pair<IntentRow, String>>): String? {
         val start = rows.lastOrNull { it.first.kind == "visit.checkIn" && usable(it.second) }?.first ?: return null
         val end = rows.lastOrNull { it.first.kind == "visit.checkOut" && usable(it.second) &&

@@ -85,8 +85,8 @@ data class VisitDisplay(val outlet: String, val planned: String, val status: Str
     /** Daily route facts from the cached snapshot; absent when an older server omitted them. */
     val outletCode: String? = null, val customerCode: String? = null, val address: String? = null,
     val latitude: Double? = null, val longitude: Double? = null,
-    /** Closed-call outcome from the local outbox: `completed` (productive) or `nonproductive`. */
-    val outcome: String? = null)
+    /** Activity facts of the finished call from the local outbox; null while open or not started. */
+    val callFacts: com.sunpride.field.storage.ProductiveCall.Facts? = null)
 /** Planned row + cached outlet/customer JSON → what Today and the daily route show. Pure for tests. */
 fun plannedVisitDisplay(row: SnapshotItem, outlets: Map<String, JSONObject>, customers: Map<String, String>): VisitDisplay {
     val v = JSONObject(row.json)
@@ -116,9 +116,12 @@ data class TodayData(val visits: List<VisitDisplay> = emptyList(), val lastSynce
                      val tasks: List<com.sunpride.field.ui.customers.CustomerTask> = emptyList(),
                      /** AND-020: offer the Team page (role hint from the snapshot; the server decides). */
                      val supervisor: Boolean = false,
-                     val routeCode: String? = null)
+                     val routeCode: String? = null,
+                     /** Today's sales vs target from the daily sales report (live or saved). */
+                     val sales: com.sunpride.field.ui.today.DaySalesView = com.sunpride.field.ui.today.DaySalesView())
 
 private const val TEAM_CACHE = "local.team"
+private const val SALES_CACHE = "local.daysales"
 
 class LiveFieldBackend(
     environment: AppEnvironment,
@@ -374,7 +377,8 @@ class LiveFieldBackend(
                         VisitCallRules.closed(call) -> "Done"
                         VisitCallRules.started(call) -> "In progress"
                         else -> visit.status
-                    }, timeSpent = VisitCallRules.timeSpent(call), outcome = VisitCallRules.outcome(call))
+                    }, timeSpent = VisitCallRules.timeSpent(call),
+                        callFacts = com.sunpride.field.storage.ProductiveCall.factsOf(call))
                 }
                 val directory = com.sunpride.field.ui.customers.CustomerDirectory.build(store.outlets(), customers,
                     store.plannedVisits(), store.route(),
@@ -396,7 +400,7 @@ class LiveFieldBackend(
                     outlets.map { (id, name) -> VisitDisplay(name, "Unplanned", "Reason required", id) },
                     store.status(), directory, tasks,
                     com.sunpride.field.ui.team.TeamRepository.offered(store.employeeRole()),
-                    routeCode = store.routeCode())
+                    routeCode = store.routeCode(), sales = daySales(store, day, sync))
                 if (scheduleRemainder && sync && result.syncStatus.queued + result.syncStatus.sending > 0 &&
                     result.syncStatus.held == 0 && result.syncStatus.health != "held_for_review")
                     com.sunpride.field.sync.work.SyncWork.enqueue(context)
@@ -406,6 +410,23 @@ class LiveFieldBackend(
                 result
             }
         } finally { db.close() }
+    }
+    /** Live daily sales report when syncing, else today's saved copy; the server enforces who may read it. */
+    private suspend fun daySales(store: RoomFieldStore, day: String, live: Boolean): com.sunpride.field.ui.today.DaySalesView {
+        val cache = object : com.sunpride.field.ui.today.DaySalesCache {
+            override fun read(key: String) = runBlocking { store.localCache(SALES_CACHE, key) }
+                ?.let { row -> row.json?.let { it to row.revision } }
+            override fun write(key: String, json: String, savedAt: Long) = runBlocking {
+                store.putLocalCache(SALES_CACHE, key, json, savedAt, day)
+            }
+        }
+        val profileId = store.employeeId()
+        val fetch: (() -> String)? = if (!live || profileId == null) null else ({
+            val value = functions.query(com.sunpride.field.ui.today.DaySalesCodec.PATH,
+                com.sunpride.field.ui.today.DaySalesCodec.args(profileId, day))
+            (value as? JSONObject)?.toString() ?: throw com.sunpride.field.ui.today.DaySalesWireFailure()
+        })
+        return com.sunpride.field.ui.today.DaySalesRepository.load(day, cache, System.currentTimeMillis(), fetch)
     }
     override fun team(directOnly: Boolean): com.sunpride.field.ui.team.TeamView {
         val scope = storedScope() ?: return com.sunpride.field.ui.team.TeamView(message = "Sync first to see your team.")

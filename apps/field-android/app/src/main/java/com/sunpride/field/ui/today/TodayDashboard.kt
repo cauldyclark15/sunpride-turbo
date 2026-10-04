@@ -20,12 +20,11 @@ import com.sunpride.field.ui.SectionCard
 import com.sunpride.field.ui.ValueRow
 import com.sunpride.field.ui.VisitDisplay
 
-/** Short closed-call label for a route row; null while the call is not finished. */
-fun outcomeLabel(visit: VisitDisplay): String? = when {
-    visit.status != TodaySummary.STATUS_DONE -> null
-    visit.outcome == TodaySummary.OUTCOME_PRODUCTIVE -> "Productive"
-    visit.outcome == "nonproductive" -> "Not productive"
-    else -> null
+/** Short finished-call label for a route row by the governed rule; null while the call is not finished. */
+fun outcomeLabel(summary: TodaySummary, stop: RouteStop): String? = when {
+    !stop.done || stop.visit.callFacts == null -> null
+    summary.productive(stop) -> "Productive"
+    else -> "Not productive"
 }
 
 fun productiveLine(summary: TodaySummary): String = summary.productivePercent?.let {
@@ -64,11 +63,21 @@ fun NextStoreCard(summary: TodaySummary, onOpen: ((VisitDisplay) -> Unit)?, modi
     }
 }
 
-/** The v1 phone contract carries no sales target or sales amounts; never show invented zeros. */
+/** Today's target and sales from the server's daily sales report; never invented zeros. */
 @Composable
-fun SalesCard(modifier: Modifier = Modifier) {
+fun SalesCard(view: DaySalesView, modifier: Modifier = Modifier) {
     SectionCard("Sales", modifier.testTag("today-sales")) {
-        ValueRow("Target", "Not on phone yet")
-        ValueRow("Sold today", "Not on phone yet")
+        val sales = view.sales
+        if (sales == null) Text(view.message ?: "Sync to see sales", Modifier.padding(16.dp).testTag("today-sales-none"))
+        else {
+            ValueRow("Target today", DaySalesText.target(sales), Modifier.testTag("today-sales-target"))
+            ValueRow("Sold today", DaySalesText.sold(sales), Modifier.testTag("today-sales-sold"))
+            ValueRow("This month", DaySalesText.month(sales), Modifier.testTag("today-sales-month"))
+            view.savedAt?.let {
+                Text(DaySalesText.savedNote(it), style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).testTag("today-sales-saved"))
+            }
+        }
     }
 }

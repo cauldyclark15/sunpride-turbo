@@ -85,6 +85,8 @@ interface FieldStore {
     suspend fun applyDelta(changes: List<DeltaRow>, nextCursor: String) { setCursor(nextCursor) }
     /** Role from the active bootstrap's employee header: a UI hint only, the server authorizes. */
     suspend fun employeeRole(): String? = null
+    /** The signed-in employee's profile ID from the active snapshot (`employee.id`). */
+    suspend fun employeeId(): String? = null
     /**
      * AND-020 small server summaries saved for offline display, kept in this partition's deltas table
      * under a reserved `local.` entity (server deltas are only `visit`/`activity`), so no migration.
@@ -390,6 +392,8 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
     }
     override suspend fun employeeRole(): String? = metadata().takeIf { it.activeGeneration != null }?.employeeJson
         ?.let { runCatching { JSONObject(it).optString("role") }.getOrNull() }?.takeIf { it.isNotBlank() }
+    override suspend fun employeeId(): String? = metadata().takeIf { it.activeGeneration != null }?.employeeJson
+        ?.let { runCatching { JSONObject(it).optString("id") }.getOrNull() }?.takeIf { it.isNotBlank() }
     override suspend fun localCache(entity: String, key: String): DeltaRow? {
         require(entity.startsWith("local."))
         return dao.delta(a, d, s, entity, key)
