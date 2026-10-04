@@ -2516,6 +2516,8 @@ export default defineSchema({
     sizeBytes: v.number(),
     checksum: v.string(),
     capturedAt: v.number(),
+    /** AND-016 photo type code (visits/policy EVIDENCE_PHOTO_TYPES); absent on older rows. */
+    photoType: v.optional(v.string()),
     uploadedAt: v.number(),
     status: v.union(
       v.literal("pending"),

@@ -20,7 +20,9 @@ data class ScopedSnapshot(val employeeJson: String, val routeJson: String?,
     val localCustomers: List<SnapshotItem>, val tasks: List<SnapshotItem>,
     val callSheets: List<CallSheet> = emptyList(),
     /** AND-013 activity-form rules per visit intent; empty from servers that predate them. */
-    val activityRules: List<ActivityRule> = emptyList())
+    val activityRules: List<ActivityRule> = emptyList(),
+    /** AND-016 visit photo types; empty from servers that predate them (defaults apply). */
+    val photoTypes: List<PhotoType> = emptyList())
 data class SnapshotItem(val id: String, val json: String, val serviceDate: String? = null, val listPosition: Int? = null)
 
 interface FieldStore {
@@ -33,6 +35,17 @@ interface FieldStore {
     suspend fun outlets(): List<SnapshotItem>
     suspend fun callSheet(outletId: String): CallSheet? = null
     suspend fun activityRules(): List<ActivityRule> = emptyList()
+    /** AND-016: downloaded photo types (may be empty; see [EvidencePhotos.offered]). */
+    suspend fun photoTypes(): List<PhotoType> = emptyList()
+    /** Durable photo metadata for an open call; the encrypted file is written first by the caller. */
+    suspend fun addPhoto(row: EvidencePhotoRow, now: Long) { error("No photo store") }
+    suspend fun visitPhotos(clientVisitId: String): List<EvidencePhotoRow> = emptyList()
+    /** Photos still to upload, oldest first. Independent of the visit outbox. */
+    suspend fun pendingPhotos(): List<EvidencePhotoRow> = emptyList()
+    suspend fun markPhotoUploaded(localId: String, evidenceId: String, at: Long) {}
+    /** Records one failed try; returns the new attempt count. */
+    suspend fun countPhotoAttempt(localId: String): Int = 0
+    suspend fun reviewPhoto(localId: String, code: String) {}
     suspend fun customers(): List<SnapshotItem> = emptyList()
     /** Every planned visit in the downloaded horizon, not just one day (customer detail). */
     suspend fun plannedVisits(): List<SnapshotItem> = emptyList()
@@ -89,12 +102,20 @@ object EncryptedFieldDatabase {
             db.execSQL("CREATE TABLE IF NOT EXISTS `call_sheet_lines` (`account` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `scope` TEXT NOT NULL, `generation` TEXT NOT NULL, `outletId` TEXT NOT NULL, `productId` TEXT NOT NULL, `position` INTEGER NOT NULL, `code` TEXT NOT NULL, `name` TEXT NOT NULL, `uom` TEXT NOT NULL, `barcode` TEXT, `pricing` TEXT, PRIMARY KEY(`account`, `deviceId`, `scope`, `generation`, `outletId`, `productId`))")
         }
     }
+    /** AND-016 visit photo metadata (the encrypted JPEG stays outside the database). */
+    val MIGRATION_5_6 = object : Migration(5, 6) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `evidence_photos` (`account` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `scope` TEXT NOT NULL, `localId` TEXT NOT NULL, `clientVisitId` TEXT NOT NULL, `checkInRequestId` TEXT NOT NULL, `outletId` TEXT NOT NULL, `photoType` TEXT NOT NULL, `mime` TEXT NOT NULL, `sizeBytes` INTEGER NOT NULL, `sha256` TEXT NOT NULL, `capturedAt` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `state` TEXT NOT NULL, `attempts` INTEGER NOT NULL, `evidenceId` TEXT, `reviewCode` TEXT, `uploadedAt` INTEGER, PRIMARY KEY(`account`, `deviceId`, `scope`, `localId`))")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_evidence_photos_account_deviceId_scope_clientVisitId` ON `evidence_photos` (`account`, `deviceId`, `scope`, `clientVisitId`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_evidence_photos_account_deviceId_scope_state_createdAt` ON `evidence_photos` (`account`, `deviceId`, `scope`, `state`, `createdAt`)")
+        }
+    }
     fun open(context: Context): StoreDatabase {
         System.loadLibrary("sqlcipher")
         val passphrase = PassphraseVault(context).passphrase()
         return Room.databaseBuilder(context.applicationContext, StoreDatabase::class.java, PassphraseVault.DB_NAME)
             .openHelperFactory(SupportOpenHelperFactory(passphrase))
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
             .build()
     }
 
@@ -121,7 +142,9 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
         val groups = listOf("visit" to snapshot.visits, "outlet" to snapshot.outlets,
             "customer" to snapshot.localCustomers, "task" to snapshot.tasks,
             // Rules ride the generic snapshot table (keyed by intent): no schema migration.
-            "activity_rule" to snapshot.activityRules.map { SnapshotItem(it.intent, ActivityRules.encode(it).toString()) })
+            "activity_rule" to snapshot.activityRules.map { SnapshotItem(it.intent, ActivityRules.encode(it).toString()) },
+            // AND-016 photo types ride the same table, in wire order (keyed by code).
+            "photo_type" to snapshot.photoTypes.map { SnapshotItem(it.code, EvidencePhotos.encode(it).toString()) })
         db.withTransaction {
             for ((kind, items) in groups) for ((position, item) in items.withIndex()) {
                 require(item.id.isNotBlank() && item.json.isNotBlank())
@@ -183,6 +206,36 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
     }
     override suspend fun activityRules(): List<ActivityRule> =
         read("activity_rule").map { ActivityRules.decode(JSONObject(it.json)) }
+    override suspend fun photoTypes(): List<PhotoType> =
+        read("photo_type").map { EvidencePhotos.decode(JSONObject(it.json)) }
+    override suspend fun addPhoto(row: EvidencePhotoRow, now: Long) {
+        require(row.account == a && row.deviceId == d && row.scope == s)
+        db.withTransaction {
+            check(isLeaseValid(now)) { "Offline lease expired or held" }
+            EvidencePhotos.validate(row, photoTypes(), history().map { it.first to it.second.state },
+                dao.visitPhotos(a, d, s, row.clientVisitId).size)
+            dao.insertPhoto(row)
+        }
+    }
+    override suspend fun visitPhotos(clientVisitId: String): List<EvidencePhotoRow> = dao.visitPhotos(a, d, s, clientVisitId)
+    override suspend fun pendingPhotos(): List<EvidencePhotoRow> = dao.pendingPhotos(a, d, s)
+    override suspend fun markPhotoUploaded(localId: String, evidenceId: String, at: Long) {
+        require(evidenceId.isNotBlank())
+        db.withTransaction {
+            val row = dao.photo(a, d, s, localId) ?: error("Unknown photo")
+            // A replayed success for an already-uploaded photo must name the same server row.
+            if (row.state == "uploaded") check(row.evidenceId == evidenceId) { "Conflicting evidence" }
+            else check(dao.markPhotoUploaded(a, d, s, localId, evidenceId, at) == 1)
+        }
+    }
+    override suspend fun countPhotoAttempt(localId: String): Int = db.withTransaction {
+        check(dao.countPhotoAttempt(a, d, s, localId) == 1)
+        dao.photo(a, d, s, localId)!!.attempts
+    }
+    override suspend fun reviewPhoto(localId: String, code: String) {
+        require(code.isNotBlank())
+        db.withTransaction { check(dao.reviewPhoto(a, d, s, localId, code) == 1) }
+    }
     override suspend fun customers(): List<SnapshotItem> = read("customer")
     override suspend fun plannedVisits(): List<SnapshotItem> = read("visit")
     override suspend fun tasks(): List<SnapshotItem> = read("task")
@@ -271,6 +324,7 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
     override suspend fun status(offline: Boolean): com.sunpride.field.ui.syncstatus.SyncStatus =
         com.sunpride.field.ui.syncstatus.SyncStatus.fromRoom(dao.partition(a, d, s),
             dao.outstandingForDevice(a, d), offline, history().map { it.first })
+            .copy(photosWaiting = dao.waitingPhotos(a, d, s))
     override suspend fun history(): List<Pair<IntentRow, OutboxRow>> = dao.allOutbox(a, d, s)
         .map { row -> (dao.intent(a, d, s, row.requestId) ?: error("Orphaned outbox")) to row }
     override suspend fun intent(requestId: String): IntentRow? = dao.intent(a, d, s, requestId)

@@ -10,7 +10,8 @@ class VisitRuleFailure(val code: Code) : IllegalStateException(code.text) {
         ALREADY_ENDED("This call has already ended"), OUTCOME_REQUIRED("Record the call outcome"),
         REASON_REQUIRED("Choose a nonproductive reason"),
         INTENT_REQUIRED("Choose at least one visit purpose"),
-        ACTIVITIES_REQUIRED("Record the required activities, or end as not productive")
+        ACTIVITIES_REQUIRED("Record the required activities, or end as not productive"),
+        PHOTO_LIMIT("This call already has the most photos the phone keeps")
     }
 }
 

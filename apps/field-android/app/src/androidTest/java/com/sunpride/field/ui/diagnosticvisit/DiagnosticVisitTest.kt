@@ -78,6 +78,26 @@ class DiagnosticVisitTest {
                     System.currentTimeMillis())
             } } finally { store.close() }
         }
+        val photoFiles = com.sunpride.field.evidence.KeystorePhotoFiles(context, "diagnostic-photo-ui-test")
+        override fun photoTypes(): List<PhotoType> {
+            val store = scoped()
+            return try { runBlocking { store.photoTypes() } } finally { store.close() }
+        }
+        override fun visitPhotos(clientVisitId: String): List<VisitPhoto> {
+            val store = scoped()
+            return try { runBlocking { store.visitPhotos(clientVisitId).map { EvidencePhotos.view(it) } } } finally { store.close() }
+        }
+        override fun savePhoto(clientVisitId: String, checkInRequestId: String, outletId: String, photoType: String,
+            jpeg: ByteArray, capturedAt: Long) {
+            val id = UUID.randomUUID().toString()
+            photoFiles.write(id, jpeg)
+            val store = scoped()
+            try { runBlocking {
+                store.addPhoto(EvidencePhotoRow(identity.account, identity.deviceId, identity.fingerprint, id,
+                    clientVisitId, checkInRequestId, outletId, photoType, EvidencePhotos.MIME, jpeg.size.toLong(),
+                    EvidencePhotos.sha256Hex(jpeg), capturedAt, System.currentTimeMillis()), System.currentTimeMillis())
+            } } finally { store.close() }
+        }
         override fun queueVisit(kind: String, clientVisitId: String?, checkInRequestId: String?, previousRequestId: String?,
             plannedVisitId: String?, outletId: String, intents: List<String>, unplannedReason: String?, note: String?,
             outcome: String?, reasonCode: String?, location: JSONObject?) {
@@ -117,6 +137,8 @@ class DiagnosticVisitTest {
         rule.onNodeWithTag("call-sheet-open").performScrollTo().performClick()
         rule.onNodeWithTag("call-sheet-save").assertIsNotEnabled()
         rule.onNodeWithTag("call-sheet-products").performScrollToNode(hasTestTag("call-sheet-product-1-order"))
+        // Fields stay disabled while the app's own start-up refresh is still running.
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("call-sheet-product-1-order").assertIsEnabled() }.isSuccess }
         rule.onNodeWithTag("call-sheet-product-1-order").performTextInput("24")
         rule.onNodeWithTag("call-sheet-product-1-beginningInventory").performTextInput("0")
         androidx.test.espresso.Espresso.pressBack()
@@ -135,12 +157,68 @@ class DiagnosticVisitTest {
             assertEquals(JSONObject.NULL, line.get("take"))
         } } finally { reopened.close() }
         rule.onNodeWithTag("call-sheet-products").performScrollToNode(hasTestTag("call-sheet-product-1-order"))
+        // Inputs re-enable once the save finishes re-reading the call (busy covers the whole save).
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("call-sheet-product-1-order").assertIsEnabled() }.isSuccess }
         rule.onNodeWithTag("call-sheet-product-1-order").performTextInput("5")
         androidx.test.espresso.Espresso.pressBack()
         rule.onNodeWithTag("call-sheet-save").performClick()
         rule.waitUntil(10_000) { backend.visitStates().count { it.first.kind == "visit.activity" } == 2 }
     }
-    @After fun cleanup() { KeystoreDeviceKey.delete(alias) }
+    @After fun cleanup() {
+        KeystoreDeviceKey.delete(alias)
+        PhotoCameraSeam.fake = null
+        java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry("diagnostic-photo-ui-test")
+    }
+    /** AND-016: a typed photo is sealed on the phone during the call and End does not wait for its upload. */
+    @Test fun visitPhotoIsSavedOfflineAndEndIsNotBlocked() {
+        val jpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 1, 2, 3, 0xFF.toByte(), 0xD9.toByte())
+        PhotoCameraSeam.fake = { jpeg }
+        val store = scoped()
+        runBlocking {
+            store.swap(store.stage(ScopedSnapshot("{\"id\":\"test\"}", null, emptyList(), emptyList(),
+                emptyList(), emptyList(), photoTypes = listOf(PhotoType("storefront", "Store front"),
+                    PhotoType("shelf_display", "Shelf and display")))), "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
+        }
+        store.close()
+        val backend = Backend()
+        val location = object : VisitLocation {
+            override val requiresPermission = false
+            override suspend fun fix(): JSONObject? = null
+        }
+        rule.setContent { FieldApp(AppEnvironment("https://team.convex.site", "https://team.convex.cloud"),
+            dark = false, debug = true, backend = backend, visitLocation = location) }
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-open").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("diagnostic-open").performClick()
+        rule.onNodeWithTag("photo-open").assertDoesNotExist() // no photos before Start
+        backend.queueVisit("visit.checkIn", null, null, null, "planned-1", "outlet-1", emptyList(), null, null, null, null, null)
+        rule.onNodeWithTag("visit-back").performClick()
+        rule.onNodeWithTag("diagnostic-open").performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("photo-open").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("photo-open").performScrollTo().performClick()
+        rule.onNodeWithTag("photo-take").assertIsNotEnabled() // type first
+        rule.onNodeWithTag("photo-type-shelf_display").performScrollTo().performClick()
+        rule.onNodeWithTag("photo-take").assertIsEnabled().performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("visit-photo").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("visit-photo").performScrollTo().assertTextContains("Shelf and display", substring = true)
+        rule.onNodeWithTag("visit-photo").assertTextContains("Saved on phone", substring = true)
+        val saved = scoped()
+        val row = try { runBlocking { saved.pendingPhotos().single() } } finally { saved.close() }
+        assertEquals("shelf_display", row.photoType)
+        assertEquals(EvidencePhotos.sha256Hex(jpeg), row.sha256)
+        org.junit.Assert.assertArrayEquals(jpeg, backend.photoFiles.read(row.localId))
+        assertEquals(listOf("visit.checkIn"), backend.visitStates().map { it.first.kind })
+        // End with the photo still waiting (no network in this test): nothing blocks it.
+        rule.onNodeWithTag("diagnostic-outcome").performScrollTo().performClick() // completed
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("diagnostic-checkout").assertIsEnabled() }.isSuccess }
+        rule.onNodeWithTag("diagnostic-checkout").performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-confirm-end").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("diagnostic-confirm-end").performClick()
+        rule.waitUntil(10_000) { backend.visitStates().any { it.first.kind == "visit.checkOut" } }
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("result-photos").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("result-photos").performScrollTo().assertTextContains("1 waiting to upload", substring = true)
+        rule.onNodeWithTag("photo-open").assertDoesNotExist() // no new photos after End
+        backend.photoFiles.delete(row.localId)
+    }
     /** AND-013: an unplanned multi-purpose visit fills the backend-required forms before a completed End. */
     @Test fun unplannedMultiIntentVisitRequiresRuleFormsBeforeCompletedEnd() {
         val rules = listOf(

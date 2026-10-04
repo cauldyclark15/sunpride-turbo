@@ -13,6 +13,16 @@ import {
   type PhoneCallSheet,
 } from "../callSheets/model";
 import { phoneRules, rulesAt } from "../visits/activity_rules";
+import {
+  EVIDENCE_PHOTO_TYPES,
+  EVIDENCE_PHOTO_TYPES_VERSION,
+} from "../visits/policy";
+
+/** AND-016 phone wire: the photo types visit evidence may carry. */
+export const photoTypeDTO = v.object({ code: v.string(), label: v.string() });
+export function phonePhotoTypes() {
+  return EVIDENCE_PHOTO_TYPES.map(({ code, label }) => ({ code, label }));
+}
 
 export const DAY_MS = 86_400_000;
 export const HORIZON_DAYS = 3;
@@ -323,6 +333,8 @@ export async function dayProjection(
     day,
     memberships,
     activityRules,
+    // AND-016: a photo-type list change forces a fresh snapshot, like a rule change.
+    photoTypes: EVIDENCE_PHOTO_TYPES_VERSION,
     visits: visits.map((v) => v.stamp),
     tasks: relevant.map((t) => [
       t._id,

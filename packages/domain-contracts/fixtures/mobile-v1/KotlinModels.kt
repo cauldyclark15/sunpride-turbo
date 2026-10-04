@@ -52,6 +52,8 @@ data class BootstrapResponse(
   val callSheets: OptionalField<List<BootstrapResponseCallSheetsItem>>,
   // schema-field: bootstrapResponse.activityRules
   val activityRules: OptionalField<List<BootstrapResponseActivityRulesItem>>,
+  // schema-field: bootstrapResponse.photoTypes
+  val photoTypes: OptionalField<List<BootstrapResponsePhotoTypesItem>>,
   // schema-field: bootstrapResponse.page
   val page: Long,
   // schema-field: bootstrapResponse.nextPageCursor
@@ -750,6 +752,14 @@ data class BootstrapResponseActivityRulesItemActivitiesItem(
   val kind: String,
   // schema-field: bootstrapResponse.activityRules[].activities[].required
   val required: Boolean
+)
+// Additive after v1 shipped: visit photo types (AND-016).
+// schema-object: bootstrapResponse.photoTypes[]
+data class BootstrapResponsePhotoTypesItem(
+  // schema-field: bootstrapResponse.photoTypes[].code
+  val code: String,
+  // schema-field: bootstrapResponse.photoTypes[].label
+  val label: String
 )
 // schema-object: pushRequest.operations[]#1.payload.activity#6
 data class PushRequestOperationsItemVariant1PayloadActivityVariant6(

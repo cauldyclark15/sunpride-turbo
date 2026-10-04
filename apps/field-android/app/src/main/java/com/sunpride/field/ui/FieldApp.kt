@@ -106,6 +106,7 @@ fun FieldApp(
                     if (controller.diagnostic != null && ready && (page == "home" || page == "route" || page == "customers" || page == "customer")) Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = {
                             when {
+                                controller.photoCaptureOpen -> controller.closePhotoCapture()
                                 controller.activityForm != null -> controller.closeActivityForm()
                                 controller.callSheetOpen -> controller.closeCallSheet()
                                 else -> controller.closeDiagnostic()
@@ -113,7 +114,8 @@ fun FieldApp(
                         }, modifier = Modifier.height(48.dp).testTag("visit-back")) {
                             Text("‹", style = MaterialTheme.typography.titleLarge)
                         }
-                        Text(controller.activityForm?.let { com.sunpride.field.storage.ActivityRules.kindLabel(it) }
+                        Text(if (controller.photoCaptureOpen) "Photo" else controller.activityForm?.let {
+                            com.sunpride.field.storage.ActivityRules.kindLabel(it) }
                             ?: if (controller.callSheetOpen) "Call sheet" else "Visit", style = MaterialTheme.typography.titleMedium)
                     } else if (page == "account" || page == "sync" || page == "support" ||
                         (ready && (page == "route" || page == "customers" || page == "customer"))) Row(verticalAlignment = Alignment.CenterVertically) {
@@ -155,6 +157,8 @@ fun FieldApp(
                 page == "support" -> SupportDetails(status, { page = "account" }, modifier)
                 ready && page == "sync" -> SyncDetails(status, onDismiss = { page = "home" },
                     onSync = controller::syncNow, busy = controller.busy, modifier = modifier)
+                controller.diagnostic != null && debug && ready && controller.photoCaptureOpen ->
+                    com.sunpride.field.ui.diagnosticvisit.PhotoCaptureScreen(controller, modifier)
                 controller.diagnostic != null && debug && ready && controller.activityForm != null ->
                     com.sunpride.field.ui.diagnosticvisit.ActivityFormScreen(controller.activityForm!!, controller, modifier)
                 controller.diagnostic != null && debug && ready && controller.callSheetOpen && controller.diagnosticCallSheet != null ->

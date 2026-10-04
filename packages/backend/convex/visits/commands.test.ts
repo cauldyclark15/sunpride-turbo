@@ -590,6 +590,97 @@ describe("visit execution", () => {
       vi.useRealTimers();
     }
   });
+  it("AND-016: types phone photos, returns the original row on a lost-response retry and refuses a mismatched replay", async () => {
+    const f = await fixture();
+    try {
+      const ack = await f.apply(f.check());
+      const visitId = ack.entityId as Id<"visitExecutions">;
+      const checksum = "b".repeat(64);
+      // A real (unclaimed) upload: the retry's own fresh blob.
+      const retryUpload = await f.t.run((ctx) =>
+        ctx.storage.store(new Blob(["retry"])),
+      );
+      const base = {
+        visitId,
+        storageId: retryUpload,
+        mime: "image/jpeg",
+        size: 2048,
+        checksum,
+        capturedAt: now,
+        photoType: "shelf_display",
+        source: "mobile" as const,
+      };
+      // An unconfigured type never reaches the claim or storage checks.
+      await expect(
+        f.sales.mutation(api.visits.evidence.attach, {
+          ...base,
+          photoType: "selfie",
+        }),
+      ).rejects.toThrow(/invalid_request/);
+      const original = await f.t.run(async (ctx) => {
+        const visit = (await ctx.db.get(visitId))!;
+        const storageId = await ctx.storage.store(new Blob(["photo"]));
+        return ctx.db.insert("fieldEvidenceFiles", {
+          organizationId: "sunpride",
+          orgUnitId: visit.orgUnitId,
+          storageId,
+          visitId,
+          ownerProfileId: f.ids.sales,
+          outletId: visit.outletId,
+          mime: "image/jpeg",
+          sizeBytes: 2048,
+          checksum,
+          capturedAt: now,
+          photoType: "shelf_display",
+          uploadedAt: now,
+          status: "pending",
+        });
+      });
+      const claim = await f.sales.mutation(
+        api.visits.evidence.generateUploadUrl,
+        { visitId },
+      );
+      // Same bytes and metadata: the original row, no second file, the new claim untouched.
+      await expect(
+        f.sales.mutation(api.visits.evidence.attach, {
+          ...base,
+          checksum: checksum.toUpperCase(),
+          uploadTokenRef: claim.uploadTokenRef,
+        }),
+      ).resolves.toEqual({ evidenceId: original });
+      const after = await f.t.run(async (ctx) => ({
+        files: await ctx.db
+          .query("fieldEvidenceFiles")
+          .withIndex("by_visitId_and_uploadedAt", (q) =>
+            q.eq("visitId", visitId),
+          )
+          .collect(),
+        claim: await ctx.db.get(
+          claim.uploadTokenRef as Id<"evidenceUploadClaims">,
+        ),
+      }));
+      expect(after.files).toHaveLength(1);
+      expect(after.claim?.consumedAt).toBeUndefined();
+      // The same bytes claimed with different metadata are a conflict, not a replay.
+      for (const changed of [
+        { capturedAt: now - 1 },
+        { photoType: "price_tag" },
+        { size: 2049 },
+      ])
+        await expect(
+          f.sales.mutation(api.visits.evidence.attach, {
+            ...base,
+            ...changed,
+          }),
+        ).rejects.toThrow(/conflict/);
+      // Another person's identical checksum is never treated as their replay.
+      await expect(
+        f.other.mutation(api.visits.evidence.attach, base),
+      ).rejects.toThrow();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("rejects forged storage and unsupported task/collection kinds", async () => {
     const f = await fixture();
     try {

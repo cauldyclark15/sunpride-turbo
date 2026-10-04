@@ -17,6 +17,8 @@ import {
   customerDTO,
   dayProjection,
   outletDTO,
+  phonePhotoTypes,
+  photoTypeDTO,
   productDTO,
   routeDTO,
   taskDTO,
@@ -59,6 +61,7 @@ export const snapshot = internalQuery({
     productCatalog: v.array(productDTO),
     callSheets: v.array(callSheetDTO),
     activityRules: v.array(activityRuleDTO),
+    photoTypes: v.array(photoTypeDTO),
     page: v.number(),
     nextPageCursor: v.union(v.string(), v.null()),
     syncCursor: v.union(v.string(), v.null()),
@@ -170,6 +173,8 @@ export const snapshot = internalQuery({
       ],
       // AND-013: same small rule set on every page; the phone requires them to agree.
       activityRules,
+      // AND-016: visit photo types, the same small list on every page.
+      photoTypes: phonePhotoTypes(),
       page: base.page,
       nextPageCursor: hasMore ? await signCursor(base) : null,
       syncCursor: hasMore
