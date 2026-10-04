@@ -64,6 +64,20 @@ class DiagnosticVisitTest {
                     callSheet = CallSheetPayload.activity(sheet, drafts)), System.currentTimeMillis())
             } } finally { store.close() }
         }
+        override fun orderDrafts(): List<com.sunpride.field.orders.OrderDraft> {
+            val store = scoped()
+            return try { runBlocking { store.orderDrafts() } } finally { store.close() }
+        }
+        override fun saveOrderDraft(draftId: String?, clientVisitId: String, checkInRequestId: String,
+            quantities: List<Pair<String, Int>>): com.sunpride.field.orders.OrderDraft {
+            val store = scoped()
+            return try { runBlocking { saveOrderDraftIn(store, draftId, clientVisitId, checkInRequestId, quantities,
+                System.currentTimeMillis()) } } finally { store.close() }
+        }
+        override fun discardOrderDraft(draftId: String) {
+            val store = scoped()
+            try { runBlocking { store.discardOrderDraft(draftId) } } finally { store.close() }
+        }
         override fun queueVisit(kind: String, clientVisitId: String?, checkInRequestId: String?, previousRequestId: String?,
             plannedVisitId: String?, outletId: String, intents: List<String>, unplannedReason: String?, note: String?,
             outcome: String?, reasonCode: String?, location: JSONObject?) {
@@ -125,6 +139,74 @@ class DiagnosticVisitTest {
         androidx.test.espresso.Espresso.pressBack()
         rule.onNodeWithTag("call-sheet-save").performClick()
         rule.waitUntil(10_000) { backend.visitStates().count { it.first.kind == "visit.activity" } == 2 }
+    }
+    @Test fun captureOrderDraftOfflineFromTheAccountCatalog() {
+        val sheet = CallSheet("outlet-1", 1, CallSheetHeader("Test account", null, null, null, null, null, null, null, null, "SRP"),
+            listOf(CallSheetProduct("product-1", "SKU-1", "Sunpride Hotdog 1kg", "PC", "4800000000017", "₱189.00"),
+                CallSheetProduct("product-2", "SKU-2", "Holiday Corned Beef 150g", "CAN", null, null)))
+        val outlet = JSONObject().put("id", "outlet-1").put("name", "Test outlet").put("routeId", "route-1")
+            .put("customerId", "customer-1").put("territoryId", "territory-1").put("territoryCode", "PASIG-01")
+        val store = scoped()
+        runBlocking {
+            store.swap(store.stage(ScopedSnapshot("{\"id\":\"test\"}", null, emptyList(),
+                listOf(SnapshotItem("outlet-1", outlet.toString())),
+                listOf(SnapshotItem("customer-1", "{\"id\":\"customer-1\",\"code\":\"CUST-1\"}")), emptyList(),
+                listOf(sheet))), "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
+        }
+        store.close()
+        val backend = Backend()
+        val location = object : VisitLocation { override val requiresPermission = false; override suspend fun fix(): JSONObject? = null }
+        rule.setContent { FieldApp(AppEnvironment("https://team.convex.site", "https://team.convex.cloud"),
+            dark = false, debug = true, backend = backend, visitLocation = location) }
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-open").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("diagnostic-open").performClick()
+        backend.queueVisit("visit.checkIn", null, null, null, "planned-1", "outlet-1", emptyList(), null, null, null, null, null)
+        rule.onNodeWithTag("visit-back").performClick()
+        rule.onNodeWithTag("diagnostic-open").performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("order-new").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("order-new").performScrollTo().performClick()
+        rule.onNodeWithTag("order-title").assertTextContains("New order")
+        rule.onNodeWithTag("order-save").assertIsNotEnabled()
+        rule.waitForIdle(); Thread.sleep(350)
+        com.sunpride.field.captureCalmScreenshot("light-order-new")
+        rule.onNodeWithTag("order-search").performTextInput("corned")
+        rule.waitUntil(5_000) { rule.onAllNodesWithTag("order-qty-product-1").fetchSemanticsNodes().isEmpty() }
+        androidx.test.espresso.Espresso.pressBack() // hide the keyboard so the list stops relaying out
+        rule.waitForIdle()
+        rule.onNodeWithTag("order-products").performScrollToNode(hasTestTag("order-qty-product-2"))
+        rule.onNodeWithTag("order-qty-product-2").performTextInput("12")
+        androidx.test.espresso.Espresso.pressBack()
+        rule.onNodeWithTag("order-count").assertTextContains("1 of 2 products", substring = true)
+        rule.onNodeWithTag("order-save").assertIsEnabled().performClick()
+        rule.waitUntil(10_000) { backend.orderDrafts().size == 1 }
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("order-saved").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("order-association").assertTextContains("Customer CUST-1 · Territory PASIG-01")
+        val draft = backend.orderDrafts().single()
+        assertEquals(listOf("SKU-2" to 12), draft.lines.map { it.code to it.quantity })
+        assertEquals("CAN", draft.lines.single().uom)
+        assertEquals("territory-1", draft.territoryId); assertEquals("route-1", draft.routeId)
+        // Drafts never enter the outbox: only the injected check-in is queued.
+        assertEquals(1, backend.visitStates().size)
+        rule.runOnUiThread {
+            androidx.core.view.WindowCompat.getInsetsController(rule.activity.window,
+                rule.activity.window.decorView).isAppearanceLightStatusBars = true
+        }
+        rule.waitForIdle(); Thread.sleep(350)
+        com.sunpride.field.captureCalmScreenshot("light-order-draft")
+        rule.onNodeWithTag("visit-back").performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("order-draft").fetchSemanticsNodes().size == 1 }
+        rule.onNodeWithTag("order-draft").performScrollTo().assertTextContains("1 product", substring = true).performClick()
+        rule.onNodeWithTag("order-title").assertTextContains("Order draft")
+        rule.onNodeWithTag("order-products").performScrollToNode(hasTestTag("order-qty-product-1"))
+        rule.onNodeWithTag("order-qty-product-1").performTextInput("3")
+        androidx.test.espresso.Espresso.pressBack()
+        rule.onNodeWithTag("order-save").performClick()
+        rule.waitUntil(10_000) { backend.orderDrafts().single().lines.size == 2 }
+        assertEquals(draft.draftId, backend.orderDrafts().single().draftId)
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("order-discard").assertIsEnabled() }.isSuccess }
+        rule.onNodeWithTag("order-discard").performClick()
+        rule.waitUntil(10_000) { backend.orderDrafts().isEmpty() }
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("order-new").fetchSemanticsNodes().isNotEmpty() }
     }
     @After fun cleanup() { KeystoreDeviceKey.delete(alias) }
     @Test fun queuesCheckInAndCheckOutOfflineWithoutPhoneLocationPermission() = runScenario(false)

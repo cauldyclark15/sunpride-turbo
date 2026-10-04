@@ -58,6 +58,12 @@ interface FieldStore {
     suspend fun intent(requestId: String): IntentRow? = null
     suspend fun delta(entity: String, id: String): DeltaRow? = null
     suspend fun applyDelta(changes: List<DeltaRow>, nextCursor: String) { setCursor(nextCursor) }
+    /** Local-only order drafts (SP-0061): never sent by the outbox; submission is a later step. */
+    suspend fun orderDrafts(): List<com.sunpride.field.orders.OrderDraft> = emptyList()
+    /** Insert or replace one draft after [com.sunpride.field.orders.OrderDraftRules.validate] in one transaction. */
+    suspend fun saveOrderDraft(draft: com.sunpride.field.orders.OrderDraft): Unit = error("Order drafts unavailable")
+    /** The salesperson discards their own unsent draft; a held partition stays frozen. */
+    suspend fun discardOrderDraft(draftId: String): Unit = error("Order drafts unavailable")
     fun close() {}
 }
 
@@ -79,6 +85,12 @@ object EncryptedFieldDatabase {
             db.execSQL("UPDATE snapshots SET snapshotOrder = (SELECT COUNT(*) FROM snapshots AS prior WHERE prior.account=snapshots.account AND prior.deviceId=snapshots.deviceId AND prior.scope=snapshots.scope AND prior.generation=snapshots.generation AND prior.kind=snapshots.kind AND prior.entityId<snapshots.entityId)")
         }
     }
+    /** Local order drafts (SP-0061), partitioned like every other row; no existing table changes. */
+    val MIGRATION_5_6 = object : Migration(5, 6) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `order_drafts` (`account` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `scope` TEXT NOT NULL, `draftId` TEXT NOT NULL, `clientVisitId` TEXT NOT NULL, `outletId` TEXT NOT NULL, `serviceDate` TEXT NOT NULL, `json` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`account`, `deviceId`, `scope`, `draftId`))")
+        }
+    }
     /** Annex C account sheets (SP-0007) layered on main's v4 field-day schema. */
     val MIGRATION_4_5 = object : Migration(4, 5) {
         override fun migrate(db: SupportSQLiteDatabase) {
@@ -91,7 +103,7 @@ object EncryptedFieldDatabase {
         val passphrase = PassphraseVault(context).passphrase()
         return Room.databaseBuilder(context.applicationContext, StoreDatabase::class.java, PassphraseVault.DB_NAME)
             .openHelperFactory(SupportOpenHelperFactory(passphrase))
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
             .build()
     }
 
@@ -280,6 +292,25 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
                 if (prior == null || change.revision > prior.revision) dao.putDelta(change)
             }
             dao.putPartition(old.copy(cursor = nextCursor))
+        }
+    }
+    override suspend fun orderDrafts(): List<com.sunpride.field.orders.OrderDraft> =
+        dao.orderDrafts(a, d, s).map { com.sunpride.field.orders.OrderDraftCodec.decode(it.json) }
+    override suspend fun saveOrderDraft(draft: com.sunpride.field.orders.OrderDraft) {
+        db.withTransaction {
+            val meta = metadata()
+            if (meta.held) throw com.sunpride.field.orders.OrderDraftFailure(com.sunpride.field.orders.OrderDraftFailure.Code.HELD)
+            check(meta.activeGeneration != null) { "No cached snapshot" }
+            val existing = dao.orderDraft(a, d, s, draft.draftId)?.let { com.sunpride.field.orders.OrderDraftCodec.decode(it.json) }
+            com.sunpride.field.orders.OrderDraftRules.validate(this@RoomFieldStore, draft, existing)
+            dao.putOrderDraft(OrderDraftRow(a, d, s, draft.draftId, draft.clientVisitId, draft.outletId, draft.serviceDate,
+                com.sunpride.field.orders.OrderDraftCodec.encode(draft), draft.createdAt, draft.updatedAt))
+        }
+    }
+    override suspend fun discardOrderDraft(draftId: String) {
+        db.withTransaction {
+            if (metadata().held) throw com.sunpride.field.orders.OrderDraftFailure(com.sunpride.field.orders.OrderDraftFailure.Code.HELD)
+            check(dao.deleteOrderDraft(a, d, s, draftId) == 1) { "Unknown draft" }
         }
     }
     override suspend fun holdForReview() {

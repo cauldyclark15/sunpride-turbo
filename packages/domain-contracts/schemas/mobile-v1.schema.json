@@ -223,6 +223,16 @@
                 "type": "string",
                 "minLength": 1
               },
+              "territoryId": {
+                "description": "Optional territory of the signed planned visit (order association). Added 2026-10; older servers omit it.",
+                "type": "string",
+                "minLength": 1
+              },
+              "territoryCode": {
+                "description": "Optional territory code of the signed planned visit (order association). Added 2026-10; older servers omit it.",
+                "type": "string",
+                "minLength": 1
+              },
               "address": {
                 "description": "Optional outlet address used as the navigation fallback. Added 2026-10.",
                 "type": "string",
@@ -244,7 +254,9 @@
             "required": ["id", "name", "routeId"],
             "dependentRequired": {
               "latitude": ["longitude"],
-              "longitude": ["latitude"]
+              "longitude": ["latitude"],
+              "territoryId": ["territoryCode"],
+              "territoryCode": ["territoryId"]
             },
             "additionalProperties": false
           }

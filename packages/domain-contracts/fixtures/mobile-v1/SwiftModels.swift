@@ -116,6 +116,10 @@ struct BootstrapResponseOutletsItem {
   let code: OptionalField<String>
   // schema-field: bootstrapResponse.outlets[].customerId
   let customerId: OptionalField<String>
+  // schema-field: bootstrapResponse.outlets[].territoryId
+  let territoryId: OptionalField<String>
+  // schema-field: bootstrapResponse.outlets[].territoryCode
+  let territoryCode: OptionalField<String>
   // schema-field: bootstrapResponse.outlets[].address
   let address: OptionalField<String>
   // schema-field: bootstrapResponse.outlets[].latitude

@@ -115,6 +115,10 @@ data class BootstrapResponseOutletsItem(
   val code: OptionalField<String>,
   // schema-field: bootstrapResponse.outlets[].customerId
   val customerId: OptionalField<String>,
+  // schema-field: bootstrapResponse.outlets[].territoryId
+  val territoryId: OptionalField<String>,
+  // schema-field: bootstrapResponse.outlets[].territoryCode
+  val territoryCode: OptionalField<String>,
   // schema-field: bootstrapResponse.outlets[].address
   val address: OptionalField<String>,
   // schema-field: bootstrapResponse.outlets[].latitude

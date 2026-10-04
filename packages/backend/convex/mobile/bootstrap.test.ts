@@ -294,6 +294,8 @@ describe("mobile day bootstrap", () => {
         routeId: null,
         code: "O",
         customerId: f.ids.snapshot.customerId,
+        territoryId: f.ids.snapshot.territoryId,
+        territoryCode: f.ids.snapshot.territoryCode,
       },
     ]);
     expect(r.localCustomers).toEqual([
@@ -307,6 +309,37 @@ describe("mobile day bootstrap", () => {
     });
     expect(r.syncCursor).toBeTruthy();
     expect(JSON.stringify(r)).not.toContain(f.actor.subject);
+  });
+  it("keeps order territory association from the signed visit, not the current outlet assignment", async () => {
+    const f = await fixture();
+    await f.t.run(async (ctx) => {
+      const territory = await ctx.db.insert("territories", {
+        organizationId: "sunpride",
+        code: "CURRENT-T",
+        name: "Current territory",
+        status: "active",
+        effectiveFrom: f.now - 100000,
+        createdAt: f.now,
+        updatedAt: f.now,
+        createdBy: f.actor.subject,
+      });
+      await ctx.db.insert("territoryOwnerships", {
+        territoryId: territory,
+        orgUnitId: f.ids.unit,
+        effectiveFrom: f.now - 100000,
+        actorSubject: f.actor.subject,
+        reason: "fixture",
+        createdAt: f.now,
+      });
+      await ctx.db.patch(f.ids.outletAssignment, { territoryId: territory });
+    });
+    const r = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+    });
+    expect(r.outlets[0]).toMatchObject({
+      territoryId: f.ids.snapshot.territoryId,
+      territoryCode: f.ids.snapshot.territoryCode,
+    });
   });
   it("gives the daily route the single current verified pin and address, never a pending or ambiguous pin", async () => {
     const f = await fixture();

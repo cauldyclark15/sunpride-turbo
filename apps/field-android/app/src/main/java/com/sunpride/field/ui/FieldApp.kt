@@ -105,11 +105,12 @@ fun FieldApp(
                     horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     if (controller.diagnostic != null && ready && (page == "home" || page == "route" || page == "customers" || page == "customer")) Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = {
-                            if (controller.callSheetOpen) controller.closeCallSheet() else controller.closeDiagnostic()
+                            if (controller.orderOpen) controller.closeOrder()
+                            else if (controller.callSheetOpen) controller.closeCallSheet() else controller.closeDiagnostic()
                         }, modifier = Modifier.height(48.dp).testTag("visit-back")) {
                             Text("‹", style = MaterialTheme.typography.titleLarge)
                         }
-                        Text(if (controller.callSheetOpen) "Call sheet" else "Visit", style = MaterialTheme.typography.titleMedium)
+                        Text(if (controller.orderOpen) "Order" else if (controller.callSheetOpen) "Call sheet" else "Visit", style = MaterialTheme.typography.titleMedium)
                     } else if (page == "account" || page == "sync" || page == "support" ||
                         (ready && (page == "route" || page == "customers" || page == "customer"))) Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { page = when (page) { "support" -> "account"; "customer" -> "customers"; else -> "home" } },
@@ -150,6 +151,9 @@ fun FieldApp(
                 page == "support" -> SupportDetails(status, { page = "account" }, modifier)
                 ready && page == "sync" -> SyncDetails(status, onDismiss = { page = "home" },
                     onSync = controller::syncNow, busy = controller.busy, modifier = modifier)
+                controller.diagnostic != null && debug && ready && controller.orderOpen && controller.diagnosticCallSheet != null ->
+                    com.sunpride.field.ui.orders.OrderDraftScreen(controller.diagnostic!!, controller.diagnosticCallSheet!!,
+                        controller, modifier)
                 controller.diagnostic != null && debug && ready && controller.callSheetOpen && controller.diagnosticCallSheet != null ->
                     com.sunpride.field.ui.diagnosticvisit.CallSheetScreen(controller.diagnosticCallSheet!!, controller, modifier)
                 controller.diagnostic != null && debug && ready -> com.sunpride.field.ui.diagnosticvisit.DiagnosticVisitScreen(

@@ -106,6 +106,18 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                     else ListRow("Call sheet", "Record quantities for this visit", "activity",
                         Modifier.testTag("call-sheet-open"), onClick = { controller.openCallSheet() })
                 }
+                SectionCard("Order") {
+                    controller.visitOrderDrafts.forEach { draft ->
+                        ListRow("Order draft", "${draft.lines.size} product${if (draft.lines.size == 1) "" else "s"} · saved on this phone",
+                            "activity", Modifier.testTag("order-draft"), onClick = { controller.openOrder(draft.draftId) })
+                    }
+                    if (controller.diagnosticCallSheet == null) Text(
+                        "No products set up for this account yet. Ask your office.",
+                        Modifier.padding(16.dp).testTag("order-unavailable"),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    else ListRow("New order", "Search this account's products", "activity",
+                        Modifier.testTag("order-new"), onClick = { controller.openOrder() })
+                }
                 SectionCard("Note") {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row {
@@ -147,6 +159,12 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
             if (checkedOut) SectionCard("Done") {
                 Text("Visit saved · ${com.sunpride.field.storage.VisitCallRules.timeSpent(related) ?: "0 min"}",
                     Modifier.padding(16.dp).testTag("call-time-spent"))
+            }
+            if (checkedOut && controller.visitOrderDrafts.isNotEmpty()) SectionCard("Order") {
+                controller.visitOrderDrafts.forEach { draft ->
+                    ListRow("Order draft", "${draft.lines.size} product${if (draft.lines.size == 1) "" else "s"} · saved on this phone · review comes next",
+                        "activity", Modifier.testTag("order-draft-closed"))
+                }
             }
             if (!checkedIn) startFailure?.let {
                 Text(it.code.text, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("start-blocked"))
