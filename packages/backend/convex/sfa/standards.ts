@@ -31,7 +31,7 @@ const MAX_VISIT_ROWS = 100;
 
 type Standard = Doc<"positionStandards">;
 
-function standardAt(rows: Standard[], instant: number): Standard | null {
+export function standardAt(rows: Standard[], instant: number): Standard | null {
   const active = rows.filter(
     (row) =>
       row.effectiveFrom <= instant &&
@@ -41,7 +41,7 @@ function standardAt(rows: Standard[], instant: number): Standard | null {
   return active.sort((a, b) => b.effectiveFrom - a.effectiveFrom)[0] ?? null;
 }
 
-async function standardsFor(ctx: QueryCtx, positionId: Id<"positions">) {
+export async function standardsFor(ctx: QueryCtx, positionId: Id<"positions">) {
   return ctx.db
     .query("positionStandards")
     .withIndex("by_positionId_and_effectiveFrom", (q) =>
