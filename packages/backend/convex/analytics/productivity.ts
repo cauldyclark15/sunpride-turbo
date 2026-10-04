@@ -169,7 +169,7 @@ export const roster = query({
  * The same membership rule as `teamMembers`, for one person: an active field person whose
  * single current employee assignment sits inside the caller's scope.
  */
-async function memberOf(
+export async function memberOf(
   ctx: QueryCtx,
   sc: SupervisorContext,
   profileId: Id<"profiles">,
