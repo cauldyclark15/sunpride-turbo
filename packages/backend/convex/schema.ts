@@ -25,6 +25,12 @@ import {
 } from "./callSheets/validators";
 import { productiveCallRuleValidator } from "./sfa/productive_call";
 import {
+  availabilityStatus,
+  competitorObservationKind,
+  complianceFinding,
+  complianceKind,
+} from "./merchandising/validators";
+import {
   workWithMode,
   workWithObjective,
   workWithObservation,
@@ -2746,4 +2752,97 @@ export default defineSchema({
     "localMonth",
     "week",
   ]),
+  // CVX-030 merchandising audits (merchandising/). Required assortment of one outlet,
+  // effective-dated: one row per version; a new version closes the one it replaces.
+  outletAssortments: defineTable({
+    organizationId: v.string(),
+    outletId: v.id("outlets"),
+    productIds: v.array(v.id("products")),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    sourceRef: v.string(),
+    actorSubject: v.string(), // full identity.tokenIdentifier
+    createdAt: v.number(),
+  }).index("by_outletId_and_effectiveFrom", ["outletId", "effectiveFrom"]),
+  // One immutable audit per visit, captured during the call. Summary counts are computed
+  // server-side against the assortment in effect when the audit reached the server.
+  merchandisingAudits: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    visitId: v.id("visitExecutions"),
+    outletId: v.id("outlets"),
+    assigneeProfileId: v.id("profiles"),
+    serviceDate: v.string(),
+    clientAuditId: v.string(),
+    payloadHash: v.string(), // SHA-256 of the canonical submitted audit; replay check
+    auditVersion: v.string(),
+    assortmentId: v.optional(v.id("outletAssortments")),
+    requiredCount: v.number(),
+    requiredAvailableCount: v.number(),
+    requiredOutOfStockCount: v.number(),
+    missingRequiredProductIds: v.array(v.id("products")),
+    evidenceIds: v.array(v.id("fieldEvidenceFiles")),
+    actorSubject: v.string(), // full identity.tokenIdentifier
+    source: v.union(v.literal("mobile"), v.literal("web")),
+    deviceTime: v.number(),
+    serverTime: v.number(),
+  })
+    .index("by_visitId", ["visitId"])
+    .index("by_organizationId_and_clientAuditId", [
+      "organizationId",
+      "clientAuditId",
+    ])
+    .index("by_orgUnitId_and_serviceDate", ["orgUnitId", "serviceDate"])
+    .index("by_outletId_and_serviceDate", ["outletId", "serviceDate"]),
+  merchandisingAvailability: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    auditId: v.id("merchandisingAudits"),
+    outletId: v.id("outlets"),
+    productId: v.id("products"),
+    serviceDate: v.string(),
+    required: v.boolean(),
+    status: availabilityStatus,
+    facings: v.optional(v.number()),
+    note: v.optional(v.string()),
+    evidenceIds: v.array(v.id("fieldEvidenceFiles")),
+  })
+    .index("by_auditId", ["auditId"])
+    .index("by_productId_and_serviceDate", ["productId", "serviceDate"])
+    .index("by_orgUnitId_and_serviceDate", ["orgUnitId", "serviceDate"]),
+  merchandisingComplianceChecks: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    auditId: v.id("merchandisingAudits"),
+    outletId: v.id("outlets"),
+    serviceDate: v.string(),
+    kind: complianceKind,
+    finding: complianceFinding,
+    programRef: v.optional(v.string()),
+    shareOfShelfPercent: v.optional(v.number()),
+    actionTaken: v.optional(v.string()),
+    evidenceIds: v.array(v.id("fieldEvidenceFiles")),
+  })
+    .index("by_auditId", ["auditId"])
+    .index("by_orgUnitId_and_kind_and_serviceDate", [
+      "orgUnitId",
+      "kind",
+      "serviceDate",
+    ]),
+  competitorObservations: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    auditId: v.id("merchandisingAudits"),
+    outletId: v.id("outlets"),
+    serviceDate: v.string(),
+    kind: competitorObservationKind,
+    brand: v.string(),
+    productCategory: v.optional(v.string()),
+    observedPriceMinor: v.optional(v.int64()),
+    currency: v.optional(v.string()),
+    note: v.optional(v.string()),
+    evidenceIds: v.array(v.id("fieldEvidenceFiles")),
+  })
+    .index("by_auditId", ["auditId"])
+    .index("by_orgUnitId_and_serviceDate", ["orgUnitId", "serviceDate"]),
 });
