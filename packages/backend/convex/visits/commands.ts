@@ -436,6 +436,27 @@ export async function applyVisitOperation(
     if (visit.state !== "checked-in" && visit.state !== "in-progress")
       throw new ConvexError("invalid_transition");
     safeActivity(p.activity);
+    if (p.activity.kind === "order_intent") {
+      // A re-sent intent (e.g. re-queued under a fresh request key) never records a second
+      // order intent for the same phone order on this call.
+      const clientOrderId = p.activity.clientOrderId;
+      const prior = await ctx.db
+        .query("visitActivities")
+        .withIndex("by_visitId_and_serverTime", (q) =>
+          q.eq("visitId", visit._id),
+        )
+        .take(MAX_VISIT_ACTIVITIES + 1);
+      if (prior.length > MAX_VISIT_ACTIVITIES)
+        throw new ConvexError("invalid_request");
+      if (
+        prior.some(
+          (row) =>
+            row.activity.kind === "order_intent" &&
+            row.activity.clientOrderId === clientOrderId,
+        )
+      )
+        throw new ConvexError("conflict");
+    }
     if (
       p.activity.kind === "inventory_check" ||
       p.activity.kind === "price_check"

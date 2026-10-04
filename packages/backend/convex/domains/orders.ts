@@ -6,6 +6,7 @@ import { requireCapability } from "../lib/capabilities";
 import { collectScopeUnitIds, rootOrgUnitId } from "../lib/scope";
 import { readableLocationIds } from "../inventory/location_scope";
 import { adjustMetrics } from "../lib/metrics";
+import { hashPayload } from "../inventory/posting";
 
 /** Legacy customer territory is text; only active, territory-matching assignments to
  * currently scoped profiles establish ownership. Unmapped customers fail closed. */
@@ -195,6 +196,12 @@ export const create = mutation({
       ))
     )
       throw new ConvexError("Customer is not assigned within your scope");
+    // A retried submission must resolve to the original order; reusing its request ID
+    // for different content is a client bug, never a second order or a silent edit.
+    const requestPayloadHash = hashPayload({
+      customerCode: args.customerCode,
+      lines: args.lines,
+    });
     const duplicate = await ctx.db
       .query("orders")
       .withIndex("by_client_request", (q) =>
@@ -212,6 +219,11 @@ export const create = mutation({
         ))
       )
         throw new ConvexError("Request ID belongs to another order");
+      if (
+        duplicate.requestPayloadHash &&
+        duplicate.requestPayloadHash !== requestPayloadHash
+      )
+        throw new ConvexError("Request ID was reused with another order");
       return duplicate._id;
     }
     if (args.lines.length === 0)
@@ -230,6 +242,7 @@ export const create = mutation({
       subtotal: total,
       total,
       offlineCreatedAt: args.offlineCreatedAt,
+      requestPayloadHash,
       createdAt: now,
       updatedAt: now,
     });

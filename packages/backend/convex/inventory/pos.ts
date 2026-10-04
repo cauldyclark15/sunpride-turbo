@@ -55,6 +55,9 @@ export const postSale = mutation({
       )
       .unique();
     if (duplicateOrder) {
+      // Replay is only for the device's own sale; never hand back another person's order.
+      if (duplicateOrder.salespersonSubject !== identity.tokenIdentifier)
+        throw new ConvexError("Client request ID belongs to another order");
       if (
         duplicateOrder.requestPayloadHash &&
         duplicateOrder.requestPayloadHash !== payloadHash
