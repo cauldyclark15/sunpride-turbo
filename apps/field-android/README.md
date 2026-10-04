@@ -53,6 +53,10 @@ A visit enqueue schedules `SyncWork` **after** the Room transaction commits. App
 Support info is copyable and includes only app/build, Android version, an opaque random per-install handle, local counts and a fixed outcome code. It contains no key fingerprint, server/device identity or raw visit payload. `Redactor` masks known secret/contact/location forms, while `SafeLog` accepts only fixed event codes and emits Logcat events only in debug builds. A private noBackup breadcrumb ring holds the last 50 allowlisted redacted events; the uncaught-exception handler records `crash` and delegates to the prior handler without serializing a Throwable. No third-party telemetry SDK is used.
 
 
+## Daily route (issue #51, AND-010)
+
+Today links to a **Route** page that lists today's planned outlets from the encrypted cache, so it works with no signal. Stops are numbered in MCP sequence (download order when sequence is absent), the same order the Start/End rules enforce. Each stop shows its state (Next, Later, In progress, Done, Needs review; a stop in review still holds back later stops), straight-line distance from a one-shot foreground fix, and two actions: **Navigate** hands a `geo:` URI to the user's maps app (verified pin first, address search as fallback, disabled when neither exists; "No maps app on this phone" if nothing can open it) and **Customer** shows outlet/customer codes, address and planned intents, with **Open visit** in builds where visit recording is enabled. Opening the page never prompts for location: a fix is taken only when already permitted, otherwise **Show distance** asks. The fix is not stored or sent. Bootstrap v1 outlets carry additive optional `code`, `customerId`, `address` and `latitude`/`longitude` (a single current verified pin; both or neither); older servers omit them and the page still lists stops without distance. Tests: `DailyRouteTest` (JVM) and `RouteScreenTest` plus a Today → Route → back case in `FieldAppTest` (emulator).
+
 JDK 21 (Android Studio JBR), Android SDK API 36 and build-tools 36, a Google APIs ARM64 API 36 emulator image, and Gradle wrapper (included). From this directory:
 
 ```sh

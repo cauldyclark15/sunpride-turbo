@@ -110,6 +110,16 @@ struct BootstrapResponseOutletsItem {
   let name: String
   // schema-field: bootstrapResponse.outlets[].routeId
   let routeId: String?
+  // schema-field: bootstrapResponse.outlets[].code
+  let code: OptionalField<String>
+  // schema-field: bootstrapResponse.outlets[].customerId
+  let customerId: OptionalField<String>
+  // schema-field: bootstrapResponse.outlets[].address
+  let address: OptionalField<String>
+  // schema-field: bootstrapResponse.outlets[].latitude
+  let latitude: OptionalField<Double>
+  // schema-field: bootstrapResponse.outlets[].longitude
+  let longitude: OptionalField<Double>
 }
 // schema-object: bootstrapResponse.localCustomers[]
 struct BootstrapResponseLocalCustomersItem {

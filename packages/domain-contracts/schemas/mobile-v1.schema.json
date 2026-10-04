@@ -213,9 +213,39 @@
                     "type": "null"
                   }
                 ]
+              },
+              "code": {
+                "description": "Optional outlet (customer) code for the daily route screen. Added 2026-10; older servers omit it.",
+                "type": "string"
+              },
+              "customerId": {
+                "description": "Optional link to localCustomers[].id. Added 2026-10.",
+                "type": "string",
+                "minLength": 1
+              },
+              "address": {
+                "description": "Optional outlet address used as the navigation fallback. Added 2026-10.",
+                "type": "string",
+                "minLength": 1
+              },
+              "latitude": {
+                "description": "Optional current verified pin latitude; sent together with longitude or not at all. Added 2026-10.",
+                "type": "number",
+                "minimum": -90,
+                "maximum": 90
+              },
+              "longitude": {
+                "description": "Optional current verified pin longitude; sent together with latitude or not at all. Added 2026-10.",
+                "type": "number",
+                "minimum": -180,
+                "maximum": 180
               }
             },
             "required": ["id", "name", "routeId"],
+            "dependentRequired": {
+              "latitude": ["longitude"],
+              "longitude": ["latitude"]
+            },
             "additionalProperties": false
           }
         },

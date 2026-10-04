@@ -81,4 +81,24 @@ describe("mobile v1 canonical contract", () => {
     };
     expect(validate(oversized)).toBe(false);
   });
+
+  test("keeps daily-route outlet fields additive; a pin is both coordinates or none", async () => {
+    const original = await Bun.file(
+      new URL("../fixtures/mobile-v1/bootstrap-response.json", import.meta.url),
+    ).json();
+    const outlet = original.outlets[0];
+    expect(validate(original), JSON.stringify(validate.errors)).toBe(true);
+    const withOutlet = (value: Record<string, unknown>) => ({
+      ...original,
+      outlets: [value],
+    });
+    expect(
+      validate(withOutlet({ id: outlet.id, name: outlet.name, routeId: null })),
+    ).toBe(true);
+    const latitudeOnly = { ...outlet };
+    delete latitudeOnly.longitude;
+    expect(validate(withOutlet(latitudeOnly))).toBe(false);
+    expect(validate(withOutlet({ ...outlet, latitude: 91 }))).toBe(false);
+    expect(validate(withOutlet({ ...outlet, address: "" }))).toBe(false);
+  });
 });

@@ -67,6 +67,19 @@ object BootstrapCodec {
             SnapshotItem(row.str("id"), row.toString(), if (day) row.str("serviceDate") else null)
         }
     }
+    /** Optional daily-route outlet fields (added 2026-10): code, customer link, address and a verified pin. */
+    private fun routeFields(v: JSONObject) {
+        if (v.has("code") && v.get("code") !is String) throw WireFailure("Invalid code")
+        if (v.has("customerId")) v.str("customerId")
+        if (v.has("address")) v.str("address")
+        if (v.has("latitude") != v.has("longitude")) throw WireFailure("Invalid pin")
+        if (v.has("latitude")) {
+            val lat = (v.get("latitude") as? Number)?.toDouble() ?: throw WireFailure("Invalid pin")
+            val lng = (v.get("longitude") as? Number)?.toDouble() ?: throw WireFailure("Invalid pin")
+            if (!lat.isFinite() || !lng.isFinite() || lat !in -90.0..90.0 || lng !in -180.0..180.0)
+                throw WireFailure("Invalid pin")
+        }
+    }
     fun page(text: String): BootstrapPage = guard {
         val o = JSONObject(text); version(o, "bootstrap.response")
         val employee = o.obj("employee"); employee.str("id"); val role = employee.str("role"); employee.str("orgUnitId")
@@ -88,7 +101,7 @@ object BootstrapCodec {
                 if (sequence !in 0..Int.MAX_VALUE.toLong()) throw WireFailure("Invalid sequence")
             }
         }, true)
-        val outlets = items(o, "outlets", { v -> v.str("name"); v.nullable("routeId") })
+        val outlets = items(o, "outlets", { v -> v.str("name"); v.nullable("routeId"); routeFields(v) })
         val customers = items(o, "localCustomers", { it.str("code") })
         val tasks = items(o, "tasks", { it.str("kind"); it.bool("required") })
         if (o.arr("productCatalog").length() != 0) throw WireFailure("Unsupported catalog")

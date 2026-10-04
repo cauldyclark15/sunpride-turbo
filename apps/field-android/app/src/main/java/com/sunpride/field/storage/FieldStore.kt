@@ -28,6 +28,7 @@ interface FieldStore {
                      releaseHeld: Boolean = false)
     suspend fun todaysVisits(day: String): List<SnapshotItem>
     suspend fun outlets(): List<SnapshotItem>
+    suspend fun customers(): List<SnapshotItem> = emptyList()
     suspend fun isLeaseValid(now: Long): Boolean
     /** Immutable serialized v1 operation and UUID. A crash cannot persist just one of intent/outbox. */
     suspend fun enqueue(intent: IntentRow, now: Long)
@@ -141,6 +142,7 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
     override suspend fun todaysVisits(day: String): List<SnapshotItem> =
         VisitCallRules.ordered(read("visit", day))
     override suspend fun outlets(): List<SnapshotItem> = read("outlet")
+    override suspend fun customers(): List<SnapshotItem> = read("customer")
     override suspend fun isLeaseValid(now: Long): Boolean = metadata().let {
         !it.held && it.leaseExpiresAt != null && now < it.leaseExpiresAt && it.activeGeneration != null
     }
