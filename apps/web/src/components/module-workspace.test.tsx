@@ -259,6 +259,10 @@ vi.mock("@sunpride/ui", () => ({
     createElement("span", null, children),
 }));
 vi.mock("./admin-workspace", () => ({ AdminWorkspace: () => null }));
+vi.mock("./analytics/execution-dashboard", () => ({
+  ExecutionDashboard: () =>
+    createElement("p", null, "Mounted execution dashboard"),
+}));
 vi.mock("./route-admin", () => ({ RouteAdmin: () => null }));
 vi.mock("./outlet-admin", () => ({ OutletAdmin: () => null }));
 vi.mock("./outlet-assignments", () => ({ OutletAssignments: () => null }));
@@ -334,6 +338,20 @@ describe("calm generic modules", () => {
       expect(html).not.toContain('data-label="Focus"');
       expect(html).not.toContain("Executive control center");
       expect(html).not.toContain("Realtime Convex");
+    }
+  });
+
+  it("mounts the daily execution dashboard on Reports for supervision readers only", () => {
+    state.pathname = "/analytics";
+    expect(render("analytics")).toContain("Mounted execution dashboard");
+    state.pathname = "/dashboard";
+    expect(render("dashboard")).not.toContain("Mounted execution dashboard");
+    for (const role of ["operations", "approver", "sales"]) {
+      state.profile = { ...state.profile, role };
+      state.pathname = "/analytics";
+      const html = render("analytics");
+      expect(html).toContain("<h1>Reports</h1>");
+      expect(html).not.toContain("Mounted execution dashboard");
     }
   });
 

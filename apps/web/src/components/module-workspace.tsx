@@ -27,6 +27,7 @@ import { CallSheetsWorkspace } from "./call-sheets/call-sheets-workspace";
 import { DailySalesWorkspace } from "./daily-sales/daily-sales-workspace";
 import { TrainingWorkspace } from "./training/trainer-forms";
 import { ActivityReportsWorkspace } from "./activity-reports/activity-reports-workspace";
+import { ExecutionDashboard } from "./analytics/execution-dashboard";
 
 const modules = {
   dashboard: { title: "Home" },
@@ -122,6 +123,7 @@ function AllowedModuleWorkspace({
         module={module}
         setupMessage={setupMessage}
         commercialTabs={commercialTabs}
+        role={role}
       />
     </div>
   );
@@ -131,10 +133,12 @@ function ModuleContent({
   module,
   setupMessage,
   commercialTabs,
+  role,
 }: {
   module: ModuleKey;
   setupMessage: string;
   commercialTabs: ReactNode;
+  role: string;
 }) {
   const metrics = useQuery(
     api.domains.dashboard.summary,
@@ -225,6 +229,11 @@ function ModuleContent({
             value={metrics ? money.format(metrics.salesToday) : "—"}
           />
         </div>
+        {/* ANA-002: supervision readers (people.read + visit.read) get the daily execution
+            dashboard; the endpoints enforce scope. */}
+        {module === "analytics" && canAccessWebModule("supervision", role) ? (
+          <ExecutionDashboard />
+        ) : null}
       </>
     );
 
