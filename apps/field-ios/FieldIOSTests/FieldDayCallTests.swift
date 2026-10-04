@@ -49,9 +49,12 @@ final class FieldDayCallTests: XCTestCase {
     }
     private func save(_ visits: [StoreSnapshot.Visit]) throws {
         let expiry = Int64(FieldDay.nextClose(after: clock.now).timeIntervalSince1970 * 1000)
+        let pin = StoreSnapshot.Coordinate(latitude: 14.5764, longitude: 121.0851)
+        let outlets: [StoreSnapshot.Outlet] = ["first", "second", "extra"].map { id in
+            StoreSnapshot.Outlet(id: id, name: id, routeId: nil, location: id == "second" ? nil : pin)
+        }
         try store.saveSnapshot(.init(employee: .init(id: "seller", role: "sales", orgUnitId: "unit"), visits: visits,
-            outlets: ["first", "second", "extra"].map { .init(id: $0, name: $0, routeId: nil,
-                latitude: $0 == "second" ? nil : 14.5764, longitude: $0 == "second" ? nil : 121.0851) },
+            outlets: outlets,
             customers: [], route: nil, tasks: []), cursor: "cursor", leaseExpiresAt: expiry, cacheExpiresAt: expiry, for: partition)
     }
     private func visit(_ id: String) throws -> AppModel.TodayVisit {

@@ -159,6 +159,9 @@ final class LocationCapture: NSObject, @preconcurrency CLLocationManagerDelegate
         manager.distanceFilter = kCLDistanceFilterNone
     }
 
+    /// Best effort fix for display (route distances); no permission or no fix simply means nil.
+    func captureIfAvailable() async -> VisitLocation? { await capture().fix }
+
     /// Fresh evidence for a Start or End. Never throws: a failure is a reason shown to the salesperson.
     func capture() async -> LocationOutcome {
         guard !busy else { return .unavailable(.noFix) }

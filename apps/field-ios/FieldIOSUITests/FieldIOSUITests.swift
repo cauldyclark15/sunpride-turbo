@@ -289,7 +289,9 @@ final class FieldIOSUITests: XCTestCase {
         XCTAssertEqual(offline.buttons["diagnosticCheckOut"].label, "End call")
         // GPS check-in: accuracy and distance from the verified pin (~500 m away); beyond every
         // store radius, so the fix is flagged for supervisor review but Start is never blocked.
-        let notice = offline.staticTexts["diagnosticMessage"].label
+        let message = offline.staticTexts["diagnosticMessage"]
+        XCTAssertTrue(message.waitForExistence(timeout: 5))
+        let notice = message.label
         XCTAssertTrue(notice.contains("Location recorded · ±5 m · 500 m from store"), notice)
         XCTAssertTrue(notice.contains("supervisor will review: far from store"), notice)
         XCTAssertFalse(offline.buttons["diagnosticCheckOut"].isEnabled)
