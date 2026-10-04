@@ -53,6 +53,8 @@ struct BootstrapResponse {
   let callSheets: OptionalField<[BootstrapResponseCallSheetsItem]>
   // schema-field: bootstrapResponse.activityRules
   let activityRules: OptionalField<[BootstrapResponseActivityRulesItem]>
+  // schema-field: bootstrapResponse.photoTypes
+  let photoTypes: OptionalField<[BootstrapResponsePhotoTypesItem]>
   // schema-field: bootstrapResponse.page
   let page: Int64
   // schema-field: bootstrapResponse.nextPageCursor
@@ -742,6 +744,14 @@ struct BootstrapResponseActivityRulesItemActivitiesItem {
   let kind: String
   // schema-field: bootstrapResponse.activityRules[].activities[].required
   let required: Bool
+}
+// Additive after v1 shipped: visit photo types (AND-016).
+// schema-object: bootstrapResponse.photoTypes[]
+struct BootstrapResponsePhotoTypesItem {
+  // schema-field: bootstrapResponse.photoTypes[].code
+  let code: String
+  // schema-field: bootstrapResponse.photoTypes[].label
+  let label: String
 }
 // schema-object: pushRequest.operations[]#1.payload.activity#6
 struct PushRequestOperationsItemVariant1PayloadActivityVariant6 {

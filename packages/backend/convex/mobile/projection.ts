@@ -13,6 +13,21 @@ import {
   type PhoneCallSheet,
 } from "../callSheets/model";
 import { phoneRules, rulesAt } from "../visits/activity_rules";
+import {
+  EVIDENCE_PHOTO_TYPES,
+  EVIDENCE_PHOTO_TYPES_VERSION,
+} from "../visits/policy";
+import {
+  MAX_WORKING_SET_PRODUCTS,
+  MAX_WORKING_SET_VISITS,
+  WORKING_SET_TOO_LARGE,
+} from "./budget";
+
+/** AND-016 phone wire: the photo types visit evidence may carry. */
+export const photoTypeDTO = v.object({ code: v.string(), label: v.string() });
+export function phonePhotoTypes() {
+  return EVIDENCE_PHOTO_TYPES.map(({ code, label }) => ({ code, label }));
+}
 
 export const DAY_MS = 86_400_000;
 export const HORIZON_DAYS = 3;
@@ -88,6 +103,15 @@ export const callSheetDTO = v.object({
 type CallSheetCache = {
   accounts: Map<Id<"outlets">, { sheet: PhoneCallSheet; stamp: string } | null>;
   products: Parameters<typeof phoneCallSheet>[2];
+  /** QSR-013: one read per plan/outlet per snapshot keeps the transaction within its range budget. */
+  plans: Map<Id<"coveragePlans">, Doc<"coveragePlans"> | null>;
+  outlets: Map<
+    Id<"outlets">,
+    {
+      current: Awaited<ReturnType<typeof resolveOutletScopeAt>>;
+      pins: Doc<"outletPins">[];
+    }
+  >;
 };
 export type Visit = typeof visitDTO.type;
 export type Task = typeof taskDTO.type;
@@ -155,7 +179,11 @@ async function visitProjection(
   now: number,
   cache: CallSheetCache,
 ): Promise<Projected> {
-  const plan = await ctx.db.get(row.planId);
+  let plan = cache.plans.get(row.planId);
+  if (plan === undefined) {
+    plan = await ctx.db.get(row.planId);
+    cache.plans.set(row.planId, plan);
+  }
   const s = row.approvedSnapshot;
   if (
     !plan ||
@@ -168,7 +196,15 @@ async function visitProjection(
     row.status !== "planned"
   )
     throw new ConvexError("rebootstrap_required");
-  const current = await resolveOutletScopeAt(ctx, row.outletId, now);
+  let outletState = cache.outlets.get(row.outletId);
+  if (!outletState) {
+    outletState = {
+      current: await resolveOutletScopeAt(ctx, row.outletId, now),
+      pins: await outletRows(ctx, "outletPins", row.outletId),
+    };
+    cache.outlets.set(row.outletId, outletState);
+  }
+  const current = outletState.current;
   // No inherited unit/territory grant for a field phone: only its own current unit.
   if (
     current.orgUnitId !== actor.orgUnitId ||
@@ -191,7 +227,7 @@ async function visitProjection(
   }
   // Navigation target: only an unambiguous current verified pin. Missing or conflicting
   // pins send no coordinates (the phone falls back to the address), never a guess.
-  const pins = (await outletRows(ctx, "outletPins", row.outletId)).filter(
+  const pins = outletState.pins.filter(
     (p) =>
       p.status === "verified" && activeAt(p.effectiveFrom, p.effectiveTo, now),
   );
@@ -248,7 +284,13 @@ export async function dayProjection(
   )
     throw new ConvexError("rebootstrap_required");
   const visits: Projected[] = [];
-  const cache: CallSheetCache = { accounts: new Map(), products: new Map() };
+  const cache: CallSheetCache = {
+    accounts: new Map(),
+    products: new Map(),
+    plans: new Map(),
+    outlets: new Map(),
+  };
+  const planned: Doc<"plannedVisits">[] = [];
   for (let i = 0; i < HORIZON_DAYS; i++) {
     const date = new Date(start + i * DAY_MS).toISOString().slice(0, 10);
     const rows = await ctx.db
@@ -259,11 +301,17 @@ export async function dayProjection(
       .take(MAX_DAY_ROWS + 1);
     if (rows.length > MAX_DAY_ROWS)
       throw new ConvexError("rebootstrap_required");
-    for (const row of rows) {
-      // Superseded/cancelled lineage remains in storage but is not a phone assignment.
-      if (row.status === "planned")
-        visits.push(await visitProjection(ctx, row, actor, now, cache));
-    }
+    // Superseded/cancelled lineage remains in storage but is not a phone assignment.
+    planned.push(...rows.filter((row) => row.status === "planned"));
+  }
+  // QSR-013: refuse an oversized working set explicitly before reading its projection
+  // (no silent truncation); the office has to split the plan.
+  if (planned.length > MAX_WORKING_SET_VISITS)
+    throw new ConvexError(WORKING_SET_TOO_LARGE);
+  for (const row of planned) {
+    visits.push(await visitProjection(ctx, row, actor, now, cache));
+    if (cache.products.size > MAX_WORKING_SET_PRODUCTS)
+      throw new ConvexError(WORKING_SET_TOO_LARGE);
   }
   const end = start + HORIZON_DAYS * DAY_MS - 8 * 3_600_000;
   const tasks = await ctx.db
@@ -328,6 +376,8 @@ export async function dayProjection(
     day,
     memberships,
     activityRules,
+    // AND-016: a photo-type list change forces a fresh snapshot, like a rule change.
+    photoTypes: EVIDENCE_PHOTO_TYPES_VERSION,
     visits: visits.map((v) => v.stamp),
     tasks: relevant.map((t) => [
       t._id,

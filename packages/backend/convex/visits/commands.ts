@@ -105,7 +105,7 @@ async function assertCallOrder(
 }
 
 /** Work for a day reaching the server after its 10 PM close is kept and held for review. */
-async function flagLateWork(
+export async function flagLateWork(
   ctx: MutationCtx,
   visit: Doc<"visitExecutions">,
   now: number,

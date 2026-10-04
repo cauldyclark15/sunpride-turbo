@@ -10,7 +10,7 @@ import kotlin.math.roundToInt
  * that a fix will go to supervisor review. Client answer 13: no distance limit, never block a check-in.
  */
 object LocationPolicy {
-    const val VERSION = "field-day-2026-10-v2"
+    const val VERSION = "field-day-2026-10-v3"
     const val MAX_ACCURACY_METERS = 50.0
     const val MAX_FIX_AGE_MS = 60_000L
     /** How long the phone keeps listening for a better fix before using the best one it has. */

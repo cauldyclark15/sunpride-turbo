@@ -38,6 +38,7 @@ class FakeFieldStore(val identity: StoreScope) : FieldStore {
         require(intent.requestId.isNotBlank() && intent.clientVisitId.isNotBlank() &&
             intent.kind in setOf("visit.checkIn", "visit.activity", "visit.checkOut") && intent.serializedOperation.isNotBlank())
         check(isLeaseValid(now))
+        VisitCompletion.requireOpenForActivity(intent, rows.map { it.first to it.second.state })
         CallSheetQueueRules.validate(this, intent)
         ActivityQueueRules.validate(this, intent)
         com.sunpride.field.orders.OrderQueueRules.validate(this, intent)
@@ -103,7 +104,37 @@ class FakeFieldStore(val identity: StoreScope) : FieldStore {
         val existing = drafts[draftId] ?: error("Unknown draft")
         if (existing.submittedRequestId != null)
             throw com.sunpride.field.orders.OrderDraftFailure(com.sunpride.field.orders.OrderDraftFailure.Code.SUBMITTED)
+        // Order rules first, so an ended call reads as an order refusal (CALL_ENDED), not a generic visit one.
+        com.sunpride.field.orders.OrderQueueRules.validate(this, intent)
         enqueue(intent, now)
         drafts[draftId] = existing.copy(submittedRequestId = intent.requestId, submittedAt = now)
+    }
+
+    // AND-016 photos: same validation and state rules as Room.
+    val photos = mutableListOf<EvidencePhotoRow>()
+    override suspend fun photoTypes() = active?.photoTypes ?: emptyList()
+    override suspend fun addPhoto(row: EvidencePhotoRow, now: Long) {
+        require(row.account == identity.account && row.deviceId == identity.deviceId && row.scope == identity.fingerprint)
+        check(isLeaseValid(now))
+        EvidencePhotos.validate(row, photoTypes(), rows.map { it.first to it.second.state },
+            photos.count { it.clientVisitId == row.clientVisitId })
+        check(photos.none { it.localId == row.localId })
+        photos += row
+    }
+    override suspend fun visitPhotos(clientVisitId: String) = photos.filter { it.clientVisitId == clientVisitId }
+    override suspend fun pendingPhotos() = photos.filter { it.state == "pending" }.sortedBy { it.createdAt }
+    private fun photoIndex(localId: String) = photos.indexOfFirst { it.localId == localId }.also { check(it >= 0) }
+    override suspend fun markPhotoUploaded(localId: String, evidenceId: String, at: Long) {
+        val i = photoIndex(localId)
+        if (photos[i].state == "uploaded") check(photos[i].evidenceId == evidenceId)
+        else { check(photos[i].state == "pending"); photos[i] = photos[i].copy(state = "uploaded", evidenceId = evidenceId, uploadedAt = at) }
+    }
+    override suspend fun countPhotoAttempt(localId: String): Int {
+        val i = photoIndex(localId); check(photos[i].state == "pending")
+        photos[i] = photos[i].copy(attempts = photos[i].attempts + 1); return photos[i].attempts
+    }
+    override suspend fun reviewPhoto(localId: String, code: String) {
+        val i = photoIndex(localId); check(photos[i].state == "pending")
+        photos[i] = photos[i].copy(state = "review", reviewCode = code)
     }
 }

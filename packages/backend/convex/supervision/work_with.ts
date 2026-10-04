@@ -55,7 +55,7 @@ function text(value: string, label: string, max = MAX_TEXT) {
 }
 
 /** The single employee assignment in force at the instant, if any. */
-async function assignmentAt(
+export async function assignmentAt(
   ctx: Ctx,
   profileId: Id<"profiles">,
   instant: number,

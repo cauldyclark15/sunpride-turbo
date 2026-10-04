@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.sunpride.field.ui.FieldController
@@ -80,6 +81,8 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
     val intents = controller.visitIntents(visit)
     val checklist = controller.activityChecklist(visit)
     val missing = com.sunpride.field.storage.ActivityRules.missing(checklist)
+    val review = controller.endReview
+    val result = if (checkedOut) controller.visitResult(visit) else null
     Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -136,6 +139,20 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                         onClick = open)
                 }
             }
+            // AND-016: photos belong to the open call; after End they stay listed until uploaded.
+            val photos = controller.diagnosticPhotos
+            if (checkedIn && (!checkedOut || photos.isNotEmpty())) SectionCard("Photos · ${photos.size}",
+                Modifier.testTag("visit-photos")) {
+                Column {
+                    photos.forEach { photo ->
+                        ListRow(com.sunpride.field.storage.EvidencePhotos.label(photo.photoType, controller.diagnosticPhotoTypes),
+                            com.sunpride.field.storage.EvidencePhotos.stateLabel(photo), "photo",
+                            Modifier.semantics(mergeDescendants = true) {}.testTag("visit-photo"))
+                    }
+                    if (!checkedOut) ListRow("Take photo", "Store front, shelf, price tags and more", "photo",
+                        Modifier.testTag("photo-open"), onClick = { controller.openPhotoCapture() })
+                }
+            }
             if (checkedIn && !checkedOut) {
                 SectionCard("Call sheet") {
                     if (controller.diagnosticCallSheet == null) Text(
@@ -183,7 +200,7 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                 SectionCard("Outcome") {
                     Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 16.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                        androidx.compose.material3.Surface(onClick = { outcome = if (outcome == "completed") "nonproductive" else "completed" },
+                        androidx.compose.material3.Surface(onClick = { outcome = if (outcome == "completed") "nonproductive" else "completed"; controller.cancelEnd() },
                             modifier = Modifier.fillMaxWidth().height(48.dp).testTag("diagnostic-outcome")) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                                 Text(when (outcome) { "completed" -> "Completed"; "nonproductive" -> "Not productive"; else -> "Choose outcome" },
@@ -204,12 +221,51 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                 "Still required: " + missing.joinToString(", ") { com.sunpride.field.storage.ActivityRules.kindLabel(it) },
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("activities-missing"))
             if (checkedIn && !checkedOut && outcome == "nonproductive") SectionCard("Nonproductive reason") {
-                LabeledField("Reason code", reasonCode, { reasonCode = it },
+                LabeledField("Reason code", reasonCode, { reasonCode = it; controller.cancelEnd() },
                     Modifier.fillMaxWidth().padding(16.dp).testTag("diagnostic-reason"))
             }
-            if (checkedOut) SectionCard("Done") {
-                Text("Visit saved · ${com.sunpride.field.storage.VisitCallRules.timeSpent(related) ?: "0 min"}",
-                    Modifier.padding(16.dp).testTag("call-time-spent"))
+            // AND-017: confirm what End records; once queued the call cannot change on this phone.
+            if (checkedIn && !checkedOut && review != null) SectionCard("Review and end", Modifier.testTag("end-review")) {
+                Column {
+                    com.sunpride.field.ui.ValueRow("Outcome", listOfNotNull(
+                        com.sunpride.field.storage.VisitCompletion.outcomeLabel(review.outcome), review.reasonCode)
+                        .joinToString(" · "), Modifier.semantics(mergeDescendants = true) {}.testTag("end-review-outcome"))
+                    com.sunpride.field.ui.ValueRow("Time so far", "${review.minutes ?: 0} min")
+                    com.sunpride.field.ui.ValueRow("Activities", review.recorded.takeIf { it.isNotEmpty() }
+                        ?.joinToString(", ") { com.sunpride.field.storage.ActivityRules.kindLabel(it) } ?: "None recorded",
+                        Modifier.semantics(mergeDescendants = true) {}.testTag("end-review-activities"))
+                    if (review.officeReview.isNotEmpty()) com.sunpride.field.ui.ValueRow("Office will review",
+                        review.officeReview.joinToString(", ") { com.sunpride.field.storage.ActivityRules.kindLabel(it) },
+                        Modifier.semantics(mergeDescendants = true) {}.testTag("end-review-office"))
+                    Text("Your location is recorded when you confirm. You can't change this call after it ends.",
+                        Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            if (checkedOut) SectionCard("Done", Modifier.testTag("visit-result")) {
+                Column {
+                    result?.let { r ->
+                        com.sunpride.field.ui.ValueRow("Outcome", listOfNotNull(
+                            com.sunpride.field.storage.VisitCompletion.outcomeLabel(r.outcome), r.reasonCode)
+                            .joinToString(" · "), Modifier.semantics(mergeDescendants = true) {}.testTag("result-outcome"))
+                        com.sunpride.field.ui.ValueRow("Activities", r.recorded.takeIf { it.isNotEmpty() }
+                            ?.joinToString(", ") { com.sunpride.field.storage.ActivityRules.kindLabel(it) } ?: "None recorded",
+                            Modifier.semantics(mergeDescendants = true) {}.testTag("result-activities"))
+                        if (r.officeReview.isNotEmpty()) com.sunpride.field.ui.ValueRow("Office will review",
+                            r.officeReview.joinToString(", ") { com.sunpride.field.storage.ActivityRules.kindLabel(it) },
+                            Modifier.semantics(mergeDescendants = true) {}.testTag("result-office"))
+                        com.sunpride.field.ui.ValueRow("Sync", r.sync, Modifier.semantics(mergeDescendants = true) {}.testTag("result-sync"))
+                        com.sunpride.field.storage.EvidencePhotos.summary(controller.diagnosticPhotos)?.let {
+                            com.sunpride.field.ui.ValueRow("Photos", it,
+                                Modifier.semantics(mergeDescendants = true) {}.testTag("result-photos"))
+                        }
+                        Text(r.location, Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                            .testTag(if (r.locationReview) "result-location-review" else "result-location"),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Text("Visit saved · ${com.sunpride.field.storage.VisitCallRules.timeSpent(related) ?: "0 min"}",
+                        Modifier.padding(16.dp).testTag("call-time-spent"))
+                }
             }
             if (checkedOut && controller.visitOrderDrafts.isNotEmpty()) SectionCard("Order") {
                 controller.visitOrderDrafts.forEach { draft ->
@@ -244,7 +300,15 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
         if (!checkedIn) PrimaryBottomButton("Start", { record("visit.checkIn") }, Modifier.testTag("diagnostic-checkin"),
             !controller.busy && !capturing && startFailure == null &&
                 (visit.plannedVisitId != null || (reason.isNotBlank() && intents.isNotEmpty())))
-        else if (!checkedOut) PrimaryBottomButton("End call", { record("visit.checkOut") },
+        else if (!checkedOut && review != null) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            com.sunpride.field.ui.SecondaryButton("Back", { controller.cancelEnd() },
+                Modifier.weight(1f).testTag("end-review-back"), enabled = !controller.busy && !capturing)
+            androidx.compose.foundation.layout.Box(Modifier.weight(2f)) {
+                PrimaryBottomButton("Confirm end", { record("visit.checkOut") }, Modifier.testTag("diagnostic-confirm-end"),
+                    !controller.busy && !capturing)
+            }
+        }
+        else if (!checkedOut) PrimaryBottomButton("End call", { controller.reviewEnd(outcome, reasonCode) },
             Modifier.testTag("diagnostic-checkout"), !controller.busy && !capturing && outcome != null &&
                 (outcome != "nonproductive" || reasonCode.isNotBlank()) && (outcome != "completed" || missing.isEmpty()))
     }

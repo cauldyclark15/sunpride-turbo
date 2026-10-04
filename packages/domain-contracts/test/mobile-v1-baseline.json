@@ -49,6 +49,8 @@
     "bootstrapResponse.outlets[].routeId",
     "bootstrapResponse.page",
     "bootstrapResponse.permissions",
+    "bootstrapResponse.photoTypes[].code",
+    "bootstrapResponse.photoTypes[].label",
     "bootstrapResponse.plannedVisits",
     "bootstrapResponse.plannedVisits[].id",
     "bootstrapResponse.plannedVisits[].intents",

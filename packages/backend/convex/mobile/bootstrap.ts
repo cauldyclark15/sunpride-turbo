@@ -17,11 +17,22 @@ import {
   customerDTO,
   dayProjection,
   outletDTO,
+  phonePhotoTypes,
+  photoTypeDTO,
   productDTO,
   routeDTO,
   taskDTO,
   visitDTO,
 } from "./projection";
+import {
+  jsonBytes,
+  MAX_BOOTSTRAP_PAGE_BYTES,
+  MAX_BOOTSTRAP_PAGES,
+  PAGE_ENVELOPE_RESERVE_BYTES,
+  pageCount,
+  pageEnd,
+  WORKING_SET_TOO_LARGE,
+} from "./budget";
 
 export const snapshot = internalQuery({
   args: {
@@ -59,6 +70,7 @@ export const snapshot = internalQuery({
     productCatalog: v.array(productDTO),
     callSheets: v.array(callSheetDTO),
     activityRules: v.array(activityRuleDTO),
+    photoTypes: v.array(photoTypeDTO),
     page: v.number(),
     nextPageCursor: v.union(v.string(), v.null()),
     syncCursor: v.union(v.string(), v.null()),
@@ -112,12 +124,50 @@ export const snapshot = internalQuery({
         page: 0,
       };
     }
+    // QSR-013: each account's Annex C sheet ships once per snapshot, with the first visit
+    // to that outlet; a later horizon day at the same outlet reuses it on the phone.
+    const sheetAt = new Set<number>();
+    const shipped = new Set<string>();
+    entries.forEach((e, i) => {
+      if (
+        e.kind === "visit" &&
+        e.value.callSheet &&
+        !shipped.has(e.value.outlet.id)
+      ) {
+        shipped.add(e.value.outlet.id);
+        sheetAt.add(i);
+      }
+    });
+    // Pages are cut by entry count AND by uncompressed bytes, so a page stays below
+    // MAX_BOOTSTRAP_PAGE_BYTES however large the call sheets are.
+    const sizes = entries.map((e, i) =>
+      e.kind === "task"
+        ? jsonBytes(e.value)
+        : jsonBytes(e.value.visit) +
+          jsonBytes(e.value.outlet) +
+          (e.value.customer ? jsonBytes(e.value.customer) + 1 : 0) +
+          (sheetAt.has(i) ? jsonBytes(e.value.callSheet) + 1 : 0) +
+          2,
+    );
+    const budget =
+      MAX_BOOTSTRAP_PAGE_BYTES -
+      PAGE_ENVELOPE_RESERVE_BYTES -
+      jsonBytes(activityRules) -
+      jsonBytes(phonePhotoTypes());
+    const pageLimit = limit ?? 100;
+    if (
+      sizes.some((size) => size + 1 > budget) ||
+      pageCount(sizes, pageLimit, budget) > MAX_BOOTSTRAP_PAGES
+    )
+      throw new ConvexError(WORKING_SET_TOO_LARGE);
     const pageEntries = entries.slice(
       cursor.after,
-      cursor.after + (limit ?? 100),
+      pageEnd(sizes, cursor.after, pageLimit, budget),
     );
-    const visits = pageEntries.flatMap((e) =>
-      e.kind === "visit" ? [e.value] : [],
+    const visits = pageEntries.flatMap((e, i) =>
+      e.kind === "visit"
+        ? [{ ...e.value, sheet: sheetAt.has(cursor.after + i) }]
+        : [],
     );
     const tasks = pageEntries.flatMap((e) =>
       e.kind === "task" ? [e.value] : [],
@@ -160,16 +210,14 @@ export const snapshot = internalQuery({
       route: visits.find((e) => e.route)?.route ?? null,
       tasks,
       productCatalog: [],
-      // One Annex C sheet per account on this page (outlets repeat across horizon days).
-      callSheets: [
-        ...new Map(
-          visits.flatMap((e) =>
-            e.callSheet ? [[e.callSheet.outletId, e.callSheet] as const] : [],
-          ),
-        ).values(),
-      ],
+      // One Annex C sheet per account per snapshot (outlets repeat across horizon days).
+      callSheets: visits.flatMap((e) =>
+        e.sheet && e.callSheet ? [e.callSheet] : [],
+      ),
       // AND-013: same small rule set on every page; the phone requires them to agree.
       activityRules,
+      // AND-016: visit photo types, the same small list on every page.
+      photoTypes: phonePhotoTypes(),
       page: base.page,
       nextPageCursor: hasMore ? await signCursor(base) : null,
       syncCursor: hasMore

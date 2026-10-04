@@ -4,7 +4,11 @@ import type { Id } from "../_generated/dataModel";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
 import { requireCapability } from "../lib/capabilities";
 import { append } from "./events";
-import { EVIDENCE_MIME, MAX_EVIDENCE_BYTES } from "./policy";
+import {
+  EVIDENCE_MIME,
+  isEvidencePhotoType,
+  MAX_EVIDENCE_BYTES,
+} from "./policy";
 import { accessVisit } from "./validation";
 
 async function owner(
@@ -112,6 +116,43 @@ export function matchesChecksum(storedBase64: string, suppliedHex: string) {
   }
 }
 
+/**
+ * AND-016 idempotent retry: an existing row for the same visit, person and checksum. The
+ * metadata must agree too, otherwise a different capture is claiming the same bytes.
+ * The retry's own fresh upload stays unreferenced; it is never deleted here because the
+ * caller-supplied storage ID is not proven to be theirs until a claim is consumed.
+ */
+export async function replayedEvidence(
+  ctx: MutationCtx,
+  visitId: Id<"visitExecutions">,
+  profileId: Id<"profiles">,
+  args: {
+    checksum: string;
+    mime: string;
+    size: number;
+    capturedAt: number;
+    photoType?: string;
+  },
+): Promise<Id<"fieldEvidenceFiles"> | null> {
+  const checksum = args.checksum.toLowerCase();
+  const files = await ctx.db
+    .query("fieldEvidenceFiles")
+    .withIndex("by_visitId_and_uploadedAt", (q) => q.eq("visitId", visitId))
+    .take(501);
+  const prior = files.find(
+    (file) => file.ownerProfileId === profileId && file.checksum === checksum,
+  );
+  if (!prior) return null;
+  if (
+    prior.mime !== args.mime ||
+    prior.sizeBytes !== args.size ||
+    prior.capturedAt !== args.capturedAt ||
+    prior.photoType !== args.photoType
+  )
+    throw new ConvexError("conflict");
+  return prior._id;
+}
+
 export const attach = mutation({
   args: {
     uploadTokenRef: v.optional(v.string()),
@@ -122,6 +163,10 @@ export const attach = mutation({
     checksum: v.string(),
     capturedAt: v.number(),
     activityId: v.optional(v.id("visitActivities")),
+    /** AND-016: one of the bootstrap `photoTypes` codes. */
+    photoType: v.optional(v.string()),
+    /** The field phone labels its own attachments; the web keeps the default. */
+    source: v.optional(v.literal("mobile")),
   },
   returns: v.object({ evidenceId: v.id("fieldEvidenceFiles") }),
   handler: async (ctx, args) => {
@@ -134,7 +179,8 @@ export const attach = mutation({
       !/^[0-9a-f]{64}$/i.test(args.checksum) ||
       !Number.isSafeInteger(args.capturedAt) ||
       args.capturedAt < visit.checkedInAt! - 24 * 3600000 ||
-      args.capturedAt > Date.now() + 60000
+      args.capturedAt > Date.now() + 60000 ||
+      (args.photoType !== undefined && !isEvidencePhotoType(args.photoType))
     )
       throw new ConvexError("invalid_request");
     const { identity } = await requireCapability(
@@ -142,6 +188,10 @@ export const attach = mutation({
       "visit.record",
       visit.orgUnitId,
     );
+    // A phone that lost the attach response retries with a fresh upload of the same bytes.
+    // The same person's same photo on the same visit returns the original row: no second file.
+    const replay = await replayedEvidence(ctx, visit._id, profile._id, args);
+    if (replay) return { evidenceId: replay };
     if (!args.uploadTokenRef) throw new ConvexError("invalid_evidence");
     const claimId = ctx.db.normalizeId(
       "evidenceUploadClaims",
@@ -196,6 +246,7 @@ export const attach = mutation({
       sizeBytes: args.size,
       checksum: args.checksum.toLowerCase(),
       capturedAt: args.capturedAt,
+      photoType: args.photoType,
       uploadedAt: Date.now(),
       status: "pending",
     });
@@ -207,7 +258,7 @@ export const attach = mutation({
       actorSubject: identity.tokenIdentifier,
       actorRole: profile.role,
       actorOrgUnitId: visit.orgUnitId,
-      source: "web",
+      source: args.source ?? "web",
       occurredAt: args.capturedAt,
       serverAt: Date.now(),
       ownerProfileId: profile._id,

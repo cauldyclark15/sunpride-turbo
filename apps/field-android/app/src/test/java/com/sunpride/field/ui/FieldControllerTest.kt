@@ -45,6 +45,13 @@ class FieldControllerTest {
         override fun signIn(email: String, password: String) { signInError?.let { throw it }; signedIn = true }
         override fun signOut() { signOuts++; signedIn = false }
         override fun refreshEnrollment(signer: DeviceSigner) = results.removeFirst()()
+        val teamCalls = mutableListOf<Boolean>()
+        var teamError: Exception? = null
+        override fun team(directOnly: Boolean): com.sunpride.field.ui.team.TeamView {
+            teamCalls += directOnly
+            teamError?.let { throw it }
+            return com.sunpride.field.ui.team.TeamView(message = if (directOnly) "direct" else "all")
+        }
     }
 
     private fun run(block: suspend (FieldController, FakeBackend, MutableList<DeviceKeyInfo>) -> Unit) = runBlocking {
@@ -192,5 +199,26 @@ class FieldControllerTest {
         assertEquals("Waiting for admin", StatusPill.UNREGISTERED.label)
         assertEquals(SunprideTokens.yellow, StatusPill.OFFLINE.background)
         assertEquals(SunprideTokens.yellow, StatusPill.UNREGISTERED.background)
+    }
+
+    @Test fun teamLoadsOnlyWhenReadyAndKeepsTheChosenFilter() = run { c, b, _ ->
+        c.loadTeam().join()
+        assertTrue(b.teamCalls.isEmpty()) // signed out: never asks the server
+        b.results += { EnrollmentState.Ready("dev1") }
+        c.signIn("a@example.test", "fake").join()
+        c.loadTeam().join()
+        assertEquals(listOf(true), b.teamCalls)
+        assertEquals("direct", c.team.message)
+        c.loadTeam(false).join()
+        assertFalse(c.teamDirectOnly)
+        assertEquals("all", c.team.message)
+        b.teamError = IllegalStateException("boom")
+        c.loadTeam().join()
+        assertEquals(listOf(true, false, false), b.teamCalls)
+        assertEquals("Couldn't load your team. Try again.", c.team.message)
+        assertFalse(c.teamLoading)
+        c.signOut().join()
+        assertTrue(c.teamDirectOnly)
+        assertNull(c.team.message)
     }
 }
