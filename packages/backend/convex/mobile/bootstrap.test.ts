@@ -6,7 +6,7 @@ import { internal } from "../_generated/api";
 import schema from "../schema";
 import { modules } from "../test.setup";
 import { manilaDate } from "../coverage/validation";
-import { nextDayCloseAt } from "../visits/policy";
+import { EVIDENCE_PHOTO_TYPES, nextDayCloseAt } from "../visits/policy";
 import {
   DEFAULT_ACTIVITY_RULE_VERSION,
   VISIT_INTENTS,
@@ -555,6 +555,11 @@ describe("mobile day bootstrap", () => {
       limit: 1,
     });
     expect(second.activityRules).toEqual(first.activityRules);
+    // AND-016: every page carries the same configured photo types, codes and labels only.
+    expect(first.photoTypes).toEqual(
+      EVIDENCE_PHOTO_TYPES.map(({ code, label }) => ({ code, label })),
+    );
+    expect(second.photoTypes).toEqual(first.photoTypes);
     await f.t.run((ctx) =>
       ctx.db.insert("visitActivityRules", {
         organizationId: "sunpride",

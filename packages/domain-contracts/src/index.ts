@@ -17,6 +17,8 @@ export type ActivityRuleV1 = {
   version: string;
   activities: Array<{ kind: string; required: boolean }>;
 };
+/** AND-016: one visit photo type (code is an open string; label is display text). */
+export type PhotoTypeV1 = { code: string; label: string };
 export type CallSheetV1 = {
   outletId: string;
   revision: number;
@@ -97,6 +99,8 @@ export type BootstrapResponse = {
   callSheets?: Array<CallSheetV1>;
   /** AND-013 activity-form rules per visit intent. Optional: added after v1 shipped. */
   activityRules?: Array<ActivityRuleV1>;
+  /** AND-016 visit photo types. Optional: added after v1 shipped. */
+  photoTypes?: Array<PhotoTypeV1>;
   page: number;
   nextPageCursor: string | null;
   syncCursor: string | null;

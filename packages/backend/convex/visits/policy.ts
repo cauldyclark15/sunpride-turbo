@@ -44,3 +44,22 @@ export function nextDayCloseAt(now: number) {
 
 export const MAX_EVIDENCE_BYTES = 10 * 1024 * 1024;
 export const EVIDENCE_MIME = ["image/jpeg", "image/png", "image/webp"] as const;
+
+/**
+ * AND-016: the photo types a field phone offers for visit evidence, delivered in the bootstrap
+ * (`photoTypes`) so the list changes with a backend deploy, not an app release. Provisional until
+ * Sunpride confirms its list: memo 2026-01-20 merchandising execution (display / price tagging),
+ * promotion compliance, and the 2 Oct 2026 call (a store photo verifies a new outlet).
+ */
+export const EVIDENCE_PHOTO_TYPES_VERSION = "visit-photo-types/2026-10-04";
+export const EVIDENCE_PHOTO_TYPES = [
+  { code: "storefront", label: "Store front" },
+  { code: "shelf_display", label: "Shelf and display" },
+  { code: "price_tag", label: "Price tags" },
+  { code: "promotion", label: "Promotion material" },
+  { code: "other", label: "Other" },
+] as const;
+export type EvidencePhotoType = (typeof EVIDENCE_PHOTO_TYPES)[number]["code"];
+export function isEvidencePhotoType(code: string): code is EvidencePhotoType {
+  return EVIDENCE_PHOTO_TYPES.some((type) => type.code === code);
+}
