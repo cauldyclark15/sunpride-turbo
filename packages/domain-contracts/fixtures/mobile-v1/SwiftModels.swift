@@ -20,6 +20,8 @@ struct BootstrapRequest {
   let pageCursor: OptionalField<String>
   // schema-field: bootstrapRequest.limit
   let limit: OptionalField<Int64>
+  // schema-field: bootstrapRequest.referenceData
+  let referenceData: OptionalField<Bool>
 }
 // schema-object: bootstrapResponse
 struct BootstrapResponse {
@@ -51,6 +53,8 @@ struct BootstrapResponse {
   let productCatalog: [BootstrapResponseProductCatalogItem]
   // schema-field: bootstrapResponse.callSheets
   let callSheets: OptionalField<[BootstrapResponseCallSheetsItem]>
+  // schema-field: bootstrapResponse.inventoryAvailability
+  let inventoryAvailability: OptionalField<[BootstrapResponseInventoryAvailabilityItem]>
   // schema-field: bootstrapResponse.page
   let page: Int64
   // schema-field: bootstrapResponse.nextPageCursor
@@ -146,6 +150,16 @@ struct BootstrapResponseProductCatalogItem {
   let name: String
   // schema-field: bootstrapResponse.productCatalog[].uom
   let uom: String
+  // schema-field: bootstrapResponse.productCatalog[].revision
+  let revision: OptionalField<Int64>
+  // schema-field: bootstrapResponse.productCatalog[].quantityScale
+  let quantityScale: OptionalField<Int64>
+  // schema-field: bootstrapResponse.productCatalog[].baseUom
+  let baseUom: OptionalField<BootstrapResponseProductCatalogItemBaseUomVariant0?>
+  // schema-field: bootstrapResponse.productCatalog[].sellingUoms
+  let sellingUoms: OptionalField<[BootstrapResponseProductCatalogItemSellingUomsItem]>
+  // schema-field: bootstrapResponse.productCatalog[].barcodes
+  let barcodes: OptionalField<[BootstrapResponseProductCatalogItemBarcodesItem]>
 }
 // schema-object: pullRequest
 struct PullRequest {
@@ -725,3 +739,63 @@ struct PushRequestOperationsItemVariant1PayloadActivityVariant6LinesItem {
 }
 // schema-enum: pushRequest.operations[]#1.payload.activity#6.kind
 // schema-enum-value: pushRequest.operations[]#1.payload.activity#6.kind = call_sheet
+// Additive after v1 shipped: mobile reference data, products and stock (SP-0051).
+// schema-object: bootstrapResponse.productCatalog[].baseUom#0
+struct BootstrapResponseProductCatalogItemBaseUomVariant0 {
+  // schema-field: bootstrapResponse.productCatalog[].baseUom#0.code
+  let code: String
+  // schema-field: bootstrapResponse.productCatalog[].baseUom#0.name
+  let name: String
+  // schema-field: bootstrapResponse.productCatalog[].baseUom#0.decimalPlaces
+  let decimalPlaces: Int64
+}
+// schema-object: bootstrapResponse.productCatalog[].sellingUoms[]
+struct BootstrapResponseProductCatalogItemSellingUomsItem {
+  // schema-field: bootstrapResponse.productCatalog[].sellingUoms[].code
+  let code: String
+  // schema-field: bootstrapResponse.productCatalog[].sellingUoms[].name
+  let name: String
+  // schema-field: bootstrapResponse.productCatalog[].sellingUoms[].decimalPlaces
+  let decimalPlaces: Int64
+  // schema-field: bootstrapResponse.productCatalog[].sellingUoms[].toBase
+  let toBase: BootstrapResponseProductCatalogItemSellingUomsItemToBaseVariant0?
+}
+// schema-object: bootstrapResponse.productCatalog[].sellingUoms[].toBase#0
+struct BootstrapResponseProductCatalogItemSellingUomsItemToBaseVariant0 {
+  // schema-field: bootstrapResponse.productCatalog[].sellingUoms[].toBase#0.numerator
+  let numerator: Int64
+  // schema-field: bootstrapResponse.productCatalog[].sellingUoms[].toBase#0.denominator
+  let denominator: Int64
+  // schema-field: bootstrapResponse.productCatalog[].sellingUoms[].toBase#0.roundingMode
+  let roundingMode: String
+}
+// schema-object: bootstrapResponse.productCatalog[].barcodes[]
+struct BootstrapResponseProductCatalogItemBarcodesItem {
+  // schema-field: bootstrapResponse.productCatalog[].barcodes[].barcode
+  let barcode: String
+  // schema-field: bootstrapResponse.productCatalog[].barcodes[].uom
+  let uom: String?
+}
+// schema-object: bootstrapResponse.inventoryAvailability[]
+struct BootstrapResponseInventoryAvailabilityItem {
+  // schema-field: bootstrapResponse.inventoryAvailability[].id
+  let id: String
+  // schema-field: bootstrapResponse.inventoryAvailability[].productId
+  let productId: String
+  // schema-field: bootstrapResponse.inventoryAvailability[].locationId
+  let locationId: String
+  // schema-field: bootstrapResponse.inventoryAvailability[].locationCode
+  let locationCode: String
+  // schema-field: bootstrapResponse.inventoryAvailability[].locationName
+  let locationName: String
+  // schema-field: bootstrapResponse.inventoryAvailability[].availableBase
+  let availableBase: Int64
+  // schema-field: bootstrapResponse.inventoryAvailability[].physicalBase
+  let physicalBase: Int64
+  // schema-field: bootstrapResponse.inventoryAvailability[].reservedBase
+  let reservedBase: Int64
+  // schema-field: bootstrapResponse.inventoryAvailability[].revision
+  let revision: Int64
+  // schema-field: bootstrapResponse.inventoryAvailability[].asOf
+  let asOf: Int64
+}

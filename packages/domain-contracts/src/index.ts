@@ -10,6 +10,42 @@ export type BootstrapRequest = {
   dayFrom?: string;
   pageCursor?: string;
   limit?: number;
+  /** Opt in to products/stock (SP-0051). First page only. Optional: added after v1 shipped. */
+  referenceData?: boolean;
+};
+export type MobileUomV1 = { code: string; name: string; decimalPlaces: number };
+/** Catalog product; the optional fields arrive only with `referenceData` (SP-0051). */
+export type ProductCatalogItemV1 = {
+  id: string;
+  code: string;
+  name: string;
+  uom: string;
+  revision?: number;
+  quantityScale?: number;
+  baseUom?: MobileUomV1 | null;
+  sellingUoms?: Array<
+    MobileUomV1 & {
+      toBase: {
+        numerator: number;
+        denominator: number;
+        roundingMode: string;
+      } | null;
+    }
+  >;
+  barcodes?: Array<{ barcode: string; uom: string | null }>;
+};
+/** Stock row; quantities are integers in base units x product quantityScale. */
+export type InventoryAvailabilityV1 = {
+  id: string;
+  productId: string;
+  locationId: string;
+  locationCode: string;
+  locationName: string;
+  availableBase: number;
+  physicalBase: number;
+  reservedBase: number;
+  revision: number;
+  asOf: number;
 };
 export type CallSheetV1 = {
   outletId: string;
@@ -72,14 +108,11 @@ export type BootstrapResponse = {
   localCustomers: Array<{ id: string; code: string }>;
   route: { id: string; code: string } | null;
   tasks: Array<{ id: string; kind: string; required: boolean }>;
-  productCatalog: Array<{
-    id: string;
-    code: string;
-    name: string;
-    uom: string;
-  }>;
+  productCatalog: Array<ProductCatalogItemV1>;
   /** Annex C call sheets for this page's accounts. Optional: added after v1 shipped. */
   callSheets?: Array<CallSheetV1>;
+  /** Stock for catalog products (referenceData only). Optional: added after v1 shipped. */
+  inventoryAvailability?: Array<InventoryAvailabilityV1>;
   page: number;
   nextPageCursor: string | null;
   syncCursor: string | null;
