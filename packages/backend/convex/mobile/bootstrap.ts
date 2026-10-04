@@ -10,8 +10,10 @@ import {
   signCursor,
   type Cursor,
 } from "./cursor";
+import { REFERENCE_OVERLAP_MS } from "./reference";
 import {
   assertDevice,
+  availabilityDTO,
   callSheetDTO,
   customerDTO,
   dayProjection,
@@ -28,6 +30,7 @@ export const snapshot = internalQuery({
     dayFrom: v.optional(v.string()),
     pageCursor: v.optional(v.string()),
     limit: v.optional(v.number()),
+    referenceData: v.optional(v.boolean()),
   },
   returns: v.object({
     type: v.literal("bootstrap.response"),
@@ -56,12 +59,16 @@ export const snapshot = internalQuery({
     route: routeDTO,
     tasks: v.array(taskDTO),
     productCatalog: v.array(productDTO),
+    inventoryAvailability: v.optional(v.array(availabilityDTO)),
     callSheets: v.array(callSheetDTO),
     page: v.number(),
     nextPageCursor: v.union(v.string(), v.null()),
     syncCursor: v.union(v.string(), v.null()),
   }),
-  handler: async (ctx, { actor, dayFrom, pageCursor, limit }) => {
+  handler: async (
+    ctx,
+    { actor, dayFrom, pageCursor, limit, referenceData },
+  ) => {
     const now = Date.now();
     await assertDevice(ctx, actor, now);
     if (
@@ -72,10 +79,23 @@ export const snapshot = internalQuery({
     const day = manilaDate(now);
     if (dayFrom !== undefined && dayFrom !== day)
       throw new ConvexError("invalid_request");
-    const { entries, manifest } = await dayProjection(ctx, actor, day, now);
+    const prior = pageCursor
+      ? await readCursor(pageCursor, "bootstrap", actor, now)
+      : null;
+    // Continuation pages keep the first page's mode; a different request is malformed.
+    const reference = prior ? !!prior.reference : referenceData === true;
+    if (prior && referenceData !== undefined && referenceData !== reference)
+      throw new ConvexError("invalid_request");
+    const { entries, manifest } = await dayProjection(
+      ctx,
+      actor,
+      day,
+      now,
+      reference,
+    );
     let cursor: Cursor;
-    if (pageCursor) {
-      cursor = await readCursor(pageCursor, "bootstrap", actor, now);
+    if (prior) {
+      cursor = prior;
       if (
         cursor.day !== day ||
         cursor.manifest !== manifest ||
@@ -103,6 +123,16 @@ export const snapshot = internalQuery({
         day,
         manifest,
         page: 0,
+        // Rows changed after this first page are re-sent by the first pull.
+        ...(reference
+          ? {
+              reference: {
+                low: Math.max(0, now - REFERENCE_OVERLAP_MS),
+                high: Math.max(0, now - REFERENCE_OVERLAP_MS),
+                pos: null,
+              },
+            }
+          : {}),
       };
     }
     const pageEntries = entries.slice(
@@ -114,6 +144,12 @@ export const snapshot = internalQuery({
     );
     const tasks = pageEntries.flatMap((e) =>
       e.kind === "task" ? [e.value] : [],
+    );
+    const products = pageEntries.flatMap((e) =>
+      e.kind === "product" ? [e.value] : [],
+    );
+    const availability = pageEntries.flatMap((e) =>
+      e.kind === "inventory" ? [e.value] : [],
     );
     const next = cursor.after + pageEntries.length;
     const hasMore = next < entries.length;
@@ -152,7 +188,8 @@ export const snapshot = internalQuery({
       localCustomers: visits.flatMap((e) => (e.customer ? [e.customer] : [])),
       route: visits.find((e) => e.route)?.route ?? null,
       tasks,
-      productCatalog: [],
+      productCatalog: products,
+      ...(reference ? { inventoryAvailability: availability } : {}),
       // One Annex C sheet per account on this page (outlets repeat across horizon days).
       callSheets: [
         ...new Map(

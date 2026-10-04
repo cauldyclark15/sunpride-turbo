@@ -8,6 +8,12 @@ import { resolveOutletScopeAt } from "../outlets/validation";
 import { activeAt } from "../org/validation";
 import type { AuthorizedDevice } from "./types";
 import {
+  referenceProjection,
+  type Availability,
+  type CatalogItem,
+  type ReferenceProjection,
+} from "./reference";
+import {
   accountFor,
   phoneCallSheet,
   type PhoneCallSheet,
@@ -41,12 +47,7 @@ export const taskDTO = v.object({
   kind: v.string(),
   required: v.boolean(),
 });
-export const productDTO = v.object({
-  id: v.string(),
-  code: v.string(),
-  name: v.string(),
-  uom: v.string(),
-});
+export { availabilityDTO, catalogItemDTO as productDTO } from "./reference";
 const nullableText = v.union(v.string(), v.null());
 export const callSheetDTO = v.object({
   outletId: v.string(),
@@ -75,7 +76,10 @@ export const callSheetDTO = v.object({
   ),
 });
 type CallSheetCache = {
-  accounts: Map<Id<"outlets">, { sheet: PhoneCallSheet; stamp: string } | null>;
+  accounts: Map<
+    Id<"outlets">,
+    { sheet: PhoneCallSheet; stamp: string; membershipStamp: string } | null
+  >;
   products: Parameters<typeof phoneCallSheet>[2];
 };
 export type Visit = typeof visitDTO.type;
@@ -143,6 +147,7 @@ async function visitProjection(
   actor: AuthorizedDevice,
   now: number,
   cache: CallSheetCache,
+  reference: boolean,
 ): Promise<Projected> {
   const plan = await ctx.db.get(row.planId);
   const s = row.approvedSnapshot;
@@ -193,17 +198,32 @@ async function visitProjection(
     route:
       s.routeId && s.routeCode ? { id: s.routeId, code: s.routeCode } : null,
     callSheet: callSheet?.sheet ?? null,
-    stamp: `${callSheet?.stamp ?? ""}|${row._id}|${row.status}|${row._creationTime}|${row.generatedAt}|${JSON.stringify(s)}|${JSON.stringify(row.intents)}|${current.assignment?._id ?? ""}|${current.assignment?.routeId ?? ""}|${current.assignment?.sequence ?? ""}|${current.orgUnitId}|${current.outlet.status}|${customer?.code ?? ""}|${slot.sequence}`,
+    stamp: `${(reference ? callSheet?.membershipStamp : callSheet?.stamp) ?? ""}|${row._id}|${row.status}|${row._creationTime}|${row.generatedAt}|${JSON.stringify(s)}|${JSON.stringify(row.intents)}|${current.assignment?._id ?? ""}|${current.assignment?.routeId ?? ""}|${current.assignment?.sequence ?? ""}|${current.orgUnitId}|${current.outlet.status}|${customer?.code ?? ""}|${slot.sequence}`,
   };
 }
 
-/** Bounded, indexed per-person day scan. Reject oversized days rather than truncate. */
+export type DayEntry =
+  | { kind: "visit"; value: Projected }
+  | { kind: "task"; value: Task }
+  | { kind: "product"; value: CatalogItem }
+  | { kind: "inventory"; value: Availability };
+
+/**
+ * Bounded, indexed per-person day scan. Reject oversized days rather than truncate.
+ * With `reference` (SP-0051 opt-in) the entries also carry the phone's products and stock, and
+ * product content leaves the manifest: it travels as revisioned pull changes instead.
+ */
 export async function dayProjection(
   ctx: QueryCtx,
   actor: AuthorizedDevice,
   day: string,
   now: number,
-) {
+  reference = false,
+): Promise<{
+  entries: DayEntry[];
+  manifest: string;
+  reference: ReferenceProjection | null;
+}> {
   const start = Date.parse(`${day}T00:00:00Z`);
   if (
     !Number.isFinite(start) ||
@@ -226,7 +246,9 @@ export async function dayProjection(
     for (const row of rows) {
       // Superseded/cancelled lineage remains in storage but is not a phone assignment.
       if (row.status === "planned")
-        visits.push(await visitProjection(ctx, row, actor, now, cache));
+        visits.push(
+          await visitProjection(ctx, row, actor, now, cache, reference),
+        );
     }
   }
   const end = start + HORIZON_DAYS * DAY_MS - 8 * 3_600_000;
@@ -250,9 +272,31 @@ export async function dayProjection(
     kind: t.kind,
     required: t.required,
   }));
-  const entries = [
+  const referenceData = reference
+    ? await referenceProjection(
+        ctx,
+        actor,
+        [...cache.accounts.values()].flatMap((account) =>
+          account
+            ? account.sheet.lines.map(
+                (line) => line.productId as Id<"products">,
+              )
+            : [],
+        ),
+        now,
+      )
+    : null;
+  const entries: DayEntry[] = [
     ...visits.map((v) => ({ kind: "visit" as const, value: v })),
     ...projectedTasks.map((t) => ({ kind: "task" as const, value: t })),
+    ...(referenceData?.products ?? []).map((p) => ({
+      kind: "product" as const,
+      value: p,
+    })),
+    ...(referenceData?.availability ?? []).map((a) => ({
+      kind: "inventory" as const,
+      value: a,
+    })),
   ];
   // Effective route/territory membership has no mobileChanges hook yet. Fold its
   // current projection into the signed manifest and force a fresh snapshot on change.
@@ -285,7 +329,7 @@ export async function dayProjection(
       .filter((r) => activeAt(r.effectiveFrom, r.effectiveTo, now))
       .map((r) => [r._id, r.routeId, r.primary]),
   ];
-  // No unit/route-authorized product-selling catalog exists in v1. Do not expose nationwide products.
+  // Never a nationwide catalog: only the reference opt-in's call-sheet products (SP-0051).
   const manifestInput = JSON.stringify({
     day,
     memberships,
@@ -299,6 +343,7 @@ export async function dayProjection(
       t.kind,
       t.required,
     ]),
+    ...(referenceData ? { reference: referenceData.membership } : {}),
   });
   const digest = await crypto.subtle.digest(
     "SHA-256",
@@ -307,5 +352,5 @@ export async function dayProjection(
   const manifest = Array.from(new Uint8Array(digest), (b) =>
     b.toString(16).padStart(2, "0"),
   ).join("");
-  return { entries, manifest };
+  return { entries, manifest, reference: referenceData };
 }

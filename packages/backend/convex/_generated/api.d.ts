@@ -92,6 +92,7 @@ import type * as mobile_idempotency from "../mobile/idempotency.js";
 import type * as mobile_projection from "../mobile/projection.js";
 import type * as mobile_pull from "../mobile/pull.js";
 import type * as mobile_push from "../mobile/push.js";
+import type * as mobile_reference from "../mobile/reference.js";
 import type * as mobile_types from "../mobile/types.js";
 import type * as orders_outside_calls from "../orders/outside_calls.js";
 import type * as org_mutations from "../org/mutations.js";
@@ -229,6 +230,7 @@ declare const fullApi: ApiFromModules<{
   "mobile/projection": typeof mobile_projection;
   "mobile/pull": typeof mobile_pull;
   "mobile/push": typeof mobile_push;
+  "mobile/reference": typeof mobile_reference;
   "mobile/types": typeof mobile_types;
   "orders/outside_calls": typeof orders_outside_calls;
   "org/mutations": typeof org_mutations;

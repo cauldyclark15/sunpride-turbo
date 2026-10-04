@@ -11,8 +11,9 @@ import type { AuthorizedDevice } from "./types";
 
 const SECRET = "test-only-mobile-cursor-secret-32-bytes-long";
 process.env.MOBILE_CURSOR_SECRET = SECRET;
-export async function fixture() {
-  const t: TestConvex<typeof schema> = convexTest(schema, modules);
+export async function fixture(
+  t: TestConvex<typeof schema> = convexTest(schema, modules),
+) {
   const now = Date.now();
   const day = manilaDate(now);
   const subject = "https://auth.fixture|sales";

@@ -92,6 +92,37 @@ async function request(
   });
 }
 describe("mobile HTTP boundary", () => {
+  it("forwards the boolean reference-data opt-in and rejects other values", async () => {
+    const h = harness();
+    const ok = await handleMobile(
+      h.ctx,
+      await request("bootstrap", { ...body, referenceData: true }),
+      "bootstrap",
+    );
+    expect(ok.status).toBe(200);
+    const runQuery = (
+      h.ctx as unknown as { runQuery: ReturnType<typeof vi.fn> }
+    ).runQuery;
+    expect(runQuery.mock.calls[0]![1]).toMatchObject({ referenceData: true });
+    const bad = await handleMobile(
+      h.ctx,
+      await request("bootstrap", { ...body, referenceData: "yes" }),
+      "bootstrap",
+    );
+    expect(bad.status).toBe(400);
+    const pull = await handleMobile(
+      h.ctx,
+      await request("pull", {
+        type: "pull.request",
+        contractVersion: 1,
+        deviceId: "device",
+        cursor: "c",
+        referenceData: true,
+      }),
+      "pull",
+    );
+    expect(pull.status).toBe(400);
+  });
   it("rejects missing and invalid bearer before authorizing a device", async () => {
     const h = harness();
     const missing = await handleMobile(
