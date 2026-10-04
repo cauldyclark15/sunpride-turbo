@@ -45,12 +45,16 @@ struct StoreSnapshot: Sendable {
         /// Current verified pin, sent flat on the wire: both or neither.
         var latitude: Double? = nil
         var longitude: Double? = nil
+        /// Additive v1 field (order association): territory of the signed planned visit, both or neither.
+        var territoryId: String? = nil
+        var territoryCode: String? = nil
 
         init(id: String, name: String, routeId: String?, code: String? = nil, customerId: String? = nil,
-             address: String? = nil, location: Coordinate? = nil) {
+             address: String? = nil, location: Coordinate? = nil, territoryId: String? = nil, territoryCode: String? = nil) {
             self.id = id; self.name = name; self.routeId = routeId
             self.code = code; self.customerId = customerId; self.address = address
             latitude = location?.latitude; longitude = location?.longitude
+            self.territoryId = territoryId; self.territoryCode = territoryCode
         }
 
         var location: Coordinate? {
@@ -226,6 +230,12 @@ protocol FieldLocalStore: AnyObject {
     func releaseHeld(subject: String, deviceId: String) throws
     func isHeld(_ partition: StorePartition) throws -> Bool
     func hasOtherHeldWork(for partition: StorePartition) throws -> Bool
+    /// SP-0044 local-only order drafts: never in the outbox; submission is IOS-015.
+    func orderDrafts(for partition: StorePartition) throws -> [OrderDraft]
+    /// Insert or replace one draft after `OrderDraftRules.validate` inside the same transaction.
+    func saveOrderDraft(_ draft: OrderDraft, for partition: StorePartition, now: Date) throws
+    /// The salesperson discards their own unsent draft; a held partition stays frozen.
+    func discardOrderDraft(_ draftId: String, for partition: StorePartition) throws
 }
 
 /// SQLCipher 4 database. Keychain loss with an existing file is an error, never a new plaintext DB.
@@ -393,9 +403,23 @@ final class EncryptedFieldStore: FieldLocalStore {
           PRIMARY KEY(subject,device,scope,entity,id));
         """
     private func migrate() throws {
-        guard let raw = try scalar("PRAGMA user_version"), let version = Int(raw), version <= 3 else { throw StoreError.unsupportedVersion }
-        if version == 3 { return }
+        guard let raw = try scalar("PRAGMA user_version"), let version = Int(raw), version <= 4 else { throw StoreError.unsupportedVersion }
+        if version == 4 { return }
         try transaction {
+            if version < 3 { try migrateToV3(from: version) }
+            // v4 (SP-0044): local order drafts, partitioned like every other row; no existing table changes.
+            try exec("""
+                CREATE TABLE order_drafts (
+                  subject TEXT NOT NULL, device TEXT NOT NULL, scope TEXT NOT NULL,
+                  draft_id TEXT NOT NULL, client_visit_id TEXT NOT NULL, outlet_id TEXT NOT NULL,
+                  created_at INTEGER NOT NULL, body BLOB NOT NULL,
+                  PRIMARY KEY(subject,device,scope,draft_id));
+                PRAGMA user_version=4;
+                """)
+        }
+    }
+    private func migrateToV3(from version: Int) throws {
+        do {
             if version == 0 {
                 // Legacy v0 pilot table has durable request IDs; copy, never generate replacement UUIDs.
                 let legacy = try scalar("SELECT name FROM sqlite_master WHERE type='table' AND name='legacy_intents'") != nil
@@ -414,7 +438,6 @@ final class EncryptedFieldStore: FieldLocalStore {
                   subject TEXT NOT NULL, device TEXT NOT NULL, scope TEXT NOT NULL,
                   generation INTEGER NOT NULL, outlet_id TEXT NOT NULL, body BLOB NOT NULL,
                   PRIMARY KEY(subject,device,scope,generation,outlet_id));
-                PRAGMA user_version=3;
                 """)
         }
     }
@@ -749,10 +772,45 @@ final class EncryptedFieldStore: FieldLocalStore {
                   p(partition)) { _ in true }.first ?? false
     }
 
+    func orderDrafts(for partition: StorePartition) throws -> [OrderDraft] {
+        try query("SELECT body FROM order_drafts WHERE \(Self.predicate) ORDER BY created_at, draft_id", p(partition)) {
+            try decode(OrderDraft.self, Self.data($0, 0))
+        }
+    }
+    private func orderDraft(_ id: String, _ partition: StorePartition) throws -> OrderDraft? {
+        try query("SELECT body FROM order_drafts WHERE \(Self.predicate) AND draft_id=?", p(partition) + [.text(id)]) {
+            try decode(OrderDraft.self, Self.data($0, 0))
+        }.first
+    }
+    func saveOrderDraft(_ draft: OrderDraft, for partition: StorePartition, now: Date) throws {
+        let body = try encode(draft)
+        try transaction {
+            guard try state(partition)?.1 == false else { throw OrderDraftFailure.held }
+            guard try isLeaseValid(now: now, for: partition) else { throw OrderDraftFailure.offlineExpired }
+            let existing = try orderDraft(draft.draftId, partition)
+            try OrderDraftRules.validate(OrderCallContext.read(store: self, partition: partition), draft: draft, existing: existing)
+            try run("INSERT OR REPLACE INTO order_drafts(subject,device,scope,draft_id,client_visit_id,outlet_id,created_at,body) VALUES (?,?,?,?,?,?,?,?)",
+                    p(partition) + [.text(draft.draftId), .text(draft.clientVisitId), .text(draft.outletId), .integer(draft.createdAt), body])
+        }
+        try protectFiles()
+    }
+    func discardOrderDraft(_ draftId: String, for partition: StorePartition) throws {
+        try transaction {
+            if try isHeld(partition) { throw OrderDraftFailure.held }
+            guard let existing = try orderDraft(draftId, partition) else { throw OrderDraftFailure.unknownDraft }
+            if existing.submittedRequestId != nil { throw OrderDraftFailure.submitted }
+            try run("DELETE FROM order_drafts WHERE \(Self.predicate) AND draft_id=?", p(partition) + [.text(draftId)])
+        }
+    }
+
     #if DEBUG
-    /// Downgrade harness: preserve actual v2 snapshot/outbox/acks while removing only the v3 addition.
+    /// Downgrade harness: preserve actual v2 snapshot/outbox/acks while removing the v3 and v4 additions.
     func prepareLegacyV2() throws {
-        try transaction { try exec("DROP TABLE call_sheets; PRAGMA user_version=2") }
+        try transaction { try exec("DROP TABLE call_sheets; DROP TABLE order_drafts; PRAGMA user_version=2") }
+    }
+    /// Downgrade harness: remove only the v4 order-draft table.
+    func prepareLegacyV3() throws {
+        try transaction { try exec("DROP TABLE order_drafts; PRAGMA user_version=3") }
     }
     var schemaVersion: Int { (try? scalar("PRAGMA user_version")).flatMap(Int.init) ?? -1 }
 
@@ -762,7 +820,7 @@ final class EncryptedFieldStore: FieldLocalStore {
         // Initialize an encrypted file, then recreate the v0 schema under its existing key.
         let store = try EncryptedFieldStore(url: url, secrets: secrets, keyAccount: keyAccount)
         try store.transaction {
-            try store.exec("DROP TABLE call_sheets; DROP TABLE acks; DROP TABLE outbox; DROP TABLE intents; DROP TABLE snapshot; DROP TABLE partitions")
+            try store.exec("DROP TABLE order_drafts; DROP TABLE call_sheets; DROP TABLE acks; DROP TABLE outbox; DROP TABLE intents; DROP TABLE snapshot; DROP TABLE partitions")
             try store.exec("CREATE TABLE legacy_intents(subject TEXT,device TEXT,scope TEXT,request_id TEXT,kind TEXT,body BLOB)")
             try store.run("INSERT INTO legacy_intents VALUES(?,?,?,?,?,?)", store.p(partition) + [.text(intent.requestId.uuidString.lowercased()), .text(intent.kind), .blob(intent.operationJSON)])
             try store.exec("PRAGMA user_version=0")

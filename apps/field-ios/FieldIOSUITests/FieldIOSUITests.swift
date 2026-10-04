@@ -246,6 +246,43 @@ final class FieldIOSUITests: XCTestCase {
         XCTAssertTrue(online.staticTexts["Call sheet · Sent"].waitForExistence(timeout: 10))
     }
 
+    /// SP-0044: an order draft is taken offline from the account's setup and survives a relaunch.
+    func testOrderDraftOfflineFromAccountCatalogSurvivesRelaunch() {
+        let app = launchStub("registers")
+        signIn(app, password: "correct-horse")
+        XCTAssertTrue(app.staticTexts["Stub Outlet"].waitForExistence(timeout: 20))
+        app.terminate()
+        let offline = launchStub("offline")
+        XCTAssertTrue(offline.buttons["visit-planned-stub-1"].waitForExistence(timeout: 15))
+        offline.buttons["visit-planned-stub-1"].tap()
+        offline.buttons["diagnosticCheckIn"].tap()
+        let newOrder = offline.buttons["newOrder"]
+        XCTAssertTrue(newOrder.waitForExistence(timeout: 10))
+        offline.swipeUp() // Clear the pinned End call button.
+        newOrder.tap()
+        let search = offline.textFields["orderSearch"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap(); search.typeText("hotdog")
+        let quantity = offline.textFields["orderQty-product-stub-1"]
+        XCTAssertTrue(quantity.waitForExistence(timeout: 5))
+        offline.buttons["saveOrderDraft"].tap()
+        XCTAssertTrue(offline.staticTexts["Add at least one product."].waitForExistence(timeout: 5))
+        quantity.tap(); quantity.typeText("12")
+        offline.buttons["saveOrderDraft"].tap()
+        XCTAssertTrue(offline.staticTexts["Draft saved on this phone."].waitForExistence(timeout: 5))
+        capture(offline, "order-draft-offline-saved")
+        offline.terminate()
+        let retained = launchStub("offline")
+        XCTAssertTrue(retained.buttons["visit-planned-stub-1"].waitForExistence(timeout: 15))
+        retained.buttons["visit-planned-stub-1"].tap()
+        let draft = retained.buttons["orderDraft"]
+        XCTAssertTrue(draft.waitForExistence(timeout: 10))
+        retained.swipeUp()
+        draft.tap()
+        XCTAssertEqual(retained.textFields["orderQty-product-stub-1"].value as? String, "12")
+        XCTAssertTrue(retained.buttons["discardOrderDraft"].exists)
+    }
+
     func testPlanOrderOpenCallRelaunchAndDeniedGPSStillAllowsStartEnd() {
         let app = launchStub("registers")
         signIn(app, password: "correct-horse")
