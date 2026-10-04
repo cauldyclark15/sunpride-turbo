@@ -7,6 +7,10 @@ import schema from "../schema";
 import { modules } from "../test.setup";
 import { manilaDate } from "../coverage/validation";
 import { nextDayCloseAt } from "../visits/policy";
+import {
+  DEFAULT_ACTIVITY_RULE_VERSION,
+  VISIT_INTENTS,
+} from "../visits/activity_rules";
 import type { AuthorizedDevice } from "./types";
 
 const SECRET = "test-only-mobile-cursor-secret-32-bytes-long";
@@ -496,6 +500,71 @@ describe("mobile day bootstrap", () => {
         revision: 2,
         header: { accountName: "Renamed account" },
         updatedAt: f.now + 1,
+      }),
+    );
+    await expect(
+      f.caller.query(internal.mobile.bootstrap.snapshot, {
+        actor: f.actor,
+        pageCursor: first.nextPageCursor!,
+        limit: 1,
+      }),
+    ).rejects.toThrow("rebootstrap_required");
+  });
+  it("ships the activity-form rules on every page; an office rule change restarts a download", async () => {
+    const f = await fixture();
+    await f.t.run((ctx) =>
+      ctx.db.insert("plannedVisits", {
+        generationKey: "second-stop",
+        planId: f.ids.plan,
+        planVersion: 1,
+        planSlotId: f.ids.slot,
+        assigneeProfileId: f.ids.person,
+        outletId: f.ids.outlet,
+        serviceDate: f.day,
+        status: "planned",
+        approvedSnapshot: f.ids.snapshot,
+        requiredObjectives: [],
+        intents: ["merchandise", "complaint"],
+        expectedDurationMinutes: 15,
+        generatedAt: f.now,
+      }),
+    );
+    const first = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+      limit: 1,
+    });
+    expect(first.nextPageCursor).toBeTruthy();
+    expect(first.activityRules.map((r) => r.intent)).toEqual([
+      ...VISIT_INTENTS,
+    ]);
+    expect(first.activityRules.find((r) => r.intent === "merchandise")).toEqual(
+      {
+        intent: "merchandise",
+        version: DEFAULT_ACTIVITY_RULE_VERSION,
+        activities: [
+          { kind: "merchandising", required: true },
+          { kind: "price_check", required: false },
+        ],
+      },
+    );
+    // Office-only provenance never reaches the phone.
+    expect(JSON.stringify(first.activityRules)).not.toContain("sourceRef");
+    const second = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+      pageCursor: first.nextPageCursor!,
+      limit: 1,
+    });
+    expect(second.activityRules).toEqual(first.activityRules);
+    await f.t.run((ctx) =>
+      ctx.db.insert("visitActivityRules", {
+        organizationId: "sunpride",
+        intent: "complaint",
+        activities: [{ kind: "note", required: false }],
+        effectiveFrom: f.now - 1,
+        sourceRef: "Office",
+        provisional: false,
+        actorSubject: "fixture",
+        createdAt: f.now,
       }),
     );
     await expect(

@@ -11,6 +11,12 @@ export type BootstrapRequest = {
   pageCursor?: string;
   limit?: number;
 };
+/** One visit intent's required/optional activity forms (kind is an open string). */
+export type ActivityRuleV1 = {
+  intent: string;
+  version: string;
+  activities: Array<{ kind: string; required: boolean }>;
+};
 export type CallSheetV1 = {
   outletId: string;
   revision: number;
@@ -89,6 +95,8 @@ export type BootstrapResponse = {
   }>;
   /** Annex C call sheets for this page's accounts. Optional: added after v1 shipped. */
   callSheets?: Array<CallSheetV1>;
+  /** AND-013 activity-form rules per visit intent. Optional: added after v1 shipped. */
+  activityRules?: Array<ActivityRuleV1>;
   page: number;
   nextPageCursor: string | null;
   syncCursor: string | null;

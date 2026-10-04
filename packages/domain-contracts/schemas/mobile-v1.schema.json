@@ -524,6 +524,47 @@
             "additionalProperties": false
           }
         },
+        "activityRules": {
+          "type": "array",
+          "description": "AND-013: activity forms each visit intent requires or offers, from backend rules. Additive optional field; old clients ignore it. Unknown intents or kinds stay raw and are never satisfiable by a form the client lacks.",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "properties": {
+              "intent": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40
+              },
+              "version": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "activities": {
+                "type": "array",
+                "maxItems": 16,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 40
+                    },
+                    "required": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["kind", "required"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["intent", "version", "activities"],
+            "additionalProperties": false
+          }
+        },
         "page": {
           "type": "integer",
           "minimum": 1

@@ -50,6 +50,8 @@ data class BootstrapResponse(
   val productCatalog: List<BootstrapResponseProductCatalogItem>,
   // schema-field: bootstrapResponse.callSheets
   val callSheets: OptionalField<List<BootstrapResponseCallSheetsItem>>,
+  // schema-field: bootstrapResponse.activityRules
+  val activityRules: OptionalField<List<BootstrapResponseActivityRulesItem>>,
   // schema-field: bootstrapResponse.page
   val page: Long,
   // schema-field: bootstrapResponse.nextPageCursor
@@ -731,6 +733,23 @@ data class BootstrapResponseCallSheetsItemLinesItem(
   val barcode: String?,
   // schema-field: bootstrapResponse.callSheets[].lines[].pricing
   val pricing: String?
+)
+// Additive after v1 shipped: visit activity-form rules per intent (AND-013).
+// schema-object: bootstrapResponse.activityRules[]
+data class BootstrapResponseActivityRulesItem(
+  // schema-field: bootstrapResponse.activityRules[].intent
+  val intent: String,
+  // schema-field: bootstrapResponse.activityRules[].version
+  val version: String,
+  // schema-field: bootstrapResponse.activityRules[].activities
+  val activities: List<BootstrapResponseActivityRulesItemActivitiesItem>
+)
+// schema-object: bootstrapResponse.activityRules[].activities[]
+data class BootstrapResponseActivityRulesItemActivitiesItem(
+  // schema-field: bootstrapResponse.activityRules[].activities[].kind
+  val kind: String,
+  // schema-field: bootstrapResponse.activityRules[].activities[].required
+  val required: Boolean
 )
 // schema-object: pushRequest.operations[]#1.payload.activity#6
 data class PushRequestOperationsItemVariant1PayloadActivityVariant6(

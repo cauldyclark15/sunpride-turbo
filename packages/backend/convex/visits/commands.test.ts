@@ -986,3 +986,157 @@ describe("field day rules (client call 2 Oct 2026)", () => {
     }
   });
 });
+
+describe("visit intents and required activity forms (AND-013)", () => {
+  type F = Awaited<ReturnType<typeof fixture>>;
+  const activity = (
+    n: number,
+    visitId: Id<"visitExecutions">,
+    value: Parameters<typeof applyVisitOperation>[2] extends infer O
+      ? O extends { kind: "visit.activity"; payload: { activity: infer A } }
+        ? A
+        : never
+      : never,
+  ) =>
+    ({
+      kind: "visit.activity",
+      clientRequestId: uuid(n),
+      payload: { visitId, activity: value, deviceTime: Date.now() },
+    }) as const;
+  const end = (
+    f: F,
+    n: number,
+    visitId: Id<"visitExecutions">,
+    outcome: "completed" | "nonproductive" = "completed",
+  ) =>
+    f.apply({
+      kind: "visit.checkOut",
+      clientRequestId: uuid(n),
+      payload: {
+        visitId,
+        outcome,
+        reasonCode: outcome === "nonproductive" ? "store_closed" : null,
+        deviceTime: Date.now(),
+        location: f.fix,
+      },
+    });
+  const read = (f: F, visitId: Id<"visitExecutions">) =>
+    f.t.run((ctx) => ctx.db.get(visitId));
+
+  it("records a required form missing at End without refusing the queued End", async () => {
+    const f = await fixture();
+    try {
+      const visitId = (await f.apply(f.check()))
+        .entityId as Id<"visitExecutions">;
+      await f.apply(activity(2, visitId, { kind: "note", text: "Buyer away" }));
+      await end(f, 3, visitId);
+      expect(await read(f, visitId)).toMatchObject({
+        state: "checked-out",
+        intents: ["sell"],
+        missingActivities: ["call_sheet"],
+        activityRuleVersion: "sell=visit-activities/2026-10-04",
+      });
+      expect(
+        await f.sales.query(api.visits.commands.detail, { visitId }),
+      ).toMatchObject({ intents: ["sell"], missingActivities: ["call_sheet"] });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("runs a multi-intent unplanned visit and clears every intent's required form", async () => {
+    const f = await fixture();
+    try {
+      const visitId = (
+        await f.apply({
+          ...f.check(1),
+          payload: {
+            ...f.check(1).payload,
+            plannedVisitId: null,
+            intents: ["merchandise", "complaint"],
+            unplannedReason: "Buyer called",
+          },
+        })
+      ).entityId as Id<"visitExecutions">;
+      await f.apply(
+        activity(2, visitId, {
+          kind: "merchandising",
+          displayCondition: "needs_action",
+          actionTaken: "Re-faced shelf",
+        }),
+      );
+      await end(f, 3, visitId);
+      expect(await read(f, visitId)).toMatchObject({
+        intents: ["merchandise", "complaint"],
+        missingActivities: ["note"],
+      });
+      const second = (
+        await f.apply({
+          ...f.check(4),
+          payload: {
+            ...f.check(4).payload,
+            plannedVisitId: null,
+            intents: ["merchandise", "complaint"],
+            unplannedReason: "Second call",
+          },
+        })
+      ).entityId as Id<"visitExecutions">;
+      await f.apply(
+        activity(5, second, {
+          kind: "merchandising",
+          displayCondition: "compliant",
+        }),
+      );
+      await f.apply(activity(6, second, { kind: "note", text: "Fixed" }));
+      await end(f, 7, second);
+      expect((await read(f, second))?.missingActivities).toEqual([]);
+      expect((await read(f, second))?.activityRuleVersion).toBe(
+        "merchandise=visit-activities/2026-10-04,complaint=visit-activities/2026-10-04",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("requires no forms for a not-productive End", async () => {
+    const f = await fixture();
+    try {
+      const visitId = (await f.apply(f.check()))
+        .entityId as Id<"visitExecutions">;
+      await end(f, 2, visitId, "nonproductive");
+      expect((await read(f, visitId))?.missingActivities).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("judges the End by the office rule in effect when the call started", async () => {
+    const f = await fixture();
+    try {
+      await f.t.run((ctx) =>
+        ctx.db.insert("visitActivityRules", {
+          organizationId: "sunpride",
+          intent: "sell",
+          activities: [
+            { kind: "note", required: true },
+            { kind: "call_sheet", required: false },
+          ],
+          effectiveFrom: now - 60_000,
+          sourceRef: "Office rule",
+          provisional: false,
+          actorSubject: "fixture",
+          createdAt: now,
+        }),
+      );
+      const visitId = (await f.apply(f.check()))
+        .entityId as Id<"visitExecutions">;
+      await f.apply(activity(2, visitId, { kind: "note", text: "Done" }));
+      await end(f, 3, visitId);
+      const row = await read(f, visitId);
+      expect(row?.missingActivities).toEqual([]);
+      expect(row?.activityRuleVersion).toMatch(/^sell=rule:/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

@@ -12,6 +12,7 @@ import {
   phoneCallSheet,
   type PhoneCallSheet,
 } from "../callSheets/model";
+import { phoneRules, rulesAt } from "../visits/activity_rules";
 
 export const DAY_MS = 86_400_000;
 export const HORIZON_DAYS = 3;
@@ -315,10 +316,13 @@ export async function dayProjection(
       .filter((r) => activeAt(r.effectiveFrom, r.effectiveTo, now))
       .map((r) => [r._id, r.routeId, r.primary]),
   ];
+  // AND-013: activity-form rules in effect now; a rule change forces a fresh snapshot.
+  const activityRules = phoneRules(await rulesAt(ctx, now));
   // No unit/route-authorized product-selling catalog exists in v1. Do not expose nationwide products.
   const manifestInput = JSON.stringify({
     day,
     memberships,
+    activityRules,
     visits: visits.map((v) => v.stamp),
     tasks: relevant.map((t) => [
       t._id,
@@ -337,5 +341,5 @@ export async function dayProjection(
   const manifest = Array.from(new Uint8Array(digest), (b) =>
     b.toString(16).padStart(2, "0"),
   ).join("");
-  return { entries, manifest };
+  return { entries, manifest, activityRules };
 }
