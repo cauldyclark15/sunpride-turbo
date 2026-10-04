@@ -34,6 +34,11 @@ import {
   workWithTrainingLog,
 } from "./supervision/work_with_model";
 import {
+  targetMetricValidator,
+  targetPeriodValidator,
+  targetSubjectKindValidator,
+} from "./targets/model";
+import {
   allocationPolicyValidator,
   approvalStatusValidator,
   commandStatusValidator,
@@ -1913,6 +1918,51 @@ export default defineSchema({
       "serviceDate",
     ])
     .index("by_orgUnitId_and_serviceDate", ["orgUnitId", "serviceDate"]),
+  /**
+   * Sales targets (CVX-017): one number per subject (employee, team or territory), period
+   * (daily or monthly) and metric, effective-dated with the document it came from. Exactly
+   * one of profileId/teamId/territoryId is set, matching `subjectKind`. Rows of one
+   * subject+period+metric never overlap; a revision closes the prior row. See targets/.
+   */
+  salesTargets: defineTable({
+    organizationId: v.string(),
+    subjectKind: targetSubjectKindValidator,
+    profileId: v.optional(v.id("profiles")),
+    teamId: v.optional(v.id("teams")),
+    territoryId: v.optional(v.id("territories")),
+    period: targetPeriodValidator,
+    metric: targetMetricValidator,
+    value: v.number(), // sales_value in PHP centavos; calls as counts
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    sourceRef: v.string(),
+    notes: v.optional(v.string()),
+    createdBy: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_profileId_and_period_and_metric_and_effectiveFrom", [
+      "profileId",
+      "period",
+      "metric",
+      "effectiveFrom",
+    ])
+    .index("by_teamId_and_period_and_metric_and_effectiveFrom", [
+      "teamId",
+      "period",
+      "metric",
+      "effectiveFrom",
+    ])
+    .index("by_territoryId_and_period_and_metric_and_effectiveFrom", [
+      "territoryId",
+      "period",
+      "metric",
+      "effectiveFrom",
+    ])
+    .index("by_organizationId_and_effectiveFrom", [
+      "organizationId",
+      "effectiveFrom",
+    ]),
   productBarcodes: defineTable({
     organizationId: v.string(),
     productId: v.id("products"),
