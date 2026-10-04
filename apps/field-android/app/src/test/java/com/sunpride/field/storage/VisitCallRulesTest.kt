@@ -40,6 +40,13 @@ class VisitCallRulesTest {
         VisitCallRules.requireStart("b", "b", day, plans, rows)
         assertEquals("24 min", VisitCallRules.timeSpent(rows))
     }
+    @Test fun outcomeComesOnlyFromAUsableClosingEnd() {
+        val a = start("a")
+        assertNull(VisitCallRules.outcome(listOf(a to "pending")))
+        assertEquals("completed", VisitCallRules.outcome(listOf(a to "done", end(a) to "pending")))
+        assertEquals("nonproductive", VisitCallRules.outcome(listOf(a to "done", end(a, "nonproductive", "closed") to "done")))
+        assertNull(VisitCallRules.outcome(listOf(a to "done", end(a) to "review")))
+    }
     @Test fun absentSequenceStillEnforcesOriginalListOrder() {
         failure(VisitRuleFailure.Code.MCP_ORDER) {
             VisitCallRules.requireStart("a", "a", day, listOf(plan("z"), plan("a")), emptyList())

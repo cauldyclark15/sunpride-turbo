@@ -89,10 +89,10 @@ class CalmScreenshotsTest {
                             DeviceKeyInfo("MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEoZpcqRbe77Qr9ldcXhm7xuPYXFrVaALJKbV6bxLq0jfKF5XOw", "A4:98:11:47:BC:16", "Hardware"),
                             false, null, {}, {})
                         2 -> TodayScreen(TodayData(visits = listOf(
-                            VisitDisplay("East Market", "Planned", "Scheduled"),
-                            VisitDisplay("North Grocery", "Planned", "Queued"),
-                            VisitDisplay("River Foods", "Planned", "Scheduled")),
-                            stale = false, queuedCount = 1, syncStatus = status.copy(review = 0)), false, {}, {})
+                            VisitDisplay("East Market", "Planned", "Done", sequence = 0, outcome = "completed", timeSpent = "18 min"),
+                            VisitDisplay("North Grocery", "Planned", "In progress", sequence = 1),
+                            VisitDisplay("River Foods", "Planned", "Scheduled", sequence = 2)),
+                            stale = false, queuedCount = 1, syncStatus = status.copy(review = 0), routeCode = "R-07"), false, {}, {})
                         3 -> SyncDetails(status, onDismiss = {})
                         4 -> EnrollmentScreen(EnrollmentState.Removed, null, false, null, {}, {}, unsent = 2)
                         5 -> AccountScreen(DeviceKeyInfo("", "A4:98:11:47:BC:16", "Hardware"), {}, {})

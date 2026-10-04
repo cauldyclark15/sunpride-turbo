@@ -59,12 +59,15 @@ interface FieldBackend {
 
 data class VisitDisplay(val outlet: String, val planned: String, val status: String,
     val outletId: String = "", val plannedVisitId: String? = null, val intents: List<String> = emptyList(),
-    val sequence: Int? = null, val listPosition: Int? = null, val timeSpent: String? = null)
+    val sequence: Int? = null, val listPosition: Int? = null, val timeSpent: String? = null,
+    /** Closed-call outcome from the local outbox: `completed` (productive) or `nonproductive`. */
+    val outcome: String? = null)
 data class TodayData(val visits: List<VisitDisplay> = emptyList(), val lastSynced: Long? = null,
                      val stale: Boolean = true, val warning: String? = null, val updateRequired: Boolean = false,
                      val reviewCount: Int = 0, val queuedCount: Int = 0,
                      val unplannedOutlets: List<VisitDisplay> = emptyList(),
-                     val syncStatus: com.sunpride.field.ui.syncstatus.SyncStatus = com.sunpride.field.ui.syncstatus.SyncStatus())
+                     val syncStatus: com.sunpride.field.ui.syncstatus.SyncStatus = com.sunpride.field.ui.syncstatus.SyncStatus(),
+                     val routeCode: String? = null)
 
 class LiveFieldBackend(
     environment: AppEnvironment,
@@ -239,7 +242,7 @@ class LiveFieldBackend(
                         VisitCallRules.closed(call) -> "Done"
                         VisitCallRules.started(call) -> "In progress"
                         else -> visit.status
-                    }, timeSpent = VisitCallRules.timeSpent(call))
+                    }, timeSpent = VisitCallRules.timeSpent(call), outcome = VisitCallRules.outcome(call))
                 }
                 val held = db.rows().heldCount(subject, deviceId)
                 val result = TodayData(decorated, store.status().lastSuccess,
@@ -250,7 +253,7 @@ class LiveFieldBackend(
                     terminal || warning == "Update required",
                     history.count { it.second.state == "review" } + held, history.count { it.second.state == "pending" },
                     outlets.map { (id, name) -> VisitDisplay(name, "Unplanned", "Reason required", id) },
-                    store.status())
+                    store.status(), routeCode = store.routeCode())
                 if (scheduleRemainder && sync && result.syncStatus.queued + result.syncStatus.sending > 0 &&
                     result.syncStatus.held == 0 && result.syncStatus.health != "held_for_review")
                     com.sunpride.field.sync.work.SyncWork.enqueue(context)
