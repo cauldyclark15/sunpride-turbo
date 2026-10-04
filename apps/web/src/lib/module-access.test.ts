@@ -35,6 +35,8 @@ const expectedCapabilities = {
   supervision: ["people.read"],
   // Call sheets need outlet.read AND visit.read; both are granted to every role.
   "call-sheets": ["outlet.read"],
+  // DAR/ROAR: filers hold visit.record, supervisors people.read.
+  "activity-reports": ["visit.record", "people.read"],
   orders: ["order.create", "order.approve"],
   "outside-calls": ["order.encode", "visit.record"],
   "sap-integration": ["integration.read"],
@@ -53,6 +55,7 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
     "sales-force",
     "supervision",
     "call-sheets",
+    "activity-reports",
     "outside-calls",
     "sap-integration",
     "admin",
@@ -76,6 +79,7 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
     "sales-force",
     "supervision",
     "call-sheets",
+    "activity-reports",
     "orders",
     "outside-calls",
     "workflows",
@@ -95,6 +99,7 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
     "inventory",
     "sales-force",
     "call-sheets",
+    "activity-reports",
     "orders",
     "orders",
     "outside-calls",
@@ -106,6 +111,7 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
     "sales-force",
     "supervision",
     "call-sheets",
+    "activity-reports",
     "analytics",
   ],
   viewer: [
@@ -114,6 +120,7 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
     "sales-force",
     "supervision",
     "call-sheets",
+    "activity-reports",
     "analytics",
   ],
 };

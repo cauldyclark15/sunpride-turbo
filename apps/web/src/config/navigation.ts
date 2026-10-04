@@ -10,6 +10,7 @@ const routeToPrimary = {
   "/sales-force": "field",
   "/supervision": "field",
   "/call-sheets": "field",
+  "/activity-reports": "field",
   "/sap-integration": "operations",
   "/workflows": "approvals",
   "/analytics": "reports",
@@ -77,6 +78,11 @@ const moduleTabs: Partial<Record<string, WorkspaceModuleTab[]>> = {
     { id: "sales-force", label: "Coverage", href: "/sales-force" },
     { id: "supervision", label: "Supervision", href: "/supervision" },
     { id: "call-sheets", label: "Call sheets", href: "/call-sheets" },
+    {
+      id: "activity-reports",
+      label: "DAR / ROAR",
+      href: "/activity-reports",
+    },
   ],
 };
 
