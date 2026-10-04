@@ -53,7 +53,18 @@ data class BootstrapResponse(
   // schema-field: bootstrapResponse.nextPageCursor
   val nextPageCursor: String?,
   // schema-field: bootstrapResponse.syncCursor
-  val syncCursor: String?
+  val syncCursor: String?,
+  // schema-field: bootstrapResponse.dayTarget
+  val dayTarget: OptionalField<BootstrapResponseDayTarget>
+)
+// schema-object: bootstrapResponse.dayTarget
+data class BootstrapResponseDayTarget(
+  // schema-field: bootstrapResponse.dayTarget.dailyCalls
+  val dailyCalls: OptionalField<Long>,
+  // schema-field: bootstrapResponse.dayTarget.productivePct
+  val productivePct: OptionalField<Double>,
+  // schema-field: bootstrapResponse.dayTarget.sourceRef
+  val sourceRef: OptionalField<String>
 )
 // schema-object: bootstrapResponse.employee
 data class BootstrapResponseEmployee(

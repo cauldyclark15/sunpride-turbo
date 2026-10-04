@@ -39,12 +39,23 @@ struct StoreSnapshot: Sendable {
     struct Customer: Codable, Sendable { let id: String; let code: String }
     struct Route: Codable, Sendable { let id: String; let code: String }
     struct Task: Codable, Sendable { let id: String; let kind: String; let required: Bool }
+    /// Daily position standard (client memo; call answer 1: targets are per day, per route).
+    struct DayTarget: Codable, Sendable, Equatable {
+        var dailyCalls: Int? = nil
+        var productivePct: Double? = nil
+        var sourceRef: String? = nil
+        var isValid: Bool {
+            (dailyCalls.map { $0 >= 0 } ?? true) && (productivePct.map { $0.isFinite && (0...100).contains($0) } ?? true)
+                && (sourceRef.map { !$0.isEmpty } ?? true)
+        }
+    }
     let employee: Employee
     let visits: [Visit]
     let outlets: [Outlet]
     let customers: [Customer]
     let route: Route?
     let tasks: [Task]
+    var dayTarget: DayTarget? = nil
 }
 
 /// Exact serialized v1 operation is immutable after enqueue. Caller supplies a UUID, including for check-in.
@@ -370,6 +381,7 @@ final class EncryptedFieldStore: FieldLocalStore {
         for v in snapshot.customers { rows.append(("customer", v.id, nil, try encode(v))) }
         if let route = snapshot.route { rows.append(("route", route.id, nil, try encode(route))) }
         for v in snapshot.tasks { rows.append(("task", v.id, nil, try encode(v))) }
+        if let target = snapshot.dayTarget { rows.append(("dayTarget", "today", nil, try encode(target))) }
         guard rows.allSatisfy({ !$0.1.isEmpty }) else { throw StoreError.invalidInput }
         try transaction {
             try ensure(partition)
@@ -406,7 +418,8 @@ final class EncryptedFieldStore: FieldLocalStore {
             outlets: outlets(for: partition),
             customers: entities(StoreSnapshot.Customer.self, kind: "customer", partition: partition),
             route: entities(StoreSnapshot.Route.self, kind: "route", partition: partition).first,
-            tasks: entities(StoreSnapshot.Task.self, kind: "task", partition: partition))
+            tasks: entities(StoreSnapshot.Task.self, kind: "task", partition: partition),
+            dayTarget: entities(StoreSnapshot.DayTarget.self, kind: "dayTarget", partition: partition).first)
     }
     func leaseExpiry(for partition: StorePartition) throws -> Int64? {
         try query("SELECT lease_expiry FROM partitions WHERE \(Self.predicate)", p(partition)) {

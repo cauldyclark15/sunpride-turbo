@@ -1,5 +1,7 @@
 import { ConvexError, v } from "convex/values";
-import { internalQuery } from "../_generated/server";
+import { internalQuery, type QueryCtx } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
+import { standardAt, standardsFor } from "../sfa/standards";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
 import { manilaDate } from "../coverage/validation";
 import { nextDayCloseAt } from "../visits/policy";
@@ -20,6 +22,57 @@ import {
   taskDTO,
   visitDTO,
 } from "./projection";
+
+const MAX_ASSIGNMENT_HISTORY = 50;
+
+/** Additive optional v1 field: the person's daily position standard (client memo, call answer 1). */
+const dayTargetValidator = v.object({
+  dailyCalls: v.optional(v.number()),
+  productivePct: v.optional(v.number()),
+  sourceRef: v.optional(v.string()),
+});
+
+/**
+ * The standard in effect now (bootstrap only serves Manila today), resolved through the
+ * current employee assignment like the manager's daily scorecard (sfa/standards.ts). Read at
+ * `now`, not Manila noon, so a person assigned after noon still gets today's target. Omitted
+ * when the person has no position or the position has no call targets ("No target set").
+ */
+async function dayTarget(
+  ctx: QueryCtx,
+  profileId: Id<"profiles">,
+  instant: number,
+) {
+  const assignments = await ctx.db
+    .query("employeeAssignments")
+    .withIndex("by_profileId_and_effectiveFrom", (q) =>
+      q.eq("profileId", profileId).lte("effectiveFrom", instant),
+    )
+    .order("desc")
+    .take(MAX_ASSIGNMENT_HISTORY);
+  const assignment = assignments.find(
+    (row) => row.effectiveTo === undefined || row.effectiveTo > instant,
+  );
+  const positionId =
+    assignment?.positionId ?? (await ctx.db.get(profileId))?.positionId;
+  if (!positionId) return undefined;
+  const standard = standardAt(await standardsFor(ctx, positionId), instant);
+  if (
+    !standard ||
+    (standard.dailyCallsTarget === undefined &&
+      standard.productiveCallTargetPct === undefined)
+  )
+    return undefined;
+  return {
+    ...(standard.dailyCallsTarget === undefined
+      ? {}
+      : { dailyCalls: standard.dailyCallsTarget }),
+    ...(standard.productiveCallTargetPct === undefined
+      ? {}
+      : { productivePct: standard.productiveCallTargetPct }),
+    sourceRef: standard.sourceRef,
+  };
+}
 
 export const snapshot = internalQuery({
   args: {
@@ -58,6 +111,7 @@ export const snapshot = internalQuery({
     page: v.number(),
     nextPageCursor: v.union(v.string(), v.null()),
     syncCursor: v.union(v.string(), v.null()),
+    dayTarget: v.optional(dayTargetValidator),
   }),
   handler: async (ctx, { actor, dayFrom, pageCursor, limit }) => {
     const now = Date.now();
@@ -116,6 +170,7 @@ export const snapshot = internalQuery({
     const next = cursor.after + pageEntries.length;
     const hasMore = next < entries.length;
     const base = { ...cursor, after: next, page: cursor.page + 1 };
+    const target = await dayTarget(ctx, actor.profileId, now);
     return {
       type: "bootstrap.response" as const,
       contractVersion: 1 as const,
@@ -156,6 +211,7 @@ export const snapshot = internalQuery({
       syncCursor: hasMore
         ? null
         : await signCursor({ ...base, kind: "pull", after: cursor.watermark }),
+      ...(target ? { dayTarget: target } : {}),
     };
   },
 });

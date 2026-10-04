@@ -133,7 +133,8 @@ final class StubBackend: URLProtocol {
                             ["id": "outlet-stub-2", "name": "Next Stub Outlet", "routeId": NSNull()],
                             ["id": "outlet-stub-extra", "name": "Extra Stub Outlet", "routeId": NSNull()]],
                 "localCustomers": [], "route": NSNull(), "tasks": [], "productCatalog": [],
-                "page": 1, "nextPageCursor": NSNull(), "syncCursor": "stub-cursor"
+                "page": 1, "nextPageCursor": NSNull(), "syncCursor": "stub-cursor",
+                "dayTarget": ["dailyCalls": 30, "productivePct": 85, "sourceRef": "stub-memo"]
             ]))
         case "/mobile/v1/push", "/mobile/v1/pull":
             let h = Dictionary(uniqueKeysWithValues: headers.map { ($0.key.lowercased(), $0.value) })

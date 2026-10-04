@@ -91,11 +91,13 @@ enum BootstrapV1 {
         let page: Int
         let nextPageCursor: String?
         let syncCursor: String?
+        /// Additive optional v1 field: the person's daily position standard. Absent on older servers.
+        let dayTarget: StoreSnapshot.DayTarget?
 
         enum CodingKeys: String, CodingKey {
             case type, contractVersion, serverTime, permissions, employee, scope, appConfig,
                  plannedVisits, outlets, localCustomers, route, tasks, productCatalog, page,
-                 nextPageCursor, syncCursor
+                 nextPageCursor, syncCursor, dayTarget
         }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -121,6 +123,8 @@ enum BootstrapV1 {
             page = try c.decode(Int.self, forKey: .page)
             nextPageCursor = try c.decodeIfPresent(String.self, forKey: .nextPageCursor)
             syncCursor = try c.decodeIfPresent(String.self, forKey: .syncCursor)
+            dayTarget = try c.decodeIfPresent(StoreSnapshot.DayTarget.self, forKey: .dayTarget)
+            guard dayTarget?.isValid ?? true else { throw WireError.unsafeValue }
             guard page > 0, serverTime > 0, !scope.fingerprint.isEmpty,
                   !employee.id.isEmpty, appConfig.offlineLeaseExpiresAt > serverTime,
                   appConfig.cacheExpiresAt > serverTime,
@@ -141,6 +145,7 @@ enum BootstrapV1 {
             try c.encode(route, forKey: .route); try c.encode(tasks, forKey: .tasks)
             try c.encode(productCatalog, forKey: .productCatalog); try c.encode(page, forKey: .page)
             try c.encode(nextPageCursor, forKey: .nextPageCursor); try c.encode(syncCursor, forKey: .syncCursor)
+            try c.encodeIfPresent(dayTarget, forKey: .dayTarget)
         }
     }
 

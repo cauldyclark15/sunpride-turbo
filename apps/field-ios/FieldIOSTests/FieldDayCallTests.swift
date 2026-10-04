@@ -47,11 +47,11 @@ final class FieldDayCallTests: XCTestCase {
     private func planned(_ id: String, sequence: Int? = nil) -> StoreSnapshot.Visit {
         .init(id: id, outletId: id, serviceDate: day, planId: "plan", planVersion: 1, intents: ["audit"], sequence: sequence)
     }
-    private func save(_ visits: [StoreSnapshot.Visit]) throws {
+    private func save(_ visits: [StoreSnapshot.Visit], target: StoreSnapshot.DayTarget? = nil) throws {
         let expiry = Int64(FieldDay.nextClose(after: clock.now).timeIntervalSince1970 * 1000)
         try store.saveSnapshot(.init(employee: .init(id: "seller", role: "sales", orgUnitId: "unit"), visits: visits,
             outlets: ["first", "second", "extra"].map { .init(id: $0, name: $0, routeId: nil) },
-            customers: [], route: nil, tasks: []), cursor: "cursor", leaseExpiresAt: expiry, cacheExpiresAt: expiry, for: partition)
+            customers: [], route: nil, tasks: [], dayTarget: target), cursor: "cursor", leaseExpiresAt: expiry, cacheExpiresAt: expiry, for: partition)
     }
     private func visit(_ id: String) throws -> AppModel.TodayVisit {
         try XCTUnwrap(model.visits.first { $0.id == id })
@@ -159,5 +159,57 @@ final class FieldDayCallTests: XCTestCase {
         try store.recordRejection(code: "mcp_order", for: rejected.requestId, in: partition)
         model.refreshToday()
         XCTAssertTrue(model.review.contains { $0.contains("Visit stores in plan order") })
+    }
+    func testTodayDashboardFollowsTheDayFromTheStoreAndSurvivesRelaunch() async throws {
+        try save([planned("second", sequence: 1), planned("first", sequence: 0)],
+                 target: .init(dailyCalls: 30, productivePct: 85, sourceRef: "memo"))
+        model.refreshToday()
+        var board = model.dashboard
+        XCTAssertEqual(board.dateLabel, "Fri, 2 Oct")
+        XCTAssertEqual(board.route.map(\.id), ["first", "second"])
+        XCTAssertEqual(board.route.map(\.position), [1, 2])
+        XCTAssertEqual(board.next?.id, "first")
+        XCTAssertNil(board.current)
+        XCTAssertEqual(board.callsLabel, "0 of 30")
+        XCTAssertEqual(board.productiveLabel, "0 · target 85%")
+        XCTAssertEqual(board.completionLabel, "0 of 2 stores")
+
+        try start(try visit("first"))
+        board = model.dashboard
+        XCTAssertEqual(board.current?.id, "first")
+        XCTAssertNil(board.next, "no next outlet while a call is open")
+        XCTAssertEqual(board.route.map(\.state), [.inProgress, .upcoming])
+
+        clock.advance(20 * 60)
+        try model.queueCheckOut(outcome: "completed", reason: nil, for: try visit("first"))
+        board = model.dashboard
+        XCTAssertEqual(board.next?.id, "second")
+        XCTAssertEqual(board.route.first?.timeSpent, "20 min")
+        XCTAssertEqual(board.callsLabel, "1 of 30")
+        XCTAssertEqual(board.productiveLabel, "1 · 100% of 85%")
+
+        // Offline: queued work and the saved target survive a relaunch without a network round trip.
+        model.enrollment.signedOut()
+        model = try await makeModel()
+        try start(try visit("second"))
+        try model.queueCheckOut(outcome: "nonproductive", reason: "Store closed", for: try visit("second"))
+        board = model.dashboard
+        XCTAssertEqual(board.target?.dailyCalls, 30)
+        XCTAssertTrue(board.dayComplete)
+        XCTAssertNil(board.next)
+        XCTAssertEqual(board.completionLabel, "2 of 2 stores")
+        XCTAssertEqual(board.productiveLabel, "1 · 50% of 85%")
+        XCTAssertEqual(try store.pendingOutbox(for: partition).count + store.deferredOutbox(for: partition).count, 4)
+    }
+    func testTodayDashboardRejectedEndNeedsReviewAndDoesNotCount() throws {
+        try start(try visit("first"))
+        try model.queueCheckOut(outcome: "completed", reason: nil, for: try visit("first"))
+        let end = try XCTUnwrap(store.deferredOutbox(for: partition).first?.intent)
+        try store.recordRejection(code: "call_open", for: end.requestId, in: partition)
+        model.refreshToday()
+        let board = model.dashboard
+        XCTAssertEqual(board.route.first?.state, .review)
+        XCTAssertEqual(board.calls, 0)
+        XCTAssertEqual(board.callsLabel, "0 · no target set")
     }
 }

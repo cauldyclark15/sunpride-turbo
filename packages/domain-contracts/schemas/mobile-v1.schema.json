@@ -327,6 +327,26 @@
               "type": "null"
             }
           ]
+        },
+        "dayTarget": {
+          "description": "Optional daily position standard for the Today screen (client memo 2026-01-20, call answer 1). Added 2026-10; older servers and people without a position standard omit it.",
+          "type": "object",
+          "properties": {
+            "dailyCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "productivePct": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "sourceRef": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
         }
       },
       "required": [

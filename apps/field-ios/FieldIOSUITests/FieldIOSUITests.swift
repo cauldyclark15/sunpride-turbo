@@ -173,9 +173,17 @@ final class FieldIOSUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["todayTitle"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.staticTexts["Stub Outlet"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons["outboxStatus"].exists)
+        // Today dashboard: target, completion, sales and the next outlet in plan order.
+        XCTAssertTrue(app.staticTexts["0 of 30"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["0 of 2 stores"].exists)
+        XCTAssertTrue(app.staticTexts["Not on this phone yet"].exists)
+        XCTAssertTrue(app.buttons["nextOutlet"].exists)
+        XCTAssertTrue(app.buttons["nextOutlet"].label.contains("Stub Outlet"))
+        XCTAssertTrue(app.buttons["visit-planned-stub-2"].exists)
         app.terminate()
         let offline = launchStub("offline")
         XCTAssertTrue(offline.staticTexts["Stub Outlet"].waitForExistence(timeout: 15))
+        XCTAssertTrue(offline.staticTexts["0 of 30"].exists, "saved target shown offline")
         XCTAssertFalse(offline.buttons["outboxStatus"].exists)
         XCTAssertFalse(offline.staticTexts["Ready"].exists)
     }

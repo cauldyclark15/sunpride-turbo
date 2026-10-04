@@ -117,6 +117,20 @@ final class BootstrapTests: XCTestCase {
         }
     }
 
+    func testOptionalDayTargetPresentAbsentAndInvalid() throws {
+        let page = try JSONDecoder().decode(BootstrapV1.Page.self, from: fixture("bootstrap-response"))
+        XCTAssertEqual(page.dayTarget, StoreSnapshot.DayTarget(dailyCalls: 30, productivePct: 85, sourceRef: "memo-2026-01-20"))
+        XCTAssertEqual(try JSONDecoder().decode(BootstrapV1.Page.self, from: JSONEncoder().encode(page)).dayTarget, page.dayTarget)
+        let old = try altered("bootstrap-response") { $0.removeValue(forKey: "dayTarget") }
+        XCTAssertNil(try JSONDecoder().decode(BootstrapV1.Page.self, from: old).dayTarget)
+        let partial = try altered("bootstrap-response") { $0["dayTarget"] = ["dailyCalls": 5] }
+        XCTAssertEqual(try JSONDecoder().decode(BootstrapV1.Page.self, from: partial).dayTarget, StoreSnapshot.DayTarget(dailyCalls: 5))
+        for invalid in [["dailyCalls": -1], ["dailyCalls": 1.5], ["productivePct": 101], ["sourceRef": ""]] as [[String: Any]] {
+            let data = try altered("bootstrap-response") { $0["dayTarget"] = invalid }
+            XCTAssertThrowsError(try JSONDecoder().decode(BootstrapV1.Page.self, from: data), "\(invalid)")
+        }
+    }
+
     func testTwoPagesSignedFreshChallengesAndAtomicPromotion() async throws {
         let first = try fixture("bootstrap-next-page"), second = try fixture("bootstrap-response")
         protocolStub(first, next: try altered("bootstrap-response") {
@@ -126,6 +140,7 @@ final class BootstrapTests: XCTestCase {
         XCTAssertEqual(try store.cursor(for: partition), "opaque-start")
         XCTAssertEqual(try store.todayVisits("2026-09-26", for: partition).count, 1)
         XCTAssertEqual(try store.outlets(for: partition).first?.name, "Outlet One")
+        XCTAssertEqual(try store.snapshot(for: partition)?.dayTarget?.dailyCalls, 30)
         let requests = StubURLProtocol.requests(to: "/mobile/v1/bootstrap")
         XCTAssertEqual(requests.count, 2)
         let challenges = StubURLProtocol.requests(to: "/api/mutation")

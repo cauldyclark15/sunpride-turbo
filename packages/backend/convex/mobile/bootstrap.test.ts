@@ -302,6 +302,55 @@ describe("mobile day bootstrap", () => {
     expect(r.syncCursor).toBeTruthy();
     expect(JSON.stringify(r)).not.toContain(f.actor.subject);
   });
+  it("carries the person's daily position standard as the Today target", async () => {
+    const f = await fixture();
+    const none = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+    });
+    // No position on the assignment or profile: the phone shows "No target set".
+    expect(none).not.toHaveProperty("dayTarget");
+    await f.t.run(async (ctx) => {
+      const position = await ctx.db.insert("positions", {
+        organizationId: "sunpride",
+        code: "RDS",
+        label: "Route Distribution Salesman",
+        category: "field",
+        active: true,
+        createdAt: 1,
+        updatedAt: 1,
+      });
+      await ctx.db.patch(f.ids.assignment, { positionId: position });
+      // A superseded standard and the current memo standard.
+      await ctx.db.insert("positionStandards", {
+        organizationId: "sunpride",
+        positionId: position,
+        effectiveFrom: 1,
+        effectiveTo: f.now - 50_000_000,
+        dailyCallsTarget: 20,
+        sourceRef: "old-memo",
+        createdAt: 1,
+        updatedAt: 1,
+      });
+      await ctx.db.insert("positionStandards", {
+        organizationId: "sunpride",
+        positionId: position,
+        effectiveFrom: f.now - 50_000_000,
+        dailyCallsTarget: 30,
+        productiveCallTargetPct: 85,
+        sourceRef: "memo-2026-01-20",
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    });
+    const r = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+    });
+    expect(r.dayTarget).toEqual({
+      dailyCalls: 30,
+      productivePct: 85,
+      sourceRef: "memo-2026-01-20",
+    });
+  });
   it("does not expose cancelled predecessor visits while retaining the active day", async () => {
     const f = await fixture();
     await f.t.run((ctx) =>

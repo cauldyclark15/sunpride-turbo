@@ -44,6 +44,7 @@ final class BootstrapClient {
         var customers: [StoreSnapshot.Customer] = []
         var tasks: [StoreSnapshot.Task] = []
         var route: StoreSnapshot.Route?
+        var dayTarget: StoreSnapshot.DayTarget?
         var next: String?
         var seen = Set<String>()
         var lease = Int64.max, cache = Int64.max
@@ -65,6 +66,11 @@ final class BootstrapClient {
             outlets += page.outlets
             customers += page.localCustomers
             tasks += page.tasks
+            if let target = page.dayTarget {
+                // Every page reads the same standard; a mid-download change restarts the bootstrap.
+                if let previousTarget = dayTarget, previousTarget != target { throw Failure.restartRequired }
+                dayTarget = target
+            }
             if let r = page.route {
                 if let previousRoute = route,
                    (previousRoute.id != r.id || previousRoute.code != r.code) { throw Failure.invalidResponse }
@@ -86,7 +92,7 @@ final class BootstrapClient {
                   Set(tasks.map(\.id)).count == tasks.count,
                   visits.allSatisfy({ visit in uniqueOutlets.contains(where: { $0.id == visit.outletId }) }) else { throw Failure.invalidResponse }
             let snapshot = StoreSnapshot(employee: initial.employee, visits: visits, outlets: uniqueOutlets,
-                                         customers: uniqueCustomers, route: route, tasks: tasks)
+                                         customers: uniqueCustomers, route: route, tasks: tasks, dayTarget: dayTarget)
             try store.saveSnapshot(snapshot, cursor: cursor, leaseExpiresAt: lease, cacheExpiresAt: cache, for: partition)
             try store.setSyncHealth(SyncHealth(lastSuccessfulSyncAt: page.serverTime, lastErrorCode: nil), for: partition)
             return partition

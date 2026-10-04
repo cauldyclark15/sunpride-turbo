@@ -47,6 +47,11 @@ export type BootstrapResponse = {
   page: number;
   nextPageCursor: string | null;
   syncCursor: string | null;
+  dayTarget?: {
+    dailyCalls?: number;
+    productivePct?: number;
+    sourceRef?: string;
+  };
 };
 export type PullRequest = {
   type: "pull.request";
