@@ -552,3 +552,103 @@ describe("call sheet capture and month report", () => {
     ).rejects.toThrow();
   });
 });
+
+describe("field order submission (SP-0060)", () => {
+  const order = (
+    f: Awaited<ReturnType<typeof fixture>>,
+    n: number,
+    visitId: Id<"visitExecutions">,
+    clientOrderId: string,
+    lines: { productId: Id<"products">; uom: string; quantity: number }[],
+  ) =>
+    f.apply({
+      kind: "visit.activity",
+      clientRequestId: uuid(n),
+      payload: {
+        visitId,
+        activity: { kind: "order_intent", clientOrderId, lines },
+        deviceTime: now,
+      },
+    });
+
+  it("records the order's lines on the visit's order activity", async () => {
+    const f = await fixture();
+    await f.saveAccount();
+    const visitId = await f.checkIn();
+    const ack = await order(f, 2, visitId, uuid(900), [
+      { productId: f.ids.hotdog, uom: "CAN", quantity: 12 },
+      // Removed from the office setup during the day: a queued order is not stranded.
+      { productId: f.ids.extra, uom: "CAN", quantity: 3 },
+    ]);
+    const rows = await f.t.run(async (ctx) => ({
+      activity: await ctx.db.get(ack.entityId as Id<"visitActivities">),
+      events: await ctx.db.query("executionEvents").collect(),
+    }));
+    expect(rows.activity?.activity).toEqual({
+      kind: "order_intent",
+      clientOrderId: uuid(900),
+      lines: [
+        { productId: f.ids.hotdog, uom: "CAN", quantity: 12 },
+        { productId: f.ids.extra, uom: "CAN", quantity: 3 },
+      ],
+    });
+    expect(rows.events.map((e) => e.kind)).toContain("activity.order_intent");
+  });
+
+  it("keeps a line-less order intent valid without an account setup", async () => {
+    const f = await fixture();
+    const visitId = await f.checkIn();
+    await expect(
+      f.apply({
+        kind: "visit.activity",
+        clientRequestId: uuid(2),
+        payload: {
+          visitId,
+          activity: { kind: "order_intent", clientOrderId: uuid(900) },
+          deviceTime: now,
+        },
+      }),
+    ).resolves.toMatchObject({ entityId: expect.any(String) });
+  });
+
+  it("refuses orders without a setup, malformed lines, wrong units and a second submission", async () => {
+    const f = await fixture();
+    const visitId = await f.checkIn();
+    const hotdog = (quantity: number, uom = "CAN") => ({
+      productId: f.ids.hotdog,
+      uom,
+      quantity,
+    });
+    await expect(order(f, 2, visitId, uuid(900), [hotdog(1)])).rejects.toThrow(
+      "invalid_request",
+    );
+    await f.saveAccount();
+    for (const [n, lines] of [
+      [3, []],
+      [4, [hotdog(0)]],
+      [5, [hotdog(1.5)]],
+      [6, [hotdog(100_000)]],
+      [7, [hotdog(1), hotdog(2)]],
+      [8, [hotdog(1, "PC")]],
+      [9, [hotdog(1, " CAN")]],
+      [10, [{ productId: f.ids.retired, uom: "CAN", quantity: 1 }]],
+    ] as const)
+      await expect(order(f, n, visitId, uuid(900), [...lines])).rejects.toThrow(
+        "invalid_request",
+      );
+    await expect(
+      order(f, 11, visitId, "not-a-uuid", [hotdog(1)]),
+    ).rejects.toThrow("invalid_request");
+    expect(
+      await f.t.run((ctx) => ctx.db.query("visitActivities").collect()),
+    ).toEqual([]);
+    await order(f, 12, visitId, uuid(900), [hotdog(5)]);
+    // The same phone order under a new request ID never records twice.
+    await expect(order(f, 13, visitId, uuid(900), [hotdog(5)])).rejects.toThrow(
+      "conflict",
+    );
+    expect(
+      await f.t.run((ctx) => ctx.db.query("visitActivities").collect()),
+    ).toHaveLength(1);
+  });
+});

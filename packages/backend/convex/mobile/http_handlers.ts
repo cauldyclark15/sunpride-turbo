@@ -7,6 +7,11 @@ import {
   MAX_CALL_SHEET_LINES,
   MAX_CALL_SHEET_QUANTITY,
 } from "../callSheets/validators";
+import {
+  MAX_FIELD_ORDER_LINES,
+  MAX_FIELD_ORDER_QUANTITY,
+  MAX_FIELD_ORDER_UOM,
+} from "../orders/field_order_validators";
 
 const MAX_BYTES = 128 * 1024;
 const kinds = new Set([
@@ -177,11 +182,28 @@ function validActivity(value: unknown): boolean {
       );
     case "order_intent":
       return (
-        exact(value, ["kind", "clientOrderId", "note"]) &&
+        exact(value, ["kind", "clientOrderId", "note", "lines"]) &&
         typeof value.clientOrderId === "string" &&
         uuid.test(value.clientOrderId) &&
         (value.note === undefined ||
-          (typeof value.note === "string" && value.note.length <= 500))
+          (typeof value.note === "string" && value.note.length <= 500)) &&
+        (value.lines === undefined ||
+          (Array.isArray(value.lines) &&
+            value.lines.length >= 1 &&
+            value.lines.length <= MAX_FIELD_ORDER_LINES &&
+            value.lines.every(
+              (line: unknown) =>
+                record(line) &&
+                exact(line, ["productId", "uom", "quantity"]) &&
+                typeof line.productId === "string" &&
+                line.productId.length > 0 &&
+                typeof line.uom === "string" &&
+                line.uom.length >= 1 &&
+                line.uom.length <= MAX_FIELD_ORDER_UOM &&
+                Number.isSafeInteger(line.quantity) &&
+                (line.quantity as number) >= 1 &&
+                (line.quantity as number) <= MAX_FIELD_ORDER_QUANTITY,
+            )))
       );
     case "price_check":
       return (

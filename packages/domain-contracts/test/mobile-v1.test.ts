@@ -109,6 +109,34 @@ describe("mobile v1 canonical contract", () => {
     expect(validate(empty)).toBe(false);
   });
 
+  test("field order lines are bounded whole quantities in a unit, never prices", async () => {
+    const original = await Bun.file(
+      new URL("../fixtures/mobile-v1/push-order-request.json", import.meta.url),
+    ).json();
+    expect(validate(original), JSON.stringify(validate.errors)).toBe(true);
+    const withLines = (lines: unknown) => {
+      const altered = structuredClone(original);
+      altered.operations[0].payload.activity.lines = lines;
+      return altered;
+    };
+    const line = original.operations[0].payload.activity.lines[0];
+    const lineless = structuredClone(original);
+    delete lineless.operations[0].payload.activity.lines;
+    expect(validate(lineless)).toBe(true);
+    expect(validate(withLines([]))).toBe(false);
+    expect(validate(withLines([{ ...line, quantity: 0 }]))).toBe(false);
+    expect(validate(withLines([{ ...line, quantity: 1.5 }]))).toBe(false);
+    expect(validate(withLines([{ ...line, quantity: 100_000 }]))).toBe(false);
+    expect(validate(withLines([{ ...line, uom: "" }]))).toBe(false);
+    expect(validate(withLines([{ ...line, unitPrice: 189 }]))).toBe(false);
+    const missing = { ...line };
+    delete missing.uom;
+    expect(validate(withLines([missing]))).toBe(false);
+    expect(validate(withLines(Array.from({ length: 101 }, () => line)))).toBe(
+      false,
+    );
+  });
+
   test("bootstrap stays valid with or without the additive activityRules field", async () => {
     const withRules = await Bun.file(
       new URL(

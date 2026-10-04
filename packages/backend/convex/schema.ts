@@ -23,6 +23,7 @@ import {
   callSheetHeaderValidator,
   callSheetTemplateLineValidator,
 } from "./callSheets/validators";
+import { fieldOrderLineValidator } from "./orders/field_order_validators";
 import { productiveCallRuleValidator } from "./sfa/productive_call";
 import {
   workWithMode,
@@ -2219,6 +2220,8 @@ export default defineSchema({
         kind: v.literal("order_intent"),
         clientOrderId: v.string(),
         note: v.optional(v.string()),
+        // SP-0060: the submitted field order's lines (quantities only, no prices).
+        lines: v.optional(v.array(fieldOrderLineValidator)),
       }),
       v.object({ kind: v.literal("note"), text: v.string() }),
       callSheetActivityValidator,
