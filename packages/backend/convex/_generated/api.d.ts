@@ -8,6 +8,8 @@
  * @module
  */
 
+import type * as analytics_territory from "../analytics/territory.js";
+import type * as analytics_territory_model from "../analytics/territory_model.js";
 import type * as auth from "../auth.js";
 import type * as authPolicy from "../authPolicy.js";
 import type * as callSheets_accounts from "../callSheets/accounts.js";
@@ -156,6 +158,8 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  "analytics/territory": typeof analytics_territory;
+  "analytics/territory_model": typeof analytics_territory_model;
   auth: typeof auth;
   authPolicy: typeof authPolicy;
   "callSheets/accounts": typeof callSheets_accounts;

@@ -27,6 +27,7 @@ import { CallSheetsWorkspace } from "./call-sheets/call-sheets-workspace";
 import { DailySalesWorkspace } from "./daily-sales/daily-sales-workspace";
 import { TrainingWorkspace } from "./training/trainer-forms";
 import { ActivityReportsWorkspace } from "./activity-reports/activity-reports-workspace";
+import { TerritoryPerformance } from "./analytics/territory-performance";
 
 const modules = {
   dashboard: { title: "Home" },
@@ -225,6 +226,7 @@ function ModuleContent({
             value={metrics ? money.format(metrics.salesToday) : "—"}
           />
         </div>
+        {module === "analytics" ? <TerritoryPerformance /> : null}
       </>
     );
 
