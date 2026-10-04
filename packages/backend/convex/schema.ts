@@ -25,6 +25,11 @@ import {
 } from "./callSheets/validators";
 import { productiveCallRuleValidator } from "./sfa/productive_call";
 import {
+  contributionFields,
+  rollupMetricsFields,
+  skuMetricsFields,
+} from "./analytics/rollups_model";
+import {
   availabilityStatus,
   competitorObservationKind,
   complianceFinding,
@@ -1322,6 +1327,80 @@ export default defineSchema({
     salesToday: v.number(),
     updatedAt: v.number(),
   }).index("by_key", ["key"]),
+  /**
+   * CVX-032 daily rollups (analytics/rollups.ts). Derived data only; orders, visits and
+   * planned visits stay authoritative. `orgUnitId` is the territory's owner on the day
+   * (else the outlet custodian / seller's unit) and is the scope key for readers.
+   */
+  dailyTerritoryMetrics: defineTable({
+    organizationId: v.string(),
+    serviceDate: v.string(), // YYYY-MM-DD, Manila
+    orgUnitId: v.id("orgUnits"),
+    territoryId: v.id("territories"),
+    ...rollupMetricsFields,
+    /** Customers of this territory with at least one sale order on the day. */
+    buyingCustomers: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_territoryId_and_serviceDate", ["territoryId", "serviceDate"])
+    .index("by_organizationId_and_serviceDate", [
+      "organizationId",
+      "serviceDate",
+    ])
+    .index("by_orgUnitId_and_serviceDate", ["orgUnitId", "serviceDate"]),
+  dailyCustomerMetrics: defineTable({
+    organizationId: v.string(),
+    serviceDate: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    customerCode: v.string(),
+    customerId: v.optional(v.id("customers")),
+    territoryId: v.optional(v.id("territories")),
+    ...rollupMetricsFields,
+    updatedAt: v.number(),
+  })
+    .index("by_customerCode_and_serviceDate", ["customerCode", "serviceDate"])
+    .index("by_organizationId_and_serviceDate", [
+      "organizationId",
+      "serviceDate",
+    ])
+    .index("by_orgUnitId_and_serviceDate", ["orgUnitId", "serviceDate"])
+    .index("by_territoryId_and_serviceDate", ["territoryId", "serviceDate"]),
+  dailySkuMetrics: defineTable({
+    organizationId: v.string(),
+    serviceDate: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    productCode: v.string(),
+    ...skuMetricsFields,
+    updatedAt: v.number(),
+  })
+    .index("by_productCode_and_serviceDate", ["productCode", "serviceDate"])
+    .index("by_organizationId_and_serviceDate", [
+      "organizationId",
+      "serviceDate",
+    ])
+    .index("by_orgUnitId_and_serviceDate", ["orgUnitId", "serviceDate"]),
+  /** What each source document currently adds to the daily rollups (one row per source). */
+  rollupContributions: defineTable({
+    sourceKind: v.union(
+      v.literal("order"),
+      v.literal("visit"),
+      v.literal("planned"),
+    ),
+    sourceId: v.string(),
+    ...contributionFields,
+    version: v.string(),
+    computedAt: v.number(),
+  }).index("by_sourceKind_and_sourceId", ["sourceKind", "sourceId"]),
+  /** Pending rollup refreshes: at most one per source document, deleted when it runs. */
+  rollupRefreshes: defineTable({
+    sourceKind: v.union(
+      v.literal("order"),
+      v.literal("visit"),
+      v.literal("planned"),
+    ),
+    sourceId: v.string(),
+    requestedAt: v.number(),
+  }).index("by_sourceKind_and_sourceId", ["sourceKind", "sourceId"]),
   orgUnitTypes: defineTable({
     organizationId: v.string(),
     code: v.string(),

@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values";
+import { queueOrderRollup } from "../analytics/rollups";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { mutation, query } from "../_generated/server";
@@ -179,6 +180,7 @@ export const postSale = mutation({
         reasonCode: "rolling_truck_pos_sale",
       });
     }
+    await queueOrderRollup(ctx, orderId);
     const movement = await postMovement(ctx, {
       idempotencyKey: commandKey,
       payloadHash,
@@ -236,6 +238,7 @@ export const voidSale = mutation({
       sourceDocumentId: order._id,
       note: args.reason,
     });
+    await queueOrderRollup(ctx, order._id);
     await ctx.db.patch(order._id, {
       status: "voided",
       voidMovementId: movement.movementId,
@@ -414,6 +417,8 @@ export const returnSale = mutation({
         lineTotal: -input.quantity * unitPrice,
       });
     }
+    await queueOrderRollup(ctx, returnOrderId);
+    await queueOrderRollup(ctx, original._id);
     const movement = await postMovement(ctx, {
       idempotencyKey: `pos-return:${args.clientRequestId}`,
       payloadHash,
