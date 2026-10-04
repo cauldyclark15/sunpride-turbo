@@ -113,6 +113,11 @@ enum BootstrapV1 {
             // Additive v1 field: old bootstraps omit sequence and retain their list order.
             guard plannedVisits.allSatisfy({ $0.sequence == nil || $0.sequence! >= 0 }) else { throw WireError.unsafeValue }
             outlets = try c.decode([StoreSnapshot.Outlet].self, forKey: .outlets)
+            // Additive route-screen pin: an out-of-range coordinate is a corrupt feed, never a map target.
+            guard outlets.allSatisfy({ ($0.latitude == nil) == ($0.longitude == nil) }),
+                  outlets.allSatisfy({ outlet in outlet.location.map { RouteMath.isValid($0) } ?? true }) else {
+                throw WireError.unsafeValue
+            }
             localCustomers = try c.decode([StoreSnapshot.Customer].self, forKey: .localCustomers)
             // Required explicit nullable fields: missing is not equivalent to null.
             guard c.contains(.route), c.contains(.nextPageCursor), c.contains(.syncCursor) else { throw WireError.invalidEnvelope }
