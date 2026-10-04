@@ -1,8 +1,8 @@
 {
   "formatVersion": 1,
   "database": {
-    "version": 7,
-    "identityHash": "b1b1da8830d4b214b934967aef624154",
+    "version": 8,
+    "identityHash": "3d8b043494a258934cd5e7d2e0b10207",
     "entities": [
       {
         "tableName": "snapshots",
@@ -788,11 +788,160 @@
             "draftId"
           ]
         }
+      },
+      {
+        "tableName": "catalog_products",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`account` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `scope` TEXT NOT NULL, `generation` TEXT NOT NULL, `id` TEXT NOT NULL, `code` TEXT NOT NULL, `revision` INTEGER NOT NULL, `json` TEXT NOT NULL, PRIMARY KEY(`account`, `deviceId`, `scope`, `generation`, `id`))",
+        "fields": [
+          {
+            "fieldPath": "account",
+            "columnName": "account",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deviceId",
+            "columnName": "deviceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scope",
+            "columnName": "scope",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "generation",
+            "columnName": "generation",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "code",
+            "columnName": "code",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "revision",
+            "columnName": "revision",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "json",
+            "columnName": "json",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "account",
+            "deviceId",
+            "scope",
+            "generation",
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "inventory_availability",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`account` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `scope` TEXT NOT NULL, `generation` TEXT NOT NULL, `id` TEXT NOT NULL, `productId` TEXT NOT NULL, `locationCode` TEXT NOT NULL, `revision` INTEGER NOT NULL, `json` TEXT NOT NULL, PRIMARY KEY(`account`, `deviceId`, `scope`, `generation`, `id`))",
+        "fields": [
+          {
+            "fieldPath": "account",
+            "columnName": "account",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deviceId",
+            "columnName": "deviceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scope",
+            "columnName": "scope",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "generation",
+            "columnName": "generation",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "productId",
+            "columnName": "productId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "locationCode",
+            "columnName": "locationCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "revision",
+            "columnName": "revision",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "json",
+            "columnName": "json",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "account",
+            "deviceId",
+            "scope",
+            "generation",
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_inventory_availability_account_deviceId_scope_generation_productId",
+            "unique": false,
+            "columnNames": [
+              "account",
+              "deviceId",
+              "scope",
+              "generation",
+              "productId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_inventory_availability_account_deviceId_scope_generation_productId` ON `${TABLE_NAME}` (`account`, `deviceId`, `scope`, `generation`, `productId`)"
+          }
+        ]
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'b1b1da8830d4b214b934967aef624154')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '3d8b043494a258934cd5e7d2e0b10207')"
     ]
   }
 }

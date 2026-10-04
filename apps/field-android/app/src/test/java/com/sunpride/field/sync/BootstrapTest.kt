@@ -174,6 +174,20 @@ class BootstrapTest {
             assertThrows(WireFailure::class.java) { BootstrapCodec.page(wire.toString()) }
         }
     }
+    @Test fun optionalOutletTerritoryIsBothOrNeither() {
+        val json = JSONObject(BootstrapCodec.page(first).outlets.single().json)
+        assertEquals("territory-1", json.getString("territoryId")); assertEquals("PASIG-01", json.getString("territoryCode"))
+        val bare = JSONObject(first).apply {
+            getJSONArray("outlets").getJSONObject(0).apply { remove("territoryId"); remove("territoryCode") }
+        }
+        assertFalse(JSONObject(BootstrapCodec.page(bare.toString()).outlets.single().json).has("territoryId"))
+        val bad = listOf<(JSONObject) -> Unit>({ it.remove("territoryCode") }, { it.remove("territoryId") },
+            { it.put("territoryId", "") }, { it.put("territoryCode", 3) }, { it.put("territoryId", JSONObject.NULL) })
+        for (mutate in bad) {
+            val wire = JSONObject(first).apply { mutate(getJSONArray("outlets").getJSONObject(0)) }
+            assertThrows(WireFailure::class.java) { BootstrapCodec.page(wire.toString()) }
+        }
+    }
     private class Store : FieldStore {
         var snapshot: ScopedSnapshot? = null; var token: String? = "old"; var held = false; var swaps = 0
         override suspend fun stage(snapshot: ScopedSnapshot): String { this.snapshot = snapshot; return "generation" }

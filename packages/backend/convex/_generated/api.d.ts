@@ -114,6 +114,8 @@ import type * as mobile_pull from "../mobile/pull.js";
 import type * as mobile_push from "../mobile/push.js";
 import type * as mobile_reference from "../mobile/reference.js";
 import type * as mobile_types from "../mobile/types.js";
+import type * as orders_field_order from "../orders/field_order.js";
+import type * as orders_field_order_validators from "../orders/field_order_validators.js";
 import type * as orders_outside_calls from "../orders/outside_calls.js";
 import type * as org_mutations from "../org/mutations.js";
 import type * as org_queries from "../org/queries.js";
@@ -278,6 +280,8 @@ declare const fullApi: ApiFromModules<{
   "mobile/push": typeof mobile_push;
   "mobile/reference": typeof mobile_reference;
   "mobile/types": typeof mobile_types;
+  "orders/field_order": typeof orders_field_order;
+  "orders/field_order_validators": typeof orders_field_order_validators;
   "orders/outside_calls": typeof orders_outside_calls;
   "org/mutations": typeof org_mutations;
   "org/queries": typeof org_queries;

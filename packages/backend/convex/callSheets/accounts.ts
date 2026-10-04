@@ -291,8 +291,17 @@ export const save = mutation({
       updatedAt: now,
       updatedBy: identity.tokenIdentifier,
     };
-    if (existing) await ctx.db.replace(existing._id, row);
-    else await ctx.db.insert("callSheetAccounts", row);
+    if (existing) {
+      await ctx.db.insert("callSheetAccountRevisions", {
+        organizationId: SUNPRIDE_ORGANIZATION_ID,
+        outletId: args.outletId,
+        revision: existing.revision,
+        productIds: existing.lines.map((line) => line.productId),
+        effectiveFrom: existing.updatedAt,
+        supersededAt: now,
+      });
+      await ctx.db.replace(existing._id, row);
+    } else await ctx.db.insert("callSheetAccounts", row);
     await audit(
       ctx,
       identity.tokenIdentifier,

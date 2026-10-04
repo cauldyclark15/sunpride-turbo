@@ -197,7 +197,7 @@ final class ReferenceDataTests: XCTestCase {
         try store.enqueue(accepted, for: partition, now: Date(timeIntervalSince1970: 1_800_000_000))
         let ack = ServerAck(entityId: "visit-1", eventIds: ["event-1"], serverTime: 1_800_000_000_000)
         try store.recordAck(ack, for: accepted.requestId, in: partition)
-        let pending = try DiagnosticOperation.checkIn(plannedId: nil, outletId: "outlet-1", day: "2026-10-04", intents: [], reason: "Diagnostic", location: nil)
+        let pending = try DiagnosticOperation.checkIn(plannedId: nil, outletId: "outlet-1", day: "2026-10-04", intents: ["sell"], reason: "Diagnostic", location: nil)
         try store.enqueue(pending, for: partition, now: Date(timeIntervalSince1970: 1_800_000_000))
         let visit = try ReferenceDataFixture.change("visit", id: "visit-2", revision: 3, value: ["id": "visit-2"])
         try store.applyDelta([visit], nextCursor: "v3-cursor", for: partition)
