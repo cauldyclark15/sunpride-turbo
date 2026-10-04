@@ -141,6 +141,65 @@ final class CustomerDirectoryTests: XCTestCase {
         XCTAssertTrue(all.first { $0.outletId == "o-b" }!.history.isEmpty)
     }
 
+    /// A completed End is not evidence of a productive call: only the governed activity rule
+    /// (server sfa/productive_call.ts, mirrored by ProductiveCall) may label one productive.
+    func testCompletedCallIsProductiveOnlyByTheGovernedActivityRule() throws {
+        func activity(_ kind: String, checkIn: UUID, at: Date) throws -> VisitIntent {
+            let id = UUID()
+            let object: [String: Any] = ["kind": "visit.activity", "clientRequestId": id.uuidString.lowercased(),
+                                         "dependsOn": [checkIn.uuidString.lowercased()],
+                                         "payload": ["activity": ["kind": kind],
+                                                     "deviceTime": Int64(at.timeIntervalSince1970 * 1000)]]
+            return VisitIntent(requestId: id, kind: "visit.activity",
+                               operationJSON: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]))
+        }
+        func endLabel(outlet: String, planned: String?, kinds: [String], reason: String? = nil,
+                      rejected: Set<String> = [], rule: String? = nil) throws -> String? {
+            let start = try DiagnosticOperation.checkIn(plannedId: planned, outletId: outlet, day: day, intents: [],
+                                                        reason: planned == nil ? "Owner called" : nil, location: nil, now: now)
+            var rows: [(VisitIntent, LocalIntentState)] = [(start, .sent)]
+            for (i, kind) in kinds.enumerated() {
+                let row = kind == "note"
+                    ? try DiagnosticOperation.note("Shelf restocked", checkIn: start.requestId, visitId: nil,
+                                                   now: now.addingTimeInterval(Double(60 + i)))
+                    : try activity(kind, checkIn: start.requestId, at: now.addingTimeInterval(Double(60 + i)))
+                rows.append((row, rejected.contains(kind) ? .review : .sent))
+            }
+            let end = try DiagnosticOperation.checkOut(outcome: "completed", reason: reason, checkIn: start.requestId,
+                                                       visitId: nil, now: now.addingTimeInterval(600))
+            rows.append((end, .sent))
+            return CustomerDirectory.historyByOutlet(rows, rule: rule)[outlet]?.first?.label
+        }
+        XCTAssertEqual(try endLabel(outlet: "o-a", planned: "v-a", kinds: ["note"]), "Call ended · No productive activity",
+                       "a completed note-only call is not productive")
+        XCTAssertEqual(try endLabel(outlet: "o-a", planned: "v-a", kinds: []), "Call ended · No productive activity")
+        XCTAssertEqual(try endLabel(outlet: "o-a", planned: "v-a", kinds: ["note", "order_intent"]), "Call ended · Productive")
+        XCTAssertEqual(try endLabel(outlet: "o-a", planned: "v-a", kinds: ["order_intent"], rejected: ["order_intent"]),
+                       "Call ended · No productive activity", "a refused activity is not evidence")
+        XCTAssertEqual(try endLabel(outlet: "o-a", planned: "v-a", kinds: ["merchandising"], rule: "truck_seller"),
+                       "Call ended · No productive activity", "truck-seller merchandising without the inventory reason")
+        XCTAssertEqual(try endLabel(outlet: "o-a", planned: "v-a", kinds: ["price_check"], rule: "truck_seller"),
+                       "Call ended · No productive activity")
+        XCTAssertEqual(try endLabel(outlet: "o-a", planned: "v-a", kinds: ["merchandising"],
+                                    reason: "no_sales_due_to_inventory", rule: "truck_seller"),
+                       "Call ended · Productive")
+        XCTAssertEqual(try endLabel(outlet: "o-a", planned: "v-a", kinds: ["merchandising"]), "Call ended · Productive",
+                       "default rule: merchandising alone qualifies")
+        XCTAssertEqual(try endLabel(outlet: "o-c", planned: nil, kinds: ["order_intent"]), "Call ended",
+                       "an unplanned call is not a route-plan call, so no productive verdict")
+        // The rule reaches the outlet detail from the saved day target.
+        let start = try DiagnosticOperation.checkIn(plannedId: "v-a", outletId: "o-a", day: day, intents: [],
+                                                    reason: nil, location: nil, now: now)
+        let merch = try activity("merchandising", checkIn: start.requestId, at: now.addingTimeInterval(60))
+        let end = try DiagnosticOperation.checkOut(outcome: "completed", reason: nil, checkIn: start.requestId,
+                                                   visitId: nil, now: now.addingTimeInterval(600))
+        var truck = snapshot()
+        truck.dayTarget = .init(productiveCallRule: "truck_seller")
+        let a = try XCTUnwrap(CustomerDirectory.build(snapshot: truck, today: today(), day: day,
+                                                      history: [(start, .sent), (merch, .sent), (end, .sent)]).first)
+        XCTAssertEqual(a.history.first?.label, "Call ended · No productive activity")
+    }
+
     func testHistoryIsCappedNewestFirst() throws {
         var rows: [(VisitIntent, LocalIntentState)] = []
         for i in 0..<15 {

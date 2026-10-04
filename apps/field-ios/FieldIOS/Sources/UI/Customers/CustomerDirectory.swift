@@ -80,7 +80,7 @@ enum CustomerDirectory {
         let summaries = Dictionary(snapshot.accountSummaries.map { ($0.outletId, $0) }, uniquingKeysWith: { first, _ in first })
         let plans = Dictionary(grouping: snapshot.visits.filter { $0.serviceDate >= day }, by: \.outletId)
         let todays = today.filter(\.planned)
-        let historyByOutlet = historyByOutlet(history)
+        let historyByOutlet = historyByOutlet(history, rule: snapshot.dayTarget?.productiveCallRule)
         var seen = Set<String>()
         return snapshot.outlets.compactMap { outlet in
             guard !outlet.id.isEmpty, seen.insert(outlet.id).inserted else { return nil }
@@ -109,28 +109,51 @@ enum CustomerDirectory {
     }
 
     /// Group every local intent under the outlet of its call's check-in, newest first.
-    static func historyByOutlet(_ rows: [(VisitIntent, LocalIntentState)]) -> [String: [HistoryEntry]] {
+    /// `rule` is the saved position's productive-call rule (`dayTarget.productiveCallRule`); a
+    /// completed call is labelled productive only by that governed rule, never by the End outcome.
+    static func historyByOutlet(_ rows: [(VisitIntent, LocalIntentState)], rule: String? = nil) -> [String: [HistoryEntry]] {
         var outletOfCall: [String: String] = [:]
+        var plannedCalls = Set<String>()
         for (intent, _) in rows where intent.kind == "visit.checkIn" {
-            if let outlet = intent.payload?["outletId"] as? String { outletOfCall[intent.requestId.uuidString.lowercased()] = outlet }
+            let call = intent.requestId.uuidString.lowercased()
+            if let outlet = intent.payload?["outletId"] as? String { outletOfCall[call] = outlet }
+            if intent.payload?["plannedVisitId"] is String { plannedCalls.insert(call) }
+        }
+        // Activities recorded at each call, as the Today dashboard reads them (refused ones excluded).
+        var activityKinds: [String: [String]] = [:]
+        for (intent, state) in rows where intent.kind == "visit.activity" && state != .review {
+            guard let call = intent.dependencies.first,
+                  let kind = (intent.payload?["activity"] as? [String: Any])?["kind"] as? String else { continue }
+            activityKinds[call, default: []].append(kind)
         }
         var grouped: [String: [HistoryEntry]] = [:]
         for (intent, state) in rows {
             let call = intent.kind == "visit.checkIn" ? intent.requestId.uuidString.lowercased() : intent.dependencies.first
             guard let call, let outlet = outletOfCall[call], let at = intent.deviceTime else { continue }
-            grouped[outlet, default: []].append(HistoryEntry(at: at, label: label(intent), state: state.label))
+            let productive: Bool? = plannedCalls.contains(call)
+                ? ProductiveCall.isProductive(rule: rule, activityKinds: activityKinds[call] ?? [],
+                                              reasonCode: intent.payload?["reasonCode"] as? String)
+                : nil
+            grouped[outlet, default: []].append(HistoryEntry(at: at, label: label(intent, productive: productive), state: state.label))
         }
         return grouped.mapValues { Array($0.sorted { $0.at > $1.at }.prefix(historyLimit)) }
     }
 
-    static func label(_ intent: VisitIntent) -> String {
+    /// `productive` is the governed productive-call result for a route-plan call, or nil when the
+    /// rule does not apply (an unplanned call is not a call under the client's rule).
+    static func label(_ intent: VisitIntent, productive: Bool? = nil) -> String {
         let payload = intent.payload ?? [:]
         switch intent.kind {
         case "visit.checkIn":
             return payload["plannedVisitId"] is String ? "Call started" : "Unplanned call started"
         case "visit.checkOut":
             switch payload["outcome"] as? String {
-            case "completed": return "Call ended · Productive"
+            case "completed":
+                switch productive {
+                case true?: return "Call ended · Productive"
+                case false?: return "Call ended · No productive activity"
+                case nil: return "Call ended"
+                }
             case "nonproductive":
                 return "Call ended · Not productive" + ((payload["reasonCode"] as? String).flatMap(clean).map { " (\($0))" } ?? "")
             default: return "Call ended"
