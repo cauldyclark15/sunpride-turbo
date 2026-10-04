@@ -57,7 +57,8 @@ final class FieldDayCallTests: XCTestCase {
         try XCTUnwrap(model.visits.first { $0.id == id })
     }
     private func start(_ visit: AppModel.TodayVisit, location: VisitLocation? = nil) throws {
-        try model.queueCheckIn(visit, unplannedReason: visit.planned ? nil : "Extra call", location: location)
+        try model.queueCheckIn(visit, unplannedReason: visit.planned ? nil : "Extra call",
+                               intents: visit.planned ? [] : ["sell"], location: location)
     }
     private func expect(_ error: AppModel.CallFailure, _ work: () throws -> Void) {
         XCTAssertThrowsError(try work()) { XCTAssertEqual($0 as? AppModel.CallFailure, error) }
@@ -120,7 +121,7 @@ final class FieldDayCallTests: XCTestCase {
     }
     func testOpenCallOnPastDayDoesNotBlockTodaysCall() throws {
         let old = try DiagnosticOperation.checkIn(plannedId: nil, outletId: "extra", day: "2026-10-01",
-            intents: [], reason: "Earlier call", location: nil, now: clock.now.addingTimeInterval(-86_400))
+            intents: ["sell"], reason: "Earlier call", location: nil, now: clock.now.addingTimeInterval(-86_400))
         try store.enqueue(old, for: partition, now: clock.now)
         try start(try visit("first"))
     }

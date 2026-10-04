@@ -144,7 +144,16 @@ final class StubBackend: URLProtocol {
                                "uom": "PC", "barcode": NSNull(), "pricing": "₱189.00"]]]],
                 "page": 1, "nextPageCursor": NSNull(), "syncCursor": "stub-cursor",
                 "dayTarget": ["dailyCalls": 30, "productivePct": 85, "sourceRef": "stub-memo"],
-                "daySales": ["amountMinor": 175_050, "orders": 2, "targetMinor": 500_000]
+                "daySales": ["amountMinor": 175_050, "orders": 2, "targetMinor": 500_000],
+                // IOS-013: planned "audit" stays optional-only so plan-flow tests can end completed;
+                // an unplanned Merchandise purpose requires the merchandising form.
+                "activityRules": [
+                    ["intent": "audit", "version": "stub-rules-1",
+                     "activities": [["kind": "inventory_check", "required": false], ["kind": "merchandising", "required": false]]],
+                    ["intent": "merchandise", "version": "stub-rules-1",
+                     "activities": [["kind": "merchandising", "required": true], ["kind": "price_check", "required": false]]],
+                    ["intent": "complaint", "version": "stub-rules-1", "activities": [["kind": "note", "required": true]]]
+                ]
             ]))
         case "/mobile/v1/push", "/mobile/v1/pull":
             let h = Dictionary(uniqueKeysWithValues: headers.map { ($0.key.lowercased(), $0.value) })

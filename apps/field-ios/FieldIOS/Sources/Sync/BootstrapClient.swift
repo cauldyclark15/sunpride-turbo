@@ -47,6 +47,7 @@ final class BootstrapClient {
         var route: StoreSnapshot.Route?
         var dayTarget: StoreSnapshot.DayTarget?
         var daySales: StoreSnapshot.DaySales?
+        var activityRules: [ActivityRule]?
         var next: String?
         var seen = Set<String>()
         var lease = Int64.max, cache = Int64.max
@@ -80,6 +81,11 @@ final class BootstrapClient {
                 sales.asOf = page.serverTime
                 daySales = sales
             }
+            if let rules = page.activityRules {
+                // One download carries one rule set (the server's signed manifest): a change restarts.
+                if let previousRules = activityRules, previousRules != rules { throw Failure.restartRequired }
+                activityRules = rules
+            }
             if let r = page.route {
                 if let previousRoute = route,
                    (previousRoute.id != r.id || previousRoute.code != r.code) { throw Failure.invalidResponse }
@@ -103,7 +109,7 @@ final class BootstrapClient {
                   visits.allSatisfy({ visit in uniqueOutlets.contains(where: { $0.id == visit.outletId }) }) else { throw Failure.invalidResponse }
             let snapshot = StoreSnapshot(employee: initial.employee, visits: visits, outlets: uniqueOutlets,
                                          customers: uniqueCustomers, route: route, tasks: tasks, callSheets: uniqueCallSheets, dayTarget: dayTarget,
-                                         daySales: daySales)
+                                         daySales: daySales, activityRules: activityRules ?? [])
             try store.saveSnapshot(snapshot, cursor: cursor, leaseExpiresAt: lease, cacheExpiresAt: cache, for: partition)
             try store.setSyncHealth(SyncHealth(lastSuccessfulSyncAt: page.serverTime, lastErrorCode: nil), for: partition)
             return partition
