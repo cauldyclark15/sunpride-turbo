@@ -35,10 +35,54 @@ struct StoreSnapshot: Sendable {
             }.map(\.element)
         }
     }
-    struct Outlet: Codable, Sendable { let id: String; let name: String; let routeId: String? }
+    struct Coordinate: Codable, Sendable, Equatable { let latitude: Double; let longitude: Double }
+    /// code/customerId/address/latitude/longitude are additive v1 route-screen fields; older feeds omit them.
+    struct Outlet: Codable, Sendable {
+        let id: String; let name: String; let routeId: String?
+        var code: String? = nil
+        var customerId: String? = nil
+        var address: String? = nil
+        /// Current verified pin, sent flat on the wire: both or neither.
+        var latitude: Double? = nil
+        var longitude: Double? = nil
+
+        init(id: String, name: String, routeId: String?, code: String? = nil, customerId: String? = nil,
+             address: String? = nil, location: Coordinate? = nil) {
+            self.id = id; self.name = name; self.routeId = routeId
+            self.code = code; self.customerId = customerId; self.address = address
+            latitude = location?.latitude; longitude = location?.longitude
+        }
+
+        var location: Coordinate? {
+            guard let latitude, let longitude else { return nil }
+            return Coordinate(latitude: latitude, longitude: longitude)
+        }
+    }
     struct Customer: Codable, Sendable { let id: String; let code: String }
     struct Route: Codable, Sendable { let id: String; let code: String }
     struct Task: Codable, Sendable { let id: String; let kind: String; let required: Bool }
+    /// Daily position standard (client memo; call answer 1: targets are per day, per route).
+    struct DayTarget: Codable, Sendable, Equatable {
+        var dailyCalls: Int? = nil
+        var productivePct: Double? = nil
+        var sourceRef: String? = nil
+        /// Governed productive-call rule (server sfa/productive_call.ts); absent = any listed activity.
+        var productiveCallRule: String? = nil
+        var isValid: Bool {
+            (dailyCalls.map { $0 >= 0 } ?? true) && (productivePct.map { $0.isFinite && (0...100).contains($0) } ?? true)
+                && (sourceRef.map { !$0.isEmpty } ?? true) && (productiveCallRule.map { !$0.isEmpty } ?? true)
+        }
+    }
+    /// Today's sales as the server counted them (Daily Sales Report rules), PHP centavos, as of
+    /// the bootstrap's server time. Order capture is not on the phone, so this is the day's total.
+    struct DaySales: Codable, Sendable, Equatable {
+        let amountMinor: Int64
+        let orders: Int
+        var targetMinor: Int64? = nil
+        /// Server time of the download (epoch ms); set by the phone, never read from the wire.
+        var asOf: Int64? = nil
+        var isValid: Bool { orders >= 0 && (targetMinor.map { $0 >= 0 } ?? true) }
+    }
     let employee: Employee
     let visits: [Visit]
     let outlets: [Outlet]
@@ -46,11 +90,17 @@ struct StoreSnapshot: Sendable {
     let route: Route?
     let tasks: [Task]
     let callSheets: [CallSheet]
+    var dayTarget: DayTarget? = nil
+    var daySales: DaySales? = nil
+    /// IOS-013 activity-form rules per visit intent, in server order; empty from older servers.
+    var activityRules: [ActivityRule] = []
 
     init(employee: Employee, visits: [Visit], outlets: [Outlet], customers: [Customer],
-         route: Route?, tasks: [Task], callSheets: [CallSheet] = []) {
+         route: Route?, tasks: [Task], callSheets: [CallSheet] = [], dayTarget: DayTarget? = nil,
+         daySales: DaySales? = nil, activityRules: [ActivityRule] = []) {
         self.employee = employee; self.visits = visits; self.outlets = outlets
         self.customers = customers; self.route = route; self.tasks = tasks; self.callSheets = callSheets
+        self.dayTarget = dayTarget; self.daySales = daySales; self.activityRules = activityRules
     }
 }
 
@@ -168,6 +218,10 @@ protocol FieldLocalStore: AnyObject {
     func syncHealth(for partition: StorePartition) throws -> SyncHealth?
     func setSyncHealth(_ health: SyncHealth, for partition: StorePartition) throws
     func holdForReview(_ partition: StorePartition) throws
+    /// QSR-010 confirmed revocation: hold, then drop this partition's server cache (keeps unsent evidence).
+    func purgeCacheForReview(_ partition: StorePartition) throws
+    /// QSR-010 sign-out: hold every partition and drop every server cache (keeps unsent evidence).
+    func purgeAllCachesForReview() throws
     func releaseHeld(_ partition: StorePartition) throws
     func releaseHeld(subject: String, deviceId: String) throws
     func isHeld(_ partition: StorePartition) throws -> Bool
@@ -219,6 +273,8 @@ final class EncryptedFieldStore: FieldLocalStore {
             try exec("PRAGMA synchronous=FULL")
             try exec("PRAGMA foreign_keys=ON")
             try exec("PRAGMA temp_store=MEMORY")
+            // QSR-010: deleted cache rows are overwritten, not left in free pages.
+            try exec("PRAGMA secure_delete=ON")
             try migrate()
             try protectFiles()
         } catch {
@@ -384,6 +440,10 @@ final class EncryptedFieldStore: FieldLocalStore {
         for v in snapshot.customers { rows.append(("customer", v.id, nil, try encode(v))) }
         if let route = snapshot.route { rows.append(("route", route.id, nil, try encode(route))) }
         for v in snapshot.tasks { rows.append(("task", v.id, nil, try encode(v))) }
+        if let target = snapshot.dayTarget { rows.append(("dayTarget", "today", nil, try encode(target))) }
+        if let sales = snapshot.daySales { rows.append(("daySales", "today", nil, try encode(sales))) }
+        // One row keeps the server's rule order; it rides the generic snapshot table (no migration).
+        if !snapshot.activityRules.isEmpty { rows.append(("activityRules", "all", nil, try encode(snapshot.activityRules))) }
         guard rows.allSatisfy({ !$0.1.isEmpty }), snapshot.callSheets.allSatisfy(\.isValid),
               snapshot.callSheets.allSatisfy({ sheet in snapshot.outlets.contains { $0.id == sheet.outletId } }) else { throw StoreError.invalidInput }
         let sheets = try snapshot.callSheets.map { ($0.outletId, try encode($0)) }
@@ -433,7 +493,13 @@ final class EncryptedFieldStore: FieldLocalStore {
             customers: entities(StoreSnapshot.Customer.self, kind: "customer", partition: partition),
             route: entities(StoreSnapshot.Route.self, kind: "route", partition: partition).first,
             tasks: entities(StoreSnapshot.Task.self, kind: "task", partition: partition),
-            callSheets: callSheets(for: partition))
+            callSheets: callSheets(for: partition),
+            dayTarget: entities(StoreSnapshot.DayTarget.self, kind: "dayTarget", partition: partition).first,
+            daySales: entities(StoreSnapshot.DaySales.self, kind: "daySales", partition: partition).first,
+            activityRules: activityRules(for: partition))
+    }
+    func activityRules(for partition: StorePartition) throws -> [ActivityRule] {
+        try entities([ActivityRule].self, kind: "activityRules", partition: partition).first ?? []
     }
     func leaseExpiry(for partition: StorePartition) throws -> Int64? {
         try query("SELECT lease_expiry FROM partitions WHERE \(Self.predicate)", p(partition)) {
@@ -460,6 +526,7 @@ final class EncryptedFieldStore: FieldLocalStore {
         try transaction {
             guard try isLeaseValid(now: now, for: partition) else { throw StoreError.leaseExpired }
             guard try state(partition)?.1 == false else { throw StoreError.heldForReview }
+            try validateActivityRules(intent, partition)
             try run("INSERT INTO intents(subject,device,scope,request_id,kind,body) VALUES (?,?,?,?,?,?)",
                     p(partition) + [.text(intent.requestId.uuidString.lowercased()), .text(intent.kind), .blob(intent.operationJSON)])
             #if DEBUG
@@ -483,12 +550,38 @@ final class EncryptedFieldStore: FieldLocalStore {
         try transaction {
             guard try isLeaseValid(now: now, for: partition) else { throw StoreError.leaseExpired }
             guard try state(partition)?.1 == false else { throw StoreError.heldForReview }
+            try validateActivityRules(intent, partition)
             try run("INSERT INTO intents(subject,device,scope,request_id,kind,body) VALUES (?,?,?,?,?,?)",
                     p(partition) + [.text(intent.requestId.uuidString.lowercased()), .text(intent.kind), .blob(intent.operationJSON)])
             try run("INSERT INTO outbox(subject,device,scope,request_id,status) VALUES (?,?,?,?,'deferred')",
                     p(partition) + [.text(intent.requestId.uuidString.lowercased())])
         }
         try protectFiles()
+    }
+    /// IOS-013, inside the enqueue transaction: a structured form must match its wire shape and the
+    /// account's call-sheet products, and a "completed" End needs every capturable required form
+    /// recorded for its call. Notes, call sheets and not-productive Ends keep their own checks.
+    private func validateActivityRules(_ item: VisitIntent, _ partition: StorePartition) throws {
+        guard item.kind == "visit.activity" || item.kind == "visit.checkOut", let payload = item.payload else { return }
+        let activity = payload["activity"] as? [String: Any]
+        if item.kind == "visit.activity" {
+            guard let kind = activity?["kind"] as? String, ActivityRules.structuredForms.contains(kind) else { return }
+        } else if payload["outcome"] as? String != "completed" { return }
+        guard let dependency = item.dependencies.first, let checkInId = UUID(uuidString: dependency),
+              let checkIn = try intent(for: checkInId, in: partition), checkIn.kind == "visit.checkIn",
+              let outletId = checkIn.payload?["outletId"] as? String else {
+            if item.kind == "visit.checkOut" { return } // The call guards own an End without a Start.
+            throw StoreError.invalidInput
+        }
+        let sheet = try callSheets(for: partition).first { $0.outletId == outletId }
+        if item.kind == "visit.activity", let activity {
+            do { try ActivityForms.validate(activity, sheet: sheet) } catch { throw StoreError.invalidInput }
+            return
+        }
+        let rejected = Set(try reviewOutbox(for: partition).map { $0.intent.requestId })
+        let missing = ActivityRules.missingForEnd(checkIn: checkIn, rules: try activityRules(for: partition),
+                                                  intents: try intents(for: partition), rejected: rejected, sheet: sheet)
+        guard missing.isEmpty else { throw StoreError.invalidInput }
     }
     func deferredOutbox(for partition: StorePartition) throws -> [OutboxItem] {
         try query("SELECT o.sequence,i.request_id,i.kind,i.body FROM outbox o JOIN intents i ON i.subject=o.subject AND i.device=o.device AND i.scope=o.scope AND i.request_id=o.request_id WHERE o.subject=? AND o.device=? AND o.scope=? AND o.status='deferred' ORDER BY o.sequence", p(partition)) { row in
@@ -620,6 +713,26 @@ final class EncryptedFieldStore: FieldLocalStore {
     /// Sign-out/revocation: preserve all durable evidence, stop new intents and hide it from other partitions.
     func holdForReview(_ partition: StorePartition) throws {
         try run("UPDATE partitions SET held=1,cursor=NULL WHERE \(Self.predicate)", p(partition))
+    }
+    /// QSR-010: sign-out/revocation removes the server-provided cache — plan, outlets, customers,
+    /// route, employee header, call sheets/prices, deltas and the offline lease. Intents, outbox and
+    /// acks are the person's evidence and stay encrypted and held for supervised review (ADR-020).
+    func purgeCacheForReview(_ partition: StorePartition) throws {
+        try transaction {
+            try ensure(partition)
+            try purge(where: Self.predicate, p(partition))
+        }
+        try exec("PRAGMA wal_checkpoint(TRUNCATE)")
+    }
+    func purgeAllCachesForReview() throws {
+        try transaction { try purge(where: "1=1", []) }
+        try exec("PRAGMA wal_checkpoint(TRUNCATE)")
+    }
+    private func purge(where clause: String, _ values: [Value]) throws {
+        for table in ["snapshot", "call_sheets", "delta"] {
+            try run("DELETE FROM \(table) WHERE \(clause)", values)
+        }
+        try run("UPDATE partitions SET held=1,cursor=NULL,lease_expiry=NULL,cache_expiry=NULL WHERE \(clause)", values)
     }
     func releaseHeld(_ partition: StorePartition) throws {
         try run("UPDATE partitions SET held=0 WHERE \(Self.predicate)", p(partition))

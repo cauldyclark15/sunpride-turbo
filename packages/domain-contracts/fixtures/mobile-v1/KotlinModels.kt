@@ -59,7 +59,31 @@ data class BootstrapResponse(
   // schema-field: bootstrapResponse.nextPageCursor
   val nextPageCursor: String?,
   // schema-field: bootstrapResponse.syncCursor
-  val syncCursor: String?
+  val syncCursor: String?,
+  // schema-field: bootstrapResponse.dayTarget
+  val dayTarget: OptionalField<BootstrapResponseDayTarget>,
+  // schema-field: bootstrapResponse.daySales
+  val daySales: OptionalField<BootstrapResponseDaySales>
+)
+// schema-object: bootstrapResponse.dayTarget
+data class BootstrapResponseDayTarget(
+  // schema-field: bootstrapResponse.dayTarget.dailyCalls
+  val dailyCalls: OptionalField<Long>,
+  // schema-field: bootstrapResponse.dayTarget.productivePct
+  val productivePct: OptionalField<Double>,
+  // schema-field: bootstrapResponse.dayTarget.sourceRef
+  val sourceRef: OptionalField<String>,
+  // schema-field: bootstrapResponse.dayTarget.productiveCallRule
+  val productiveCallRule: OptionalField<String>
+)
+// schema-object: bootstrapResponse.daySales
+data class BootstrapResponseDaySales(
+  // schema-field: bootstrapResponse.daySales.amountMinor
+  val amountMinor: Long,
+  // schema-field: bootstrapResponse.daySales.orders
+  val orders: Long,
+  // schema-field: bootstrapResponse.daySales.targetMinor
+  val targetMinor: OptionalField<Long>
 )
 // schema-object: bootstrapResponse.employee
 data class BootstrapResponseEmployee(
@@ -119,6 +143,10 @@ data class BootstrapResponseOutletsItem(
   val code: OptionalField<String>,
   // schema-field: bootstrapResponse.outlets[].customerId
   val customerId: OptionalField<String>,
+  // schema-field: bootstrapResponse.outlets[].territoryId
+  val territoryId: OptionalField<String>,
+  // schema-field: bootstrapResponse.outlets[].territoryCode
+  val territoryCode: OptionalField<String>,
   // schema-field: bootstrapResponse.outlets[].address
   val address: OptionalField<String>,
   // schema-field: bootstrapResponse.outlets[].latitude
@@ -328,7 +356,18 @@ data class PushRequestOperationsItemVariant1PayloadActivityVariant4(
   // schema-field: pushRequest.operations[]#1.payload.activity#4.clientOrderId
   val clientOrderId: String,
   // schema-field: pushRequest.operations[]#1.payload.activity#4.note
-  val note: OptionalField<String>
+  val note: OptionalField<String>,
+  // schema-field: pushRequest.operations[]#1.payload.activity#4.lines
+  val lines: OptionalField<List<PushRequestOperationsItemVariant1PayloadActivityVariant4LinesItem>>
+)
+// schema-object: pushRequest.operations[]#1.payload.activity#4.lines[]
+data class PushRequestOperationsItemVariant1PayloadActivityVariant4LinesItem(
+  // schema-field: pushRequest.operations[]#1.payload.activity#4.lines[].productId
+  val productId: String,
+  // schema-field: pushRequest.operations[]#1.payload.activity#4.lines[].uom
+  val uom: String,
+  // schema-field: pushRequest.operations[]#1.payload.activity#4.lines[].quantity
+  val quantity: Long
 )
 // schema-object: pushRequest.operations[]#1.payload.activity#5
 data class PushRequestOperationsItemVariant1PayloadActivityVariant5(
