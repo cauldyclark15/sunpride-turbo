@@ -66,6 +66,8 @@ import type * as inventory_constants from "../inventory/constants.js";
 import type * as inventory_counts from "../inventory/counts.js";
 import type * as inventory_location_scope from "../inventory/location_scope.js";
 import type * as inventory_manufacturing from "../inventory/manufacturing.js";
+import type * as inventory_negative_stock from "../inventory/negative_stock.js";
+import type * as inventory_negative_stock_policy from "../inventory/negative_stock_policy.js";
 import type * as inventory_policies from "../inventory/policies.js";
 import type * as inventory_pos from "../inventory/pos.js";
 import type * as inventory_posting from "../inventory/posting.js";
@@ -221,6 +223,8 @@ declare const fullApi: ApiFromModules<{
   "inventory/counts": typeof inventory_counts;
   "inventory/location_scope": typeof inventory_location_scope;
   "inventory/manufacturing": typeof inventory_manufacturing;
+  "inventory/negative_stock": typeof inventory_negative_stock;
+  "inventory/negative_stock_policy": typeof inventory_negative_stock_policy;
   "inventory/policies": typeof inventory_policies;
   "inventory/pos": typeof inventory_pos;
   "inventory/posting": typeof inventory_posting;

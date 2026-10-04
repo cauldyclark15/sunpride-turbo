@@ -64,6 +64,7 @@ import {
   costingMethodValidator,
   locationTypeValidator,
   movementTypeValidator,
+  negativeStockMovementTypeValidator,
   productionStatusValidator,
   receiptStatusValidator,
   reservationStatusValidator,
@@ -1037,6 +1038,53 @@ export default defineSchema({
       "organizationId",
       "resolutionStatus",
       "asOf",
+    ]),
+  // SP-0085 / ADR-007: the explicit, location-scoped exception that lets
+  // distributor operations sell or issue below zero. Absent or inactive means
+  // the default non-negative rule applies.
+  negativeStockAllowances: defineTable({
+    organizationId: v.string(),
+    locationId: v.id("inventoryLocations"),
+    operation: v.literal("distributor"),
+    movementTypes: v.array(negativeStockMovementTypeValidator),
+    limitBase: v.optional(v.int64()),
+    active: v.boolean(),
+    sourceRef: v.string(),
+    version: v.number(),
+    updatedBy: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_organizationId_and_locationId", [
+    "organizationId",
+    "locationId",
+  ]),
+  // Every posting that leaves (or deepens) a negative balance is flagged here
+  // for reconciliation; a flag closes only once the balance is back at zero or above.
+  negativeStockFlags: defineTable({
+    organizationId: v.string(),
+    allowanceId: v.id("negativeStockAllowances"),
+    movementId: v.id("inventoryMovements"),
+    movementType: negativeStockMovementTypeValidator,
+    productId: v.id("products"),
+    locationId: v.id("inventoryLocations"),
+    quantityBase: v.int64(),
+    balanceAfterBase: v.int64(),
+    shortfallBase: v.int64(),
+    status: v.union(v.literal("open"), v.literal("resolved")),
+    postedBy: v.string(),
+    createdAt: v.number(),
+    resolvedBy: v.optional(v.string()),
+    resolvedAt: v.optional(v.number()),
+    resolutionNote: v.optional(v.string()),
+  })
+    .index("by_organizationId_and_status_and_createdAt", [
+      "organizationId",
+      "status",
+      "createdAt",
+    ])
+    .index("by_organizationId_and_movementId", [
+      "organizationId",
+      "movementId",
     ]),
   inventoryReconciliationRuns: defineTable({
     organizationId: v.string(),

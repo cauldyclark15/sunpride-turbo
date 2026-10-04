@@ -6,6 +6,11 @@ import {
   MAX_COMMAND_LINES,
   SUNPRIDE_ORGANIZATION_ID,
 } from "./constants";
+import {
+  activeNegativeStockAllowance,
+  flagNegativeStockPosting,
+  isNegativeStockMovementType,
+} from "./negative_stock_policy";
 import type { MovementType, StockStatus } from "./validators";
 
 export type PostingAllocation = {
@@ -168,6 +173,8 @@ export async function applySummaryDelta(
     unitCostMinor?: bigint;
     movementId: Id<"inventoryMovements">;
     now: number;
+    /** Set only by postMovement when an active distributor allowance covers this outbound line. */
+    negativeStock?: { limitBase?: bigint };
   },
 ) {
   const existing = await ctx.db
@@ -191,7 +198,24 @@ export async function applySummaryDelta(
       ? statusAfter
       : (base.availableStockBase ?? ZERO);
   const availableAfter = availableStockAfter - reservedAfter;
-  if (statusAfter < ZERO || physicalAfter < ZERO || reservedAfter < ZERO)
+  const physicalBefore = base.physicalBase ?? ZERO;
+  const availableBefore =
+    (base.availableStockBase ?? ZERO) - (base.reservedBase ?? ZERO);
+  // SP-0085: only an outbound, unreserved move of available stock at a location
+  // holding an active distributor allowance may go below zero.
+  const negativeAllowed =
+    !!args.negativeStock &&
+    field === "availableStockBase" &&
+    args.quantityDeltaBase < ZERO &&
+    (args.reservedDeltaBase ?? ZERO) === ZERO;
+  // A movement that moves a balance towards zero (a receipt or reversal into a
+  // previously allowed negative balance) is never rejected for still being negative.
+  if (
+    reservedAfter < ZERO ||
+    (!negativeAllowed &&
+      ((statusAfter < ZERO && statusAfter < statusBefore) ||
+        (physicalAfter < ZERO && physicalAfter < physicalBefore)))
+  )
     throw new ConvexError("Inventory movement would create a negative balance");
   const policy = await ctx.db
     .query("productInventoryPolicies")
@@ -201,28 +225,53 @@ export async function applySummaryDelta(
         .eq("productId", args.product._id),
     )
     .unique();
-  // ADR-003 / CVX-016: negative availability is forbidden even when a legacy policy allows negative stock.
-  if (availableAfter < ZERO)
+  // ADR-003 / CVX-016: negative availability is forbidden even when a legacy
+  // product policy allows negative stock; the only exception is an explicit
+  // location allowance (ADR-007, SP-0085).
+  if (
+    !negativeAllowed &&
+    availableAfter < ZERO &&
+    availableAfter < availableBefore
+  )
     throw new ConvexError("Insufficient available stock");
+  const limitBase = args.negativeStock?.limitBase;
+  if (
+    negativeAllowed &&
+    limitBase !== undefined &&
+    (availableAfter < -limitBase || physicalAfter < -limitBase)
+  )
+    throw new ConvexError("Negative stock limit exceeded for this location");
   const scale = Number(
     policy?.quantityScale ?? args.product.quantityScale ?? 1n,
   );
   const quantityScale =
     policy?.quantityScale ?? args.product.quantityScale ?? 1n;
   const valueBefore = base.inventoryValueMinor ?? ZERO;
-  const valueDelta =
-    args.physicalDeltaBase === ZERO
-      ? ZERO
-      : ((args.unitCostMinor ?? base.weightedAverageCostMinor ?? ZERO) *
-          args.physicalDeltaBase) /
-        quantityScale;
-  const inventoryValueAfter = valueBefore + valueDelta;
-  if (inventoryValueAfter < ZERO)
+  const unitCostMinor =
+    args.unitCostMinor ?? base.weightedAverageCostMinor ?? ZERO;
+  // Receiving into a negative balance settles the shortfall: what remains on
+  // hand is valued at the receipt cost rather than averaging against the
+  // phantom negative value.
+  const inventoryValueAfter =
+    physicalBefore < ZERO && args.physicalDeltaBase > ZERO
+      ? (unitCostMinor * physicalAfter) / quantityScale
+      : valueBefore +
+        (args.physicalDeltaBase === ZERO
+          ? ZERO
+          : (unitCostMinor * args.physicalDeltaBase) / quantityScale);
+  const valueDelta = inventoryValueAfter - valueBefore;
+  if (
+    !negativeAllowed &&
+    inventoryValueAfter < ZERO &&
+    inventoryValueAfter < valueBefore
+  )
     throw new ConvexError("Inventory value would become negative");
   const weightedAverageCostMinor =
     physicalAfter > ZERO
       ? (inventoryValueAfter * quantityScale) / physicalAfter
-      : ZERO;
+      : physicalAfter < ZERO
+        ? (base.weightedAverageCostMinor ?? unitCostMinor)
+        : ZERO;
   const patch = {
     [field]: statusAfter,
     physicalBase: physicalAfter,
@@ -244,6 +293,8 @@ export async function applySummaryDelta(
     after: statusAfter,
     version: patch.version,
     valueDelta,
+    availableAfter,
+    physicalAfter,
   };
 }
 
@@ -510,6 +561,21 @@ export async function postMovement(ctx: MutationCtx, input: PostMovementInput) {
       effectiveAt,
     });
 
+    const trackingMode = policy?.trackingMode ?? product.trackingMode ?? "none";
+    // SP-0085: lot/serial products keep exact non-negative lot balances; the
+    // distributor exception covers untracked available stock only.
+    const negativeAllowance =
+      fromLocation &&
+      !isSameLocation &&
+      fromStatus === "available" &&
+      trackingMode === "none" &&
+      !line.sourceReservedDeltaBase
+        ? await activeNegativeStockAllowance(
+            ctx,
+            fromLocation._id,
+            input.movementType,
+          )
+        : null;
     const fromSummary = fromLocation
       ? await applySummaryDelta(ctx, {
           product,
@@ -521,8 +587,35 @@ export async function postMovement(ctx: MutationCtx, input: PostMovementInput) {
           unitCostMinor: effectiveUnitCostMinor,
           movementId,
           now,
+          ...(negativeAllowance
+            ? {
+                negativeStock: {
+                  ...(negativeAllowance.limitBase !== undefined
+                    ? { limitBase: negativeAllowance.limitBase }
+                    : {}),
+                },
+              }
+            : {}),
         })
       : null;
+    if (
+      negativeAllowance &&
+      fromLocation &&
+      fromSummary &&
+      fromSummary.availableAfter < ZERO &&
+      isNegativeStockMovementType(input.movementType)
+    )
+      await flagNegativeStockPosting(ctx, {
+        allowance: negativeAllowance,
+        movementId,
+        movementType: input.movementType,
+        productId: product._id,
+        locationId: fromLocation._id,
+        quantityBase: line.quantityBase,
+        balanceAfterBase: fromSummary.availableAfter,
+        actorSubject: input.actorSubject,
+        now,
+      });
     const toSummary = toLocation
       ? await applySummaryDelta(ctx, {
           product,
