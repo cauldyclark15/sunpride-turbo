@@ -43,12 +43,22 @@ class FieldAppTest {
         override val isSignedIn get() = signedIn
         override fun today(deviceId: String, signer: DeviceSigner, sync: Boolean): TodayData {
             if (sync) syncs++
-            return TodayData(visits, lastSynced = if (sync) 150L else null, stale = !sync, customers = customers)
+            return TodayData(visits, lastSynced = if (sync) 150L else null, stale = !sync, customers = customers,
+                supervisor = supervisor)
         }
         override fun loadSigner(): DeviceSigner = KeystoreDeviceKey.loadOrCreate(rule.activity, alias)
         override fun signIn(email: String, password: String) { signInError?.let { throw it }; signedIn = true }
         override fun signOut() { signedIn = false }
         override fun refreshEnrollment(signer: DeviceSigner) = enrollment
+        var supervisor = false
+        var teamCalls = 0
+        override fun team(directOnly: Boolean): com.sunpride.field.ui.team.TeamView {
+            teamCalls++
+            return com.sunpride.field.ui.team.TeamView(com.sunpride.field.ui.team.TeamSummary("2026-09-28", 1L,
+                Long.MAX_VALUE, directOnly, false, listOf(com.sunpride.field.ui.team.TeamPerson("p1", "Ana Cruz",
+                    "Route Salesman", "PMOT", true, 3, 1, 1, 1, 0, 0, true, 0, 0, 0, 1L, null, 1L)),
+                0, 0, emptyList()))
+        }
     }
 
     @After fun cleanUp() = KeystoreDeviceKey.delete(alias)
@@ -152,6 +162,26 @@ class FieldAppTest {
         rule.onNodeWithTag("customers-title").assertIsDisplayed()
         rule.onNodeWithTag("customers-back").performClick()
         rule.onNodeWithTag("today-title").assertIsDisplayed()
+    }
+
+    @Test fun supervisorOpensTeamFromTodayAndFieldSalesDoesNotSeeIt() {
+        val backend = ScriptedBackend(EnrollmentState.Ready("dev1")).apply { signedIn = true; supervisor = true }
+        var show by androidx.compose.runtime.mutableStateOf(true)
+        rule.setContent { if (show) FieldApp(configured, dark = false, debug = false, backend = backend) }
+        rule.waitUntil(10_000) { rule.onAllNodesWithTagExists("team-open") }
+        rule.onNodeWithTag("team-open").performClick()
+        rule.onNodeWithTag("team-title").assertTextContains("Team")
+        rule.waitUntil(10_000) { rule.onAllNodesWithTagExists("team-person") }
+        rule.onNodeWithTag("team-person").assertTextContains("Ana Cruz", substring = true)
+            .assertTextContains("In a call", substring = true)
+        rule.onNodeWithTag("team-back").performClick()
+        rule.onNodeWithTag("today-title").assertIsDisplayed()
+        assert(backend.teamCalls >= 1)
+        backend.supervisor = false
+        show = false; rule.waitForIdle(); show = true
+        rule.waitUntil(10_000) { rule.onAllNodesWithTagExists("today-title") }
+        rule.waitForIdle()
+        rule.onNodeWithTag("team-open").assertDoesNotExist()
     }
 
     @Test fun revokedPhoneShowsRemoved() {

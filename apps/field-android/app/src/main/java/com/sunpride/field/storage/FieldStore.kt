@@ -70,10 +70,25 @@ interface FieldStore {
         com.sunpride.field.ui.syncstatus.SyncStatus(offline = offline)
     /** Sign-out, revoke or scope change: freeze pending work for supervised review; never delete it. */
     suspend fun holdForReview()
+    /**
+     * QSR-010 confirmed revocation/suspension: hold as above AND drop the server-provided cache
+     * (plan, outlets, customers, call sheets and prices, employee header, deltas, team summaries,
+     * offline lease). Unsent intents, acks and photos stay encrypted for supervised recovery.
+     */
+    suspend fun purgeCacheForReview() = holdForReview()
     suspend fun history(): List<Pair<IntentRow, OutboxRow>> = emptyList()
     suspend fun intent(requestId: String): IntentRow? = null
     suspend fun delta(entity: String, id: String): DeltaRow? = null
     suspend fun applyDelta(changes: List<DeltaRow>, nextCursor: String) { setCursor(nextCursor) }
+    /** Role from the active bootstrap's employee header: a UI hint only, the server authorizes. */
+    suspend fun employeeRole(): String? = null
+    /**
+     * AND-020 small server summaries saved for offline display, kept in this partition's deltas table
+     * under a reserved `local.` entity (server deltas are only `visit`/`activity`), so no migration.
+     */
+    suspend fun localCache(entity: String, key: String): DeltaRow? = null
+    /** Save one summary and drop this entity's rows whose key does not start with [keepPrefix]. */
+    suspend fun putLocalCache(entity: String, key: String, json: String, at: Long, keepPrefix: String) {}
     fun close() {}
 }
 
@@ -125,6 +140,31 @@ object EncryptedFieldDatabase {
         val db = open(context)
         try { db.withTransaction { db.rows().holdAllPartitions() } }
         finally { db.close() }
+    }
+
+    /**
+     * QSR-010 sign-out and confirmed revocation: hold every partition and remove every cached server
+     * projection, keeping only unsent/acknowledged evidence (ADR-020). Freed pages are zeroed and the
+     * WAL truncated so the removed rows do not linger in the encrypted file.
+     */
+    suspend fun purgeExisting(context: Context) {
+        if (!context.databaseList().contains(PassphraseVault.DB_NAME)) return
+        val db = open(context)
+        try { purge(db, null) } finally { db.close() }
+    }
+
+    internal suspend fun purge(db: StoreDatabase, scope: StoreScope?) {
+        val dao = db.rows()
+        val (a, d, s) = Triple(scope?.account, scope?.deviceId, scope?.fingerprint)
+        db.withTransaction {
+            db.openHelper.writableDatabase.query("PRAGMA secure_delete=ON").use { it.moveToFirst() }
+            dao.purgeSnapshots(a, d, s)
+            dao.purgeCallSheets(a, d, s)
+            dao.purgeCallSheetLines(a, d, s)
+            dao.purgeDeltas(a, d, s)
+            dao.purgePartitionMetadata(a, d, s)
+        }
+        runCatching { db.openHelper.writableDatabase.query("PRAGMA wal_checkpoint(TRUNCATE)").use { it.moveToFirst() } }
     }
 }
 
@@ -345,10 +385,30 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             dao.putPartition(old.copy(cursor = nextCursor))
         }
     }
+    override suspend fun employeeRole(): String? = metadata().takeIf { it.activeGeneration != null }?.employeeJson
+        ?.let { runCatching { JSONObject(it).optString("role") }.getOrNull() }?.takeIf { it.isNotBlank() }
+    override suspend fun localCache(entity: String, key: String): DeltaRow? {
+        require(entity.startsWith("local."))
+        return dao.delta(a, d, s, entity, key)
+    }
+    override suspend fun putLocalCache(entity: String, key: String, json: String, at: Long, keepPrefix: String) {
+        require(entity.startsWith("local.") && key.startsWith(keepPrefix) && json.isNotBlank() && at > 0)
+        db.withTransaction {
+            val old = metadata()
+            // A held or never-bootstrapped partition keeps no new summaries.
+            if (old.held || old.activeGeneration == null) return@withTransaction
+            dao.deleteLocalDeltas(a, d, s, entity, keepPrefix)
+            dao.putDelta(DeltaRow(a, d, s, entity, key, at, json, false))
+        }
+    }
     override suspend fun holdForReview() {
         db.withTransaction {
             dao.putPartition(metadata().copy(held = true, cursor = null, syncHealth = "held_for_review"))
             // Pending rows remain durable. Reauthorization must explicitly reconcile before retry.
         }
+    }
+    override suspend fun purgeCacheForReview() {
+        dao.putPartition(metadata()) // ensure the partition row exists so the hold is recorded
+        EncryptedFieldDatabase.purge(db, identity)
     }
 }

@@ -168,6 +168,10 @@ protocol FieldLocalStore: AnyObject {
     func syncHealth(for partition: StorePartition) throws -> SyncHealth?
     func setSyncHealth(_ health: SyncHealth, for partition: StorePartition) throws
     func holdForReview(_ partition: StorePartition) throws
+    /// QSR-010 confirmed revocation: hold, then drop this partition's server cache (keeps unsent evidence).
+    func purgeCacheForReview(_ partition: StorePartition) throws
+    /// QSR-010 sign-out: hold every partition and drop every server cache (keeps unsent evidence).
+    func purgeAllCachesForReview() throws
     func releaseHeld(_ partition: StorePartition) throws
     func releaseHeld(subject: String, deviceId: String) throws
     func isHeld(_ partition: StorePartition) throws -> Bool
@@ -219,6 +223,8 @@ final class EncryptedFieldStore: FieldLocalStore {
             try exec("PRAGMA synchronous=FULL")
             try exec("PRAGMA foreign_keys=ON")
             try exec("PRAGMA temp_store=MEMORY")
+            // QSR-010: deleted cache rows are overwritten, not left in free pages.
+            try exec("PRAGMA secure_delete=ON")
             try migrate()
             try protectFiles()
         } catch {
@@ -620,6 +626,26 @@ final class EncryptedFieldStore: FieldLocalStore {
     /// Sign-out/revocation: preserve all durable evidence, stop new intents and hide it from other partitions.
     func holdForReview(_ partition: StorePartition) throws {
         try run("UPDATE partitions SET held=1,cursor=NULL WHERE \(Self.predicate)", p(partition))
+    }
+    /// QSR-010: sign-out/revocation removes the server-provided cache — plan, outlets, customers,
+    /// route, employee header, call sheets/prices, deltas and the offline lease. Intents, outbox and
+    /// acks are the person's evidence and stay encrypted and held for supervised review (ADR-020).
+    func purgeCacheForReview(_ partition: StorePartition) throws {
+        try transaction {
+            try ensure(partition)
+            try purge(where: Self.predicate, p(partition))
+        }
+        try exec("PRAGMA wal_checkpoint(TRUNCATE)")
+    }
+    func purgeAllCachesForReview() throws {
+        try transaction { try purge(where: "1=1", []) }
+        try exec("PRAGMA wal_checkpoint(TRUNCATE)")
+    }
+    private func purge(where clause: String, _ values: [Value]) throws {
+        for table in ["snapshot", "call_sheets", "delta"] {
+            try run("DELETE FROM \(table) WHERE \(clause)", values)
+        }
+        try run("UPDATE partitions SET held=1,cursor=NULL,lease_expiry=NULL,cache_expiry=NULL WHERE \(clause)", values)
     }
     func releaseHeld(_ partition: StorePartition) throws {
         try run("UPDATE partitions SET held=0 WHERE \(Self.predicate)", p(partition))
