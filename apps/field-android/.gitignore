@@ -1,6 +1,7 @@
 # Local endpoints and generated artifacts
 local.properties
 .gradle/
+.kotlin/
 build/
 **/build/
 *.apk

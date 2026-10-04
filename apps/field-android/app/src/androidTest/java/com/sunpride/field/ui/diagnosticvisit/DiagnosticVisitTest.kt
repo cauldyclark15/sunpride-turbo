@@ -174,6 +174,13 @@ class DiagnosticVisitTest {
         rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("diagnostic-checkin").assertIsEnabled() }.isSuccess }
     }
     @Test fun missingLocationNeverBlocksStartOrEnd() = runScenario(false, missingFix = true)
+    @Test fun realFusedCaptureReportsMissingPermissionInsteadOfFailing() = runBlocking {
+        // The test APK is never granted location; the real capture must explain why there is no fix.
+        org.junit.Assume.assumeTrue(androidx.core.content.ContextCompat.checkSelfPermission(context,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+        assertEquals(LocationCapture.Unavailable(UnavailableReason.PERMISSION_DENIED),
+            AndroidVisitLocation(context).captureOrUnavailable())
+    }
     private fun runScenario(dark: Boolean, missingFix: Boolean = false) {
         val store = scoped()
         runBlocking {
@@ -204,6 +211,9 @@ class DiagnosticVisitTest {
         rule.onNodeWithTag("diagnostic-checkin").assertTextContains("Start").performClick()
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-operation").fetchSemanticsNodes().size == 1 }
         rule.onNodeWithTag("diagnostic-operation").assertTextContains("Waiting", substring = true)
+        // The mock/missing fix is recorded and flagged for review; Start was never refused.
+        rule.onNodeWithTag("location-review").performScrollTo().assertTextContains(
+            if (missingFix) "Location unavailable · supervisor will review" else "mock location detected", substring = true)
         rule.onNodeWithTag("diagnostic-checkout").assertTextContains("End call").assertIsNotEnabled()
         rule.onNodeWithTag("diagnostic-outcome").performScrollTo().performClick()
         rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("diagnostic-checkout").assertIsEnabled() }.isSuccess }
