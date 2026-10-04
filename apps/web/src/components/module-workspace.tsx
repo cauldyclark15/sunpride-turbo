@@ -28,6 +28,7 @@ import { DailySalesWorkspace } from "./daily-sales/daily-sales-workspace";
 import { TrainingWorkspace } from "./training/trainer-forms";
 import { ActivityReportsWorkspace } from "./activity-reports/activity-reports-workspace";
 import { ExecutionDashboard } from "./analytics/execution-dashboard";
+import { ManagementExceptions } from "./analytics/management-exceptions";
 
 const modules = {
   dashboard: { title: "Home" },
@@ -233,6 +234,10 @@ function ModuleContent({
             dashboard; the endpoints enforce scope. */}
         {module === "analytics" && canAccessWebModule("supervision", role) ? (
           <ExecutionDashboard />
+        ) : null}
+        {/* ANA-007: the same readers get the management exception dashboard. */}
+        {module === "analytics" && canAccessWebModule("supervision", role) ? (
+          <ManagementExceptions />
         ) : null}
       </>
     );

@@ -263,6 +263,10 @@ vi.mock("./analytics/execution-dashboard", () => ({
   ExecutionDashboard: () =>
     createElement("p", null, "Mounted execution dashboard"),
 }));
+vi.mock("./analytics/management-exceptions", () => ({
+  ManagementExceptions: () =>
+    createElement("p", null, "Mounted management exceptions"),
+}));
 vi.mock("./route-admin", () => ({ RouteAdmin: () => null }));
 vi.mock("./outlet-admin", () => ({ OutletAdmin: () => null }));
 vi.mock("./outlet-assignments", () => ({ OutletAssignments: () => null }));
@@ -344,14 +348,17 @@ describe("calm generic modules", () => {
   it("mounts the daily execution dashboard on Reports for supervision readers only", () => {
     state.pathname = "/analytics";
     expect(render("analytics")).toContain("Mounted execution dashboard");
+    expect(render("analytics")).toContain("Mounted management exceptions");
     state.pathname = "/dashboard";
     expect(render("dashboard")).not.toContain("Mounted execution dashboard");
+    expect(render("dashboard")).not.toContain("Mounted management exceptions");
     for (const role of ["operations", "approver", "sales"]) {
       state.profile = { ...state.profile, role };
       state.pathname = "/analytics";
       const html = render("analytics");
       expect(html).toContain("<h1>Reports</h1>");
       expect(html).not.toContain("Mounted execution dashboard");
+      expect(html).not.toContain("Mounted management exceptions");
     }
   });
 

@@ -8,6 +8,8 @@
  * @module
  */
 
+import type * as analytics_exception_model from "../analytics/exception_model.js";
+import type * as analytics_exceptions from "../analytics/exceptions.js";
 import type * as analytics_execution from "../analytics/execution.js";
 import type * as analytics_model from "../analytics/model.js";
 import type * as analytics_productivity from "../analytics/productivity.js";
@@ -163,6 +165,8 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  "analytics/exception_model": typeof analytics_exception_model;
+  "analytics/exceptions": typeof analytics_exceptions;
   "analytics/execution": typeof analytics_execution;
   "analytics/model": typeof analytics_model;
   "analytics/productivity": typeof analytics_productivity;
