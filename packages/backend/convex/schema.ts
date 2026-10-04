@@ -39,6 +39,13 @@ import {
   talkSheetTopic,
 } from "./supervision/talk_sheet_model";
 import {
+  jobEvaluationContent,
+  trainerFormKind,
+  trainerFormStatus,
+  trainingProgramContent,
+  trainingSheetContent,
+} from "./supervision/trainer_forms_model";
+import {
   targetMetricValidator,
   targetPeriodValidator,
   targetSubjectKindValidator,
@@ -1982,6 +1989,52 @@ export default defineSchema({
     originItemId: v.optional(v.id("talkSheetItems")),
     carriedFromItemId: v.optional(v.id("talkSheetItems")),
   }).index("by_sheetId_and_position", ["sheetId", "position"]),
+  /**
+   * SOP-010 trainer forms (memo annexes D, F, G), each attached to one Work-With session.
+   * Exactly the content field matching `kind` is set. Trainer signs (frozen), trainee
+   * acknowledges. Session fields are copied so reads need no join.
+   */
+  trainerForms: defineTable({
+    organizationId: v.string(),
+    kind: trainerFormKind,
+    sessionId: v.id("workWithSessions"),
+    trainerProfileId: v.id("profiles"),
+    traineeProfileId: v.id("profiles"),
+    orgUnitId: v.id("orgUnits"),
+    serviceDate: v.string(), // the session's day
+    status: trainerFormStatus,
+    program: v.optional(trainingProgramContent),
+    sheet: v.optional(trainingSheetContent),
+    evaluation: v.optional(jobEvaluationContent),
+    /** Annex G "DATES": completed sessions trainer+trainee in the period, frozen at signing. */
+    evaluationSessions: v.optional(
+      v.array(
+        v.object({
+          sessionId: v.id("workWithSessions"),
+          serviceDate: v.string(),
+        }),
+      ),
+    ),
+    signedAt: v.optional(v.number()),
+    signedBy: v.optional(v.string()),
+    acknowledgedAt: v.optional(v.number()),
+    acknowledgedBy: v.optional(v.string()),
+    traineeComment: v.optional(v.string()),
+    createdBy: v.string(),
+    createdAt: v.number(),
+    updatedBy: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_sessionId_and_kind", ["sessionId", "kind"])
+    .index("by_trainerProfileId_and_serviceDate", [
+      "trainerProfileId",
+      "serviceDate",
+    ])
+    .index("by_traineeProfileId_and_serviceDate", [
+      "traineeProfileId",
+      "serviceDate",
+    ])
+    .index("by_orgUnitId_and_serviceDate", ["orgUnitId", "serviceDate"]),
   /**
    * Sales targets (CVX-017): one number per subject (employee, team or territory), period
    * (daily or monthly) and metric, effective-dated with the document it came from. Exactly

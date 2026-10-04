@@ -128,6 +128,7 @@ export const MODULE_ROLES = {
   supervision: supervisors, // people.read + visit.read
   "call-sheets": allReaders, // outlet.read + visit.read; editing needs outlet.manage
   "daily-sales": allReaders, // report.read; sales read only their own sheet
+  training: allReaders, // visit.read; each person sees only their own trainer forms
   orders: orderActors, // union of order.create and order.approve
   "outside-calls": outsideCallActors, // union of order.encode and visit.record
   "sap-integration": integrationReaders, // integration.read

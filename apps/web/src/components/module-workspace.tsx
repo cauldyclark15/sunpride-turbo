@@ -25,6 +25,7 @@ import { OutsideCallOrders } from "./outside-call-orders";
 import { SupervisionWorkspace } from "./supervision/supervision-workspace";
 import { CallSheetsWorkspace } from "./call-sheets/call-sheets-workspace";
 import { DailySalesWorkspace } from "./daily-sales/daily-sales-workspace";
+import { TrainingWorkspace } from "./training/trainer-forms";
 
 const modules = {
   dashboard: { title: "Home" },
@@ -35,6 +36,7 @@ const modules = {
   supervision: { title: "Supervision" },
   "call-sheets": { title: "Call sheets" },
   "daily-sales": { title: "Daily sales report" },
+  training: { title: "Training" },
   orders: { title: "Orders" },
   "outside-calls": { title: "Commercial" },
   "sap-integration": { title: "Integration" },
@@ -479,6 +481,7 @@ function ModuleContent({
   if (module === "supervision") return <SupervisionWorkspace />;
   if (module === "call-sheets") return <CallSheetsWorkspace />;
   if (module === "daily-sales") return <DailySalesWorkspace />;
+  if (module === "training") return <TrainingWorkspace />;
   if (module === "outside-calls") return <OutsideCallOrders />;
 
   return (
