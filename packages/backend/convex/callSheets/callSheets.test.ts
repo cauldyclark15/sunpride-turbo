@@ -641,6 +641,72 @@ describe("field order submission (SP-0060)", () => {
     ).resolves.toMatchObject({ entityId: expect.any(String) });
   });
 
+  /** Re-times the revision chain: revision n starts at starts[n-1]; the last is current. */
+  const retime = (f: Awaited<ReturnType<typeof fixture>>, starts: number[]) =>
+    f.t.run(async (ctx) => {
+      const rows = await ctx.db.query("callSheetAccountRevisions").collect();
+      for (const row of rows)
+        await ctx.db.patch(row._id, {
+          effectiveFrom: starts[row.revision - 1]!,
+          supersededAt: starts[row.revision]!,
+        });
+      const account = (await ctx.db.query("callSheetAccounts").first())!;
+      await ctx.db.patch(account._id, { updatedAt: starts.at(-1)! });
+    });
+  const DAY = 86_400_000;
+
+  it("refuses a product the account was authorized for only on a later day", async () => {
+    const f = await fixture();
+    const visitId = await f.checkIn();
+    const extra = { productId: f.ids.extra, uom: "CAN", quantity: 1 };
+    // Later-day addition: `extra` joins the setup the day after the visit and stays.
+    await f.saveAccount();
+    await saveLines(f, 1, [f.ids.hotdog, f.ids.extra]);
+    await retime(f, [now - DAY, now + DAY]);
+    await expect(order(f, 2, visitId, uuid(900), [extra])).rejects.toThrow(
+      "invalid_request",
+    );
+    // Later-day addition and removal: added and removed again the following day.
+    await saveLines(f, 2, [f.ids.hotdog]);
+    await retime(f, [now - DAY, now + DAY, now + DAY + 60_000]);
+    await expect(order(f, 3, visitId, uuid(901), [extra])).rejects.toThrow(
+      "invalid_request",
+    );
+    // Stored intervals that outlast the current revision authorize nothing.
+    await f.t.run(async (ctx) => {
+      for (const row of await ctx.db
+        .query("callSheetAccountRevisions")
+        .collect())
+        await ctx.db.patch(row._id, {
+          effectiveFrom: now,
+          supersededAt: now + DAY,
+        });
+      const account = (await ctx.db.query("callSheetAccounts").first())!;
+      await ctx.db.patch(account._id, { updatedAt: now });
+    });
+    await expect(order(f, 4, visitId, uuid(902), [extra])).rejects.toThrow(
+      "invalid_request",
+    );
+    expect(
+      await f.t.run((ctx) => ctx.db.query("visitActivities").collect()),
+    ).toEqual([]);
+  });
+
+  it("keeps an offline order valid when the office removes its product the next day", async () => {
+    const f = await fixture();
+    const visitId = await f.checkIn();
+    await saveLines(f, null, [f.ids.hotdog, f.ids.extra]);
+    await saveLines(f, 1, [f.ids.hotdog]);
+    // `extra` was on the setup all through the service day and removed the day after.
+    await retime(f, [now - DAY, now + DAY]);
+    await expect(
+      order(f, 2, visitId, uuid(900), [
+        { productId: f.ids.extra, uom: "CAN", quantity: 2 },
+        { productId: f.ids.hotdog, uom: "CAN", quantity: 1 },
+      ]),
+    ).resolves.toMatchObject({ entityId: expect.any(String) });
+  });
+
   it("keeps a line-less order intent valid without an account setup", async () => {
     const f = await fixture();
     const visitId = await f.checkIn();
