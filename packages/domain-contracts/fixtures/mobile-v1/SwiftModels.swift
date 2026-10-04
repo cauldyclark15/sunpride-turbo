@@ -146,6 +146,10 @@ struct BootstrapResponseOutletsItem {
   let code: OptionalField<String>
   // schema-field: bootstrapResponse.outlets[].customerId
   let customerId: OptionalField<String>
+  // schema-field: bootstrapResponse.outlets[].territoryId
+  let territoryId: OptionalField<String>
+  // schema-field: bootstrapResponse.outlets[].territoryCode
+  let territoryCode: OptionalField<String>
   // schema-field: bootstrapResponse.outlets[].address
   let address: OptionalField<String>
   // schema-field: bootstrapResponse.outlets[].latitude
@@ -356,6 +360,17 @@ struct PushRequestOperationsItemVariant1PayloadActivityVariant4 {
   let clientOrderId: String
   // schema-field: pushRequest.operations[]#1.payload.activity#4.note
   let note: OptionalField<String>
+  // schema-field: pushRequest.operations[]#1.payload.activity#4.lines
+  let lines: OptionalField<[PushRequestOperationsItemVariant1PayloadActivityVariant4LinesItem]>
+}
+// schema-object: pushRequest.operations[]#1.payload.activity#4.lines[]
+struct PushRequestOperationsItemVariant1PayloadActivityVariant4LinesItem {
+  // schema-field: pushRequest.operations[]#1.payload.activity#4.lines[].productId
+  let productId: String
+  // schema-field: pushRequest.operations[]#1.payload.activity#4.lines[].uom
+  let uom: String
+  // schema-field: pushRequest.operations[]#1.payload.activity#4.lines[].quantity
+  let quantity: Int64
 }
 // schema-object: pushRequest.operations[]#1.payload.activity#5
 struct PushRequestOperationsItemVariant1PayloadActivityVariant5 {

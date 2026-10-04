@@ -47,6 +47,16 @@ final class FieldIOSUITests: XCTestCase {
         button.tap()
     }
 
+    /// Scroll until the element sits clear of the pinned bottom button (the visit screen grows with
+    /// its activity checklist, so cards below it can start off screen).
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
+        for _ in 0..<5 {
+            let frame = element.frame, window = app.windows.firstMatch.frame
+            if element.isHittable && frame.minY > window.minY + 100 && frame.maxY < window.maxY - 140 { return }
+            if frame.midY > window.midY { app.swipeUp() } else { app.swipeDown() }
+        }
+    }
+
     private func capture(_ app: XCUIApplication, _ name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name
@@ -265,10 +275,12 @@ final class FieldIOSUITests: XCTestCase {
         XCTAssertTrue(offline.buttons["visit-planned-stub-1"].waitForExistence(timeout: 15))
         offline.buttons["visit-planned-stub-1"].tap()
         XCTAssertTrue(offline.buttons["diagnosticCheckOut"].waitForExistence(timeout: 5), "open call restored")
+        reveal(offline.buttons["diagnosticOutcome"], in: offline)
         offline.buttons["diagnosticOutcome"].tap()
         offline.buttons["Nonproductive"].tap()
         XCTAssertFalse(offline.buttons["diagnosticCheckOut"].isEnabled, "nonproductive requires reason")
         let reason = offline.textFields["nonproductiveReason"]
+        reveal(reason, in: offline)
         reason.tap(); reason.typeText("Store closed")
         offline.buttons["diagnosticCheckOut"].tap()
         XCTAssertTrue(offline.staticTexts["callTimeSpent"].waitForExistence(timeout: 10))
@@ -276,6 +288,55 @@ final class FieldIOSUITests: XCTestCase {
         offline.buttons["BackButton"].tap()
         offline.buttons["visit-planned-stub-2"].tap()
         XCTAssertTrue(offline.buttons["diagnosticCheckIn"].isEnabled, "queued End unlocks next plan row")
+        offline.terminate()
+    }
+
+    /// IOS-013: an unplanned visit's purpose decides the required form; a completed End waits for it.
+    func testUnplannedPurposeRequiresItsActivityFormBeforeCompletedEnd() {
+        let app = launchStub("registers")
+        signIn(app, password: "correct-horse")
+        XCTAssertTrue(app.staticTexts["Stub Outlet"].waitForExistence(timeout: 20))
+        app.terminate()
+        let offline = launchStub("offline")
+        let row = offline.buttons["visit-unplanned-outlet-stub-extra"]
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
+        if !row.isHittable { offline.swipeUp() }
+        row.tap()
+        let merchandise = offline.buttons["intent-merchandise"]
+        XCTAssertTrue(merchandise.waitForExistence(timeout: 5))
+        let reason = offline.textFields["unplannedReason"]
+        reveal(reason, in: offline)
+        reason.tap(); reason.typeText("Walk-in\n")
+        XCTAssertFalse(offline.buttons["diagnosticCheckIn"].isEnabled, "needs a purpose")
+        reveal(merchandise, in: offline)
+        merchandise.tap()
+        XCTAssertTrue(merchandise.isSelected)
+        XCTAssertTrue(offline.buttons["diagnosticCheckIn"].isEnabled)
+        offline.buttons["diagnosticCheckIn"].tap()
+        XCTAssertTrue(offline.staticTexts["visitIntents"].waitForExistence(timeout: 10))
+        XCTAssertEqual(offline.staticTexts["visitIntents"].label, "Purpose · Merchandise")
+        let form = offline.buttons["activity-merchandising"]
+        XCTAssertTrue(form.exists)
+        XCTAssertTrue(form.label.contains("Required"))
+        reveal(offline.buttons["diagnosticOutcome"], in: offline)
+        offline.buttons["diagnosticOutcome"].tap()
+        offline.buttons["Completed"].tap()
+        XCTAssertTrue(offline.staticTexts["activitiesMissing"].waitForExistence(timeout: 5))
+        XCTAssertFalse(offline.buttons["diagnosticCheckOut"].isEnabled, "required form missing")
+        capture(offline, "activity-required")
+        reveal(form, in: offline)
+        form.tap()
+        let display = offline.buttons["activityDisplay-needs_action"]
+        XCTAssertTrue(display.waitForExistence(timeout: 5))
+        XCTAssertFalse(offline.buttons["activitySave"].isEnabled)
+        display.tap()
+        offline.buttons["activitySave"].tap()
+        XCTAssertTrue(offline.buttons["diagnosticCheckOut"].waitForExistence(timeout: 5))
+        XCTAssertTrue(offline.buttons["activity-merchandising"].label.contains("Recorded"))
+        XCTAssertFalse(offline.staticTexts["activitiesMissing"].exists)
+        XCTAssertTrue(offline.buttons["diagnosticCheckOut"].isEnabled)
+        offline.buttons["diagnosticCheckOut"].tap()
+        XCTAssertTrue(offline.staticTexts["callTimeSpent"].waitForExistence(timeout: 10))
         offline.terminate()
     }
 
@@ -298,6 +359,7 @@ final class FieldIOSUITests: XCTestCase {
         XCTAssertTrue(offline.buttons["diagnosticCheckOut"].waitForExistence(timeout: 10))
         XCTAssertEqual(offline.buttons["diagnosticCheckOut"].label, "End call")
         XCTAssertFalse(offline.buttons["diagnosticCheckOut"].isEnabled)
+        reveal(offline.buttons["diagnosticOutcome"], in: offline)
         offline.buttons["diagnosticOutcome"].tap()
         offline.buttons["Completed"].tap()
         offline.buttons["diagnosticCheckOut"].tap()

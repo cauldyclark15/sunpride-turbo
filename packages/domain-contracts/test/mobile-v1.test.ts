@@ -140,6 +140,34 @@ describe("mobile v1 canonical contract", () => {
     expect(validate(balance)).toBe(false);
   });
 
+  test("field order lines are bounded whole quantities in a unit, never prices", async () => {
+    const original = await Bun.file(
+      new URL("../fixtures/mobile-v1/push-order-request.json", import.meta.url),
+    ).json();
+    expect(validate(original), JSON.stringify(validate.errors)).toBe(true);
+    const withLines = (lines: unknown) => {
+      const altered = structuredClone(original);
+      altered.operations[0].payload.activity.lines = lines;
+      return altered;
+    };
+    const line = original.operations[0].payload.activity.lines[0];
+    const lineless = structuredClone(original);
+    delete lineless.operations[0].payload.activity.lines;
+    expect(validate(lineless)).toBe(true);
+    expect(validate(withLines([]))).toBe(false);
+    expect(validate(withLines([{ ...line, quantity: 0 }]))).toBe(false);
+    expect(validate(withLines([{ ...line, quantity: 1.5 }]))).toBe(false);
+    expect(validate(withLines([{ ...line, quantity: 100_000 }]))).toBe(false);
+    expect(validate(withLines([{ ...line, uom: "" }]))).toBe(false);
+    expect(validate(withLines([{ ...line, unitPrice: 189 }]))).toBe(false);
+    const missing = { ...line };
+    delete missing.uom;
+    expect(validate(withLines([missing]))).toBe(false);
+    expect(validate(withLines(Array.from({ length: 101 }, () => line)))).toBe(
+      false,
+    );
+  });
+
   test("bootstrap stays valid with or without the additive photoTypes field", async () => {
     const withTypes = await Bun.file(
       new URL(
@@ -198,6 +226,39 @@ describe("mobile v1 canonical contract", () => {
     const noName = structuredClone(withSheets);
     noName.callSheets[0].header.accountName = "";
     expect(validate(noName)).toBe(false);
+  });
+
+  test("keeps outlet territory fields additive, paired and nonempty", async () => {
+    const original = await Bun.file(
+      new URL("../fixtures/mobile-v1/bootstrap-response.json", import.meta.url),
+    ).json();
+    const outlet = original.outlets[0];
+    const withOutlet = (value: Record<string, unknown>) => ({
+      ...original,
+      outlets: [value],
+    });
+    expect(validate(original), JSON.stringify(validate.errors)).toBe(true);
+    const withoutTerritory = { ...outlet };
+    delete withoutTerritory.territoryId;
+    delete withoutTerritory.territoryCode;
+    expect(validate(withOutlet(withoutTerritory))).toBe(true);
+    expect(
+      validate(
+        withOutlet({ ...withoutTerritory, territoryId: outlet.territoryId }),
+      ),
+    ).toBe(false);
+    expect(
+      validate(
+        withOutlet({
+          ...withoutTerritory,
+          territoryCode: outlet.territoryCode,
+        }),
+      ),
+    ).toBe(false);
+    for (const field of ["territoryId", "territoryCode"]) {
+      expect(validate(withOutlet({ ...outlet, [field]: "" }))).toBe(false);
+      expect(validate(withOutlet({ ...outlet, [field]: null }))).toBe(false);
+    }
   });
 
   test("keeps daily-route outlet fields additive; a pin is both coordinates or none", async () => {

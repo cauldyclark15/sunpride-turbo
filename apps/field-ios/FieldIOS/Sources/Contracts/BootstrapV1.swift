@@ -98,11 +98,13 @@ enum BootstrapV1 {
         let dayTarget: StoreSnapshot.DayTarget?
         /// Additive optional v1 field: today's sales and daily sales target. Absent on older servers.
         let daySales: StoreSnapshot.DaySales?
+        /// Additive optional v1 field (IOS-013): activity-form rules per visit intent. nil = older server.
+        let activityRules: [ActivityRule]?
 
         enum CodingKeys: String, CodingKey {
             case type, contractVersion, serverTime, permissions, employee, scope, appConfig,
                  plannedVisits, outlets, localCustomers, route, tasks, productCatalog, page,
-                 nextPageCursor, syncCursor, callSheets, accountSummaries, dayTarget, daySales
+                 nextPageCursor, syncCursor, callSheets, accountSummaries, dayTarget, daySales, activityRules
         }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -146,6 +148,12 @@ enum BootstrapV1 {
                 StoreSnapshot.DaySales(amountMinor: $0.amountMinor, orders: $0.orders, targetMinor: $0.targetMinor)
             }
             guard daySales?.isValid ?? true else { throw WireError.unsafeValue }
+            // Strict when present; explicit null is not an omission.
+            if c.contains(.activityRules) {
+                let rules = try c.decode([ActivityRule].self, forKey: .activityRules)
+                guard rules.count <= 32, Set(rules.map(\.intent)).count == rules.count else { throw WireError.unsafeValue }
+                activityRules = rules
+            } else { activityRules = nil }
             guard Set(callSheets.map(\.outletId)).count == callSheets.count,
                   callSheets.allSatisfy({ sheet in plannedVisits.contains { $0.outletId == sheet.outletId } }) else {
                 throw WireError.unsafeValue
@@ -180,6 +188,7 @@ enum BootstrapV1 {
             try c.encode(accountSummaries, forKey: .accountSummaries)
             try c.encodeIfPresent(dayTarget, forKey: .dayTarget)
             try c.encodeIfPresent(daySales, forKey: .daySales)
+            try c.encodeIfPresent(activityRules, forKey: .activityRules)
         }
     }
 

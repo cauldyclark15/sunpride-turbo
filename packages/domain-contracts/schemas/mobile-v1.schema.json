@@ -223,6 +223,16 @@
                 "type": "string",
                 "minLength": 1
               },
+              "territoryId": {
+                "description": "Optional territory of the signed planned visit (order association). Added 2026-10; older servers omit it.",
+                "type": "string",
+                "minLength": 1
+              },
+              "territoryCode": {
+                "description": "Optional territory code of the signed planned visit (order association). Added 2026-10; older servers omit it.",
+                "type": "string",
+                "minLength": 1
+              },
               "address": {
                 "description": "Optional outlet address used as the navigation fallback. Added 2026-10.",
                 "type": "string",
@@ -244,7 +254,9 @@
             "required": ["id", "name", "routeId"],
             "dependentRequired": {
               "latitude": ["longitude"],
-              "longitude": ["latitude"]
+              "longitude": ["latitude"],
+              "territoryId": ["territoryCode"],
+              "territoryCode": ["territoryId"]
             },
             "additionalProperties": false
           }
@@ -1142,6 +1154,33 @@
                               },
                               "note": {
                                 "type": "string"
+                              },
+                              "lines": {
+                                "description": "Optional submitted field order lines (SP-0060, added 2026-10): quantities in the product's unit only, never prices. Older servers reject the field; a line-less order_intent stays valid.",
+                                "type": "array",
+                                "minItems": 1,
+                                "maxItems": 100,
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "productId": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "uom": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 20
+                                    },
+                                    "quantity": {
+                                      "type": "integer",
+                                      "minimum": 1,
+                                      "maximum": 99999
+                                    }
+                                  },
+                                  "required": ["productId", "uom", "quantity"],
+                                  "additionalProperties": false
+                                }
                               }
                             },
                             "required": ["kind", "clientOrderId"],

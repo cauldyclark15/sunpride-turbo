@@ -129,7 +129,7 @@ final class CustomerDirectoryTests: XCTestCase {
                                                 now: now.addingTimeInterval(300))
         let end = try DiagnosticOperation.checkOut(outcome: "nonproductive", reason: "store_closed", checkIn: start.requestId,
                                                    visitId: nil, now: now.addingTimeInterval(600))
-        let other = try DiagnosticOperation.checkIn(plannedId: nil, outletId: "o-c", day: day, intents: [],
+        let other = try DiagnosticOperation.checkIn(plannedId: nil, outletId: "o-c", day: day, intents: ["sell"],
                                                     reason: "Owner called", location: nil, now: now.addingTimeInterval(900))
         let all = records(history: [(start, .sent), (note, .waiting), (end, .review), (other, .held)])
         let a = try XCTUnwrap(all.first { $0.outletId == "o-a" })
@@ -155,7 +155,8 @@ final class CustomerDirectoryTests: XCTestCase {
         }
         func endLabel(outlet: String, planned: String?, kinds: [String], reason: String? = nil,
                       rejected: Set<String> = [], rule: String? = nil) throws -> String? {
-            let start = try DiagnosticOperation.checkIn(plannedId: planned, outletId: outlet, day: day, intents: [],
+            let start = try DiagnosticOperation.checkIn(plannedId: planned, outletId: outlet, day: day,
+                                                        intents: planned == nil ? ["sell"] : [],
                                                         reason: planned == nil ? "Owner called" : nil, location: nil, now: now)
             var rows: [(VisitIntent, LocalIntentState)] = [(start, .sent)]
             for (i, kind) in kinds.enumerated() {
@@ -203,7 +204,7 @@ final class CustomerDirectoryTests: XCTestCase {
     func testHistoryIsCappedNewestFirst() throws {
         var rows: [(VisitIntent, LocalIntentState)] = []
         for i in 0..<15 {
-            rows.append((try DiagnosticOperation.checkIn(plannedId: nil, outletId: "o-c", day: day, intents: [],
+            rows.append((try DiagnosticOperation.checkIn(plannedId: nil, outletId: "o-c", day: day, intents: ["sell"],
                                                          reason: "r", location: nil, now: now.addingTimeInterval(Double(i))), .sent))
         }
         let history = CustomerDirectory.historyByOutlet(rows)["o-c"] ?? []

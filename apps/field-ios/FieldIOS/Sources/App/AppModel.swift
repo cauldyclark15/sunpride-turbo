@@ -35,6 +35,8 @@ final class AppModel {
     /// Day-level tasks from the same saved snapshot.
     private(set) var dayTasks: [StoreSnapshot.Task] = []
     private(set) var callSheets: [CallSheet] = []
+    /// IOS-013 activity-form rules per visit intent from the active snapshot.
+    private(set) var activityRules: [ActivityRule] = []
     private(set) var lastSyncedAt: Date?
     private(set) var syncStatus: FieldSyncStatus?
     private(set) var isOffline = false
@@ -65,7 +67,7 @@ final class AppModel {
         }
     }
     enum CallFailure: Error, Equatable {
-        case callOpen, mcpOrder, alreadyStarted, notStarted, alreadyClosed
+        case callOpen, mcpOrder, alreadyStarted, notStarted, alreadyClosed, intentRequired, activitiesRequired
         var message: String {
             switch self {
             case .callOpen: "Finish the open call first"
@@ -73,6 +75,8 @@ final class AppModel {
             case .alreadyStarted: "Call already started"
             case .notStarted: "Start the call first"
             case .alreadyClosed: "Call already ended"
+            case .intentRequired: "Choose at least one visit purpose"
+            case .activitiesRequired: "Record the required activities, or end as not productive"
             }
         }
     }
@@ -223,7 +227,7 @@ final class AppModel {
     }
 
     private func clearToday() {
-        visits = []; callSheets = []; outletDetails = [:]; customerDetails = [:]; routeCode = nil
+        visits = []; callSheets = []; activityRules = []; outletDetails = [:]; customerDetails = [:]; routeCode = nil
         customers = []; dayTasks = []; dayTarget = nil; daySales = nil
     }
 
@@ -258,6 +262,7 @@ final class AppModel {
         guard let partition = activeStoragePartition, let store = try? storage(for: partition) else { return }
         do {
             callSheets = try store.snapshot(for: partition)?.callSheets ?? []
+            activityRules = try store.snapshot(for: partition)?.activityRules ?? []
             let day = BootstrapClient.manilaDay(now())
             let outlets = Dictionary(uniqueKeysWithValues: try store.outlets(for: partition).map { ($0.id, $0.name) })
             let planned = try store.todayVisits(day, for: partition)
@@ -378,13 +383,18 @@ final class AppModel {
         guard let intent = try store.intents(for: partition).first(where: { $0.matches(visit) }) else { throw CallFailure.notStarted }
         return (intent, store, partition)
     }
-    func queueCheckIn(_ visit: TodayVisit, unplannedReason: String?, location: VisitLocation?) throws {
+    /// A planned visit keeps its signed MCP intents (`intents` is ignored); an unplanned visit
+    /// starts with the purposes the person chose (IOS-013), at least one.
+    func queueCheckIn(_ visit: TodayVisit, unplannedReason: String?, intents chosen: [String] = [],
+                      location: VisitLocation?) throws {
         try validateStart(visit)
         guard let partition = activeStoragePartition else { throw StoreError.invalidInput }
+        let purposes = ActivityRules.intents.filter(chosen.contains)
+        if !visit.planned && purposes.isEmpty { throw CallFailure.intentRequired }
         let store = try storage(for: partition)
         let timestamp = now()
         let intent = try DiagnosticOperation.checkIn(plannedId: visit.planned ? visit.id : nil,
-            outletId: visit.outletId, day: visit.serviceDate, intents: visit.planned ? visit.intents : [],
+            outletId: visit.outletId, day: visit.serviceDate, intents: visit.planned ? visit.intents : purposes,
             reason: visit.planned ? nil : unplannedReason, location: location, now: timestamp)
         try store.enqueue(intent, for: partition, now: timestamp)
         didQueueWork()
@@ -396,6 +406,42 @@ final class AppModel {
         let ack = try store.ack(for: initial.requestId, in: partition)
         let timestamp = now()
         let intent = try DiagnosticOperation.note(note, checkIn: initial.requestId, visitId: ack?.entityId, now: timestamp)
+        if ack == nil { try store.enqueueDeferred(intent, for: partition, now: timestamp) }
+        else { try store.enqueue(intent, for: partition, now: timestamp) }
+        didQueueWork()
+    }
+    /// The visit's purposes: signed MCP intents when planned, else those chosen at Start.
+    func visitIntents(for visit: TodayVisit) -> [String] {
+        if visit.planned { return visit.intents }
+        guard let (initial, _, _) = try? checkIn(for: visit) else { return [] }
+        return ActivityRules.intents(of: initial)
+    }
+    /// IOS-013 checklist for the visit's call: the forms its intents' rules require or offer.
+    func activityChecklist(for visit: TodayVisit) -> [ActivityRules.Requirement] {
+        let sheet = callSheet(for: visit)
+        guard let (initial, store, partition) = try? checkIn(for: visit),
+              let intents = try? store.intents(for: partition),
+              let rejected = try? Set(store.reviewOutbox(for: partition).map { $0.intent.requestId }) else {
+            return ActivityRules.checklist(rules: activityRules, intents: visitIntents(for: visit), recorded: []) {
+                ActivityRules.capturable($0, sheet: sheet)
+            }
+        }
+        return ActivityRules.checklist(rules: activityRules, intents: ActivityRules.intents(of: initial),
+            recorded: ActivityRules.recordedKinds(checkIn: initial, intents: intents, rejected: rejected)) {
+            ActivityRules.capturable($0, sheet: sheet)
+        }
+    }
+    /// Queue one structured activity form (merchandising, promotion, inventory or price check).
+    func queueActivity(_ activity: [String: Any], for visit: TodayVisit) throws {
+        let (initial, store, partition) = try checkIn(for: visit)
+        guard !visitProgress(for: visit).checkedOut else { throw CallFailure.alreadyClosed }
+        // Validate against the active encrypted snapshot, not a stale editor projection.
+        let sheet = try store.snapshot(for: partition)?.callSheets.first { $0.outletId == visit.outletId }
+        try ActivityForms.validate(activity, sheet: sheet)
+        let ack = try store.ack(for: initial.requestId, in: partition)
+        let timestamp = now()
+        let intent = try DiagnosticOperation.activity(activity, checkIn: initial.requestId,
+                                                      visitId: ack?.entityId, now: timestamp)
         if ack == nil { try store.enqueueDeferred(intent, for: partition, now: timestamp) }
         else { try store.enqueue(intent, for: partition, now: timestamp) }
         didQueueWork()
@@ -446,6 +492,15 @@ final class AppModel {
         let (initial, store, partition) = try checkIn(for: visit)
         guard !(try store.intents(for: partition)).contains(where: { $0.kind == "visit.checkOut" &&
             $0.dependencies.contains(initial.requestId.uuidString.lowercased()) }) else { throw CallFailure.alreadyClosed }
+        // IOS-013: a completed End needs every capturable required form; not productive needs none.
+        if outcome == "completed" {
+            let snapshot = try store.snapshot(for: partition)
+            let rejected = Set(try store.reviewOutbox(for: partition).map { $0.intent.requestId })
+            let missing = ActivityRules.missingForEnd(checkIn: initial, rules: snapshot?.activityRules ?? [],
+                intents: try store.intents(for: partition), rejected: rejected,
+                sheet: snapshot?.callSheets.first { $0.outletId == visit.outletId })
+            if !missing.isEmpty { throw CallFailure.activitiesRequired }
+        }
         let ack = try store.ack(for: initial.requestId, in: partition)
         let timestamp = now()
         let intent = try DiagnosticOperation.checkOut(outcome: outcome, reason: reason,
