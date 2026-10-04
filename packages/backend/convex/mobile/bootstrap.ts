@@ -3,6 +3,7 @@ import { internalQuery } from "../_generated/server";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
 import { manilaDate } from "../coverage/validation";
 import { nextDayCloseAt } from "../visits/policy";
+import { activityRuleDTO } from "../visits/activity_rules";
 import {
   actorValidator,
   CURSOR_TTL_MS,
@@ -57,6 +58,7 @@ export const snapshot = internalQuery({
     tasks: v.array(taskDTO),
     productCatalog: v.array(productDTO),
     callSheets: v.array(callSheetDTO),
+    activityRules: v.array(activityRuleDTO),
     page: v.number(),
     nextPageCursor: v.union(v.string(), v.null()),
     syncCursor: v.union(v.string(), v.null()),
@@ -72,7 +74,12 @@ export const snapshot = internalQuery({
     const day = manilaDate(now);
     if (dayFrom !== undefined && dayFrom !== day)
       throw new ConvexError("invalid_request");
-    const { entries, manifest } = await dayProjection(ctx, actor, day, now);
+    const { entries, manifest, activityRules } = await dayProjection(
+      ctx,
+      actor,
+      day,
+      now,
+    );
     let cursor: Cursor;
     if (pageCursor) {
       cursor = await readCursor(pageCursor, "bootstrap", actor, now);
@@ -161,6 +168,8 @@ export const snapshot = internalQuery({
           ),
         ).values(),
       ],
+      // AND-013: same small rule set on every page; the phone requires them to agree.
+      activityRules,
       page: base.page,
       nextPageCursor: hasMore ? await signCursor(base) : null,
       syncCursor: hasMore

@@ -77,6 +77,9 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
     val checkedIn = com.sunpride.field.storage.VisitCallRules.started(related)
     val checkedOut = com.sunpride.field.storage.VisitCallRules.closed(related)
     val startFailure = controller.startFailure(visit)
+    val intents = controller.visitIntents(visit)
+    val checklist = controller.activityChecklist(visit)
+    val missing = com.sunpride.field.storage.ActivityRules.missing(checklist)
     Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -85,6 +88,21 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
             Text(listOfNotNull(visit.planned.takeUnless { it == "Scheduled" },
                 when { checkedOut -> "Done"; checkedIn -> "In progress"; else -> "Not started" }).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            // AND-013: the visit's purposes drive which activity forms the backend rules require.
+            if (checkedIn || visit.plannedVisitId != null) {
+                if (intents.isNotEmpty()) Text("Purpose · " + intents.joinToString(", ") {
+                    com.sunpride.field.storage.ActivityRules.intentLabel(it) },
+                    style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("visit-intents"))
+            } else SectionCard("Visit purpose") {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Choose one or more", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    com.sunpride.field.storage.ActivityRules.INTENTS.forEach { intent ->
+                        ChoiceRow(com.sunpride.field.storage.ActivityRules.intentLabel(intent), intent in intents,
+                            { controller.toggleIntent(intent) }, Modifier.testTag("intent-$intent"), !controller.busy)
+                    }
+                }
+            }
             if (!checkedIn && visit.plannedVisitId == null) SectionCard("Start") {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
@@ -95,6 +113,26 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                     }
                     LabeledField("Reason", reason, { reason = it },
                         Modifier.fillMaxWidth().testTag("unplanned-reason"))
+                }
+            }
+            if (checkedIn && !checkedOut && checklist.isNotEmpty()) SectionCard("Activities") {
+                checklist.forEach { item ->
+                    val label = com.sunpride.field.storage.ActivityRules.kindLabel(item.kind)
+                    val meta = when (item.status) {
+                        com.sunpride.field.storage.ActivityRequirement.Status.DONE -> "Recorded"
+                        com.sunpride.field.storage.ActivityRequirement.Status.UNAVAILABLE ->
+                            "Not available on this phone" + if (item.required) " · office will review" else ""
+                        else -> if (item.required) "Required" else "Optional"
+                    }
+                    val open: (() -> Unit)? = when {
+                        item.status == com.sunpride.field.storage.ActivityRequirement.Status.UNAVAILABLE -> null
+                        item.kind == "note" -> null // the Note card below
+                        item.kind == "call_sheet" -> { { controller.openCallSheet() } }
+                        else -> { { controller.openActivityForm(item.kind) } }
+                    }
+                    ListRow(label, meta, "activity", Modifier.testTag("activity-${item.kind}"),
+                        trailing = if (item.status == com.sunpride.field.storage.ActivityRequirement.Status.DONE) "✓" else null,
+                        onClick = open)
                 }
             }
             if (checkedIn && !checkedOut) {
@@ -140,6 +178,9 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                     }
                 }
             }
+            if (checkedIn && !checkedOut && outcome == "completed" && missing.isNotEmpty()) Text(
+                "Still required: " + missing.joinToString(", ") { com.sunpride.field.storage.ActivityRules.kindLabel(it) },
+                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("activities-missing"))
             if (checkedIn && !checkedOut && outcome == "nonproductive") SectionCard("Nonproductive reason") {
                 LabeledField("Reason code", reasonCode, { reasonCode = it },
                     Modifier.fillMaxWidth().padding(16.dp).testTag("diagnostic-reason"))
@@ -155,8 +196,8 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                 related.forEach { (intent, state) ->
                     ListRow(when (intent.kind) {
                         "visit.checkIn" -> "Start"; "visit.activity" ->
-                            if (JSONObject(intent.serializedOperation).getJSONObject("payload")
-                                .getJSONObject("activity").optString("kind") == "call_sheet") "Call sheet" else "Note";
+                            com.sunpride.field.storage.ActivityRules.kindLabel(JSONObject(intent.serializedOperation)
+                                .getJSONObject("payload").getJSONObject("activity").optString("kind"));
                         "visit.checkOut" -> "End call"; else -> "Visit action"
                     }, when (state) { "pending" -> "Waiting"; "done" -> "Accepted"; else -> "Needs review" },
                         "activity", Modifier.testTag("diagnostic-operation"))
@@ -171,9 +212,10 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
         }
         if (!checkedOut) androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp))
         if (!checkedIn) PrimaryBottomButton("Start", { record("visit.checkIn") }, Modifier.testTag("diagnostic-checkin"),
-            !controller.busy && !capturing && startFailure == null && (visit.plannedVisitId != null || reason.isNotBlank()))
+            !controller.busy && !capturing && startFailure == null &&
+                (visit.plannedVisitId != null || (reason.isNotBlank() && intents.isNotEmpty())))
         else if (!checkedOut) PrimaryBottomButton("End call", { record("visit.checkOut") },
             Modifier.testTag("diagnostic-checkout"), !controller.busy && !capturing && outcome != null &&
-                (outcome != "nonproductive" || reasonCode.isNotBlank()))
+                (outcome != "nonproductive" || reasonCode.isNotBlank()) && (outcome != "completed" || missing.isEmpty()))
     }
 }

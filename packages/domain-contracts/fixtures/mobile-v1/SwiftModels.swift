@@ -51,6 +51,8 @@ struct BootstrapResponse {
   let productCatalog: [BootstrapResponseProductCatalogItem]
   // schema-field: bootstrapResponse.callSheets
   let callSheets: OptionalField<[BootstrapResponseCallSheetsItem]>
+  // schema-field: bootstrapResponse.activityRules
+  let activityRules: OptionalField<[BootstrapResponseActivityRulesItem]>
   // schema-field: bootstrapResponse.page
   let page: Int64
   // schema-field: bootstrapResponse.nextPageCursor
@@ -708,6 +710,23 @@ struct BootstrapResponseCallSheetsItemLinesItem {
   let barcode: String?
   // schema-field: bootstrapResponse.callSheets[].lines[].pricing
   let pricing: String?
+}
+// Additive after v1 shipped: visit activity-form rules per intent (AND-013).
+// schema-object: bootstrapResponse.activityRules[]
+struct BootstrapResponseActivityRulesItem {
+  // schema-field: bootstrapResponse.activityRules[].intent
+  let intent: String
+  // schema-field: bootstrapResponse.activityRules[].version
+  let version: String
+  // schema-field: bootstrapResponse.activityRules[].activities
+  let activities: [BootstrapResponseActivityRulesItemActivitiesItem]
+}
+// schema-object: bootstrapResponse.activityRules[].activities[]
+struct BootstrapResponseActivityRulesItemActivitiesItem {
+  // schema-field: bootstrapResponse.activityRules[].activities[].kind
+  let kind: String
+  // schema-field: bootstrapResponse.activityRules[].activities[].required
+  let required: Bool
 }
 // schema-object: pushRequest.operations[]#1.payload.activity#6
 struct PushRequestOperationsItemVariant1PayloadActivityVariant6 {

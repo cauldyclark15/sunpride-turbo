@@ -2153,6 +2153,9 @@ export default defineSchema({
         v.literal("rejected"),
       ),
     ),
+    // AND-013: required activity forms evaluated at End (visits/activity_rules.ts).
+    activityRuleVersion: v.optional(v.string()),
+    missingActivities: v.optional(v.array(v.string())),
   })
     .index("by_orgUnitId_and_lateReviewStatus_and_serviceDate", [
       "orgUnitId",
@@ -2224,6 +2227,38 @@ export default defineSchema({
     deviceTime: v.number(),
     serverTime: v.number(),
   }).index("by_visitId_and_serverTime", ["visitId", "serverTime"]),
+  /**
+   * AND-013: required/optional activity forms per visit intent, effective-dated national
+   * master data. An intent without a row uses the provisional code default.
+   */
+  visitActivityRules: defineTable({
+    organizationId: v.string(),
+    intent: v.string(),
+    activities: v.array(
+      v.object({
+        kind: v.union(
+          v.literal("call_sheet"),
+          v.literal("merchandising"),
+          v.literal("inventory_check"),
+          v.literal("price_check"),
+          v.literal("promotion"),
+          v.literal("order_intent"),
+          v.literal("note"),
+        ),
+        required: v.boolean(),
+      }),
+    ),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    sourceRef: v.string(),
+    provisional: v.boolean(),
+    actorSubject: v.string(),
+    createdAt: v.number(),
+  }).index("by_organizationId_and_intent_and_effectiveFrom", [
+    "organizationId",
+    "intent",
+    "effectiveFrom",
+  ]),
   visitLocationEvidence: defineTable({
     organizationId: v.string(),
     orgUnitId: v.id("orgUnits"),

@@ -105,11 +105,16 @@ fun FieldApp(
                     horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     if (controller.diagnostic != null && ready && (page == "home" || page == "route" || page == "customers" || page == "customer")) Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = {
-                            if (controller.callSheetOpen) controller.closeCallSheet() else controller.closeDiagnostic()
+                            when {
+                                controller.activityForm != null -> controller.closeActivityForm()
+                                controller.callSheetOpen -> controller.closeCallSheet()
+                                else -> controller.closeDiagnostic()
+                            }
                         }, modifier = Modifier.height(48.dp).testTag("visit-back")) {
                             Text("‹", style = MaterialTheme.typography.titleLarge)
                         }
-                        Text(if (controller.callSheetOpen) "Call sheet" else "Visit", style = MaterialTheme.typography.titleMedium)
+                        Text(controller.activityForm?.let { com.sunpride.field.storage.ActivityRules.kindLabel(it) }
+                            ?: if (controller.callSheetOpen) "Call sheet" else "Visit", style = MaterialTheme.typography.titleMedium)
                     } else if (page == "account" || page == "sync" || page == "support" ||
                         (ready && (page == "route" || page == "customers" || page == "customer"))) Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { page = when (page) { "support" -> "account"; "customer" -> "customers"; else -> "home" } },
@@ -150,6 +155,8 @@ fun FieldApp(
                 page == "support" -> SupportDetails(status, { page = "account" }, modifier)
                 ready && page == "sync" -> SyncDetails(status, onDismiss = { page = "home" },
                     onSync = controller::syncNow, busy = controller.busy, modifier = modifier)
+                controller.diagnostic != null && debug && ready && controller.activityForm != null ->
+                    com.sunpride.field.ui.diagnosticvisit.ActivityFormScreen(controller.activityForm!!, controller, modifier)
                 controller.diagnostic != null && debug && ready && controller.callSheetOpen && controller.diagnosticCallSheet != null ->
                     com.sunpride.field.ui.diagnosticvisit.CallSheetScreen(controller.diagnosticCallSheet!!, controller, modifier)
                 controller.diagnostic != null && debug && ready -> com.sunpride.field.ui.diagnosticvisit.DiagnosticVisitScreen(
@@ -262,7 +269,8 @@ fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: (
             }
         }
         if (diagnosticEnabled && data.unplannedOutlets.isNotEmpty()) SectionCard("Unplanned visit") {
-            data.unplannedOutlets.forEach { outlet -> ListRow(outlet.outlet, "", "store", onClick = { onVisit(outlet) }) }
+            data.unplannedOutlets.forEach { outlet -> ListRow(outlet.outlet, "", "store",
+                Modifier.testTag("unplanned-open"), onClick = { onVisit(outlet) }) }
         }
         data.warning?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("today-warning")) }
     }

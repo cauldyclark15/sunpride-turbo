@@ -132,6 +132,7 @@ import type * as territories_queries from "../territories/queries.js";
 import type * as territories_route_validation from "../territories/route_validation.js";
 import type * as territories_routes from "../territories/routes.js";
 import type * as territories_validation from "../territories/validation.js";
+import type * as visits_activity_rules from "../visits/activity_rules.js";
 import type * as visits_commands from "../visits/commands.js";
 import type * as visits_events from "../visits/events.js";
 import type * as visits_evidence from "../visits/evidence.js";
@@ -271,6 +272,7 @@ declare const fullApi: ApiFromModules<{
   "territories/route_validation": typeof territories_route_validation;
   "territories/routes": typeof territories_routes;
   "territories/validation": typeof territories_validation;
+  "visits/activity_rules": typeof visits_activity_rules;
   "visits/commands": typeof visits_commands;
   "visits/events": typeof visits_events;
   "visits/evidence": typeof visits_evidence;

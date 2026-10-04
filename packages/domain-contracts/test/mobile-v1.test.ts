@@ -109,6 +109,28 @@ describe("mobile v1 canonical contract", () => {
     expect(validate(empty)).toBe(false);
   });
 
+  test("bootstrap stays valid with or without the additive activityRules field", async () => {
+    const withRules = await Bun.file(
+      new URL(
+        "../fixtures/mobile-v1/bootstrap-activity-rules-response.json",
+        import.meta.url,
+      ),
+    ).json();
+    expect(validate(withRules), JSON.stringify(validate.errors)).toBe(true);
+    const withoutRules = { ...withRules };
+    delete withoutRules.activityRules;
+    expect(validate(withoutRules)).toBe(true);
+    const noVersion = structuredClone(withRules);
+    delete noVersion.activityRules[0].version;
+    expect(validate(noVersion)).toBe(false);
+    const extra = structuredClone(withRules);
+    extra.activityRules[0].activities[0].label = "Merchandising";
+    expect(validate(extra)).toBe(false);
+    const notBoolean = structuredClone(withRules);
+    notBoolean.activityRules[0].activities[0].required = "yes";
+    expect(validate(notBoolean)).toBe(false);
+  });
+
   test("bootstrap stays valid with or without the additive callSheets field", async () => {
     const withSheets = await Bun.file(
       new URL(
