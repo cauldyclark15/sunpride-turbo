@@ -94,6 +94,44 @@ class ActivityControllerTest {
         assertEquals(listOf("visit.checkIn", "visit.activity", "visit.checkOut"), store.history().map { it.first.kind })
     }
 
+    @Test fun endIsReviewedThenQueuedOnceAndTheVisitBecomesFinal() = runBlocking {
+        val (c, store) = controller()
+        c.openDiagnostic(planned).join()
+        c.queueDiagnostic("visit.checkIn", null, null, null, null).join()
+        c.reviewEnd("completed", null).join()
+        assertEquals(VisitRuleFailure.Code.ACTIVITIES_REQUIRED, c.diagnosticFailure)
+        assertNull(c.endReview)
+        c.openActivityForm("merchandising").join()
+        c.queueActivity(ActivityForms.merchandising("compliant", "")).join()
+        c.reviewEnd("completed", null).join()
+        assertEquals(listOf("merchandising"), c.endReview!!.recorded)
+        assertEquals(1, store.history().count { it.first.kind == "visit.activity" }) // review queues nothing
+        c.cancelEnd().join(); assertNull(c.endReview)
+        c.reviewEnd("completed", null).join()
+        val location = JSONObject().put("latitude", 14.5).put("longitude", 121.0).put("accuracyMeters", 8)
+            .put("fixTime", 100).put("provider", "fused").put("mockSignal", false)
+        c.queueDiagnostic("visit.checkOut", null, null, "completed", location).join()
+        assertNull(c.diagnosticFailure); assertNull(c.endReview)
+        val result = c.visitResult(planned)!!
+        assertEquals("completed", result.outcome)
+        assertEquals(listOf("merchandising"), result.recorded)
+        assertEquals("End location recorded · ±8 m", result.location)
+        assertEquals("Waiting to send", result.sync)
+        // Final: no second End, no new activity, through the controller or straight into the store.
+        c.reviewEnd("completed", null).join()
+        assertEquals(VisitRuleFailure.Code.ALREADY_ENDED, c.diagnosticFailure)
+        c.queueDiagnostic("visit.activity", null, "late note", null, null).join()
+        assertEquals(VisitRuleFailure.Code.ALREADY_ENDED, c.diagnosticFailure)
+        val start = store.history().first().first
+        assertThrows(VisitRuleFailure::class.java) { runBlocking {
+            store.enqueue(VisitIntentFactory.create(scope, "visit.activity", start.clientVisitId, start.requestId,
+                store.history().last().first.requestId, null, "outlet-1", emptyList(), null, "late", null, null, null,
+                at = 100), 100)
+        } }
+        assertEquals(listOf("visit.checkIn", "visit.activity", "visit.checkOut"), store.history().map { it.first.kind })
+        Unit
+    }
+
     @Test fun notProductiveEndSkipsForms() = runBlocking {
         val (c, store) = controller()
         c.openDiagnostic(planned).join()

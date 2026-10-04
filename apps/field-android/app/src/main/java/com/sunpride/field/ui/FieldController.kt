@@ -381,13 +381,13 @@ class FieldController(
     var diagnosticError by mutableStateOf<String?>(null); private set
     var diagnosticCallSheet by mutableStateOf<CallSheet?>(null); private set
     var callSheetOpen by mutableStateOf(false); private set
-    fun openCallSheet() = scope.launch(ui) { callSheetOpen = true; diagnosticError = null }
+    fun openCallSheet() = scope.launch(ui) { callSheetOpen = true; diagnosticError = null; endReview = null }
     fun closeCallSheet() = scope.launch(ui) { callSheetOpen = false; diagnosticError = null }
     /** AND-013: downloaded activity-form rules, the open form, and an unplanned visit's chosen purposes. */
     var diagnosticRules by mutableStateOf<List<com.sunpride.field.storage.ActivityRule>>(emptyList()); private set
     var activityForm by mutableStateOf<String?>(null); private set
     var selectedIntents by mutableStateOf<List<String>>(emptyList()); private set
-    fun openActivityForm(kind: String) = scope.launch(ui) { activityForm = kind; diagnosticError = null }
+    fun openActivityForm(kind: String) = scope.launch(ui) { activityForm = kind; diagnosticError = null; endReview = null }
     fun closeActivityForm() = scope.launch(ui) { activityForm = null; diagnosticError = null }
     fun toggleIntent(intent: String) = scope.launch(ui) {
         if (intent !in com.sunpride.field.storage.ActivityRules.INTENTS) return@launch
@@ -397,12 +397,36 @@ class FieldController(
     fun openDiagnostic(visit: VisitDisplay) = scope.launch(ui) {
         diagnostic = visit; diagnosticError = null; diagnosticFailure = null
         callSheetOpen = false; diagnosticCallSheet = null; activityForm = null; selectedIntents = emptyList()
+        endReview = null
         refreshDiagnostic()
     }
     var diagnosticFailure by mutableStateOf<VisitRuleFailure.Code?>(null); private set
     fun closeDiagnostic() = scope.launch(ui) {
         diagnostic = null; diagnosticError = null; diagnosticFailure = null; callSheetOpen = false; diagnosticCallSheet = null
-        activityForm = null; selectedIntents = emptyList()
+        activityForm = null; selectedIntents = emptyList(); endReview = null
+    }
+    /** AND-017: the End confirmation (what will be recorded) while the person decides; null otherwise. */
+    var endReview by mutableStateOf<com.sunpride.field.storage.EndReview?>(null); private set
+    /** Re-read the call and show what End will record; the same rules End enforces refuse it here first. */
+    fun reviewEnd(outcome: String?, reasonCode: String?) = scope.launch(ui) {
+        val visit = diagnostic ?: return@launch
+        if (busy) return@launch
+        busy = true; diagnosticError = null; diagnosticFailure = null; endReview = null
+        try {
+            refreshDiagnostic()
+            val checkin = openCheckIn(visit) ?: throw VisitRuleFailure(VisitRuleFailure.Code.CALL_NOT_OPEN)
+            endReview = com.sunpride.field.storage.VisitCompletion.review(checkin.clientVisitId, outcome,
+                reasonCode?.trim(), diagnosticRules, diagnosticRows, diagnosticCallSheet, now())
+        } catch (e: VisitRuleFailure) { diagnosticFailure = e.code; diagnosticError = e.code.text }
+        catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (_: Exception) { diagnosticError = "Could not check this call. Try again." }
+        finally { busy = false }
+    }
+    fun cancelEnd() = scope.launch(ui) { endReview = null }
+    /** The call's final, immutable result once its End is queued. */
+    fun visitResult(visit: VisitDisplay): com.sunpride.field.storage.VisitResult? = openCheckIn(visit)?.let {
+        com.sunpride.field.storage.VisitCompletion.result(it.clientVisitId, diagnosticRules, diagnosticRows,
+            diagnosticCallSheet)
     }
     private fun openCheckIn(visit: VisitDisplay) = relatedCall(visit).lastOrNull { (row, state) ->
         row.kind == "visit.checkIn" && state != "review"
@@ -491,6 +515,7 @@ class FieldController(
         val visit = diagnostic ?: return@launch
         if (busy) return@launch
         busy = true; diagnosticError = null; diagnosticFailure = null
+        if (kind != "visit.checkOut") endReview = null // a new activity changes what End would record
         try {
             refreshDiagnostic() // Re-read before enforcing, never trust a stale screen projection.
             val related = relatedCall(visit)
@@ -513,6 +538,7 @@ class FieldController(
                     related.lastOrNull()?.first?.requestId, visit.plannedVisitId, visit.outletId, intents,
                     reason, note, outcome, if (outcome == "nonproductive") reason?.trim() else null, location)
             }
+            if (kind == "visit.checkOut") endReview = null
             refreshDiagnostic()
             loadToday(sync = false)
         } catch (e: VisitRuleFailure) { diagnosticFailure = e.code; diagnosticError = e.code.text }
