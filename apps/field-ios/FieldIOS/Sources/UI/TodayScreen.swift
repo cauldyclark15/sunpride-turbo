@@ -12,6 +12,15 @@ struct TodayScreen: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            if !planned.isEmpty {
+                SectionCard(title: "Route") {
+                    NavigationLink { RouteScreen(model: model) } label: {
+                        CalmListRow(symbol: "map", title: "Today's route", meta: routeMeta, trailing: "chevron.right")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("openRoute")
+                }
+            }
             SectionCard(title: "Visits · \(planned.count)") {
                 if planned.isEmpty {
                     CalmListRow(symbol: "calendar", title: "No visits today", meta: "")
@@ -46,6 +55,13 @@ struct TodayScreen: View {
                     meta: statusMeta(visit), trailing: "chevron.right")
             .accessibilityIdentifier("visit-\(visit.id)")
         #endif
+    }
+    private var routeMeta: String {
+        let stops = DailyRoute.stops(visits: planned, outlets: model.outletDetails, customers: model.customerDetails, here: nil,
+                                     canStart: { model.startFailure(for: $0) == nil })
+        let count = "\(stops.count) \(stops.count == 1 ? "stop" : "stops")"
+        guard let next = stops.first(where: { $0.state == .next }) else { return count }
+        return "\(count) · Next: \(next.visit.outlet)"
     }
     private func statusMeta(_ visit: AppModel.TodayVisit) -> String {
         if visit.status == "Needs review" { return "To review" }

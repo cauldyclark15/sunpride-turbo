@@ -105,8 +105,11 @@ final class VisitLocationTests: XCTestCase {
         XCTAssertNil(OutletPin(latitude: 14, longitude: nil))
         XCTAssertNil(OutletPin(latitude: 95, longitude: 121))
         XCTAssertTrue(StoreSnapshot.Outlet(id: "a", name: "A", routeId: nil).hasValidPinFields)
-        XCTAssertFalse(StoreSnapshot.Outlet(id: "a", name: "A", routeId: nil, latitude: 14).hasValidPinFields)
-        XCTAssertEqual(StoreSnapshot.Outlet(id: "a", name: "A", routeId: nil, latitude: 14, longitude: 121).pin,
+        var halfPinned = StoreSnapshot.Outlet(id: "a", name: "A", routeId: nil)
+        halfPinned.latitude = 14
+        XCTAssertFalse(halfPinned.hasValidPinFields)
+        XCTAssertEqual(StoreSnapshot.Outlet(id: "a", name: "A", routeId: nil,
+                                            location: .init(latitude: 14, longitude: 121)).pin,
                        OutletPin(latitude: 14, longitude: 121))
     }
 }

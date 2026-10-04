@@ -565,6 +565,7 @@ describe("dsr.report.day", () => {
       productivePct: 50,
       dailyCallsTarget: 30,
       productiveCallTargetPct: 85,
+      productiveCallRule: "any_listed_activity",
     });
     expect(
       report.customers.map((row) => [
