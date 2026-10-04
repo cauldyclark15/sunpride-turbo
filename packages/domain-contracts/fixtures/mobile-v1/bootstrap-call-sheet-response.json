@@ -1,0 +1,82 @@
+{
+  "type": "bootstrap.response",
+  "contractVersion": 1,
+  "serverTime": 1790380800000,
+  "permissions": ["visit.record", "visit.read"],
+  "employee": {
+    "id": "profile-1",
+    "role": "sales",
+    "orgUnitId": "unit-1"
+  },
+  "scope": {
+    "fingerprint": "scope-v1",
+    "orgUnitIds": ["unit-1"]
+  },
+  "appConfig": {
+    "offlineLeaseExpiresAt": 1790467200000,
+    "cacheExpiresAt": 1790467200000,
+    "orderCaptureEnabled": false,
+    "priceAvailability": "unavailable",
+    "promotionsAvailability": "unavailable"
+  },
+  "plannedVisits": [
+    {
+      "id": "planned-1",
+      "outletId": "outlet-1",
+      "serviceDate": "2026-09-26",
+      "planId": "plan-1",
+      "planVersion": 1,
+      "intents": ["merchandise"]
+    }
+  ],
+  "outlets": [
+    {
+      "id": "outlet-1",
+      "name": "Outlet One",
+      "routeId": null
+    }
+  ],
+  "localCustomers": [],
+  "route": null,
+  "tasks": [],
+  "productCatalog": [],
+  "callSheets": [
+    {
+      "outletId": "outlet-1",
+      "revision": 2,
+      "header": {
+        "accountName": "Puregold Example",
+        "address": "12 Sample St, Quezon City",
+        "buyerName": "A. Buyer",
+        "contactNumber": "0917 000 0000",
+        "accountInCharge": "K. Specialist",
+        "receivingInCharge": null,
+        "distributorName": "Example Distributor",
+        "distributorSchedule": "Tue/Fri · 0918 000 0000",
+        "foc": null,
+        "pricing": "SRP list Oct 2026"
+      },
+      "lines": [
+        {
+          "productId": "product-1",
+          "code": "SUNP-001",
+          "name": "Sunpride Hotdog 1kg",
+          "uom": "PC",
+          "barcode": "4800000000017",
+          "pricing": "₱189.00"
+        },
+        {
+          "productId": "product-2",
+          "code": "HOL-010",
+          "name": "Holiday Corned Beef 150g",
+          "uom": "CAN",
+          "barcode": null,
+          "pricing": null
+        }
+      ]
+    }
+  ],
+  "page": 1,
+  "nextPageCursor": null,
+  "syncCursor": "opaque-start"
+}

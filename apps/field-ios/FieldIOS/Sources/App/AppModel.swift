@@ -26,6 +26,7 @@ final class AppModel {
     private(set) var freshThisLaunch = false
     private(set) var review: [String] = []
     private(set) var visits: [TodayVisit] = []
+    private(set) var callSheets: [CallSheet] = []
     private(set) var lastSyncedAt: Date?
     private(set) var syncStatus: FieldSyncStatus?
     private(set) var isOffline = false
@@ -177,7 +178,7 @@ final class AppModel {
             // A prior person's cached partition cannot be shown to a new session.
             try? secrets.delete(Self.partitionAccount)
             activeStoragePartition = nil
-            visits = []
+            visits = []; callSheets = []
             freshThisLaunch = false
             try await auth.signIn(email: email, password: password)
             signInError = nil
@@ -200,8 +201,14 @@ final class AppModel {
         refreshToday()
     }
 
+    /// Confirmed revocation/suspension (QSR-010): hold unsent work and drop this partition's cached
+    /// plan, outlets, customers and prices from storage and memory.
     private func holdActive() {
-        if let partition = activeStoragePartition { try? fieldStore?.holdForReview(partition) }
+        if let partition = activeStoragePartition {
+            do { try fieldStore?.purgeCacheForReview(partition) }
+            catch { try? fieldStore?.holdForReview(partition) }
+        }
+        visits = []; callSheets = []
         freshThisLaunch = false
     }
 
@@ -224,6 +231,7 @@ final class AppModel {
     func refreshToday() {
         guard let partition = activeStoragePartition, let store = try? storage(for: partition) else { return }
         do {
+            callSheets = try store.snapshot(for: partition)?.callSheets ?? []
             let day = BootstrapClient.manilaDay(now())
             let outlets = Dictionary(uniqueKeysWithValues: try store.outlets(for: partition).map { ($0.id, $0.name) })
             let planned = try store.todayVisits(day, for: partition)
@@ -337,6 +345,48 @@ final class AppModel {
         let ack = try store.ack(for: initial.requestId, in: partition)
         let timestamp = now()
         let intent = try DiagnosticOperation.note(note, checkIn: initial.requestId, visitId: ack?.entityId, now: timestamp)
+        if ack == nil { try store.enqueueDeferred(intent, for: partition, now: timestamp) }
+        else { try store.enqueue(intent, for: partition, now: timestamp) }
+        didQueueWork()
+    }
+    func callSheet(for visit: TodayVisit) -> CallSheet? {
+        callSheets.first { $0.outletId == visit.outletId }
+    }
+    func visitProgress(for visit: TodayVisit) -> (checkedIn: Bool, checkedOut: Bool) {
+        guard let (initial, store, partition) = try? checkIn(for: visit) else { return (false, false) }
+        let checkedOut = (try? store.intents(for: partition))?.contains { item in
+            item.kind == "visit.checkOut" &&
+            ((try? JSONSerialization.jsonObject(with: item.operationJSON) as? [String: Any])?["dependsOn"] as? [String])?.contains(initial.requestId.uuidString.lowercased()) == true
+        } ?? false
+        return (true, checkedOut)
+    }
+    func callSheetStatus(for visit: TodayVisit) -> String? {
+        guard let (initial, store, partition) = try? checkIn(for: visit),
+              let intents = try? store.intents(for: partition),
+              let latest = intents.last(where: { item in
+                  guard let object = try? JSONSerialization.jsonObject(with: item.operationJSON) as? [String: Any],
+                        (object["dependsOn"] as? [String])?.contains(initial.requestId.uuidString.lowercased()) == true,
+                        let payload = object["payload"] as? [String: Any],
+                        let activity = payload["activity"] as? [String: Any] else { return false }
+                  return activity["kind"] as? String == "call_sheet"
+              }) else { return nil }
+        if (try? store.ack(for: latest.requestId, in: partition)) != nil { return "Sent" }
+        if (try? store.reviewOutbox(for: partition))?.contains(where: { $0.intent.requestId == latest.requestId }) == true { return "Needs review" }
+        if (try? store.isHeld(partition)) == true { return "Held for review" }
+        return syncing ? "Sending" : "Queued"
+    }
+    func queueCallSheet(_ drafts: [String: CallSheetDraft], for visit: TodayVisit) throws {
+        let (initial, store, partition) = try checkIn(for: visit)
+        // The call sheet belongs to the open call: after Start and before End.
+        guard !visitProgress(for: visit).checkedOut else { throw CallFailure.alreadyClosed }
+        // Always validate against the active encrypted snapshot, not a stale editor projection.
+        guard let sheet = try store.snapshot(for: partition)?.callSheets.first(where: { $0.outletId == visit.outletId }) else {
+            throw StoreError.invalidInput
+        }
+        let ack = try store.ack(for: initial.requestId, in: partition)
+        let timestamp = now()
+        let intent = try DiagnosticOperation.callSheet(sheet, drafts: drafts, checkIn: initial.requestId,
+                                                       visitId: ack?.entityId, now: timestamp)
         if ack == nil { try store.enqueueDeferred(intent, for: partition, now: timestamp) }
         else { try store.enqueue(intent, for: partition, now: timestamp) }
         didQueueWork()
@@ -506,6 +556,21 @@ final class AppModel {
         return store
     }
 
+    /// The local store if one exists on disk; never creates a database (or its key) just to sign out.
+    private func existingStore() throws -> EncryptedFieldStore? {
+        if let fieldStore { return fieldStore }
+        #if DEBUG
+        let folder = StubBackend.scenario == nil ? "FieldStore" : "FieldStoreStub"
+        #else
+        let folder = "FieldStore"
+        #endif
+        guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
+              FileManager.default.fileExists(atPath: support.appending(path: folder).appending(path: "field.sqlite").path)
+        else { return nil }
+        _ = try storageForBootstrap()
+        return fieldStore
+    }
+
     func phoneStateChanged(_ state: Enrollment.State) async {
         switch state {
         case .ready: if !freshThisLaunch { await syncNow() }
@@ -517,13 +582,16 @@ final class AppModel {
     func signOut() async {
         enrollment.signedOut()
         signInError = nil
-        if let partition = activeStoragePartition {
-            do { try fieldStore?.holdForReview(partition) }
-            catch { signInError = "Local evidence needs supervised review; storage could not be locked." }
+        // QSR-010: every partition is held and its cached plan, customers and prices removed; only
+        // encrypted unsent evidence remains for supervised review.
+        do { try existingStore()?.purgeAllCachesForReview() }
+        catch {
+            if let partition = activeStoragePartition { try? fieldStore?.holdForReview(partition) }
+            signInError = "Local evidence needs supervised review; storage could not be locked."
         }
         activeStoragePartition = nil
         try? secrets.delete(Self.partitionAccount)
-        visits = []
+        visits = []; callSheets = []
         lastSyncedAt = nil
         syncStatus = nil
         freshThisLaunch = false

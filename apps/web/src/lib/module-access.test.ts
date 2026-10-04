@@ -33,6 +33,14 @@ const expectedCapabilities = {
   "sales-force": ["mcp.read"],
   // Supervision needs people.read AND visit.read; people.read is the narrower set.
   supervision: ["people.read"],
+  // Call sheets need outlet.read AND visit.read; both are granted to every role.
+  "call-sheets": ["outlet.read"],
+  // The DSR needs report.read; the server limits sales to their own sheet.
+  "daily-sales": ["report.read"],
+  // Trainer forms: every role reads and acknowledges its own (visit.read).
+  training: ["visit.read"],
+  // DAR/ROAR: filers hold visit.record, supervisors people.read.
+  "activity-reports": ["visit.record", "people.read"],
   orders: ["order.create", "order.approve"],
   "outside-calls": ["order.encode", "visit.record"],
   "sap-integration": ["integration.read"],
@@ -50,6 +58,10 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
     "inventory",
     "sales-force",
     "supervision",
+    "call-sheets",
+    "daily-sales",
+    "training",
+    "activity-reports",
     "outside-calls",
     "sap-integration",
     "admin",
@@ -61,6 +73,9 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
     "imports",
     "inventory",
     "sales-force",
+    "call-sheets",
+    "daily-sales",
+    "training",
     "outside-calls",
     "sap-integration",
     "analytics",
@@ -71,6 +86,10 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
     "inventory",
     "sales-force",
     "supervision",
+    "call-sheets",
+    "daily-sales",
+    "training",
+    "activity-reports",
     "orders",
     "outside-calls",
     "workflows",
@@ -80,6 +99,9 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
     "dashboard",
     "inventory",
     "sales-force",
+    "call-sheets",
+    "daily-sales",
+    "training",
     "orders",
     "workflows",
     "analytics",
@@ -88,6 +110,11 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
     "dashboard",
     "inventory",
     "sales-force",
+    "call-sheets",
+    "daily-sales",
+    "training",
+    "activity-reports",
+    "orders",
     "orders",
     "outside-calls",
     "analytics",
@@ -97,9 +124,23 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
     "inventory",
     "sales-force",
     "supervision",
+    "call-sheets",
+    "daily-sales",
+    "training",
+    "activity-reports",
     "analytics",
   ],
-  viewer: ["dashboard", "inventory", "sales-force", "supervision", "analytics"],
+  viewer: [
+    "dashboard",
+    "inventory",
+    "sales-force",
+    "supervision",
+    "call-sheets",
+    "daily-sales",
+    "training",
+    "activity-reports",
+    "analytics",
+  ],
 };
 
 describe("web module access", () => {
@@ -189,6 +230,14 @@ describe("web module access", () => {
     expect(canAccessWebModule("issues", "sales")).toBe(false);
     expect(canAccessWebModule("issues", "viewer")).toBe(false);
     expect(canAccessWebModule("issues", null)).toBe(false);
+  });
+
+  it("opens call sheets to every outlet and visit reader", () => {
+    for (const role of roles)
+      expect(canAccessWebModule("call-sheets", role)).toBe(
+        (CAPABILITIES["outlet.read"] as readonly string[]).includes(role) &&
+          (CAPABILITIES["visit.read"] as readonly string[]).includes(role),
+      );
   });
 
   it("keeps field sales and approvers out of supervision", () => {

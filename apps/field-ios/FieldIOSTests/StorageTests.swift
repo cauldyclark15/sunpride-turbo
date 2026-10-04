@@ -154,6 +154,55 @@ final class StorageTests: XCTestCase {
         }
     }
 
+    /// QSR-010: sign-out removes every partition's cached plan, outlets, customers, route and lease,
+    /// survives reopen, and keeps the unsent intent held until the same partition rebootstraps.
+    func testSignOutPurgeDropsServerCacheButKeepsUnsentEvidence() throws {
+        let a = try partition, b = try StorePartition(subject: "issuer|other", deviceId: "phone-1", scope: "scope-1")
+        let store = try open(), op = intent()
+        try seeded(store, a); try seeded(store, b)
+        let change = try JSONDecoder().decode(DeltaChange.self, from: Data(
+            #"{"seq":1,"entity":"visit","id":"planned-1","revision":2,"op":"upsert","value":{"status":"open"}}"#.utf8))
+        try store.applyDelta([change], nextCursor: "after-delta", for: a)
+        XCTAssertNotNil(try store.deltaValue(entity: "visit", id: "planned-1", for: a))
+        try store.enqueue(op, for: a, now: now)
+        try store.purgeAllCachesForReview()
+        store.close()
+        let reopened = try open()
+        for p in [a, b] {
+            XCTAssertNil(try reopened.snapshot(for: p))
+            XCTAssertTrue(try reopened.outlets(for: p).isEmpty)
+            XCTAssertTrue(try reopened.todayVisits("2026-09-26", for: p).isEmpty)
+            XCTAssertTrue(try reopened.callSheets(for: p).isEmpty)
+            XCTAssertNil(try reopened.cursor(for: p))
+            XCTAssertNil(try reopened.leaseExpiry(for: p))
+            XCTAssertNil(try reopened.cacheExpiry(for: p))
+            XCTAssertFalse(try reopened.isLeaseValid(now: now, for: p))
+            XCTAssertTrue(try reopened.isHeld(p))
+        }
+        XCTAssertNil(try reopened.deltaValue(entity: "visit", id: "planned-1", for: a))
+        XCTAssertTrue(try reopened.pendingOutbox(for: a).isEmpty)
+        XCTAssertEqual(try reopened.heldOutbox(for: a).first?.intent, op)
+        XCTAssertThrowsError(try reopened.enqueue(intent(), for: a, now: now))
+        try seeded(reopened, a)
+        try reopened.releaseHeld(a)
+        XCTAssertEqual(try reopened.pendingOutbox(for: a).first?.intent, op)
+        XCTAssertEqual(try reopened.outlets(for: a).count, 1)
+    }
+
+    func testRevocationPurgeIsScopedToOnePartition() throws {
+        let a = try partition, d = try StorePartition(subject: "issuer|seller", deviceId: "phone-1", scope: "scope-2")
+        let store = try open(), op = intent()
+        try seeded(store, a); try seeded(store, d)
+        try store.enqueue(op, for: a, now: now)
+        try store.purgeCacheForReview(a)
+        XCTAssertNil(try store.snapshot(for: a))
+        XCTAssertTrue(try store.isHeld(a))
+        XCTAssertEqual(try store.heldOutbox(for: a).first?.intent, op)
+        XCTAssertNotNil(try store.snapshot(for: d))
+        XCTAssertFalse(try store.isHeld(d))
+        XCTAssertTrue(try store.isLeaseValid(now: now, for: d))
+    }
+
     func testMigrationsV0PreserveUUIDAndV1NoOp() throws {
         let p = try partition, op = intent()
         try EncryptedFieldStore.createLegacyV0(url: url, secrets: secrets, keyAccount: keyName, partition: p, intent: op)
@@ -196,6 +245,69 @@ final class StorageTests: XCTestCase {
         let reopened = try open()
         XCTAssertEqual(try reopened.pendingOutbox(for: a).count, 1)
         XCTAssertTrue(try reopened.pendingOutbox(for: b).isEmpty)
+    }
+
+    private func callSheetSnapshot() throws -> StoreSnapshot {
+        let fixture = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "bootstrap-call-sheet-response", withExtension: "json"))
+        let page = try JSONDecoder().decode(BootstrapV1.Page.self, from: Data(contentsOf: fixture))
+        return StoreSnapshot(employee: page.employee, visits: page.plannedVisits, outlets: page.outlets,
+                             customers: [], route: nil, tasks: [], callSheets: page.callSheets)
+    }
+    func testV2ToV3MigrationPreservesSnapshotUUIDsAcksLeaseAndOutbox() throws {
+        let p = try partition, store = try open(), accepted = intent(), pending = intent()
+        try seeded(store, p)
+        try store.enqueue(accepted, for: p, now: now)
+        let ack = ServerAck(entityId: "server-visit", eventIds: ["event"], serverTime: 1_790_380_800_010)
+        try store.recordAck(ack, for: accepted.requestId, in: p)
+        try store.enqueue(pending, for: p, now: now)
+        try store.prepareLegacyV2()
+        XCTAssertEqual(store.schemaVersion, 2)
+        store.close()
+        let upgraded = try open()
+        XCTAssertEqual(upgraded.schemaVersion, 3)
+        XCTAssertEqual(try upgraded.pendingOutbox(for: p).map(\.intent), [pending])
+        XCTAssertEqual(try upgraded.ack(for: accepted.requestId, in: p), ack)
+        XCTAssertEqual(try upgraded.snapshot(for: p)?.visits.first?.id, "planned-1")
+        XCTAssertTrue(try XCTUnwrap(upgraded.snapshot(for: p)).callSheets.isEmpty)
+        XCTAssertEqual(try upgraded.cursor(for: p), "opaque-start")
+        XCTAssertEqual(try upgraded.leaseExpiry(for: p), 1_790_467_200_000)
+        try upgraded.saveSnapshot(callSheetSnapshot(), cursor: "v3-cursor", leaseExpiresAt: 1_790_467_200_000,
+                                  cacheExpiresAt: 1_790_467_200_000, for: p)
+        upgraded.close()
+        let reopened = try open()
+        XCTAssertEqual(reopened.schemaVersion, 3)
+        XCTAssertEqual(try reopened.snapshot(for: p)?.callSheets.count, 1)
+        XCTAssertEqual(try reopened.pendingOutbox(for: p).first?.intent, pending)
+        reopened.close()
+    }
+    func testCallSheetEncryptedGenerationSwapRollbackAndPartitionIsolation() throws {
+        let p = try partition, store = try open(), snapshot = try callSheetSnapshot(), queued = intent()
+        try store.saveSnapshot(snapshot, cursor: "sheet-cursor", leaseExpiresAt: 1_790_467_200_000,
+                               cacheExpiresAt: 1_790_467_200_000, for: p)
+        try store.enqueue(queued, for: p, now: now)
+        for suffix in ["", "-wal"] {
+            if let raw = try? Data(contentsOf: URL(fileURLWithPath: url.path + suffix)) {
+                XCTAssertNil(raw.range(of: Data("Puregold Example".utf8)))
+                XCTAssertNil(raw.range(of: Data("Sunpride Hotdog 1kg".utf8)))
+            }
+        }
+        let other = try StorePartition(subject: p.subject, deviceId: p.deviceId, scope: "different-scope")
+        XCTAssertTrue(try store.callSheets(for: other).isEmpty)
+        let invalid = StoreSnapshot(employee: snapshot.employee, visits: snapshot.visits, outlets: snapshot.outlets,
+                                    customers: [], route: nil, tasks: [], callSheets: snapshot.callSheets + snapshot.callSheets)
+        XCTAssertThrowsError(try store.saveSnapshot(invalid, cursor: "must-rollback", leaseExpiresAt: 1,
+                                                     cacheExpiresAt: 1, for: p))
+        XCTAssertEqual(try store.cursor(for: p), "sheet-cursor")
+        XCTAssertEqual(try store.snapshot(for: p)?.callSheets, snapshot.callSheets)
+        XCTAssertEqual(try store.leaseExpiry(for: p), 1_790_467_200_000)
+        try store.saveSnapshot(self.snapshot(), cursor: "old-server", leaseExpiresAt: 1_790_467_200_000,
+                               cacheExpiresAt: 1_790_467_200_000, for: p)
+        XCTAssertTrue(try store.callSheets(for: p).isEmpty, "omitted callSheets clears the prior generation")
+        XCTAssertEqual(try store.pendingOutbox(for: p).first?.intent, queued)
+        store.close()
+        let reopened = try open()
+        XCTAssertTrue(try reopened.callSheets(for: p).isEmpty)
+        reopened.close()
     }
 
     func testSequenceAndOriginalListOrderSurviveEncryptedReopen() throws {

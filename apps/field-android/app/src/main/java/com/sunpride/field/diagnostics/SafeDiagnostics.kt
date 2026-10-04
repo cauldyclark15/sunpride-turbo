@@ -25,7 +25,8 @@ object Redactor {
 
 /** Only known codes are admitted. No Throwable, request text or user strings in Logcat. */
 object SafeLog {
-    private val codes = setOf("sync_started", "sync_retry", "sync_complete", "sync_held", "worker_stopped", "crash")
+    private val codes = setOf("sync_started", "sync_retry", "sync_complete", "sync_held", "worker_stopped", "crash",
+        "photo_saved", "photo_retry", "photo_complete")
     fun event(code: String) {
         if (BuildConfig.DEBUG && code in codes) Log.i("SunprideField", Redactor.mask(code))
     }
@@ -40,7 +41,8 @@ class Breadcrumbs(private val directory: File) {
     companion object { private val lock = Any() }
     private val file get() = File(directory, "field-breadcrumbs")
     fun add(code: String) = synchronized(lock) {
-        val safe = if (code in setOf("sync_started", "sync_retry", "sync_complete", "sync_held", "worker_stopped", "crash")) code else "event_redacted"
+        val safe = if (code in setOf("sync_started", "sync_retry", "sync_complete", "sync_held", "worker_stopped", "crash",
+                "photo_saved", "photo_retry", "photo_complete")) code else "event_redacted"
         val lines = read().takeLast(49) + Redactor.mask(safe)
         directory.mkdirs()
         val staged = File(directory, "field-breadcrumbs.new")
@@ -78,6 +80,7 @@ class SupportInfo(context: Context) {
         "Sunpride Field ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})\n" +
         "Android ${android.os.Build.VERSION.RELEASE}\nSupport handle: $handle\n" +
         "Queued: ${status.queued}; Sending: ${status.sending}; Needs review: ${status.review}; Held: ${status.held}\n" +
+        "Photos waiting: ${status.photosWaiting}\n" +
         "Last outcome: ${when (status.health) { "synced", "retry_pending", "held_for_review", "never_synced" -> status.health; else -> "unknown" }}"
     )
 }

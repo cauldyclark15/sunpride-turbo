@@ -1,6 +1,9 @@
 import { ConvexError, v } from "convex/values";
+import type { Id } from "../_generated/dataModel";
+import type { MutationCtx } from "../_generated/server";
 import { mutation, query } from "../_generated/server";
 import { requireIdentity, requireRole } from "../lib/auth";
+import { requireNationalScope, requireScopedRole } from "../lib/scope";
 import { SUNPRIDE_ORGANIZATION_ID } from "./constants";
 import {
   findExistingCommand,
@@ -26,6 +29,26 @@ const saleLine = v.object({
   ),
 });
 
+/** Roles that may sell from a van they personally operate. */
+const VAN_SELLERS = ["sales", "manager"] as const;
+
+/**
+ * QSR-006: gate a van POS command on the truck location's stored org unit, never
+ * on caller input. Unmapped locations are national-only, as elsewhere in inventory.
+ */
+async function requireVanLocationScope(
+  ctx: MutationCtx,
+  roles: readonly string[],
+  locationId: Id<"inventoryLocations">,
+) {
+  const location = await ctx.db.get(locationId);
+  if (!location || location.organizationId !== SUNPRIDE_ORGANIZATION_ID)
+    throw new ConvexError("Inventory location not found");
+  if (location.orgUnitId)
+    return requireScopedRole(ctx, roles, location.orgUnitId);
+  return requireNationalScope(ctx, roles);
+}
+
 export const postSale = mutation({
   args: {
     clientRequestId: v.string(),
@@ -44,7 +67,7 @@ export const postSale = mutation({
     nextDeviceSequence: v.number(),
   }),
   handler: async (ctx, args) => {
-    const identity = await requireIdentity(ctx);
+    const { identity } = await requireRole(ctx, VAN_SELLERS);
     if (args.lines.length === 0)
       throw new ConvexError("Sale needs at least one line");
     const payloadHash = hashPayload(args);
@@ -55,6 +78,14 @@ export const postSale = mutation({
       )
       .unique();
     if (duplicateOrder) {
+      // A replay never bypasses ownership or scope (QSR-006).
+      if (duplicateOrder.salespersonSubject !== identity.tokenIdentifier)
+        throw new ConvexError("Route session belongs to another salesperson");
+      await requireVanLocationScope(
+        ctx,
+        VAN_SELLERS,
+        duplicateOrder.sourceLocationId ?? args.truckLocationId,
+      );
       if (
         duplicateOrder.requestPayloadHash &&
         duplicateOrder.requestPayloadHash !== payloadHash
@@ -85,6 +116,7 @@ export const postSale = mutation({
       throw new ConvexError("Route session belongs to another salesperson");
     if (route.assignedDeviceId !== args.deviceId)
       throw new ConvexError("Device is not assigned to this route session");
+    await requireVanLocationScope(ctx, VAN_SELLERS, args.truckLocationId);
     const expected = route.lastAcknowledgedSequence + 1;
     if (args.deviceSequence !== expected)
       throw new ConvexError(
@@ -185,14 +217,17 @@ export const voidSale = mutation({
   },
   returns: v.id("inventoryMovements"),
   handler: async (ctx, args) => {
-    const { identity } = await requireRole(ctx, [
-      "admin",
-      "manager",
-      "approver",
-    ]);
+    const voiders = ["admin", "manager", "approver"] as const;
+    const { identity } = await requireRole(ctx, voiders);
     const order = await ctx.db.get(args.orderId);
-    if (!order || !order.inventoryMovementId || order.status !== "posted")
+    if (
+      !order ||
+      !order.inventoryMovementId ||
+      !order.sourceLocationId ||
+      order.status !== "posted"
+    )
       throw new ConvexError("Only a posted inventory sale can be voided");
+    await requireVanLocationScope(ctx, voiders, order.sourceLocationId);
     const movement = await reverseMovement(ctx, {
       originalMovementId: order.inventoryMovementId,
       idempotencyKey: args.idempotencyKey,
@@ -231,12 +266,8 @@ export const returnSale = mutation({
     duplicate: v.boolean(),
   }),
   handler: async (ctx, args) => {
-    const { identity, profile } = await requireRole(ctx, [
-      "sales",
-      "admin",
-      "manager",
-      "approver",
-    ]);
+    const returners = ["sales", "admin", "manager", "approver"] as const;
+    const { identity, profile } = await requireRole(ctx, returners);
     const payloadHash = hashPayload(args);
     const duplicate = await ctx.db
       .query("orders")
@@ -245,6 +276,9 @@ export const returnSale = mutation({
       )
       .unique();
     if (duplicate) {
+      if (!duplicate.sourceLocationId)
+        throw new ConvexError("Existing return is missing its location");
+      await requireVanLocationScope(ctx, returners, duplicate.sourceLocationId);
       if (duplicate.requestPayloadHash !== payloadHash)
         throw new ConvexError(
           "Return request ID was reused with another payload",
@@ -272,6 +306,7 @@ export const returnSale = mutation({
       original.salespersonSubject !== identity.tokenIdentifier
     )
       throw new ConvexError("Salespeople can only return their own sale");
+    await requireVanLocationScope(ctx, returners, original.sourceLocationId);
     if (args.lines.length === 0)
       throw new ConvexError("Return needs at least one line");
     const originalMovementLines = await ctx.db
@@ -439,10 +474,11 @@ export const openRoute = mutation({
   },
   returns: v.id("truckRouteSessions"),
   handler: async (ctx, args) => {
-    const identity = await requireIdentity(ctx);
+    const { identity } = await requireRole(ctx, VAN_SELLERS);
     const location = await ctx.db.get(args.truckLocationId);
     if (!location || location.type !== "truck" || !location.allowsSale)
       throw new ConvexError("A sellable truck location is required");
+    await requireVanLocationScope(ctx, VAN_SELLERS, args.truckLocationId);
     const existing = await ctx.db
       .query("truckRouteSessions")
       .withIndex("by_organizationId_and_truckLocationId_and_status", (q) =>

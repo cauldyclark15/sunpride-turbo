@@ -14,7 +14,8 @@ object VisitIntentFactory {
         previousRequestId: String?, plannedVisitId: String?, outletId: String, intents: List<String>,
         unplannedReason: String?, note: String?, outcome: String?, reasonCode: String?,
         location: JSONObject?, at: Long = System.currentTimeMillis(),
-        uuid: () -> String = { UUID.randomUUID().toString() }): IntentRow {
+        uuid: () -> String = { UUID.randomUUID().toString() },
+        callSheet: JSONObject? = null, activity: JSONObject? = null): IntentRow {
         require(kind in setOf("visit.checkIn", "visit.activity", "visit.checkOut"))
         val id = uuid().lowercase(); require(UUID.fromString(id).toString() == id)
         val visit = clientVisitId ?: uuid().lowercase()
@@ -31,8 +32,17 @@ object VisitIntentFactory {
             // This value is a LOCAL template reference, never transmitted as a server visitId.
             payload.put("visitId", "@checkin:$checkInRequestId").put("deviceTime", at)
             if (kind == "visit.activity") {
-                require(!note.isNullOrBlank())
-                payload.put("activity", JSONObject().put("kind", "note").put("text", note.trim().take(500)))
+                if (callSheet != null) {
+                    require(callSheet.getString("kind") == "call_sheet")
+                    payload.put("activity", callSheet)
+                } else if (activity != null) {
+                    // AND-013 structured form, already built by ActivityForms (re-validated in the store).
+                    require(activity.getString("kind") in setOf("merchandising", "promotion", "inventory_check", "price_check"))
+                    payload.put("activity", JSONObject(activity.toString()))
+                } else {
+                    require(!note.isNullOrBlank())
+                    payload.put("activity", JSONObject().put("kind", "note").put("text", note.trim().take(500)))
+                }
             } else {
                 com.sunpride.field.storage.VisitCallRules.requireOutcome(outcome, reasonCode)
                 payload.put("outcome", outcome).put("reasonCode", reasonCode ?: JSONObject.NULL)
