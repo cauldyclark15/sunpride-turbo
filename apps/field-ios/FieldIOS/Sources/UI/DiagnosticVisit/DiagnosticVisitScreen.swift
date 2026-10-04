@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Visit work is captured locally; only the server can accept or credit a call.
+#if DEBUG
+/// Diagnostic only: local work is queued, never credited as a productive call.
 struct DiagnosticVisitScreen: View {
     let model: AppModel
     let visit: AppModel.TodayVisit
@@ -203,3 +204,4 @@ struct DiagnosticVisitScreen: View {
         Rectangle().fill(SunprideTokens.secondaryText.opacity(0.2)).frame(height: 1).padding(.leading, 16)
     }
 }
+#endif
