@@ -222,13 +222,34 @@ struct CustomerDetailScreen: View {
             }
         }
 
+        SectionCard(title: "Sales and orders") {
+            DetailRows {
+                let rows = CustomerDirectory.salesRows(record.summary, now: now)
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    DetailRow(label: row.label, value: row.value)
+                }
+                if let summary = record.summary, summary.isAvailable {
+                    let when = CustomerDirectory.dayLabel(summary.asOfDate, now: now)
+                    note("Office orders as of \(when == "Today" ? "today" : when). Open orders are not delivered yet; unpaid invoices are not shown.")
+                        .accessibilityIdentifier("customerSalesNote")
+                } else if record.summary != nil {
+                    note("This account is shared with outlets outside your plan, so its figures are not on this phone")
+                        .accessibilityIdentifier("customerSalesWithheld")
+                } else {
+                    note(record.customerCode == nil ? "No customer account linked to this outlet"
+                         : "Sync to download this account's sales")
+                        .accessibilityIdentifier("customerSalesMissing")
+                }
+            }
+        }
+
         SectionCard(title: "Recent history") {
             DetailRows {
                 if record.history.isEmpty { note("Nothing recorded here from this phone yet") }
                 ForEach(Array(record.history.enumerated()), id: \.offset) { _, entry in
                     DetailRow(label: entry.label, value: "\(CustomerDirectory.timeLabel(entry.at, now: now)) · \(entry.state)")
                 }
-                note("Shows visits recorded on this phone. Office sales history and balances are not downloaded yet.")
+                note("Visits recorded on this phone")
             }
         }
     }

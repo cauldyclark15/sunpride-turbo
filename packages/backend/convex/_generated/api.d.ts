@@ -102,6 +102,7 @@ import type * as merchandising_assortments from "../merchandising/assortments.js
 import type * as merchandising_audits from "../merchandising/audits.js";
 import type * as merchandising_validators from "../merchandising/validators.js";
 import type * as migrations from "../migrations.js";
+import type * as mobile_account_summary from "../mobile/account_summary.js";
 import type * as mobile_bootstrap from "../mobile/bootstrap.js";
 import type * as mobile_budget from "../mobile/budget.js";
 import type * as mobile_cursor from "../mobile/cursor.js";
@@ -265,6 +266,7 @@ declare const fullApi: ApiFromModules<{
   "merchandising/audits": typeof merchandising_audits;
   "merchandising/validators": typeof merchandising_validators;
   migrations: typeof migrations;
+  "mobile/account_summary": typeof mobile_account_summary;
   "mobile/bootstrap": typeof mobile_bootstrap;
   "mobile/budget": typeof mobile_budget;
   "mobile/cursor": typeof mobile_cursor;

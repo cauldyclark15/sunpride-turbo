@@ -34,7 +34,16 @@ final class CustomerDirectoryTests: XCTestCase {
             tasks: [.init(id: "t1", kind: "price_survey", required: true)],
             callSheets: [CallSheet(outletId: "o-b", revision: 1, header: header("Pena Grocery Inc", buyer: "Maria Santos",
                                                                                   contact: "+63 917 555 0101", address: "5 Mabini St"),
-                                   lines: [])])
+                                   lines: [])],
+            accountSummaries: [summary()])
+    }
+
+    private func summary(complete: Bool = true, last: String? = "2026-10-03", open: Int64 = 2) -> AccountSummary {
+        AccountSummary(outletId: "o-a", asOfDate: day, availability: "available", creditLimitMinor: 5_000_000,
+                       sales: .init(from: complete ? "2026-07-07" : "2026-09-01", to: day, complete: complete,
+                                    orders: 9, amountMinor: 4_825_050, recentOrders: 1, recentAmountMinor: 530_000,
+                                    lastOrderDate: last, lastOrderAmountMinor: last == nil ? nil : 530_000),
+                       openOrders: .init(count: open, amountMinor: open == 0 ? 0 : 410_000))
     }
 
     private func today() -> [AppModel.TodayVisit] {
@@ -48,6 +57,28 @@ final class CustomerDirectoryTests: XCTestCase {
 
     private func records(history: [(VisitIntent, LocalIntentState)] = []) -> [CustomerRecord] {
         CustomerDirectory.build(snapshot: snapshot(), today: today(), day: day, history: history)
+    }
+
+    func testOfficeSalesHistoryOpenOrdersAndCreditLimitAreWordedForTheField() throws {
+        let all = records()
+        XCTAssertEqual(all[0].summary, summary(), "joined by outlet")
+        XCTAssertNil(all[1].summary, "no summary downloaded for this outlet")
+        let rows = CustomerDirectory.salesRows(all[0].summary, now: now)
+        XCTAssertEqual(rows.map(\.label), ["Last order", "Last 4 weeks", "Last 13 weeks", "Open orders", "Credit limit"])
+        XCTAssertEqual(rows.map(\.value), ["Sat, Oct 3 · ₱5,300.00", "₱5,300.00 · 1 order", "₱48,250.50 · 9 orders",
+                                           "2 orders · ₱4,100.00", "₱50,000.00"])
+        let capped = CustomerDirectory.salesRows(summary(complete: false, last: nil, open: 0), now: now)
+        XCTAssertEqual(capped[0].value, "No orders in this period")
+        XCTAssertEqual(capped[2].label, "Since Tue, Sep 1", "a capped read never claims 13 weeks")
+        XCTAssertEqual(capped[3].value, "None")
+        let withheld = AccountSummary(outletId: "o-a", asOfDate: day, availability: "withheld", creditLimitMinor: nil,
+                                      sales: nil, openOrders: nil)
+        XCTAssertTrue(withheld.isValid)
+        XCTAssertTrue(CustomerDirectory.salesRows(withheld, now: now).isEmpty, "withheld shows no figures, never zero")
+        let future = AccountSummary(outletId: "o-a", asOfDate: day, availability: "partial", creditLimitMinor: nil,
+                                    sales: summary().sales, openOrders: summary().openOrders)
+        XCTAssertTrue(CustomerDirectory.salesRows(future, now: now).isEmpty, "unknown availability is not shown as figures")
+        XCTAssertEqual(AccountSummary.peso(-12_345), "-₱123.45")
     }
 
     func testBuildIsLimitedToSnapshotOutletsAndJoinsRouteAccountPlansAndToday() throws {

@@ -368,6 +368,11 @@ final class FieldIOSUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Price survey"].exists, "day task")
         XCTAssertTrue(app.staticTexts["Stop 1 of 2 · Not started"].exists)
         XCTAssertTrue(app.staticTexts["Nothing recorded here from this phone yet"].exists)
+        // Office figures cached at bootstrap: sales history, open orders, credit limit.
+        XCTAssertTrue(app.staticTexts["₱48,250.50 · 9 orders"].exists, "13-week sales")
+        XCTAssertTrue(app.staticTexts["₱15,900.00 · 3 orders"].exists, "4-week sales")
+        XCTAssertTrue(app.staticTexts["1 order · ₱4,100.00"].exists, "open orders")
+        XCTAssertTrue(app.staticTexts["₱50,000.00"].exists, "credit limit")
         app.buttons["customerVisit"].tap()
         XCTAssertTrue(app.buttons["diagnosticCheckIn"].waitForExistence(timeout: 5))
         app.buttons["diagnosticCheckIn"].tap()
@@ -389,5 +394,17 @@ final class FieldIOSUITests: XCTestCase {
         field.typeText("next")
         XCTAssertTrue(offline.buttons["customerResult-outlet-stub-2"].waitForExistence(timeout: 5))
         XCTAssertFalse(offline.buttons["customerResult-outlet-stub-1"].exists)
+        // A shared account's figures never reach the phone; offline it says so instead of showing zero.
+        offline.buttons["customerResult-outlet-stub-2"].tap()
+        XCTAssertTrue(offline.staticTexts["customerSalesWithheld"].waitForExistence(timeout: 5))
+        offline.buttons["BackButton"].firstMatch.tap()
+        let again = offline.textFields["customerSearch"]
+        XCTAssertTrue(again.waitForExistence(timeout: 5))
+        again.tap()
+        again.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 4) + "STUB-1")
+        XCTAssertTrue(offline.buttons["customerResult-outlet-stub-1"].waitForExistence(timeout: 5))
+        offline.buttons["customerResult-outlet-stub-1"].tap()
+        XCTAssertTrue(offline.staticTexts["customerSalesNote"].waitForExistence(timeout: 5), "cached figures offline")
+        XCTAssertTrue(offline.staticTexts["1 order · ₱4,100.00"].exists)
     }
 }

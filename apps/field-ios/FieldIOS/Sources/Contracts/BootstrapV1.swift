@@ -89,6 +89,8 @@ enum BootstrapV1 {
         let tasks: [StoreSnapshot.Task]
         let productCatalog: [Product]
         let callSheets: [CallSheet]
+        /// IOS-011 additive field: cached account figures for this page's newly shipped outlets.
+        let accountSummaries: [AccountSummary]
         let page: Int
         let nextPageCursor: String?
         let syncCursor: String?
@@ -96,7 +98,7 @@ enum BootstrapV1 {
         enum CodingKeys: String, CodingKey {
             case type, contractVersion, serverTime, permissions, employee, scope, appConfig,
                  plannedVisits, outlets, localCustomers, route, tasks, productCatalog, page,
-                 nextPageCursor, syncCursor, callSheets
+                 nextPageCursor, syncCursor, callSheets, accountSummaries
         }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -127,11 +129,20 @@ enum BootstrapV1 {
             if c.contains(.callSheets) {
                 callSheets = try c.decode([CallSheet].self, forKey: .callSheets)
             } else { callSheets = [] } // Old servers omit the additive field.
+            if c.contains(.accountSummaries) {
+                accountSummaries = try c.decode([AccountSummary].self, forKey: .accountSummaries)
+            } else { accountSummaries = [] } // Old servers omit the additive field.
             page = try c.decode(Int.self, forKey: .page)
             nextPageCursor = try c.decodeIfPresent(String.self, forKey: .nextPageCursor)
             syncCursor = try c.decodeIfPresent(String.self, forKey: .syncCursor)
             guard Set(callSheets.map(\.outletId)).count == callSheets.count,
                   callSheets.allSatisfy({ sheet in plannedVisits.contains { $0.outletId == sheet.outletId } }) else {
+                throw WireError.unsafeValue
+            }
+            // One summary per outlet, only for an outlet on this page, internally consistent.
+            guard Set(accountSummaries.map(\.outletId)).count == accountSummaries.count,
+                  accountSummaries.allSatisfy(\.isValid),
+                  accountSummaries.allSatisfy({ summary in outlets.contains { $0.id == summary.outletId } }) else {
                 throw WireError.unsafeValue
             }
             guard page > 0, serverTime > 0, !scope.fingerprint.isEmpty,
@@ -155,6 +166,7 @@ enum BootstrapV1 {
             try c.encode(productCatalog, forKey: .productCatalog); try c.encode(page, forKey: .page)
             try c.encode(nextPageCursor, forKey: .nextPageCursor); try c.encode(syncCursor, forKey: .syncCursor)
             try c.encode(callSheets, forKey: .callSheets)
+            try c.encode(accountSummaries, forKey: .accountSummaries)
         }
     }
 

@@ -147,6 +147,17 @@ final class StubBackend: URLProtocol {
                         "distributorName": NSNull(), "distributorSchedule": NSNull(), "foc": NSNull(), "pricing": NSNull()],
                     "lines": [["productId": "product-stub-1", "code": "SUNP-001", "name": "Sunpride Hotdog 1kg",
                                "uom": "PC", "barcode": NSNull(), "pricing": "₱189.00"]]]],
+                // IOS-011: office figures for outlet 1; outlet 2's account is shared outside the plan.
+                "accountSummaries": [
+                    ["outletId": "outlet-stub-1", "asOfDate": today, "availability": "available",
+                     "creditLimitMinor": 5_000_000,
+                     "sales": ["from": BootstrapClient.manilaDay(Date().addingTimeInterval(-90 * 86_400)), "to": today,
+                               "complete": true, "orders": 9, "amountMinor": 4_825_050,
+                               "recentOrders": 3, "recentAmountMinor": 1_590_000,
+                               "lastOrderDate": today, "lastOrderAmountMinor": 530_000],
+                     "openOrders": ["count": 1, "amountMinor": 410_000]],
+                    ["outletId": "outlet-stub-2", "asOfDate": today, "availability": "withheld",
+                     "creditLimitMinor": NSNull(), "sales": NSNull(), "openOrders": NSNull()]],
                 "page": 1, "nextPageCursor": NSNull(), "syncCursor": "stub-cursor"
             ]))
         case "/mobile/v1/push", "/mobile/v1/pull":

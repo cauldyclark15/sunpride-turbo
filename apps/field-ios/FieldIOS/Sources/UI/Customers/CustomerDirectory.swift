@@ -7,7 +7,7 @@ struct PlannedCall: Equatable, Sendable {
     let intents: [String]
 }
 
-/// Something this phone recorded at the outlet, newest first. Never office history (not on the wire).
+/// Something this phone recorded at the outlet, newest first. Office figures are `AccountSummary`.
 struct HistoryEntry: Equatable, Sendable {
     let at: Date
     let label: String
@@ -42,6 +42,8 @@ struct CustomerRecord: Identifiable {
     var routeCode: String? = nil
     /// Annex C account header, when the office set one up for this account.
     var account: CallSheet.Header? = nil
+    /// Office sales history, open orders and credit limit, cached at the last bootstrap.
+    var summary: AccountSummary? = nil
     var planned: [PlannedCall] = []
     var history: [HistoryEntry] = []
     /// Today's planned call (with its live status) when there is one.
@@ -75,6 +77,7 @@ enum CustomerDirectory {
         guard let snapshot else { return [] }
         let customers = Dictionary(snapshot.customers.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let accounts = Dictionary(snapshot.callSheets.map { ($0.outletId, $0.header) }, uniquingKeysWith: { first, _ in first })
+        let summaries = Dictionary(snapshot.accountSummaries.map { ($0.outletId, $0) }, uniquingKeysWith: { first, _ in first })
         let plans = Dictionary(grouping: snapshot.visits.filter { $0.serviceDate >= day }, by: \.outletId)
         let todays = today.filter(\.planned)
         let historyByOutlet = historyByOutlet(history)
@@ -96,6 +99,7 @@ enum CustomerDirectory {
                 routeId: outlet.routeId,
                 routeCode: onRoute ? snapshot.route.flatMap { clean($0.code) } : nil,
                 account: accounts[outlet.id],
+                summary: summaries[outlet.id],
                 planned: planned.filter { ids.insert($0.id).inserted }
                     .map { PlannedCall(serviceDate: $0.serviceDate, plannedVisitId: $0.id, intents: $0.intents) },
                 history: historyByOutlet[outlet.id] ?? [],
@@ -208,6 +212,23 @@ enum CustomerDirectory {
         let clock = formatter("h:mm a").string(from: at)
         let day = formatter("yyyy-MM-dd")
         return day.string(from: at) == day.string(from: now) ? clock : "\(formatter("MMM d").string(from: at)), \(clock)"
+    }
+
+    /// Rows for the outlet detail's sales section: label/value pairs, already worded for the field.
+    static func salesRows(_ summary: AccountSummary?, now: Date) -> [(label: String, value: String)] {
+        guard let summary else { return [] }
+        guard summary.isAvailable, let sales = summary.sales, let open = summary.openOrders else { return [] }
+        let peso = AccountSummary.peso
+        func orders(_ n: Int64) -> String { "\(n) \(n == 1 ? "order" : "orders")" }
+        var rows: [(String, String)] = [
+            ("Last order", sales.lastOrderDate.map { "\(dayLabel($0, now: now)) · \(peso(sales.lastOrderAmountMinor ?? 0))" } ?? "No orders in this period"),
+            ("Last 4 weeks", "\(peso(sales.recentAmountMinor)) · \(orders(sales.recentOrders))"),
+            (sales.complete ? "Last 13 weeks" : "Since \(dayLabel(sales.from, now: now))",
+             "\(peso(sales.amountMinor)) · \(orders(sales.orders))"),
+            ("Open orders", open.count == 0 ? "None" : "\(orders(open.count)) · \(peso(open.amountMinor))"),
+        ]
+        rows.append(("Credit limit", summary.creditLimitMinor.map(peso) ?? "Not set"))
+        return rows
     }
 
     /// Human label for a planned activity or task kind such as `merchandise_check`.

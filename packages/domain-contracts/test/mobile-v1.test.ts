@@ -109,6 +109,37 @@ describe("mobile v1 canonical contract", () => {
     expect(validate(empty)).toBe(false);
   });
 
+  test("bootstrap stays valid with or without the additive accountSummaries field", async () => {
+    const withSummaries = await Bun.file(
+      new URL(
+        "../fixtures/mobile-v1/bootstrap-account-summary-response.json",
+        import.meta.url,
+      ),
+    ).json();
+    expect(validate(withSummaries), JSON.stringify(validate.errors)).toBe(true);
+    const withoutSummaries = { ...withSummaries };
+    delete withoutSummaries.accountSummaries;
+    expect(validate(withoutSummaries)).toBe(true);
+    // A withheld account carries explicit nulls, never omitted figures.
+    const withheld = structuredClone(withSummaries);
+    Object.assign(withheld.accountSummaries[0], {
+      availability: "withheld",
+      creditLimitMinor: null,
+      sales: null,
+      openOrders: null,
+    });
+    expect(validate(withheld), JSON.stringify(validate.errors)).toBe(true);
+    const omitted = structuredClone(withheld);
+    delete omitted.accountSummaries[0].sales;
+    expect(validate(omitted)).toBe(false);
+    const fractional = structuredClone(withSummaries);
+    fractional.accountSummaries[0].sales.amountMinor = 12.5;
+    expect(validate(fractional)).toBe(false);
+    const balance = structuredClone(withSummaries);
+    balance.accountSummaries[0].arBalanceMinor = 100;
+    expect(validate(balance)).toBe(false);
+  });
+
   test("bootstrap stays valid with or without the additive photoTypes field", async () => {
     const withTypes = await Bun.file(
       new URL(

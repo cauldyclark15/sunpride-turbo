@@ -68,11 +68,14 @@ struct StoreSnapshot: Sendable {
     let route: Route?
     let tasks: [Task]
     let callSheets: [CallSheet]
+    /// IOS-011 cached account figures, one per outlet; stored with the snapshot generation.
+    let accountSummaries: [AccountSummary]
 
     init(employee: Employee, visits: [Visit], outlets: [Outlet], customers: [Customer],
-         route: Route?, tasks: [Task], callSheets: [CallSheet] = []) {
+         route: Route?, tasks: [Task], callSheets: [CallSheet] = [], accountSummaries: [AccountSummary] = []) {
         self.employee = employee; self.visits = visits; self.outlets = outlets
         self.customers = customers; self.route = route; self.tasks = tasks; self.callSheets = callSheets
+        self.accountSummaries = accountSummaries
     }
 }
 
@@ -412,8 +415,12 @@ final class EncryptedFieldStore: FieldLocalStore {
         for v in snapshot.customers { rows.append(("customer", v.id, nil, try encode(v))) }
         if let route = snapshot.route { rows.append(("route", route.id, nil, try encode(route))) }
         for v in snapshot.tasks { rows.append(("task", v.id, nil, try encode(v))) }
+        // Account figures ride in the same generation rows, so they promote and expire with the plan.
+        for v in snapshot.accountSummaries { rows.append(("account_summary", v.outletId, nil, try encode(v))) }
         guard rows.allSatisfy({ !$0.1.isEmpty }), snapshot.callSheets.allSatisfy(\.isValid),
-              snapshot.callSheets.allSatisfy({ sheet in snapshot.outlets.contains { $0.id == sheet.outletId } }) else { throw StoreError.invalidInput }
+              snapshot.callSheets.allSatisfy({ sheet in snapshot.outlets.contains { $0.id == sheet.outletId } }),
+              Set(snapshot.accountSummaries.map(\.outletId)).count == snapshot.accountSummaries.count,
+              snapshot.accountSummaries.allSatisfy({ $0.isValid && snapshot.outlets.map(\.id).contains($0.outletId) }) else { throw StoreError.invalidInput }
         let sheets = try snapshot.callSheets.map { ($0.outletId, try encode($0)) }
         try transaction {
             try ensure(partition)
@@ -461,7 +468,8 @@ final class EncryptedFieldStore: FieldLocalStore {
             customers: entities(StoreSnapshot.Customer.self, kind: "customer", partition: partition),
             route: entities(StoreSnapshot.Route.self, kind: "route", partition: partition).first,
             tasks: entities(StoreSnapshot.Task.self, kind: "task", partition: partition),
-            callSheets: callSheets(for: partition))
+            callSheets: callSheets(for: partition),
+            accountSummaries: entities(AccountSummary.self, kind: "account_summary", partition: partition))
     }
     func leaseExpiry(for partition: StorePartition) throws -> Int64? {
         try query("SELECT lease_expiry FROM partitions WHERE \(Self.predicate)", p(partition)) {
