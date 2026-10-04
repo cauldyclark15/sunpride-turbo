@@ -43,6 +43,8 @@ import type * as domains_salesForce from "../domains/salesForce.js";
 import type * as domains_workflows from "../domains/workflows.js";
 import type * as dsr_model from "../dsr/model.js";
 import type * as dsr_report from "../dsr/report.js";
+import type * as field_reports_model from "../field_reports/model.js";
+import type * as field_reports_reports from "../field_reports/reports.js";
 import type * as http from "../http.js";
 import type * as imports_adjustments from "../imports/adjustments.js";
 import type * as imports_counts from "../imports/counts.js";
@@ -187,6 +189,8 @@ declare const fullApi: ApiFromModules<{
   "domains/workflows": typeof domains_workflows;
   "dsr/model": typeof dsr_model;
   "dsr/report": typeof dsr_report;
+  "field_reports/model": typeof field_reports_model;
+  "field_reports/reports": typeof field_reports_reports;
   http: typeof http;
   "imports/adjustments": typeof imports_adjustments;
   "imports/counts": typeof imports_counts;

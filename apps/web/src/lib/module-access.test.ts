@@ -39,6 +39,8 @@ const expectedCapabilities = {
   "daily-sales": ["report.read"],
   // Trainer forms: every role reads and acknowledges its own (visit.read).
   training: ["visit.read"],
+  // DAR/ROAR: filers hold visit.record, supervisors people.read.
+  "activity-reports": ["visit.record", "people.read"],
   orders: ["order.create", "order.approve"],
   "outside-calls": ["order.encode", "visit.record"],
   "sap-integration": ["integration.read"],
@@ -59,6 +61,7 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
     "call-sheets",
     "daily-sales",
     "training",
+    "activity-reports",
     "outside-calls",
     "sap-integration",
     "admin",
@@ -86,6 +89,7 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
     "call-sheets",
     "daily-sales",
     "training",
+    "activity-reports",
     "orders",
     "outside-calls",
     "workflows",
@@ -109,6 +113,7 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
     "call-sheets",
     "daily-sales",
     "training",
+    "activity-reports",
     "orders",
     "orders",
     "outside-calls",
@@ -122,6 +127,7 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
     "call-sheets",
     "daily-sales",
     "training",
+    "activity-reports",
     "analytics",
   ],
   viewer: [
@@ -132,6 +138,7 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
     "call-sheets",
     "daily-sales",
     "training",
+    "activity-reports",
     "analytics",
   ],
 };

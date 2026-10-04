@@ -33,6 +33,7 @@ import {
   workWithStatus,
   workWithTrainingLog,
 } from "./supervision/work_with_model";
+import { fieldReportKind, fieldReportSummary } from "./field_reports/model";
 import {
   talkSheetItemStatus,
   talkSheetStatus,
@@ -2035,6 +2036,27 @@ export default defineSchema({
       "serviceDate",
     ])
     .index("by_orgUnitId_and_serviceDate", ["orgUnitId", "serviceDate"]),
+  /**
+   * SOP-009 DAR / ROAR submissions (field_reports/). Append-only: each submission or
+   * correction is a new revision with the generated figures frozen; the latest revision
+   * wins and the first one decides on-time vs late. `orgUnitId` is the filer's unit.
+   */
+  fieldDayReports: defineTable({
+    organizationId: v.string(),
+    profileId: v.id("profiles"),
+    orgUnitId: v.id("orgUnits"),
+    serviceDate: v.string(), // YYYY-MM-DD, Manila
+    kind: fieldReportKind,
+    revision: v.number(),
+    remarks: v.string(),
+    summary: fieldReportSummary,
+    submittedBy: v.string(),
+    submittedAt: v.number(),
+  }).index("by_profileId_and_serviceDate_and_revision", [
+    "profileId",
+    "serviceDate",
+    "revision",
+  ]),
   /**
    * Sales targets (CVX-017): one number per subject (employee, team or territory), period
    * (daily or monthly) and metric, effective-dated with the document it came from. Exactly

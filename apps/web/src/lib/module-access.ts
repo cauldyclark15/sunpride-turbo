@@ -73,6 +73,15 @@ const supervisors = [
   "analyst",
   "viewer",
 ] as const satisfies readonly AppRole[];
+// SOP-009: visit.record files a DAR/ROAR; people.read reads the team's submissions.
+const activityReportReaders = [
+  "super_admin",
+  "admin",
+  "manager",
+  "sales",
+  "analyst",
+  "viewer",
+] as const satisfies readonly AppRole[];
 const integrationReaders = [
   "super_admin",
   "admin",
@@ -129,6 +138,7 @@ export const MODULE_ROLES = {
   "call-sheets": allReaders, // outlet.read + visit.read; editing needs outlet.manage
   "daily-sales": allReaders, // report.read; sales read only their own sheet
   training: allReaders, // visit.read; each person sees only their own trainer forms
+  "activity-reports": activityReportReaders, // visit.record (file) or people.read (team)
   orders: orderActors, // union of order.create and order.approve
   "outside-calls": outsideCallActors, // union of order.encode and visit.record
   "sap-integration": integrationReaders, // integration.read
