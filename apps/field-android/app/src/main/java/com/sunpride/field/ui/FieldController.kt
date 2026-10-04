@@ -337,8 +337,10 @@ class LiveFieldBackend(
                 }
                 if (warning == "Update required") prefs.edit()
                     .putInt("$key.updateVersion", com.sunpride.field.BuildConfig.VERSION_CODE).apply()
-                if (warning == "Phone removed" ||
-                    (e is BootstrapFailure && e.kind == BootstrapFailure.Kind.UNAUTHORIZED)) {
+                if (warning == "Phone removed") {
+                    // QSR-010: confirmed revocation/suspension drops cached plan, customers and prices.
+                    runBlocking { EncryptedFieldDatabase.purgeExisting(context) }
+                } else if (e is BootstrapFailure && e.kind == BootstrapFailure.Kind.UNAUTHORIZED) {
                     runBlocking { EncryptedFieldDatabase.holdExisting(context) }
                 }
             }
@@ -425,7 +427,10 @@ class LiveFieldBackend(
     override fun loadSigner() = signerLoader()
     override fun signIn(email: String, password: String) = auth.signIn(email, password)
     override fun signOut() {
-        runBlocking { EncryptedFieldDatabase.holdExisting(context) }
+        // QSR-010: sign-out leaves only held, encrypted unsent evidence; no cached plan, customers,
+        // prices or session-keyed scope index survive for the next person on this phone.
+        runBlocking { EncryptedFieldDatabase.purgeExisting(context) }
+        prefs.edit().clear().commit()
         auth.signOut()
     }
     override fun refreshEnrollment(signer: DeviceSigner): EnrollmentState {
@@ -436,8 +441,8 @@ class LiveFieldBackend(
                 runBlocking { EncryptedFieldDatabase.holdExisting(context) }
             throw e
         }
-        if (state == EnrollmentState.Removed || state == EnrollmentState.Unregistered)
-            runBlocking { EncryptedFieldDatabase.holdExisting(context) }
+        if (state == EnrollmentState.Removed) runBlocking { EncryptedFieldDatabase.purgeExisting(context) }
+        else if (state == EnrollmentState.Unregistered) runBlocking { EncryptedFieldDatabase.holdExisting(context) }
         return state
     }
 }
