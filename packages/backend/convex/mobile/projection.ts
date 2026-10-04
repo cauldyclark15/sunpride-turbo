@@ -4,7 +4,7 @@ import type { QueryCtx } from "../_generated/server";
 import { employeeAt, manilaDate } from "../coverage/validation";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
 import { capabilityRoles } from "../lib/capabilities";
-import { resolveOutletScopeAt } from "../outlets/validation";
+import { outletRows, resolveOutletScopeAt } from "../outlets/validation";
 import { activeAt } from "../org/validation";
 import type { AuthorizedDevice } from "./types";
 
@@ -21,12 +21,26 @@ export const visitDTO = v.object({
   /** MCP order of the day (lower first); optional in contract v1. */
   sequence: v.optional(v.number()),
 });
+/** Additive v1 route-screen fields (IOS-010); older servers omit them. */
+export const outletLocationDTO = v.object({
+  latitude: v.number(),
+  longitude: v.number(),
+});
 export const outletDTO = v.object({
   id: v.string(),
   name: v.string(),
   routeId: v.union(v.string(), v.null()),
+  code: v.optional(v.string()),
+  customerId: v.optional(v.string()),
+  address: v.optional(v.string()),
+  /** The single verified pin in effect now; absent when none or ambiguous. */
+  location: v.optional(outletLocationDTO),
 });
-export const customerDTO = v.object({ id: v.string(), code: v.string() });
+export const customerDTO = v.object({
+  id: v.string(),
+  code: v.string(),
+  name: v.optional(v.string()),
+});
 export const routeDTO = v.union(
   v.object({ id: v.string(), code: v.string() }),
   v.null(),
@@ -131,6 +145,13 @@ async function visitProjection(
   const slot = await ctx.db.get(row.planSlotId);
   if (!slot || slot.planId !== row.planId)
     throw new ConvexError("rebootstrap_required");
+  // Same rule as visit location evidence: exactly one verified pin in effect, else none.
+  const pins = (await outletRows(ctx, "outletPins", row.outletId)).filter(
+    (p) =>
+      p.status === "verified" && activeAt(p.effectiveFrom, p.effectiveTo, now),
+  );
+  const pin = pins.length === 1 ? pins[0]! : null;
+  const address = current.outlet.address?.trim().slice(0, 500);
   return {
     visit: {
       id: row._id,
@@ -141,8 +162,20 @@ async function visitProjection(
       intents: row.intents,
       sequence: slot.sequence,
     },
-    outlet: { id: s.outletId, name: s.outletName, routeId: s.routeId ?? null },
-    customer: customer ? { id: customer._id, code: customer.code } : null,
+    outlet: {
+      id: s.outletId,
+      name: s.outletName,
+      routeId: s.routeId ?? null,
+      code: s.outletCode,
+      ...(customer ? { customerId: customer._id } : {}),
+      ...(address ? { address } : {}),
+      ...(pin
+        ? { location: { latitude: pin.latitude, longitude: pin.longitude } }
+        : {}),
+    },
+    customer: customer
+      ? { id: customer._id, code: customer.code, name: customer.name }
+      : null,
     route:
       s.routeId && s.routeCode ? { id: s.routeId, code: s.routeCode } : null,
     stamp: `${row._id}|${row.status}|${row._creationTime}|${row.generatedAt}|${JSON.stringify(s)}|${JSON.stringify(row.intents)}|${current.assignment?._id ?? ""}|${current.assignment?.routeId ?? ""}|${current.assignment?.sequence ?? ""}|${current.orgUnitId}|${current.outlet.status}|${customer?.code ?? ""}|${slot.sequence}`,

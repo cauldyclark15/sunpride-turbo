@@ -20,6 +20,8 @@
     "bootstrapResponse.nextPageCursor",
     "bootstrapResponse.outlets",
     "bootstrapResponse.outlets[].id",
+    "bootstrapResponse.outlets[].location.latitude",
+    "bootstrapResponse.outlets[].location.longitude",
     "bootstrapResponse.outlets[].name",
     "bootstrapResponse.outlets[].routeId",
     "bootstrapResponse.page",

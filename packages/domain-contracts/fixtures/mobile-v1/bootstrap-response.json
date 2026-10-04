@@ -34,7 +34,10 @@
     {
       "id": "outlet-1",
       "name": "Outlet One",
-      "routeId": null
+      "routeId": null,
+      "code": "O-1",
+      "address": "1 Rizal Ave, Manila",
+      "location": { "latitude": 14.5995, "longitude": 120.9842 }
     }
   ],
   "localCustomers": [],

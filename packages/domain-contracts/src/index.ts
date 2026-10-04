@@ -34,8 +34,16 @@ export type BootstrapResponse = {
     intents: Array<string>;
     sequence?: number;
   }>;
-  outlets: Array<{ id: string; name: string; routeId: string | null }>;
-  localCustomers: Array<{ id: string; code: string }>;
+  outlets: Array<{
+    id: string;
+    name: string;
+    routeId: string | null;
+    code?: string;
+    customerId?: string;
+    address?: string;
+    location?: { latitude: number; longitude: number };
+  }>;
+  localCustomers: Array<{ id: string; code: string; name?: string }>;
   route: { id: string; code: string } | null;
   tasks: Array<{ id: string; kind: string; required: boolean }>;
   productCatalog: Array<{

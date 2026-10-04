@@ -35,8 +35,16 @@ struct StoreSnapshot: Sendable {
             }.map(\.element)
         }
     }
-    struct Outlet: Codable, Sendable { let id: String; let name: String; let routeId: String? }
-    struct Customer: Codable, Sendable { let id: String; let code: String }
+    struct Coordinate: Codable, Sendable, Equatable { let latitude: Double; let longitude: Double }
+    /// code/customerId/address/location are additive v1 route-screen fields; older feeds omit them.
+    struct Outlet: Codable, Sendable {
+        let id: String; let name: String; let routeId: String?
+        var code: String? = nil
+        var customerId: String? = nil
+        var address: String? = nil
+        var location: Coordinate? = nil
+    }
+    struct Customer: Codable, Sendable { let id: String; let code: String; var name: String? = nil }
     struct Route: Codable, Sendable { let id: String; let code: String }
     struct Task: Codable, Sendable { let id: String; let kind: String; let required: Bool }
     let employee: Employee

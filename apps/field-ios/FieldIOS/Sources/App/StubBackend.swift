@@ -129,10 +129,13 @@ final class StubBackend: URLProtocol {
                                    "planId": "plan-stub-1", "planVersion": 1, "intents": ["audit"], "sequence": 0],
                                   ["id": "planned-stub-2", "outletId": "outlet-stub-2", "serviceDate": today,
                                    "planId": "plan-stub-1", "planVersion": 1, "intents": ["audit"], "sequence": 1]],
-                "outlets": [["id": "outlet-stub-1", "name": "Stub Outlet", "routeId": NSNull()],
+                // Stub fix is (0, 0): outlet 1 sits ~500 m away; outlet 2 has no pin or address.
+                "outlets": [["id": "outlet-stub-1", "name": "Stub Outlet", "routeId": NSNull(), "code": "STUB-1",
+                             "customerId": "customer-stub-1", "address": "1 Stub Street",
+                             "location": ["latitude": 0.0, "longitude": 0.0045]],
                             ["id": "outlet-stub-2", "name": "Next Stub Outlet", "routeId": NSNull()],
                             ["id": "outlet-stub-extra", "name": "Extra Stub Outlet", "routeId": NSNull()]],
-                "localCustomers": [], "route": NSNull(), "tasks": [], "productCatalog": [],
+                "localCustomers": [["id": "customer-stub-1", "code": "C-STUB-1", "name": "Stub Customer"]], "route": NSNull(), "tasks": [], "productCatalog": [],
                 "page": 1, "nextPageCursor": NSNull(), "syncCursor": "stub-cursor"
             ]))
         case "/mobile/v1/push", "/mobile/v1/pull":

@@ -287,11 +287,18 @@ describe("mobile day bootstrap", () => {
     );
     expect(close - r.serverTime).toBeGreaterThan(0);
     expect(close - r.serverTime).toBeLessThanOrEqual(86_400_000);
+    // No verified pin and no address: the route screen shows no distance or map link.
     expect(r.outlets).toEqual([
-      { id: f.ids.outlet, name: "Signed outlet", routeId: null },
+      {
+        id: f.ids.outlet,
+        name: "Signed outlet",
+        routeId: null,
+        code: "O",
+        customerId: r.localCustomers[0]!.id,
+      },
     ]);
     expect(r.localCustomers).toEqual([
-      { id: expect.any(String), code: "LOCAL-C" },
+      { id: expect.any(String), code: "LOCAL-C", name: "Local" },
     ]);
     expect(r.productCatalog).toEqual([]);
     expect(r.appConfig).toMatchObject({
@@ -301,6 +308,46 @@ describe("mobile day bootstrap", () => {
     });
     expect(r.syncCursor).toBeTruthy();
     expect(JSON.stringify(r)).not.toContain(f.actor.subject);
+  });
+  it("adds the address and the single verified pin in effect for the route screen", async () => {
+    const f = await fixture();
+    const pin = (status: "verified" | "pending", latitude: number) => ({
+      outletId: f.ids.outlet,
+      latitude,
+      longitude: 121.05,
+      radiusMeters: 75,
+      source: "fixture",
+      status,
+      effectiveFrom: f.now - 50_000,
+      proposedBy: f.actor.subject,
+      proposedAt: f.now - 60_000,
+      createdAt: f.now - 60_000,
+    });
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch(f.ids.outlet, { address: "  12 Rizal Ave, Manila  " });
+      await ctx.db.insert("outletPins", pin("verified", 14.6));
+      await ctx.db.insert("outletPins", pin("pending", 10));
+      // Superseded history does not count as the pin in effect.
+      await ctx.db.insert("outletPins", {
+        ...pin("verified", 11),
+        effectiveFrom: f.now - 90_000,
+        effectiveTo: f.now - 50_000,
+      });
+    });
+    const r = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+    });
+    expect(r.outlets[0]).toMatchObject({
+      address: "12 Rizal Ave, Manila",
+      location: { latitude: 14.6, longitude: 121.05 },
+    });
+    // Two overlapping verified pins are ambiguous: omit rather than guess.
+    await f.t.run((ctx) => ctx.db.insert("outletPins", pin("verified", 15)));
+    const ambiguous = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+    });
+    expect(ambiguous.outlets[0]!.location).toBeUndefined();
+    expect(ambiguous.outlets[0]!.address).toBe("12 Rizal Ave, Manila");
   });
   it("does not expose cancelled predecessor visits while retaining the active day", async () => {
     const f = await fixture();
