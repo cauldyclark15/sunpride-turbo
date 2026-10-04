@@ -80,6 +80,13 @@ class ChaosSyncTest {
             persisted.holdForReview()
             metadata = metadata.copy(held = true, cursor = null, syncHealth = "held_for_review"); observe?.invoke()
         }
+        var purges = 0
+        /** Mirrors Room's QSR-010 purge: hold, drop the cached snapshot/lease/deltas, keep the outbox. */
+        override suspend fun purgeCacheForReview() {
+            persisted.purgeCacheForReview(); purges++; deltas.clear()
+            metadata = metadata.copy(held = true, cursor = null, syncHealth = "held_for_review",
+                activeGeneration = null, leaseExpiresAt = null, cacheExpiresAt = null); observe?.invoke()
+        }
         override suspend fun delta(entity: String, id: String) = deltas[entity to id]
         override suspend fun applyDelta(changes: List<DeltaRow>, nextCursor: String) {
             check(!metadata.held && metadata.activeGeneration != null && nextCursor.isNotBlank())
@@ -469,6 +476,9 @@ class ChaosSyncTest {
                     // No verified same-scope snapshot was promoted: do not release the hold.
                 }.sync()
                 assertEquals(if (status == 409) 1 else 0, bootstraps)
+                // QSR-010: a confirmed revocation also drops the cached plan/lease; other holds keep it.
+                assertEquals(if (status == 403) 1 else 0, store.purges)
+                assertEquals(status == 403, store.metadata.activeGeneration == null)
                 assertEquals("held_for_review", store.syncHealth()); assertNull(store.cursor())
                 assertEquals(6, store.status().held); assertTrue(store.history().all { it.second.state == "pending" })
                 original.forEach { assertNull(store.ack(it.requestId)) }
