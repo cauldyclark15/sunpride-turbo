@@ -88,6 +88,7 @@ import type * as lib_roles from "../lib/roles.js";
 import type * as lib_scope from "../lib/scope.js";
 import type * as migrations from "../migrations.js";
 import type * as mobile_bootstrap from "../mobile/bootstrap.js";
+import type * as mobile_budget from "../mobile/budget.js";
 import type * as mobile_cursor from "../mobile/cursor.js";
 import type * as mobile_device_auth from "../mobile/device_auth.js";
 import type * as mobile_devices from "../mobile/devices.js";
@@ -235,6 +236,7 @@ declare const fullApi: ApiFromModules<{
   "lib/scope": typeof lib_scope;
   migrations: typeof migrations;
   "mobile/bootstrap": typeof mobile_bootstrap;
+  "mobile/budget": typeof mobile_budget;
   "mobile/cursor": typeof mobile_cursor;
   "mobile/device_auth": typeof mobile_device_auth;
   "mobile/devices": typeof mobile_devices;
