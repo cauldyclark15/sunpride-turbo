@@ -71,6 +71,35 @@ async function provisionVan() {
       },
     ],
   });
+  // QSR-006: van POS commands are gated on the truck's stored org unit, so the
+  // second seller works in the truck's region (an unmapped truck is national-only).
+  const { rootUnitId } = await t.mutation(
+    internal.migrations.seedOrganizationFoundation,
+    {},
+  );
+  const vanRegion = await t.run(async (ctx) => {
+    const since = Date.now() - 86_400_000;
+    const region = await ctx.db.insert("orgUnits", {
+      organizationId: "sunpride",
+      code: "VAN-REGION",
+      name: "Van region",
+      typeCode: "REGION",
+      parentId: rootUnitId,
+      status: "active",
+      effectiveFrom: since,
+      createdAt: since,
+      updatedAt: since,
+    });
+    await ctx.db.patch(state.truck!._id, { orgUnitId: region });
+    const otherProfile = await ctx.db
+      .query("profiles")
+      .withIndex("by_email", (q) =>
+        q.eq("email", "other-van-seller@example.test"),
+      )
+      .unique();
+    await ctx.db.patch(otherProfile!._id, { orgUnitId: region });
+    return region;
+  });
   const product = state.product;
   const truck = state.truck;
   const sale = (
@@ -142,6 +171,8 @@ async function provisionVan() {
     t,
     admin,
     other,
+    rootUnitId,
+    vanRegion,
     product,
     truck,
     warehouse: state.warehouse,
@@ -353,7 +384,7 @@ describe("van POS offline sales", () => {
         api.inventory.pos.postSale,
         f.sale(route, "queued-sale-1", 1, 3),
       ),
-    ).rejects.toThrow(/belongs to another order/);
+    ).rejects.toThrow(/another salesperson/);
     await expectReconciled(f, OPENING - 3_000n);
     // A new request cannot reuse an acknowledged sequence slot.
     await expect(
@@ -569,6 +600,106 @@ describe("van POS returns and voids", () => {
     expect(orders.returned?.status).toBe("returned");
     expect(orders.voided).toMatchObject({ status: "voided" });
     expect(orders.voided?.voidMovementId).toBeDefined();
+    await expectReconciled(f, OPENING);
+  });
+});
+
+describe("van POS authorization (QSR-006)", () => {
+  async function person(
+    f: Awaited<ReturnType<typeof provisionVan>>,
+    name: string,
+    role: "sales" | "manager" | "viewer" | "analyst",
+    orgUnitId: Id<"orgUnits">,
+  ) {
+    const email = `${name}@example.test`;
+    await f.admin.mutation(api.domains.profiles.invite, { email, role });
+    const actor = f.t.withIdentity({ subject: name, email });
+    await actor.mutation(api.domains.profiles.ensure);
+    await f.t.run(async (ctx) => {
+      const profile = await ctx.db
+        .query("profiles")
+        .withIndex("by_email", (q) => q.eq("email", email))
+        .unique();
+      await ctx.db.patch(profile!._id, { orgUnitId, role });
+    });
+    return actor;
+  }
+
+  it("refuses van sales, voids and returns outside the truck's region or role", async () => {
+    const f = await provisionVan();
+    const elsewhere = await f.t.run(async (ctx) => {
+      const since = Date.now() - 86_400_000;
+      return ctx.db.insert("orgUnits", {
+        organizationId: "sunpride",
+        code: "OTHER-REGION",
+        name: "Other region",
+        typeCode: "REGION",
+        parentId: f.rootUnitId,
+        status: "active",
+        effectiveFrom: since,
+        createdAt: since,
+        updatedAt: since,
+      });
+    });
+    const foreignSeller = await person(f, "foreign-seller", "sales", elsewhere);
+    const foreignManager = await person(f, "foreign-mgr", "manager", elsewhere);
+    const localManager = await person(f, "local-mgr", "manager", f.vanRegion);
+    const localViewer = await person(f, "local-viewer", "viewer", f.vanRegion);
+    const analyst = await person(f, "van-analyst", "analyst", f.vanRegion);
+    const open = { truckLocationId: f.truck._id, deviceId: "van-device-1" };
+    await expect(
+      foreignSeller.mutation(api.inventory.pos.openRoute, open),
+    ).rejects.toThrow(/outside your organizational scope/);
+    for (const readOnly of [localViewer, analyst])
+      await expect(
+        readOnly.mutation(api.inventory.pos.openRoute, open),
+      ).rejects.toThrow(/Insufficient permission/);
+    // The truck's own seller may sell; a later reassignment of the truck to
+    // another region stops further sales from the open session.
+    const route = await f.other.mutation(api.inventory.pos.openRoute, open);
+    const sold = await f.other.mutation(
+      api.inventory.pos.postSale,
+      f.sale(route, "in-scope", 1, 1),
+    );
+    await expect(
+      foreignSeller.mutation(
+        api.inventory.pos.postSale,
+        f.sale(route, "in-scope", 1, 1),
+      ),
+    ).rejects.toThrow(/another salesperson/);
+    await expect(
+      foreignManager.mutation(api.inventory.pos.voidSale, {
+        orderId: sold.orderId,
+        idempotencyKey: "foreign-void",
+        reason: "cross-region",
+      }),
+    ).rejects.toThrow(/outside your organizational scope/);
+    await expect(
+      foreignManager.mutation(api.inventory.pos.returnSale, {
+        originalOrderId: sold.orderId,
+        clientRequestId: "foreign-return",
+        reason: "cross-region",
+        lines: [
+          { productCode: f.product.code, quantityBase: 1_000n, quantity: 1 },
+        ],
+      }),
+    ).rejects.toThrow(/outside your organizational scope/);
+    await expectReconciled(f, OPENING - 1_000n);
+    await f.t.run((ctx) => ctx.db.patch(f.truck._id, { orgUnitId: elsewhere }));
+    await expect(
+      f.other.mutation(
+        api.inventory.pos.postSale,
+        f.sale(route, "moved", 2, 1),
+      ),
+    ).rejects.toThrow(/outside your organizational scope/);
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.truck._id, { orgUnitId: f.vanRegion }),
+    );
+    await localManager.mutation(api.inventory.pos.voidSale, {
+      orderId: sold.orderId,
+      idempotencyKey: "local-void",
+      reason: "in scope",
+    });
     await expectReconciled(f, OPENING);
   });
 });

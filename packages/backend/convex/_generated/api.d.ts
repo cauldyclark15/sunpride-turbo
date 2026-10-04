@@ -8,6 +8,16 @@
  * @module
  */
 
+import type * as analytics_customer from "../analytics/customer.js";
+import type * as analytics_customer_model from "../analytics/customer_model.js";
+import type * as analytics_execution from "../analytics/execution.js";
+import type * as analytics_model from "../analytics/model.js";
+import type * as analytics_productivity from "../analytics/productivity.js";
+import type * as analytics_productivity_model from "../analytics/productivity_model.js";
+import type * as analytics_rollups from "../analytics/rollups.js";
+import type * as analytics_rollups_model from "../analytics/rollups_model.js";
+import type * as analytics_territory from "../analytics/territory.js";
+import type * as analytics_territory_model from "../analytics/territory_model.js";
 import type * as auth from "../auth.js";
 import type * as authPolicy from "../authPolicy.js";
 import type * as callSheets_accounts from "../callSheets/accounts.js";
@@ -86,8 +96,12 @@ import type * as lib_capabilities from "../lib/capabilities.js";
 import type * as lib_metrics from "../lib/metrics.js";
 import type * as lib_roles from "../lib/roles.js";
 import type * as lib_scope from "../lib/scope.js";
+import type * as merchandising_assortments from "../merchandising/assortments.js";
+import type * as merchandising_audits from "../merchandising/audits.js";
+import type * as merchandising_validators from "../merchandising/validators.js";
 import type * as migrations from "../migrations.js";
 import type * as mobile_bootstrap from "../mobile/bootstrap.js";
+import type * as mobile_budget from "../mobile/budget.js";
 import type * as mobile_cursor from "../mobile/cursor.js";
 import type * as mobile_device_auth from "../mobile/device_auth.js";
 import type * as mobile_devices from "../mobile/devices.js";
@@ -120,6 +134,7 @@ import type * as sfa_standards from "../sfa/standards.js";
 import type * as supervision_access from "../supervision/access.js";
 import type * as supervision_activity from "../supervision/activity.js";
 import type * as supervision_exceptions from "../supervision/exceptions.js";
+import type * as supervision_mobile from "../supervision/mobile.js";
 import type * as supervision_model from "../supervision/model.js";
 import type * as supervision_talk_sheet from "../supervision/talk_sheet.js";
 import type * as supervision_talk_sheet_model from "../supervision/talk_sheet_model.js";
@@ -154,6 +169,16 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  "analytics/customer": typeof analytics_customer;
+  "analytics/customer_model": typeof analytics_customer_model;
+  "analytics/execution": typeof analytics_execution;
+  "analytics/model": typeof analytics_model;
+  "analytics/productivity": typeof analytics_productivity;
+  "analytics/productivity_model": typeof analytics_productivity_model;
+  "analytics/rollups": typeof analytics_rollups;
+  "analytics/rollups_model": typeof analytics_rollups_model;
+  "analytics/territory": typeof analytics_territory;
+  "analytics/territory_model": typeof analytics_territory_model;
   auth: typeof auth;
   authPolicy: typeof authPolicy;
   "callSheets/accounts": typeof callSheets_accounts;
@@ -232,8 +257,12 @@ declare const fullApi: ApiFromModules<{
   "lib/metrics": typeof lib_metrics;
   "lib/roles": typeof lib_roles;
   "lib/scope": typeof lib_scope;
+  "merchandising/assortments": typeof merchandising_assortments;
+  "merchandising/audits": typeof merchandising_audits;
+  "merchandising/validators": typeof merchandising_validators;
   migrations: typeof migrations;
   "mobile/bootstrap": typeof mobile_bootstrap;
+  "mobile/budget": typeof mobile_budget;
   "mobile/cursor": typeof mobile_cursor;
   "mobile/device_auth": typeof mobile_device_auth;
   "mobile/devices": typeof mobile_devices;
@@ -266,6 +295,7 @@ declare const fullApi: ApiFromModules<{
   "supervision/access": typeof supervision_access;
   "supervision/activity": typeof supervision_activity;
   "supervision/exceptions": typeof supervision_exceptions;
+  "supervision/mobile": typeof supervision_mobile;
   "supervision/model": typeof supervision_model;
   "supervision/talk_sheet": typeof supervision_talk_sheet;
   "supervision/talk_sheet_model": typeof supervision_talk_sheet_model;

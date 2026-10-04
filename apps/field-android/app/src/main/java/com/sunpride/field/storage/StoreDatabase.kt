@@ -96,6 +96,8 @@ interface StoreDao {
     @Query("DELETE FROM call_sheet_lines WHERE account=:account AND deviceId=:device AND scope=:scope AND generation!=:generation")
     suspend fun discardOldCallSheetLines(account: String, device: String, scope: String, generation: String)
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putDelta(row: DeltaRow)
+    @Query("DELETE FROM deltas WHERE account=:account AND deviceId=:device AND scope=:scope AND entity=:entity AND substr(entityId, 1, length(:keepPrefix)) != :keepPrefix")
+    suspend fun deleteLocalDeltas(account: String, device: String, scope: String, entity: String, keepPrefix: String)
     @Query("SELECT * FROM deltas WHERE account=:account AND deviceId=:device AND scope=:scope AND entity=:entity AND entityId=:id")
     suspend fun delta(account: String, device: String, scope: String, entity: String, id: String): DeltaRow?
     @Query("SELECT MAX(createdAt) FROM outbox WHERE account=:account AND deviceId=:device AND scope=:scope")
@@ -140,6 +142,19 @@ interface StoreDao {
     suspend fun reject(account: String, device: String, scope: String, requestId: String, code: String): Int
     @Query("UPDATE partitions SET held=1, cursor=NULL, syncHealth='held_for_review'")
     suspend fun holdAllPartitions()
+
+    // QSR-010 sign-out/revocation purge: server-provided cache only. Intents, outbox, acks and
+    // photo rows are the person's unsent or acknowledged evidence and stay (ADR-020).
+    @Query("DELETE FROM snapshots WHERE (:account IS NULL OR (account=:account AND deviceId=:device AND scope=:scope))")
+    suspend fun purgeSnapshots(account: String?, device: String?, scope: String?)
+    @Query("DELETE FROM call_sheets WHERE (:account IS NULL OR (account=:account AND deviceId=:device AND scope=:scope))")
+    suspend fun purgeCallSheets(account: String?, device: String?, scope: String?)
+    @Query("DELETE FROM call_sheet_lines WHERE (:account IS NULL OR (account=:account AND deviceId=:device AND scope=:scope))")
+    suspend fun purgeCallSheetLines(account: String?, device: String?, scope: String?)
+    @Query("DELETE FROM deltas WHERE (:account IS NULL OR (account=:account AND deviceId=:device AND scope=:scope))")
+    suspend fun purgeDeltas(account: String?, device: String?, scope: String?)
+    @Query("UPDATE partitions SET held=1, cursor=NULL, syncHealth='held_for_review', activeGeneration=NULL, employeeJson=NULL, routeJson=NULL, leaseExpiresAt=NULL, cacheExpiresAt=NULL WHERE (:account IS NULL OR (account=:account AND deviceId=:device AND scope=:scope))")
+    suspend fun purgePartitionMetadata(account: String?, device: String?, scope: String?)
     @Query("SELECT * FROM acks WHERE account=:account AND deviceId=:device AND scope=:scope AND requestId=:requestId")
     suspend fun ack(account: String, device: String, scope: String, requestId: String): AckRow?
 }

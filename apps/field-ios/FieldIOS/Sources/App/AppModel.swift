@@ -201,8 +201,14 @@ final class AppModel {
         refreshToday()
     }
 
+    /// Confirmed revocation/suspension (QSR-010): hold unsent work and drop this partition's cached
+    /// plan, outlets, customers and prices from storage and memory.
     private func holdActive() {
-        if let partition = activeStoragePartition { try? fieldStore?.holdForReview(partition) }
+        if let partition = activeStoragePartition {
+            do { try fieldStore?.purgeCacheForReview(partition) }
+            catch { try? fieldStore?.holdForReview(partition) }
+        }
+        visits = []; callSheets = []
         freshThisLaunch = false
     }
 
@@ -550,6 +556,21 @@ final class AppModel {
         return store
     }
 
+    /// The local store if one exists on disk; never creates a database (or its key) just to sign out.
+    private func existingStore() throws -> EncryptedFieldStore? {
+        if let fieldStore { return fieldStore }
+        #if DEBUG
+        let folder = StubBackend.scenario == nil ? "FieldStore" : "FieldStoreStub"
+        #else
+        let folder = "FieldStore"
+        #endif
+        guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
+              FileManager.default.fileExists(atPath: support.appending(path: folder).appending(path: "field.sqlite").path)
+        else { return nil }
+        _ = try storageForBootstrap()
+        return fieldStore
+    }
+
     func phoneStateChanged(_ state: Enrollment.State) async {
         switch state {
         case .ready: if !freshThisLaunch { await syncNow() }
@@ -561,9 +582,12 @@ final class AppModel {
     func signOut() async {
         enrollment.signedOut()
         signInError = nil
-        if let partition = activeStoragePartition {
-            do { try fieldStore?.holdForReview(partition) }
-            catch { signInError = "Local evidence needs supervised review; storage could not be locked." }
+        // QSR-010: every partition is held and its cached plan, customers and prices removed; only
+        // encrypted unsent evidence remains for supervised review.
+        do { try existingStore()?.purgeAllCachesForReview() }
+        catch {
+            if let partition = activeStoragePartition { try? fieldStore?.holdForReview(partition) }
+            signInError = "Local evidence needs supervised review; storage could not be locked."
         }
         activeStoragePartition = nil
         try? secrets.delete(Self.partitionAccount)

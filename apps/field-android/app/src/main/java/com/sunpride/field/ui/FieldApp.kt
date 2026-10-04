@@ -86,6 +86,10 @@ fun FieldApp(
     var customerId by rememberSaveable { mutableStateOf<String?>(null) }
     val customer = customerId?.let { id -> controller.today.customers.firstOrNull { it.outletId == id } }
     LaunchedEffect(controller) { controller.start(configured = environment.isReady) }
+    // AND-020: each visit to the Team page asks the server again (saved copy when offline).
+    LaunchedEffect(controller, page, controller.state) {
+        if (page == "team" && controller.state is EnrollmentState.Ready) controller.loadTeam()
+    }
     LaunchedEffect(controller, controller.state) {
         while (controller.state == EnrollmentState.Unregistered) {
             delay(com.sunpride.field.auth.Enrollment.POLL_INTERVAL_MS)
@@ -118,21 +122,23 @@ fun FieldApp(
                             com.sunpride.field.storage.ActivityRules.kindLabel(it) }
                             ?: if (controller.callSheetOpen) "Call sheet" else "Visit", style = MaterialTheme.typography.titleMedium)
                     } else if (page == "account" || page == "sync" || page == "support" ||
-                        (ready && (page == "route" || page == "customers" || page == "customer"))) Row(verticalAlignment = Alignment.CenterVertically) {
+                        (ready && (page == "route" || page == "customers" || page == "customer" || page == "team"))) Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { page = when (page) { "support" -> "account"; "customer" -> "customers"; else -> "home" } },
                             modifier = Modifier.height(48.dp).testTag(when (page) {
                                 "sync" -> "sync-back"; "support" -> "support-back"; "route" -> "route-back"
-                                "customers" -> "customers-back"; "customer" -> "customer-back"; else -> "account-back"
+                                "customers" -> "customers-back"; "customer" -> "customer-back"; "team" -> "team-back"
+                                else -> "account-back"
                             })) {
                             Text("‹", style = MaterialTheme.typography.titleLarge)
                         }
                         Text(when (page) {
                             "sync" -> "Sync"; "support" -> "Support info"; "route" -> "Route"
-                            "customers" -> "Customers"; "customer" -> "Outlet"; else -> "Account"
+                            "customers" -> "Customers"; "customer" -> "Outlet"; "team" -> "Team"; else -> "Account"
                         }, style = MaterialTheme.typography.titleMedium,
                             modifier = when (page) {
                                 "account" -> Modifier.testTag("account-title"); "route" -> Modifier.testTag("route-title")
                                 "customers" -> Modifier.testTag("customers-title"); "customer" -> Modifier.testTag("customer-title")
+                                "team" -> Modifier.testTag("team-title")
                                 else -> Modifier
                             })
                     } else Text("Sunpride Field", style = MaterialTheme.typography.titleMedium)
@@ -176,10 +182,14 @@ fun FieldApp(
                     onVisit = controller::openDiagnostic, visitEnabled = debug, now = now)
                 ready && page == "customer" -> com.sunpride.field.ui.customers.CustomerSearchScreen(controller.today,
                     onOpen = { id -> customerId = id; page = "customer" }, modifier = modifier, offline = offline, now = now)
+                ready && page == "team" -> com.sunpride.field.ui.team.TeamScreen(controller.team,
+                    controller.teamDirectOnly, controller.teamLoading, now,
+                    onFilter = { controller.loadTeam(it) }, onRefresh = { controller.loadTeam() }, modifier = modifier)
                 ready -> TodayScreen(controller.today, controller.busy,
                     onSync = controller::syncNow, onSignOut = controller::signOut,
                     onVisit = controller::openDiagnostic, diagnosticEnabled = debug, modifier = modifier, offline = offline,
-                    onRoute = { page = "route" }, onCustomers = { page = "customers" })
+                    onRoute = { page = "route" }, onCustomers = { page = "customers" },
+                    onTeam = { page = "team" })
                 else -> EnrollmentScreen(controller.state, controller.key, controller.busy, controller.error,
                     onCheck = { controller.checkAgain() }, onSignOut = { controller.signOut() }, modifier = modifier,
                     unsent = status.queued + status.sending + status.review + status.held)
@@ -243,7 +253,8 @@ private fun SignInScreen(environment: AppEnvironment, busy: Boolean, error: Stri
 @Composable
 fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: () -> Unit,
     modifier: Modifier = Modifier, onVisit: (VisitDisplay) -> Unit = {}, diagnosticEnabled: Boolean = false,
-    offline: Boolean = false, onRoute: (() -> Unit)? = null, onCustomers: (() -> Unit)? = null) {
+    offline: Boolean = false, onRoute: (() -> Unit)? = null, onCustomers: (() -> Unit)? = null,
+    onTeam: (() -> Unit)? = null) {
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())
         .padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Today", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.testTag("today-title"))
@@ -256,6 +267,10 @@ fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: (
             ListRow(next?.let { "Next: ${it.visit.outlet}" } ?: "All stops done",
                 "${data.visits.size} stops · distance and directions", "route", Modifier.testTag("route-open"),
                 onClick = onRoute)
+        }
+        if (onTeam != null && data.supervisor) SectionCard("Team") {
+            ListRow("Your team today", "Coverage and exceptions for your direct reports", "team",
+                Modifier.testTag("team-open"), onClick = onTeam)
         }
         if (onCustomers != null) SectionCard("Customers") {
             ListRow("Search customers", if (data.customers.isEmpty()) "Sync to download your outlets"

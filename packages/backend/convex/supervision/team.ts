@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { query } from "../_generated/server";
+import { query, type QueryCtx } from "../_generated/server";
 import {
   openEvidence,
   personDay,
@@ -7,11 +7,13 @@ import {
   supervisorContext,
   teamMembers,
   visitEvidence,
+  type SupervisionFilters,
+  type SupervisorContext,
 } from "./access";
 import { dayCloseAt, isLateSync, outOfSequence, summarizeDay } from "./model";
 
 const nullableTime = v.union(v.number(), v.null());
-const personRow = v.object({
+export const personRow = v.object({
   profileId: v.id("profiles"),
   name: v.string(),
   employeeCode: v.union(v.string(), v.null()),
@@ -70,51 +72,11 @@ export const day = query({
   }),
   handler: async (ctx, args) => {
     const sc = await supervisorContext(ctx, args);
-    const { members, truncated, channels } = await teamMembers(ctx, sc, args);
-    const closeAt = dayCloseAt(args.serviceDate);
-    const people = [];
-    for (const member of members) {
-      const { planned, visits } = await personDay(
-        ctx,
-        sc,
-        member.profile._id,
-        args.serviceDate,
-      );
-      const active = planned.filter((row) => row.status === "planned");
-      const sequence = new Map(
-        planned.map((row) => [
-          row._id as string,
-          row.approvedSnapshot.sequence,
-        ]),
-      );
-      let openExceptions = 0,
-        lateSync = 0;
-      for (const visit of visits) {
-        const evidence = await visitEvidence(ctx, visit._id);
-        openExceptions += (await openEvidence(ctx, evidence)).length;
-        if (isLateSync(visit, evidence, closeAt)) lateSync++;
-      }
-      const broken = outOfSequence(visits, (visit) =>
-        visit.plannedVisitId ? sequence.get(visit.plannedVisitId) : undefined,
-      );
-      people.push({
-        profileId: member.profile._id,
-        name: member.profile.name,
-        employeeCode: member.profile.employeeCode ?? null,
-        positionLabel: member.positionLabel,
-        channel: member.channel,
-        orgUnitId: member.assignment.orgUnitId!,
-        direct: member.direct,
-        ...summarizeDay({
-          plannedActive: active.length,
-          plannedIds: new Set(active.map((row) => row._id as string)),
-          visits,
-          outOfSequence: broken.size,
-          openExceptions,
-          lateSync,
-        }),
-      });
-    }
+    const { closeAt, truncated, channels, people } = await teamDay(
+      ctx,
+      sc,
+      args,
+    );
     return {
       serviceDate: args.serviceDate,
       dayCloseAt: closeAt,
@@ -126,3 +88,54 @@ export const day = query({
     };
   },
 });
+
+/** One summary row per field person in scope (shared by the web day view and the phone). */
+export async function teamDay(
+  ctx: QueryCtx,
+  sc: SupervisorContext,
+  args: SupervisionFilters,
+) {
+  const { members, truncated, channels } = await teamMembers(ctx, sc, args);
+  const closeAt = dayCloseAt(args.serviceDate);
+  const people = [];
+  for (const member of members) {
+    const { planned, visits } = await personDay(
+      ctx,
+      sc,
+      member.profile._id,
+      args.serviceDate,
+    );
+    const active = planned.filter((row) => row.status === "planned");
+    const sequence = new Map(
+      planned.map((row) => [row._id as string, row.approvedSnapshot.sequence]),
+    );
+    let openExceptions = 0,
+      lateSync = 0;
+    for (const visit of visits) {
+      const evidence = await visitEvidence(ctx, visit._id);
+      openExceptions += (await openEvidence(ctx, evidence)).length;
+      if (isLateSync(visit, evidence, closeAt)) lateSync++;
+    }
+    const broken = outOfSequence(visits, (visit) =>
+      visit.plannedVisitId ? sequence.get(visit.plannedVisitId) : undefined,
+    );
+    people.push({
+      profileId: member.profile._id,
+      name: member.profile.name,
+      employeeCode: member.profile.employeeCode ?? null,
+      positionLabel: member.positionLabel,
+      channel: member.channel,
+      orgUnitId: member.assignment.orgUnitId!,
+      direct: member.direct,
+      ...summarizeDay({
+        plannedActive: active.length,
+        plannedIds: new Set(active.map((row) => row._id as string)),
+        visits,
+        outOfSequence: broken.size,
+        openExceptions,
+        lateSync,
+      }),
+    });
+  }
+  return { closeAt, truncated, channels, people };
+}
