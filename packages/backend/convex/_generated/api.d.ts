@@ -8,6 +8,8 @@
  * @module
  */
 
+import type * as analytics_productivity from "../analytics/productivity.js";
+import type * as analytics_productivity_model from "../analytics/productivity_model.js";
 import type * as auth from "../auth.js";
 import type * as authPolicy from "../authPolicy.js";
 import type * as callSheets_accounts from "../callSheets/accounts.js";
@@ -159,6 +161,8 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  "analytics/productivity": typeof analytics_productivity;
+  "analytics/productivity_model": typeof analytics_productivity_model;
   auth: typeof auth;
   authPolicy: typeof authPolicy;
   "callSheets/accounts": typeof callSheets_accounts;

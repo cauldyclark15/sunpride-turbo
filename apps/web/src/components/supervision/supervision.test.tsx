@@ -357,6 +357,7 @@ describe("supervision screens", () => {
     expect(html).toContain("My team only");
     expect(html).toContain("Work-With");
     expect(html).toContain("Talk Sheet");
+    expect(html).toContain("Productivity");
     expect(html).toContain("Ana");
   });
 });
