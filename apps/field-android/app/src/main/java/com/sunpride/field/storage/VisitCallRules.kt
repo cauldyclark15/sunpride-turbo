@@ -8,7 +8,9 @@ class VisitRuleFailure(val code: Code) : IllegalStateException(code.text) {
         CALL_OPEN("Finish the open call first"), MCP_ORDER("Visit stores in plan order"),
         ALREADY_STARTED("This call has already started"), CALL_NOT_OPEN("Start the call first"),
         ALREADY_ENDED("This call has already ended"), OUTCOME_REQUIRED("Record the call outcome"),
-        REASON_REQUIRED("Choose a nonproductive reason")
+        REASON_REQUIRED("Choose a nonproductive reason"),
+        INTENT_REQUIRED("Choose at least one visit purpose"),
+        ACTIVITIES_REQUIRED("Record the required activities, or end as not productive")
     }
 }
 

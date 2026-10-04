@@ -31,6 +31,7 @@ class FakeFieldStore(val identity: StoreScope) : FieldStore {
     override suspend fun todaysVisits(day: String) = active?.visits?.filter { it.serviceDate == day } ?: emptyList()
     override suspend fun outlets() = active?.outlets ?: emptyList()
     override suspend fun callSheet(outletId: String) = active?.callSheets?.singleOrNull { it.outletId == outletId }
+    override suspend fun activityRules() = active?.activityRules ?: emptyList()
     override suspend fun isLeaseValid(now: Long) = !held && active != null && now < lease
     override suspend fun enqueue(intent: IntentRow, now: Long) {
         require(intent.account == identity.account && intent.deviceId == identity.deviceId && intent.scope == identity.fingerprint)
@@ -38,6 +39,7 @@ class FakeFieldStore(val identity: StoreScope) : FieldStore {
             intent.kind in setOf("visit.checkIn", "visit.activity", "visit.checkOut") && intent.serializedOperation.isNotBlank())
         check(isLeaseValid(now))
         CallSheetQueueRules.validate(this, intent)
+        ActivityQueueRules.validate(this, intent)
         check(rows.none { it.first.requestId == intent.requestId })
         val at = maxOf(intent.createdAt, (rows.maxOfOrNull { it.second.createdAt } ?: Long.MIN_VALUE) + 1)
         rows += intent.copy(createdAt = at) to OutboxRow(intent.account, intent.deviceId, intent.scope, intent.requestId, at)

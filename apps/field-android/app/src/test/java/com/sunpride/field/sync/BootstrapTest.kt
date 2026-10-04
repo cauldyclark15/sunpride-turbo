@@ -62,6 +62,38 @@ class BootstrapTest {
         assertNull(sheet.lines.last().barcode)
         assertTrue(BootstrapCodec.page(first).callSheets.isEmpty())
     }
+    @Test fun activityRulesDecodeStrictlyAndStayOptional() {
+        val text = fixture("bootstrap-activity-rules-response.json")
+        val rules = BootstrapCodec.page(text).activityRules!!
+        assertEquals(listOf("merchandise", "complaint", "future-intent"), rules.map { it.intent })
+        assertEquals(RuleActivity("merchandising", true), rules.first().activities.first())
+        // Unknown intents/kinds stay raw; they never become a form this phone pretends to support.
+        assertEquals("future_form", rules.last().activities.single().kind)
+        assertNull(BootstrapCodec.page(first).activityRules)
+        assertTrue(BootstrapCodec.snapshot(listOf(BootstrapCodec.page(first))).activityRules.isEmpty())
+        assertEquals(rules, BootstrapCodec.snapshot(listOf(BootstrapCodec.page(text))).activityRules)
+        val mutations: List<(JSONObject) -> Unit> = listOf(
+            { it.put("activityRules", JSONObject.NULL) },
+            { it.getJSONArray("activityRules").getJSONObject(0).remove("version") },
+            { it.getJSONArray("activityRules").getJSONObject(0).put("label", "x") },
+            { it.getJSONArray("activityRules").getJSONObject(0).getJSONArray("activities").getJSONObject(0).put("required", "yes") },
+            { it.getJSONArray("activityRules").put(it.getJSONArray("activityRules").getJSONObject(0)) })
+        for (mutate in mutations) {
+            val bad = JSONObject(text).also(mutate).toString()
+            assertThrows(WireFailure::class.java) { BootstrapCodec.page(bad) }
+        }
+        // Pages of one download must agree on the rule set.
+        val one = BootstrapCodec.page(page(text, 1, "next", null))
+        val other = JSONObject(text).also { it.getJSONArray("activityRules").remove(2) }
+        val two = BootstrapCodec.page(page(other.toString(), 2, null, "cursor"))
+        assertThrows(IllegalArgumentException::class.java) { BootstrapCodec.snapshot(listOf(one, two)) }
+    }
+    @Test fun activityRulesSurviveStagingInTheGenericSnapshotTable() = runBlocking {
+        val store = com.sunpride.field.support.FakeFieldStore(StoreScope("a", "d", "s"))
+        val snapshot = BootstrapCodec.snapshot(listOf(BootstrapCodec.page(fixture("bootstrap-activity-rules-response.json"))))
+        store.swap(store.stage(snapshot), "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
+        assertEquals(3, store.activityRules().size)
+    }
     @Test fun callSheetMalformedRequiredFieldsAndWrongPageOutletFailClosed() {
         val original = fixture("bootstrap-call-sheet-response.json")
         val mutations: List<(JSONObject) -> Unit> = listOf(

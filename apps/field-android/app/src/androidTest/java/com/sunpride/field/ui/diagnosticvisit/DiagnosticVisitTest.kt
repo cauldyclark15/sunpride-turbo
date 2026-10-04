@@ -34,7 +34,8 @@ class DiagnosticVisitTest {
     private val context get() = rule.activity
     private fun scoped(): RoomFieldStore = RoomFieldStore(EncryptedFieldDatabase.open(context), identity)
     private inner class Backend(private val plans: List<VisitDisplay> = listOf(
-        VisitDisplay("Test outlet", "Planned", "Scheduled", "outlet-1", "planned-1"))) : FieldBackend {
+        VisitDisplay("Test outlet", "Planned", "Scheduled", "outlet-1", "planned-1")),
+        private val unplanned: List<VisitDisplay> = emptyList()) : FieldBackend {
         override val isSignedIn = true
         override val cachedDeviceId = identity.deviceId
         override fun loadSigner(): DeviceSigner = KeystoreDeviceKey.loadOrCreate(context, alias)
@@ -43,7 +44,7 @@ class DiagnosticVisitTest {
         override fun refreshEnrollment(signer: DeviceSigner) = EnrollmentState.Ready(identity.deviceId)
         override fun today(deviceId: String, signer: DeviceSigner, sync: Boolean) = TodayData(
             plans,
-            stale = true, queuedCount = visitStates().count { it.second == "pending" },
+            stale = true, queuedCount = visitStates().count { it.second == "pending" }, unplannedOutlets = unplanned,
             syncStatus = com.sunpride.field.ui.syncstatus.SyncStatus(queued = visitStates().count { it.second == "pending" }))
         override fun visitStates(): List<Pair<IntentRow, String>> {
             val store = scoped()
@@ -62,6 +63,19 @@ class DiagnosticVisitTest {
                 store.enqueue(VisitIntentFactory.create(identity, "visit.activity", clientVisitId, checkInRequestId,
                     previousRequestId, null, outletId, emptyList(), null, null, null, null, null,
                     callSheet = CallSheetPayload.activity(sheet, drafts)), System.currentTimeMillis())
+            } } finally { store.close() }
+        }
+        override fun activityRules(): List<ActivityRule> {
+            val store = scoped()
+            return try { runBlocking { store.activityRules() } } finally { store.close() }
+        }
+        override fun queueActivity(clientVisitId: String, checkInRequestId: String, previousRequestId: String,
+            outletId: String, activity: JSONObject) {
+            val store = scoped()
+            try { runBlocking {
+                store.enqueue(VisitIntentFactory.create(identity, "visit.activity", clientVisitId, checkInRequestId,
+                    previousRequestId, null, outletId, emptyList(), null, null, null, null, null, activity = activity),
+                    System.currentTimeMillis())
             } } finally { store.close() }
         }
         override fun queueVisit(kind: String, clientVisitId: String?, checkInRequestId: String?, previousRequestId: String?,
@@ -127,6 +141,66 @@ class DiagnosticVisitTest {
         rule.waitUntil(10_000) { backend.visitStates().count { it.first.kind == "visit.activity" } == 2 }
     }
     @After fun cleanup() { KeystoreDeviceKey.delete(alias) }
+    /** AND-013: an unplanned multi-purpose visit fills the backend-required forms before a completed End. */
+    @Test fun unplannedMultiIntentVisitRequiresRuleFormsBeforeCompletedEnd() {
+        val rules = listOf(
+            ActivityRule("merchandise", "rule:1", listOf(RuleActivity("merchandising", true), RuleActivity("price_check", false))),
+            ActivityRule("complaint", "rule:2", listOf(RuleActivity("note", true))))
+        val store = scoped()
+        runBlocking {
+            store.swap(store.stage(ScopedSnapshot("{\"id\":\"test\"}", null, emptyList(), emptyList(), emptyList(),
+                emptyList(), activityRules = rules)), "cursor", System.currentTimeMillis() + 120_000,
+                System.currentTimeMillis() + 120_000)
+            assertEquals(rules, store.activityRules()) // survives Room staging/promotion
+        }
+        store.close()
+        val backend = Backend(emptyList(), listOf(VisitDisplay("Walk-in outlet", "Unplanned", "Reason required", "outlet-9")))
+        val location = object : VisitLocation { override val requiresPermission = false; override suspend fun fix(): JSONObject? = null }
+        rule.setContent { FieldApp(AppEnvironment("https://team.convex.site", "https://team.convex.cloud"),
+            dark = false, debug = true, backend = backend, visitLocation = location) }
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("unplanned-open").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("unplanned-open").performScrollTo().performClick()
+        rule.onNodeWithTag("unplanned-reason").performScrollTo().performTextInput("Buyer called")
+        androidx.test.espresso.Espresso.pressBack()
+        rule.onNodeWithTag("diagnostic-checkin").assertIsNotEnabled() // no purpose chosen yet
+        rule.onNodeWithTag("intent-merchandise").performScrollTo().performClick()
+        rule.onNodeWithTag("intent-complaint").performScrollTo().performClick()
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("diagnostic-checkin").assertIsEnabled() }.isSuccess }
+        rule.onNodeWithTag("diagnostic-checkin").performClick()
+        rule.waitUntil(10_000) { backend.visitStates().size == 1 }
+        val start = JSONObject(backend.visitStates().single().first.serializedOperation).getJSONObject("payload")
+        assertEquals("""["merchandise","complaint"]""", start.getJSONArray("intents").toString())
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("activity-merchandising").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("visit-intents").assertTextContains("Merchandise, Complaint", substring = true)
+        rule.onNodeWithTag("activity-note").assertTextContains("Required", substring = true)
+        rule.onNodeWithTag("diagnostic-outcome").performScrollTo().performClick() // completed
+        rule.onNodeWithTag("activities-missing").performScrollTo().assertTextContains("Merchandising", substring = true)
+        rule.onNodeWithTag("diagnostic-checkout").assertIsNotEnabled()
+        rule.onNodeWithTag("activity-merchandising").performScrollTo().performClick()
+        rule.onNodeWithTag("activity-form-title").assertTextContains("Merchandising")
+        rule.onNodeWithTag("activity-save").assertIsNotEnabled()
+        rule.onNodeWithTag("activity-display-needs_action").performScrollTo().performClick()
+        rule.onNodeWithTag("activity-text").performScrollTo().performTextInput("Re-faced shelf")
+        androidx.test.espresso.Espresso.pressBack()
+        rule.onNodeWithTag("activity-save").assertIsEnabled().performClick()
+        rule.waitUntil(10_000) { backend.visitStates().size == 2 }
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-note").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("diagnostic-note").performScrollTo().performTextInput("Damaged cans reported")
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
+        rule.onNodeWithTag("diagnostic-add-note").performScrollTo().performClick()
+        rule.waitUntil(10_000) { backend.visitStates().size == 3 }
+        // The outcome is chosen on the visit screen; opening a form screen leaves it, so choose again.
+        rule.onNodeWithTag("diagnostic-outcome").performScrollTo().performClick() // completed
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("diagnostic-checkout").assertIsEnabled() }.isSuccess }
+        rule.onNodeWithTag("activities-missing").assertDoesNotExist()
+        rule.onNodeWithTag("diagnostic-checkout").performClick()
+        rule.waitUntil(10_000) { backend.visitStates().size == 4 }
+        val activity = JSONObject(backend.visitStates()[1].first.serializedOperation).getJSONObject("payload").getJSONObject("activity")
+        assertEquals(mapOf("kind" to "merchandising", "displayCondition" to "needs_action", "actionTaken" to "Re-faced shelf"),
+            activity.keys().asSequence().associateWith { activity.get(it) })
+        assertEquals(listOf("visit.checkIn", "visit.activity", "visit.activity", "visit.checkOut"),
+            backend.visitStates().map { it.first.kind })
+    }
     @Test fun queuesCheckInAndCheckOutOfflineWithoutPhoneLocationPermission() = runScenario(false)
     @Test fun darkVisitScreenshot() = runScenario(true)
     @Test fun nextStoreStartIsDisabledUntilCurrentCallEndsWithProductivity() {

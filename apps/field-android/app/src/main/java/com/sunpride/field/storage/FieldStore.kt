@@ -18,7 +18,9 @@ data class StoreScope(val account: String, val deviceId: String, val fingerprint
 data class ScopedSnapshot(val employeeJson: String, val routeJson: String?,
     val visits: List<SnapshotItem>, val outlets: List<SnapshotItem>,
     val localCustomers: List<SnapshotItem>, val tasks: List<SnapshotItem>,
-    val callSheets: List<CallSheet> = emptyList())
+    val callSheets: List<CallSheet> = emptyList(),
+    /** AND-013 activity-form rules per visit intent; empty from servers that predate them. */
+    val activityRules: List<ActivityRule> = emptyList())
 data class SnapshotItem(val id: String, val json: String, val serviceDate: String? = null, val listPosition: Int? = null)
 
 interface FieldStore {
@@ -30,6 +32,7 @@ interface FieldStore {
     suspend fun todaysVisits(day: String): List<SnapshotItem>
     suspend fun outlets(): List<SnapshotItem>
     suspend fun callSheet(outletId: String): CallSheet? = null
+    suspend fun activityRules(): List<ActivityRule> = emptyList()
     suspend fun customers(): List<SnapshotItem> = emptyList()
     /** Every planned visit in the downloaded horizon, not just one day (customer detail). */
     suspend fun plannedVisits(): List<SnapshotItem> = emptyList()
@@ -116,7 +119,9 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
         require(snapshot.employeeJson.isNotBlank())
         val generation = UUID.randomUUID().toString()
         val groups = listOf("visit" to snapshot.visits, "outlet" to snapshot.outlets,
-            "customer" to snapshot.localCustomers, "task" to snapshot.tasks)
+            "customer" to snapshot.localCustomers, "task" to snapshot.tasks,
+            // Rules ride the generic snapshot table (keyed by intent): no schema migration.
+            "activity_rule" to snapshot.activityRules.map { SnapshotItem(it.intent, ActivityRules.encode(it).toString()) })
         db.withTransaction {
             for ((kind, items) in groups) for ((position, item) in items.withIndex()) {
                 require(item.id.isNotBlank() && item.json.isNotBlank())
@@ -176,6 +181,8 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
                 CallSheetProduct(it.productId, it.code, it.name, it.uom, it.barcode, it.pricing)
             })
     }
+    override suspend fun activityRules(): List<ActivityRule> =
+        read("activity_rule").map { ActivityRules.decode(JSONObject(it.json)) }
     override suspend fun customers(): List<SnapshotItem> = read("customer")
     override suspend fun plannedVisits(): List<SnapshotItem> = read("visit")
     override suspend fun tasks(): List<SnapshotItem> = read("task")
@@ -204,6 +211,7 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
                     history().map { it.first to it.second.state })
             }
             CallSheetQueueRules.validate(this@RoomFieldStore, intent)
+            ActivityQueueRules.validate(this@RoomFieldStore, intent)
             val orderedAt = maxOf(intent.createdAt, (dao.latestCreatedAt(a, d, s) ?: Long.MIN_VALUE) + 1)
             dao.insertIntent(intent.copy(createdAt = orderedAt))
             checkpoint()
