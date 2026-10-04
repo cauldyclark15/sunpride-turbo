@@ -610,6 +610,11 @@ export function OperationsView({
                 </StatusPill>
               ))}
             </div>
+            {stock.blindWithheld > 0 ? (
+              <Muted>
+                {`${stock.blindWithheld} blind count${stock.blindWithheld === 1 ? "" : "s"} you started or counted ${stock.blindWithheld === 1 ? "is" : "are"} not shown: an approver reviews ${stock.blindWithheld === 1 ? "its" : "their"} differences.`}
+              </Muted>
+            ) : null}
             {stock.sapDifferences.unmappedHidden ? (
               <Muted>
                 Differences without a location are shown on the national view

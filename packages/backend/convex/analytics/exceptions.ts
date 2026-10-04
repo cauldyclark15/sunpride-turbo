@@ -229,20 +229,20 @@ async function personPeriod(
   let truncated =
     plannedRows.length > MAX_PERIOD_ROWS || visitRows.length > MAX_PERIOD_ROWS;
   const closed = (date: string) => dayCloseAt(date) < now;
-  const planned = plannedRows
-    .slice(0, MAX_PERIOD_ROWS)
-    .filter(
-      (row) =>
-        row.status === "planned" &&
-        closed(row.serviceDate) &&
-        sc.scope.has(row.approvedSnapshot.orgUnitId),
-    );
+  const planned = plannedRows.slice(0, MAX_PERIOD_ROWS).filter(
+    (row) =>
+      row.status === "planned" &&
+      closed(row.serviceDate) &&
+      // The selected unit filter (sc.units), not the caller's whole scope: a Region A
+      // view must not list stops this person once served in Region B.
+      sc.units.has(row.approvedSnapshot.orgUnitId),
+  );
   const done = new Set(
     visitRows
       .slice(0, MAX_PERIOD_ROWS)
       .filter(
         (visit) =>
-          sc.scope.has(visit.orgUnitId) &&
+          sc.units.has(visit.orgUnitId) &&
           DONE_STATES.has(visit.state) &&
           visit.plannedVisitId !== undefined,
       )
@@ -661,6 +661,8 @@ const stockSection = v.union(
         overLines: v.number(),
       }),
     ),
+    /** Blind counts whose variance is withheld because the reader created or counted them. */
+    blindWithheld: v.number(),
     sapDifferences: v.object({
       open: v.number(),
       byClassification: v.array(
@@ -839,6 +841,10 @@ async function stockVariances(
 ) {
   let truncated = locationsTruncated;
   const counts = [];
+  let blindWithheld = 0;
+  // Blind-count separation (inventory/counts.ts detail): whoever created or counted a blind
+  // count never sees its expected stock, so its variance and signs are withheld from them.
+  const reader = (await ctx.auth.getUserIdentity())?.tokenIdentifier ?? null;
   for (const location of locations)
     for (const status of [...OPEN_COUNT_STATUSES, ...SETTLED_COUNT_STATUSES]) {
       const sessions = await ctx.db
@@ -866,6 +872,17 @@ async function stockVariances(
           )
           .take(MAX_COUNT_LINES + 1);
         if (lines.length > MAX_COUNT_LINES) truncated = true;
+        if (
+          session.blindCount &&
+          (!reader ||
+            session.createdBy === reader ||
+            // Unread lines could hide the reader's own count: withhold conservatively.
+            lines.length > MAX_COUNT_LINES ||
+            lines.some((line) => line.countedBy === reader))
+        ) {
+          blindWithheld++;
+          continue;
+        }
         const varied = lines
           .slice(0, MAX_COUNT_LINES)
           .filter(
@@ -924,6 +941,7 @@ async function stockVariances(
     available: true as const,
     truncated,
     counts: counts.slice(0, MAX_LISTED),
+    blindWithheld,
     sapDifferences: {
       open,
       byClassification: [...byClassification.entries()]
@@ -989,7 +1007,7 @@ export const operations = query({
       cash: {
         tracked: false as const,
         reason:
-          "Cash remittance is not recorded in the system yet, so collections cannot be compared with cash handed in.",
+          "Not available yet: the field apps do not record cash collected and there is no record of cash handed in, so there is nothing to compare. Waiting for Sunpride's cash reconciliation documents.",
       },
     };
   },

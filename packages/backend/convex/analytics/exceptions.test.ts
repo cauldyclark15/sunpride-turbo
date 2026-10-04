@@ -928,6 +928,118 @@ describe("management exception dashboard", () => {
     expect(narrowed.sap.available).toBe(false);
   });
 
+  it("keeps a selected unit's field view free of stops served in another unit", async () => {
+    const { ids, as, stop } = await fixture();
+    // Ana now works in region A but once missed an A-class outlet while serving region B.
+    await stop({
+      who: ids.ana,
+      orgUnitId: ids.regionB,
+      outlet: ids.outlets.b1,
+      date: "2026-09-29",
+    });
+    await stop({
+      who: ids.ana,
+      orgUnitId: ids.regionB,
+      outlet: ids.outlets.b1,
+      date: "2026-09-28",
+      visited: true,
+    });
+    const whole = await as("boss").query(
+      api.analytics.exceptions.field,
+      period,
+    );
+    const anaWhole = whole.rows.find((row) => row.name === "Ana");
+    expect(anaWhole).toMatchObject({ plannedClosed: 2, doneClosed: 1 });
+    expect(anaWhole!.missedHighValue.map((row) => row.outletCode)).toEqual([
+      "B1",
+    ]);
+    // Narrowed to region A, neither region B's missed outlet nor its stops appear.
+    const regionA = await as("boss").query(api.analytics.exceptions.field, {
+      ...period,
+      orgUnitId: ids.regionA,
+    });
+    expect(regionA.peopleInScope).toBe(1);
+    expect(regionA.rows).toEqual([]);
+    expect(regionA.totals).toMatchObject({ people: 1, missedHighValue: 0 });
+  });
+
+  it("withholds blind-count variances from the person who started or counted them", async () => {
+    const { t, ids, as } = await fixture();
+    await t.run(async (ctx) => {
+      const warehouseA = await ctx.db.insert("inventoryLocations", {
+        organizationId: "sunpride",
+        orgUnitId: ids.regionA,
+        siteCode: "S1",
+        code: "WH-A",
+        name: "Location WH-A",
+        type: "warehouse",
+        active: true,
+        allowsPicking: true,
+        allowsReceiving: true,
+        allowsSale: false,
+        allowsProduction: false,
+        createdAt: now - 90 * DAY,
+        updatedAt: now - 90 * DAY,
+      });
+      const count = async (
+        countNumber: string,
+        blindCount: boolean,
+        createdBy: string,
+        countedBy?: string,
+      ) => {
+        const sessionId = await ctx.db.insert("stockCountSessions", {
+          organizationId: "sunpride",
+          countNumber,
+          countType: "cycle",
+          locationId: warehouseA,
+          status: "submitted",
+          blindCount,
+          snapshotAt: at("2026-09-20"),
+          createdBy,
+          createdAt: at("2026-09-20"),
+          updatedAt: at("2026-09-20"),
+        });
+        await ctx.db.insert("stockCountLines", {
+          organizationId: "sunpride",
+          sessionId,
+          productId: ids.products.p1,
+          stockStatus: "available",
+          systemBase: 10n,
+          countedBase: 7n,
+          varianceBase: -3n,
+          ...(countedBy ? { countedBy } : {}),
+        });
+      };
+      await count("CNT-STARTED", true, subject("managerA"));
+      await count("CNT-COUNTED", true, "fixture", subject("managerA"));
+      await count("CNT-OTHER", true, "fixture", subject("Ana"));
+      await count(
+        "CNT-OPEN-BOOK",
+        false,
+        subject("managerA"),
+        subject("managerA"),
+      );
+    });
+    const counter = await as("managerA").query(
+      api.analytics.exceptions.operations,
+      period,
+    );
+    if (!counter.stock.available) throw new Error("stock hidden");
+    expect(counter.stock.counts.map((row) => row.countNumber).sort()).toEqual([
+      "CNT-OPEN-BOOK",
+      "CNT-OTHER",
+    ]);
+    expect(counter.stock.blindWithheld).toBe(2);
+    // A separate reviewer sees every blind count's differences.
+    const reviewer = await as("adminRoot").query(
+      api.analytics.exceptions.operations,
+      period,
+    );
+    if (!reviewer.stock.available) throw new Error("stock hidden");
+    expect(reviewer.stock.counts).toHaveLength(4);
+    expect(reviewer.stock.blindWithheld).toBe(0);
+  });
+
   it("finds out-of-stock hotspots by outlet, product and unit", async () => {
     const { t, ids, as, stop } = await fixture();
     const { visitId } = await stop({
