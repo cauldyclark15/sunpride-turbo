@@ -14,7 +14,9 @@ This document has three parts:
    same fault on a real phone.
 2. A device protocol for the pilot phones, run once per release candidate before UAT
    (`docs/qa/SFA_UAT_SCENARIOS.md`, UAT-FLD-04 and UAT-E2E-02).
-3. Findings from the first chaos run and the gaps that remain.
+3. Findings from the chaos runs, the coverage status per transaction, and the gaps that
+   remain. SP-0025 is not complete until the device sign-off sheet is filled in and the
+   transactions listed under "Not yet testable" exist and have their own scenarios.
 
 `packages/backend/convex/acceptance/chaos_catalog.test.ts` fails the build if a scenario
 loses its automated or device marker, or if a referenced test (TypeScript `it("…")`,
@@ -49,12 +51,17 @@ Fault words used below:
 
 ### CHAOS-01 · A whole day saved offline drains exactly once
 
-- Transactions: check-in, note, call sheet, check-out at two stores.
+- Transactions: check-in, note, call sheet, check-out at two stores (phones); on the
+  server also a planned MCP day: planned check-in against the signed plan, every structured
+  activity form (ICO inventory check, merchandising, price check, promotion, order intent,
+  call sheet, note), a completed check-out, then the next planned stop closed as
+  nonproductive.
 - Fault: airplane mode, then a mix of lost requests, lost acknowledgements, duplicates,
   mid-batch failures and restarts, over 30–50 random seeds.
-- Expected: both calls reach the server once, in order; replaying the whole queue after
-  reconnect changes nothing.
+- Expected: both calls reach the server once, in order; each planned stop is linked to
+  exactly one call; replaying the whole queue after reconnect changes nothing.
 - Automated: `packages/backend/convex/mobile/chaos.test.ts` — "drains a two-store offline day exactly once under 40 seeded mixes of airplane mode, lost requests, lost acks, duplicates and restart replays"
+- Automated: `packages/backend/convex/mobile/chaos.test.ts` — "drains a planned MCP day with every structured activity form and a nonproductive stop exactly once under 30 seeded fault mixes"
 - Automated: `apps/field-android/app/src/test/java/com/sunpride/field/sync/ChaosSyncTest.kt` — "seededOfflineDayTwoStoresDrainsExactlyOnceInEnqueueOrder"
 - Automated: `apps/field-ios/FieldIOSTests/ChaosSyncTests.swift` — "testSeededOfflineDayDrainsTwoStoresExactlyOnceInEnqueueOrder"
 - Device check: protocol steps D1–D4.
@@ -70,6 +77,7 @@ Fault words used below:
 - Automated: `apps/field-android/app/src/test/java/com/sunpride/field/sync/ChaosSyncTest.kt` — "fakeServerRejectsChangedBytesForSameClientRequestId"
 - Automated: `apps/field-ios/FieldIOSTests/ChaosSyncTests.swift` — "testLostAcknowledgementReconnectReturnsSameAckWithoutDoubleCount"
 - Automated: `packages/backend/convex/mobile/push.test.ts` — "conflicts on changed payload or different device, and concurrent same-key calls commit once"
+- Automated: `packages/backend/convex/mobile/chaos.test.ts` — "returns the stored ack for a planned check-in whose answer was lost, and refuses a second check-in for the same planned stop under a new request ID"
 - Device check: protocol step D3.
 
 ### CHAOS-03 · The signal drops in the middle of a batch
@@ -94,11 +102,13 @@ Fault words used below:
 
 ### CHAOS-05 · Work arrives out of order after a restart
 
-- Transactions: check-out sent before its note was acknowledged.
+- Transactions: check-out sent before its note was acknowledged; the next planned stop's
+  check-in sent before the earlier stop was started or closed.
 - Fault: reordered delivery.
-- Expected: the server rejects it as `dependency_missing` without using up its request ID;
-  sent again in order, the same bytes are accepted.
+- Expected: the server rejects it (`dependency_missing`, `mcp_order` or `call_open`)
+  without using up its request ID; sent again in order, the same bytes are accepted.
 - Automated: `packages/backend/convex/mobile/chaos.test.ts` — "rejects a dependent sent ahead of its dependency after a restart without consuming its key, then accepts it in order"
+- Automated: `packages/backend/convex/mobile/chaos.test.ts` — "refuses the next planned stop while the earlier stop is open or unclosed after a restart, without consuming its key, then accepts the same bytes in order"
 - Automated: `packages/backend/convex/mobile/push.test.ts` — "rejects missing dependency and unsupported middle item without consuming keys; later independent operation works"
 - Device check: not reproducible by hand (the apps never send out of order); covered by the automated tests only.
 
@@ -164,6 +174,20 @@ Fault words used below:
 - Automated: `apps/field-ios/FieldIOSTests/ChaosSyncTests.swift` — "testTodayStatusNeverClaimsAllSyncedForPendingDeferredReviewOrHeldWork"
 - Device check: protocol steps D1–D7 (read the status line after every step).
 
+### CHAOS-11 · Photo evidence upload over a bad connection
+
+- Transactions: visit photo (upload URL, file upload, attach) after the check-in is
+  acknowledged. Android only: the iPhone app has no photo capture yet.
+- Fault: airplane mode before the upload; lost acknowledgement of the attach, then a
+  retry with a fresh upload of the same photo.
+- Expected: the photo stays on the phone as pending until it uploads; a retried attach
+  resolves to the original evidence row (no second file); a different photo type or size
+  under the same checksum is a conflict; the visit outbox is never blocked by a photo.
+- Automated: `packages/backend/convex/mobile/chaos.test.ts` — "resolves a retried photo attach whose answer was lost to the original evidence row, and refuses changed metadata under the same checksum"
+- Automated: `apps/field-android/app/src/test/java/com/sunpride/field/evidence/EvidenceUploaderTest.kt` — "offlineKeepsThePhotoPendingAndALostAttachResponseResolvesToTheSameRow"
+- Automated: `apps/field-android/app/src/test/java/com/sunpride/field/evidence/EvidenceUploaderTest.kt` — "damagedFilesRejectedStartsAndHeldPartitionsNeverUpload"
+- Device check: protocol step D8 (Android only).
+
 ## Device protocol (pilot phones)
 
 Run on one Android pilot phone and one iPhone with the release-candidate build, enrolled
@@ -192,6 +216,10 @@ real phones.
   it was removed. Re-enrol only after recording the result.
 - D7 Bad connection download: on a weak or throttled network, pull to refresh and reopen
   the app during the download. Today's list must stay complete (old or new, never half).
+- D8 Photo on a bad connection (Android only): in airplane mode, take two visit photos
+  after check-in; reconnect for a few seconds and drop again mid-upload, then reconnect.
+  Each photo appears once on the supervisor's visit view; the phone deletes its copy only
+  after the upload is confirmed.
 
 | Step | Android: Pass / Fail | iPhone: Pass / Fail | Tester | Date | Defect | Notes |
 | ---- | -------------------- | ------------------- | ------ | ---- | ------ | ----- |
@@ -202,6 +230,7 @@ real phones.
 | D5   |                      |                     |        |      |        |       |
 | D6   |                      |                     |        |      |        |       |
 | D7   |                      |                     |        |      |        |       |
+| D8   |                      | n/a (not built)     |        |      |        |       |
 
 ## Findings from the first run (4 October 2026)
 
@@ -215,6 +244,32 @@ real phones.
 - iPhone: no defects found.
 - Server: no defects found.
 
+- Server, second run (5 October 2026): the planned MCP day (planned check-in, every
+  structured activity form, nonproductive close), MCP stop order under reordering and
+  lost-answer photo retries all held under fault injection. No defects found.
+
+## Coverage status by transaction
+
+| Transaction                                          | Server    | Android | iPhone    | Real phones |
+| ---------------------------------------------------- | --------- | ------- | --------- | ----------- |
+| Unplanned check-in, note, check-out                  | Yes       | Yes     | Yes       | Not run     |
+| Planned (MCP) check-in and stop order                | Yes       | No      | No        | Not run     |
+| Structured activity forms                            | Yes       | Partial | Partial   | Not run     |
+| Nonproductive check-out                              | Yes       | No      | No        | Not run     |
+| Photo evidence upload                                | Yes       | Yes     | Not built | Not run     |
+| Delta pull and day download                          | n/a       | Yes     | Yes       | Not run     |
+| Collections, task completion                         | Not built | —       | —         | —           |
+| Van POS (sell, collect, receipt, truck stock, count) | Not built | —       | —         | —           |
+
+"Partial": the Android suite injects faults on the call sheet and merchandising forms, the
+iPhone suite on the call sheet; the other forms go through the same outbox code as frozen
+bytes but are not separately faulted on the phones. "No": the phone suites do not yet send
+planned check-ins or nonproductive check-outs; the outbox treats them as opaque bytes and
+the plan and stop-order checks run only on the server, which is why the server suite
+covers them. "Not built": the server refuses collections and task completion
+(`unsupported_operation`), and the van POS app does not exist. "Not run": D1–D8 need the
+pilot phones and testers; the sign-off sheet above is still empty.
+
 ## Not yet testable
 
 - Van POS (sell, collect, receipt print/reprint, truck stock, end-of-day count): the
@@ -222,5 +277,9 @@ real phones.
   is, following ADR-019 and `docs/architecture/VAN_POS_HARDWARE.md`.
 - Collections and task completion: the server answers `unsupported_operation` for
   `collection.record` and `task.complete` today, so there is nothing to sync yet.
-- Photo evidence upload under fault injection is not part of this suite.
+- Photo evidence on iPhone: the iPhone app has no photo capture yet; add it to CHAOS-11
+  when it does.
+- The first photo attach's storage checks (size, type, checksum against the stored file)
+  cannot run under convex-test, which has no file metadata; they are covered as isolated
+  checks in `visits/evidence.test.ts` and on the real phone in step D8.
 - Device steps D1–D7 on the pilot phones need the pilot team and their phones.

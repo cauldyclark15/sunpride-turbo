@@ -1,7 +1,7 @@
 import { convexTest, type TestConvex } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
-import { internal } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import schema from "../schema";
 import { modules } from "../test.setup";
@@ -244,6 +244,13 @@ function offlineDay(f: Fixture, deviceTime: number, base = 0): Intent[] {
   });
 }
 
+/** Stable wire bytes for an operation; `int64` prices travel as bigint in the Convex args. */
+function wire(op: Operation | null) {
+  return JSON.stringify(op, (_key, value: unknown) =>
+    typeof value === "bigint" ? `${value}n` : value,
+  );
+}
+
 /** Deterministic PRNG (mulberry32) so a failing seed can be replayed exactly. */
 function rng(seed: number) {
   let a = seed >>> 0;
@@ -278,6 +285,7 @@ async function drain(
 ) {
   const acks = options.acks ?? new Map<string, Accepted>();
   const frozen = new Map<string, string>();
+  const sent = new Map<string, Operation>();
   const faults: Fault[] = [];
   for (let attempt = 0; attempt < 400; attempt++) {
     const next = queue.find((intent) => !acks.has(intent.key));
@@ -285,9 +293,10 @@ async function drain(
     const op = next.build(acks);
     // The outbox never sends a dependent before its dependency's durable ack.
     expect(op, `${next.key} must be buildable in order`).not.toBeNull();
-    const bytes = JSON.stringify(op);
+    const bytes = wire(op);
     expect(frozen.get(next.key) ?? bytes).toBe(bytes); // byte-identical replay
     frozen.set(next.key, bytes);
+    sent.set(next.key, op!);
     vi.setSystemTime(Date.now() + (options.advance?.() ?? 0));
     const fault = pick();
     faults.push(fault);
@@ -299,7 +308,7 @@ async function drain(
     if (fault === "replay_acked" && acks.size > 0) {
       const done = queue.filter((intent) => acks.has(intent.key));
       const old = done[attempt % done.length]!;
-      const replay = JSON.parse(frozen.get(old.key)!) as Operation;
+      const replay = sent.get(old.key)!;
       expect(await f.apply(replay)).toEqual(acks.get(old.key));
     }
     const results =
@@ -440,5 +449,483 @@ describe("offline and poor-network chaos (server)", () => {
       ctx.db.query("visitExecutions").collect(),
     );
     expect(visits.map((v) => v.state)).toEqual(["checked-out"]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Planned MCP day: every visit transaction the server accepts from a phone today. Store 1 is a
+// planned productive call with each structured activity form (ICO inventory check,
+// merchandising, price check, promotion, order intent, call sheet, note); store 2 is the next
+// planned stop, closed as nonproductive. Collections and task completion are still refused as
+// `unsupported_operation` by `mobile/push` and are listed as not yet testable in the catalogue.
+
+/** Seeds an active signed MCP for today (two ordered stops), a product, a UOM and call sheets. */
+async function plannedFixture() {
+  const f = await fixture();
+  const seeded = await f.t.run(async (ctx) => {
+    const now = Date.now();
+    const serviceDate = manilaDate(now);
+    const employee = (await ctx.db
+      .query("employeeAssignments")
+      .withIndex("by_profileId_and_effectiveFrom", (q) =>
+        q.eq("profileId", f.ids.profile),
+      )
+      .first())!;
+    const uom = await ctx.db.insert("unitsOfMeasure", {
+      organizationId: "sunpride",
+      code: "PC",
+      name: "Piece",
+      dimension: "count",
+      decimalPlaces: 0,
+      active: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const product = await ctx.db.insert("products", {
+      code: "SKU-1",
+      name: "Corned beef 150g",
+      category: "Canned",
+      uom: "PC",
+      unitPrice: 45,
+      active: true,
+      organizationId: "sunpride",
+      baseUomId: uom,
+      updatedAt: now,
+    });
+    const plan = await ctx.db.insert("coveragePlans", {
+      organizationId: "sunpride",
+      assigneeProfileId: f.ids.profile,
+      localMonth: serviceDate.slice(0, 7),
+      version: 1,
+      cycleType: "monthly",
+      orgUnitId: f.ids.unit,
+      territoryIds: [],
+      requestedFrom: now - DAY,
+      requestedTo: now + 7 * DAY,
+      effectiveFrom: now - DAY,
+      effectiveTo: now + 7 * DAY,
+      status: "active",
+      preparedBy: f.actor.subject,
+      preparedAt: now - DAY,
+      approvedBy: "https://auth.test|manager",
+      approvedAt: now - DAY,
+      approvalSignature: "signed",
+      contentRevision: 1,
+      createdBy: f.actor.subject,
+      createdAt: now - DAY,
+      updatedBy: f.actor.subject,
+      updatedAt: now - DAY,
+    });
+    const planned: Id<"plannedVisits">[] = [];
+    for (const [index, outletId] of f.ids.outlets.entries()) {
+      const outletAssignment = (await ctx.db
+        .query("outletAssignments")
+        .withIndex("by_outletId_and_effectiveFrom", (q) =>
+          q.eq("outletId", outletId),
+        )
+        .first())!;
+      const ownership = (await ctx.db
+        .query("territoryOwnerships")
+        .withIndex("by_territoryId_and_effectiveFrom", (q) =>
+          q.eq("territoryId", outletAssignment.territoryId),
+        )
+        .first())!;
+      await ctx.db.patch(plan, {
+        territoryIds: [outletAssignment.territoryId],
+      });
+      await ctx.db.insert("callSheetAccounts", {
+        organizationId: "sunpride",
+        outletId,
+        revision: 1,
+        header: { accountName: `Store O${index + 1}` },
+        lines: [{ productId: product }],
+        updatedAt: now - DAY,
+        updatedBy: "fixture",
+      });
+      const snapshot = {
+        outletId,
+        outletCode: `O${index + 1}`,
+        outletName: `Store O${index + 1}`,
+        territoryId: outletAssignment.territoryId,
+        territoryCode: "T",
+        outletAssignmentId: outletAssignment._id,
+        territoryOwnershipId: ownership._id,
+        employeeAssignmentId: employee._id,
+        orgUnitId: f.ids.unit,
+        activityKind: "sell",
+        approvedAssigneeProfileId: f.ids.profile,
+      };
+      const slot = await ctx.db.insert("coveragePlanSlots", {
+        slotKey: `stop-${index + 1}`,
+        planId: plan,
+        assigneeProfileId: f.ids.profile,
+        serviceDate,
+        kind: "outlet_visit",
+        outletId,
+        activityKind: "sell",
+        requiredObjectives: [],
+        intents: ["sell"],
+        sequence: index + 1,
+        expectedDurationMinutes: 30,
+        approvedSnapshot: snapshot,
+        contentRevision: 1,
+        updatedBy: f.actor.subject,
+        updatedAt: now - DAY,
+      });
+      planned.push(
+        await ctx.db.insert("plannedVisits", {
+          generationKey: "signed",
+          planId: plan,
+          planVersion: 1,
+          planSlotId: slot,
+          assigneeProfileId: f.ids.profile,
+          outletId,
+          serviceDate,
+          status: "planned",
+          approvedSnapshot: snapshot,
+          requiredObjectives: [],
+          intents: ["sell"],
+          expectedDurationMinutes: 30,
+          generatedAt: now - DAY,
+        }),
+      );
+    }
+    return { product, uom, planned };
+  });
+  return { ...f, ...seeded };
+}
+type PlannedFixture = Awaited<ReturnType<typeof plannedFixture>>;
+
+/** A planned MCP day captured offline from 06:00 Manila, in the order the phone saved it. */
+function plannedDay(f: PlannedFixture): Intent[] {
+  const deviceStart = Date.now() - 4 * 3_600_000;
+  const serviceDate = manilaDate(deviceStart);
+  const intents: Intent[] = [];
+  const store = (
+    index: number,
+    activities: Extract<
+      Operation,
+      { kind: "visit.activity" }
+    >["payload"]["activity"][],
+    outcome: "completed" | "nonproductive",
+  ) => {
+    const n = 200 + index * 20;
+    const at = deviceStart + index * 3_600_000;
+    const checkIn = uuid(n + 1);
+    const visitId = (acks: Map<string, Accepted>) =>
+      acks.get(checkIn)?.ack.entityId as Id<"visitExecutions"> | undefined;
+    intents.push({
+      key: checkIn,
+      build: () => ({
+        kind: "visit.checkIn" as const,
+        clientRequestId: checkIn,
+        payload: {
+          clientVisitId: uuid(n + 19),
+          plannedVisitId: f.planned[index]!,
+          outletId: f.ids.outlets[index]!,
+          serviceDate,
+          deviceTime: at,
+          location: null,
+          intents: ["sell" as const],
+        },
+      }),
+    });
+    let previous = checkIn;
+    activities.forEach((activity, offset) => {
+      const key = uuid(n + 2 + offset);
+      const dependency = previous;
+      intents.push({
+        key,
+        build: (acks) => {
+          const id = visitId(acks);
+          return id && acks.has(dependency)
+            ? {
+                kind: "visit.activity" as const,
+                clientRequestId: key,
+                dependsOn: [dependency],
+                payload: {
+                  visitId: id,
+                  activity,
+                  deviceTime: at + (offset + 1) * 60_000,
+                },
+              }
+            : null;
+        },
+      });
+      previous = key;
+    });
+    const checkOut = uuid(n + 18);
+    const dependency = previous;
+    intents.push({
+      key: checkOut,
+      build: (acks) => {
+        const id = visitId(acks);
+        return id && acks.has(dependency)
+          ? {
+              kind: "visit.checkOut" as const,
+              clientRequestId: checkOut,
+              dependsOn: [dependency],
+              payload: {
+                visitId: id,
+                outcome,
+                reasonCode: outcome === "nonproductive" ? "store_closed" : null,
+                deviceTime: at + 20 * 60_000,
+                location: null,
+              },
+            }
+          : null;
+      },
+    });
+  };
+  store(
+    0,
+    [
+      {
+        kind: "inventory_check",
+        productId: f.product,
+        icoFinding: "present",
+        observedQuantity: 12,
+        uomId: f.uom,
+      },
+      {
+        kind: "merchandising",
+        displayCondition: "needs_action",
+        actionTaken: "Faced up the shelf",
+      },
+      {
+        kind: "price_check",
+        productId: f.product,
+        observedPriceMinor: 4_550n,
+        currency: "PHP",
+        compliant: false,
+      },
+      { kind: "promotion", programRef: "PROMO-SEPT", finding: "executed" },
+      { kind: "order_intent", clientOrderId: uuid(9_001), note: "2 cases" },
+      {
+        kind: "call_sheet",
+        lines: [
+          {
+            productId: f.product,
+            order: 24,
+            beginningInventory: 10,
+            take: null,
+            delivered: null,
+            offtake: 4,
+            endInventory: 6,
+          },
+        ],
+      },
+      { kind: "note", text: "Buyer asked for a new price list" },
+    ],
+    "completed",
+  );
+  store(1, [], "nonproductive");
+  return intents;
+}
+
+async function plannedState(f: PlannedFixture) {
+  return f.t.run(async (ctx) => {
+    const visits = await ctx.db.query("visitExecutions").collect();
+    const activities = await ctx.db.query("visitActivities").collect();
+    const events = await ctx.db.query("executionEvents").collect();
+    return {
+      visits: visits.map((v) => ({
+        plannedVisitId: v.plannedVisitId,
+        source: v.source,
+        state: v.state,
+        outcome: v.outcome,
+        missingActivities: v.missingActivities,
+      })),
+      activityKinds: activities.map((a) => a.activity.kind),
+      callSheetEntries: (await ctx.db.query("callSheetEntries").collect())
+        .length,
+      eventKinds: events.map((e) => `${e.entityType}:${e.kind}`).sort(),
+    };
+  });
+}
+
+describe("offline and poor-network chaos (server, planned MCP day)", () => {
+  it("drains a planned MCP day with every structured activity form and a nonproductive stop exactly once under 30 seeded fault mixes", async () => {
+    const clean = await plannedFixture();
+    const cleanQueue = plannedDay(clean);
+    await drain(clean, cleanQueue, () => "ok");
+    const expectedCounts = await clean.counts();
+    const expectedState = await plannedState(clean);
+    expect(expectedState.visits).toEqual([
+      {
+        plannedVisitId: clean.planned[0],
+        source: "planned",
+        state: "checked-out",
+        outcome: "completed",
+        missingActivities: [],
+      },
+      {
+        plannedVisitId: clean.planned[1],
+        source: "planned",
+        state: "checked-out",
+        outcome: "nonproductive",
+        missingActivities: [],
+      },
+    ]);
+    expect(expectedState.activityKinds).toEqual([
+      "inventory_check",
+      "merchandising",
+      "price_check",
+      "promotion",
+      "order_intent",
+      "call_sheet",
+      "note",
+    ]);
+    expect(expectedState.callSheetEntries).toBe(1);
+    expect(expectedCounts.processedMobileOperations).toBe(cleanQueue.length);
+    expect(expectedCounts.executionEvents).toBe(cleanQueue.length);
+    const seen = new Set<Fault>();
+    for (let seed = 101; seed <= 130; seed++) {
+      const f = await plannedFixture();
+      const random = rng(seed);
+      const queue = plannedDay(f);
+      const { acks, faults } = await drain(
+        f,
+        queue,
+        () => FAULTS[Math.floor(random() * FAULTS.length)]!,
+        { advance: () => Math.floor(random() * 60_000) },
+      );
+      faults.forEach((fault) => seen.add(fault));
+      const state = await plannedState(f);
+      expect(await f.counts(), `seed ${seed}`).toEqual(expectedCounts);
+      expect(
+        {
+          ...state,
+          visits: state.visits.map((v) => ({ ...v, plannedVisitId: null })),
+        },
+        `seed ${seed}`,
+      ).toEqual({
+        ...expectedState,
+        visits: expectedState.visits.map((v) => ({
+          ...v,
+          plannedVisitId: null,
+        })),
+      });
+      expect(state.visits.map((v) => v.plannedVisitId)).toEqual(f.planned);
+      for (const intent of queue)
+        expect(await f.apply(intent.build(acks)!)).toEqual(
+          acks.get(intent.key),
+        );
+      expect(await f.counts(), `seed ${seed} replay`).toEqual(expectedCounts);
+    }
+    expect([...seen].sort()).toEqual([...FAULTS].sort());
+  }, 180_000);
+
+  it("refuses the next planned stop while the earlier stop is open or unclosed after a restart, without consuming its key, then accepts the same bytes in order", async () => {
+    const f = await plannedFixture();
+    const queue = plannedDay(f);
+    const secondCheckIn = queue.findIndex(
+      (intent, index) =>
+        index > 0 && intent.build(new Map())?.kind === "visit.checkIn",
+    );
+    const early = queue[secondCheckIn]!.build(new Map())!;
+    // Restarted client sends stop 2 before stop 1 was even started: MCP order refuses it.
+    await expect(f.apply(early)).rejects.toThrow(/mcp_order/);
+    expect((await f.counts()).processedMobileOperations).toBe(0);
+    // Stop 1 is checked in but its check-out is still queued: a call is open.
+    const { acks } = await drain(f, queue.slice(0, 1), () => "ok");
+    await expect(f.apply(early)).rejects.toThrow(/call_open/);
+    expect((await f.counts()).processedMobileOperations).toBe(1);
+    await drain(f, queue, () => "ok", { acks });
+    expect(await f.apply(early)).toEqual(acks.get(queue[secondCheckIn]!.key));
+    expect((await f.counts()).processedMobileOperations).toBe(queue.length);
+  });
+
+  it("returns the stored ack for a planned check-in whose answer was lost, and refuses a second check-in for the same planned stop under a new request ID", async () => {
+    const f = await plannedFixture();
+    const queue = plannedDay(f);
+    const first = queue[0]!.build(new Map())!;
+    const ack = await f.apply(first); // committed; the phone never saw this
+    const again = await f.apply(first);
+    expect(again).toEqual(ack);
+    const before = await f.counts();
+    // A reinstalled app that lost its outbox mints a fresh request and visit ID for the stop.
+    const fresh = {
+      ...first,
+      clientRequestId: uuid(8_001),
+      payload: {
+        ...(first as Extract<Operation, { kind: "visit.checkIn" }>).payload,
+        clientVisitId: uuid(8_002),
+      },
+    } as Operation;
+    await expect(f.apply(fresh)).rejects.toThrow(/conflict|call_open/);
+    expect(await f.counts()).toEqual(before);
+  });
+
+  it("resolves a retried photo attach whose answer was lost to the original evidence row, and refuses changed metadata under the same checksum", async () => {
+    const f = await plannedFixture();
+    const queue = plannedDay(f);
+    const { acks } = await drain(f, queue.slice(0, 2), () => "ok");
+    const visitId = acks.get(queue[0]!.key)!.ack
+      .entityId as Id<"visitExecutions">;
+    const checksum = "ab".repeat(32);
+    const capturedAt = Date.now() - 60_000;
+    // The first attach committed (claim consumed, file stored) but the response was lost.
+    // convex-test has no storage.getMetadata, so the committed row is written directly; the
+    // claim and metadata checks of a first attach are covered in visits/evidence.test.ts.
+    const original = await f.t.run(async (ctx) => {
+      const storageId = await ctx.storage.store(new Blob(["first"]));
+      return ctx.db.insert("fieldEvidenceFiles", {
+        organizationId: "sunpride",
+        orgUnitId: f.ids.unit,
+        storageId,
+        visitId,
+        ownerProfileId: f.ids.profile,
+        outletId: f.ids.outlets[0]!,
+        mime: "image/jpeg",
+        sizeBytes: 5,
+        checksum,
+        capturedAt,
+        photoType: "shelf_display",
+        uploadedAt: Date.now(),
+        status: "pending",
+      });
+    });
+    const sales = f.t.withIdentity({
+      subject: "sales",
+      issuer: "https://auth.test",
+      tokenIdentifier: f.actor.subject,
+    });
+    // The phone retries: a fresh upload URL, a fresh upload of the same bytes, attach again.
+    const retry = async (
+      overrides: Partial<{ size: number; photoType: string }> = {},
+    ) => {
+      const { uploadTokenRef } = await sales.mutation(
+        api.visits.evidence.generateUploadUrl,
+        { visitId },
+      );
+      const storageId = await f.t.run((ctx) =>
+        ctx.storage.store(new Blob(["first"])),
+      );
+      return sales.mutation(api.visits.evidence.attach, {
+        uploadTokenRef,
+        visitId,
+        storageId,
+        mime: "image/jpeg",
+        size: 5,
+        checksum,
+        capturedAt,
+        photoType: "shelf_display",
+        source: "mobile",
+        ...overrides,
+      });
+    };
+    expect(await retry()).toEqual({ evidenceId: original });
+    expect(await retry()).toEqual({ evidenceId: original });
+    await expect(retry({ photoType: "storefront" })).rejects.toThrow(
+      /conflict/,
+    );
+    const files = await f.t.run((ctx) =>
+      ctx.db.query("fieldEvidenceFiles").collect(),
+    );
+    expect(files.map((file) => file._id)).toEqual([original]);
+    // The photo is independent of the visit outbox: the rest of the day still drains once.
+    await drain(f, queue, () => "ok", { acks });
+    expect((await f.counts()).processedMobileOperations).toBe(queue.length);
   });
 });
