@@ -10,6 +10,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -202,6 +203,47 @@ class FieldAppTest {
         rule.onNodeWithTag("today-visit").assertTextContains("Outlet One", substring = true)
         rule.onNodeWithTag("today-stale").assertDoesNotExist()
         rule.onNodeWithTag("sync-now").assertDoesNotExist()
+    }
+
+    @Test fun todayDashboardShowsProgressNextStoreSalesAndRouteOrder() {
+        var opened: VisitDisplay? = null
+        rule.setContent {
+            TodayScreen(TodayData(listOf(
+                VisitDisplay("Third Mart", "Planned", "Scheduled", "o3", "p3", sequence = 2),
+                VisitDisplay("First Store", "Planned", "Done", "o1", "p1", sequence = 0,
+                    callFacts = com.sunpride.field.storage.ProductiveCall.facts(listOf("order_intent"), null)),
+                VisitDisplay("Second Shop", "Planned", "In progress", "o2", "p2", sequence = 1)),
+                stale = false, routeCode = "R-07", sales = com.sunpride.field.ui.today.DaySalesView(
+                    com.sunpride.field.ui.today.DaySales("2026-10-05", 2_500_000, 1_000_050, 40, null, 1_000_050, null),
+                    savedAt = 1L)), false, {}, {}, onVisit = { opened = it }, diagnosticEnabled = true)
+        }
+        rule.onNodeWithTag("today-calls").assertTextContains("1 of 3")
+        rule.onNodeWithTag("today-productive").assertTextContains("Productive 1 of 1 finished · 100%")
+        rule.onNodeWithTag("today-next").assertExists()
+        rule.onNodeWithText("CURRENT CALL").assertExists()
+        rule.onNodeWithTag("today-next-store").assertTextContains("Second Shop", substring = true)
+            .assertTextContains("Stop 2 of 3", substring = true).performClick()
+        assert(opened?.plannedVisitId == "p2")
+        rule.onNodeWithTag("today-sales").performScrollTo()
+        rule.onNodeWithText("₱25,000.00").assertExists()
+        rule.onNodeWithText("₱10,000.50 · 40%").assertExists()
+        rule.onNodeWithTag("today-sales-saved").assertExists()
+        rule.onNodeWithTag("today-route").performScrollTo()
+        rule.onNodeWithText("ROUTE R-07 · 3 STOPS").assertExists()
+        val rows = rule.onAllNodesWithTag("diagnostic-open")
+        rows[0].assertTextContains("First Store", substring = true).assertTextContains("Productive", substring = true)
+        rows[1].assertTextContains("Second Shop", substring = true)
+        rows[2].assertTextContains("Third Mart", substring = true)
+        rule.onNodeWithTag("sync-details").assertDoesNotExist()
+    }
+
+    @Test fun todayDashboardWithoutVisitsShowsOnlyEmptyRouteAndSales() {
+        rule.setContent { TodayScreen(TodayData(stale = false), false, {}, {}) }
+        rule.onNodeWithTag("today-empty").assertExists()
+        rule.onNodeWithTag("today-progress").assertDoesNotExist()
+        rule.onNodeWithTag("today-next").assertDoesNotExist()
+        rule.onNodeWithTag("today-sales").assertExists()
+        rule.onNodeWithTag("today-sales-none").assertTextContains("Sync to see sales")
     }
 
     @Test fun todayDoesNotDuplicateSyncState() {

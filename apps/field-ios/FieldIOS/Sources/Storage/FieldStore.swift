@@ -35,7 +35,29 @@ struct StoreSnapshot: Sendable {
             }.map(\.element)
         }
     }
-    struct Outlet: Codable, Sendable { let id: String; let name: String; let routeId: String? }
+    struct Coordinate: Codable, Sendable, Equatable { let latitude: Double; let longitude: Double }
+    /// code/customerId/address/latitude/longitude are additive v1 route-screen fields; older feeds omit them.
+    struct Outlet: Codable, Sendable {
+        let id: String; let name: String; let routeId: String?
+        var code: String? = nil
+        var customerId: String? = nil
+        var address: String? = nil
+        /// Current verified pin, sent flat on the wire: both or neither.
+        var latitude: Double? = nil
+        var longitude: Double? = nil
+
+        init(id: String, name: String, routeId: String?, code: String? = nil, customerId: String? = nil,
+             address: String? = nil, location: Coordinate? = nil) {
+            self.id = id; self.name = name; self.routeId = routeId
+            self.code = code; self.customerId = customerId; self.address = address
+            latitude = location?.latitude; longitude = location?.longitude
+        }
+
+        var location: Coordinate? {
+            guard let latitude, let longitude else { return nil }
+            return Coordinate(latitude: latitude, longitude: longitude)
+        }
+    }
     struct Customer: Codable, Sendable { let id: String; let code: String }
     struct Route: Codable, Sendable { let id: String; let code: String }
     struct Task: Codable, Sendable { let id: String; let kind: String; let required: Bool }

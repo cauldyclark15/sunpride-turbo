@@ -52,6 +52,9 @@ interface FieldStore {
     suspend fun tasks(): List<SnapshotItem> = emptyList()
     /** The active snapshot's route JSON (`{id, code}`), or null. */
     suspend fun route(): String? = null
+    /** Code of the promoted snapshot's route (server `route.code`), or null when the day has no route. */
+    suspend fun routeCode(): String? = route()
+        ?.let { runCatching { JSONObject(it).optString("code").takeIf { code -> code.isNotBlank() } }.getOrNull() }
     suspend fun isLeaseValid(now: Long): Boolean
     /** Immutable serialized v1 operation and UUID. A crash cannot persist just one of intent/outbox. */
     suspend fun enqueue(intent: IntentRow, now: Long)
@@ -93,6 +96,8 @@ interface FieldStore {
     suspend fun submitOrderDraft(draftId: String, intent: IntentRow, now: Long): Unit = error("Order drafts unavailable")
     /** Role from the active bootstrap's employee header: a UI hint only, the server authorizes. */
     suspend fun employeeRole(): String? = null
+    /** The signed-in employee's profile ID from the active snapshot (`employee.id`). */
+    suspend fun employeeId(): String? = null
     /**
      * AND-020 small server summaries saved for offline display, kept in this partition's deltas table
      * under a reserved `local.` entity (server deltas are only `visit`/`activity`), so no migration.
@@ -444,6 +449,8 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
     }
     override suspend fun employeeRole(): String? = metadata().takeIf { it.activeGeneration != null }?.employeeJson
         ?.let { runCatching { JSONObject(it).optString("role") }.getOrNull() }?.takeIf { it.isNotBlank() }
+    override suspend fun employeeId(): String? = metadata().takeIf { it.activeGeneration != null }?.employeeJson
+        ?.let { runCatching { JSONObject(it).optString("id") }.getOrNull() }?.takeIf { it.isNotBlank() }
     override suspend fun localCache(entity: String, key: String): DeltaRow? {
         require(entity.startsWith("local."))
         return dao.delta(a, d, s, entity, key)

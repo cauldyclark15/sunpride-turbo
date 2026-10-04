@@ -304,4 +304,35 @@ final class FieldIOSUITests: XCTestCase {
         XCTAssertTrue(online.buttons["visit-planned-stub-1"].label.contains("Done"))
         XCTAssertTrue(online.buttons["outboxStatus"].label.contains("Synced"))
     }
+
+    func testDailyRouteListsStopsInOrderWithDistanceCustomerAndDirections() {
+        let app = launchStub("registers")
+        signIn(app, password: "correct-horse")
+        let open = app.buttons["openRoute"]
+        XCTAssertTrue(open.waitForExistence(timeout: 20))
+        XCTAssertTrue(open.label.contains("2 stops"))
+        XCTAssertTrue(open.label.contains("Next: Stub Outlet"))
+        open.tap()
+        XCTAssertTrue(app.staticTexts["routeTitle"].waitForExistence(timeout: 5))
+        let first = app.buttons["routeStop-planned-stub-1"], second = app.buttons["routeStop-planned-stub-2"]
+        XCTAssertTrue(first.waitForExistence(timeout: 5))
+        XCTAssertLessThan(first.frame.minY, second.frame.minY, "MCP order")
+        XCTAssertTrue(first.label.contains("Next"))
+        XCTAssertTrue(second.label.contains("Not started"))
+        // Stub fix (0, 0) to the stub pin is ~500 m; once the fix lands the row shows it.
+        let deadline = Date().addingTimeInterval(15)
+        while !first.label.contains("500 m away") && Date() < deadline { _ = first.waitForExistence(timeout: 0.5); usleep(300_000) }
+        XCTAssertTrue(first.label.contains("500 m away"), first.label)
+        XCTAssertTrue(first.label.contains("C-STUB-1"))
+        XCTAssertTrue(app.buttons["routeDirections-planned-stub-1"].exists)
+        XCTAssertFalse(app.buttons["routeDirections-planned-stub-2"].exists, "no pin and no address")
+        first.tap()
+        XCTAssertTrue(app.staticTexts["routeCustomerTitle"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["1 Stub Street"].exists)
+        XCTAssertTrue(app.staticTexts["STUB-1"].exists)
+        XCTAssertTrue(app.buttons["routeCustomerDirections"].exists)
+        app.buttons["routeOpenVisit"].tap()
+        XCTAssertTrue(app.buttons["diagnosticCheckIn"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["diagnosticCheckIn"].isEnabled)
+    }
 }
