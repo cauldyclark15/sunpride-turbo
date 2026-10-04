@@ -92,7 +92,10 @@ data class TodayData(val visits: List<VisitDisplay> = emptyList(), val lastSynce
                      val stale: Boolean = true, val warning: String? = null, val updateRequired: Boolean = false,
                      val reviewCount: Int = 0, val queuedCount: Int = 0,
                      val unplannedOutlets: List<VisitDisplay> = emptyList(),
-                     val syncStatus: com.sunpride.field.ui.syncstatus.SyncStatus = com.sunpride.field.ui.syncstatus.SyncStatus())
+                     val syncStatus: com.sunpride.field.ui.syncstatus.SyncStatus = com.sunpride.field.ui.syncstatus.SyncStatus(),
+                     /** Scoped outlet directory from the same cached snapshot (customer search/detail). */
+                     val customers: List<com.sunpride.field.ui.customers.CustomerRecord> = emptyList(),
+                     val tasks: List<com.sunpride.field.ui.customers.CustomerTask> = emptyList())
 
 class LiveFieldBackend(
     environment: AppEnvironment,
@@ -285,6 +288,15 @@ class LiveFieldBackend(
                         else -> visit.status
                     }, timeSpent = VisitCallRules.timeSpent(call))
                 }
+                val directory = com.sunpride.field.ui.customers.CustomerDirectory.build(store.outlets(), customers,
+                    store.plannedVisits(), store.route(),
+                    outletRows.keys.mapNotNull { id -> store.callSheet(id)?.let { id to it.header } }.toMap(),
+                    history.map { it.first to it.second.state }, decorated)
+                val tasks = store.tasks().mapNotNull { row ->
+                    runCatching { JSONObject(row.json) }.getOrNull()?.let {
+                        com.sunpride.field.ui.customers.CustomerTask(it.optString("kind"), it.optBoolean("required"))
+                    }?.takeIf { it.kind.isNotBlank() }
+                }
                 val held = db.rows().heldCount(subject, deviceId)
                 val result = TodayData(decorated, store.status().lastSuccess,
                     failed || held > 0 || !store.isLeaseValid(System.currentTimeMillis()) || history.any { it.second.state != "done" } ||
@@ -294,7 +306,7 @@ class LiveFieldBackend(
                     terminal || warning == "Update required",
                     history.count { it.second.state == "review" } + held, history.count { it.second.state == "pending" },
                     outlets.map { (id, name) -> VisitDisplay(name, "Unplanned", "Reason required", id) },
-                    store.status())
+                    store.status(), directory, tasks)
                 if (scheduleRemainder && sync && result.syncStatus.queued + result.syncStatus.sending > 0 &&
                     result.syncStatus.held == 0 && result.syncStatus.health != "held_for_review")
                     com.sunpride.field.sync.work.SyncWork.enqueue(context)

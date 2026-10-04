@@ -83,6 +83,8 @@ fun FieldApp(
     val offline = com.sunpride.field.ui.syncstatus.rememberOffline()
     val controller = remember(backend) { FieldController(backend ?: UnconfiguredBackend, scope, onKeyLoaded = onKeyLoaded) }
     var page by rememberSaveable { mutableStateOf("home") }
+    var customerId by rememberSaveable { mutableStateOf<String?>(null) }
+    val customer = customerId?.let { id -> controller.today.customers.firstOrNull { it.outletId == id } }
     LaunchedEffect(controller) { controller.start(configured = environment.isReady) }
     LaunchedEffect(controller, controller.state) {
         while (controller.state == EnrollmentState.Unregistered) {
@@ -101,25 +103,29 @@ fun FieldApp(
                 Column {
                 Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 20.dp),
                     horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    if (controller.diagnostic != null && ready && (page == "home" || page == "route")) Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (controller.diagnostic != null && ready && (page == "home" || page == "route" || page == "customers" || page == "customer")) Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = {
                             if (controller.callSheetOpen) controller.closeCallSheet() else controller.closeDiagnostic()
                         }, modifier = Modifier.height(48.dp).testTag("visit-back")) {
                             Text("‹", style = MaterialTheme.typography.titleLarge)
                         }
                         Text(if (controller.callSheetOpen) "Call sheet" else "Visit", style = MaterialTheme.typography.titleMedium)
-                    } else if (page == "account" || page == "sync" || page == "support" || (page == "route" && ready)) Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { page = if (page == "support") "account" else "home" },
+                    } else if (page == "account" || page == "sync" || page == "support" ||
+                        (ready && (page == "route" || page == "customers" || page == "customer"))) Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { page = when (page) { "support" -> "account"; "customer" -> "customers"; else -> "home" } },
                             modifier = Modifier.height(48.dp).testTag(when (page) {
-                                "sync" -> "sync-back"; "support" -> "support-back"; "route" -> "route-back"; else -> "account-back"
+                                "sync" -> "sync-back"; "support" -> "support-back"; "route" -> "route-back"
+                                "customers" -> "customers-back"; "customer" -> "customer-back"; else -> "account-back"
                             })) {
                             Text("‹", style = MaterialTheme.typography.titleLarge)
                         }
                         Text(when (page) {
-                            "sync" -> "Sync"; "support" -> "Support info"; "route" -> "Route"; else -> "Account"
+                            "sync" -> "Sync"; "support" -> "Support info"; "route" -> "Route"
+                            "customers" -> "Customers"; "customer" -> "Outlet"; else -> "Account"
                         }, style = MaterialTheme.typography.titleMedium,
                             modifier = when (page) {
                                 "account" -> Modifier.testTag("account-title"); "route" -> Modifier.testTag("route-title")
+                                "customers" -> Modifier.testTag("customers-title"); "customer" -> Modifier.testTag("customer-title")
                                 else -> Modifier
                             })
                     } else Text("Sunpride Field", style = MaterialTheme.typography.titleMedium)
@@ -151,10 +157,18 @@ fun FieldApp(
                 ready && page == "route" -> com.sunpride.field.ui.route.RouteScreen(controller.today, location,
                     onNavigate = { uri -> openMaps(context, uri) }, modifier = modifier,
                     onVisit = controller::openDiagnostic, visitEnabled = debug, offline = offline)
+                ready && page == "customers" -> com.sunpride.field.ui.customers.CustomerSearchScreen(controller.today,
+                    onOpen = { id -> customerId = id; page = "customer" }, modifier = modifier, offline = offline, now = now)
+                ready && page == "customer" && customer != null -> com.sunpride.field.ui.customers.CustomerDetailScreen(
+                    customer, controller.today, onNavigate = { uri -> openMaps(context, uri) },
+                    onDial = { uri -> openDialer(context, uri) }, modifier = modifier,
+                    onVisit = controller::openDiagnostic, visitEnabled = debug, now = now)
+                ready && page == "customer" -> com.sunpride.field.ui.customers.CustomerSearchScreen(controller.today,
+                    onOpen = { id -> customerId = id; page = "customer" }, modifier = modifier, offline = offline, now = now)
                 ready -> TodayScreen(controller.today, controller.busy,
                     onSync = controller::syncNow, onSignOut = controller::signOut,
                     onVisit = controller::openDiagnostic, diagnosticEnabled = debug, modifier = modifier, offline = offline,
-                    onRoute = { page = "route" })
+                    onRoute = { page = "route" }, onCustomers = { page = "customers" })
                 else -> EnrollmentScreen(controller.state, controller.key, controller.busy, controller.error,
                     onCheck = { controller.checkAgain() }, onSignOut = { controller.signOut() }, modifier = modifier,
                     unsent = status.queued + status.sending + status.review + status.held)
@@ -162,6 +176,13 @@ fun FieldApp(
         }
     }
 }
+
+/** Hands a `tel:` URI to the dialer (the user presses call; no CALL_PHONE permission). */
+private fun openDialer(context: Context, uri: String): Boolean = try {
+    context.startActivity(android.content.Intent(android.content.Intent.ACTION_DIAL, uri.toUri())
+        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+    true
+} catch (_: android.content.ActivityNotFoundException) { false }
 
 /** Hands a `geo:` URI to the user's maps app; false when none is installed. */
 private fun openMaps(context: Context, uri: String): Boolean = try {
@@ -209,7 +230,7 @@ private fun SignInScreen(environment: AppEnvironment, busy: Boolean, error: Stri
 @Composable
 fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: () -> Unit,
     modifier: Modifier = Modifier, onVisit: (VisitDisplay) -> Unit = {}, diagnosticEnabled: Boolean = false,
-    offline: Boolean = false, onRoute: (() -> Unit)? = null) {
+    offline: Boolean = false, onRoute: (() -> Unit)? = null, onCustomers: (() -> Unit)? = null) {
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())
         .padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Today", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.testTag("today-title"))
@@ -222,6 +243,11 @@ fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: (
             ListRow(next?.let { "Next: ${it.visit.outlet}" } ?: "All stops done",
                 "${data.visits.size} stops · distance and directions", "route", Modifier.testTag("route-open"),
                 onClick = onRoute)
+        }
+        if (onCustomers != null) SectionCard("Customers") {
+            ListRow("Search customers", if (data.customers.isEmpty()) "Sync to download your outlets"
+                else "${data.customers.size} outlets saved on this phone", "search",
+                Modifier.testTag("customers-open"), onClick = onCustomers)
         }
         SectionCard("Visits · ${data.visits.size}") {
             if (data.visits.isEmpty()) Text("No visits today", Modifier.padding(16.dp).testTag("today-empty"))

@@ -39,10 +39,11 @@ class FieldAppTest {
         var signedIn = false
         var syncs = 0
         var visits: List<VisitDisplay> = emptyList()
+        var customers: List<com.sunpride.field.ui.customers.CustomerRecord> = emptyList()
         override val isSignedIn get() = signedIn
         override fun today(deviceId: String, signer: DeviceSigner, sync: Boolean): TodayData {
             if (sync) syncs++
-            return TodayData(visits, lastSynced = if (sync) 150L else null, stale = !sync)
+            return TodayData(visits, lastSynced = if (sync) 150L else null, stale = !sync, customers = customers)
         }
         override fun loadSigner(): DeviceSigner = KeystoreDeviceKey.loadOrCreate(rule.activity, alias)
         override fun signIn(email: String, password: String) { signInError?.let { throw it }; signedIn = true }
@@ -129,6 +130,27 @@ class FieldAppTest {
         rule.onNodeWithTag("route-title").assertTextContains("Route")
         rule.onNodeWithTag("route-summary").assertTextContains("0 of 2 done")
         rule.onNodeWithTag("route-back").performClick()
+        rule.onNodeWithTag("today-title").assertIsDisplayed()
+    }
+
+    @Test fun todayOpensCustomerSearchThenOutletDetailAndBackOffline() {
+        val backend = ScriptedBackend(EnrollmentState.Ready("dev1")).apply {
+            signedIn = true
+            customers = listOf(com.sunpride.field.ui.customers.CustomerRecord("o1", "First Store", "OUT-1"),
+                com.sunpride.field.ui.customers.CustomerRecord("o2", "Second Store", "OUT-2", address = "2 Mabini St"))
+        }
+        rule.setContent { FieldApp(configured, dark = false, debug = false, backend = backend) }
+        rule.waitUntil(10_000) { rule.onAllNodesWithTagExists("customers-open") }
+        rule.onNodeWithTag("customers-open").performClick()
+        rule.onNodeWithTag("customers-title").assertTextContains("Customers")
+        rule.onNodeWithTag("customer-search").performTextInput("mabini")
+        rule.onNodeWithTag("customer-result").assertTextContains("Second Store", substring = true).performClick()
+        rule.onNodeWithTag("customer-title").assertTextContains("Outlet")
+        rule.onNodeWithTag("customer-header").assertTextContains("Second Store", substring = true)
+        rule.onNodeWithTag("customer-visit").assertDoesNotExist() // visit recording is debug-only
+        rule.onNodeWithTag("customer-back").performClick()
+        rule.onNodeWithTag("customers-title").assertIsDisplayed()
+        rule.onNodeWithTag("customers-back").performClick()
         rule.onNodeWithTag("today-title").assertIsDisplayed()
     }
 

@@ -56,6 +56,29 @@ class EncryptedFieldStoreTest {
         Unit
     }
 
+    @Test fun customerDirectoryReadsOnlyThePromotedScopedGeneration() = runBlocking {
+        val target = store()
+        assertNull(target.route()); assertTrue(target.plannedVisits().isEmpty())
+        val days = listOf(SnapshotItem("visit-1", "{\"outletId\":\"outlet-1\"}", "2026-09-26"),
+            SnapshotItem("visit-2", "{\"outletId\":\"outlet-1\"}", "2026-09-27"))
+        val initial = ScopedSnapshot("{\"id\":\"employee\"}", "{\"id\":\"route-1\",\"code\":\"R1\"}", days,
+            listOf(SnapshotItem("outlet-1", "outlet")), listOf(SnapshotItem("customer-1", "{\"code\":\"C\"}")),
+            listOf(SnapshotItem("task-1", "{\"kind\":\"survey\",\"required\":true}")))
+        val generation = target.stage(initial)
+        // Staged rows stay invisible until promotion.
+        assertTrue(target.plannedVisits().isEmpty()); assertTrue(target.tasks().isEmpty()); assertNull(target.route())
+        target.swap(generation, "cursor", 2000, 2000)
+        assertEquals(listOf("visit-1", "visit-2"), target.plannedVisits().map { it.id })
+        assertEquals(listOf("2026-09-27"), target.todaysVisits("2026-09-27").map { it.serviceDate })
+        assertEquals(listOf("task-1"), target.tasks().map { it.id })
+        assertEquals("{\"id\":\"route-1\",\"code\":\"R1\"}", target.route())
+        for (other in listOf(scope.copy(account = "other"), scope.copy(deviceId = "other"), scope.copy(fingerprint = "other"))) {
+            assertTrue(store(other).plannedVisits().isEmpty()); assertTrue(store(other).tasks().isEmpty())
+            assertNull(store(other).route())
+        }
+        Unit
+    }
+
     @Test fun callSheetEnqueueValidatesSetupProductsAndRetainsImmutableTemplate() = runBlocking {
         val factory = com.sunpride.field.ui.diagnosticvisit.VisitIntentFactory
         val payload = com.sunpride.field.ui.diagnosticvisit.CallSheetPayload

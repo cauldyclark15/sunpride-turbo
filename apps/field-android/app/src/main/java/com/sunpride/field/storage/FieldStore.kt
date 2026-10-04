@@ -31,6 +31,11 @@ interface FieldStore {
     suspend fun outlets(): List<SnapshotItem>
     suspend fun callSheet(outletId: String): CallSheet? = null
     suspend fun customers(): List<SnapshotItem> = emptyList()
+    /** Every planned visit in the downloaded horizon, not just one day (customer detail). */
+    suspend fun plannedVisits(): List<SnapshotItem> = emptyList()
+    suspend fun tasks(): List<SnapshotItem> = emptyList()
+    /** The active snapshot's route JSON (`{id, code}`), or null. */
+    suspend fun route(): String? = null
     suspend fun isLeaseValid(now: Long): Boolean
     /** Immutable serialized v1 operation and UUID. A crash cannot persist just one of intent/outbox. */
     suspend fun enqueue(intent: IntentRow, now: Long)
@@ -172,6 +177,9 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             })
     }
     override suspend fun customers(): List<SnapshotItem> = read("customer")
+    override suspend fun plannedVisits(): List<SnapshotItem> = read("visit")
+    override suspend fun tasks(): List<SnapshotItem> = read("task")
+    override suspend fun route(): String? = metadata().takeIf { it.activeGeneration != null }?.routeJson
     override suspend fun isLeaseValid(now: Long): Boolean = metadata().let {
         !it.held && it.leaseExpiresAt != null && now < it.leaseExpiresAt && it.activeGeneration != null
     }
