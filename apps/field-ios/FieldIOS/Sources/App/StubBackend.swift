@@ -142,7 +142,9 @@ final class StubBackend: URLProtocol {
                         "distributorName": NSNull(), "distributorSchedule": NSNull(), "foc": NSNull(), "pricing": NSNull()],
                     "lines": [["productId": "product-stub-1", "code": "SUNP-001", "name": "Sunpride Hotdog 1kg",
                                "uom": "PC", "barcode": NSNull(), "pricing": "₱189.00"]]]],
-                "page": 1, "nextPageCursor": NSNull(), "syncCursor": "stub-cursor"
+                "page": 1, "nextPageCursor": NSNull(), "syncCursor": "stub-cursor",
+                "dayTarget": ["dailyCalls": 30, "productivePct": 85, "sourceRef": "stub-memo"],
+                "daySales": ["amountMinor": 175_050, "orders": 2, "targetMinor": 500_000]
             ]))
         case "/mobile/v1/push", "/mobile/v1/pull":
             let h = Dictionary(uniqueKeysWithValues: headers.map { ($0.key.lowercased(), $0.value) })

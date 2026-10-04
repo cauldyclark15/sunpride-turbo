@@ -64,6 +64,28 @@ struct StoreSnapshot: Sendable {
     struct Customer: Codable, Sendable { let id: String; let code: String }
     struct Route: Codable, Sendable { let id: String; let code: String }
     struct Task: Codable, Sendable { let id: String; let kind: String; let required: Bool }
+    /// Daily position standard (client memo; call answer 1: targets are per day, per route).
+    struct DayTarget: Codable, Sendable, Equatable {
+        var dailyCalls: Int? = nil
+        var productivePct: Double? = nil
+        var sourceRef: String? = nil
+        /// Governed productive-call rule (server sfa/productive_call.ts); absent = any listed activity.
+        var productiveCallRule: String? = nil
+        var isValid: Bool {
+            (dailyCalls.map { $0 >= 0 } ?? true) && (productivePct.map { $0.isFinite && (0...100).contains($0) } ?? true)
+                && (sourceRef.map { !$0.isEmpty } ?? true) && (productiveCallRule.map { !$0.isEmpty } ?? true)
+        }
+    }
+    /// Today's sales as the server counted them (Daily Sales Report rules), PHP centavos, as of
+    /// the bootstrap's server time. Order capture is not on the phone, so this is the day's total.
+    struct DaySales: Codable, Sendable, Equatable {
+        let amountMinor: Int64
+        let orders: Int
+        var targetMinor: Int64? = nil
+        /// Server time of the download (epoch ms); set by the phone, never read from the wire.
+        var asOf: Int64? = nil
+        var isValid: Bool { orders >= 0 && (targetMinor.map { $0 >= 0 } ?? true) }
+    }
     let employee: Employee
     let visits: [Visit]
     let outlets: [Outlet]
@@ -71,11 +93,15 @@ struct StoreSnapshot: Sendable {
     let route: Route?
     let tasks: [Task]
     let callSheets: [CallSheet]
+    var dayTarget: DayTarget? = nil
+    var daySales: DaySales? = nil
 
     init(employee: Employee, visits: [Visit], outlets: [Outlet], customers: [Customer],
-         route: Route?, tasks: [Task], callSheets: [CallSheet] = []) {
+         route: Route?, tasks: [Task], callSheets: [CallSheet] = [], dayTarget: DayTarget? = nil,
+         daySales: DaySales? = nil) {
         self.employee = employee; self.visits = visits; self.outlets = outlets
         self.customers = customers; self.route = route; self.tasks = tasks; self.callSheets = callSheets
+        self.dayTarget = dayTarget; self.daySales = daySales
     }
 }
 
@@ -415,6 +441,8 @@ final class EncryptedFieldStore: FieldLocalStore {
         for v in snapshot.customers { rows.append(("customer", v.id, nil, try encode(v))) }
         if let route = snapshot.route { rows.append(("route", route.id, nil, try encode(route))) }
         for v in snapshot.tasks { rows.append(("task", v.id, nil, try encode(v))) }
+        if let target = snapshot.dayTarget { rows.append(("dayTarget", "today", nil, try encode(target))) }
+        if let sales = snapshot.daySales { rows.append(("daySales", "today", nil, try encode(sales))) }
         guard rows.allSatisfy({ !$0.1.isEmpty }), snapshot.callSheets.allSatisfy(\.isValid),
               snapshot.callSheets.allSatisfy({ sheet in snapshot.outlets.contains { $0.id == sheet.outletId } }) else { throw StoreError.invalidInput }
         let sheets = try snapshot.callSheets.map { ($0.outletId, try encode($0)) }
@@ -464,7 +492,9 @@ final class EncryptedFieldStore: FieldLocalStore {
             customers: entities(StoreSnapshot.Customer.self, kind: "customer", partition: partition),
             route: entities(StoreSnapshot.Route.self, kind: "route", partition: partition).first,
             tasks: entities(StoreSnapshot.Task.self, kind: "task", partition: partition),
-            callSheets: callSheets(for: partition))
+            callSheets: callSheets(for: partition),
+            dayTarget: entities(StoreSnapshot.DayTarget.self, kind: "dayTarget", partition: partition).first,
+            daySales: entities(StoreSnapshot.DaySales.self, kind: "daySales", partition: partition).first)
     }
     func leaseExpiry(for partition: StorePartition) throws -> Int64? {
         try query("SELECT lease_expiry FROM partitions WHERE \(Self.predicate)", p(partition)) {

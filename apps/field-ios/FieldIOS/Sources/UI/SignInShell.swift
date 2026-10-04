@@ -51,10 +51,6 @@ struct SignInShell: View {
                                     .foregroundStyle(SunprideTokens.dangerText)
                                     .accessibilityIdentifier("enrollmentMessage")
                             }
-                        } else if model.signedIn && model.enrollment.state.isReady {
-                            Text(Date.now.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
-                                .font(SunprideTokens.TypeStyle.meta)
-                                .foregroundStyle(SunprideTokens.secondaryText)
                         }
                     }
                     if !model.signedIn {

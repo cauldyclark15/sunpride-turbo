@@ -47,5 +47,16 @@
   "productCatalog": [],
   "page": 1,
   "nextPageCursor": null,
-  "syncCursor": "opaque-start"
+  "syncCursor": "opaque-start",
+  "dayTarget": {
+    "dailyCalls": 30,
+    "productivePct": 85,
+    "sourceRef": "memo-2026-01-20",
+    "productiveCallRule": "any_listed_activity"
+  },
+  "daySales": {
+    "amountMinor": 175050,
+    "orders": 2,
+    "targetMinor": 500000
+  }
 }
