@@ -259,6 +259,10 @@ vi.mock("@sunpride/ui", () => ({
     createElement("span", null, children),
 }));
 vi.mock("./admin-workspace", () => ({ AdminWorkspace: () => null }));
+vi.mock("./analytics/customer-execution", () => ({
+  CustomerExecution: () =>
+    createElement("p", null, "Mounted customer execution"),
+}));
 vi.mock("./analytics/execution-dashboard", () => ({
   ExecutionDashboard: () =>
     createElement("p", null, "Mounted execution dashboard"),
@@ -344,14 +348,17 @@ describe("calm generic modules", () => {
   it("mounts the daily execution dashboard on Reports for supervision readers only", () => {
     state.pathname = "/analytics";
     expect(render("analytics")).toContain("Mounted execution dashboard");
+    expect(render("analytics")).toContain("Mounted customer execution");
     state.pathname = "/dashboard";
     expect(render("dashboard")).not.toContain("Mounted execution dashboard");
+    expect(render("dashboard")).not.toContain("Mounted customer execution");
     for (const role of ["operations", "approver", "sales"]) {
       state.profile = { ...state.profile, role };
       state.pathname = "/analytics";
       const html = render("analytics");
       expect(html).toContain("<h1>Reports</h1>");
       expect(html).not.toContain("Mounted execution dashboard");
+      expect(html).not.toContain("Mounted customer execution");
     }
   });
 

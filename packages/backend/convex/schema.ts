@@ -2308,6 +2308,8 @@ export default defineSchema({
       "serviceDate",
     ])
     .index("by_plannedVisitId", ["plannedVisitId"])
+    // ANA-005 customer execution dashboard: one store's visits over a period.
+    .index("by_outletId_and_serviceDate", ["outletId", "serviceDate"])
     .index("by_organizationId_and_clientVisitId", [
       "organizationId",
       "clientVisitId",
