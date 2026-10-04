@@ -8,7 +8,8 @@
 <key>CFBundleShortVersionString</key><string>1.0</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>UILaunchScreen</key><dict/>
-<key>NSLocationWhenInUseUsageDescription</key><string>Record a location fix for a diagnostic visit check-in. Location is sent to the server only when you sync.</string>
+<key>NSLocationWhenInUseUsageDescription</key><string>Record where you are when you start and end a store visit, so your supervisor can confirm the visit. Location is sent to the server only when you sync.</string>
+<key>NSLocationTemporaryUsageDescriptionDictionary</key><dict><key>VisitCheckIn</key><string>Precise location shows your supervisor you were at the store when you started or ended the visit.</string></dict>
 <key>BGTaskSchedulerPermittedIdentifiers</key><array><string>com.sunpride.field.dev.sync-refresh</string></array>
 <key>UIBackgroundModes</key><array><string>fetch</string></array>
 <key>CONVEX_SITE_URL</key><string>$(CONVEX_SITE_URL)</string>

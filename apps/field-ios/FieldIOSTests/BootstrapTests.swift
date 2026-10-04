@@ -41,6 +41,24 @@ final class BootstrapTests: XCTestCase {
         try? FileManager.default.removeItem(at: directory)
         try await super.tearDown()
     }
+    func testOutletVerifiedPinDecodesAndHalfPinIsRejected() throws {
+        let page = try JSONDecoder().decode(BootstrapV1.Page.self, from: fixture("bootstrap-response"))
+        XCTAssertEqual(page.outlets.first?.pin, OutletPin(latitude: 14.5764, longitude: 121.0851))
+        let roundTrip = try JSONDecoder().decode(BootstrapV1.Page.self, from: JSONEncoder().encode(page))
+        XCTAssertEqual(roundTrip.outlets.first?.pin, page.outlets.first?.pin)
+        let unpinned = try altered("bootstrap-response") { object in
+            var outlets = object["outlets"] as! [[String: Any]]
+            outlets[0].removeValue(forKey: "latitude"); outlets[0].removeValue(forKey: "longitude")
+            object["outlets"] = outlets
+        }
+        XCTAssertNil(try JSONDecoder().decode(BootstrapV1.Page.self, from: unpinned).outlets.first?.pin)
+        let half = try altered("bootstrap-response") { object in
+            var outlets = object["outlets"] as! [[String: Any]]
+            outlets[0].removeValue(forKey: "longitude")
+            object["outlets"] = outlets
+        }
+        XCTAssertThrowsError(try JSONDecoder().decode(BootstrapV1.Page.self, from: half))
+    }
     private func client() -> BootstrapClient {
         BootstrapClient(site: StubHTTP.site, auth: auth,
             registry: ConvexDeviceRegistry(functions: ConvexFunctions(url: StubHTTP.cloud, auth: auth, http: http)),

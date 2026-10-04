@@ -287,6 +287,10 @@ final class FieldIOSUITests: XCTestCase {
         offline.buttons["diagnosticCheckIn"].tap()
         XCTAssertTrue(offline.buttons["diagnosticCheckOut"].waitForExistence(timeout: 10))
         XCTAssertEqual(offline.buttons["diagnosticCheckOut"].label, "End call")
+        // GPS check-in: accuracy and distance from the verified pin; a good fix is not flagged.
+        let notice = offline.staticTexts["diagnosticMessage"].label
+        XCTAssertTrue(notice.contains("Location recorded · ±5 m · 33 m from store"), notice)
+        XCTAssertFalse(notice.contains("supervisor will review"), notice)
         XCTAssertFalse(offline.buttons["diagnosticCheckOut"].isEnabled)
         offline.buttons["diagnosticOutcome"].tap()
         offline.buttons["Completed"].tap()

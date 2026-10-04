@@ -35,7 +35,14 @@ struct StoreSnapshot: Sendable {
             }.map(\.element)
         }
     }
-    struct Outlet: Codable, Sendable { let id: String; let name: String; let routeId: String? }
+    struct Outlet: Codable, Sendable {
+        let id: String; let name: String; let routeId: String?
+        /// Additive v1 fields: the current verified pin, sent together or not at all. Older servers omit them.
+        var latitude: Double? = nil
+        var longitude: Double? = nil
+        var pin: OutletPin? { OutletPin(latitude: latitude, longitude: longitude) }
+        var hasValidPinFields: Bool { (latitude == nil && longitude == nil) || pin != nil }
+    }
     struct Customer: Codable, Sendable { let id: String; let code: String }
     struct Route: Codable, Sendable { let id: String; let code: String }
     struct Task: Codable, Sendable { let id: String; let kind: String; let required: Bool }

@@ -129,7 +129,9 @@ final class StubBackend: URLProtocol {
                                    "planId": "plan-stub-1", "planVersion": 1, "intents": ["audit"], "sequence": 0],
                                   ["id": "planned-stub-2", "outletId": "outlet-stub-2", "serviceDate": today,
                                    "planId": "plan-stub-1", "planVersion": 1, "intents": ["audit"], "sequence": 1]],
-                "outlets": [["id": "outlet-stub-1", "name": "Stub Outlet", "routeId": NSNull()],
+                // Verified pin ~33 m north of the stub fix (0, 0); no real coordinates in test artifacts.
+                "outlets": [["id": "outlet-stub-1", "name": "Stub Outlet", "routeId": NSNull(),
+                             "latitude": 0.0003, "longitude": 0],
                             ["id": "outlet-stub-2", "name": "Next Stub Outlet", "routeId": NSNull()],
                             ["id": "outlet-stub-extra", "name": "Extra Stub Outlet", "routeId": NSNull()]],
                 "localCustomers": [], "route": NSNull(), "tasks": [], "productCatalog": [],
