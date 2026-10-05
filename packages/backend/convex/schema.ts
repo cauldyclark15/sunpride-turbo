@@ -71,6 +71,7 @@ import {
   costingMethodValidator,
   locationTypeValidator,
   movementTypeValidator,
+  negativeStockMovementTypeValidator,
   productionStatusValidator,
   receiptStatusValidator,
   reservationStatusValidator,
@@ -1044,6 +1045,53 @@ export default defineSchema({
       "organizationId",
       "resolutionStatus",
       "asOf",
+    ]),
+  // SP-0085 / ADR-007: the explicit, location-scoped exception that lets
+  // distributor operations sell or issue below zero. Absent or inactive means
+  // the default non-negative rule applies.
+  negativeStockAllowances: defineTable({
+    organizationId: v.string(),
+    locationId: v.id("inventoryLocations"),
+    operation: v.literal("distributor"),
+    movementTypes: v.array(negativeStockMovementTypeValidator),
+    limitBase: v.optional(v.int64()),
+    active: v.boolean(),
+    sourceRef: v.string(),
+    version: v.number(),
+    updatedBy: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_organizationId_and_locationId", [
+    "organizationId",
+    "locationId",
+  ]),
+  // Every posting that leaves (or deepens) a negative balance is flagged here
+  // for reconciliation; a flag closes only once the balance is back at zero or above.
+  negativeStockFlags: defineTable({
+    organizationId: v.string(),
+    allowanceId: v.id("negativeStockAllowances"),
+    movementId: v.id("inventoryMovements"),
+    movementType: negativeStockMovementTypeValidator,
+    productId: v.id("products"),
+    locationId: v.id("inventoryLocations"),
+    quantityBase: v.int64(),
+    balanceAfterBase: v.int64(),
+    shortfallBase: v.int64(),
+    status: v.union(v.literal("open"), v.literal("resolved")),
+    postedBy: v.string(),
+    createdAt: v.number(),
+    resolvedBy: v.optional(v.string()),
+    resolvedAt: v.optional(v.number()),
+    resolutionNote: v.optional(v.string()),
+  })
+    .index("by_organizationId_and_status_and_createdAt", [
+      "organizationId",
+      "status",
+      "createdAt",
+    ])
+    .index("by_organizationId_and_movementId", [
+      "organizationId",
+      "movementId",
     ]),
   inventoryReconciliationRuns: defineTable({
     organizationId: v.string(),
@@ -2024,6 +2072,34 @@ export default defineSchema({
     ])
     .index("by_orgUnitId_and_serviceDate", ["orgUnitId", "serviceDate"]),
   /**
+   * SOP-004 per-diem validation decisions: a supervisor validates or returns one person's
+   * claim period against the approved MCP. Append-only; the latest row per period wins.
+   * Counts and dates are frozen as decided; no amount (the rate lives outside the system).
+   */
+  perDiemValidations: defineTable({
+    organizationId: v.string(),
+    profileId: v.id("profiles"),
+    orgUnitId: v.id("orgUnits"),
+    localMonth: v.string(), // YYYY-MM
+    periodFrom: v.string(), // YYYY-MM-DD, Manila
+    periodTo: v.string(),
+    decision: v.union(v.literal("validated"), v.literal("returned")),
+    note: v.optional(v.string()),
+    contentHash: v.string(),
+    ruleVersion: v.string(),
+    plannedStops: v.number(),
+    validCalls: v.number(),
+    invalidCalls: v.number(),
+    notVisited: v.number(),
+    validDays: v.number(),
+    validDates: v.array(v.string()), // at most 31
+    decidedBy: v.string(),
+    deciderProfileId: v.id("profiles"),
+    decidedAt: v.number(),
+  })
+    .index("by_profileId_and_localMonth", ["profileId", "localMonth"])
+    .index("by_orgUnitId_and_localMonth", ["orgUnitId", "localMonth"]),
+  /**
    * SOP-011 Talk Sheet (memo Annex E): one meeting between an SFI sales representative
    * (`ownerProfileId`, "Discussed by") and an Area Distribution Partner. Sheets of the same
    * `orgUnitId` + `partnerKey` form a chain; a new sheet copies the previous final sheet's
@@ -2336,6 +2412,12 @@ export default defineSchema({
   })
     .index("by_deviceId_and_nonce", ["deviceId", "nonce"])
     .index("by_expiresAt", ["expiresAt"]),
+  // QSR-009 token buckets (`mobile/rate_limits.ts`): `challenge:<deviceId>` / `failure:<subject>`.
+  mobileRateLimits: defineTable({
+    key: v.string(),
+    tokens: v.number(),
+    updatedAt: v.number(),
+  }).index("by_key", ["key"]),
   visitExecutions: defineTable({
     organizationId: v.string(),
     clientVisitId: v.string(),

@@ -53,6 +53,10 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 100
+        },
+        "referenceData": {
+          "type": "boolean",
+          "description": "Opt in to products and stock in bootstrap pages and product/inventory pull changes (SP-0051). First page only; continuation pages follow the cursor. Additive optional field."
         }
       },
       "required": ["type", "contractVersion", "deviceId"],
@@ -336,6 +340,114 @@
               },
               "uom": {
                 "type": "string"
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Additive optional (referenceData): server millisecond revision; apply a later change only when its revision is >= the stored one."
+              },
+              "quantityScale": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "baseUom": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "code": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "decimalPlaces": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "required": ["code", "name", "decimalPlaces"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "sellingUoms": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "decimalPlaces": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "toBase": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "numerator": {
+                              "type": "integer",
+                              "minimum": 1
+                            },
+                            "denominator": {
+                              "type": "integer",
+                              "minimum": 1
+                            },
+                            "roundingMode": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "numerator",
+                            "denominator",
+                            "roundingMode"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["code", "name", "decimalPlaces", "toBase"],
+                  "additionalProperties": false
+                }
+              },
+              "barcodes": {
+                "type": "array",
+                "maxItems": 20,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "barcode": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
+                    "uom": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["barcode", "uom"],
+                  "additionalProperties": false
+                }
               }
             },
             "required": ["id", "code", "name", "uom"],
@@ -533,6 +645,63 @@
               }
             },
             "required": ["outletId", "revision", "header", "lines"],
+            "additionalProperties": false
+          }
+        },
+        "inventoryAvailability": {
+          "type": "array",
+          "description": "Stock at the device unit's sale locations for catalog products (referenceData only). Quantities are integers in base units x product quantityScale. Additive optional field.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "productId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "locationId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "locationCode": {
+                "type": "string"
+              },
+              "locationName": {
+                "type": "string"
+              },
+              "availableBase": {
+                "type": "integer"
+              },
+              "physicalBase": {
+                "type": "integer"
+              },
+              "reservedBase": {
+                "type": "integer"
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "asOf": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "id",
+              "productId",
+              "locationId",
+              "locationCode",
+              "locationName",
+              "availableBase",
+              "physicalBase",
+              "reservedBase",
+              "revision",
+              "asOf"
+            ],
             "additionalProperties": false
           }
         },

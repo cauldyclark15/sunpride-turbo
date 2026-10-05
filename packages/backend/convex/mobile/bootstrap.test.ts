@@ -15,23 +15,33 @@ import type { AuthorizedDevice } from "./types";
 
 const SECRET = "test-only-mobile-cursor-secret-32-bytes-long";
 process.env.MOBILE_CURSOR_SECRET = SECRET;
-export async function fixture() {
-  const t: TestConvex<typeof schema> = convexTest(schema, modules);
+export async function fixture(
+  t: TestConvex<typeof schema> = convexTest(schema, modules),
+) {
   const now = Date.now();
   const day = manilaDate(now);
   const subject = "https://auth.fixture|sales";
   const ids = await t.run(async (ctx) => {
-    // A valid tree (one national root) so scope subtrees resolve.
-    const national = await ctx.db.insert("orgUnits", {
-      organizationId: "sunpride",
-      code: "SUNPRIDE",
-      name: "National",
-      typeCode: "NATIONAL",
-      status: "active",
-      effectiveFrom: now - 100000,
-      createdAt: now - 100000,
-      updatedAt: now,
-    });
+    // A valid tree (one national root) so scope subtrees resolve. A caller-supplied
+    // instance may already hold the seeded root (e.g. after provisionAdmin); reuse it.
+    const seededRoot = await ctx.db
+      .query("orgUnits")
+      .withIndex("by_organizationId_and_code", (q) =>
+        q.eq("organizationId", "sunpride").eq("code", "SUNPRIDE"),
+      )
+      .unique();
+    const national =
+      seededRoot?._id ??
+      (await ctx.db.insert("orgUnits", {
+        organizationId: "sunpride",
+        code: "SUNPRIDE",
+        name: "National",
+        typeCode: "NATIONAL",
+        status: "active",
+        effectiveFrom: now - 100000,
+        createdAt: now - 100000,
+        updatedAt: now,
+      }));
     const unit = await ctx.db.insert("orgUnits", {
       organizationId: "sunpride",
       parentId: national,

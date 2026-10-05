@@ -30,6 +30,7 @@ final class StubBackend: URLProtocol {
                 .appending(path: "FieldStoreStub", directoryHint: .isDirectory)
             try? FileManager.default.removeItem(at: directory)
             try? store.delete("storage.sqlcipher.v1")
+            try? store.delete(SealedPhotoFiles.keyAccount)
             try? store.delete(StoreAccount.session)
             try? store.delete(StoreAccount.deviceId)
             try? store.delete(StoreAccount.credentialId)
@@ -161,6 +162,8 @@ final class StubBackend: URLProtocol {
                 "page": 1, "nextPageCursor": NSNull(), "syncCursor": "stub-cursor",
                 "dayTarget": ["dailyCalls": 30, "productivePct": 85, "sourceRef": "stub-memo"],
                 "daySales": ["amountMinor": 175_050, "orders": 2, "targetMinor": 500_000],
+                "photoTypes": [["code": "storefront", "label": "Store front"], ["code": "shelf_display", "label": "Shelf and display"],
+                               ["code": "other", "label": "Other"]],
                 // IOS-013: planned "audit" stays optional-only so plan-flow tests can end completed;
                 // an unplanned Merchandise purpose requires the merchandising form.
                 "activityRules": [
@@ -171,6 +174,10 @@ final class StubBackend: URLProtocol {
                     ["intent": "complaint", "version": "stub-rules-1", "activities": [["kind": "note", "required": true]]]
                 ]
             ]))
+        case "/api/storage/upload":
+            // IOS-016: the signed storage URL; the stub only checks that JPEG bytes arrived.
+            guard EvidencePhotos.isJpeg(body), headers["Content-Type"] == EvidencePhotos.mime else { return (400, [:], Data()) }
+            return (200, [:], json(["storageId": "stub-storage-\(UUID().uuidString.lowercased())"]))
         case "/mobile/v1/push", "/mobile/v1/pull":
             let h = Dictionary(uniqueKeysWithValues: headers.map { ($0.key.lowercased(), $0.value) })
             let nonce = h["x-mobile-nonce"] ?? "", timestamp = h["x-mobile-timestamp"] ?? ""
@@ -222,6 +229,15 @@ final class StubBackend: URLProtocol {
                 let nonce = UUID().uuidString.lowercased()
                 s.nonce = nonce
                 return ["status": "success", "value": ["nonce": nonce, "expiresAt": Date().timeIntervalSince1970 * 1000 + 60_000]]
+            case "visits/evidence:generateUploadUrl":
+                return ["status": "success", "value": [
+                    "url": "https://stub-storage.invalid/api/storage/upload", "uploadTokenRef": "stub-claim-1"]]
+            case "visits/evidence:attach":
+                guard args["visitId"] as? String == "stub-visit-1", args["source"] as? String == "mobile",
+                      EvidencePhotos.offered([]).contains(where: { $0.code == args["photoType"] as? String }) else {
+                    return ["status": "error", "errorMessage": "Uncaught ConvexError: invalid_request", "errorData": "invalid_request"]
+                }
+                return ["status": "success", "value": ["evidenceId": "stub-evidence-1"]]
             case "mobile/devices:bind":
                 guard let key = s.key, let nonce = s.nonce, args["nonce"] as? String == nonce,
                       let credential = args["credentialId"] as? String, let proof = args["proof"] as? String,

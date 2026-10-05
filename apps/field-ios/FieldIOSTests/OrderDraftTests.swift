@@ -257,16 +257,31 @@ final class OrderDraftTests: XCTestCase {
         XCTAssertNil(draft.territoryCode)
     }
 
-    func testV3ToV4MigrationKeepsOutboxAndAddsDrafts() throws {
+    func testV3ToV6MigrationKeepsOutboxAndAddsDraftsAndPhotos() throws {
         try start()
         let queued = try XCTUnwrap(store.intents(for: partition).first)
         try store.prepareLegacyV3()
         XCTAssertEqual(store.schemaVersion, 3)
         store.close()
         store = try EncryptedFieldStore(url: directory.appending(path: "field.sqlite"), secrets: secrets, keyAccount: "db")
-        XCTAssertEqual(store.schemaVersion, 4)
+        XCTAssertEqual(store.schemaVersion, 6)
         XCTAssertEqual(try store.pendingOutbox(for: partition).map(\.intent), [queued])
         XCTAssertEqual(try store.snapshot(for: partition)?.callSheets.count, 1)
         XCTAssertTrue(try store.orderDrafts(for: partition).isEmpty)
+        XCTAssertTrue(try store.pendingPhotos(for: partition).isEmpty)
+    }
+
+    func testV4ToV6MigrationKeepsOrderDraftsAndOutbox() throws {
+        try start()
+        let draft = try model.saveOrderDraft(draftId: nil, quantities: [("p-corned", 1)], for: try visit())
+        let queued = try XCTUnwrap(store.intents(for: partition).first)
+        try store.prepareLegacyV4()
+        XCTAssertEqual(store.schemaVersion, 4)
+        store.close()
+        store = try EncryptedFieldStore(url: directory.appending(path: "field.sqlite"), secrets: secrets, keyAccount: "db")
+        XCTAssertEqual(store.schemaVersion, 6)
+        XCTAssertEqual(try store.orderDrafts(for: partition), [draft])
+        XCTAssertEqual(try store.pendingOutbox(for: partition).map(\.intent), [queued])
+        XCTAssertEqual(try store.snapshot(for: partition)?.callSheets.count, 1)
     }
 }

@@ -16,6 +16,7 @@ import {
 } from "@sunpride/ui";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { useMemo, useState } from "react";
+import { NegativeStockPanel } from "./negative-stock-panel";
 
 const tabs = [
   ["stock", "Stock control"],
@@ -948,6 +949,9 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
               ) : null}
             </div>
           </OperationPanel>
+          <div className="xl:col-span-3">
+            <NegativeStockPanel locations={locations} />
+          </div>
         </div>
       ) : null}
 

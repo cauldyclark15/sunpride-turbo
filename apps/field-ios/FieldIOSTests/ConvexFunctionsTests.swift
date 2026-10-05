@@ -44,6 +44,22 @@ final class ConvexFunctionsTests: XCTestCase {
         XCTAssertEqual(envelope["args"] as? [String: String], ["publicKey": "PUB+/=", "app": "IOS"])
     }
 
+    func testRateLimitedFunctionErrorIsTheBackOffSignal() throws {
+        for body: [String: Any] in [
+            ["status": "error", "errorMessage": "Uncaught ConvexError: rate_limited", "errorData": "rate_limited"],
+            ["status": "error", "errorMessage": "[Request ID: x] Server Error\nUncaught ConvexError: rate_limited\n  at handler"],
+        ] {
+            let data = try JSONSerialization.data(withJSONObject: body)
+            XCTAssertThrowsError(try ConvexFunctions.decode(data, statusCode: 560) as String?) {
+                XCTAssertEqual($0 as? MobileError, .rateLimited)
+            }
+        }
+        let other = try JSONSerialization.data(withJSONObject: ["status": "error", "errorData": "Device unavailable"])
+        XCTAssertThrowsError(try ConvexFunctions.decode(other, statusCode: 560) as String?) {
+            XCTAssertEqual($0 as? MobileError, .rejected("Device unavailable"))
+        }
+    }
+
     func testNullValueDecodesToNil() async throws {
         let exp = clock.now.timeIntervalSince1970 + 900
         StubURLProtocol.install { request -> StubURLProtocol.Outcome in

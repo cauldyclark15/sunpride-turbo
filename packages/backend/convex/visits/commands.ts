@@ -50,7 +50,7 @@ export const CLOSED_CALL_STATES = new Set([
   "missed",
 ]);
 const MAX_DAY_CALLS = 200;
-const MAX_VISIT_ACTIVITIES = 500;
+export const MAX_VISIT_ACTIVITIES = 500;
 
 /**
  * MCP order (client call 2 Oct 2026): a salesperson cannot start another store while a
