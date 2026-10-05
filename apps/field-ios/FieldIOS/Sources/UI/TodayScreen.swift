@@ -45,6 +45,15 @@ struct TodayScreen: View {
                     }
                 }
             }
+            SectionCard(title: "Customers") {
+                NavigationLink { CustomerSearchScreen(model: model) } label: {
+                    CalmListRow(symbol: "magnifyingglass", title: "Find a customer",
+                                meta: "\(model.customers.count) \(model.customers.count == 1 ? "outlet" : "outlets") on this phone",
+                                trailing: "chevron.right")
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("openCustomers")
+            }
             if let message = model.syncMessage {
                 Text(message).font(SunprideTokens.TypeStyle.meta)
                     .foregroundStyle(SunprideTokens.dangerText)

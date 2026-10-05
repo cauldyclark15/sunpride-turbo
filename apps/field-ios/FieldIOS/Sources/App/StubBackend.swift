@@ -117,6 +117,7 @@ final class StubBackend: URLProtocol {
             state.withLock { $0.nonce = nil }
             let now = Int64(Date().timeIntervalSince1970 * 1000)
             let today = BootstrapClient.manilaDay(Date())
+            let tomorrow = BootstrapClient.manilaDay(Date().addingTimeInterval(86_400))
             let close = Int64(FieldDay.nextClose(after: Date(timeIntervalSince1970: Double(now) / 1000)).timeIntervalSince1970 * 1000)
             return (200, [:], json([
                 "type": "bootstrap.response", "contractVersion": 1, "serverTime": now,
@@ -128,20 +129,35 @@ final class StubBackend: URLProtocol {
                 "plannedVisits": [["id": "planned-stub-1", "outletId": "outlet-stub-1", "serviceDate": today,
                                    "planId": "plan-stub-1", "planVersion": 1, "intents": ["audit"], "sequence": 0],
                                   ["id": "planned-stub-2", "outletId": "outlet-stub-2", "serviceDate": today,
-                                   "planId": "plan-stub-1", "planVersion": 1, "intents": ["audit"], "sequence": 1]],
+                                   "planId": "plan-stub-1", "planVersion": 1, "intents": ["audit"], "sequence": 1],
+                                  // Tomorrow's call shows in the customer detail's planned visits, not on Today.
+                                  ["id": "planned-stub-1-next", "outletId": "outlet-stub-1", "serviceDate": tomorrow,
+                                   "planId": "plan-stub-1", "planVersion": 1, "intents": ["merchandise_check"], "sequence": 0]],
                 // Stub fix is (0, 0): outlet 1 sits ~500 m away; outlet 2 has no pin or address.
                 "outlets": [["id": "outlet-stub-1", "name": "Stub Outlet", "routeId": NSNull(), "code": "STUB-1",
                              "customerId": "customer-stub-1", "address": "1 Stub Street",
                              "latitude": 0.0, "longitude": 0.0045],
                             ["id": "outlet-stub-2", "name": "Next Stub Outlet", "routeId": NSNull()],
                             ["id": "outlet-stub-extra", "name": "Extra Stub Outlet", "routeId": NSNull()]],
-                "localCustomers": [["id": "customer-stub-1", "code": "C-STUB-1"]], "route": NSNull(), "tasks": [], "productCatalog": [],
+                "localCustomers": [["id": "customer-stub-1", "code": "C-STUB-1"]], "route": NSNull(),
+                "tasks": [["id": "task-stub-1", "kind": "price_survey", "required": true]], "productCatalog": [],
                 "callSheets": [["outletId": "outlet-stub-1", "revision": 1,
                     "header": ["accountName": "Stub Outlet", "address": NSNull(), "buyerName": "Stub Buyer",
-                        "contactNumber": NSNull(), "accountInCharge": NSNull(), "receivingInCharge": NSNull(),
+                        "contactNumber": "0917 555 0101", "accountInCharge": NSNull(), "receivingInCharge": NSNull(),
                         "distributorName": NSNull(), "distributorSchedule": NSNull(), "foc": NSNull(), "pricing": NSNull()],
                     "lines": [["productId": "product-stub-1", "code": "SUNP-001", "name": "Sunpride Hotdog 1kg",
                                "uom": "PC", "barcode": NSNull(), "pricing": "₱189.00"]]]],
+                // IOS-011: office figures for outlet 1; outlet 2's account is shared outside the plan.
+                "accountSummaries": [
+                    ["outletId": "outlet-stub-1", "asOfDate": today, "availability": "available",
+                     "creditLimitMinor": 5_000_000,
+                     "sales": ["from": BootstrapClient.manilaDay(Date().addingTimeInterval(-90 * 86_400)), "to": today,
+                               "complete": true, "orders": 9, "amountMinor": 4_825_050,
+                               "recentOrders": 3, "recentAmountMinor": 1_590_000,
+                               "lastOrderDate": today, "lastOrderAmountMinor": 530_000],
+                     "openOrders": ["count": 1, "amountMinor": 410_000]],
+                    ["outletId": "outlet-stub-2", "asOfDate": today, "availability": "withheld",
+                     "creditLimitMinor": NSNull(), "sales": NSNull(), "openOrders": NSNull()]],
                 "page": 1, "nextPageCursor": NSNull(), "syncCursor": "stub-cursor",
                 "dayTarget": ["dailyCalls": 30, "productivePct": 85, "sourceRef": "stub-memo"],
                 "daySales": ["amountMinor": 175_050, "orders": 2, "targetMinor": 500_000],

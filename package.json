@@ -17,6 +17,7 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test && bun test ./scripts",
     "test:e2e": "turbo run test:e2e",
+    "test:foundation": "cd packages/backend && bun run test:foundation",
     "native:ios": "bash scripts/native-ios-check.sh",
     "native:android": "bash scripts/native-android-check.sh",
     "check": "turbo run lint typecheck test build && bun test ./scripts && bun scripts/secret-audit.ts",

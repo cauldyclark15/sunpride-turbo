@@ -2939,4 +2939,22 @@ export default defineSchema({
   })
     .index("by_auditId", ["auditId"])
     .index("by_orgUnitId_and_serviceDate", ["orgUnitId", "serviceDate"]),
+  // ANA-009 suggested order: national, effective-dated demand uplift for a SKU while a
+  // promotion runs. An engine input until the promotion master (ARCH-006) lands.
+  suggestedOrderPromotions: defineTable({
+    organizationId: v.string(),
+    productId: v.id("products"),
+    programRef: v.string(),
+    upliftPct: v.number(),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    sourceRef: v.string(),
+    actorSubject: v.string(), // full identity.tokenIdentifier
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_organizationId_and_productId_and_effectiveFrom", [
+    "organizationId",
+    "productId",
+    "effectiveFrom",
+  ]),
 });
