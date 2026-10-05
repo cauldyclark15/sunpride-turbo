@@ -4,12 +4,12 @@ import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.core.view.WindowCompat
 import com.sunpride.field.auth.KeystoreSessionVault
 import com.sunpride.field.device.KeystoreDeviceKey
 import com.sunpride.field.ui.DeviceKeyInfo
 import com.sunpride.field.ui.FieldApp
 import com.sunpride.field.ui.LiveFieldBackend
+import com.sunpride.field.ui.applySystemBars
 import java.io.File
 
 class MainActivity : ComponentActivity() {
@@ -18,7 +18,7 @@ class MainActivity : ComponentActivity() {
         com.sunpride.field.diagnostics.CrashBreadcrumbs.install(applicationContext)
         val environment = AppEnvironment(BuildConfig.CONVEX_SITE_URL, BuildConfig.CONVEX_URL)
         val dark = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
-        WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = !dark
+        applySystemBars(dark)
         val app = applicationContext
         val backend = LiveFieldBackend(environment, KeystoreSessionVault(app), app) { KeystoreDeviceKey.loadOrCreate(app) }
         setContent {
