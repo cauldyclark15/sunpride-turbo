@@ -101,7 +101,7 @@ suspend fun saveOrderDraftIn(store: com.sunpride.field.storage.FieldStore, draft
     checkInRequestId: String, quantities: List<Pair<String, Int>>, now: Long): OrderDraft {
     val existing = draftId?.let { id -> store.orderDrafts().firstOrNull { it.draftId == id } ?: error("Unknown draft") }
     val draft = OrderDraftRules.build(store, existing, clientVisitId, checkInRequestId, quantities, now)
-    store.saveOrderDraft(draft)
+    store.saveOrderDraft(draft, now)
     return draft
 }
 
