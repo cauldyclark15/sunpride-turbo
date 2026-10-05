@@ -15,7 +15,7 @@ Every picture in this guide is a real screen from the Android app, recorded on a
 3. **Send the order before you end the call.** Save it, review it, tap **Send order**. A draft you never send stays on your phone and never reaches the office.
 4. **Every call needs an outcome.** Completed, or Not productive with a reason. A visit with no order still counts as a call.
 5. **No signal is fine.** Everything is saved on the phone and sent later.
-6. **Sync before 10 PM.** The day closes at 10 PM (Manila time). Work sent after that is marked late and goes to your supervisor for review.
+6. **Sync before 10 PM.** The day closes at 10 PM (Manila time). Work sent after that is marked late and goes to your supervisor for review. Work older than 7 days is not accepted by normal sync at all, so never leave work unsent for days.
 7. **Never uninstall the app or clear its data** while anything is waiting to send. That deletes your unsent visits.
 
 ---
@@ -152,7 +152,7 @@ If the screen says _No products set up for this account yet. Ask your office._ (
 
 <img src="field-sales/images/21-today-offline.png" width="260" alt="Today while offline">
 
-- With no signal the label says **Offline · saved data**. Your plan, route, customers and call sheets are on the phone, so keep working normally: Start, Call sheet, End.
+- With no signal and nothing waiting to send, the label says **Offline · saved data** (as in the picture). Once you record something offline, the label shows that waiting work instead: **Sync before 10 PM**, or **Late · held for review** after the day close. **Held** and **Needs review** labels also come before **Offline**. All of these still mean no signal is fine: your plan, route, customers and call sheets are on the phone, so keep working normally: Start, Call sheet, End.
 - Everything you record waits on the phone in order and is sent automatically when signal returns (the phone retries in the background).
 - Do **not** uninstall, clear app data or factory-reset the phone. That deletes unsent work.
 - Do not sign out to "fix" a problem. Your unsent work stays on the phone, but nothing is sent until you sign back in on the same phone.
@@ -161,16 +161,16 @@ If the screen says _No products set up for this account yet. Ask your office._ (
 
 Tap the label at the top of any screen to open **Sync**. **Sync now** sends everything waiting and downloads updates.
 
-| Label at the top                     | What it means                                            | What to do                                                             |
-| ------------------------------------ | -------------------------------------------------------- | ---------------------------------------------------------------------- |
-| **All synced**                       | Everything is sent and today's plan is current.          | Nothing.                                                               |
-| **Offline · saved data**             | No signal. You are working from what is on the phone.    | Keep working. Sync when you have signal.                               |
-| **Sync before 10 PM**                | Some work is still on the phone.                         | Get signal and tap **Sync now** before 10 PM.                          |
-| **Late · held for review**           | The 10 PM day close passed with work unsent.             | Sync as soon as you can. It is still sent; your supervisor reviews it. |
-| **Needs review · not synced**        | The office could not accept a visit.                     | Open **Sync**, read the reason, tell your supervisor.                  |
-| **Held · needs review**              | Work recorded under a different account or area is held. | Do not sign out or reinstall. Call your supervisor.                    |
-| **Day closed · sync for access**     | Your offline access for the day has ended.               | Get signal and tap **Sync now** to unlock today's plan.                |
-| **Visits synced · photos uploading** | Visits are sent; photos are still uploading.             | Leave the app on signal for a few minutes.                             |
+| Label at the top                     | What it means                                                                     | What to do                                                                                                                                                         |
+| ------------------------------------ | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **All synced**                       | Everything is sent and today's plan is current.                                   | Nothing.                                                                                                                                                           |
+| **Offline · saved data**             | No signal and nothing waiting to send. You are working from what is on the phone. | Keep working. Sync when you have signal.                                                                                                                           |
+| **Sync before 10 PM**                | Some work is still on the phone.                                                  | Get signal and tap **Sync now** before 10 PM.                                                                                                                      |
+| **Late · held for review**           | The 10 PM day close passed with work unsent.                                      | Sync as soon as you can. Within 7 days it is still accepted, marked late, and your supervisor reviews it. Older work is refused: tell your supervisor (see below). |
+| **Needs review · not synced**        | The office could not accept a visit.                                              | Open **Sync**, read the reason, tell your supervisor.                                                                                                              |
+| **Held · needs review**              | Work recorded under a different account or area is held.                          | Do not sign out or reinstall. Call your supervisor.                                                                                                                |
+| **Day closed · sync for access**     | Your offline access for the day has ended.                                        | Get signal and tap **Sync now** to unlock today's plan.                                                                                                            |
+| **Visits synced · photos uploading** | Visits are sent; photos are still uploading.                                      | Leave the app on signal for a few minutes.                                                                                                                         |
 
 |                                                                                                  |                                                                                                    |
 | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
@@ -184,18 +184,20 @@ Tap the label at the top of any screen to open **Sync**. **Sync now** sends ever
 2. Open **Sync** and tap **Sync now**. Wait until it finishes.
 3. **Waiting** should go down to zero and **Last sync** should show the current time.
 4. Still stuck after two tries? Close and reopen the app, then try again.
-5. Still stuck, or anything under **To review**? Escalate (next section). Your work is safe on the phone meanwhile.
+5. Still stuck, or anything under **To review**? Escalate (next section). Your work stays on the phone meanwhile.
+
+**Late work has a limit.** The office accepts late work only up to 7 days after its day. Work from an older day is refused when it is finally sent (it shows under **To review**, usually as "Visit date does not match the phone date", or under another review reason), and syncing again will not fix it. If any work has been waiting more than a day or two, do not wait for it to go through on its own: show the Sync screen to your supervisor, who checks with the office what was already received and arranges recovery of the rest.
 
 What the **To review** reasons mean:
 
-| Reason                                                                                     | Meaning                                                                      |
-| ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
-| Visit stores in plan order                                                                 | A store was visited out of the plan order.                                   |
-| Finish the open call first                                                                 | A store was started while another call was still open.                       |
-| Visit date does not match the phone date                                                   | The phone's date or time is wrong. Set the phone to automatic date and time. |
-| Check-in was not accepted; dependent visit needs review                                    | The Start was refused, so the rest of that call waits for the office.        |
-| Visit changed since it was queued                                                          | The plan for that store changed after you recorded it.                       |
-| Server reported a conflict / Server rejected this visit / Visit needs administrator review | The office must look at it.                                                  |
+| Reason                                                                                     | Meaning                                                                                                                                                                                            |
+| ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Visit stores in plan order                                                                 | A store was visited out of the plan order.                                                                                                                                                         |
+| Finish the open call first                                                                 | A store was started while another call was still open.                                                                                                                                             |
+| Visit date does not match the phone date                                                   | The visit's date was not accepted. Either the phone's date or time was wrong (set it to automatic date and time), or the work is older than the 7-day late limit. Tell your supervisor either way. |
+| Check-in was not accepted; dependent visit needs review                                    | The Start was refused, so the rest of that call waits for the office.                                                                                                                              |
+| Visit changed since it was queued                                                          | The plan for that store changed after you recorded it.                                                                                                                                             |
+| Server reported a conflict / Server rejected this visit / Visit needs administrator review | The office must look at it.                                                                                                                                                                        |
 
 The phone never deletes items under review on its own. Do not record them again yourself. **An item under review may exist only on this phone**, or the office may already have it:
 
@@ -272,6 +274,7 @@ Check these before training sellers. They are the current state of the software,
 6. **Supervisors** with a team also see **Team** on Today (coverage and exceptions for direct reports); not covered here.
 7. Office-side history from other phones is not shown on the phone; the customer screen shows only what was recorded on this phone.
 8. **Phone removed: suspension vs revocation** (runbook `docs/runbooks/MOBILE_DEVICE_INCIDENT.md`). Suspension is reversible: an admin with access to the phone's area can reinstate it for the same employee in the same unit, if no replacement was enrolled since, and the held work then syncs (designed, not yet proven on a real phone). Revocation is permanent: no reinstatement, re-registration or new phone sends the old phone's outbox, and the server refuses another device replaying its operation IDs. Its unsent work needs supervised recovery from the phone under custody; trainers must not promise sellers that an admin can "restore" a revoked phone. Items under **To review** may exist only in the phone's outbox (typically a refused Start and the call sheet/End held behind it), but not always: a fresh-key retry of a visit the server already accepted shows as a conflict while the original server visit and its acknowledgement remain. Before any supervised recapture, reconcile against the office's received visits and acknowledgements so accepted work is not recorded twice. The same applies to a removed phone: its "unsent" count only means no acknowledgement reached the phone, and a send the server accepted whose response was lost still counts as unsent locally. After reinstating a suspended phone, the seller taps **Check again** on the Phone removed screen (it does not poll by itself) before **Sync now**. Register phones only with the full code from **Copy code**; the large Phone code is a fingerprint for confirmation and is refused as a registration key.
+9. **Late work: 7-day limit, no warning on the phone** (`packages/backend/convex/visits/policy.ts` `lateWindowDays: 7`). Work reaching the server after the 10 PM close is accepted, flagged late and held for supervisor review only if its service date is within the last 7 days; older work is refused (`wrong_date`, or `invalid_request` for a device time beyond the window) without being stored, and re-syncing does not change that. The **Late · held for review** label looks the same on day 1 and day 8. A `wrong_date` review item is therefore not always a wrong phone clock. Treat queued work older than a day or two as an escalation: reconcile what the office already received, then arrange supervised recovery of the rest. The **Offline · saved data** label appears only when nothing is waiting; held, review, queued and late labels take priority over it, so an offline seller who has already recorded a call sees **Sync before 10 PM** (or **Late**), not Offline.
 
 Client rules used here: the 2 Oct 2026 call answers (no distance limit, MCP order and close-the-call-before-the-next rule, Start/End for time spent, 10 PM day close, productive-call definition, new-store approval) and `docs/requirements/SALES_OPS_STANDARDS_MEMO_2026-01-20.md`.
 
