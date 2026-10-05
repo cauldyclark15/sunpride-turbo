@@ -1,0 +1,24 @@
+{
+  "type": "push.request",
+  "contractVersion": 1,
+  "deviceId": "device-1",
+  "operations": [
+    {
+      "kind": "visit.activity",
+      "clientRequestId": "018f5800-1234-7000-8000-000000000020",
+      "dependsOn": ["018f5800-1234-7000-8000-000000000001"],
+      "payload": {
+        "visitId": "visit-1",
+        "activity": {
+          "kind": "order_intent",
+          "clientOrderId": "018f5800-1234-7000-8000-000000000900",
+          "lines": [
+            { "productId": "product-1", "uom": "PC", "quantity": 24 },
+            { "productId": "product-2", "uom": "CAN", "quantity": 12 }
+          ]
+        },
+        "deviceTime": 1790380800006
+      }
+    }
+  ]
+}

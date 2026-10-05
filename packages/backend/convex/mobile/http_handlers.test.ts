@@ -513,4 +513,150 @@ describe("mobile HTTP boundary", () => {
       ).toBe(401);
     });
   });
+  it("passes a well-formed field order through and rejects malformed lines before proof", async () => {
+    const orderId = "00000000-0000-4000-8000-000000000900";
+    const line = { productId: "product", uom: "CAN", quantity: 12 };
+    const push = (lines: unknown) => ({
+      type: "push.request",
+      contractVersion: 1,
+      deviceId: "device",
+      operations: [
+        {
+          kind: "visit.activity",
+          clientRequestId: uuid,
+          payload: {
+            visitId: "visit",
+            activity: { kind: "order_intent", clientOrderId: orderId, lines },
+            deviceTime: 1,
+          },
+        },
+      ],
+    });
+    const ok = harness();
+    const accepted = await handleMobile(
+      ok.ctx,
+      await request("push", push([line])),
+      "push",
+    );
+    expect(accepted.status).toBe(200);
+    expect(ok.apply).toHaveBeenCalledTimes(1);
+    for (const lines of [
+      [],
+      [{ productId: "product", quantity: 1 }],
+      [{ ...line, quantity: 0 }],
+      [{ ...line, quantity: 1.5 }],
+      [{ ...line, quantity: 100_000 }],
+      [{ ...line, quantity: "12" }],
+      [{ ...line, uom: "" }],
+      [{ ...line, unitPrice: 189 }],
+      Array.from({ length: 101 }, () => line),
+    ]) {
+      const h = harness();
+      expect(
+        (await handleMobile(h.ctx, await request("push", push(lines)), "push"))
+          .status,
+      ).toBe(400);
+      expect(h.authorize).not.toHaveBeenCalled();
+    }
+  });
+});
+
+/** Replace the snapshot/delta read while keeping the QSR-009 back-off query at zero. */
+function snapshot(
+  h: ReturnType<typeof harness>,
+  read: () => Promise<unknown>,
+): void {
+  (h.ctx.runQuery as ReturnType<typeof vi.fn>).mockImplementation(
+    async (_fn: unknown, args: Record<string, unknown>) =>
+      "actor" in args ? read() : 0,
+  );
+}
+
+describe("QSR-013 bootstrap response strategy", () => {
+  const big = {
+    type: "bootstrap.response",
+    contractVersion: 1,
+    serverTime: 123,
+    plannedVisits: Array.from({ length: 50 }, (_, i) => ({
+      id: `visit-${i}`,
+      outletId: `outlet-${i}`,
+    })),
+  };
+  it("gzips a large bootstrap/pull body only when the phone accepts gzip", async () => {
+    for (const route of ["bootstrap", "pull"] as const) {
+      const payload =
+        route === "bootstrap"
+          ? body
+          : {
+              type: "pull.request",
+              contractVersion: 1,
+              deviceId: "device",
+              cursor: "c",
+            };
+      const h = harness();
+      snapshot(h, async () => big);
+      const zipped = await handleMobile(
+        h.ctx,
+        await request(route, payload, {
+          "accept-encoding": "gzip, deflate, br",
+        }),
+        route,
+      );
+      expect(zipped.status).toBe(200);
+      expect(zipped.headers.get("content-encoding")).toBe("gzip");
+      expect(zipped.headers.get("vary")).toBe("accept-encoding");
+      const raw = new Uint8Array(await zipped.arrayBuffer());
+      expect(raw.length).toBeLessThan(JSON.stringify(big).length);
+      const inflated = await new Response(
+        new Response(raw).body!.pipeThrough(new DecompressionStream("gzip")),
+      ).json();
+      expect(inflated).toEqual(big);
+      const plain = harness();
+      snapshot(plain, async () => big);
+      for (const encoding of [undefined, "identity", "gzip;q=0, *"]) {
+        const response = await handleMobile(
+          plain.ctx,
+          await request(
+            route,
+            payload,
+            encoding ? { "accept-encoding": encoding } : {},
+          ),
+          route,
+        );
+        expect(response.headers.get("content-encoding")).toBeNull();
+        expect(await response.json()).toEqual(big);
+      }
+    }
+  });
+  it("leaves small bodies uncompressed", async () => {
+    const h = harness();
+    const response = await handleMobile(
+      h.ctx,
+      await request("bootstrap", body, { "accept-encoding": "gzip" }),
+      "bootstrap",
+    );
+    expect(response.headers.get("content-encoding")).toBeNull();
+    expect(await response.json()).toMatchObject({ type: "bootstrap.response" });
+  });
+  it("maps an over-budget working set to a non-retryable 413 invalid_request", async () => {
+    const h = harness();
+    snapshot(h, async () => {
+      throw new Error(
+        "Uncaught ConvexError: working_set_too_large\n    at handler",
+      );
+    });
+    const response = await handleMobile(
+      h.ctx,
+      await request("bootstrap", body),
+      "bootstrap",
+    );
+    expect(response.status).toBe(413);
+    expect(await response.json()).toMatchObject({
+      type: "error.response",
+      code: "invalid_request",
+      retryable: false,
+    });
+    // An honest phone with an oversized plan must not burn its invalid-request budget.
+    expect(h.recordFailure).not.toHaveBeenCalled();
+  });
 });

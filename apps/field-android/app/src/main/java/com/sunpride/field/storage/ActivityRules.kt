@@ -22,9 +22,9 @@ data class ActivityRequirement(val kind: String, val required: Boolean, val stat
 object ActivityRules {
     /** v1 `visit.checkIn` intents, in display order. */
     val INTENTS = listOf("sell", "collect", "merchandise", "audit", "deliver", "promotion", "complaint", "follow-up")
-    /** Forms this app can capture. `order_intent` stays off until order capture is enabled. */
-    val FORMS = setOf("call_sheet", "merchandising", "inventory_check", "price_check", "promotion", "note")
-    private val PRODUCT_FORMS = setOf("call_sheet", "inventory_check", "price_check")
+    /** Forms this app can capture. `order_intent` is a submitted order from the account's products (SP-0060). */
+    val FORMS = setOf("call_sheet", "merchandising", "inventory_check", "price_check", "promotion", "note", "order_intent")
+    private val PRODUCT_FORMS = setOf("call_sheet", "inventory_check", "price_check", "order_intent")
 
     fun intentLabel(intent: String) = when (intent) {
         "sell" -> "Sell"; "collect" -> "Collect"; "merchandise" -> "Merchandise"; "audit" -> "Store audit"

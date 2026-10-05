@@ -1,6 +1,6 @@
 # Device revocation and lost-device verification (QSR-007 / SP-0021)
 
-Acceptance: revoked devices lose protected access according to policy while preserving unsynced data handling and auditability (ADR-020). Runbook: [`MOBILE_DEVICE_INCIDENT.md`](../runbooks/MOBILE_DEVICE_INCIDENT.md).
+Acceptance: revoked devices lose protected access according to policy while preserving unsynced data handling and auditability (ADR-020). Runbook: [`MOBILE_DEVICE_INCIDENT.md`](../runbooks/MOBILE_DEVICE_INCIDENT.md). Local cache removal on revocation and sign-out: [`MOBILE_LOCAL_DATA_PROTECTION.md`](MOBILE_LOCAL_DATA_PROTECTION.md).
 
 ## Policy as implemented
 

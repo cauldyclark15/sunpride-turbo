@@ -55,6 +55,12 @@ data class CallSheetLineRow(val account: String, val deviceId: String, val scope
     val generation: String, val outletId: String, val productId: String, val position: Int,
     val code: String, val name: String, val uom: String, val barcode: String?, val pricing: String?)
 
+/** Local-only order draft (SP-0061). Not an outbox row: nothing here is sent until review/submit exists. */
+@Entity(tableName = "order_drafts", primaryKeys = ["account", "deviceId", "scope", "draftId"])
+data class OrderDraftRow(val account: String, val deviceId: String, val scope: String, val draftId: String,
+    val clientVisitId: String, val outletId: String, val serviceDate: String, val json: String,
+    val createdAt: Long, val updatedAt: Long)
+
 /**
  * AND-016 visit photo: metadata only. The JPEG lives encrypted in no-backup app storage under
  * [localId]; [checkInRequestId] resolves the server visit from the check-in's durable ack.
@@ -85,6 +91,13 @@ interface StoreDao {
     suspend fun reviewPhoto(account: String, device: String, scope: String, localId: String, code: String): Int
     @Query("SELECT COUNT(*) FROM evidence_photos WHERE account=:account AND deviceId=:device AND scope=:scope AND state='pending'")
     suspend fun waitingPhotos(account: String, device: String, scope: String): Int
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putOrderDraft(row: OrderDraftRow)
+    @Query("SELECT * FROM order_drafts WHERE account=:account AND deviceId=:device AND scope=:scope ORDER BY createdAt, draftId")
+    suspend fun orderDrafts(account: String, device: String, scope: String): List<OrderDraftRow>
+    @Query("SELECT * FROM order_drafts WHERE account=:account AND deviceId=:device AND scope=:scope AND draftId=:draftId")
+    suspend fun orderDraft(account: String, device: String, scope: String, draftId: String): OrderDraftRow?
+    @Query("DELETE FROM order_drafts WHERE account=:account AND deviceId=:device AND scope=:scope AND draftId=:draftId")
+    suspend fun deleteOrderDraft(account: String, device: String, scope: String, draftId: String): Int
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertCallSheet(row: CallSheetRow)
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertCallSheetLine(row: CallSheetLineRow)
     @Query("SELECT * FROM call_sheets WHERE account=:account AND deviceId=:device AND scope=:scope AND generation=:generation AND outletId=:outlet")
@@ -142,12 +155,25 @@ interface StoreDao {
     suspend fun reject(account: String, device: String, scope: String, requestId: String, code: String): Int
     @Query("UPDATE partitions SET held=1, cursor=NULL, syncHealth='held_for_review'")
     suspend fun holdAllPartitions()
+
+    // QSR-010 sign-out/revocation purge: server-provided cache only. Intents, outbox, acks and
+    // photo rows are the person's unsent or acknowledged evidence and stay (ADR-020).
+    @Query("DELETE FROM snapshots WHERE (:account IS NULL OR (account=:account AND deviceId=:device AND scope=:scope))")
+    suspend fun purgeSnapshots(account: String?, device: String?, scope: String?)
+    @Query("DELETE FROM call_sheets WHERE (:account IS NULL OR (account=:account AND deviceId=:device AND scope=:scope))")
+    suspend fun purgeCallSheets(account: String?, device: String?, scope: String?)
+    @Query("DELETE FROM call_sheet_lines WHERE (:account IS NULL OR (account=:account AND deviceId=:device AND scope=:scope))")
+    suspend fun purgeCallSheetLines(account: String?, device: String?, scope: String?)
+    @Query("DELETE FROM deltas WHERE (:account IS NULL OR (account=:account AND deviceId=:device AND scope=:scope))")
+    suspend fun purgeDeltas(account: String?, device: String?, scope: String?)
+    @Query("UPDATE partitions SET held=1, cursor=NULL, syncHealth='held_for_review', activeGeneration=NULL, employeeJson=NULL, routeJson=NULL, leaseExpiresAt=NULL, cacheExpiresAt=NULL WHERE (:account IS NULL OR (account=:account AND deviceId=:device AND scope=:scope))")
+    suspend fun purgePartitionMetadata(account: String?, device: String?, scope: String?)
     @Query("SELECT * FROM acks WHERE account=:account AND deviceId=:device AND scope=:scope AND requestId=:requestId")
     suspend fun ack(account: String, device: String, scope: String, requestId: String): AckRow?
 }
 
-@Database(entities = [SnapshotRow::class, PartitionRow::class, IntentRow::class, OutboxRow::class, AckRow::class, DeltaRow::class, CallSheetRow::class, CallSheetLineRow::class, EvidencePhotoRow::class],
-    version = 6, exportSchema = true)
+@Database(entities = [SnapshotRow::class, PartitionRow::class, IntentRow::class, OutboxRow::class, AckRow::class, DeltaRow::class, CallSheetRow::class, CallSheetLineRow::class, EvidencePhotoRow::class, OrderDraftRow::class],
+    version = 7, exportSchema = true)
 abstract class StoreDatabase : RoomDatabase() {
     abstract fun rows(): StoreDao
 }

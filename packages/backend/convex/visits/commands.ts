@@ -15,6 +15,11 @@ import { VISIT_LOCATION_POLICY } from "./policy";
 import { missingKinds, rulesAt, ruleVersionFor } from "./activity_rules";
 import { callSheetActivityValidator } from "../callSheets/validators";
 import {
+  fieldOrderLineValidator,
+  validateFieldOrderLines,
+} from "../orders/field_order_validators";
+import { validateFieldOrder } from "../orders/field_order";
+import {
   accountFor,
   callSheetWeek,
   usableProduct,
@@ -100,7 +105,7 @@ async function assertCallOrder(
 }
 
 /** Work for a day reaching the server after its 10 PM close is kept and held for review. */
-async function flagLateWork(
+export async function flagLateWork(
   ctx: MutationCtx,
   visit: Doc<"visitExecutions">,
   now: number,
@@ -169,6 +174,7 @@ const activity = v.union(
     kind: v.literal("order_intent"),
     clientOrderId: v.string(),
     note: v.optional(v.string()),
+    lines: v.optional(v.array(fieldOrderLineValidator)),
   }),
   v.object({ kind: v.literal("note"), text: v.string() }),
   callSheetActivityValidator,
@@ -239,6 +245,7 @@ function safeActivity(a: Infer<typeof activity>) {
     requireUuid(a.clientOrderId);
     if (a.note !== undefined && a.note.length > 500)
       throw new ConvexError("invalid_request");
+    if (a.lines !== undefined) validateFieldOrderLines(a.lines);
   }
   if (
     a.kind === "inventory_check" &&
@@ -436,6 +443,27 @@ export async function applyVisitOperation(
     if (visit.state !== "checked-in" && visit.state !== "in-progress")
       throw new ConvexError("invalid_transition");
     safeActivity(p.activity);
+    if (p.activity.kind === "order_intent") {
+      // A re-sent intent (e.g. re-queued under a fresh request key) never records a second
+      // order intent for the same phone order on this call.
+      const clientOrderId = p.activity.clientOrderId;
+      const prior = await ctx.db
+        .query("visitActivities")
+        .withIndex("by_visitId_and_serverTime", (q) =>
+          q.eq("visitId", visit._id),
+        )
+        .take(MAX_VISIT_ACTIVITIES + 1);
+      if (prior.length > MAX_VISIT_ACTIVITIES)
+        throw new ConvexError("invalid_request");
+      if (
+        prior.some(
+          (row) =>
+            row.activity.kind === "order_intent" &&
+            row.activity.clientOrderId === clientOrderId,
+        )
+      )
+        throw new ConvexError("conflict");
+    }
     if (
       p.activity.kind === "inventory_check" ||
       p.activity.kind === "price_check"
@@ -466,6 +494,13 @@ export async function applyVisitOperation(
         if (!usableProduct(await ctx.db.get(line.productId)))
           throw new ConvexError("invalid_request");
     }
+    if (p.activity.kind === "order_intent" && p.activity.lines !== undefined)
+      await validateFieldOrder(
+        ctx,
+        visit,
+        p.activity.clientOrderId,
+        p.activity.lines,
+      );
     const activityId = await ctx.db.insert("visitActivities", {
       organizationId: SUNPRIDE_ORGANIZATION_ID,
       orgUnitId: visit.orgUnitId,
