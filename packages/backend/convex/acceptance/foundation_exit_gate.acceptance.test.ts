@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { convexTest, type TestConvex } from "convex-test";
 import type { FunctionArgs } from "convex/server";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import schema from "../schema";
@@ -17,6 +17,8 @@ import {
   chunkRows,
 } from "../../../../apps/web/src/lib/import-templates";
 import { OPERATIONAL_HEADERS } from "../../../../apps/web/src/lib/import-csv-export";
+// The frozen mobile v1 wire schema the native field apps decode.
+import { parseMobileV1Response } from "../../../domain-contracts/src";
 
 /**
  * SFD-019 shared-foundation exit gate (SP-0050).
@@ -227,10 +229,237 @@ async function writeSnapshot() {
   }));
 }
 
+type Person = Awaited<ReturnType<typeof story>>["northSeller"];
+type Caller = Person["actor"];
+
+/**
+ * Today's signed coverage day for one seller: territory owned by `unit`, one outlet and one
+ * approved, activated plan visit. Plan approval/activation itself is proven by the coverage
+ * suites; the gate needs its output to exercise the field read.
+ */
+async function seedFieldDay(seller: Person, unit: Id<"orgUnits">, tag: string) {
+  const now = Date.now();
+  const day = new Date(now + 8 * 3_600_000).toISOString().slice(0, 10);
+  return f.t.run(async (ctx) => {
+    const assignment = (await ctx.db
+      .query("employeeAssignments")
+      .withIndex("by_profileId_and_effectiveFrom", (q) =>
+        q.eq("profileId", seller.profileId),
+      )
+      .order("desc")
+      .first())!;
+    const territory = await ctx.db.insert("territories", {
+      organizationId: "sunpride",
+      code: `T-${tag}`,
+      name: `Territory ${tag}`,
+      status: "active",
+      effectiveFrom: SINCE,
+      createdAt: SINCE,
+      updatedAt: SINCE,
+      createdBy: f.rootSubject,
+    });
+    const ownership = await ctx.db.insert("territoryOwnerships", {
+      territoryId: territory,
+      orgUnitId: unit,
+      effectiveFrom: SINCE,
+      actorSubject: f.rootSubject,
+      reason: "gate",
+      createdAt: SINCE,
+    });
+    const outlet = await ctx.db.insert("outlets", {
+      organizationId: "sunpride",
+      code: `OUT-${tag}`,
+      name: `Gate outlet ${tag}`,
+      status: "active",
+      custodianOrgUnitId: unit,
+      createdAt: SINCE,
+      updatedAt: SINCE,
+      createdBy: f.rootSubject,
+    });
+    const outletAssignment = await ctx.db.insert("outletAssignments", {
+      outletId: outlet,
+      territoryId: territory,
+      effectiveFrom: SINCE,
+      actorSubject: f.rootSubject,
+      reason: "gate",
+      createdAt: SINCE,
+    });
+    const plan = await ctx.db.insert("coveragePlans", {
+      organizationId: "sunpride",
+      assigneeProfileId: seller.profileId,
+      localMonth: day.slice(0, 7),
+      version: 1,
+      cycleType: "monthly",
+      orgUnitId: unit,
+      territoryIds: [territory],
+      requestedFrom: now - 100_000,
+      requestedTo: now + 5 * 86_400_000,
+      effectiveFrom: now - 100_000,
+      effectiveTo: now + 5 * 86_400_000,
+      status: "active",
+      preparedBy: f.rootSubject,
+      preparedAt: now,
+      approvedBy: f.rootSubject,
+      approvedAt: now,
+      approvalSignature: "gate-signed",
+      activatedAt: now,
+      contentRevision: 1,
+      createdBy: f.rootSubject,
+      createdAt: now,
+      updatedBy: f.rootSubject,
+      updatedAt: now,
+    });
+    const snapshot = {
+      outletId: outlet,
+      outletCode: `OUT-${tag}`,
+      outletName: `Gate outlet ${tag}`,
+      territoryId: territory,
+      territoryCode: `T-${tag}`,
+      outletAssignmentId: outletAssignment,
+      territoryOwnershipId: ownership,
+      employeeAssignmentId: assignment._id,
+      orgUnitId: unit,
+      activityKind: "visit",
+      approvedAssigneeProfileId: seller.profileId,
+    };
+    const slot = await ctx.db.insert("coveragePlanSlots", {
+      slotKey: `gate-${tag}`,
+      planId: plan,
+      assigneeProfileId: seller.profileId,
+      serviceDate: day,
+      kind: "outlet_visit",
+      outletId: outlet,
+      requiredObjectives: [],
+      intents: ["sell"],
+      sequence: 1,
+      expectedDurationMinutes: 30,
+      approvedSnapshot: snapshot,
+      contentRevision: 1,
+      updatedBy: f.rootSubject,
+      updatedAt: now,
+    });
+    await ctx.db.insert("plannedVisits", {
+      generationKey: `gate-${tag}`,
+      planId: plan,
+      planVersion: 1,
+      planSlotId: slot,
+      assigneeProfileId: seller.profileId,
+      outletId: outlet,
+      serviceDate: day,
+      status: "planned",
+      approvedSnapshot: snapshot,
+      requiredObjectives: [],
+      intents: ["sell"],
+      expectedDurationMinutes: 30,
+      generatedAt: now,
+    });
+    return outlet;
+  });
+}
+
+const b64 = (buffer: ArrayBuffer) =>
+  btoa(String.fromCharCode(...new Uint8Array(buffer)));
+const hex = async (text: string) =>
+  Array.from(
+    new Uint8Array(
+      await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)),
+    ),
+    (b) => b.toString(16).padStart(2, "0"),
+  ).join("");
+
+/** Registers (office) and binds (phone) a P-256 device key; posts signed v1 requests. */
+async function fieldDevice(seller: Person, inventoryTag: string) {
+  const keys = await crypto.subtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" },
+    true,
+    ["sign", "verify"],
+  );
+  const sign = async (message: string) =>
+    b64(
+      await crypto.subtle.sign(
+        { name: "ECDSA", hash: "SHA-256" },
+        keys.privateKey,
+        new TextEncoder().encode(message),
+      ),
+    );
+  const { deviceId } = await f.root.mutation(api.mobile.devices.register, {
+    inventoryTag,
+    allowedApp: "ANDROID",
+    platform: "Android",
+    model: "gate",
+    osVersion: "1",
+    appVersion: "1",
+    profileId: seller.profileId,
+    publicKey: b64(await crypto.subtle.exportKey("spki", keys.publicKey)),
+  });
+  const bindChallenge = await seller.actor.mutation(
+    api.mobile.devices.challenge,
+    { deviceId },
+  );
+  const bindTime = Date.now();
+  await seller.actor.mutation(api.mobile.devices.bind, {
+    deviceId,
+    credentialId: `${inventoryTag}-credential`,
+    attestation: { format: "none" },
+    nonce: bindChallenge.nonce,
+    timestamp: bindTime,
+    proof: await sign(
+      `BIND|${deviceId}|${inventoryTag}-credential|${bindChallenge.nonce}|${bindTime}`,
+    ),
+  });
+  let last: { headers: Record<string, string>; text: string } | null = null;
+  const send = (
+    caller: Caller,
+    headers: Record<string, string>,
+    text: string,
+  ) =>
+    caller.fetch("/mobile/v1/bootstrap", {
+      method: "POST",
+      headers,
+      body: text,
+    });
+  return {
+    deviceId,
+    async post(body: unknown, caller: Caller = seller.actor) {
+      const text = JSON.stringify(body);
+      const digest = await hex(text);
+      const { nonce } = await seller.actor.mutation(
+        api.mobile.devices.challenge,
+        { deviceId },
+      );
+      const timestamp = Date.now();
+      const headers = {
+        "content-type": "application/json",
+        authorization: "Bearer gate-convex-jwt",
+        "x-mobile-contract-version": "1",
+        "x-mobile-device-id": deviceId,
+        "x-mobile-app": "ANDROID",
+        "x-mobile-nonce": nonce,
+        "x-mobile-timestamp": String(timestamp),
+        "x-mobile-body-digest": digest,
+        "x-mobile-signature": await sign(
+          `POST|/mobile/v1/bootstrap|${digest}|${nonce}|${timestamp}`,
+        ),
+      };
+      last = { headers, text };
+      return send(caller, headers, text);
+    },
+    replay() {
+      return send(seller.actor, last!.headers, last!.text);
+    },
+  };
+}
+
 describe.sequential("SFD-019 shared foundation exit gate", () => {
   beforeAll(async () => {
+    // Test-only bootstrap cursor key; the deployment's own secret is never read here.
+    vi.stubEnv(
+      "MOBILE_CURSOR_SECRET",
+      "foundation-gate-test-only-cursor-signing-key",
+    );
     f = await story();
   });
+  afterAll(() => vi.unstubAllEnvs());
 
   it("imports the shipped web product template, posts opening stock to the ledger, and reads it on web and van POS", async () => {
     for (const args of webChunks("products", template("products"))) {
@@ -335,6 +564,90 @@ describe.sequential("SFD-019 shared foundation exit gate", () => {
         })
       ).find((row) => row.productCode === SKU)?.available,
     ).toBe("37");
+  });
+
+  it("reads the imported product on the field app: signed v1 bootstrap over HTTP, own region only", async () => {
+    const outletId = await seedFieldDay(f.northSeller, f.north, "N");
+    const southOutletId = await seedFieldDay(f.southSeller, f.south, "S");
+    // Office (web) work: the North admin puts the CSV-imported product on the account's
+    // Annex C call sheet through the same public mutation the call-sheet editor uses.
+    await f.northAdmin.actor.mutation(api.callSheets.accounts.save, {
+      outletId,
+      expectedRevision: null,
+      header: { accountName: "Gate North Account" },
+      lines: [{ productId, pricing: "₱118.80/CS" }],
+    });
+    await expect(
+      f.southManager.actor.mutation(api.callSheets.accounts.save, {
+        outletId,
+        expectedRevision: 1,
+        header: { accountName: "Hijacked" },
+        lines: [],
+      }),
+    ).rejects.toThrow();
+
+    // Field app: an enrolled phone downloads its day through the real HTTP route.
+    const north = await fieldDevice(f.northSeller, "GATE-PHONE-N");
+    const response = await north.post({
+      type: "bootstrap.request",
+      contractVersion: 1,
+      deviceId: north.deviceId,
+    });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    // The live response satisfies the frozen v1 wire schema the native apps decode.
+    expect(parseMobileV1Response(body).type).toBe("bootstrap.response");
+    expect(
+      body.plannedVisits.map((v: { outletId: string }) => v.outletId),
+    ).toEqual([outletId]);
+    expect(body.callSheets).toHaveLength(1);
+    expect(body.callSheets[0]).toMatchObject({
+      outletId,
+      revision: 1,
+      header: { accountName: "Gate North Account" },
+      lines: [
+        {
+          productId,
+          code: SKU,
+          name: "Sunpride Pineapple Juice 1L",
+          barcode: "4801234567890",
+          pricing: "₱118.80/CS",
+        },
+      ],
+    });
+    // v1 carries no nationwide selling catalog and no stock figures (SFD-018 scope).
+    expect(body.productCatalog).toEqual([]);
+    expect(JSON.stringify(body)).not.toMatch(/physicalBase|availableStock/);
+
+    // A replayed signed request (same nonce) is refused at the boundary.
+    expect((await north.replay()).status).toBe(401);
+
+    // The South phone sees only its own outlet, never the North account or product.
+    const south = await fieldDevice(f.southSeller, "GATE-PHONE-S");
+    const southBody = await (
+      await south.post({
+        type: "bootstrap.request",
+        contractVersion: 1,
+        deviceId: south.deviceId,
+      })
+    ).json();
+    expect(parseMobileV1Response(southBody).type).toBe("bootstrap.response");
+    expect(
+      southBody.plannedVisits.map((v: { outletId: string }) => v.outletId),
+    ).toEqual([southOutletId]);
+    expect(JSON.stringify(southBody)).not.toContain(outletId);
+    expect(JSON.stringify(southBody)).not.toContain(SKU);
+
+    // The North seller's identity cannot drive the South phone.
+    const stolen = await south.post(
+      {
+        type: "bootstrap.request",
+        contractVersion: 1,
+        deviceId: south.deviceId,
+      },
+      f.northSeller.actor,
+    );
+    expect(stolen.status).toBe(401);
   });
 
   it("rejects opening-stock replay: same file is a duplicate, a changed file under the key and any re-post are refused", async () => {
