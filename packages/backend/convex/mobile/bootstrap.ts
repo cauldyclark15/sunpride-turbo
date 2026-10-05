@@ -50,6 +50,12 @@ import {
   pageEnd,
   WORKING_SET_TOO_LARGE,
 } from "./budget";
+import {
+  ACCOUNT_SUMMARY_MAX_BYTES,
+  accountSummary,
+  accountSummaryDTO,
+  summaryViewer,
+} from "./account_summary";
 
 const MAX_ASSIGNMENT_HISTORY = 50;
 
@@ -230,6 +236,7 @@ export const snapshot = internalQuery({
     callSheets: v.array(callSheetDTO),
     activityRules: v.array(activityRuleDTO),
     photoTypes: v.array(photoTypeDTO),
+    accountSummaries: v.array(accountSummaryDTO),
     page: v.number(),
     nextPageCursor: v.union(v.string(), v.null()),
     syncCursor: v.union(v.string(), v.null()),
@@ -299,6 +306,19 @@ export const snapshot = internalQuery({
         sheetAt.add(i);
       }
     });
+    // IOS-011: each linked account's cached summary ships once, with the first visit to its
+    // outlet. Its bounded size is reserved before paging; figures are read only for this page.
+    const summaryAt = new Set<number>();
+    const summarized = new Set<string>();
+    const planOutlets = new Set<string>();
+    entries.forEach((e, i) => {
+      if (e.kind !== "visit") return;
+      planOutlets.add(e.value.outlet.id);
+      if (e.value.customer && !summarized.has(e.value.outlet.id)) {
+        summarized.add(e.value.outlet.id);
+        summaryAt.add(i);
+      }
+    });
     // Pages are cut by entry count AND by uncompressed bytes, so a page stays below
     // MAX_BOOTSTRAP_PAGE_BYTES however large the call sheets are.
     const sizes = entries.map((e, i) =>
@@ -308,6 +328,7 @@ export const snapshot = internalQuery({
           jsonBytes(e.value.outlet) +
           (e.value.customer ? jsonBytes(e.value.customer) + 1 : 0) +
           (sheetAt.has(i) ? jsonBytes(e.value.callSheet) + 1 : 0) +
+          (summaryAt.has(i) ? ACCOUNT_SUMMARY_MAX_BYTES + 1 : 0) +
           2,
     );
     const budget =
@@ -327,9 +348,33 @@ export const snapshot = internalQuery({
     );
     const visits = pageEntries.flatMap((e, i) =>
       e.kind === "visit"
-        ? [{ ...e.value, sheet: sheetAt.has(cursor.after + i) }]
+        ? [
+            {
+              ...e.value,
+              sheet: sheetAt.has(cursor.after + i),
+              summary: summaryAt.has(cursor.after + i),
+            },
+          ]
         : [],
     );
+    const accountSummaries = [];
+    const viewer = visits.some((e) => e.summary && e.customer)
+      ? await summaryViewer(ctx, actor)
+      : null;
+    for (const e of visits) {
+      if (!viewer) break;
+      if (!e.summary || !e.customer) continue;
+      accountSummaries.push(
+        await accountSummary(
+          ctx,
+          e.outlet.id,
+          e.customer.id as Id<"customers">,
+          planOutlets,
+          viewer,
+          now,
+        ),
+      );
+    }
     const tasks = pageEntries.flatMap((e) =>
       e.kind === "task" ? [e.value] : [],
     );
@@ -382,6 +427,8 @@ export const snapshot = internalQuery({
       activityRules,
       // AND-016: visit photo types, the same small list on every page.
       photoTypes: phonePhotoTypes(),
+      // IOS-011: account figures for this page's newly shipped outlets (as of serverTime).
+      accountSummaries,
       page: base.page,
       nextPageCursor: hasMore ? await signCursor(base) : null,
       syncCursor: hasMore

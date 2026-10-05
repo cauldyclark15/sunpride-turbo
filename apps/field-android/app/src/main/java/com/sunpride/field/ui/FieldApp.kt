@@ -112,6 +112,8 @@ fun FieldApp(
                             when {
                                 controller.photoCaptureOpen -> controller.closePhotoCapture()
                                 controller.activityForm != null -> controller.closeActivityForm()
+                                controller.orderOpen && controller.orderReview -> controller.closeOrderReview()
+                                controller.orderOpen -> controller.closeOrder()
                                 controller.callSheetOpen -> controller.closeCallSheet()
                                 else -> controller.closeDiagnostic()
                             }
@@ -120,7 +122,8 @@ fun FieldApp(
                         }
                         Text(if (controller.photoCaptureOpen) "Photo" else controller.activityForm?.let {
                             com.sunpride.field.storage.ActivityRules.kindLabel(it) }
-                            ?: if (controller.callSheetOpen) "Call sheet" else "Visit", style = MaterialTheme.typography.titleMedium)
+                            ?: if (controller.orderOpen && controller.orderReview) "Review" else if (controller.orderOpen) "Order"
+                            else if (controller.callSheetOpen) "Call sheet" else "Visit", style = MaterialTheme.typography.titleMedium)
                     } else if (page == "account" || page == "sync" || page == "support" ||
                         (ready && (page == "route" || page == "customers" || page == "customer" || page == "team"))) Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { page = when (page) { "support" -> "account"; "customer" -> "customers"; else -> "home" } },
@@ -167,6 +170,11 @@ fun FieldApp(
                     com.sunpride.field.ui.diagnosticvisit.PhotoCaptureScreen(controller, modifier)
                 controller.diagnostic != null && debug && ready && controller.activityForm != null ->
                     com.sunpride.field.ui.diagnosticvisit.ActivityFormScreen(controller.activityForm!!, controller, modifier)
+                controller.diagnostic != null && debug && ready && controller.orderOpen && controller.orderReview ->
+                    com.sunpride.field.ui.orders.OrderReviewScreen(controller.diagnostic!!, controller, modifier)
+                controller.diagnostic != null && debug && ready && controller.orderOpen && controller.diagnosticCallSheet != null ->
+                    com.sunpride.field.ui.orders.OrderDraftScreen(controller.diagnostic!!, controller.diagnosticCallSheet!!,
+                        controller, modifier)
                 controller.diagnostic != null && debug && ready && controller.callSheetOpen && controller.diagnosticCallSheet != null ->
                     com.sunpride.field.ui.diagnosticvisit.CallSheetScreen(controller.diagnosticCallSheet!!, controller, modifier)
                 controller.diagnostic != null && debug && ready -> com.sunpride.field.ui.diagnosticvisit.DiagnosticVisitScreen(

@@ -1,0 +1,3278 @@
+{
+  "imports/products:validateProducts": {
+    "kind": "query",
+    "args": {
+      "type": "object",
+      "value": {
+        "rows": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "object",
+              "value": {
+                "rowNumber": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": false
+                },
+                "values": {
+                  "fieldType": {
+                    "type": "record",
+                    "keys": {
+                      "type": "string"
+                    },
+                    "values": {
+                      "fieldType": {
+                        "type": "string"
+                      },
+                      "optional": false
+                    }
+                  },
+                  "optional": false
+                }
+              }
+            }
+          },
+          "optional": false
+        }
+      }
+    },
+    "returns": {
+      "type": "object",
+      "value": {
+        "rowCount": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "wouldCreate": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "wouldUpdate": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "errorCount": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "errors": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "object",
+              "value": {
+                "rowNumber": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": false
+                },
+                "column": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": true
+                },
+                "code": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                },
+                "message": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                }
+              }
+            }
+          },
+          "optional": false
+        }
+      }
+    }
+  },
+  "imports/products:commitProducts": {
+    "kind": "mutation",
+    "args": {
+      "type": "object",
+      "value": {
+        "runKey": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        },
+        "chunkIndex": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "idempotencyKey": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        },
+        "fileHash": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        },
+        "rows": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "object",
+              "value": {
+                "rowNumber": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": false
+                },
+                "values": {
+                  "fieldType": {
+                    "type": "record",
+                    "keys": {
+                      "type": "string"
+                    },
+                    "values": {
+                      "fieldType": {
+                        "type": "string"
+                      },
+                      "optional": false
+                    }
+                  },
+                  "optional": false
+                }
+              }
+            }
+          },
+          "optional": false
+        }
+      }
+    },
+    "returns": {
+      "type": "object",
+      "value": {
+        "runId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "importRuns"
+          },
+          "optional": false
+        },
+        "created": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "updated": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "skipped": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "failed": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "duplicate": {
+          "fieldType": {
+            "type": "boolean"
+          },
+          "optional": false
+        },
+        "errors": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "object",
+              "value": {
+                "rowNumber": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": false
+                },
+                "column": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": true
+                },
+                "code": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                },
+                "message": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                }
+              }
+            }
+          },
+          "optional": false
+        }
+      }
+    }
+  },
+  "imports/openingStock:validateOpeningStock": {
+    "kind": "query",
+    "args": {
+      "type": "object",
+      "value": {
+        "rows": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "object",
+              "value": {
+                "rowNumber": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": false
+                },
+                "values": {
+                  "fieldType": {
+                    "type": "record",
+                    "keys": {
+                      "type": "string"
+                    },
+                    "values": {
+                      "fieldType": {
+                        "type": "string"
+                      },
+                      "optional": false
+                    }
+                  },
+                  "optional": false
+                }
+              }
+            }
+          },
+          "optional": false
+        }
+      }
+    },
+    "returns": {
+      "type": "object",
+      "value": {
+        "rowCount": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "accepted": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "totalQuantityBase": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        },
+        "errorCount": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "errors": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "object",
+              "value": {
+                "rowNumber": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": false
+                },
+                "column": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": true
+                },
+                "code": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                },
+                "message": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                }
+              }
+            }
+          },
+          "optional": false
+        }
+      }
+    }
+  },
+  "imports/openingStock:commitOpeningStock": {
+    "kind": "mutation",
+    "args": {
+      "type": "object",
+      "value": {
+        "runKey": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        },
+        "chunkIndex": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "idempotencyKey": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        },
+        "fileHash": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        },
+        "sourceReference": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        },
+        "rows": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "object",
+              "value": {
+                "rowNumber": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": false
+                },
+                "values": {
+                  "fieldType": {
+                    "type": "record",
+                    "keys": {
+                      "type": "string"
+                    },
+                    "values": {
+                      "fieldType": {
+                        "type": "string"
+                      },
+                      "optional": false
+                    }
+                  },
+                  "optional": false
+                }
+              }
+            }
+          },
+          "optional": false
+        }
+      }
+    },
+    "returns": {
+      "type": "object",
+      "value": {
+        "runId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "importRuns"
+          },
+          "optional": false
+        },
+        "movementId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "inventoryMovements"
+          },
+          "optional": true
+        },
+        "movementNumber": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": true
+        },
+        "accepted": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "failed": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "duplicate": {
+          "fieldType": {
+            "type": "boolean"
+          },
+          "optional": false
+        },
+        "errors": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "object",
+              "value": {
+                "rowNumber": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": false
+                },
+                "column": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": true
+                },
+                "code": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                },
+                "message": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                }
+              }
+            }
+          },
+          "optional": false
+        }
+      }
+    }
+  },
+  "imports/adjustments:preview": {
+    "kind": "query",
+    "args": {
+      "type": "object",
+      "value": {
+        "rows": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "object",
+              "value": {
+                "rowNumber": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": false
+                },
+                "values": {
+                  "fieldType": {
+                    "type": "record",
+                    "keys": {
+                      "type": "string"
+                    },
+                    "values": {
+                      "fieldType": {
+                        "type": "string"
+                      },
+                      "optional": false
+                    }
+                  },
+                  "optional": false
+                }
+              }
+            }
+          },
+          "optional": false
+        },
+        "header": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "string"
+            }
+          },
+          "optional": true
+        }
+      }
+    },
+    "returns": {
+      "type": "object",
+      "value": {
+        "rowCount": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "accepted": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "errorCount": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "errors": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "object",
+              "value": {
+                "rowNumber": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": false
+                },
+                "column": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": true
+                },
+                "code": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                },
+                "message": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                }
+              }
+            }
+          },
+          "optional": false
+        },
+        "partitions": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "object",
+              "value": {
+                "productCode": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                },
+                "baseUomCode": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                },
+                "locationCode": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                },
+                "stockStatus": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                },
+                "lotNumber": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": true
+                },
+                "positiveBase": {
+                  "fieldType": {
+                    "type": "bigint"
+                  },
+                  "optional": false
+                },
+                "negativeBase": {
+                  "fieldType": {
+                    "type": "bigint"
+                  },
+                  "optional": false
+                },
+                "netDeltaBase": {
+                  "fieldType": {
+                    "type": "bigint"
+                  },
+                  "optional": false
+                },
+                "currentBase": {
+                  "fieldType": {
+                    "type": "bigint"
+                  },
+                  "optional": false
+                },
+                "projectedBase": {
+                  "fieldType": {
+                    "type": "bigint"
+                  },
+                  "optional": false
+                }
+              }
+            }
+          },
+          "optional": false
+        },
+        "requestChunks": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        }
+      }
+    }
+  },
+  "imports/adjustments:commit": {
+    "kind": "mutation",
+    "args": {
+      "type": "object",
+      "value": {
+        "runKey": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        },
+        "chunkIndex": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "idempotencyKey": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        },
+        "fileHash": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        },
+        "rowCount": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "rows": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "object",
+              "value": {
+                "rowNumber": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": false
+                },
+                "values": {
+                  "fieldType": {
+                    "type": "record",
+                    "keys": {
+                      "type": "string"
+                    },
+                    "values": {
+                      "fieldType": {
+                        "type": "string"
+                      },
+                      "optional": false
+                    }
+                  },
+                  "optional": false
+                }
+              }
+            }
+          },
+          "optional": false
+        },
+        "header": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "string"
+            }
+          },
+          "optional": true
+        }
+      }
+    },
+    "returns": {
+      "type": "object",
+      "value": {
+        "runId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "importRuns"
+          },
+          "optional": false
+        },
+        "adjustmentId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "inventoryAdjustments"
+          },
+          "optional": true
+        },
+        "sessionId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "stockCountSessions"
+          },
+          "optional": true
+        },
+        "accepted": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "failed": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "duplicate": {
+          "fieldType": {
+            "type": "boolean"
+          },
+          "optional": false
+        },
+        "errors": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "object",
+              "value": {
+                "rowNumber": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": false
+                },
+                "column": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": true
+                },
+                "code": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                },
+                "message": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                }
+              }
+            }
+          },
+          "optional": false
+        }
+      }
+    }
+  },
+  "imports/counts:preview": {
+    "kind": "query",
+    "args": {
+      "type": "object",
+      "value": {
+        "rows": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "object",
+              "value": {
+                "rowNumber": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": false
+                },
+                "values": {
+                  "fieldType": {
+                    "type": "record",
+                    "keys": {
+                      "type": "string"
+                    },
+                    "values": {
+                      "fieldType": {
+                        "type": "string"
+                      },
+                      "optional": false
+                    }
+                  },
+                  "optional": false
+                }
+              }
+            }
+          },
+          "optional": false
+        },
+        "header": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "string"
+            }
+          },
+          "optional": true
+        }
+      }
+    },
+    "returns": {
+      "type": "object",
+      "value": {
+        "rowCount": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "accepted": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "errorCount": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "errors": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "object",
+              "value": {
+                "rowNumber": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": false
+                },
+                "column": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": true
+                },
+                "code": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                },
+                "message": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                }
+              }
+            }
+          },
+          "optional": false
+        },
+        "snapshotAt": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": true
+        },
+        "lines": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "object",
+              "value": {
+                "rowNumber": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": false
+                },
+                "countedBase": {
+                  "fieldType": {
+                    "type": "bigint"
+                  },
+                  "optional": false
+                },
+                "status": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                }
+              }
+            }
+          },
+          "optional": false
+        },
+        "approvalPartitions": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "object",
+              "value": {
+                "rowNumber": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": false
+                },
+                "productCode": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                },
+                "baseUomCode": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                },
+                "locationCode": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                },
+                "stockStatus": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                },
+                "lotNumber": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": true
+                },
+                "expectedBase": {
+                  "fieldType": {
+                    "type": "bigint"
+                  },
+                  "optional": false
+                },
+                "countedBase": {
+                  "fieldType": {
+                    "type": "bigint"
+                  },
+                  "optional": false
+                },
+                "varianceBase": {
+                  "fieldType": {
+                    "type": "bigint"
+                  },
+                  "optional": false
+                },
+                "gainBase": {
+                  "fieldType": {
+                    "type": "bigint"
+                  },
+                  "optional": false
+                },
+                "lossBase": {
+                  "fieldType": {
+                    "type": "bigint"
+                  },
+                  "optional": false
+                },
+                "projectedBase": {
+                  "fieldType": {
+                    "type": "bigint"
+                  },
+                  "optional": false
+                }
+              }
+            }
+          },
+          "optional": true
+        },
+        "zeroVarianceCount": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": true
+        },
+        "proposedMovementLines": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": true
+        }
+      }
+    }
+  },
+  "imports/counts:commit": {
+    "kind": "mutation",
+    "args": {
+      "type": "object",
+      "value": {
+        "runKey": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        },
+        "chunkIndex": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "idempotencyKey": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        },
+        "fileHash": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        },
+        "rowCount": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "rows": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "object",
+              "value": {
+                "rowNumber": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": false
+                },
+                "values": {
+                  "fieldType": {
+                    "type": "record",
+                    "keys": {
+                      "type": "string"
+                    },
+                    "values": {
+                      "fieldType": {
+                        "type": "string"
+                      },
+                      "optional": false
+                    }
+                  },
+                  "optional": false
+                }
+              }
+            }
+          },
+          "optional": false
+        },
+        "header": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "string"
+            }
+          },
+          "optional": true
+        }
+      }
+    },
+    "returns": {
+      "type": "object",
+      "value": {
+        "runId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "importRuns"
+          },
+          "optional": false
+        },
+        "adjustmentId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "inventoryAdjustments"
+          },
+          "optional": true
+        },
+        "sessionId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "stockCountSessions"
+          },
+          "optional": true
+        },
+        "accepted": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "failed": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "duplicate": {
+          "fieldType": {
+            "type": "boolean"
+          },
+          "optional": false
+        },
+        "errors": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "object",
+              "value": {
+                "rowNumber": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": false
+                },
+                "column": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": true
+                },
+                "code": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                },
+                "message": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                }
+              }
+            }
+          },
+          "optional": false
+        }
+      }
+    }
+  },
+  "imports/runs:list": {
+    "kind": "query",
+    "args": {
+      "type": "object",
+      "value": {
+        "limit": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": true
+        }
+      }
+    },
+    "returns": {
+      "type": "array",
+      "value": {
+        "type": "object",
+        "value": {
+          "runKey": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "importType": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "products"
+                },
+                {
+                  "type": "literal",
+                  "value": "opening_stock"
+                }
+              ]
+            },
+            "optional": false
+          },
+          "status": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "chunkCount": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false
+          },
+          "rowCount": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false
+          },
+          "createdCount": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false
+          },
+          "updatedCount": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false
+          },
+          "skippedCount": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false
+          },
+          "failedCount": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false
+          },
+          "movementIds": {
+            "fieldType": {
+              "type": "array",
+              "value": {
+                "type": "id",
+                "tableName": "inventoryMovements"
+              }
+            },
+            "optional": false
+          },
+          "actorSubject": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "createdAt": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false
+          },
+          "completedAt": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "optional": false
+          }
+        }
+      }
+    }
+  },
+  "imports/runs:detail": {
+    "kind": "query",
+    "args": {
+      "type": "object",
+      "value": {
+        "runKey": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        },
+        "importType": {
+          "fieldType": {
+            "type": "union",
+            "value": [
+              {
+                "type": "literal",
+                "value": "products"
+              },
+              {
+                "type": "literal",
+                "value": "opening_stock"
+              }
+            ]
+          },
+          "optional": false
+        }
+      }
+    },
+    "returns": {
+      "type": "object",
+      "value": {
+        "runs": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "any"
+            }
+          },
+          "optional": false
+        },
+        "errors": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "any"
+            }
+          },
+          "optional": false
+        },
+        "movements": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "any"
+            }
+          },
+          "optional": false
+        }
+      }
+    }
+  },
+  "imports/operational_history:list": {
+    "kind": "query",
+    "args": {
+      "type": "object",
+      "value": {
+        "limit": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": true
+        }
+      }
+    },
+    "returns": {
+      "type": "array",
+      "value": {
+        "type": "any"
+      }
+    }
+  },
+  "imports/operational_history:detail": {
+    "kind": "query",
+    "args": {
+      "type": "object",
+      "value": {
+        "runKey": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        },
+        "importType": {
+          "fieldType": {
+            "type": "union",
+            "value": [
+              {
+                "type": "literal",
+                "value": "stock_adjustment"
+              },
+              {
+                "type": "literal",
+                "value": "cycle_count"
+              }
+            ]
+          },
+          "optional": false
+        }
+      }
+    },
+    "returns": {
+      "type": "object",
+      "value": {
+        "runs": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "any"
+            }
+          },
+          "optional": false
+        },
+        "errors": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "any"
+            }
+          },
+          "optional": false
+        }
+      }
+    }
+  },
+  "inventory/queries:overview": {
+    "kind": "query",
+    "args": {
+      "type": "object",
+      "value": {
+        "locationId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "inventoryLocations"
+          },
+          "optional": true
+        },
+        "limit": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": true
+        }
+      }
+    },
+    "returns": {
+      "type": "array",
+      "value": {
+        "type": "object",
+        "value": {
+          "id": {
+            "fieldType": {
+              "type": "id",
+              "tableName": "inventoryBalances"
+            },
+            "optional": false
+          },
+          "productId": {
+            "fieldType": {
+              "type": "id",
+              "tableName": "products"
+            },
+            "optional": false
+          },
+          "productCode": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "productName": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "locationId": {
+            "fieldType": {
+              "type": "id",
+              "tableName": "inventoryLocations"
+            },
+            "optional": false
+          },
+          "locationCode": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "locationName": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "locationType": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "physical": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "reserved": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "available": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "qualityHold": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "inTransit": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "version": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false
+          },
+          "updatedAt": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false
+          }
+        }
+      }
+    }
+  },
+  "inventory/queries:locations": {
+    "kind": "query",
+    "args": {
+      "type": "object",
+      "value": {
+        "type": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": true
+        }
+      }
+    },
+    "returns": {
+      "type": "array",
+      "value": {
+        "type": "object",
+        "value": {
+          "_id": {
+            "fieldType": {
+              "type": "id",
+              "tableName": "inventoryLocations"
+            },
+            "optional": false
+          },
+          "_creationTime": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false
+          },
+          "organizationId": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "orgUnitId": {
+            "fieldType": {
+              "type": "id",
+              "tableName": "orgUnits"
+            },
+            "optional": true
+          },
+          "siteCode": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "warehouseId": {
+            "fieldType": {
+              "type": "id",
+              "tableName": "warehouses"
+            },
+            "optional": true
+          },
+          "parentLocationId": {
+            "fieldType": {
+              "type": "id",
+              "tableName": "inventoryLocations"
+            },
+            "optional": true
+          },
+          "code": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "name": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "type": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "active": {
+            "fieldType": {
+              "type": "boolean"
+            },
+            "optional": false
+          },
+          "allowsPicking": {
+            "fieldType": {
+              "type": "boolean"
+            },
+            "optional": false
+          },
+          "allowsReceiving": {
+            "fieldType": {
+              "type": "boolean"
+            },
+            "optional": false
+          },
+          "allowsSale": {
+            "fieldType": {
+              "type": "boolean"
+            },
+            "optional": false
+          },
+          "allowsProduction": {
+            "fieldType": {
+              "type": "boolean"
+            },
+            "optional": false
+          },
+          "externalId": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true
+          },
+          "truckCode": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true
+          },
+          "assignedDeviceId": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true
+          },
+          "createdAt": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false
+          },
+          "updatedAt": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false
+          }
+        }
+      }
+    }
+  },
+  "inventory/queries:movements": {
+    "kind": "query",
+    "args": {
+      "type": "object",
+      "value": {
+        "paginationOpts": {
+          "fieldType": {
+            "type": "object",
+            "value": {
+              "numItems": {
+                "fieldType": {
+                  "type": "number"
+                },
+                "optional": false
+              },
+              "cursor": {
+                "fieldType": {
+                  "type": "union",
+                  "value": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "optional": false
+              },
+              "endCursor": {
+                "fieldType": {
+                  "type": "union",
+                  "value": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "optional": true
+              },
+              "id": {
+                "fieldType": {
+                  "type": "number"
+                },
+                "optional": true
+              },
+              "maximumRowsRead": {
+                "fieldType": {
+                  "type": "number"
+                },
+                "optional": true
+              },
+              "maximumBytesRead": {
+                "fieldType": {
+                  "type": "number"
+                },
+                "optional": true
+              }
+            }
+          },
+          "optional": false
+        }
+      }
+    },
+    "returns": {
+      "type": "object",
+      "value": {
+        "page": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "object",
+              "value": {
+                "_id": {
+                  "fieldType": {
+                    "type": "id",
+                    "tableName": "inventoryMovements"
+                  },
+                  "optional": false
+                },
+                "_creationTime": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": false
+                },
+                "organizationId": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                },
+                "movementNumber": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                },
+                "movementType": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                },
+                "sourceType": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                },
+                "sourceDocumentId": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": true
+                },
+                "status": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                },
+                "effectiveAt": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": false
+                },
+                "postedAt": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": false
+                },
+                "postedBy": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                },
+                "deviceId": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": true
+                },
+                "idempotencyKey": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                },
+                "reasonCode": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": true
+                },
+                "note": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": true
+                },
+                "reversesMovementId": {
+                  "fieldType": {
+                    "type": "id",
+                    "tableName": "inventoryMovements"
+                  },
+                  "optional": true
+                },
+                "reversedByMovementId": {
+                  "fieldType": {
+                    "type": "id",
+                    "tableName": "inventoryMovements"
+                  },
+                  "optional": true
+                },
+                "schemaVersion": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": false
+                }
+              }
+            }
+          },
+          "optional": false
+        },
+        "continueCursor": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        },
+        "isDone": {
+          "fieldType": {
+            "type": "boolean"
+          },
+          "optional": false
+        },
+        "splitCursor": {
+          "fieldType": {
+            "type": "union",
+            "value": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "optional": true
+        },
+        "pageStatus": {
+          "fieldType": {
+            "type": "union",
+            "value": [
+              {
+                "type": "literal",
+                "value": "SplitRecommended"
+              },
+              {
+                "type": "literal",
+                "value": "SplitRequired"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "optional": true
+        }
+      }
+    }
+  },
+  "inventory/queries:lots": {
+    "kind": "query",
+    "args": {
+      "type": "object",
+      "value": {
+        "productId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "products"
+          },
+          "optional": true
+        },
+        "limit": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": true
+        }
+      }
+    },
+    "returns": {
+      "type": "array",
+      "value": {
+        "type": "any"
+      }
+    }
+  },
+  "inventory/queries:lotBalances": {
+    "kind": "query",
+    "args": {
+      "type": "object",
+      "value": {
+        "lotId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "inventoryLots"
+          },
+          "optional": false
+        },
+        "stockStatus": {
+          "fieldType": {
+            "type": "union",
+            "value": [
+              {
+                "type": "literal",
+                "value": "available"
+              },
+              {
+                "type": "literal",
+                "value": "quality_hold"
+              },
+              {
+                "type": "literal",
+                "value": "quarantine"
+              },
+              {
+                "type": "literal",
+                "value": "damaged"
+              },
+              {
+                "type": "literal",
+                "value": "expired"
+              },
+              {
+                "type": "literal",
+                "value": "rejected"
+              },
+              {
+                "type": "literal",
+                "value": "wip"
+              },
+              {
+                "type": "literal",
+                "value": "in_transit"
+              }
+            ]
+          },
+          "optional": true
+        }
+      }
+    },
+    "returns": {
+      "type": "array",
+      "value": {
+        "type": "any"
+      }
+    }
+  },
+  "inventory/queries:trace": {
+    "kind": "query",
+    "args": {
+      "type": "object",
+      "value": {
+        "movementId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "inventoryMovements"
+          },
+          "optional": false
+        }
+      }
+    },
+    "returns": {
+      "type": "object",
+      "value": {
+        "movement": {
+          "fieldType": {
+            "type": "any"
+          },
+          "optional": false
+        },
+        "lines": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "any"
+            }
+          },
+          "optional": false
+        },
+        "allocations": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "any"
+            }
+          },
+          "optional": false
+        },
+        "entries": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "any"
+            }
+          },
+          "optional": false
+        },
+        "command": {
+          "fieldType": {
+            "type": "union",
+            "value": [
+              {
+                "type": "any"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "optional": false
+        },
+        "integrationEvents": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "any"
+            }
+          },
+          "optional": false
+        }
+      }
+    }
+  },
+  "inventory/location_scope:assign": {
+    "kind": "mutation",
+    "args": {
+      "type": "object",
+      "value": {
+        "locationId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "inventoryLocations"
+          },
+          "optional": false
+        },
+        "orgUnitId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "orgUnits"
+          },
+          "optional": false
+        },
+        "reason": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        }
+      }
+    },
+    "returns": {
+      "type": "null"
+    }
+  },
+  "inventory/adjustments:request": {
+    "kind": "mutation",
+    "args": {
+      "type": "object",
+      "value": {
+        "adjustmentType": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        },
+        "reasonCode": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        },
+        "note": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": true
+        },
+        "lines": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "object",
+              "value": {
+                "productId": {
+                  "fieldType": {
+                    "type": "id",
+                    "tableName": "products"
+                  },
+                  "optional": false
+                },
+                "locationId": {
+                  "fieldType": {
+                    "type": "id",
+                    "tableName": "inventoryLocations"
+                  },
+                  "optional": false
+                },
+                "lotId": {
+                  "fieldType": {
+                    "type": "id",
+                    "tableName": "inventoryLots"
+                  },
+                  "optional": true
+                },
+                "stockStatus": {
+                  "fieldType": {
+                    "type": "union",
+                    "value": [
+                      {
+                        "type": "literal",
+                        "value": "available"
+                      },
+                      {
+                        "type": "literal",
+                        "value": "quality_hold"
+                      },
+                      {
+                        "type": "literal",
+                        "value": "quarantine"
+                      },
+                      {
+                        "type": "literal",
+                        "value": "damaged"
+                      },
+                      {
+                        "type": "literal",
+                        "value": "expired"
+                      },
+                      {
+                        "type": "literal",
+                        "value": "rejected"
+                      },
+                      {
+                        "type": "literal",
+                        "value": "wip"
+                      },
+                      {
+                        "type": "literal",
+                        "value": "in_transit"
+                      }
+                    ]
+                  },
+                  "optional": false
+                },
+                "varianceBase": {
+                  "fieldType": {
+                    "type": "bigint"
+                  },
+                  "optional": false
+                },
+                "unitCostMinor": {
+                  "fieldType": {
+                    "type": "bigint"
+                  },
+                  "optional": true
+                }
+              }
+            }
+          },
+          "optional": false
+        }
+      }
+    },
+    "returns": {
+      "type": "id",
+      "tableName": "inventoryAdjustments"
+    }
+  },
+  "inventory/adjustments:decide": {
+    "kind": "mutation",
+    "args": {
+      "type": "object",
+      "value": {
+        "adjustmentId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "inventoryAdjustments"
+          },
+          "optional": false
+        },
+        "decision": {
+          "fieldType": {
+            "type": "union",
+            "value": [
+              {
+                "type": "literal",
+                "value": "approved"
+              },
+              {
+                "type": "literal",
+                "value": "rejected"
+              }
+            ]
+          },
+          "optional": false
+        },
+        "idempotencyKey": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": true
+        },
+        "comment": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": true
+        }
+      }
+    },
+    "returns": {
+      "type": "union",
+      "value": [
+        {
+          "type": "id",
+          "tableName": "inventoryMovements"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "inventory/adjustments:reverse": {
+    "kind": "mutation",
+    "args": {
+      "type": "object",
+      "value": {
+        "adjustmentId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "inventoryAdjustments"
+          },
+          "optional": false
+        },
+        "idempotencyKey": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        },
+        "reason": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        }
+      }
+    },
+    "returns": {
+      "type": "id",
+      "tableName": "inventoryMovements"
+    }
+  },
+  "inventory/adjustments:list": {
+    "kind": "query",
+    "args": {
+      "type": "object",
+      "value": {
+        "status": {
+          "fieldType": {
+            "type": "union",
+            "value": [
+              {
+                "type": "literal",
+                "value": "draft"
+              },
+              {
+                "type": "literal",
+                "value": "submitted"
+              },
+              {
+                "type": "literal",
+                "value": "approved"
+              },
+              {
+                "type": "literal",
+                "value": "posted"
+              },
+              {
+                "type": "literal",
+                "value": "rejected"
+              },
+              {
+                "type": "literal",
+                "value": "reversed"
+              }
+            ]
+          },
+          "optional": true
+        },
+        "limit": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": true
+        }
+      }
+    },
+    "returns": {
+      "type": "array",
+      "value": {
+        "type": "any"
+      }
+    }
+  },
+  "inventory/counts:start": {
+    "kind": "mutation",
+    "args": {
+      "type": "object",
+      "value": {
+        "locationId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "inventoryLocations"
+          },
+          "optional": false
+        },
+        "countType": {
+          "fieldType": {
+            "type": "union",
+            "value": [
+              {
+                "type": "literal",
+                "value": "cycle"
+              },
+              {
+                "type": "literal",
+                "value": "full"
+              },
+              {
+                "type": "literal",
+                "value": "spot"
+              },
+              {
+                "type": "literal",
+                "value": "route_close"
+              }
+            ]
+          },
+          "optional": false
+        },
+        "blindCount": {
+          "fieldType": {
+            "type": "boolean"
+          },
+          "optional": false
+        }
+      }
+    },
+    "returns": {
+      "type": "id",
+      "tableName": "stockCountSessions"
+    }
+  },
+  "inventory/counts:submit": {
+    "kind": "mutation",
+    "args": {
+      "type": "object",
+      "value": {
+        "sessionId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "stockCountSessions"
+          },
+          "optional": false
+        },
+        "lines": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "object",
+              "value": {
+                "lineId": {
+                  "fieldType": {
+                    "type": "id",
+                    "tableName": "stockCountLines"
+                  },
+                  "optional": false
+                },
+                "countedBase": {
+                  "fieldType": {
+                    "type": "bigint"
+                  },
+                  "optional": false
+                },
+                "finding": {
+                  "fieldType": {
+                    "type": "union",
+                    "value": [
+                      {
+                        "type": "literal",
+                        "value": "over"
+                      },
+                      {
+                        "type": "literal",
+                        "value": "missing"
+                      },
+                      {
+                        "type": "literal",
+                        "value": "damaged"
+                      },
+                      {
+                        "type": "literal",
+                        "value": "expired"
+                      },
+                      {
+                        "type": "literal",
+                        "value": "wrong_lot"
+                      },
+                      {
+                        "type": "literal",
+                        "value": "wrong_location"
+                      }
+                    ]
+                  },
+                  "optional": true
+                },
+                "note": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": true
+                }
+              }
+            }
+          },
+          "optional": false
+        }
+      }
+    },
+    "returns": {
+      "type": "null"
+    }
+  },
+  "inventory/counts:approveAndPost": {
+    "kind": "mutation",
+    "args": {
+      "type": "object",
+      "value": {
+        "sessionId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "stockCountSessions"
+          },
+          "optional": false
+        },
+        "idempotencyKey": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        },
+        "reasonCode": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        }
+      }
+    },
+    "returns": {
+      "type": "id",
+      "tableName": "inventoryAdjustments"
+    }
+  },
+  "inventory/counts:list": {
+    "kind": "query",
+    "args": {
+      "type": "object",
+      "value": {
+        "limit": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": true
+        }
+      }
+    },
+    "returns": {
+      "type": "array",
+      "value": {
+        "type": "any"
+      }
+    }
+  },
+  "inventory/counts:detail": {
+    "kind": "query",
+    "args": {
+      "type": "object",
+      "value": {
+        "sessionId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "stockCountSessions"
+          },
+          "optional": false
+        }
+      }
+    },
+    "returns": {
+      "type": "object",
+      "value": {
+        "session": {
+          "fieldType": {
+            "type": "any"
+          },
+          "optional": false
+        },
+        "lines": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "object",
+              "value": {
+                "lineId": {
+                  "fieldType": {
+                    "type": "id",
+                    "tableName": "stockCountLines"
+                  },
+                  "optional": false
+                },
+                "productCode": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                },
+                "productName": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                },
+                "lotNumber": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": true
+                },
+                "stockStatus": {
+                  "fieldType": {
+                    "type": "union",
+                    "value": [
+                      {
+                        "type": "literal",
+                        "value": "available"
+                      },
+                      {
+                        "type": "literal",
+                        "value": "quality_hold"
+                      },
+                      {
+                        "type": "literal",
+                        "value": "quarantine"
+                      },
+                      {
+                        "type": "literal",
+                        "value": "damaged"
+                      },
+                      {
+                        "type": "literal",
+                        "value": "expired"
+                      },
+                      {
+                        "type": "literal",
+                        "value": "rejected"
+                      },
+                      {
+                        "type": "literal",
+                        "value": "wip"
+                      },
+                      {
+                        "type": "literal",
+                        "value": "in_transit"
+                      }
+                    ]
+                  },
+                  "optional": false
+                },
+                "systemBase": {
+                  "fieldType": {
+                    "type": "bigint"
+                  },
+                  "optional": true
+                },
+                "countedBase": {
+                  "fieldType": {
+                    "type": "bigint"
+                  },
+                  "optional": true
+                },
+                "varianceBase": {
+                  "fieldType": {
+                    "type": "bigint"
+                  },
+                  "optional": true
+                }
+              }
+            }
+          },
+          "optional": false
+        }
+      }
+    }
+  },
+  "inventory/pos:openRoute": {
+    "kind": "mutation",
+    "args": {
+      "type": "object",
+      "value": {
+        "truckLocationId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "inventoryLocations"
+          },
+          "optional": false
+        },
+        "deviceId": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        },
+        "routeCode": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": true
+        }
+      }
+    },
+    "returns": {
+      "type": "id",
+      "tableName": "truckRouteSessions"
+    }
+  },
+  "inventory/pos:currentRoute": {
+    "kind": "query",
+    "args": {
+      "type": "object",
+      "value": {
+        "deviceId": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        }
+      }
+    },
+    "returns": {
+      "type": "union",
+      "value": [
+        {
+          "type": "any"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "inventory/pos:postSale": {
+    "kind": "mutation",
+    "args": {
+      "type": "object",
+      "value": {
+        "clientRequestId": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        },
+        "customerCode": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        },
+        "truckLocationId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "inventoryLocations"
+          },
+          "optional": false
+        },
+        "routeSessionId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "truckRouteSessions"
+          },
+          "optional": false
+        },
+        "deviceId": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        },
+        "deviceSequence": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        },
+        "offlineCreatedAt": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": true
+        },
+        "lines": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "object",
+              "value": {
+                "productCode": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                },
+                "description": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                },
+                "quantityBase": {
+                  "fieldType": {
+                    "type": "bigint"
+                  },
+                  "optional": false
+                },
+                "quantity": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": false
+                },
+                "unitPrice": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": false
+                },
+                "allocations": {
+                  "fieldType": {
+                    "type": "array",
+                    "value": {
+                      "type": "object",
+                      "value": {
+                        "lotId": {
+                          "fieldType": {
+                            "type": "id",
+                            "tableName": "inventoryLots"
+                          },
+                          "optional": false
+                        },
+                        "quantityBase": {
+                          "fieldType": {
+                            "type": "bigint"
+                          },
+                          "optional": false
+                        }
+                      }
+                    }
+                  },
+                  "optional": true
+                }
+              }
+            }
+          },
+          "optional": false
+        }
+      }
+    },
+    "returns": {
+      "type": "object",
+      "value": {
+        "orderId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "orders"
+          },
+          "optional": false
+        },
+        "movementId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "inventoryMovements"
+          },
+          "optional": false
+        },
+        "duplicate": {
+          "fieldType": {
+            "type": "boolean"
+          },
+          "optional": false
+        },
+        "nextDeviceSequence": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": false
+        }
+      }
+    }
+  },
+  "inventory/pos:returnSale": {
+    "kind": "mutation",
+    "args": {
+      "type": "object",
+      "value": {
+        "originalOrderId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "orders"
+          },
+          "optional": false
+        },
+        "clientRequestId": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        },
+        "reason": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        },
+        "lines": {
+          "fieldType": {
+            "type": "array",
+            "value": {
+              "type": "object",
+              "value": {
+                "productCode": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": false
+                },
+                "quantityBase": {
+                  "fieldType": {
+                    "type": "bigint"
+                  },
+                  "optional": false
+                },
+                "quantity": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": false
+                }
+              }
+            }
+          },
+          "optional": false
+        }
+      }
+    },
+    "returns": {
+      "type": "object",
+      "value": {
+        "returnOrderId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "orders"
+          },
+          "optional": false
+        },
+        "movementId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "inventoryMovements"
+          },
+          "optional": false
+        },
+        "duplicate": {
+          "fieldType": {
+            "type": "boolean"
+          },
+          "optional": false
+        }
+      }
+    }
+  },
+  "inventory/pos:voidSale": {
+    "kind": "mutation",
+    "args": {
+      "type": "object",
+      "value": {
+        "orderId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "orders"
+          },
+          "optional": false
+        },
+        "idempotencyKey": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        },
+        "reason": {
+          "fieldType": {
+            "type": "string"
+          },
+          "optional": false
+        }
+      }
+    },
+    "returns": {
+      "type": "id",
+      "tableName": "inventoryMovements"
+    }
+  },
+  "inventory/pos:beginCloseRoute": {
+    "kind": "mutation",
+    "args": {
+      "type": "object",
+      "value": {
+        "routeSessionId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "truckRouteSessions"
+          },
+          "optional": false
+        }
+      }
+    },
+    "returns": {
+      "type": "null"
+    }
+  },
+  "inventory/pos:finalizeRoute": {
+    "kind": "mutation",
+    "args": {
+      "type": "object",
+      "value": {
+        "routeSessionId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "truckRouteSessions"
+          },
+          "optional": false
+        },
+        "countSessionId": {
+          "fieldType": {
+            "type": "id",
+            "tableName": "stockCountSessions"
+          },
+          "optional": false
+        }
+      }
+    },
+    "returns": {
+      "type": "id",
+      "tableName": "truckInventoryCheckpoints"
+    }
+  },
+  "domains/masterData:products": {
+    "kind": "query",
+    "args": {
+      "type": "object",
+      "value": {
+        "limit": {
+          "fieldType": {
+            "type": "number"
+          },
+          "optional": true
+        }
+      }
+    },
+    "returns": {
+      "type": "array",
+      "value": {
+        "type": "object",
+        "value": {
+          "code": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "name": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "category": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "uom": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "unitPrice": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false
+          },
+          "active": {
+            "fieldType": {
+              "type": "boolean"
+            },
+            "optional": false
+          },
+          "externalId": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true
+          },
+          "organizationId": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true
+          },
+          "baseUomId": {
+            "fieldType": {
+              "type": "id",
+              "tableName": "unitsOfMeasure"
+            },
+            "optional": true
+          },
+          "quantityScale": {
+            "fieldType": {
+              "type": "bigint"
+            },
+            "optional": true
+          },
+          "trackingMode": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "none"
+                },
+                {
+                  "type": "literal",
+                  "value": "lot"
+                },
+                {
+                  "type": "literal",
+                  "value": "serial"
+                }
+              ]
+            },
+            "optional": true
+          },
+          "allocationPolicy": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "fefo"
+                },
+                {
+                  "type": "literal",
+                  "value": "fifo"
+                },
+                {
+                  "type": "literal",
+                  "value": "explicit_only"
+                }
+              ]
+            },
+            "optional": true
+          },
+          "policyVersion": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true
+          },
+          "sellingUomIds": {
+            "fieldType": {
+              "type": "array",
+              "value": {
+                "type": "id",
+                "tableName": "unitsOfMeasure"
+              }
+            },
+            "optional": true
+          },
+          "catalogSource": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true
+          },
+          "catalogUpdatedAt": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true
+          },
+          "updatedAt": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false
+          },
+          "_id": {
+            "fieldType": {
+              "type": "id",
+              "tableName": "products"
+            },
+            "optional": false
+          },
+          "_creationTime": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false
+          }
+        }
+      }
+    }
+  }
+}

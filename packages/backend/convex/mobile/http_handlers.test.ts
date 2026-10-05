@@ -377,6 +377,52 @@ describe("mobile HTTP boundary", () => {
       expect(h.authorize).not.toHaveBeenCalled();
     }
   });
+  it("passes a well-formed field order through and rejects malformed lines before proof", async () => {
+    const orderId = "00000000-0000-4000-8000-000000000900";
+    const line = { productId: "product", uom: "CAN", quantity: 12 };
+    const push = (lines: unknown) => ({
+      type: "push.request",
+      contractVersion: 1,
+      deviceId: "device",
+      operations: [
+        {
+          kind: "visit.activity",
+          clientRequestId: uuid,
+          payload: {
+            visitId: "visit",
+            activity: { kind: "order_intent", clientOrderId: orderId, lines },
+            deviceTime: 1,
+          },
+        },
+      ],
+    });
+    const ok = harness();
+    const accepted = await handleMobile(
+      ok.ctx,
+      await request("push", push([line])),
+      "push",
+    );
+    expect(accepted.status).toBe(200);
+    expect(ok.apply).toHaveBeenCalledTimes(1);
+    for (const lines of [
+      [],
+      [{ productId: "product", quantity: 1 }],
+      [{ ...line, quantity: 0 }],
+      [{ ...line, quantity: 1.5 }],
+      [{ ...line, quantity: 100_000 }],
+      [{ ...line, quantity: "12" }],
+      [{ ...line, uom: "" }],
+      [{ ...line, unitPrice: 189 }],
+      Array.from({ length: 101 }, () => line),
+    ]) {
+      const h = harness();
+      expect(
+        (await handleMobile(h.ctx, await request("push", push(lines)), "push"))
+          .status,
+      ).toBe(400);
+      expect(h.authorize).not.toHaveBeenCalled();
+    }
+  });
 });
 
 describe("QSR-013 bootstrap response strategy", () => {

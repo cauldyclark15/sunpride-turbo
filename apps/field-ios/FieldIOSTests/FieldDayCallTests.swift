@@ -49,15 +49,20 @@ final class FieldDayCallTests: XCTestCase {
     }
     private func save(_ visits: [StoreSnapshot.Visit], target: StoreSnapshot.DayTarget? = nil) throws {
         let expiry = Int64(FieldDay.nextClose(after: clock.now).timeIntervalSince1970 * 1000)
+        let pin = StoreSnapshot.Coordinate(latitude: 14.5764, longitude: 121.0851)
+        let outlets: [StoreSnapshot.Outlet] = ["first", "second", "extra"].map { id in
+            StoreSnapshot.Outlet(id: id, name: id, routeId: nil, location: id == "second" ? nil : pin)
+        }
         try store.saveSnapshot(.init(employee: .init(id: "seller", role: "sales", orgUnitId: "unit"), visits: visits,
-            outlets: ["first", "second", "extra"].map { .init(id: $0, name: $0, routeId: nil) },
+            outlets: outlets,
             customers: [], route: nil, tasks: [], dayTarget: target), cursor: "cursor", leaseExpiresAt: expiry, cacheExpiresAt: expiry, for: partition)
     }
     private func visit(_ id: String) throws -> AppModel.TodayVisit {
         try XCTUnwrap(model.visits.first { $0.id == id })
     }
     private func start(_ visit: AppModel.TodayVisit, location: VisitLocation? = nil) throws {
-        try model.queueCheckIn(visit, unplannedReason: visit.planned ? nil : "Extra call", location: location)
+        try model.queueCheckIn(visit, unplannedReason: visit.planned ? nil : "Extra call",
+                               intents: visit.planned ? [] : ["sell"], location: location)
     }
     private func expect(_ error: AppModel.CallFailure, _ work: () throws -> Void) {
         XCTAssertThrowsError(try work()) { XCTAssertEqual($0 as? AppModel.CallFailure, error) }
@@ -120,7 +125,7 @@ final class FieldDayCallTests: XCTestCase {
     }
     func testOpenCallOnPastDayDoesNotBlockTodaysCall() throws {
         let old = try DiagnosticOperation.checkIn(plannedId: nil, outletId: "extra", day: "2026-10-01",
-            intents: [], reason: "Earlier call", location: nil, now: clock.now.addingTimeInterval(-86_400))
+            intents: ["sell"], reason: "Earlier call", location: nil, now: clock.now.addingTimeInterval(-86_400))
         try store.enqueue(old, for: partition, now: clock.now)
         try start(try visit("first"))
     }
@@ -135,7 +140,8 @@ final class FieldDayCallTests: XCTestCase {
             XCTAssertEqual(recorded["latitude"] as? Double, -80)
             XCTAssertEqual(recorded["longitude"] as? Double, -170)
             XCTAssertEqual(recorded["accuracyMeters"] as? Double, 9_999)
-            XCTAssertEqual(recorded["provider"] as? String, "gps")
+            XCTAssertEqual(recorded["provider"] as? String, "fused")
+            XCTAssertEqual(recorded["mockSignal"] as? Bool, false)
             XCTAssertEqual((recorded["fixTime"] as? NSNumber)?.int64Value, fix.fixTime)
         }
         let second = try visit("second")
@@ -143,6 +149,18 @@ final class FieldDayCallTests: XCTestCase {
         try model.queueCheckOut(outcome: "completed", reason: nil, for: second, location: nil)
         let missing = try store.intents(for: partition).suffix(2)
         XCTAssertTrue(missing.allSatisfy { $0.payload?["location"] is NSNull })
+    }
+    func testVisitRowsCarryVerifiedPinForOnPhoneDistance() throws {
+        XCTAssertEqual(try visit("first").pin, OutletPin(latitude: 14.5764, longitude: 121.0851))
+        XCTAssertNil(try visit("second").pin, "no verified pin: server flags the fix for review")
+        XCTAssertEqual(try visit("unplanned-extra").pin, OutletPin(latitude: 14.5764, longitude: 121.0851))
+        // The pin survives the check-in refresh, and a far fix still queues Start (no distance limit).
+        let far = try VisitLocation(latitude: 14.6764, longitude: 121.0851, accuracyMeters: 8,
+                                    fixTime: Int64(clock.now.timeIntervalSince1970 * 1000))
+        try start(try visit("first"), location: far)
+        XCTAssertNotNil(try visit("first").pin)
+        XCTAssertEqual(try store.intents(for: partition).count, 1)
+        XCTAssertTrue(LocationAssessment.notice(.captured(far), pin: try visit("first").pin, at: clock.now).review)
     }
     func testRejectedEndDoesNotUnlockNextStoreAndMapsServerReasons() throws {
         let first = try visit("first"), second = try visit("second")

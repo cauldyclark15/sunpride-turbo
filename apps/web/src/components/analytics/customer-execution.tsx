@@ -30,6 +30,7 @@ import {
 } from "../../lib/customer-execution";
 import { PanelErrorBoundary } from "../panel-error-boundary";
 import { manilaToday } from "../supervision/supervision-model";
+import { SuggestedOrderPanel } from "./suggested-order";
 
 type StoreFigures = FunctionReturnType<typeof api.analytics.customer.store>;
 type StorePage = FunctionReturnType<typeof api.analytics.customer.stores>;
@@ -527,11 +528,23 @@ export function CustomerExecution() {
             key={`${outletId}-${asOfDate}-${weeks}`}
             label="Customer execution"
           >
-            <StoreFiguresLoader
-              outletId={outletId}
-              asOfDate={asOfDate}
-              weeks={weeks}
-            />
+            <div className="grid gap-4">
+              <StoreFiguresLoader
+                outletId={outletId}
+                asOfDate={asOfDate}
+                weeks={weeks}
+              />
+              <PanelErrorBoundary
+                key={`suggested-${outletId}-${asOfDate}`}
+                label="Suggested order"
+              >
+                <SuggestedOrderPanel
+                  key={outletId}
+                  outletId={outletId}
+                  asOfDate={asOfDate}
+                />
+              </PanelErrorBoundary>
+            </div>
           </PanelErrorBoundary>
         ) : (
           <p className="text-[13px] text-muted">
