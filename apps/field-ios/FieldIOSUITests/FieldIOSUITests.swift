@@ -190,6 +190,7 @@ final class FieldIOSUITests: XCTestCase {
         XCTAssertTrue(app.buttons["nextOutlet"].exists)
         XCTAssertTrue(app.buttons["nextOutlet"].label.contains("Stub Outlet"))
         XCTAssertTrue(app.buttons["visit-planned-stub-2"].exists)
+        XCTAssertFalse(app.buttons["openTeam"].exists, "IOS-020: a field seller has no Team page")
         app.terminate()
         let offline = launchStub("offline")
         XCTAssertTrue(offline.staticTexts["Stub Outlet"].waitForExistence(timeout: 15))
@@ -519,6 +520,51 @@ final class FieldIOSUITests: XCTestCase {
         app.buttons["routeOpenVisit"].tap()
         XCTAssertTrue(app.buttons["diagnosticCheckIn"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["diagnosticCheckIn"].isEnabled)
+    }
+
+    /// IOS-020: a supervisor (manager role) opens Team, sees direct reports' coverage and exceptions,
+    /// switches to the whole area, and offline sees today's saved copy with its saved time.
+    func testSupervisorTeamShowsDirectReportsWholeAreaAndSavedCopyOffline() {
+        let app = launchStub("supervisor")
+        signIn(app, password: "correct-horse")
+        let open = app.buttons["openTeam"]
+        XCTAssertTrue(open.waitForExistence(timeout: 20))
+        open.tap()
+        XCTAssertTrue(app.staticTexts["teamTitle"].waitForExistence(timeout: 5))
+        let ana = app.descendants(matching: .any)["teamPerson-profile-ana"]
+        XCTAssertTrue(ana.waitForExistence(timeout: 10))
+        XCTAssertTrue(ana.label.contains("In a call"), ana.label)
+        XCTAssertTrue(ana.label.contains("3 of 6 planned"), ana.label)
+        XCTAssertTrue(app.descendants(matching: .any)["teamPerson-profile-ben"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["teamPerson-profile-cara"].exists, "direct reports only by default")
+        let summary = app.staticTexts["teamSummary"]
+        XCTAssertTrue(summary.label.hasPrefix("2 people · 3 of 11 planned calls done · 1 to review"), summary.label)
+        let location = app.descendants(matching: .any)["teamExceptionOpen-location:ex-1"]
+        reveal(location, in: app)
+        XCTAssertTrue(location.label.contains("Outside the store radius"), location.label)
+        XCTAssertTrue(location.label.contains("412 m away"), location.label)
+        XCTAssertTrue(app.descendants(matching: .any)["teamException-sequence:ex-2"].exists)
+        capture(app, "team-direct")
+        app.swipeDown(); app.swipeDown()
+        app.buttons["teamAll"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["teamPerson-profile-cara"].waitForExistence(timeout: 10))
+        app.buttons["teamDirect"].tap()
+        XCTAssertTrue(ana.waitForExistence(timeout: 10))
+        let deadline = Date().addingTimeInterval(5)
+        while app.descendants(matching: .any)["teamPerson-profile-cara"].exists && Date() < deadline { usleep(200_000) }
+        XCTAssertFalse(app.descendants(matching: .any)["teamPerson-profile-cara"].exists)
+        app.terminate()
+
+        let offline = launchStub("offline")
+        let reopen = offline.buttons["openTeam"]
+        XCTAssertTrue(reopen.waitForExistence(timeout: 15), "role hint survives from the saved snapshot")
+        reopen.tap()
+        let message = offline.staticTexts["teamMessage"]
+        XCTAssertTrue(message.waitForExistence(timeout: 15))
+        XCTAssertTrue(message.label.contains("showing team saved at"), message.label)
+        XCTAssertTrue(offline.descendants(matching: .any)["teamPerson-profile-ana"].exists)
+        XCTAssertTrue(offline.staticTexts["teamSummary"].label.hasSuffix("Saved on this phone"))
+        capture(offline, "team-saved-offline")
     }
 
     /// IOS-011: search only the downloaded (scoped) outlets, offline, and open an outlet's detail.

@@ -46,6 +46,12 @@ final class AppModel {
     let enrollment: Enrollment
     /// Today's summary (date, target, calls, completion, next outlet, ordered route), store-derived.
     private(set) var daySales: StoreSnapshot.DaySales?
+    /// IOS-020: offer the Team page (role hint from the verified snapshot; the server decides access).
+    private(set) var supervisor = false
+    /// IOS-020 Team page: the summary (live or saved), its direct-reports filter and an in-flight flag.
+    private(set) var team = TeamView()
+    private(set) var teamDirectOnly = true
+    private(set) var teamLoading = false
     var dashboard: TodayDashboard {
         TodayDashboard.make(visits: visits, target: dayTarget, sales: daySales, now: now(),
                             canStart: { [weak self] in self?.startFailure(for: $0) == nil })
@@ -236,6 +242,7 @@ final class AppModel {
     private func clearToday() {
         visits = []; callSheets = []; activityRules = []; orderDrafts = []; outletDetails = [:]; customerDetails = [:]; routeCode = nil
         customers = []; dayTasks = []; dayTarget = nil; daySales = nil
+        supervisor = false; team = TeamView(); teamDirectOnly = true
     }
 
     /// Confirmed revocation/suspension (QSR-010): hold unsent work and drop this partition's cached
@@ -344,6 +351,7 @@ final class AppModel {
             dayTasks = saved?.tasks ?? []
             dayTarget = saved?.dayTarget
             daySales = saved?.daySales
+            supervisor = TeamRepository.offered(role: saved?.employee.role)
             lastSyncedAt = try store.syncHealth(for: partition).flatMap { $0.lastSuccessfulSyncAt }
                 .map { Date(timeIntervalSince1970: Double($0) / 1000) }
             refreshStatus()
@@ -613,6 +621,43 @@ final class AppModel {
         if ack == nil { try store.enqueueDeferred(intent, for: partition, now: timestamp) }
         else { try store.enqueue(intent, for: partition, now: timestamp) }
         didQueueWork()
+    }
+    /// IOS-020: today's team summary from the server (people.read + visit.read in the caller's current
+    /// subtree), saved encrypted in this partition for offline display. Never shown when signed out.
+    func loadTeam(directOnly: Bool? = nil) async {
+        let directOnly = directOnly ?? teamDirectOnly
+        guard !teamLoading, signedIn, let partition = activeStoragePartition,
+              let store = try? storage(for: partition) else { return }
+        if directOnly != teamDirectOnly { team = TeamView() }
+        teamDirectOnly = directOnly
+        teamLoading = true
+        defer { teamLoading = false }
+        let day = BootstrapClient.manilaDay(now())
+        let cache = StoreTeamCache(store: store, partition: partition, keepPrefix: TeamRepository.keepPrefix(serviceDate: day))
+        let functions = functions
+        // Without a network or a verified phone, only today's saved copy can be shown.
+        let unavailable: String? = isOffline ? "Offline" : (enrollment.state.isReady ? nil : "Phone not verified yet")
+        let view = await TeamRepository.load(serviceDate: day, directOnly: directOnly, unavailable: unavailable,
+                                             cache: cache, now: now()) {
+            guard let functions else { throw MobileError.offline }
+            return try await functions.query(TeamRepository.path,
+                                             TeamRepository.Args(serviceDate: day, directOnly: directOnly), as: TeamSummary.self)
+        }
+        // A sign-out or partition change during the request discards its result.
+        guard signedIn, activeStoragePartition == partition, teamDirectOnly == directOnly else { return }
+        team = view
+    }
+    @MainActor private struct StoreTeamCache: TeamCache {
+        let store: any FieldLocalStore
+        let partition: StorePartition
+        let keepPrefix: String
+        func read(key: String) -> (body: Data, savedAt: Int64)? {
+            try? store.localCache(entity: TeamRepository.cacheEntity, key: key, for: partition)
+        }
+        func write(key: String, body: Data, savedAt: Int64) {
+            try? store.putLocalCache(entity: TeamRepository.cacheEntity, key: key, body: body, savedAt: savedAt,
+                                     keepPrefix: keepPrefix, for: partition)
+        }
     }
     private func didQueueWork() {
         refreshToday()

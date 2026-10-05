@@ -56,6 +56,14 @@ Today shows queued/sending/review/held counts from SQLCipher, the Manila-time la
 
 Support info exposes only version/build, iOS version, a per-install random opaque handle stored in Keychain, queue counts and allowlisted outcome codes. Its copy action runs through `DiagnosticRedactor`; it never includes public key, identity or request content. Bounded breadcrumbs persist only static event codes (50 max) in an app-support file with complete file protection and backup exclusion; `os.Logger` marks event data private. Neither the log nor support export is a substitute for crash reporting or a live DEV proof.
 
+## Supervisor team view (SP-0039, IOS-020)
+
+When the verified snapshot's employee role is one the server lets read a team (`manager`, `super_admin`, `admin`, `analyst`, `viewer` — the roles holding both `people.read` and `visit.read`), Today shows a **Team** card. The role is only a hint for showing the link; the server decides. **Team** reads `supervision/mobile:team` (the same server-enforced scope as the web supervision pages: the caller's current organizational subtree, field `sales` refused) for today's Manila date: each direct report's planned vs done calls, productive, nonproductive, unplanned, in a call, out of MCP order, late sync and open exceptions, then the day's exceptions (open first, capped at 50; "See the rest on the web"). **Whole area** asks for the full subtree instead. It is read-only: exception decisions stay on the web, and no raw GPS fixes, actor tokens or audit history reach the phone. Same rules and wording as Android AND-020.
+
+The last good summary per filter is saved in the SQLCipher `delta` table under the reserved local entity `local.team` (no schema change), for today only, in the signed-in subject/device/scope partition. Offline or before the phone is verified, Team shows that saved copy with its saved time; a server refusal or an ended session never shows saved data. A held or never-bootstrapped partition saves nothing, and the QSR-010 sign-out/revocation purge removes it with the rest of the server cache.
+
+Tests: `TeamSummaryTests` (wire decode and malformed answers, role hint, live/offline/refused/ended-session/wrong-day loading, wording, encrypted cache partitioning, day pruning, held partition, purge) and the UI test `testSupervisorTeamShowsDirectReportsWholeAreaAndSavedCopyOffline` (DEBUG stub scenario `FIELD_STUB_BACKEND=supervisor`, a registered manager; the stub refuses the team read for the seller scenarios, whose Today has no Team card).
+
 ## Live DEV sign-in and enrollment (manual)
 
 1. Create gitignored `apps/field-ios/Config/Local.xcconfig`:

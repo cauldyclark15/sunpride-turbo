@@ -248,6 +248,14 @@ protocol FieldLocalStore: AnyObject {
     func submitOrderDraft(_ draftId: String, intent: VisitIntent, for partition: StorePartition, now: Date) throws -> OrderDraft
     /// Stored outbox state of one request: pending, deferred, done or "rejected:<code>"; nil if unknown.
     func requestState(for requestId: UUID, in partition: StorePartition) throws -> String?
+    /// IOS-020 small server summaries saved for offline display, kept in this partition's `delta` table
+    /// under a reserved `local.` entity (server deltas are only `visit`/`activity`), so no migration; the
+    /// QSR-010 sign-out/revocation purge drops them with the rest of the server cache.
+    func localCache(entity: String, key: String, for partition: StorePartition) throws -> (body: Data, savedAt: Int64)?
+    /// Save one summary and drop this entity's rows whose key does not start with `keepPrefix`.
+    /// A held or never-bootstrapped partition keeps nothing new.
+    func putLocalCache(entity: String, key: String, body: Data, savedAt: Int64, keepPrefix: String,
+                       for partition: StorePartition) throws
 }
 
 /// SQLCipher 4 database. Keychain loss with an existing file is an error, never a new plaintext DB.
@@ -695,6 +703,26 @@ final class EncryptedFieldStore: FieldLocalStore {
         try query("SELECT body FROM delta WHERE \(Self.predicate) AND entity=? AND id=?", p(partition) + [.text(entity), .text(id)]) {
             sqlite3_column_type($0, 0) == SQLITE_NULL ? nil : Self.data($0, 0)
         }.first ?? nil
+    }
+    func localCache(entity: String, key: String, for partition: StorePartition) throws -> (body: Data, savedAt: Int64)? {
+        guard entity.hasPrefix("local."), !key.isEmpty else { throw StoreError.invalidInput }
+        return try query("SELECT body,revision FROM delta WHERE \(Self.predicate) AND entity=? AND id=? AND body IS NOT NULL",
+                         p(partition) + [.text(entity), .text(key)]) {
+            (body: Self.data($0, 0), savedAt: sqlite3_column_int64($0, 1))
+        }.first
+    }
+    func putLocalCache(entity: String, key: String, body: Data, savedAt: Int64, keepPrefix: String,
+                       for partition: StorePartition) throws {
+        guard entity.hasPrefix("local."), !keepPrefix.isEmpty, key.hasPrefix(keepPrefix), !body.isEmpty, savedAt > 0 else {
+            throw StoreError.invalidInput
+        }
+        try transaction {
+            guard let (generation, held) = try state(partition), generation > 0, !held else { return }
+            try run("DELETE FROM delta WHERE \(Self.predicate) AND entity=? AND substr(id, 1, length(?)) <> ?",
+                    p(partition) + [.text(entity), .text(keepPrefix), .text(keepPrefix)])
+            try run("INSERT OR REPLACE INTO delta(subject,device,scope,entity,id,revision,body) VALUES (?,?,?,?,?,?,?)",
+                    p(partition) + [.text(entity), .text(key), .integer(savedAt), .blob(body)])
+        }
     }
     func pendingOutbox(for partition: StorePartition) throws -> [OutboxItem] {
         guard try !isHeld(partition) else { return [] }

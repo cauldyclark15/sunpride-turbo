@@ -48,6 +48,7 @@
 		5F7FF63872D4AB6F22D0ABDE /* AccountSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 570AC8D271EED929F429C1FC /* AccountSummary.swift */; };
 		66152B7CC3D183BDF44BA0F9 /* TodayScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48AB56CF93ABBF177209B6EC /* TodayScreen.swift */; };
 		682CE21438CC325CF1A955A3 /* Redaction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15846A7B74058B323F108CB7 /* Redaction.swift */; };
+		69B1CE7BE915D11BBEFC4A25 /* TeamSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFA64CB080F17766B0888658 /* TeamSummaryTests.swift */; };
 		6E5A9E4B38E07C096089674E /* FieldIOSUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B785ABDBB42BD392458A68C0 /* FieldIOSUITests.swift */; };
 		733E9950FCD06E634516E78E /* FieldIOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 643649FC187291287C83F0BA /* FieldIOSApp.swift */; };
 		73822FBBD3552646DD513D2C /* ActivityRulesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 469730AD0708443FF010DB2B /* ActivityRulesTests.swift */; };
@@ -93,8 +94,10 @@
 		DC1B6727F5D883AC9A4E241C /* ConvexFunctionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26021CCFB0A859FEF974770E /* ConvexFunctionsTests.swift */; };
 		E1792D6CFC59D318579A3A50 /* DiagnosticVisitScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0D318C2DF743A813CFFBD3F /* DiagnosticVisitScreen.swift */; };
 		ED833DDB513936C536488DFF /* RequestSignerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E8592F5635E44DE9E4D11C /* RequestSignerTests.swift */; };
+		F1F40E99FA9C373ADE94DBE5 /* TeamSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70C1FB290135B5A47051917 /* TeamSummary.swift */; };
 		F375944EE365E45405FEB199 /* RouteScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8475BBA96754FC9943196E1C /* RouteScreen.swift */; };
 		F703F90A4E4C5BEDED816FD0 /* error-device-revoked.json in Resources */ = {isa = PBXBuildFile; fileRef = FD02F392F78AB13154619A9D /* error-device-revoked.json */; };
+		FB02B73F8C0E0E858F84F28C /* TeamScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D83524BAA274C5FAA46B65C /* TeamScreen.swift */; };
 		FDB32474097B7BE3233DD03B /* FieldStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AD96B1A70BA8246D0F2CCCB /* FieldStore.swift */; };
 /* End PBXBuildFile section */
 
@@ -131,6 +134,7 @@
 		2940D6571ED66ECA44D1992C /* CallSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallSheet.swift; sourceTree = "<group>"; };
 		2A61F2253C7ADE1EFCA16D50 /* FieldIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = FieldIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2C70D6C9BCAC103D5D61EE21 /* pull-response.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "pull-response.json"; sourceTree = "<group>"; };
+		2D83524BAA274C5FAA46B65C /* TeamScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamScreen.swift; sourceTree = "<group>"; };
 		2F3950BE13539316A1A306DB /* push-planned-request.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "push-planned-request.json"; sourceTree = "<group>"; };
 		30C62F926BEAB0C5E72FF22E /* error-rebootstrap-required.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "error-rebootstrap-required.json"; sourceTree = "<group>"; };
 		31267DE5AFA48C28C8852168 /* CustomerScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomerScreens.swift; sourceTree = "<group>"; };
@@ -186,6 +190,7 @@
 		A921334D7FCBE8C314ECCF26 /* OrderSubmissionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrderSubmissionTests.swift; sourceTree = "<group>"; };
 		AB4E64726F359B4CDC7428AC /* error-version-unsupported.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "error-version-unsupported.json"; sourceTree = "<group>"; };
 		AC0AF800FC6AF8CBFA9E75C9 /* VisitCompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitCompletion.swift; sourceTree = "<group>"; };
+		B70C1FB290135B5A47051917 /* TeamSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamSummary.swift; sourceTree = "<group>"; };
 		B785ABDBB42BD392458A68C0 /* FieldIOSUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FieldIOSUITests.swift; sourceTree = "<group>"; };
 		B93C72F0B9A97637FC1D0062 /* DeviceDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceDiagnostics.swift; sourceTree = "<group>"; };
 		BED6899F18ED0393B156EC02 /* CalmComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalmComponents.swift; sourceTree = "<group>"; };
@@ -208,6 +213,7 @@
 		F2692CA1C06F882E746AF973 /* SunprideTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SunprideTokens.swift; sourceTree = "<group>"; };
 		FD02F392F78AB13154619A9D /* error-device-revoked.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "error-device-revoked.json"; sourceTree = "<group>"; };
 		FEFC4C65AAB7AE9A26456383 /* SupportInfoScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportInfoScreen.swift; sourceTree = "<group>"; };
+		FFA64CB080F17766B0888658 /* TeamSummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamSummaryTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -295,6 +301,14 @@
 			path = DiagnosticVisit;
 			sourceTree = "<group>";
 		};
+		567718A8BAD55BEDCD033E88 /* Supervision */ = {
+			isa = PBXGroup;
+			children = (
+				B70C1FB290135B5A47051917 /* TeamSummary.swift */,
+			);
+			path = Supervision;
+			sourceTree = "<group>";
+		};
 		57589BF18D89A7CEFB0A74FD /* FieldIOSUITests */ = {
 			isa = PBXGroup;
 			children = (
@@ -322,6 +336,7 @@
 				83B6EE57DB1DE477B02CC0A6 /* SecurityHygieneTests.swift */,
 				930F787C27D8364206637A1B /* StorageTests.swift */,
 				CA4C96C1D58520ED598A16FB /* SyncStatusDiagnosticsTests.swift */,
+				FFA64CB080F17766B0888658 /* TeamSummaryTests.swift */,
 				02806637BC8CE0B5AA0A7AEE /* TodayDashboardTests.swift */,
 				8445D8CD92D697DE81E4D95B /* VisitCompletionTests.swift */,
 				9540F232820E11D296CE31F1 /* VisitLocationTests.swift */,
@@ -373,6 +388,14 @@
 			path = Background;
 			sourceTree = "<group>";
 		};
+		704449C96800B52B92293C4D /* Supervision */ = {
+			isa = PBXGroup;
+			children = (
+				2D83524BAA274C5FAA46B65C /* TeamScreen.swift */,
+			);
+			path = Supervision;
+			sourceTree = "<group>";
+		};
 		733496D32000AFE351CB69D9 /* FieldIOS */ = {
 			isa = PBXGroup;
 			children = (
@@ -413,6 +436,7 @@
 				52766CED171A97857143FDDF /* DiagnosticVisit */,
 				EB67165B623E7AFF822DA538 /* Orders */,
 				4AA62F3A2221A77945BF2487 /* Route */,
+				704449C96800B52B92293C4D /* Supervision */,
 				238AB9FAEF97250A7BD64C20 /* SyncStatus */,
 			);
 			path = UI;
@@ -539,6 +563,7 @@
 				9C791D7E660C7EAF29F55624 /* Diagnostics */,
 				9276DF0EF835B35ACF1C0BDE /* Orders */,
 				CE5DE472765B8EF50D6282D0 /* Storage */,
+				567718A8BAD55BEDCD033E88 /* Supervision */,
 				D4BA2B8455DA6F35DB46FE07 /* Sync */,
 				7ED1588637F297CF94CEBB5B /* UI */,
 			);
@@ -736,6 +761,7 @@
 				1B04D06C36728973163262BA /* StorageTests.swift in Sources */,
 				AE965CF2451DF21709DC5EB3 /* StubURLProtocol.swift in Sources */,
 				D8CA5082EEAA88C235A1B4AD /* SyncStatusDiagnosticsTests.swift in Sources */,
+				69B1CE7BE915D11BBEFC4A25 /* TeamSummaryTests.swift in Sources */,
 				8F492F730DDDB865B9C71A2D /* TodayDashboardTests.swift in Sources */,
 				A1C72C283C26A8EEE8022903 /* VisitCompletionTests.swift in Sources */,
 				29EC1BBD3C5C7EC493E7F6EF /* VisitLocationTests.swift in Sources */,
@@ -789,6 +815,8 @@
 				B54D44E71FB8A694615029E1 /* SupportInfo.swift in Sources */,
 				4D8F664E645626879B9AEA6C /* SupportInfoScreen.swift in Sources */,
 				304EF591D286998ACDE79FD6 /* SyncStatus.swift in Sources */,
+				FB02B73F8C0E0E858F84F28C /* TeamScreen.swift in Sources */,
+				F1F40E99FA9C373ADE94DBE5 /* TeamSummary.swift in Sources */,
 				BEAC157A1F183F1B797B3DD8 /* TodayDashboard.swift in Sources */,
 				66152B7CC3D183BDF44BA0F9 /* TodayScreen.swift in Sources */,
 				8A556987873513B8A742E542 /* VisitCompletion.swift in Sources */,
