@@ -17,7 +17,8 @@ uses the same server API and bootstrap field.
 
 ## On the phone
 
-1. A photo can be taken only while the call is open (after Start, before End is queued).
+1. A photo can be taken only while the call is open (after Start, before End is queued). An End the
+   server refused reopens the call (IOS-017), so photos can be taken again until the next End.
 2. The person picks a type, then takes the photo (CameraX, back camera, about 2 MP JPEG, quality 85).
    The image is written to memory, never to the gallery or shared storage.
 3. The JPEG is sealed with AES-256-GCM under a non-exportable Android Keystore key in no-backup app
@@ -46,7 +47,9 @@ falls back to the same provisional defaults).
    (`evidence_photos`, schema v6). At most 20 photos per call.
 4. Upload (`Evidence/EvidenceUploader.swift`) runs after every successful sync and right after a photo
    is saved when online; the background refresh task also wakes for waiting photos. The sync pill reads
-   "Synced · photos uploading" while photos wait; the Sync sheet counts waiting and office-review photos.
+   "Synced · photos uploading" while photos wait; the Sync sheet counts waiting, held and office-review
+   photos. A photo in office review shows "Needs review", and photos held in this or a previous scope
+   show "Held · needs supervisor" — never "All synced".
 5. Visit association is the call's Start request ID, resolved to the server visit ID from the Start ack.
    The capture time is the moment the camera returned the photo. No separate per-photo location is
    recorded: `attach` has no location field, and the call's Start/End fixes already locate the visit.
@@ -61,6 +64,10 @@ falls back to the same provisional defaults).
 - `invalid_request`, `out_of_scope`, `conflict`, a rejected Start, or a damaged local file: marked for
   office review at once and kept on the phone. A held partition (sign-out, removed phone, scope change)
   uploads nothing.
+- iOS rechecks cancellation and the current hold after every network step (upload URL, upload, attach).
+  If either happened mid-flight it stops before attaching or, after an attach, before recording it: the
+  row stays waiting and the phone copy is kept. A held partition's photos cannot be marked uploaded,
+  reviewed or retried until it is released.
 
 ## Not yet covered
 

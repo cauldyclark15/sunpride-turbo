@@ -132,7 +132,7 @@ struct SignInShell: View {
     }
     private var compactSyncLabel: String {
         guard let status = model.syncStatus else { return "Offline" }
-        if status.needsReview + status.held > 0 || status.otherHeldWork {
+        if status.needsReview + status.held + status.photosHeld + status.photosForReview > 0 || status.otherHeldWork {
             return status.label
         }
         if status.queued + status.sending > 0 { return status.label }

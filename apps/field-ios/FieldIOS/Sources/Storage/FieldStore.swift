@@ -935,8 +935,11 @@ final class EncryptedFieldStore: FieldLocalStore {
     }
     func isHeld(_ partition: StorePartition) throws -> Bool { try state(partition)?.1 ?? false }
     func hasOtherHeldWork(for partition: StorePartition) throws -> Bool {
-        try query("SELECT 1 FROM partitions p JOIN outbox o ON o.subject=p.subject AND o.device=p.device AND o.scope=p.scope WHERE p.subject=? AND p.device=? AND p.scope<>? AND p.held=1 AND o.status IN ('pending','deferred') LIMIT 1",
-                  p(partition)) { _ in true }.first ?? false
+        if try query("SELECT 1 FROM partitions p JOIN outbox o ON o.subject=p.subject AND o.device=p.device AND o.scope=p.scope WHERE p.subject=? AND p.device=? AND p.scope<>? AND p.held=1 AND o.status IN ('pending','deferred') LIMIT 1",
+                     p(partition), { _ in true }).first == true { return true }
+        // IOS-016: a prior scope holding only photos (waiting or for review) is held work too.
+        return try query("SELECT 1 FROM partitions p JOIN evidence_photos e ON e.subject=p.subject AND e.device=p.device AND e.scope=p.scope WHERE p.subject=? AND p.device=? AND p.scope<>? AND p.held=1 AND e.state IN ('pending','review') LIMIT 1",
+                         p(partition)) { _ in true }.first ?? false
     }
 
     // MARK: IOS-016 visit photos
@@ -947,11 +950,13 @@ final class EncryptedFieldStore: FieldLocalStore {
         try transaction {
             guard try isLeaseValid(now: now, for: partition) else { throw StoreError.leaseExpired }
             guard try state(partition)?.1 == false else { throw StoreError.heldForReview }
-            // The call must be open: a non-rejected Start, and no End queued against it.
+            // The call must be open: a non-rejected Start, and no queued or accepted End against it. A
+            // server-rejected End reopens the call (IOS-017), so photos may still be taken.
             let start = row.checkInRequestId.uuidString.lowercased()
             guard let checkIn = try intent(for: row.checkInRequestId, in: partition), checkIn.kind == "visit.checkIn",
                   try outcome(start, partition) != "rejected" else { throw AppModel.CallFailure.notStarted }
-            if try intents(for: partition).contains(where: { $0.kind == "visit.checkOut" && $0.dependencies.contains(start) }) {
+            let rejected = Set(try reviewOutbox(for: partition).map(\.intent.requestId))
+            guard VisitCompletion.isOpen(checkIn, intents: try intents(for: partition), rejected: rejected) else {
                 throw AppModel.CallFailure.alreadyClosed
             }
             let count = try query("SELECT count(*) FROM evidence_photos WHERE \(Self.predicate) AND check_in_request_id=?",
@@ -993,6 +998,8 @@ final class EncryptedFieldStore: FieldLocalStore {
     func markPhotoUploaded(_ localId: UUID, evidenceId: String, at: Int64, in partition: StorePartition) throws {
         guard !evidenceId.isEmpty, at > 0 else { throw StoreError.invalidInput }
         try transaction {
+            // A held partition freezes its photos for supervised review.
+            guard try self.state(partition)?.1 == false else { throw StoreError.heldForReview }
             let state = try photoState(localId, partition)
             guard state == "pending" else { throw state == nil ? StoreError.unknownIntent : StoreError.alreadyResolved }
             try run("UPDATE evidence_photos SET state='uploaded',evidence_id=?,uploaded_at=? WHERE \(Self.predicate) AND local_id=?",
@@ -1002,6 +1009,8 @@ final class EncryptedFieldStore: FieldLocalStore {
     func reviewPhoto(_ localId: UUID, code: String, in partition: StorePartition) throws {
         guard !code.isEmpty else { throw StoreError.invalidInput }
         try transaction {
+            // A held partition freezes its photos for supervised review.
+            guard try self.state(partition)?.1 == false else { throw StoreError.heldForReview }
             let state = try photoState(localId, partition)
             guard state == "pending" else { throw state == nil ? StoreError.unknownIntent : StoreError.alreadyResolved }
             try run("UPDATE evidence_photos SET state='review',review_code=? WHERE \(Self.predicate) AND local_id=?",
@@ -1011,6 +1020,8 @@ final class EncryptedFieldStore: FieldLocalStore {
     func countPhotoAttempt(_ localId: UUID, in partition: StorePartition) throws -> Int {
         var attempts = 0
         try transaction {
+            // A held partition freezes its photos for supervised review.
+            guard try self.state(partition)?.1 == false else { throw StoreError.heldForReview }
             guard try photoState(localId, partition) == "pending" else { throw StoreError.alreadyResolved }
             try run("UPDATE evidence_photos SET attempts=attempts+1 WHERE \(Self.predicate) AND local_id=?",
                     p(partition) + [.text(localId.uuidString.lowercased())])

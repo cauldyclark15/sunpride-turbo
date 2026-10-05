@@ -322,7 +322,9 @@ final class AppModel {
                 ]
                 return "\(item.intent.kind) · \(reasons[item.code] ?? "Unknown outcome — ask supervisor")"
             }
-            if try store.isHeld(partition), !intents.isEmpty { review.append("Unsent work held — verify account and scope") }
+            if try store.isHeld(partition), try !intents.isEmpty || !store.pendingPhotos(for: partition).isEmpty {
+                review.append("Unsent work held — verify account and scope")
+            }
             if try store.hasOtherHeldWork(for: partition) { review.append("Prior scope has unsent work held for supervised review") }
             let calls = localCalls(intents: intents, rejected: Set(rejected.map { $0.intent.requestId }))
             visits = rows.map { visit in

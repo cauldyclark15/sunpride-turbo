@@ -9,21 +9,26 @@ private final class FakeEvidenceAPI: EvidenceAPI {
     var uploads: [(url: URL, bytes: Data, mime: String)] = []
     var attaches: [(claim: String, visitId: String, storageId: String, photo: EvidencePhotoRow)] = []
     var claims = 0
+    /// Runs just before a call returns, i.e. while the uploader is suspended in that await.
+    var during: ((String) -> Void)?
     private func next() -> Step { steps.isEmpty ? .ok : steps.removeFirst() }
     private var current: Step = .ok
     func uploadURL(visitId: String) async throws -> (url: URL, claim: String) {
         current = next()
         if case .offline = current { throw MobileError.offline }
         claims += 1
+        during?("uploadURL")
         return (URL(string: "https://storage.test/upload/\(claims)")!, "claim-\(claims)")
     }
     func upload(_ url: URL, bytes: Data, mime: String) async throws -> String {
         if case .storageRefused = current { throw EvidenceUploadFailure() }
         uploads.append((url, bytes, mime))
+        during?("upload")
         return "storage-\(uploads.count)"
     }
     func attach(claim: String, visitId: String, storageId: String, photo: EvidencePhotoRow) async throws -> String {
         attaches.append((claim, visitId, storageId, photo))
+        during?("attach")
         switch current {
         case .refused(let code): throw MobileError.rejected(code)
         case .lostAttachResponse: throw MobileError.offline
@@ -64,7 +69,8 @@ final class EvidencePhotosTests: XCTestCase {
         try? FileManager.default.removeItem(at: directory)
         try await super.tearDown()
     }
-    private func saveSnapshot(types: [PhotoType]) throws {
+    private func saveSnapshot(types: [PhotoType], for target: StorePartition? = nil) throws {
+        let partition = target ?? self.partition!
         let expiry = nowMs + 600_000
         try store.saveSnapshot(StoreSnapshot(employee: .init(id: "employee-1", role: "sales", orgUnitId: "unit-1"),
             visits: [.init(id: "planned-1", outletId: "outlet-1", serviceDate: BootstrapClient.manilaDay(Date()),
@@ -77,17 +83,19 @@ final class EvidencePhotosTests: XCTestCase {
         if let dependsOn { object["dependsOn"] = [dependsOn.uuidString.lowercased()] }
         return VisitIntent(requestId: id, kind: kind, operationJSON: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]))
     }
-    @discardableResult private func start() throws -> UUID {
+    @discardableResult private func start(in target: StorePartition? = nil) throws -> UUID {
         let id = UUID()
         try store.enqueue(op("visit.checkIn", id: id, payload: ["outletId": "outlet-1", "plannedVisitId": "planned-1",
                                                                   "serviceDate": BootstrapClient.manilaDay(Date())]),
-                          for: partition, now: Date())
+                          for: target ?? partition, now: Date())
         return id
     }
-    private func end(_ checkIn: UUID) throws {
-        try store.enqueue(op("visit.checkOut", id: UUID(), payload: ["outcome": "nonproductive", "reasonCode": "closed",
+    @discardableResult private func end(_ checkIn: UUID) throws -> UUID {
+        let id = UUID()
+        try store.enqueue(op("visit.checkOut", id: id, payload: ["outcome": "nonproductive", "reasonCode": "closed",
                                                                      "visitId": "server-visit-1"], dependsOn: checkIn),
                           for: partition, now: Date())
+        return id
     }
     private func row(_ checkIn: UUID, type: String = "storefront", bytes: Data? = nil) -> EvidencePhotoRow {
         let data = bytes ?? jpeg
@@ -162,6 +170,82 @@ final class EvidencePhotosTests: XCTestCase {
         XCTAssertThrowsError(try store.savePhoto(row(open), for: partition, now: Date())) {
             XCTAssertEqual($0 as? StoreError, .heldForReview)
         }
+    }
+    func testRejectedEndReopensTheCallForPhotos() throws {
+        let call = try start()
+        try store.recordAck(ServerAck(entityId: "server-visit-1", eventIds: [], serverTime: nowMs), for: call, in: partition)
+        let refusedEnd = try end(call)
+        XCTAssertThrowsError(try store.savePhoto(row(call), for: partition, now: Date())) {
+            XCTAssertEqual($0 as? AppModel.CallFailure, .alreadyClosed, "a queued End closes the call")
+        }
+        try store.recordRejection(code: "invalid_transition", for: refusedEnd, in: partition)
+        try store.savePhoto(row(call), for: partition, now: Date())
+        XCTAssertEqual(try store.photos(forCheckIn: call, in: partition).count, 1, "a refused End reopens the call (IOS-017)")
+        try end(call)
+        XCTAssertThrowsError(try store.savePhoto(row(call), for: partition, now: Date())) {
+            XCTAssertEqual($0 as? AppModel.CallFailure, .alreadyClosed, "the next End closes it again")
+        }
+    }
+    func testHeldPartitionFreezesPhotoStateChanges() throws {
+        let call = try start()
+        let photo = row(call)
+        try store.savePhoto(photo, for: partition, now: Date())
+        try store.holdForReview(partition)
+        XCTAssertThrowsError(try store.markPhotoUploaded(photo.localId, evidenceId: "e", at: 1, in: partition)) {
+            XCTAssertEqual($0 as? StoreError, .heldForReview)
+        }
+        XCTAssertThrowsError(try store.reviewPhoto(photo.localId, code: "invalid_request", in: partition)) {
+            XCTAssertEqual($0 as? StoreError, .heldForReview)
+        }
+        XCTAssertThrowsError(try store.countPhotoAttempt(photo.localId, in: partition)) {
+            XCTAssertEqual($0 as? StoreError, .heldForReview)
+        }
+        XCTAssertEqual(try store.pendingPhotos(for: partition).first?.attempts, 0)
+    }
+    func testReviewOnlyPhotoIsNeverAllSynced() throws {
+        let call = try start()
+        try store.recordAck(ServerAck(entityId: "server-visit-1", eventIds: [], serverTime: nowMs), for: call, in: partition)
+        let photo = row(call)
+        try store.savePhoto(photo, for: partition, now: Date())
+        try store.setSyncHealth(SyncHealth(lastSuccessfulSyncAt: nowMs, lastErrorCode: nil), for: partition)
+        try store.reviewPhoto(photo.localId, code: "invalid_request", in: partition)
+        let status = try FieldSyncStatus.read(store: store, partition: partition, now: Date(), sending: false, offline: false)
+        XCTAssertEqual(status.needsReview, 0, "no visit request is in review")
+        XCTAssertEqual(status.photosForReview, 1)
+        XCTAssertEqual(status.label, "Needs review")
+    }
+    func testHeldPhotosOnlyShowAsHeldInThisAndAPriorScope() throws {
+        let call = try start()
+        try store.recordAck(ServerAck(entityId: "server-visit-1", eventIds: [], serverTime: nowMs), for: call, in: partition)
+        try store.savePhoto(row(call), for: partition, now: Date())
+        try store.setSyncHealth(SyncHealth(lastSuccessfulSyncAt: nowMs, lastErrorCode: nil), for: partition)
+        try store.holdForReview(partition)
+        var status = try FieldSyncStatus.read(store: store, partition: partition, now: Date(), sending: false, offline: false)
+        XCTAssertEqual(status.held, 0, "no visit request is unsent")
+        XCTAssertEqual(status.photosWaiting, 0, "a held photo is not uploading")
+        XCTAssertEqual(status.photosHeld, 1)
+        XCTAssertEqual(status.label, "Held · needs supervisor")
+        // The same phone now works in a new scope: the old scope's photo-only hold must still show.
+        let next = try StorePartition(subject: "issuer|seller", deviceId: "device-1", scope: "scope-2")
+        try saveSnapshot(types: [], for: next)
+        try store.setSyncHealth(SyncHealth(lastSuccessfulSyncAt: nowMs, lastErrorCode: nil), for: next)
+        XCTAssertTrue(try store.hasOtherHeldWork(for: next))
+        status = try FieldSyncStatus.read(store: store, partition: next, now: Date(), sending: false, offline: false)
+        XCTAssertTrue(status.otherHeldWork)
+        XCTAssertEqual(status.label, "Held · needs supervisor")
+        // A prior-scope photo already in office review is held work too.
+        let reviewed = try StorePartition(subject: "issuer|seller", deviceId: "device-1", scope: "scope-3")
+        try saveSnapshot(types: [], for: reviewed)
+        let other = try start(in: reviewed)
+        try store.recordAck(ServerAck(entityId: "server-visit-3", eventIds: [], serverTime: nowMs), for: other, in: reviewed)
+        let photo = row(other)
+        try store.savePhoto(photo, for: reviewed, now: Date())
+        try store.reviewPhoto(photo.localId, code: "invalid_request", in: reviewed)
+        try store.holdForReview(reviewed)
+        try store.holdForReview(next)
+        let fresh = try StorePartition(subject: "issuer|seller", deviceId: "device-1", scope: "scope-4")
+        try saveSnapshot(types: [], for: fresh)
+        XCTAssertTrue(try store.hasOtherHeldWork(for: fresh))
     }
     func testSignOutPurgeKeepsPhotosAsHeldEvidence() throws {
         let call = try start()
@@ -367,5 +451,53 @@ final class EvidencePhotosTests: XCTestCase {
         let held = await uploader(files, api).run()
         XCTAssertEqual(held, UploadReport(waiting: 1))
         XCTAssertEqual(api.claims, 0)
+    }
+
+    func testHoldDuringAnyUploadAwaitStopsBeforeAttachOrDeletingThePhoneCopy() async throws {
+        for step in ["uploadURL", "upload", "attach"] {
+            partition = try StorePartition(subject: "issuer|seller", deviceId: "device-1", scope: "hold-\(step)")
+            try saveSnapshot(types: [])
+            let files = MemoryPhotoFiles(), api = FakeEvidenceAPI()
+            let call = try start(); try accept(call)
+            let photo = try saved(call, files)
+            let later = try saved(call, files, type: "other")
+            api.during = { [store, partition] name in if name == step { try? store!.holdForReview(partition!) } }
+            let report = await uploader(files, api).run()
+            XCTAssertTrue(report.retryLater, step)
+            XCTAssertEqual(report.uploaded, 0, step)
+            XCTAssertEqual(api.attaches.count, step == "attach" ? 1 : 0, "\(step): no attach after a hold")
+            XCTAssertEqual(api.claims, 1, "\(step): the next photo is not started")
+            for kept in [photo, later] {
+                let stored = try XCTUnwrap(store.photos(forCheckIn: call, in: partition).first { $0.localId == kept.localId })
+                XCTAssertEqual(stored.state, "pending", step)
+                XCTAssertNil(stored.evidenceId, step)
+                XCTAssertEqual(stored.attempts, 0, step)
+                XCTAssertEqual(files.files[kept.localId], jpeg, "\(step): held evidence stays on the phone")
+            }
+            XCTAssertTrue(try store.isHeld(partition))
+        }
+    }
+    func testCancelDuringAnyUploadAwaitStopsBeforeAttachOrDeletingThePhoneCopy() async throws {
+        for step in ["uploadURL", "upload", "attach"] {
+            partition = try StorePartition(subject: "issuer|seller", deviceId: "device-1", scope: "cancel-\(step)")
+            try saveSnapshot(types: [])
+            let files = MemoryPhotoFiles(), api = FakeEvidenceAPI()
+            let call = try start(); try accept(call)
+            let photo = try saved(call, files)
+            api.during = { name in if name == step { withUnsafeCurrentTask { $0?.cancel() } } }
+            let worker = uploader(files, api)
+            let report = await Task { await worker.run() }.value
+            XCTAssertTrue(report.retryLater, step)
+            XCTAssertEqual(report.uploaded, 0, step)
+            XCTAssertEqual(api.attaches.count, step == "attach" ? 1 : 0, "\(step): no attach after cancel")
+            let stored = try XCTUnwrap(store.photos(forCheckIn: call, in: partition).first { $0.localId == photo.localId })
+            XCTAssertEqual(stored.state, "pending", step)
+            XCTAssertEqual(files.files[photo.localId], jpeg, "\(step): the phone copy stays")
+            // The next uninterrupted run finishes the same photo (attach is idempotent on the server).
+            api.during = nil
+            let retry = await uploader(files, api).run()
+            XCTAssertEqual(retry.uploaded, 1, step)
+            XCTAssertNil(files.files[photo.localId], step)
+        }
     }
 }

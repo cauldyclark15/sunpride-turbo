@@ -19,11 +19,13 @@ struct FieldSyncStatus: Equatable {
     var photosWaiting = 0
     /// IOS-016: photos the server refused or that could not be read; kept for office review.
     var photosForReview = 0
+    /// IOS-016: waiting photos frozen with a held partition (sign-out, removed phone, scope change).
+    var photosHeld = 0
     var accessUntilLabel: String { accessUntil.map(FieldDay.closeTimeLabel) ?? "Unavailable" }
 
     var label: String {
-        if held > 0 || otherHeldWork { return "Held · needs supervisor" }
-        if needsReview > 0 { return "Needs review" }
+        if held > 0 || photosHeld > 0 || otherHeldWork { return "Held · needs supervisor" }
+        if needsReview > 0 || photosForReview > 0 { return "Needs review" }
         if queued + sending > 0 { return lateWork ? "Late · held for review" : "Sync before 10 PM" }
         if lastErrorCode != nil { return "Sync unavailable · saved cache" }
         if cacheStale || leaseExpired { return "Stale · pending" }
@@ -47,7 +49,10 @@ struct FieldSyncStatus: Equatable {
             lastErrorCode: health?.lastErrorCode, leaseExpired: try !store.isLeaseValid(now: now, for: partition),
             cacheStale: cacheExpiry.map { Double($0) <= now.timeIntervalSince1970 * 1000 } ?? true,
             offline: offline)
-        status.photosWaiting = try store.pendingPhotos(for: partition).count
+        // A held partition's photos are held work, never "uploading".
+        let photosPending = try store.pendingPhotos(for: partition).count
+        status.photosWaiting = heldPartition ? 0 : photosPending
+        status.photosHeld = heldPartition ? photosPending : 0
         status.photosForReview = try store.reviewPhotos(for: partition).count
         status.accessUntil = try store.leaseExpiry(for: partition).map { Date(timeIntervalSince1970: Double($0) / 1000) }
         status.lateWork = pendingItems.contains { item in
@@ -92,6 +97,10 @@ struct SyncStatusDetail: View {
                                 }
                                 if status.photosWaiting > 0 {
                                     DetailRow(label: "Photos waiting", value: "\(status.photosWaiting)")
+                                    divider
+                                }
+                                if status.photosHeld > 0 {
+                                    DetailRow(label: "Photos held", value: "\(status.photosHeld)")
                                     divider
                                 }
                                 if status.photosForReview > 0 {

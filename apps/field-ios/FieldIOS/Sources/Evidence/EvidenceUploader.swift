@@ -100,7 +100,7 @@ final class EvidenceUploader {
         var report = UploadReport()
         let rejected = Set(((try? store.reviewOutbox(for: partition)) ?? []).map(\.intent.requestId))
         for photo in photos {
-            if Task.isCancelled { report.retryLater = true; break }
+            if !mayContinue() { report.retryLater = true; break }
             let start = try? store.intent(for: photo.checkInRequestId, in: partition)
             if start?.kind != "visit.checkIn" || rejected.contains(photo.checkInRequestId) {
                 review(photo, start == nil ? "visit_missing" : "visit_rejected", &report); continue
@@ -113,21 +113,30 @@ final class EvidenceUploader {
                 review(photo, "file_damaged", &report); continue
             }
             do {
+                // Every await can outlive a cancel or a hold (sign-out, removed phone, scope change):
+                // recheck both after each one, before attaching and before the phone copy goes.
                 let (url, claim) = try await api.uploadURL(visitId: visitId)
+                guard mayContinue() else { report.retryLater = true; break }
                 let storageId = try await api.upload(url, bytes: bytes, mime: photo.mime)
+                guard mayContinue() else { report.retryLater = true; break }
                 let evidenceId = try await api.attach(claim: claim, visitId: visitId, storageId: storageId, photo: photo)
+                // Attached but stopped: keep the row pending and the bytes; a later attach of the same
+                // bytes returns this same evidence ID.
+                guard mayContinue() else { report.retryLater = true; break }
                 try store.markPhotoUploaded(photo.localId, evidenceId: evidenceId,
                                             at: Int64(now().timeIntervalSince1970 * 1000), in: partition)
                 // The server holds the photo now; the phone copy is no longer needed.
                 files.delete(photo.localId)
                 report.uploaded += 1
             } catch MobileError.rejected(let code) {
+                guard mayContinue() else { report.retryLater = true; break }
                 if EvidencePhotos.finalCodes.contains(code) { review(photo, code, &report) }
                 else { retry(photo, &report) }
             } catch is EvidenceUploadFailure {
+                guard mayContinue() else { report.retryLater = true; break }
                 retry(photo, &report)
             } catch {
-                // Offline, signed out, cancelled or server busy: nothing changes; try again later.
+                // Offline, signed out, cancelled, held or server busy: nothing changes; try again later.
                 report.retryLater = true
                 break
             }
@@ -136,6 +145,10 @@ final class EvidenceUploader {
         return report
     }
 
+    /// False once this run is cancelled or the partition is held (or its state can't be read).
+    private func mayContinue() -> Bool {
+        !Task.isCancelled && (try? store.isHeld(partition)) == false
+    }
     private func review(_ photo: EvidencePhotoRow, _ code: String, _ report: inout UploadReport) {
         try? store.reviewPhoto(photo.localId, code: code, in: partition)
         report.review += 1
