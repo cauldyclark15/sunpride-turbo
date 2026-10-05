@@ -211,7 +211,8 @@ final class FieldIOSUITests: XCTestCase {
         app.buttons["diagnosticCheckIn"].tap()
         XCTAssertTrue(app.buttons["openCallSheet"].waitForExistence(timeout: 10))
         app.buttons["openCallSheet"].tap()
-        XCTAssertTrue(app.otherElements["suggestedOrder"].waitForExistence(timeout: 5))
+        // A physical phone can take longer than a simulator to push the sheet and load the stub answer.
+        XCTAssertTrue(app.otherElements["suggestedOrder"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons["useAllSuggestions"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Suggestions only. Nothing is ordered until you save the call sheet."].exists)
         let use = app.buttons["useSuggestion-product-stub-1"]
@@ -229,8 +230,22 @@ final class FieldIOSUITests: XCTestCase {
         order.tap(); order.typeText("2")
         XCTAssertEqual(order.value as? String, "82", "accepted quantity is an ordinary editable field")
         XCTAssertFalse(app.otherElements["callSheetStatus"].exists || app.staticTexts["callSheetStatus"].exists)
-        app.buttons["saveCallSheet"].tap()
-        XCTAssertTrue(app.otherElements["callSheetStatus"].waitForExistence(timeout: 5) || app.staticTexts["callSheetStatus"].exists)
+        // On a physical phone a Save tap made while the number pad is still settling can land on a key
+        // ("82" became "820"). Let the keyboard settle, then tap the centre of the button's current frame.
+        let save = app.buttons["saveCallSheet"]
+        let keyboard = app.keyboards.firstMatch
+        var settled = save.frame
+        for _ in 0..<20 {
+            Thread.sleep(forTimeInterval: 0.15)
+            let now = save.frame
+            if now == settled, !keyboard.exists || now.maxY <= keyboard.frame.minY { break }
+            settled = now
+        }
+        XCTAssertTrue(!keyboard.exists || save.frame.maxY <= keyboard.frame.minY,
+                      "save \(save.frame) keyboard \(keyboard.frame)")
+        save.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(app.otherElements["callSheetStatus"].waitForExistence(timeout: 5) || app.staticTexts["callSheetStatus"].exists,
+                      "order \(String(describing: order.value)) save \(save.frame) keyboard \(keyboard.frame)")
         capture(app, "suggested-order-accepted-and-edited")
     }
 
