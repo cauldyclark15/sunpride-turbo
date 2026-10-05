@@ -2072,6 +2072,34 @@ export default defineSchema({
     ])
     .index("by_orgUnitId_and_serviceDate", ["orgUnitId", "serviceDate"]),
   /**
+   * SOP-004 per-diem validation decisions: a supervisor validates or returns one person's
+   * claim period against the approved MCP. Append-only; the latest row per period wins.
+   * Counts and dates are frozen as decided; no amount (the rate lives outside the system).
+   */
+  perDiemValidations: defineTable({
+    organizationId: v.string(),
+    profileId: v.id("profiles"),
+    orgUnitId: v.id("orgUnits"),
+    localMonth: v.string(), // YYYY-MM
+    periodFrom: v.string(), // YYYY-MM-DD, Manila
+    periodTo: v.string(),
+    decision: v.union(v.literal("validated"), v.literal("returned")),
+    note: v.optional(v.string()),
+    contentHash: v.string(),
+    ruleVersion: v.string(),
+    plannedStops: v.number(),
+    validCalls: v.number(),
+    invalidCalls: v.number(),
+    notVisited: v.number(),
+    validDays: v.number(),
+    validDates: v.array(v.string()), // at most 31
+    decidedBy: v.string(),
+    deciderProfileId: v.id("profiles"),
+    decidedAt: v.number(),
+  })
+    .index("by_profileId_and_localMonth", ["profileId", "localMonth"])
+    .index("by_orgUnitId_and_localMonth", ["orgUnitId", "localMonth"]),
+  /**
    * SOP-011 Talk Sheet (memo Annex E): one meeting between an SFI sales representative
    * (`ownerProfileId`, "Discussed by") and an Area Distribution Partner. Sheets of the same
    * `orgUnitId` + `partnerKey` form a chain; a new sheet copies the previous final sheet's
@@ -2384,6 +2412,12 @@ export default defineSchema({
   })
     .index("by_deviceId_and_nonce", ["deviceId", "nonce"])
     .index("by_expiresAt", ["expiresAt"]),
+  // QSR-009 token buckets (`mobile/rate_limits.ts`): `challenge:<deviceId>` / `failure:<subject>`.
+  mobileRateLimits: defineTable({
+    key: v.string(),
+    tokens: v.number(),
+    updatedAt: v.number(),
+  }).index("by_key", ["key"]),
   visitExecutions: defineTable({
     organizationId: v.string(),
     clientVisitId: v.string(),

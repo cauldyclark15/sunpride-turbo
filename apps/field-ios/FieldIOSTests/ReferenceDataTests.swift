@@ -189,7 +189,7 @@ final class ReferenceDataTests: XCTestCase {
         XCTAssertTrue(try store.catalog(for: partition).isEmpty)
     }
 
-    func testV3ToV5MigrationPreservesCallSheetsEvidenceLeaseAndCursor() throws {
+    func testV3ToV6MigrationPreservesCallSheetsEvidenceLeaseAndCursor() throws {
         try seed()
         let intent = VisitIntent(requestId: UUID(), kind: "visit.checkIn", operationJSON: Data())
         let bytes = Data("{\"kind\":\"visit.checkIn\",\"clientRequestId\":\"\(intent.requestId.uuidString.lowercased())\",\"payload\":{}}".utf8)
@@ -203,7 +203,7 @@ final class ReferenceDataTests: XCTestCase {
         try store.applyDelta([visit], nextCursor: "v3-cursor", for: partition)
         try store.prepareLegacyV3(); XCTAssertEqual(store.schemaVersion, 3)
         store.close(); store = try open()
-        XCTAssertEqual(store.schemaVersion, 5)
+        XCTAssertEqual(store.schemaVersion, 6)
         XCTAssertEqual(try store.callSheets(for: partition), ReferenceDataFixture.snapshot().callSheets)
         XCTAssertEqual(try store.pendingOutbox(for: partition).map(\.intent), [pending])
         XCTAssertEqual(try store.ack(for: accepted.requestId, in: partition), ack)
@@ -213,12 +213,12 @@ final class ReferenceDataTests: XCTestCase {
         XCTAssertTrue(try store.catalog(for: partition).isEmpty)
         XCTAssertTrue(try store.availability(productId: "product-1", for: partition).isEmpty)
         try seed(); store.close(); store = try open()
-        XCTAssertEqual(store.schemaVersion, 5)
+        XCTAssertEqual(store.schemaVersion, 6)
         XCTAssertEqual(try store.catalog(for: partition), ReferenceDataFixture.snapshot().productCatalog)
         XCTAssertEqual(try store.pendingOutbox(for: partition).map(\.intent), [pending])
     }
 
-    func testV4ToV5MigrationPreservesOrderDraftsCallSheetsEvidenceLeaseAndCursor() throws {
+    func testV4ToV6MigrationPreservesOrderDraftsCallSheetsEvidenceLeaseAndCursor() throws {
         try seed()
         let intent = VisitIntent(requestId: UUID(), kind: "visit.checkIn", operationJSON: Data())
         let bytes = Data("{\"kind\":\"visit.checkIn\",\"clientRequestId\":\"\(intent.requestId.uuidString.lowercased())\",\"payload\":{}}".utf8)
@@ -232,7 +232,7 @@ final class ReferenceDataTests: XCTestCase {
         try store.applyDelta([visit], nextCursor: "v3-cursor", for: partition)
         try store.prepareLegacyV4(); XCTAssertEqual(store.schemaVersion, 4)
         store.close(); store = try open()
-        XCTAssertEqual(store.schemaVersion, 5)
+        XCTAssertEqual(store.schemaVersion, 6)
         XCTAssertEqual(try store.callSheets(for: partition), ReferenceDataFixture.snapshot().callSheets)
         XCTAssertEqual(try store.pendingOutbox(for: partition).map(\.intent), [pending])
         XCTAssertEqual(try store.ack(for: accepted.requestId, in: partition), ack)
@@ -242,7 +242,7 @@ final class ReferenceDataTests: XCTestCase {
         XCTAssertTrue(try store.catalog(for: partition).isEmpty)
         XCTAssertTrue(try store.availability(productId: "product-1", for: partition).isEmpty)
         try seed(); store.close(); store = try open()
-        XCTAssertEqual(store.schemaVersion, 5)
+        XCTAssertEqual(store.schemaVersion, 6)
         XCTAssertEqual(try store.catalog(for: partition), ReferenceDataFixture.snapshot().productCatalog)
         XCTAssertEqual(try store.pendingOutbox(for: partition).map(\.intent), [pending])
     }
