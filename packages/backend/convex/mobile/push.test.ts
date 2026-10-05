@@ -255,6 +255,50 @@ describe("ordered push", () => {
     ).toEqual({ status: "conflict", code: "conflict" });
     expect(await f.counts()).toEqual(before);
   });
+  it("a re-queued visit or order intent under a fresh request key never duplicates it", async () => {
+    const f = await fixture();
+    const first = f.check(30);
+    const check = await f.apply(first);
+    if (check.status !== "accepted") throw new Error("not accepted");
+    const visitId = check.ack.entityId as Id<"visitExecutions">;
+    const intent = (n: number) => ({
+      kind: "visit.activity" as const,
+      clientRequestId: uuid(n),
+      payload: {
+        visitId,
+        activity: {
+          kind: "order_intent" as const,
+          clientOrderId: uuid(90),
+        },
+        deviceTime: now,
+      },
+    });
+    expect((await f.apply(intent(31))).status).toBe("accepted");
+    const before = await f.counts();
+    // Same phone visit, new request key (outbox rebuilt after a crash): refused.
+    await expect(
+      f.apply({ ...first, clientRequestId: uuid(32) }),
+    ).rejects.toThrow(/conflict/);
+    // Same phone order on the same call, new request key: refused.
+    await expect(f.apply(intent(33))).rejects.toThrow(/conflict/);
+    expect(await f.counts()).toEqual(before);
+    expect(before).toEqual([1, 1, 2, 2, 2]);
+    // A different order on the same call is still recorded.
+    expect(
+      (
+        await f.apply({
+          ...intent(34),
+          payload: {
+            ...intent(34).payload,
+            activity: {
+              kind: "order_intent" as const,
+              clientOrderId: uuid(91),
+            },
+          },
+        })
+      ).status,
+    ).toBe("accepted");
+  });
   it("rejects missing dependency and unsupported middle item without consuming keys; later independent operation works", async () => {
     const f = await fixture();
     expect(await f.apply({ ...f.check(5), dependsOn: [uuid(99)] })).toEqual({
