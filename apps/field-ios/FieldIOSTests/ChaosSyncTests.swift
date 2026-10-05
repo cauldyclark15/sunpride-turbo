@@ -262,8 +262,9 @@ final class ChaosSyncTests: XCTestCase {
             XCTAssertNil(app.startFailure(for: try stop("planned-2")), "A queued, unsent End is enough to move on offline")
             try app.queueCheckIn(try stop("planned-2"), unplannedReason: nil, location: nil)
             XCTAssertThrowsError(try app.queueCheckOut(outcome: "nonproductive", reason: nil, for: try stop("planned-2"))) {
-                XCTAssertEqual($0 as? DiagnosticOperation.Failure, .invalidOutcome)
+                XCTAssertEqual($0 as? AppModel.CallFailure, .reasonRequired, "seed \(seed)")
             }
+            XCTAssertEqual(try store.intents(for: partition).count, 5, "A refused no-sale End queues nothing")
             try app.queueCheckOut(outcome: "nonproductive", reason: "STORE_CLOSED", for: try stop("planned-2"))
             let operations = try store.intents(for: partition)
             XCTAssertEqual(operations.map(\.kind), ["visit.checkIn", "visit.activity", "visit.activity", "visit.checkOut",
