@@ -53,6 +53,8 @@ final class AppModel {
         let id: String; let outletId: String; let outlet: String
         let serviceDate: String; let intents: [String]; let planned: Bool; let status: String
         var sequence: Int? = nil
+        /// Current verified outlet pin, for the on-phone distance shown at Start/End (display only).
+        var pin: OutletPin? = nil
         var startedAt: Date? = nil
         var endedAt: Date? = nil
         /// End outcome recorded on this phone ("completed" or "nonproductive"), queued or synced.
@@ -270,16 +272,18 @@ final class AppModel {
             let outlets = Dictionary(uniqueKeysWithValues: try store.outlets(for: partition).map { ($0.id, $0.name) })
             let planned = try store.todayVisits(day, for: partition)
             let localOutlets = try store.outlets(for: partition)
+            let pins = Dictionary(localOutlets.compactMap { outlet in outlet.pin.map { (outlet.id, $0) } }, uniquingKeysWith: { a, _ in a })
             let saved = try store.snapshot(for: partition)
             outletDetails = Dictionary(localOutlets.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             customerDetails = Dictionary((saved?.customers ?? []).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             routeCode = saved?.route?.code
             let rows = planned.map { visit in
                 TodayVisit(id: visit.id, outletId: visit.outletId, outlet: outlets[visit.outletId] ?? "Unknown outlet",
-                    serviceDate: visit.serviceDate, intents: visit.intents, planned: true, status: "Planned", sequence: visit.sequence)
+                    serviceDate: visit.serviceDate, intents: visit.intents, planned: true, status: "Planned", sequence: visit.sequence,
+                    pin: pins[visit.outletId])
             } + localOutlets.filter { outlet in !planned.contains(where: { $0.outletId == outlet.id }) }.map { outlet in
                 TodayVisit(id: "unplanned-\(outlet.id)", outletId: outlet.id, outlet: outlet.name,
-                    serviceDate: day, intents: [], planned: false, status: "Unplanned")
+                    serviceDate: day, intents: [], planned: false, status: "Unplanned", pin: outlet.pin)
             }
             let intents = try store.intents(for: partition)
             let queued = Set(try store.pendingOutbox(for: partition).map { $0.intent.requestId } +
@@ -321,7 +325,7 @@ final class AppModel {
                 } ?? []
                 return TodayVisit(id: visit.id, outletId: visit.outletId, outlet: visit.outlet,
                                   serviceDate: visit.serviceDate, intents: visit.intents, planned: visit.planned, status: status,
-                                  sequence: visit.sequence, startedAt: call?.initial.deviceTime, endedAt: call?.end?.deviceTime,
+                                  sequence: visit.sequence, pin: visit.pin, startedAt: call?.initial.deviceTime, endedAt: call?.end?.deviceTime,
                                   outcome: call?.end?.payload?["outcome"] as? String,
                                   activityKinds: activityKinds, reasonCode: call?.end?.payload?["reasonCode"] as? String)
             }

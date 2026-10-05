@@ -57,6 +57,9 @@ struct StoreSnapshot: Sendable {
             guard let latitude, let longitude else { return nil }
             return Coordinate(latitude: latitude, longitude: longitude)
         }
+        /// Verified pin for the Start/End distance notice; nil when absent or out of range.
+        var pin: OutletPin? { OutletPin(latitude: latitude, longitude: longitude) }
+        var hasValidPinFields: Bool { (latitude == nil && longitude == nil) || pin != nil }
     }
     struct Customer: Codable, Sendable { let id: String; let code: String }
     struct Route: Codable, Sendable { let id: String; let code: String }
