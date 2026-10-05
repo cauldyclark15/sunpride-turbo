@@ -105,17 +105,21 @@ struct StoreSnapshot: Sendable {
     var daySales: DaySales? = nil
     /// IOS-013 activity-form rules per visit intent, in server order; empty from older servers.
     var activityRules: [ActivityRule] = []
+    /// IOS-016 photo types from the server; empty from older servers (the phone then offers defaults).
+    var photoTypes: [PhotoType] = []
 
     init(employee: Employee, visits: [Visit], outlets: [Outlet], customers: [Customer],
          route: Route?, tasks: [Task], callSheets: [CallSheet] = [],
          productCatalog: [BootstrapV1.Product] = [], inventoryAvailability: [BootstrapV1.InventoryAvailability] = [],
          accountSummaries: [AccountSummary] = [],
-         dayTarget: DayTarget? = nil, daySales: DaySales? = nil, activityRules: [ActivityRule] = []) {
+         dayTarget: DayTarget? = nil, daySales: DaySales? = nil, activityRules: [ActivityRule] = [],
+         photoTypes: [PhotoType] = []) {
         self.employee = employee; self.visits = visits; self.outlets = outlets
         self.customers = customers; self.route = route; self.tasks = tasks; self.callSheets = callSheets
         self.productCatalog = productCatalog; self.inventoryAvailability = inventoryAvailability
         self.accountSummaries = accountSummaries
         self.dayTarget = dayTarget; self.daySales = daySales; self.activityRules = activityRules
+        self.photoTypes = photoTypes
     }
 }
 
@@ -249,6 +253,16 @@ protocol FieldLocalStore: AnyObject {
     func releaseHeld(subject: String, deviceId: String) throws
     func isHeld(_ partition: StorePartition) throws -> Bool
     func hasOtherHeldWork(for partition: StorePartition) throws -> Bool
+    /// IOS-016: save one captured photo's metadata for an open call (after Start, before End).
+    /// The sealed bytes must already be durable in `PhotoFiles` under the same local ID.
+    func savePhoto(_ row: EvidencePhotoRow, for partition: StorePartition, now: Date) throws
+    func photos(forCheckIn requestId: UUID, in partition: StorePartition) throws -> [EvidencePhotoRow]
+    func pendingPhotos(for partition: StorePartition) throws -> [EvidencePhotoRow]
+    func reviewPhotos(for partition: StorePartition) throws -> [EvidencePhotoRow]
+    func markPhotoUploaded(_ localId: UUID, evidenceId: String, at: Int64, in partition: StorePartition) throws
+    func reviewPhoto(_ localId: UUID, code: String, in partition: StorePartition) throws
+    /// Returns the attempt count after this failed try.
+    func countPhotoAttempt(_ localId: UUID, in partition: StorePartition) throws -> Int
     /// SP-0044 order drafts (local); a draft reaches the outbox only through `submitOrderDraft` (IOS-015).
     func orderDrafts(for partition: StorePartition) throws -> [OrderDraft]
     /// Insert or replace one draft after `OrderDraftRules.validate` inside the same transaction.
@@ -429,8 +443,8 @@ final class EncryptedFieldStore: FieldLocalStore {
           PRIMARY KEY(subject,device,scope,entity,id));
         """
     private func migrate() throws {
-        guard let raw = try scalar("PRAGMA user_version"), let version = Int(raw), version <= 5 else { throw StoreError.unsupportedVersion }
-        if version == 5 { return }
+        guard let raw = try scalar("PRAGMA user_version"), let version = Int(raw), version <= 6 else { throw StoreError.unsupportedVersion }
+        if version == 6 { return }
         try transaction {
             if version < 3 { try migrateToV3(from: version) }
             if version < 4 {
@@ -443,20 +457,33 @@ final class EncryptedFieldStore: FieldLocalStore {
                       PRIMARY KEY(subject,device,scope,draft_id));
                     """)
             }
-            // v5 (SP-0051): reference rows belong to the same account/device/scope and snapshot generation.
-            try exec("""
-                CREATE TABLE reference_data (
-                  subject TEXT NOT NULL, device TEXT NOT NULL, scope TEXT NOT NULL,
-                  generation INTEGER NOT NULL, entity TEXT NOT NULL, id TEXT NOT NULL,
-                  product_id TEXT NOT NULL, revision INTEGER NOT NULL, body BLOB NOT NULL,
-                  PRIMARY KEY(subject,device,scope,generation,entity,id));
-                CREATE INDEX reference_product ON reference_data(subject,device,scope,generation,entity,product_id);
-                PRAGMA user_version=5;
-                """)
+            if version < 5 {
+                // v5 (SP-0051): reference rows belong to the same account/device/scope and snapshot generation.
+                try exec("""
+                    CREATE TABLE reference_data (
+                      subject TEXT NOT NULL, device TEXT NOT NULL, scope TEXT NOT NULL,
+                      generation INTEGER NOT NULL, entity TEXT NOT NULL, id TEXT NOT NULL,
+                      product_id TEXT NOT NULL, revision INTEGER NOT NULL, body BLOB NOT NULL,
+                      PRIMARY KEY(subject,device,scope,generation,entity,id));
+                    CREATE INDEX reference_product ON reference_data(subject,device,scope,generation,entity,product_id);
+                    """)
+            }
+            // v6 (IOS-016): photo metadata. Bytes are sealed files; rows are evidence and are never
+            // purged with the server cache (sign-out keeps them held for supervised review).
+            try exec(Self.createPhotos + "PRAGMA user_version=6;")
         }
     }
+    private static let createPhotos = """
+        CREATE TABLE IF NOT EXISTS evidence_photos (
+          subject TEXT NOT NULL, device TEXT NOT NULL, scope TEXT NOT NULL,
+          local_id TEXT NOT NULL, check_in_request_id TEXT NOT NULL, photo_type TEXT NOT NULL,
+          mime TEXT NOT NULL, size_bytes INTEGER NOT NULL, sha256 TEXT NOT NULL, captured_at INTEGER NOT NULL,
+          state TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
+          evidence_id TEXT, review_code TEXT, uploaded_at INTEGER,
+          PRIMARY KEY(subject,device,scope,local_id));
+        CREATE INDEX IF NOT EXISTS evidence_photos_state ON evidence_photos(subject,device,scope,state,captured_at);
+        """
     private func migrateToV3(from version: Int) throws {
-        do {
             if version == 0 {
                 // Legacy v0 pilot table has durable request IDs; copy, never generate replacement UUIDs.
                 let legacy = try scalar("SELECT name FROM sqlite_master WHERE type='table' AND name='legacy_intents'") != nil
@@ -476,7 +503,6 @@ final class EncryptedFieldStore: FieldLocalStore {
                   generation INTEGER NOT NULL, outlet_id TEXT NOT NULL, body BLOB NOT NULL,
                   PRIMARY KEY(subject,device,scope,generation,outlet_id));
                 """)
-        }
     }
 
     private func ensure(_ partition: StorePartition) throws {
@@ -506,6 +532,7 @@ final class EncryptedFieldStore: FieldLocalStore {
         if let sales = snapshot.daySales { rows.append(("daySales", "today", nil, try encode(sales))) }
         // One row keeps the server's rule order; it rides the generic snapshot table (no migration).
         if !snapshot.activityRules.isEmpty { rows.append(("activityRules", "all", nil, try encode(snapshot.activityRules))) }
+        if !snapshot.photoTypes.isEmpty { rows.append(("photoTypes", "all", nil, try encode(snapshot.photoTypes))) }
         guard rows.allSatisfy({ !$0.1.isEmpty }), snapshot.callSheets.allSatisfy(\.isValid),
               snapshot.callSheets.allSatisfy({ sheet in snapshot.outlets.contains { $0.id == sheet.outletId } }),
               Set(snapshot.accountSummaries.map(\.outletId)).count == snapshot.accountSummaries.count,
@@ -602,7 +629,8 @@ final class EncryptedFieldStore: FieldLocalStore {
             accountSummaries: entities(AccountSummary.self, kind: "account_summary", partition: partition),
             dayTarget: entities(StoreSnapshot.DayTarget.self, kind: "dayTarget", partition: partition).first,
             daySales: entities(StoreSnapshot.DaySales.self, kind: "daySales", partition: partition).first,
-            activityRules: activityRules(for: partition))
+            activityRules: activityRules(for: partition),
+            photoTypes: entities([PhotoType].self, kind: "photoTypes", partition: partition).first ?? [])
     }
     func activityRules(for partition: StorePartition) throws -> [ActivityRule] {
         try entities([ActivityRule].self, kind: "activityRules", partition: partition).first ?? []
@@ -907,8 +935,100 @@ final class EncryptedFieldStore: FieldLocalStore {
     }
     func isHeld(_ partition: StorePartition) throws -> Bool { try state(partition)?.1 ?? false }
     func hasOtherHeldWork(for partition: StorePartition) throws -> Bool {
-        try query("SELECT 1 FROM partitions p JOIN outbox o ON o.subject=p.subject AND o.device=p.device AND o.scope=p.scope WHERE p.subject=? AND p.device=? AND p.scope<>? AND p.held=1 AND o.status IN ('pending','deferred') LIMIT 1",
-                  p(partition)) { _ in true }.first ?? false
+        if try query("SELECT 1 FROM partitions p JOIN outbox o ON o.subject=p.subject AND o.device=p.device AND o.scope=p.scope WHERE p.subject=? AND p.device=? AND p.scope<>? AND p.held=1 AND o.status IN ('pending','deferred') LIMIT 1",
+                     p(partition), { _ in true }).first == true { return true }
+        // IOS-016: a prior scope holding only photos (waiting or for review) is held work too.
+        return try query("SELECT 1 FROM partitions p JOIN evidence_photos e ON e.subject=p.subject AND e.device=p.device AND e.scope=p.scope WHERE p.subject=? AND p.device=? AND p.scope<>? AND p.held=1 AND e.state IN ('pending','review') LIMIT 1",
+                         p(partition)) { _ in true }.first ?? false
+    }
+
+    // MARK: IOS-016 visit photos
+
+    func savePhoto(_ row: EvidencePhotoRow, for partition: StorePartition, now: Date) throws {
+        let types = try snapshot(for: partition)?.photoTypes ?? []
+        guard EvidencePhotos.isValidNew(row, types: types) else { throw StoreError.invalidInput }
+        try transaction {
+            guard try isLeaseValid(now: now, for: partition) else { throw StoreError.leaseExpired }
+            guard try state(partition)?.1 == false else { throw StoreError.heldForReview }
+            // The call must be open: a non-rejected Start, and no queued or accepted End against it. A
+            // server-rejected End reopens the call (IOS-017), so photos may still be taken.
+            let start = row.checkInRequestId.uuidString.lowercased()
+            guard let checkIn = try intent(for: row.checkInRequestId, in: partition), checkIn.kind == "visit.checkIn",
+                  try outcome(start, partition) != "rejected" else { throw AppModel.CallFailure.notStarted }
+            let rejected = Set(try reviewOutbox(for: partition).map(\.intent.requestId))
+            guard VisitCompletion.isOpen(checkIn, intents: try intents(for: partition), rejected: rejected) else {
+                throw AppModel.CallFailure.alreadyClosed
+            }
+            let count = try query("SELECT count(*) FROM evidence_photos WHERE \(Self.predicate) AND check_in_request_id=?",
+                                  p(partition) + [.text(start)]) { sqlite3_column_int64($0, 0) }.first ?? 0
+            guard count < EvidencePhotos.maxPerVisit else { throw AppModel.CallFailure.photoLimit }
+            try run("""
+                INSERT INTO evidence_photos(subject,device,scope,local_id,check_in_request_id,photo_type,mime,size_bytes,sha256,captured_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """, p(partition) + [.text(row.localId.uuidString.lowercased()), .text(start), .text(row.photoType),
+                                     .text(row.mime), .integer(row.sizeBytes), .text(row.sha256), .integer(row.capturedAt)])
+        }
+        try protectFiles()
+    }
+    private static let photoColumns = "local_id,check_in_request_id,photo_type,mime,size_bytes,sha256,captured_at,state,attempts,evidence_id,review_code,uploaded_at"
+    private static func photo(_ row: OpaquePointer) throws -> EvidencePhotoRow {
+        guard let id = UUID(uuidString: text(row, 0)), let start = UUID(uuidString: text(row, 1)) else { throw StoreError.database }
+        let optional: (Int32) -> String? = { sqlite3_column_type(row, $0) == SQLITE_NULL ? nil : text(row, $0) }
+        return EvidencePhotoRow(localId: id, checkInRequestId: start, photoType: text(row, 2), mime: text(row, 3),
+            sizeBytes: sqlite3_column_int64(row, 4), sha256: text(row, 5), capturedAt: sqlite3_column_int64(row, 6),
+            state: text(row, 7), attempts: Int(sqlite3_column_int64(row, 8)), evidenceId: optional(9),
+            reviewCode: optional(10), uploadedAt: sqlite3_column_type(row, 11) == SQLITE_NULL ? nil : sqlite3_column_int64(row, 11))
+    }
+    func photos(forCheckIn requestId: UUID, in partition: StorePartition) throws -> [EvidencePhotoRow] {
+        try query("SELECT \(Self.photoColumns) FROM evidence_photos WHERE \(Self.predicate) AND check_in_request_id=? ORDER BY captured_at,rowid",
+                  p(partition) + [.text(requestId.uuidString.lowercased())], Self.photo)
+    }
+    func pendingPhotos(for partition: StorePartition) throws -> [EvidencePhotoRow] {
+        try query("SELECT \(Self.photoColumns) FROM evidence_photos WHERE \(Self.predicate) AND state='pending' ORDER BY captured_at,rowid",
+                  p(partition), Self.photo)
+    }
+    func reviewPhotos(for partition: StorePartition) throws -> [EvidencePhotoRow] {
+        try query("SELECT \(Self.photoColumns) FROM evidence_photos WHERE \(Self.predicate) AND state='review' ORDER BY captured_at,rowid",
+                  p(partition), Self.photo)
+    }
+    private func photoState(_ localId: UUID, _ partition: StorePartition) throws -> String? {
+        try query("SELECT state FROM evidence_photos WHERE \(Self.predicate) AND local_id=?",
+                  p(partition) + [.text(localId.uuidString.lowercased())]) { Self.text($0, 0) }.first
+    }
+    func markPhotoUploaded(_ localId: UUID, evidenceId: String, at: Int64, in partition: StorePartition) throws {
+        guard !evidenceId.isEmpty, at > 0 else { throw StoreError.invalidInput }
+        try transaction {
+            // A held partition freezes its photos for supervised review.
+            guard try self.state(partition)?.1 == false else { throw StoreError.heldForReview }
+            let state = try photoState(localId, partition)
+            guard state == "pending" else { throw state == nil ? StoreError.unknownIntent : StoreError.alreadyResolved }
+            try run("UPDATE evidence_photos SET state='uploaded',evidence_id=?,uploaded_at=? WHERE \(Self.predicate) AND local_id=?",
+                    [.text(evidenceId), .integer(at)] + p(partition) + [.text(localId.uuidString.lowercased())])
+        }
+    }
+    func reviewPhoto(_ localId: UUID, code: String, in partition: StorePartition) throws {
+        guard !code.isEmpty else { throw StoreError.invalidInput }
+        try transaction {
+            // A held partition freezes its photos for supervised review.
+            guard try self.state(partition)?.1 == false else { throw StoreError.heldForReview }
+            let state = try photoState(localId, partition)
+            guard state == "pending" else { throw state == nil ? StoreError.unknownIntent : StoreError.alreadyResolved }
+            try run("UPDATE evidence_photos SET state='review',review_code=? WHERE \(Self.predicate) AND local_id=?",
+                    [.text(code)] + p(partition) + [.text(localId.uuidString.lowercased())])
+        }
+    }
+    func countPhotoAttempt(_ localId: UUID, in partition: StorePartition) throws -> Int {
+        var attempts = 0
+        try transaction {
+            // A held partition freezes its photos for supervised review.
+            guard try self.state(partition)?.1 == false else { throw StoreError.heldForReview }
+            guard try photoState(localId, partition) == "pending" else { throw StoreError.alreadyResolved }
+            try run("UPDATE evidence_photos SET attempts=attempts+1 WHERE \(Self.predicate) AND local_id=?",
+                    p(partition) + [.text(localId.uuidString.lowercased())])
+            attempts = Int(try query("SELECT attempts FROM evidence_photos WHERE \(Self.predicate) AND local_id=?",
+                                     p(partition) + [.text(localId.uuidString.lowercased())]) { sqlite3_column_int64($0, 0) }.first ?? 0)
+        }
+        return attempts
     }
 
     func orderDrafts(for partition: StorePartition) throws -> [OrderDraft] {
@@ -989,15 +1109,19 @@ final class EncryptedFieldStore: FieldLocalStore {
     #if DEBUG
     /// Downgrade harness: preserve actual v2 snapshot/outbox/acks while removing the v3, v4 and v5 additions.
     func prepareLegacyV2() throws {
-        try transaction { try exec("DROP TABLE reference_data; DROP TABLE call_sheets; DROP TABLE order_drafts; PRAGMA user_version=2") }
+        try transaction { try exec("DROP TABLE evidence_photos; DROP TABLE reference_data; DROP TABLE call_sheets; DROP TABLE order_drafts; PRAGMA user_version=2") }
     }
-    /// Preserve real v3 call sheets and durable evidence while removing the v4 and v5 additions.
+    /// Preserve real v3 call sheets and durable evidence while removing the v4, v5 and v6 additions.
     func prepareLegacyV3() throws {
-        try transaction { try exec("DROP TABLE reference_data; DROP TABLE order_drafts; PRAGMA user_version=3") }
+        try transaction { try exec("DROP TABLE evidence_photos; DROP TABLE reference_data; DROP TABLE order_drafts; PRAGMA user_version=3") }
     }
-    /// Preserve real v4 order drafts while removing only v5 reference data.
+    /// Preserve real v4 order drafts while removing the v5 reference data and v6 photo tables.
     func prepareLegacyV4() throws {
-        try transaction { try exec("DROP TABLE reference_data; PRAGMA user_version=4") }
+        try transaction { try exec("DROP TABLE evidence_photos; DROP TABLE reference_data; PRAGMA user_version=4") }
+    }
+    /// The v5 schema with its data, only the v6 photo table removed.
+    func prepareLegacyV5() throws {
+        try transaction { try exec("DROP TABLE evidence_photos; PRAGMA user_version=5") }
     }
     var schemaVersion: Int { (try? scalar("PRAGMA user_version")).flatMap(Int.init) ?? -1 }
 
@@ -1007,7 +1131,7 @@ final class EncryptedFieldStore: FieldLocalStore {
         // Initialize an encrypted file, then recreate the v0 schema under its existing key.
         let store = try EncryptedFieldStore(url: url, secrets: secrets, keyAccount: keyAccount)
         try store.transaction {
-            try store.exec("DROP TABLE reference_data; DROP TABLE order_drafts; DROP TABLE call_sheets; DROP TABLE acks; DROP TABLE outbox; DROP TABLE intents; DROP TABLE snapshot; DROP TABLE partitions")
+            try store.exec("DROP TABLE evidence_photos; DROP TABLE reference_data; DROP TABLE order_drafts; DROP TABLE call_sheets; DROP TABLE acks; DROP TABLE outbox; DROP TABLE intents; DROP TABLE snapshot; DROP TABLE partitions")
             try store.exec("CREATE TABLE legacy_intents(subject TEXT,device TEXT,scope TEXT,request_id TEXT,kind TEXT,body BLOB)")
             try store.run("INSERT INTO legacy_intents VALUES(?,?,?,?,?,?)", store.p(partition) + [.text(intent.requestId.uuidString.lowercased()), .text(intent.kind), .blob(intent.operationJSON)])
             try store.exec("PRAGMA user_version=0")

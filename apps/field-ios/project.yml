@@ -70,6 +70,8 @@ targets:
       - path: ../../packages/domain-contracts/fixtures/suggested-order/for-outlet.json
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/bootstrap-activity-rules-response.json
         buildPhase: resources
+      - path: ../../packages/domain-contracts/fixtures/mobile-v1/bootstrap-photo-types-response.json
+        buildPhase: resources
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/bootstrap-next-page.json
         buildPhase: resources
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/error-device-revoked.json
