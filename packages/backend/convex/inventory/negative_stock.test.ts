@@ -131,6 +131,15 @@ async function balance(
   );
 }
 
+function withoutSystemFields<D extends { _id: unknown; _creationTime: number }>(
+  doc: D,
+): Omit<D, "_id" | "_creationTime"> {
+  const copy: Record<string, unknown> = { ...doc };
+  delete copy._id;
+  delete copy._creationTime;
+  return copy as Omit<D, "_id" | "_creationTime">;
+}
+
 async function allFlags(t: T) {
   return t.run(async (ctx) => ctx.db.query("negativeStockFlags").collect());
 }
@@ -198,7 +207,10 @@ describe("distributor negative stock (SP-0085)", () => {
       quantityBeforeBase: 10_000n,
       quantityAfterBase: -5_000n,
     });
-    const listed = await admin.query(api.inventory.negative_stock.flags, {});
+    const { page: listed } = await admin.query(
+      api.inventory.negative_stock.flags,
+      { paginationOpts: { numItems: 50, cursor: null } },
+    );
     expect(listed.map((flag) => flag.balanceAfter)).toEqual(
       expect.arrayContaining(["-5", "-6"]),
     );
@@ -318,10 +330,9 @@ describe("distributor negative stock (SP-0085)", () => {
     await expect(
       post(t, outbound(product._id, truck._id, "switched-off", OPENING + 1n)),
     ).rejects.toThrow(REFUSED);
-    const [row] = await admin.query(
-      api.inventory.negative_stock.allowances,
-      {},
-    );
+    const [row] = await admin.query(api.inventory.negative_stock.allowances, {
+      locationIds: [truck._id],
+    });
     expect(row).toMatchObject({ active: false, version: 2 });
   });
 
@@ -409,9 +420,12 @@ describe("distributor negative stock (SP-0085)", () => {
       note: "Covered by receipt",
     });
     expect(
-      await admin.query(api.inventory.negative_stock.flags, {
-        status: "resolved",
-      }),
+      (
+        await admin.query(api.inventory.negative_stock.flags, {
+          status: "resolved",
+          paginationOpts: { numItems: 50, cursor: null },
+        })
+      ).page,
     ).toMatchObject([
       { id: otherFlag!._id, resolutionNote: "Covered by receipt" },
     ]);
@@ -566,5 +580,161 @@ describe("distributor negative stock (SP-0085)", () => {
         ctx.db.query("negativeStockAllowances").collect(),
       ),
     ).toEqual([]);
+  });
+
+  it("never lets newer foreign flags or allowances hide a regional user's own", async () => {
+    const { t, admin, product, truck } = await provision();
+    const root = await t.mutation(
+      internal.migrations.seedOrganizationFoundation,
+      {},
+    );
+    const { area, foreign } = await t.run(async (ctx) => {
+      const unit = (code: string) =>
+        ctx.db.insert("orgUnits", {
+          organizationId: "sunpride",
+          code,
+          name: code,
+          typeCode: "AREA",
+          parentId: root.rootUnitId,
+          status: "active" as const,
+          effectiveFrom: 0,
+          createdAt: 1,
+          updatedAt: 1,
+        });
+      const area = await unit("AREA-NEG-OWN");
+      const other = await unit("AREA-NEG-FOREIGN");
+      await ctx.db.patch(truck._id, { orgUnitId: area });
+      const foreign = await ctx.db.insert("inventoryLocations", {
+        ...withoutSystemFields(truck),
+        code: "TRUCK-FOREIGN",
+        name: "Foreign truck",
+        orgUnitId: other,
+      });
+      return { area, foreign };
+    });
+    await admin.mutation(api.domains.profiles.invite, {
+      email: "neg-regional@example.test",
+      name: "Regional",
+      role: "manager",
+    });
+    const regional = t.withIdentity({
+      subject: "neg-regional@example.test",
+      email: "neg-regional@example.test",
+      name: "Regional",
+    });
+    await regional.mutation(api.domains.profiles.ensure);
+    await t.run(async (ctx) => {
+      const profile = await ctx.db
+        .query("profiles")
+        .withIndex("by_email", (q) =>
+          q.eq("email", "neg-regional@example.test"),
+        )
+        .unique();
+      await ctx.db.patch(profile!._id, { orgUnitId: area });
+    });
+    await setTracking(t, product._id, "none");
+    for (const locationId of [truck._id, foreign])
+      await admin.mutation(api.inventory.negative_stock.setAllowance, {
+        locationId,
+        active: true,
+        movementTypes: ["inventory_issue"],
+        sourceRef: "CALL-10",
+      });
+    // One authorized open flag, then sixty newer ones at a foreign location.
+    await post(t, outbound(product._id, truck._id, "own-short", OPENING + 1n));
+    for (let index = 0; index < 60; index += 1)
+      await post(t, outbound(product._id, foreign, `foreign-${index}`, 1n));
+    expect(await allFlags(t)).toHaveLength(61);
+
+    // Allowances: exact lookups after the scope check.
+    const allowed = await regional.query(
+      api.inventory.negative_stock.allowances,
+      { locationIds: [truck._id, foreign] },
+    );
+    expect(allowed.map((row) => row.locationCode)).toEqual(["TRUCK-001"]);
+    const many = await t.run(async (ctx) => {
+      const ids = [];
+      for (let index = 0; index < 201; index += 1)
+        ids.push(
+          await ctx.db.insert("inventoryLocations", {
+            ...withoutSystemFields(truck),
+            code: `TRUCK-X${index}`,
+          }),
+        );
+      return ids;
+    });
+    await expect(
+      regional.query(api.inventory.negative_stock.allowances, {
+        locationIds: many,
+      }),
+    ).rejects.toThrow("at most 200");
+
+    // Flags: the first page is all foreign, so it is empty but not done; the
+    // caller pages on and finds its own flag.
+    const first = await regional.query(api.inventory.negative_stock.flags, {
+      paginationOpts: { numItems: 50, cursor: null },
+    });
+    expect(first.page).toEqual([]);
+    expect(first.isDone).toBe(false);
+    const second = await regional.query(api.inventory.negative_stock.flags, {
+      paginationOpts: { numItems: 50, cursor: first.continueCursor },
+    });
+    expect(second.page.map((flag) => flag.locationCode)).toEqual(["TRUCK-001"]);
+    expect(second.isDone).toBe(true);
+    // The national admin sees everything, newest first.
+    const national = await admin.query(api.inventory.negative_stock.flags, {
+      paginationOpts: { numItems: 100, cursor: null },
+    });
+    expect(national.page).toHaveLength(61);
+    expect(national.page.at(-1)?.locationCode).toBe("TRUCK-001");
+    await expect(
+      admin.query(api.inventory.negative_stock.flags, {
+        paginationOpts: { numItems: 101, cursor: null },
+      }),
+    ).rejects.toThrow("Page size");
+  });
+
+  it("serves every declared index on the additive tables", async () => {
+    const { t, admin, product, truck } = await provision();
+    await setTracking(t, product._id, "none");
+    await admin.mutation(api.inventory.negative_stock.setAllowance, {
+      locationId: truck._id,
+      active: true,
+      movementTypes: ["inventory_issue"],
+      sourceRef: "CALL-10",
+    });
+    const { movementId } = await post(
+      t,
+      outbound(product._id, truck._id, "index-smoke", OPENING + 1n),
+    );
+    await t.run(async (ctx) => {
+      expect(
+        await ctx.db
+          .query("negativeStockAllowances")
+          .withIndex("by_organizationId_and_locationId", (q) =>
+            q.eq("organizationId", "sunpride").eq("locationId", truck._id),
+          )
+          .unique(),
+      ).not.toBeNull();
+      expect(
+        await ctx.db
+          .query("negativeStockFlags")
+          .withIndex("by_organizationId_and_status_and_createdAt", (q) =>
+            q
+              .eq("organizationId", "sunpride")
+              .eq("status", "open")
+              .gte("createdAt", 0),
+          )
+          .collect(),
+      ).toHaveLength(1);
+      expect(
+        await ctx.db
+          .query("negativeStockFlags")
+          .withIndex("by_organizationId_and_movementId", (q) =>
+            q.eq("organizationId", "sunpride").eq("movementId", movementId),
+          )
+          .unique(),
+      ).not.toBeNull();
+    });
   });
 });

@@ -1,3 +1,7 @@
+import {
+  paginationOptsValidator,
+  paginationResultValidator,
+} from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "../_generated/server";
 import { requireActiveProfile } from "../lib/auth";
@@ -19,7 +23,8 @@ import { negativeStockMovementTypeValidator } from "./validators";
 // Pull-outs land in returns; in-transit, WIP, production and boundary
 // locations are bookkeeping partitions and must never be oversold.
 const ALLOWANCE_LOCATION_TYPES = new Set(["warehouse", "zone", "bin", "truck"]);
-const MAX_LIST = 200;
+const MAX_LOCATIONS = 200;
+const MAX_FLAG_PAGE = 100;
 
 const allowanceRow = v.object({
   id: v.id("negativeStockAllowances"),
@@ -152,22 +157,35 @@ export const setAllowance = mutation({
   },
 });
 
+/**
+ * Allowance state for the locations the caller asks about. Scope is checked
+ * per requested location BEFORE any lookup, and each lookup is an exact index
+ * hit, so newer rows at foreign locations can never crowd out an authorized
+ * one (there is no global cap to fill).
+ */
 export const allowances = query({
-  args: {},
+  args: { locationIds: v.array(v.id("inventoryLocations")) },
   returns: v.array(allowanceRow),
-  handler: async (ctx) => {
+  handler: async (ctx, args) => {
     const canRead = await readableLocationIds(ctx);
-    const rows = await ctx.db
-      .query("negativeStockAllowances")
-      .withIndex("by_organizationId_and_locationId", (q) =>
-        q.eq("organizationId", SUNPRIDE_ORGANIZATION_ID),
-      )
-      .take(MAX_LIST);
+    const locationIds = [...new Set(args.locationIds)];
+    if (locationIds.length > MAX_LOCATIONS)
+      throw new ConvexError(
+        `Ask for at most ${MAX_LOCATIONS} locations at a time`,
+      );
     const result = [];
-    for (const row of rows) {
-      if (!(await canRead(row.locationId))) continue;
-      const location = await ctx.db.get(row.locationId);
-      if (!location) continue;
+    for (const locationId of locationIds) {
+      if (!(await canRead(locationId))) continue;
+      const row = await ctx.db
+        .query("negativeStockAllowances")
+        .withIndex("by_organizationId_and_locationId", (q) =>
+          q
+            .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
+            .eq("locationId", locationId),
+        )
+        .unique();
+      const location = await ctx.db.get(locationId);
+      if (!row || !location) continue;
       result.push({
         id: row._id,
         locationId: location._id,
@@ -186,15 +204,26 @@ export const allowances = query({
   },
 });
 
+/**
+ * Newest-first flags, paginated. Each page is filtered to the caller's
+ * location scope; a page can therefore be short or empty while `isDone` is
+ * false, and the caller keeps paging rather than treating it as the end.
+ */
 export const flags = query({
   args: {
     status: v.optional(v.union(v.literal("open"), v.literal("resolved"))),
-    limit: v.optional(v.number()),
+    paginationOpts: paginationOptsValidator,
   },
-  returns: v.array(flagRow),
+  returns: paginationResultValidator(flagRow),
   handler: async (ctx, args) => {
     const canRead = await readableLocationIds(ctx);
-    const rows = await ctx.db
+    if (
+      !Number.isInteger(args.paginationOpts.numItems) ||
+      args.paginationOpts.numItems < 1 ||
+      args.paginationOpts.numItems > MAX_FLAG_PAGE
+    )
+      throw new ConvexError(`Page size must be 1–${MAX_FLAG_PAGE}`);
+    const pageResult = await ctx.db
       .query("negativeStockFlags")
       .withIndex("by_organizationId_and_status_and_createdAt", (q) =>
         q
@@ -202,9 +231,9 @@ export const flags = query({
           .eq("status", args.status ?? "open"),
       )
       .order("desc")
-      .take(Math.max(1, Math.min(args.limit ?? 50, MAX_LIST)));
-    const result = [];
-    for (const row of rows) {
+      .paginate(args.paginationOpts);
+    const page = [];
+    for (const row of pageResult.page) {
       if (!(await canRead(row.locationId))) continue;
       const [product, location, movement, balance] = await Promise.all([
         ctx.db.get(row.productId),
@@ -222,7 +251,7 @@ export const flags = query({
       ]);
       if (!product || !location || !movement) continue;
       const scale = product.quantityScale ?? 1n;
-      result.push({
+      page.push({
         id: row._id,
         movementId: movement._id,
         movementNumber: movement.movementNumber,
@@ -243,7 +272,7 @@ export const flags = query({
         resolutionNote: row.resolutionNote ?? null,
       });
     }
-    return result;
+    return { ...pageResult, page };
   },
 });
 

@@ -53,7 +53,7 @@ The daily Convex cron moves released expired lots from available to expired thro
 Distributor operations may sell below zero (client call, 2 Oct 2026); key accounts work by pull-out only and never get this.
 
 1. A national administrator opens Inventory → Adjustments → Below-zero stock and presses Allow on the distributor's warehouse or truck. Only untracked products can go below zero there; lot-tracked products still need real lot stock. Other users see each location's state but no Allow/Stop buttons.
-2. Each sale or issue that takes stock below zero appears under Sales to settle.
+2. Each sale or issue that takes stock below zero appears under Sales to settle, newest first, for the locations you can see. If Show older appears, press it: older sales have not been checked yet, and the list says Nothing below zero only once every page is checked.
 3. Receive or transfer stock in (or approve a count) until the balance is back at zero or above. A partial receipt is always accepted: the remaining shortfall keeps the cost it was sold at, and only stock above zero takes the receipt's cost.
 4. A second person (manager, approver or administrator in scope; not the person who sold) enters how it was covered and presses Settle.
 5. Press Stop to return the location to the normal stop-at-zero rule. Existing negative balances stay until covered.

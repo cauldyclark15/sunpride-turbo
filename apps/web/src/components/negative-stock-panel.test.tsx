@@ -7,10 +7,18 @@ import {
   negativeStockErrorMessage,
 } from "./negative-stock-panel";
 
-const data = vi.hoisted(() => ({ empty: false, national: true }));
+const data = vi.hoisted(() => ({
+  empty: false,
+  national: true,
+  flagStatus: "Exhausted" as string,
+  allowanceArgs: [] as unknown[],
+  paginatedArgs: [] as unknown[],
+}));
 vi.mock("convex/react", () => ({
-  useQuery: (ref: unknown) => {
+  useQuery: (ref: unknown, args: unknown) => {
     const name = getFunctionName(ref as never);
+    if (name === "inventory/negative_stock:allowances")
+      data.allowanceArgs.push(args);
     if (name === "inventory/negative_stock:canManageAllowances")
       return data.national;
     if (name === "inventory/negative_stock:allowances")
@@ -31,8 +39,19 @@ vi.mock("convex/react", () => ({
               updatedAt: 1,
             },
           ];
-    if (name === "inventory/negative_stock:flags")
-      return data.empty
+    return undefined;
+  },
+  usePaginatedQuery: (ref: unknown, args: unknown, options: unknown) => {
+    data.paginatedArgs.push({
+      name: getFunctionName(ref as never),
+      args,
+      options,
+    });
+    return {
+      status: data.flagStatus,
+      loadMore: vi.fn(),
+      isLoading: false,
+      results: data.empty
         ? []
         : [
             {
@@ -55,8 +74,8 @@ vi.mock("convex/react", () => ({
               currentAvailable: "3",
               status: "open",
             },
-          ];
-    return undefined;
+          ],
+    };
   },
   useMutation: () => vi.fn(),
 }));
@@ -124,6 +143,50 @@ describe("NegativeStockPanel (SP-0085)", () => {
     expect(html).toContain("Nothing below zero");
     expect(html).toContain("No stock locations");
     data.empty = false;
+  });
+
+  it("asks only for the shown locations' allowances and pages flags instead of capping them", () => {
+    data.allowanceArgs = [];
+    data.paginatedArgs = [];
+    renderToStaticMarkup(createElement(NegativeStockPanel, { locations }));
+    expect(data.allowanceArgs).toContainEqual({ locationIds: ["truck", "wh"] });
+    expect(data.paginatedArgs).toContainEqual({
+      name: "inventory/negative_stock:flags",
+      args: { status: "open" },
+      options: { initialNumItems: 25 },
+    });
+    data.allowanceArgs = [];
+    renderToStaticMarkup(
+      createElement(NegativeStockPanel, { locations: undefined }),
+    );
+    expect(data.allowanceArgs).toContainEqual("skip");
+  });
+
+  it("never says nothing is below zero while older flags are unchecked", () => {
+    data.empty = true;
+    data.flagStatus = "CanLoadMore";
+    const html = renderToStaticMarkup(
+      createElement(NegativeStockPanel, { locations }),
+    );
+    expect(html).not.toContain("Nothing below zero");
+    expect(html).toContain("older ones not checked yet");
+    expect(html).toContain("<button>Show older</button>");
+    data.flagStatus = "Exhausted";
+    data.empty = false;
+  });
+
+  it("says when more locations exist than it shows", () => {
+    const many = Array.from({ length: 201 }, (_, index) => ({
+      _id: `t${index}`,
+      code: `TRUCK-${index}`,
+      name: `Truck ${index}`,
+      type: "truck",
+    }));
+    const html = renderToStaticMarkup(
+      createElement(NegativeStockPanel, { locations: many }),
+    );
+    expect(html).toContain("Showing the first 200 of 201 locations");
+    expect(html).not.toContain("TRUCK-200<");
   });
 
   it("surfaces the server's plain refusal text and hides anything else", () => {
