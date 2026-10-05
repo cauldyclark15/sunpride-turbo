@@ -36,6 +36,7 @@
 		3789494BE29998B4FD607619 /* push-conflict-response.json in Resources */ = {isa = PBXBuildFile; fileRef = 6F22EBF5EEDA31607C93B7ED /* push-conflict-response.json */; };
 		40A01E41B3D2AD453DED068A /* VisitSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34E3AD9EF21188447D122D5F /* VisitSyncTests.swift */; };
 		40A82C3760C3EB7D9AC99417 /* ActivityRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AC500217A755E119ECC80EC /* ActivityRules.swift */; };
+		8A556987873513B8A742E542 /* VisitCompletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0AF800FC6AF8CBFA9E75C9 /* VisitCompletion.swift */; };
 		4192A817C9B71449CE92A730 /* StubBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 770ABB24A61E17AE7FC352FC /* StubBackend.swift */; };
 		484419BBDF9801E380B47DBC /* CallSheetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6212BDC1724FBEC20D95D50E /* CallSheetTests.swift */; };
 		4A03784790F64D3E02CA01BD /* ActivityFormScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = F072C2C0D065CC10D1C8C225 /* ActivityFormScreen.swift */; };
@@ -52,6 +53,7 @@
 		6E5A9E4B38E07C096089674E /* FieldIOSUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B785ABDBB42BD392458A68C0 /* FieldIOSUITests.swift */; };
 		733E9950FCD06E634516E78E /* FieldIOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 643649FC187291287C83F0BA /* FieldIOSApp.swift */; };
 		73822FBBD3552646DD513D2C /* ActivityRulesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 469730AD0708443FF010DB2B /* ActivityRulesTests.swift */; };
+		A1C72C283C26A8EEE8022903 /* VisitCompletionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8445D8CD92D697DE81E4D95B /* VisitCompletionTests.swift */; };
 		75A7C263CA07E65AEF6DD1D1 /* DesignTokensPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20A2E27FA2580A5F7FD421D1 /* DesignTokensPreview.swift */; };
 		76F4C28D8EE6F363EA76CF91 /* VisitSyncClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 768EE84295679AB410817800 /* VisitSyncClient.swift */; };
 		7A245815BC1605BD4C8609F4 /* AuthClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DB5C91CB702257E69CAEEE0 /* AuthClient.swift */; };
@@ -128,11 +130,13 @@
 		3754A93F3B24E554D1DA1A76 /* CustomerDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomerDirectory.swift; sourceTree = "<group>"; };
 		3982CC5A0CA421700FA09534 /* SignInShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInShell.swift; sourceTree = "<group>"; };
 		3AC500217A755E119ECC80EC /* ActivityRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityRules.swift; sourceTree = "<group>"; };
+		AC0AF800FC6AF8CBFA9E75C9 /* VisitCompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitCompletion.swift; sourceTree = "<group>"; };
 		3ED3ADFB05AAF26B358710EC /* AuthClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthClientTests.swift; sourceTree = "<group>"; };
 		3F8DAC201386E8BFBC99C007 /* DiagnosticOperation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticOperation.swift; sourceTree = "<group>"; };
 		3FBDD3734AB2C5A110926BDC /* error-device-revoked.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "error-device-revoked.json"; sourceTree = "<group>"; };
 		41F76A2DF05B3D436873561C /* CustomerDirectoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomerDirectoryTests.swift; sourceTree = "<group>"; };
 		469730AD0708443FF010DB2B /* ActivityRulesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityRulesTests.swift; sourceTree = "<group>"; };
+		8445D8CD92D697DE81E4D95B /* VisitCompletionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitCompletionTests.swift; sourceTree = "<group>"; };
 		48AB56CF93ABBF177209B6EC /* TodayScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayScreen.swift; sourceTree = "<group>"; };
 		4DB5C91CB702257E69CAEEE0 /* AuthClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthClient.swift; sourceTree = "<group>"; };
 		4F11A6D0B6266CF3FDEB9ECA /* StubURLProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StubURLProtocol.swift; sourceTree = "<group>"; };
@@ -306,6 +310,7 @@
 			isa = PBXGroup;
 			children = (
 				469730AD0708443FF010DB2B /* ActivityRulesTests.swift */,
+				8445D8CD92D697DE81E4D95B /* VisitCompletionTests.swift */,
 				3ED3ADFB05AAF26B358710EC /* AuthClientTests.swift */,
 				A6AEF2385449EF460EF630E8 /* BootstrapTests.swift */,
 				6212BDC1724FBEC20D95D50E /* CallSheetTests.swift */,
@@ -463,6 +468,7 @@
 				570AC8D271EED929F429C1FC /* AccountSummary.swift */,
 				D39063EF6CE3A5BE2190F4F2 /* ActivityForms.swift */,
 				3AC500217A755E119ECC80EC /* ActivityRules.swift */,
+				AC0AF800FC6AF8CBFA9E75C9 /* VisitCompletion.swift */,
 				D9096C036A0AF31336E412AC /* BootstrapV1.swift */,
 				2940D6571ED66ECA44D1992C /* CallSheet.swift */,
 			);
@@ -677,6 +683,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				73822FBBD3552646DD513D2C /* ActivityRulesTests.swift in Sources */,
+				A1C72C283C26A8EEE8022903 /* VisitCompletionTests.swift in Sources */,
 				7A3DB86936D018D089DA9D55 /* AuthClientTests.swift in Sources */,
 				B9CB1F9595BF18411447620E /* BootstrapTests.swift in Sources */,
 				484419BBDF9801E380B47DBC /* CallSheetTests.swift in Sources */,
@@ -705,6 +712,7 @@
 				4A03784790F64D3E02CA01BD /* ActivityFormScreen.swift in Sources */,
 				34691292CEA085E6E82111B3 /* ActivityForms.swift in Sources */,
 				40A82C3760C3EB7D9AC99417 /* ActivityRules.swift in Sources */,
+				8A556987873513B8A742E542 /* VisitCompletion.swift in Sources */,
 				4E5E84FFA3CC0B9FB9204B61 /* AppEnvironment.swift in Sources */,
 				C38C66CA66E225B0964FBD37 /* AppModel.swift in Sources */,
 				7A245815BC1605BD4C8609F4 /* AuthClient.swift in Sources */,
