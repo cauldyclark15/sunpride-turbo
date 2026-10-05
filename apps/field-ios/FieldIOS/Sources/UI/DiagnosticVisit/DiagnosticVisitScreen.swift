@@ -230,8 +230,10 @@ struct DiagnosticVisitScreen: View {
                     busy = true
                     Task {
                         // Always attempt fresh evidence for both arrival and departure. A failed
-                        // fix is serialized as null; only the supervisor decides its reliability.
-                        let fix = await location.captureIfAvailable()
+                        // fix is serialized as null; the server records distance and geofence result,
+                        // and only the supervisor decides an exception. Never a reason to refuse.
+                        let captured = await location.capture()
+                        let fix = captured.fix
                         do {
                             if ending {
                                 try model.queueCheckOut(outcome: outcome, reason: outcome == "nonproductive" ? reason : nil,
@@ -241,7 +243,7 @@ struct DiagnosticVisitScreen: View {
                                                        intents: purposes, location: fix)
                                 reason = ""
                             }
-                            message = fix == nil ? "Location unavailable · Saved for supervisor review" : nil
+                            message = LocationAssessment.notice(captured, pin: currentVisit.pin, at: Date()).text
                         } catch let error as AppModel.CallFailure { message = error.message }
                         catch StoreError.leaseExpired { message = "Day access closed · Reconnect to continue" }
                         catch StoreError.heldForReview { message = "Work held · Contact supervisor" }
