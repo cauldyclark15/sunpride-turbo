@@ -33,7 +33,9 @@ struct RouteStop: Identifiable {
     let customer: StoreSnapshot.Customer?
     let address: String?
     let distanceMeters: Double?
-    let directionsURL: URL?
+    /// Pin or address handed to the phone's navigation app; nil when the store has neither.
+    let navigationTarget: NavigationTarget?
+    var directionsURL: URL? { navigationTarget.flatMap { TurnByTurn.url(.appleMaps, to: $0) } }
     var id: String { visit.id }
 
     var waitingToSend: Bool { visit.status == "Queued" || visit.status == "Sending" }
@@ -80,7 +82,7 @@ enum DailyRoute {
                 customer: outlet?.customerId.flatMap { customers[$0] },
                 address: outlet?.address.flatMap { $0.isEmpty ? nil : $0 },
                 distanceMeters: both(validHere, location).map { RouteMath.meters(from: $0, to: $1) },
-                directionsURL: directionsURL(name: visit.outlet, location: location, address: outlet?.address))
+                navigationTarget: NavigationTarget(name: visit.outlet, location: location, address: outlet?.address))
         }
     }
 
@@ -95,19 +97,7 @@ enum DailyRoute {
 
     /// Apple Maps driving directions to the verified pin, else to the address text; nil when neither exists.
     static func directionsURL(name: String, location: StoreSnapshot.Coordinate?, address: String?) -> URL? {
-        var components = URLComponents(string: "https://maps.apple.com/")!
-        if let location, RouteMath.isValid(location) {
-            components.queryItems = [
-                URLQueryItem(name: "daddr", value: "\(location.latitude),\(location.longitude)"),
-                URLQueryItem(name: "q", value: name),
-                URLQueryItem(name: "dirflg", value: "d")
-            ]
-        } else if let address = address?.trimmingCharacters(in: .whitespacesAndNewlines), !address.isEmpty {
-            components.queryItems = [URLQueryItem(name: "daddr", value: address), URLQueryItem(name: "dirflg", value: "d")]
-        } else {
-            return nil
-        }
-        return components.url
+        NavigationTarget(name: name, location: location, address: address).flatMap { TurnByTurn.url(.appleMaps, to: $0) }
     }
 }
 
