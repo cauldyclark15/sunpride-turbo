@@ -174,7 +174,12 @@ What the **To review** reasons mean:
 | Visit changed since it was queued                                                          | The plan for that store changed after you recorded it.                       |
 | Server reported a conflict / Server rejected this visit / Visit needs administrator review | The office must look at it.                                                  |
 
-Items under review are kept on the phone and on the server. They are never deleted automatically and you do not need to record them again.
+The phone never deletes items under review on its own, and you do not need to record them again. But **an item under review is not on the server.** Only work the office accepted is on the server; a refused item is not stored there:
+
+- **Visit changed since it was queued**, and **Check-in was not accepted; dependent visit needs review** for the call sheet, photos and End of a refused Start: the phone held these back and never sent them.
+- All the other reasons: the office looked at the item and refused it, but kept no copy.
+
+So the only copy of anything under **To review** is in this phone's outbox. If the phone is reset, uninstalled or lost, that work is gone. Keep the phone, stay signed in, and show the Sync screen to your supervisor, who arranges recovery of the work from the phone.
 
 ## 10. When to escalate, and to whom
 
@@ -190,7 +195,12 @@ Items under review are kept on the phone and on the server. They are never delet
 
 <img src="field-sales/images/19-phone-removed.png" width="260" alt="Phone removed"> <img src="field-sales/images/20-support-info.png" width="260" alt="Support info">
 
-**Phone removed** means an admin blocked this phone. The app stops sending and keeps any unsent work ("2 unsent on this phone"). Do not sign out or uninstall; call your admin, who can restore the phone so the work is sent.
+**Phone removed** means an admin blocked this phone. The app stops sending and keeps any unsent work on the phone ("2 unsent on this phone"); that work is **not** on the server. Do not sign out, uninstall or reset the phone, and keep it with you. Call your admin with the Phone code. The admin blocked it in one of two ways:
+
+- **Suspended** (for example, it was reported lost and might turn up): this can be undone. If the admin confirms the phone is back with you, they reinstate it for you, the same person in the same area, as long as no replacement phone has been registered for you since. Then tap **Sync now** and the unsent work is sent.
+- **Revoked** (lost for good, stolen, replaced or handed to someone else): this is permanent. The phone can never sync again, and registering it again or getting a new phone does not send its old work. Hand the phone to your supervisor or admin as they instruct. They recover the unsent visits from it under supervision and record them through the office's process. Do not try to re-enter the visits yourself unless they tell you to.
+
+If the phone itself is lost, any work it had not sent is lost with it; only what the office already accepted is safe.
 
 **Support info:** tap the person icon at the top right → **Support info** → **Copy support info**, and paste it into your message. It contains only the app version, counts and an anonymous code; no passwords, customers or locations.
 
@@ -231,6 +241,7 @@ Check these before training sellers. They are the current state of the software,
 5. **iPhone:** the iOS app has sign-in, phone registration, Today, the visit screen with call sheet, and the same sync labels, but **not** yet Route or Customer search. This guide shows Android.
 6. **Supervisors** with a team also see **Team** on Today (coverage and exceptions for direct reports); not covered here.
 7. Office-side history from other phones is not shown on the phone; the customer screen shows only what was recorded on this phone.
+8. **Phone removed: suspension vs revocation** (runbook `docs/runbooks/MOBILE_DEVICE_INCIDENT.md`). Suspension is reversible: an admin with access to the phone's area can reinstate it for the same employee in the same unit, if no replacement was enrolled since, and the held work then syncs (designed, not yet proven on a real phone). Revocation is permanent: no reinstatement, re-registration or new phone sends the old phone's outbox, and the server refuses another device replaying its operation IDs. Its unsent work needs supervised recovery from the phone under custody; trainers must not promise sellers that an admin can "restore" a revoked phone. Items under **To review** (including a refused Start and the call sheet/End held behind it) exist only in the phone's outbox, not on the server.
 
 Client rules used here: the 2 Oct 2026 call answers (no distance limit, MCP order and close-the-call-before-the-next rule, Start/End for time spent, 10 PM day close, productive-call definition, new-store approval) and `docs/requirements/SALES_OPS_STANDARDS_MEMO_2026-01-20.md`.
 
