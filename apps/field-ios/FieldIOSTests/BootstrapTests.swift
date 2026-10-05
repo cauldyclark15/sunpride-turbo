@@ -345,6 +345,37 @@ final class BootstrapTests: XCTestCase {
         XCTAssertEqual(try store.todayVisits("2026-09-26", for: p).count, 1)
     }
 
+    /// QSR-009: a 429 back-off and a refused challenge are retry-later, not "unexpected response",
+    /// and leave the previous snapshot/cursor untouched.
+    func testRateLimitedBootstrapIsRetryLaterAndKeepsSnapshot() async throws {
+        let p = try StorePartition(subject: subject, deviceId: device, scope: "scope-v1")
+        let page = try JSONDecoder().decode(BootstrapV1.Page.self, from: fixture("bootstrap-response"))
+        try store.saveSnapshot(StoreSnapshot(employee: page.employee, visits: page.plannedVisits,
+            outlets: page.outlets, customers: [], route: nil, tasks: []), cursor: "prior",
+            leaseExpiresAt: page.appConfig.offlineLeaseExpiresAt, cacheExpiresAt: page.appConfig.cacheExpiresAt, for: p)
+        let throttled = try JSONSerialization.data(withJSONObject: ["type": "error.response", "contractVersion": 1,
+            "serverTime": 1_790_380_800_000, "code": "temporarily_unavailable", "message": "temporarily_unavailable",
+            "retryable": true])
+        protocolStub(throttled, firstStatus: 429)
+        do { _ = try await client().run(deviceId: device, subject: subject, store: store, previous: p); XCTFail("must back off") }
+        catch { XCTAssertEqual(error as? BootstrapClient.Failure, .throttled) }
+        XCTAssertEqual(StubURLProtocol.requests(to: "/mobile/v1/bootstrap").count, 1, "no immediate hammering")
+        let jwt = StubHTTP.jwt(exp: Date().timeIntervalSince1970 + 900)
+        StubURLProtocol.install { request in
+            if request.path == "/api/auth/convex/token" { return .reply(.json(200, ["token": jwt])) }
+            if request.path == "/api/mutation" {
+                return .reply(.json(200, ["status": "error", "errorMessage": "Uncaught ConvexError: rate_limited",
+                                          "errorData": "rate_limited"]))
+            }
+            return .fail(.badURL)
+        }
+        do { _ = try await client().run(deviceId: device, subject: subject, store: store, previous: p); XCTFail("must back off") }
+        catch { XCTAssertEqual(error as? BootstrapClient.Failure, .throttled) }
+        XCTAssertTrue(StubURLProtocol.requests(to: "/mobile/v1/bootstrap").isEmpty)
+        XCTAssertEqual(try store.cursor(for: p), "prior")
+        XCTAssertEqual(try store.todayVisits("2026-09-26", for: p).count, 1)
+    }
+
     func testAccountSummariesDecodeValidateAndPromoteWithTheSnapshot() async throws {
         let name = "bootstrap-account-summary-response"
         let page = try JSONDecoder().decode(BootstrapV1.Page.self, from: fixture(name))

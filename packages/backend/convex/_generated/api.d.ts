@@ -121,6 +121,7 @@ import type * as mobile_idempotency from "../mobile/idempotency.js";
 import type * as mobile_projection from "../mobile/projection.js";
 import type * as mobile_pull from "../mobile/pull.js";
 import type * as mobile_push from "../mobile/push.js";
+import type * as mobile_rate_limits from "../mobile/rate_limits.js";
 import type * as mobile_reference from "../mobile/reference.js";
 import type * as mobile_types from "../mobile/types.js";
 import type * as orders_field_order from "../orders/field_order.js";
@@ -298,6 +299,7 @@ declare const fullApi: ApiFromModules<{
   "mobile/projection": typeof mobile_projection;
   "mobile/pull": typeof mobile_pull;
   "mobile/push": typeof mobile_push;
+  "mobile/rate_limits": typeof mobile_rate_limits;
   "mobile/reference": typeof mobile_reference;
   "mobile/types": typeof mobile_types;
   "orders/field_order": typeof orders_field_order;

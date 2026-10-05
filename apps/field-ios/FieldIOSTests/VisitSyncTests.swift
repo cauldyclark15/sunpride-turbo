@@ -356,6 +356,38 @@ final class VisitSyncTests: XCTestCase {
         XCTAssertEqual(try store.heldOutbox(for: partition).first?.intent.requestId, initial.requestId)
         XCTAssertNil(try store.cursor(for: partition))
     }
+    /// QSR-009: a 429 keeps the outbox and stops without retry-hammering; a refused challenge too.
+    func testRateLimitedPushAndPullKeepWorkAndBackOff() async throws {
+        let intent = try checkIn()
+        let throttled = try JSONSerialization.data(withJSONObject: ["type": "error.response", "contractVersion": 1,
+            "serverTime": 1_800_000_000_000, "code": "temporarily_unavailable", "message": "temporarily_unavailable",
+            "retryable": true])
+        install { _ in .reply(.init(status: 429, headers: ["Retry-After": "30"], body: throttled)) }
+        do { try await client().push(store: store, partition: partition); XCTFail("must back off") }
+        catch { XCTAssertEqual(error as? VisitSyncClient.Failure, .throttled) }
+        XCTAssertEqual(StubURLProtocol.requests(to: "/mobile/v1/push").count, 1, "no immediate retry")
+        XCTAssertEqual(try store.pendingOutbox(for: partition).map(\.intent.requestId), [intent.requestId])
+        do { try await client().pull(store: store, partition: partition); XCTFail("must back off") }
+        catch { XCTAssertEqual(error as? VisitSyncClient.Failure, .throttled) }
+        XCTAssertEqual(try store.cursor(for: partition), "cursor-0")
+        let jwt = StubHTTP.jwt(exp: Date().timeIntervalSince1970 + 900)
+        StubURLProtocol.install { request in
+            switch request.path {
+            case "/api/auth/convex/token": return .reply(.json(200, ["token": jwt]))
+            case "/api/mutation": return .reply(.json(200, ["status": "error",
+                "errorMessage": "Uncaught ConvexError: rate_limited", "errorData": "rate_limited"]))
+            default: return .fail(.badURL)
+            }
+        }
+        do { try await client().push(store: store, partition: partition); XCTFail("must back off") }
+        catch { XCTAssertEqual(error as? VisitSyncClient.Failure, .throttled) }
+        XCTAssertEqual(StubURLProtocol.requests(to: "/api/mutation").count, 1, "no immediate retry")
+        XCTAssertEqual(try store.pendingOutbox(for: partition).count, 1)
+        // After backing off, the same queued work syncs normally.
+        install { request in Self.accepted(request) }
+        try await client().push(store: store, partition: partition)
+        XCTAssertTrue(try store.pendingOutbox(for: partition).isEmpty)
+    }
     func testDiagnosticFactoryEnqueuesOffline() throws {
         let location = try VisitLocation(CLLocation(latitude: 0, longitude: 0))
         let op = try DiagnosticOperation.checkIn(plannedId: "planned-1", outletId: "outlet-1",

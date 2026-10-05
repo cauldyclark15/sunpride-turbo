@@ -2412,6 +2412,12 @@ export default defineSchema({
   })
     .index("by_deviceId_and_nonce", ["deviceId", "nonce"])
     .index("by_expiresAt", ["expiresAt"]),
+  // QSR-009 token buckets (`mobile/rate_limits.ts`): `challenge:<deviceId>` / `failure:<subject>`.
+  mobileRateLimits: defineTable({
+    key: v.string(),
+    tokens: v.number(),
+    updatedAt: v.number(),
+  }).index("by_key", ["key"]),
   visitExecutions: defineTable({
     organizationId: v.string(),
     clientVisitId: v.string(),
