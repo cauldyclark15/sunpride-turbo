@@ -4,15 +4,19 @@ extension Enrollment.State {
     var isReady: Bool { if case .ready = self { return true }; return false }
 }
 
-/// Visits are read exclusively from the encrypted store.
+/// Today dashboard: date, target, calls, completion, sales, sync state, next outlet and the
+/// ordered daily route. Everything is read from the encrypted store, so it works offline.
 struct TodayScreen: View {
     let model: AppModel
-    private var planned: [AppModel.TodayVisit] { model.visits.filter(\.planned) }
+    private var dashboard: TodayDashboard { model.dashboard }
     private var unplanned: [AppModel.TodayVisit] { model.visits.filter { !$0.planned } }
 
     var body: some View {
+        let dashboard = dashboard
         VStack(alignment: .leading, spacing: 16) {
-            if !planned.isEmpty {
+            summaryCard(dashboard)
+            nextCard(dashboard)
+            if !dashboard.route.isEmpty {
                 SectionCard(title: "Route") {
                     NavigationLink { RouteScreen(model: model) } label: {
                         CalmListRow(symbol: "map", title: "Today's route", meta: routeMeta, trailing: "chevron.right")
@@ -21,15 +25,34 @@ struct TodayScreen: View {
                     .accessibilityIdentifier("openRoute")
                 }
             }
-            SectionCard(title: "Visits · \(planned.count)") {
-                if planned.isEmpty {
+            SectionCard(title: "Visits · \(dashboard.route.count)") {
+                if dashboard.route.isEmpty {
                     CalmListRow(symbol: "calendar", title: "No visits today", meta: "")
                 } else {
-                    ForEach(planned) { visit in visitLink(visit) }
+                    ForEach(dashboard.route) { stop in
+                        if let visit = model.visits.first(where: { $0.id == stop.id }) {
+                            visitLink(visit, symbol: Self.orderSymbol(stop.position), meta: stopMeta(stop, visit))
+                                .accessibilityIdentifier("visit-\(visit.id)")
+                        }
+                    }
                 }
-                ForEach(unplanned) { visit in
-                    visitLink(visit, unplanned: true)
+            }
+            if !unplanned.isEmpty {
+                SectionCard(title: "Other outlets") {
+                    ForEach(unplanned) { visit in
+                        visitLink(visit, symbol: "plus.circle", title: "Unplanned visit · \(visit.outlet)", meta: statusMeta(visit))
+                            .accessibilityIdentifier("visit-\(visit.id)")
+                    }
                 }
+            }
+            SectionCard(title: "Customers") {
+                NavigationLink { CustomerSearchScreen(model: model) } label: {
+                    CalmListRow(symbol: "magnifyingglass", title: "Find a customer",
+                                meta: "\(model.customers.count) \(model.customers.count == 1 ? "outlet" : "outlets") on this phone",
+                                trailing: "chevron.right")
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("openCustomers")
             }
             if let message = model.syncMessage {
                 Text(message).font(SunprideTokens.TypeStyle.meta)
@@ -40,32 +63,90 @@ struct TodayScreen: View {
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { _ in model.refreshStatus() }
     }
 
-    @ViewBuilder private func visitLink(_ visit: AppModel.TodayVisit, unplanned: Bool = false) -> some View {
+    private func summaryCard(_ dashboard: TodayDashboard) -> some View {
+        SectionCard(title: dashboard.dateLabel) {
+            VStack(spacing: 0) {
+                DetailRow(label: "Calls", value: dashboard.callsLabel).accessibilityIdentifier("dashboardCalls")
+                divider
+                DetailRow(label: "Productive", value: dashboard.productiveLabel).accessibilityIdentifier("dashboardProductive")
+                divider
+                DetailRow(label: "Visits done", value: dashboard.completionLabel).accessibilityIdentifier("dashboardCompletion")
+                divider
+                DetailRow(label: "Sales", value: dashboard.salesLabel).accessibilityIdentifier("dashboardSales")
+                divider
+                DetailRow(label: "Sync", value: syncLine).accessibilityIdentifier("dashboardSync")
+            }
+        }
+    }
+
+    @ViewBuilder private func nextCard(_ dashboard: TodayDashboard) -> some View {
+        let openUnplanned = unplanned.contains { $0.startedAt != nil && $0.endedAt == nil }
+        SectionCard(title: dashboard.current == nil && !openUnplanned ? "Next" : "Now") {
+            if let stop = dashboard.current ?? dashboard.next,
+               let visit = model.visits.first(where: { $0.id == stop.id }) {
+                visitLink(visit, symbol: dashboard.current == nil ? "arrow.right.circle" : "timer",
+                          meta: dashboard.current == nil ? "Stop \(stop.position) of \(dashboard.planned)"
+                                                         : "In progress · stop \(stop.position)")
+                    .accessibilityIdentifier("nextOutlet")
+            } else if let open = unplanned.first(where: { $0.startedAt != nil && $0.endedAt == nil }) {
+                visitLink(open, symbol: "timer", title: "Unplanned visit · \(open.outlet)", meta: "In progress")
+                    .accessibilityIdentifier("nextOutlet")
+            } else if dashboard.dayComplete {
+                CalmListRow(symbol: "checkmark.circle", title: "All planned stores done", meta: dashboard.completionLabel)
+                    .accessibilityIdentifier("nextOutlet")
+            } else if let review = dashboard.route.first(where: { $0.state == .review }) {
+                CalmListRow(symbol: "exclamationmark.circle", title: review.outlet, meta: "To review · ask your supervisor")
+                    .accessibilityIdentifier("nextOutlet")
+            } else {
+                CalmListRow(symbol: "calendar", title: "No planned stores", meta: "")
+                    .accessibilityIdentifier("nextOutlet")
+            }
+        }
+    }
+
+    /// Offline is stated first so it is never hidden behind a queue count.
+    private var syncLine: String {
+        let label = model.syncStatus?.label ?? (model.isOffline ? "Offline · saved cache" : "Not synced yet")
+        let state = model.isOffline && !label.hasPrefix("Offline") ? "Offline · \(label)" : label
+        guard let last = model.syncStatus?.lastSuccessful ?? model.lastSyncedAt else { return state }
+        return "\(state) · \(FieldDay.closeTimeLabel(last))"
+    }
+
+    private var divider: some View {
+        Rectangle().fill(SunprideTokens.secondaryText.opacity(0.2)).frame(height: 1).padding(.leading, 16)
+    }
+
+    static func orderSymbol(_ position: Int) -> String { (1...50).contains(position) ? "\(position).circle" : "storefront" }
+
+    @ViewBuilder private func visitLink(_ visit: AppModel.TodayVisit, symbol: String, title: String? = nil, meta: String) -> some View {
         #if DEBUG
         NavigationLink {
             DiagnosticVisitScreen(model: model, visit: visit)
         } label: {
-            CalmListRow(symbol: unplanned ? "plus.circle" : "storefront", title: unplanned ? "Unplanned visit · \(visit.outlet)" : visit.outlet,
-                        meta: statusMeta(visit), trailing: "chevron.right")
+            CalmListRow(symbol: symbol, title: title ?? visit.outlet, meta: meta, trailing: "chevron.right")
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier("visit-\(visit.id)")
         #else
-        CalmListRow(symbol: unplanned ? "plus.circle" : "storefront", title: unplanned ? "Unplanned visit · \(visit.outlet)" : visit.outlet,
-                    meta: statusMeta(visit), trailing: "chevron.right")
-            .accessibilityIdentifier("visit-\(visit.id)")
+        CalmListRow(symbol: symbol, title: title ?? visit.outlet, meta: meta, trailing: "chevron.right")
         #endif
     }
+
+    private func stopMeta(_ stop: TodayDashboard.Stop, _ visit: AppModel.TodayVisit) -> String {
+        switch stop.state {
+        case .review: return "To review"
+        case .inProgress: return "In progress"
+        case .next: return "Next"
+        case .done, .upcoming: return statusMeta(visit)
+        }
+    }
     private var routeMeta: String {
-        let stops = DailyRoute.stops(visits: planned, outlets: model.outletDetails, customers: model.customerDetails, here: nil,
-                                     canStart: { model.startFailure(for: $0) == nil })
-        let count = "\(stops.count) \(stops.count == 1 ? "stop" : "stops")"
-        guard let next = stops.first(where: { $0.state == .next }) else { return count }
-        return "\(count) · Next: \(next.visit.outlet)"
+        let count = "\(dashboard.route.count) \(dashboard.route.count == 1 ? "stop" : "stops")"
+        guard let next = dashboard.next else { return count }
+        return "\(count) · Next: \(next.outlet)"
     }
     private func statusMeta(_ visit: AppModel.TodayVisit) -> String {
         if visit.status == "Needs review" { return "To review" }
-        if let spent = visit.timeSpent { return "Done · \(spent)" }
+        if let spent = visit.timeSpent { return visit.outcome == "nonproductive" ? "Not productive · \(spent)" : "Done · \(spent)" }
         if visit.startedAt != nil { return "In progress" }
         if let failure = model.startFailure(for: visit) { return failure.message }
         switch visit.status {

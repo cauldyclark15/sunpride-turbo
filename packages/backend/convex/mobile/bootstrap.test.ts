@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { internal } from "../_generated/api";
 import schema from "../schema";
 import { modules } from "../test.setup";
-import { manilaDate } from "../coverage/validation";
+import { localDate, manilaDate } from "../coverage/validation";
 import { EVIDENCE_PHOTO_TYPES, nextDayCloseAt } from "../visits/policy";
 import {
   DEFAULT_ACTIVITY_RULE_VERSION,
@@ -21,8 +21,20 @@ export async function fixture() {
   const day = manilaDate(now);
   const subject = "https://auth.fixture|sales";
   const ids = await t.run(async (ctx) => {
+    // A valid tree (one national root) so scope subtrees resolve.
+    const national = await ctx.db.insert("orgUnits", {
+      organizationId: "sunpride",
+      code: "SUNPRIDE",
+      name: "National",
+      typeCode: "NATIONAL",
+      status: "active",
+      effectiveFrom: now - 100000,
+      createdAt: now - 100000,
+      updatedAt: now,
+    });
     const unit = await ctx.db.insert("orgUnits", {
       organizationId: "sunpride",
+      parentId: national,
       code: "LOCAL",
       name: "Local",
       typeCode: "REGION",
@@ -33,6 +45,7 @@ export async function fixture() {
     });
     const foreignUnit = await ctx.db.insert("orgUnits", {
       organizationId: "sunpride",
+      parentId: national,
       code: "FOREIGN",
       name: "Foreign",
       typeCode: "REGION",
@@ -298,6 +311,8 @@ describe("mobile day bootstrap", () => {
         routeId: null,
         code: "O",
         customerId: f.ids.snapshot.customerId,
+        territoryId: f.ids.snapshot.territoryId,
+        territoryCode: f.ids.snapshot.territoryCode,
       },
     ]);
     expect(r.localCustomers).toEqual([
@@ -311,6 +326,182 @@ describe("mobile day bootstrap", () => {
     });
     expect(r.syncCursor).toBeTruthy();
     expect(JSON.stringify(r)).not.toContain(f.actor.subject);
+  });
+  it("keeps order territory association from the signed visit, not the current outlet assignment", async () => {
+    const f = await fixture();
+    await f.t.run(async (ctx) => {
+      const territory = await ctx.db.insert("territories", {
+        organizationId: "sunpride",
+        code: "CURRENT-T",
+        name: "Current territory",
+        status: "active",
+        effectiveFrom: f.now - 100000,
+        createdAt: f.now,
+        updatedAt: f.now,
+        createdBy: f.actor.subject,
+      });
+      await ctx.db.insert("territoryOwnerships", {
+        territoryId: territory,
+        orgUnitId: f.ids.unit,
+        effectiveFrom: f.now - 100000,
+        actorSubject: f.actor.subject,
+        reason: "fixture",
+        createdAt: f.now,
+      });
+      await ctx.db.patch(f.ids.outletAssignment, { territoryId: territory });
+    });
+    const r = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+    });
+    expect(r.outlets[0]).toMatchObject({
+      territoryId: f.ids.snapshot.territoryId,
+      territoryCode: f.ids.snapshot.territoryCode,
+    });
+  });
+  it("carries the person's daily position standard as the Today target", async () => {
+    const f = await fixture();
+    const none = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+    });
+    // No position on the assignment or profile: the phone shows "No target set".
+    expect(none).not.toHaveProperty("dayTarget");
+    await f.t.run(async (ctx) => {
+      const position = await ctx.db.insert("positions", {
+        organizationId: "sunpride",
+        code: "RDS",
+        label: "Route Distribution Salesman",
+        category: "field",
+        active: true,
+        createdAt: 1,
+        updatedAt: 1,
+      });
+      await ctx.db.patch(f.ids.assignment, { positionId: position });
+      // A superseded standard and the current memo standard.
+      await ctx.db.insert("positionStandards", {
+        organizationId: "sunpride",
+        positionId: position,
+        effectiveFrom: 1,
+        effectiveTo: f.now - 50_000_000,
+        dailyCallsTarget: 20,
+        sourceRef: "old-memo",
+        createdAt: 1,
+        updatedAt: 1,
+      });
+      await ctx.db.insert("positionStandards", {
+        organizationId: "sunpride",
+        positionId: position,
+        effectiveFrom: f.now - 50_000_000,
+        dailyCallsTarget: 30,
+        productiveCallTargetPct: 85,
+        sourceRef: "memo-2026-01-20",
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    });
+    const r = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+    });
+    expect(r.dayTarget).toEqual({
+      dailyCalls: 30,
+      productivePct: 85,
+      sourceRef: "memo-2026-01-20",
+    });
+  });
+  it("carries the position's productive-call rule even without call targets", async () => {
+    const f = await fixture();
+    await f.t.run(async (ctx) => {
+      const position = await ctx.db.insert("positions", {
+        organizationId: "sunpride",
+        code: "PMOT",
+        label: "PMOT",
+        category: "field",
+        active: true,
+        createdAt: 1,
+        updatedAt: 1,
+      });
+      await ctx.db.patch(f.ids.assignment, { positionId: position });
+      await ctx.db.insert("positionStandards", {
+        organizationId: "sunpride",
+        positionId: position,
+        effectiveFrom: f.now - 50_000_000,
+        productiveCallRule: "truck_seller",
+        sourceRef: "call-2026-10-02",
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    });
+    const r = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+    });
+    expect(r.dayTarget).toEqual({
+      sourceRef: "call-2026-10-02",
+      productiveCallRule: "truck_seller",
+    });
+  });
+  it("carries today's sales like the Daily Sales Report, with the daily sales target", async () => {
+    const f = await fixture();
+    const empty = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+    });
+    expect(empty.daySales).toEqual({ amountMinor: 0, orders: 0 });
+    const dayStart = localDate(f.day);
+    const at = Math.max(dayStart, f.now - 60_000);
+    await f.t.run(async (ctx) => {
+      let n = 0;
+      const order = (
+        total: number,
+        extra: {
+          status?: "posted" | "voided" | "draft";
+          subject?: string;
+          createdAt?: number;
+          offlineCreatedAt?: number;
+        } = {},
+      ) =>
+        ctx.db.insert("orders", {
+          organizationId: "sunpride",
+          clientRequestId: `req-${++n}`,
+          orderNumber: `SI-${n}`,
+          customerCode: "LOCAL-C",
+          salespersonSubject: extra.subject ?? f.actor.subject,
+          status: extra.status ?? "posted",
+          subtotal: total,
+          total,
+          ...(extra.offlineCreatedAt
+            ? { offlineCreatedAt: extra.offlineCreatedAt }
+            : {}),
+          createdAt: extra.createdAt ?? at,
+          updatedAt: extra.createdAt ?? at,
+        });
+      await order(1500.5);
+      await order(250);
+      await order(999, { status: "voided" }); // never a sale
+      await order(999, { status: "draft" });
+      await order(777, { subject: "https://auth.fixture|foreign" });
+      // Written offline yesterday, synced today: yesterday's sale.
+      await order(333, { offlineCreatedAt: dayStart - 3_600_000 });
+      await order(444, { createdAt: dayStart - 1 }); // yesterday
+      await ctx.db.insert("salesTargets", {
+        organizationId: "sunpride",
+        subjectKind: "employee",
+        profileId: f.ids.person,
+        period: "daily",
+        metric: "sales_value",
+        value: 500_000,
+        effectiveFrom: dayStart,
+        sourceRef: "daily allocation",
+        createdBy: "fixture",
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    });
+    const r = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+    });
+    expect(r.daySales).toEqual({
+      amountMinor: 175_050,
+      orders: 2,
+      targetMinor: 500_000,
+    });
   });
   it("gives the daily route the single current verified pin and address, never a pending or ambiguous pin", async () => {
     const f = await fixture();
