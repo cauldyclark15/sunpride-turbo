@@ -41,6 +41,24 @@ final class BootstrapTests: XCTestCase {
         try? FileManager.default.removeItem(at: directory)
         try await super.tearDown()
     }
+    func testOutletVerifiedPinDecodesAndHalfPinIsRejected() throws {
+        let page = try JSONDecoder().decode(BootstrapV1.Page.self, from: fixture("bootstrap-response"))
+        XCTAssertEqual(page.outlets.first?.pin, OutletPin(latitude: 14.5764, longitude: 121.0851))
+        let roundTrip = try JSONDecoder().decode(BootstrapV1.Page.self, from: JSONEncoder().encode(page))
+        XCTAssertEqual(roundTrip.outlets.first?.pin, page.outlets.first?.pin)
+        let unpinned = try altered("bootstrap-response") { object in
+            var outlets = object["outlets"] as! [[String: Any]]
+            outlets[0].removeValue(forKey: "latitude"); outlets[0].removeValue(forKey: "longitude")
+            object["outlets"] = outlets
+        }
+        XCTAssertNil(try JSONDecoder().decode(BootstrapV1.Page.self, from: unpinned).outlets.first?.pin)
+        let half = try altered("bootstrap-response") { object in
+            var outlets = object["outlets"] as! [[String: Any]]
+            outlets[0].removeValue(forKey: "longitude")
+            object["outlets"] = outlets
+        }
+        XCTAssertThrowsError(try JSONDecoder().decode(BootstrapV1.Page.self, from: half))
+    }
     private func client() -> BootstrapClient {
         BootstrapClient(site: StubHTTP.site, auth: auth,
             registry: ConvexDeviceRegistry(functions: ConvexFunctions(url: StubHTTP.cloud, auth: auth, http: http)),
@@ -325,6 +343,46 @@ final class BootstrapTests: XCTestCase {
         catch { XCTAssertEqual(error as? BootstrapClient.Failure, .retryable) }
         XCTAssertEqual(try store.cursor(for: p), "prior")
         XCTAssertEqual(try store.todayVisits("2026-09-26", for: p).count, 1)
+    }
+
+    func testAccountSummariesDecodeValidateAndPromoteWithTheSnapshot() async throws {
+        let name = "bootstrap-account-summary-response"
+        let page = try JSONDecoder().decode(BootstrapV1.Page.self, from: fixture(name))
+        XCTAssertEqual(page.accountSummaries.count, 1)
+        XCTAssertTrue(page.accountSummaries[0].isAvailable)
+        XCTAssertEqual(page.accountSummaries[0].sales?.amountMinor, 4_825_050)
+        XCTAssertEqual(page.accountSummaries[0].openOrders, .init(count: 1, amountMinor: 410_000))
+        XCTAssertEqual(try JSONDecoder().decode(BootstrapV1.Page.self, from: fixture("bootstrap-response")).accountSummaries, [],
+                       "old servers omit the additive field")
+        func summaries(_ change: @escaping (inout [[String: Any]]) -> Void) -> (inout [String: Any]) -> Void {
+            { object in var list = object["accountSummaries"] as! [[String: Any]]; change(&list); object["accountSummaries"] = list }
+        }
+        let corrupt: [(inout [String: Any]) -> Void] = [
+            summaries { $0[0]["outletId"] = "outlet-not-on-page" },
+            summaries { $0[0]["availability"] = "withheld" },
+            summaries { $0[0].removeValue(forKey: "openOrders") },
+            summaries { $0.append($0[0]) },
+            summaries { var sales = $0[0]["sales"] as! [String: Any]; sales["to"] = "2026-09-25"; $0[0]["sales"] = sales },
+            summaries { var sales = $0[0]["sales"] as! [String: Any]; sales["lastOrderAmountMinor"] = NSNull(); $0[0]["sales"] = sales },
+            summaries { $0[0]["creditLimitMinor"] = -1 }
+        ]
+        for change in corrupt {
+            XCTAssertThrowsError(try JSONDecoder().decode(BootstrapV1.Page.self, from: altered(name, change)))
+        }
+        let withheld = try altered(name, summaries {
+            $0[0]["availability"] = "withheld"; $0[0]["sales"] = NSNull(); $0[0]["openOrders"] = NSNull(); $0[0]["creditLimitMinor"] = NSNull()
+        })
+        XCTAssertFalse(try JSONDecoder().decode(BootstrapV1.Page.self, from: withheld).accountSummaries[0].isAvailable)
+
+        protocolStub(try fixture(name))
+        let p = try await client().run(deviceId: device, subject: subject, store: store)
+        store.close()
+        store = try EncryptedFieldStore(url: directory.appending(path: "field.sqlite"), secrets: secrets, keyAccount: "db")
+        XCTAssertEqual(try store.snapshot(for: p)?.accountSummaries, page.accountSummaries)
+        // A later snapshot without figures replaces them; nothing stale survives promotion.
+        protocolStub(try fixture("bootstrap-response"))
+        _ = try await client().run(deviceId: device, subject: subject, store: store, previous: p)
+        XCTAssertEqual(try store.snapshot(for: p)?.accountSummaries, [])
     }
 
     func testCallSheetsMergeAcrossPagesAndPromoteTogether() async throws {

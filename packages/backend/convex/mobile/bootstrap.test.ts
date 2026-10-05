@@ -21,8 +21,20 @@ export async function fixture() {
   const day = manilaDate(now);
   const subject = "https://auth.fixture|sales";
   const ids = await t.run(async (ctx) => {
+    // A valid tree (one national root) so scope subtrees resolve.
+    const national = await ctx.db.insert("orgUnits", {
+      organizationId: "sunpride",
+      code: "SUNPRIDE",
+      name: "National",
+      typeCode: "NATIONAL",
+      status: "active",
+      effectiveFrom: now - 100000,
+      createdAt: now - 100000,
+      updatedAt: now,
+    });
     const unit = await ctx.db.insert("orgUnits", {
       organizationId: "sunpride",
+      parentId: national,
       code: "LOCAL",
       name: "Local",
       typeCode: "REGION",
@@ -33,6 +45,7 @@ export async function fixture() {
     });
     const foreignUnit = await ctx.db.insert("orgUnits", {
       organizationId: "sunpride",
+      parentId: national,
       code: "FOREIGN",
       name: "Foreign",
       typeCode: "REGION",
