@@ -14,6 +14,8 @@ import type * as analytics_compliance from "../analytics/compliance.js";
 import type * as analytics_compliance_model from "../analytics/compliance_model.js";
 import type * as analytics_customer from "../analytics/customer.js";
 import type * as analytics_customer_model from "../analytics/customer_model.js";
+import type * as analytics_exception_model from "../analytics/exception_model.js";
+import type * as analytics_exceptions from "../analytics/exceptions.js";
 import type * as analytics_execution from "../analytics/execution.js";
 import type * as analytics_model from "../analytics/model.js";
 import type * as analytics_productivity from "../analytics/productivity.js";
@@ -192,6 +194,8 @@ declare const fullApi: ApiFromModules<{
   "analytics/compliance_model": typeof analytics_compliance_model;
   "analytics/customer": typeof analytics_customer;
   "analytics/customer_model": typeof analytics_customer_model;
+  "analytics/exception_model": typeof analytics_exception_model;
+  "analytics/exceptions": typeof analytics_exceptions;
   "analytics/execution": typeof analytics_execution;
   "analytics/model": typeof analytics_model;
   "analytics/productivity": typeof analytics_productivity;
