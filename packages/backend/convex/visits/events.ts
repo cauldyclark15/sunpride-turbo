@@ -1,4 +1,5 @@
 import type { Id } from "../_generated/dataModel";
+import { queueVisitEventRollup } from "../analytics/rollups";
 import type { MutationCtx } from "../_generated/server";
 import type { AppRole } from "../lib/roles";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
@@ -44,6 +45,8 @@ export async function append(ctx: MutationCtx, input: EventInput) {
   )
     throw new ConvexError("invalid_event_summary");
   const { ownerProfileId, ...event } = input;
+  // CVX-032: the visit this event belongs to needs its territory/customer rollup refreshed.
+  await queueVisitEventRollup(ctx, input);
   const eventId = await ctx.db.insert("executionEvents", {
     ...event,
     organizationId: SUNPRIDE_ORGANIZATION_ID,

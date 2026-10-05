@@ -8,6 +8,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { PanelErrorBoundary } from "../panel-error-boundary";
 import { ExceptionQueue } from "./exception-queue";
+import { Productivity } from "./productivity";
 import { manilaToday, type SupervisionFilters } from "./supervision-model";
 import { TalkSheet } from "./talk-sheet";
 import { TeamExecution } from "./team-execution";
@@ -18,13 +19,15 @@ const ActivityMap = dynamic(
   { ssr: false },
 );
 
-type SupervisionTab = "team" | "exceptions" | "map" | "workwith" | "talk";
+type SupervisionTab =
+  "team" | "exceptions" | "map" | "workwith" | "talk" | "productivity";
 const TABS: [SupervisionTab, string][] = [
   ["team", "Team"],
   ["exceptions", "Exceptions"],
   ["map", "Map"],
   ["workwith", "Work-With"],
   ["talk", "Talk Sheet"],
+  ["productivity", "Productivity"],
 ];
 
 /** The viewer's clock, refreshed every minute, for time-based statuses. */
@@ -134,6 +137,8 @@ export function SupervisionWorkspace() {
             <WorkWith filters={filters} />
           ) : tab === "talk" ? (
             <TalkSheet filters={filters} />
+          ) : tab === "productivity" ? (
+            <Productivity filters={filters} />
           ) : (
             <ActivityMap filters={filters} />
           )}

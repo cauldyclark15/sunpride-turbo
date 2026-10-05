@@ -2,7 +2,9 @@
  * date, the planned/actual/productive calls, orders, sales value, collections and visit
  * figures the dashboards read, so a team view never re-scans a month of visits and orders.
  *
- * Freshness: every visit event (visits/events.ts `append`) and every order write calls
+ * Freshness: every visit event (visits/events.ts `append`), every order write and every
+ * plan activation/supersession that creates or displaces planned visits
+ * (coverage/activation.ts) calls
  * `queueAgentDay*`, which records one pending refresh per person and day and schedules
  * `refreshDay` after REFRESH_DELAY_MS, so a burst of phone operations costs one
  * recompute. `backfillDay` recomputes a whole date for everyone (CLI / later cron).
