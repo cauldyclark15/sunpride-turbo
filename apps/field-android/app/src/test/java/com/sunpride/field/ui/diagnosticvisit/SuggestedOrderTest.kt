@@ -121,9 +121,46 @@ class SuggestedOrderTest {
     }
 
     private class Cache : SuggestedOrderCache {
-        val rows = mutableMapOf<String, Pair<String, Long>>()
+        val rows = mutableMapOf<String, SuggestedOrderCacheRow>()
         override fun read(key: String) = rows[key]
-        override fun write(key: String, json: String, savedAt: Long) { rows[key] = json to savedAt }
+        override fun write(key: String, json: String, savedAt: Long) { rows[key] = SuggestedOrderCacheRow(json, savedAt) }
+        override fun block(key: String, reason: String, at: Long) { rows[key] = SuggestedOrderCacheRow(null, at, reason) }
+    }
+
+    private val offline: () -> String = { throw AuthFailure(AuthFailure.Kind.OFFLINE) }
+
+    @Test fun aRefusalDurablyReplacesSavedSuggestionsUntilALiveAnswer() {
+        for ((refusal, message) in listOf<Pair<() -> String, String>>(
+            { throw ConvexFunctionError("Forbidden") } to SuggestedOrderRepository.NOT_ALLOWED,
+            { throw AuthFailure(AuthFailure.Kind.REFUSED) } to SuggestedOrderRepository.NOT_ALLOWED,
+            { throw AuthFailure(AuthFailure.Kind.SESSION_EXPIRED) } to SuggestedOrderRepository.SIGN_IN,
+            { "{}" } to SuggestedOrderRepository.UNREADABLE)) {
+            val cache = Cache()
+            assertNotNull(SuggestedOrderRepository.load(outlet, day, cache, 10) { text }.order)
+            assertNotNull(SuggestedOrderRepository.load(outlet, day, cache, 11, offline).order)
+            val refused = SuggestedOrderRepository.load(outlet, day, cache, 12, refusal)
+            assertNull(refused.order); assertEquals(message, refused.message)
+            // Success -> refusal -> offline (reopen or relaunch): the saved answer is gone and stays refused.
+            assertNull(cache.rows.getValue("$day|$outlet").json)
+            repeat(2) {
+                val reopened = SuggestedOrderRepository.load(outlet, day, cache, 13, offline)
+                assertNull(reopened.order); assertEquals(message, reopened.message)
+            }
+            // Only a fresh live answer brings suggestions back.
+            assertNotNull(SuggestedOrderRepository.load(outlet, day, cache, 14) { text }.order)
+            assertNotNull(SuggestedOrderRepository.load(outlet, day, cache, 15, offline).order)
+        }
+    }
+
+    @Test fun aRefusalThatCannotBeSavedStillNeverShowsData() {
+        val cache = object : SuggestedOrderCache {
+            override fun read(key: String) = throw IllegalStateException("db")
+            override fun write(key: String, json: String, savedAt: Long) = throw IllegalStateException("db")
+            override fun block(key: String, reason: String, at: Long) = throw IllegalStateException("db")
+        }
+        val refused = SuggestedOrderRepository.load(outlet, day, cache, 1) { throw ConvexFunctionError(null) }
+        assertNull(refused.order); assertEquals(SuggestedOrderRepository.NOT_ALLOWED, refused.message)
+        assertEquals(SuggestedOrderRepository.CONNECTION, SuggestedOrderRepository.load(outlet, day, cache, 2, offline).message)
     }
 
     @Test fun repositorySavesLiveAnswersAndOnlyFallsBackWhenOffline() {

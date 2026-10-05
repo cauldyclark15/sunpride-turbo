@@ -147,7 +147,6 @@ data class TodayData(val visits: List<VisitDisplay> = emptyList(), val lastSynce
                      val sales: com.sunpride.field.ui.today.DaySalesView = com.sunpride.field.ui.today.DaySalesView())
 
 private const val TEAM_CACHE = "local.team"
-private const val SUGGESTED_ORDER_CACHE = "local.suggestedOrder"
 private const val SALES_CACHE = "local.daysales"
 
 class LiveFieldBackend(
@@ -504,13 +503,7 @@ class LiveFieldBackend(
         val day = LocalDate.now(ZoneId.of("Asia/Manila")).toString()
         val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
         try {
-            val cache = object : com.sunpride.field.ui.diagnosticvisit.SuggestedOrderCache {
-                override fun read(key: String) = runBlocking { store.localCache(SUGGESTED_ORDER_CACHE, key) }
-                    ?.let { row -> row.json?.let { it to row.revision } }
-                override fun write(key: String, json: String, savedAt: Long) = runBlocking {
-                    store.putLocalCache(SUGGESTED_ORDER_CACHE, key, json, savedAt, "$day|")
-                }
-            }
+            val cache = com.sunpride.field.ui.diagnosticvisit.StoreSuggestedOrderCache(store, day)
             return repo.load(outletId, day, cache, System.currentTimeMillis()) {
                 val value = functions.query(com.sunpride.field.ui.diagnosticvisit.SuggestedOrderCodec.PATH,
                     com.sunpride.field.ui.diagnosticvisit.SuggestedOrderCodec.args(outletId, day))

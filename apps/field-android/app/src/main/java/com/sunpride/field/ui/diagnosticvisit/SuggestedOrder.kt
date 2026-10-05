@@ -3,6 +3,7 @@ package com.sunpride.field.ui.diagnosticvisit
 import com.sunpride.field.auth.AuthFailure
 import com.sunpride.field.auth.ConvexFunctionError
 import com.sunpride.field.storage.CallSheet
+import kotlinx.coroutines.runBlocking
 import org.json.JSONException
 import org.json.JSONObject
 import java.time.Instant
@@ -141,9 +142,34 @@ object SuggestedOrderRules {
 data class SuggestedOrderView(val order: SuggestedOrder? = null, val message: String? = null,
     val loading: Boolean = false)
 
+/** A saved answer, or a durable refusal marker ([blocked] = why) that replaced it. */
+data class SuggestedOrderCacheRow(val json: String?, val savedAt: Long, val blocked: String? = null)
+
 interface SuggestedOrderCache {
-    fun read(key: String): Pair<String, Long>?
+    fun read(key: String): SuggestedOrderCacheRow?
     fun write(key: String, json: String, savedAt: Long)
+    /** Drop the saved answer for [key] and remember the refusal on the phone, surviving relaunch. */
+    fun block(key: String, reason: String, at: Long)
+}
+
+/**
+ * The phone's durable cache: today's answers in the scoped partition's `local.suggestedOrder` rows. A refusal
+ * is a tombstone row carrying its reason, so it survives offline reopen and app relaunch.
+ */
+class StoreSuggestedOrderCache(private val store: com.sunpride.field.storage.FieldStore,
+                               private val asOfDate: String) : SuggestedOrderCache {
+    override fun read(key: String) = runBlocking { store.localCache(ENTITY, key) }?.let { row ->
+        if (row.tombstone) SuggestedOrderCacheRow(null, row.revision,
+            row.json ?: SuggestedOrderRepository.BLOCKED_NOT_ALLOWED)
+        else SuggestedOrderCacheRow(row.json, row.revision)
+    }
+    override fun write(key: String, json: String, savedAt: Long) = runBlocking {
+        store.putLocalCache(ENTITY, key, json, savedAt, "$asOfDate|")
+    }
+    override fun block(key: String, reason: String, at: Long) = runBlocking {
+        store.blockLocalCache(ENTITY, key, reason, at)
+    }
+    companion object { const val ENTITY = "local.suggestedOrder" }
 }
 
 object SuggestedOrderRepository {
@@ -155,9 +181,14 @@ object SuggestedOrderRepository {
 
     fun key(asOfDate: String, outletId: String) = "$asOfDate|$outletId"
 
+    const val BLOCKED_NOT_ALLOWED = "not_allowed"
+    const val BLOCKED_SIGN_IN = "sign_in"
+    const val BLOCKED_UNREADABLE = "unreadable"
+
     /**
      * Fetch live and save for today; offline, show today's saved suggestions for the same store. A server
-     * refusal or unreadable answer never falls back to saved data (access or the store may have changed).
+     * refusal, ended session or unreadable answer durably replaces the saved answer with a refusal marker,
+     * so a later offline open or app relaunch never restores it; only a fresh live answer clears the marker.
      */
     fun load(outletId: String, asOfDate: String, cache: SuggestedOrderCache, now: Long,
              fetch: () -> String): SuggestedOrderView {
@@ -168,20 +199,37 @@ object SuggestedOrderRepository {
             runCatching { cache.write(key, text, now) }
             SuggestedOrderView(order)
         } catch (_: ConvexFunctionError) {
-            SuggestedOrderView(message = NOT_ALLOWED)
+            refuse(cache, key, BLOCKED_NOT_ALLOWED, now)
         } catch (e: AuthFailure) {
-            if (e.kind == AuthFailure.Kind.SESSION_EXPIRED) SuggestedOrderView(message = SIGN_IN)
-            else saved(cache, key, outletId, asOfDate)
+            when (e.kind) {
+                AuthFailure.Kind.SESSION_EXPIRED, AuthFailure.Kind.INVALID_CREDENTIALS ->
+                    refuse(cache, key, BLOCKED_SIGN_IN, now)
+                AuthFailure.Kind.REFUSED -> refuse(cache, key, BLOCKED_NOT_ALLOWED, now)
+                else -> saved(cache, key, outletId, asOfDate)
+            }
         } catch (_: SuggestedOrderWireFailure) {
-            SuggestedOrderView(message = UNREADABLE)
+            refuse(cache, key, BLOCKED_UNREADABLE, now)
         }
     }
 
+    private fun refuse(cache: SuggestedOrderCache, key: String, reason: String, now: Long): SuggestedOrderView {
+        runCatching { cache.block(key, reason, now) }
+        return SuggestedOrderView(message = blockedMessage(reason))
+    }
+
+    private fun blockedMessage(reason: String) = when (reason) {
+        BLOCKED_SIGN_IN -> SIGN_IN
+        BLOCKED_UNREADABLE -> UNREADABLE
+        else -> NOT_ALLOWED
+    }
+
     private fun saved(cache: SuggestedOrderCache, key: String, outletId: String, asOfDate: String): SuggestedOrderView {
-        val hit = runCatching { cache.read(key) }.getOrNull()
-        val order = hit?.let { runCatching { SuggestedOrderCodec.decode(it.first, outletId, asOfDate) }.getOrNull() }
+        val hit = runCatching { cache.read(key) }.getOrNull() ?: return SuggestedOrderView(message = CONNECTION)
+        // A refusal stays a refusal offline, even after relaunch.
+        hit.blocked?.let { return SuggestedOrderView(message = blockedMessage(it)) }
+        val order = hit.json?.let { runCatching { SuggestedOrderCodec.decode(it, outletId, asOfDate) }.getOrNull() }
             ?: return SuggestedOrderView(message = CONNECTION)
-        return SuggestedOrderView(order, "Offline — showing suggestions loaded at ${clock(hit.second)}")
+        return SuggestedOrderView(order, "Offline — showing suggestions loaded at ${clock(hit.savedAt)}")
     }
 
     private val MANILA = ZoneId.of("Asia/Manila")

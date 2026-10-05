@@ -140,6 +140,8 @@ interface StoreDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putDelta(row: DeltaRow)
     @Query("DELETE FROM deltas WHERE account=:account AND deviceId=:device AND scope=:scope AND entity=:entity AND substr(entityId, 1, length(:keepPrefix)) != :keepPrefix")
     suspend fun deleteLocalDeltas(account: String, device: String, scope: String, entity: String, keepPrefix: String)
+    @Query("DELETE FROM deltas WHERE account=:account AND deviceId=:device AND scope=:scope AND entity=:entity AND entityId=:id")
+    suspend fun deleteDelta(account: String, device: String, scope: String, entity: String, id: String)
     @Query("SELECT * FROM deltas WHERE account=:account AND deviceId=:device AND scope=:scope AND entity=:entity AND entityId=:id")
     suspend fun delta(account: String, device: String, scope: String, entity: String, id: String): DeltaRow?
     @Query("SELECT MAX(createdAt) FROM outbox WHERE account=:account AND deviceId=:device AND scope=:scope")

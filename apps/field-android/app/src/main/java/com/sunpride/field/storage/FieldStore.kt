@@ -112,6 +112,12 @@ interface FieldStore {
     suspend fun localCache(entity: String, key: String): DeltaRow? = null
     /** Save one summary and drop this entity's rows whose key does not start with [keepPrefix]. */
     suspend fun putLocalCache(entity: String, key: String, json: String, at: Long, keepPrefix: String) {}
+    /**
+     * Durably replace one saved summary with a refusal marker (tombstone row whose json is [reason]), so a
+     * refused answer can never come back offline or after relaunch. The saved row is removed even when the
+     * partition is held.
+     */
+    suspend fun blockLocalCache(entity: String, key: String, reason: String, at: Long) {}
     fun close() {}
 }
 
@@ -535,6 +541,15 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             if (old.held || old.activeGeneration == null) return@withTransaction
             dao.deleteLocalDeltas(a, d, s, entity, keepPrefix)
             dao.putDelta(DeltaRow(a, d, s, entity, key, at, json, false))
+        }
+    }
+    override suspend fun blockLocalCache(entity: String, key: String, reason: String, at: Long) {
+        require(entity.startsWith("local.") && reason.isNotBlank() && at > 0)
+        db.withTransaction {
+            dao.deleteDelta(a, d, s, entity, key)
+            val old = metadata()
+            if (old.held || old.activeGeneration == null) return@withTransaction
+            dao.putDelta(DeltaRow(a, d, s, entity, key, at, reason, true))
         }
     }
     override suspend fun holdForReview() {
