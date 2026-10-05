@@ -9,6 +9,7 @@
 <key>CFBundleVersion</key><string>1</string>
 <key>UILaunchScreen</key><dict/>
 <key>NSLocationWhenInUseUsageDescription</key><string>Show how far today's stores are and record a location fix when you start and end a call. Call locations are sent to the server only when you sync.</string>
+<key>NSLocationTemporaryUsageDescriptionDictionary</key><dict><key>VisitCheckIn</key><string>Precise location shows your supervisor you were at the store when you started or ended the visit.</string></dict>
 <key>BGTaskSchedulerPermittedIdentifiers</key><array><string>com.sunpride.field.dev.sync-refresh</string></array>
 <key>UIBackgroundModes</key><array><string>fetch</string></array>
 <key>CONVEX_SITE_URL</key><string>$(CONVEX_SITE_URL)</string>
