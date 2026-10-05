@@ -37,6 +37,7 @@ import com.sunpride.field.storage.EncryptedFieldDatabase
 import com.sunpride.field.storage.IntentRow
 import com.sunpride.field.storage.RoomFieldStore
 import com.sunpride.field.storage.ScopedSnapshot
+import com.sunpride.field.storage.SnapshotItem
 import com.sunpride.field.storage.StoreScope
 import com.sunpride.field.ui.AccountGlyph
 import com.sunpride.field.ui.FieldApp
@@ -145,6 +146,30 @@ class FieldSalesGuideScreenshotsTest {
                     callSheet = CallSheetPayload.activity(saved, drafts)), System.currentTimeMillis())
             } } finally { store.close() }
         }
+        override fun orderDrafts(): List<com.sunpride.field.orders.OrderDraft> {
+            val store = scoped()
+            return try { runBlocking { store.orderDrafts() } } finally { store.close() }
+        }
+        override fun saveOrderDraft(draftId: String?, clientVisitId: String, checkInRequestId: String,
+            quantities: List<Pair<String, Int>>): com.sunpride.field.orders.OrderDraft {
+            val store = scoped()
+            return try { runBlocking { com.sunpride.field.ui.saveOrderDraftIn(store, draftId, clientVisitId,
+                checkInRequestId, quantities, System.currentTimeMillis()) } } finally { store.close() }
+        }
+        override fun discardOrderDraft(draftId: String) {
+            val store = scoped()
+            try { runBlocking { store.discardOrderDraft(draftId) } } finally { store.close() }
+        }
+        override fun orderChecks(draftId: String): List<com.sunpride.field.orders.OrderCheck> {
+            val store = scoped()
+            return try { runBlocking { com.sunpride.field.orders.OrderSubmission.checks(store,
+                store.orderDrafts().single { it.draftId == draftId }, System.currentTimeMillis()) } } finally { store.close() }
+        }
+        override fun submitOrderDraft(draftId: String, previousRequestId: String): com.sunpride.field.orders.OrderDraft {
+            val store = scoped()
+            return try { runBlocking { com.sunpride.field.orders.submitOrderDraftIn(store, identity, draftId,
+                previousRequestId, System.currentTimeMillis()) } } finally { store.close() }
+        }
         override fun queueVisit(kind: String, clientVisitId: String?, checkInRequestId: String?, previousRequestId: String?,
             plannedVisitId: String?, outletId: String, intents: List<String>, unplannedReason: String?, note: String?,
             outcome: String?, reasonCode: String?, location: JSONObject?) {
@@ -160,7 +185,11 @@ class FieldSalesGuideScreenshotsTest {
     private fun seed() {
         val store = scoped()
         try { runBlocking {
-            store.swap(store.stage(ScopedSnapshot("{\"id\":\"guide\"}", null, emptyList(), emptyList(), emptyList(),
+            val outlet = JSONObject().put("id", "o-101").put("name", "Mabolo Sari-Sari Store").put("routeId", "route-ceb-07")
+                .put("customerId", "c-20411").put("territoryId", "t-ceb-07").put("territoryCode", "CEB-07")
+            store.swap(store.stage(ScopedSnapshot("{\"id\":\"guide\"}", null, emptyList(),
+                listOf(SnapshotItem("o-101", outlet.toString())),
+                listOf(SnapshotItem("c-20411", "{\"id\":\"c-20411\",\"code\":\"CUST-20411\"}")),
                 emptyList(), listOf(sheet))), "cursor", System.currentTimeMillis() + 3_600_000,
                 System.currentTimeMillis() + 3_600_000)
         } } finally { store.close() }
@@ -263,6 +292,48 @@ class FieldSalesGuideScreenshotsTest {
         assertEquals(2, lines.length())
         assertEquals(24, lines.getJSONObject(0).getInt("order"))
         rule.onNodeWithTag("visit-back").performClick()
+
+        // The order the office processes: New order → Save draft → Review order → Send order.
+        waitTag("order-new")
+        rule.onNodeWithTag("order-new").performScrollTo().performClick()
+        waitTag("order-title")
+        rule.onNodeWithTag("order-title").assertTextContains("New order")
+        rule.onNodeWithTag("order-products").performScrollToNode(hasTestTag("order-qty-prod-1"))
+        rule.onNodeWithTag("order-qty-prod-1").performTextInput("24")
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
+        rule.onNodeWithTag("order-products").performScrollToNode(hasTestTag("order-qty-prod-2"))
+        rule.onNodeWithTag("order-qty-prod-2").performTextInput("12")
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
+        rule.onNodeWithTag("order-count").assertTextContains("2 of 3 products", substring = true)
+        rule.onNodeWithTag("order-save").assertIsEnabled().performClick()
+        rule.waitUntil(10_000) { backend.orderDrafts().size == 1 }
+        waitTag("order-review")
+        rule.onNodeWithTag("order-association").assertTextContains("Customer CUST-20411", substring = true)
+        rule.onNodeWithTag("order-products").performScrollToNode(hasTestTag("order-title"))
+        shot("22-order-draft")
+        rule.onNodeWithTag("visit-back").performClick()
+        waitTag("order-unsent")
+        rule.onNodeWithTag("order-draft").assertTextContains("Draft · not sent", substring = true)
+        rule.onNodeWithTag("order-draft").performScrollTo()
+        shot("23-order-unsent")
+        rule.onNodeWithTag("order-draft").performClick()
+        waitTag("order-review")
+        rule.onNodeWithTag("order-review").performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("order-check-ok").fetchSemanticsNodes().size == 5 }
+        rule.onNodeWithTag("order-review-title").assertTextContains("Review order")
+        rule.onNodeWithTag("order-totals").assertTextContains("2 products", substring = true)
+        shot("24-order-review")
+        rule.onNodeWithTag("order-submit").assertIsEnabled().performClick()
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("order-status").assertTextContains("Waiting to send") }.isSuccess }
+        rule.onNodeWithTag("order-submit").assertDoesNotExist()
+        shot("25-order-sent")
+        val order = JSONObject(backend.visitStates().last().first.serializedOperation)
+            .getJSONObject("payload").getJSONObject("activity")
+        assertEquals("order_intent", order.getString("kind"))
+        assertEquals(2, order.getJSONArray("lines").length())
+        rule.onNodeWithTag("visit-back").performClick()
+        waitTag("order-sent")
+        rule.onNodeWithTag("order-unsent").assertDoesNotExist()
 
         rule.onNodeWithTag("diagnostic-outcome").performScrollTo().performClick() // Completed
         waitEnabled("diagnostic-checkout")

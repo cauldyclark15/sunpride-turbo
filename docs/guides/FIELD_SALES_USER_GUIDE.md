@@ -2,9 +2,9 @@
 
 For route sellers, pre-booking sellers and key-account staff using the **Sunpride Field** Android app, and for the supervisors who train them. Tracker: QSR-016 (SP-0016).
 
-Every picture in this guide is a real screen from the Android app, recorded on the test phone with made-up Cebu stores and products (no real customer data). Times and dates in the pictures are from the day they were taken. See [Refreshing the screenshots](#refreshing-the-screenshots) to retake them.
+Every picture in this guide is a real screen from the Android app, recorded on a Samsung Galaxy test phone with made-up Cebu stores and products (no real customer data). Times and dates in the pictures are from the day they were taken. See [Refreshing the screenshots](#refreshing-the-screenshots) to retake them.
 
-**Contents:** [1. First sign-in](#1-first-sign-in-once-per-phone) · [2. Start your day](#2-start-your-day) · [3. Your route](#3-your-route) · [4. Find a customer](#4-find-a-customer) · [5. Start a call (check-in)](#5-start-a-call-check-in) · [6. Take the order](#6-take-the-order-call-sheet) · [7. End the call (check-out)](#7-end-the-call-check-out) · [8. Working without signal](#8-working-without-signal) · [9. Sync and fixing sync problems](#9-sync-and-fixing-sync-problems) · [10. When to escalate](#10-when-to-escalate-and-to-whom) · [11. End your day](#11-end-your-day) · [Quick reference](#quick-reference) · [For trainers](#for-trainers-what-the-pilot-build-does-and-does-not-do)
+**Contents:** [1. First sign-in](#1-first-sign-in-once-per-phone) · [2. Start your day](#2-start-your-day) · [3. Your route](#3-your-route) · [4. Find a customer](#4-find-a-customer) · [5. Start a call (check-in)](#5-start-a-call-check-in) · [6. Call sheet and order](#6-call-sheet-and-order) · [7. End the call (check-out)](#7-end-the-call-check-out) · [8. Working without signal](#8-working-without-signal) · [9. Sync and fixing sync problems](#9-sync-and-fixing-sync-problems) · [10. When to escalate](#10-when-to-escalate-and-to-whom) · [11. End your day](#11-end-your-day) · [Quick reference](#quick-reference) · [For trainers](#for-trainers-what-the-pilot-build-does-and-does-not-do)
 
 ---
 
@@ -12,10 +12,11 @@ Every picture in this guide is a real screen from the Android app, recorded on t
 
 1. **Follow your plan (MCP) in order.** The app opens the next store on your list. You cannot start a new store until you end the call at the current one.
 2. **Tap Start when you arrive, End call when you leave.** That is how your time per store is measured.
-3. **Every call needs an outcome.** Completed, or Not productive with a reason. A visit with no order still counts as a call.
-4. **No signal is fine.** Everything is saved on the phone and sent later.
-5. **Sync before 10 PM.** The day closes at 10 PM (Manila time). Work sent after that is marked late and goes to your supervisor for review.
-6. **Never uninstall the app or clear its data** while anything is waiting to send. That deletes your unsent visits.
+3. **Send the order before you end the call.** Save it, review it, tap **Send order**. A draft you never send stays on your phone and never reaches the office.
+4. **Every call needs an outcome.** Completed, or Not productive with a reason. A visit with no order still counts as a call.
+5. **No signal is fine.** Everything is saved on the phone and sent later.
+6. **Sync before 10 PM.** The day closes at 10 PM (Manila time). Work sent after that is marked late and goes to your supervisor for review.
+7. **Never uninstall the app or clear its data** while anything is waiting to send. That deletes your unsent visits.
 
 ---
 
@@ -91,25 +92,47 @@ If you must skip a store (closed, owner away), start it and end it as **Not prod
 While the call is open you can:
 
 - **Take photo** — store front, shelf and price tags. Photos are saved on the phone and upload later; they never stop you ending the call.
-- **Call sheet** — record the order and stock (next section).
+- **Call sheet** — record stock and quantities for the call report (next section).
+- **New order** — take the order for the office (next section).
 - **Note** — type a short note and tap **Add note**.
 
-## 6. Take the order (call sheet)
+## 6. Call sheet and order
 
-|                                                                                                        |                                                                                                      |
-| ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| <img src="field-sales/images/09-call-sheet-order.png" width="260" alt="Call sheet with order entered"> | <img src="field-sales/images/10-call-sheet-saved.png" width="260" alt="Call sheet saved and queued"> |
+A call has two separate parts. The **call sheet** is your report of the store's stock and quantities. The **order** is what the office receives and fills. Saving a call sheet does **not** send an order.
+
+**Call sheet**
+
+|                                                                                                             |                                                                                                      |
+| ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| <img src="field-sales/images/09-call-sheet-order.png" width="260" alt="Call sheet with quantities entered"> | <img src="field-sales/images/10-call-sheet-saved.png" width="260" alt="Call sheet saved and queued"> |
 
 1. During the call, tap **Call sheet**.
 2. The top shows the account: buyer, contact, distributor, schedule and pricing set by the office.
-3. For each product the store buys, fill in what applies:
-   - **Order** — quantity ordered today (this is the order).
-   - **Beginning inv.** — stock on the shelf when you arrived.
-   - **Take**, **Delivered**, **Off-take**, **End inv.** — as your channel requires.
+3. For each product the store carries, fill in what applies: **Order**, **Beginning inv.** (stock on the shelf when you arrived), **Take**, **Delivered**, **Off-take**, **End inv.**, as your channel requires.
 4. Use whole numbers. Leave a box empty if it does not apply. Products you leave completely empty are not sent.
 5. Tap **Save call sheet**. Under **Saved call sheets** it shows **Queued** (waiting to send), then **Sent**.
 
-Made a mistake? Fill the call sheet again and save it again. Each save is kept; the office uses the latest one. If the screen says _No call sheet set up for this account yet_, write the order in a **Note** and tell your supervisor.
+Made a mistake? Fill the call sheet again and save it again. Each save is kept; the office uses the latest one. The call sheet's **Order** column is part of your call report only; to place the order, use **New order** below.
+
+**Take the order**
+
+|                                                                                       |                                                                                                       |
+| ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| <img src="field-sales/images/22-order-draft.png" width="260" alt="Order draft saved"> | <img src="field-sales/images/23-order-unsent.png" width="260" alt="Visit with an unsent order draft"> |
+| <img src="field-sales/images/24-order-review.png" width="260" alt="Review order">     | <img src="field-sales/images/25-order-sent.png" width="260" alt="Order waiting to send">              |
+
+1. On the visit screen, under **Order**, tap **New order**. It lists the products set up for this account; type in **Search code, name or barcode** to find one.
+2. Enter the **quantity** for each product the store orders (whole numbers, 1 to 99,999). Leave the others empty. The screen counts how many products are in the order.
+3. Tap **Save draft**. The draft is saved on the phone only. You can leave it and come back: the visit lists it as **Order draft · Draft · not sent**, and tapping it opens it again to change quantities and **Save draft** again, or **Discard** it.
+4. When the quantities are right, tap **Review order**. Check the products, the total (products and units) and **Checks**. Every check must show ✓ (for example **Call is open**, **Products are set up for this account**). A check with **!** tells you what to fix; tap **Edit** to go back.
+5. Tap **Send order**. The status changes to **Waiting to send**, then **Received by office · not yet posted** after the phone syncs. This works with no signal: the order waits on the phone and is sent with your next sync.
+6. **A sent order cannot be changed.** If it is wrong, or it shows **Not accepted · needs review**, tell your supervisor.
+
+There is no amount or stock check on the phone: prices are set by the office ("Amount: priced by the office") and the order records quantities only.
+
+**Send before you end the call.** While a draft is unsent, the visit shows _1 order draft is not sent. Review and send before End call, or it stays on this phone._ If you end the call anyway, that draft shows **Not sent · call ended**: it stays on this phone only, the office never receives it, and it can no longer be sent. Tell your supervisor if that happens.
+
+If the screen says _No products set up for this account yet. Ask your office._ (or _No call sheet set up for this account yet_), you cannot take an order on the phone for that store. Write it in a **Note** and tell your supervisor.
 
 ## 7. End the call (check-out)
 
@@ -218,16 +241,17 @@ Never send your password, or screenshots of it, to anyone. The admin never needs
 
 ## Quick reference
 
-| You want to…       | Tap                                                    |
-| ------------------ | ------------------------------------------------------ |
-| See today's stores | **Today**                                              |
-| Get directions     | **Route** → **Navigate**                               |
-| Find a store       | **Search customers**                                   |
-| Arrive at a store  | Store → **Start**                                      |
-| Take an order      | **Call sheet** → fill **Order** → **Save call sheet**  |
-| Leave a store      | **Outcome** → **End call** → **Confirm end**           |
-| Send your work     | Label at the top → **Sync now**                        |
-| Get help           | Person icon → **Support info** → **Copy support info** |
+| You want to…       | Tap                                                                             |
+| ------------------ | ------------------------------------------------------------------------------- |
+| See today's stores | **Today**                                                                       |
+| Get directions     | **Route** → **Navigate**                                                        |
+| Find a store       | **Search customers**                                                            |
+| Arrive at a store  | Store → **Start**                                                               |
+| Record stock       | **Call sheet** → fill in → **Save call sheet**                                  |
+| Take an order      | **New order** → quantities → **Save draft** → **Review order** → **Send order** |
+| Leave a store      | **Outcome** → **End call** → **Confirm end**                                    |
+| Send your work     | Label at the top → **Sync now**                                                 |
+| Get help           | Person icon → **Support info** → **Copy support info**                          |
 
 ---
 
@@ -236,10 +260,10 @@ Never send your password, or screenshots of it, to anyone. The admin never needs
 Check these before training sellers. They are the current state of the software, not of this guide.
 
 1. **Visit recording is only in the test (DEV) build today.** Start / End call, call sheet, photos and notes are switched on only in the DEV debug build (`apps/field-android/.../MainActivity.kt`: `debug = BuildConfig.DEBUG && FLAVOR == "dev"`). The staging and production builds show Today, Route, Customers and Sync, but no **Start** button. A pilot build with visit recording switched on must be agreed before field training.
-2. **Orders are taken on the call sheet.** The **Order** column of the call sheet is the order. A separate order form (`order_intent`) is not switched on yet, and there is no price or stock calculation on the phone.
+2. **Orders: New order, separate from the call sheet.** Sellers take orders with **New order** on the visit: an editable draft saved on the phone, **Review order** with local checks, then **Send order**, which queues one order (`order_intent`) for the next sync. Sent orders are frozen. An unsent draft triggers a warning before End call; if the call ends first it is left as **Not sent · call ended** on that phone only. There is no price, amount or stock calculation on the phone (no governed price list yet), and the office shows a received order as "not yet posted". The call sheet's **Order** column is still recorded with the call report; train sellers that it does not place an order.
 3. **Adding a new store** is not on the phone yet. Sellers report new stores to their supervisor (call answer: the seller pre-enrols, the supervisor or manager approves).
 4. **Not-productive reason codes** are typed, not chosen from a list. Supervisors should give sellers the agreed codes.
-5. **iPhone:** the iOS app has sign-in, phone registration, Today, the visit screen with call sheet, and the same sync labels, but **not** yet Route or Customer search. This guide shows Android.
+5. **iPhone:** the iOS app has the same flow: sign-in, phone registration, Today with **Route** and **Customer search**, the visit screen with call sheet and **New order** (draft, review, send), and the same sync labels. Wording and layout differ slightly; this guide shows Android.
 6. **Supervisors** with a team also see **Team** on Today (coverage and exceptions for direct reports); not covered here.
 7. Office-side history from other phones is not shown on the phone; the customer screen shows only what was recorded on this phone.
 8. **Phone removed: suspension vs revocation** (runbook `docs/runbooks/MOBILE_DEVICE_INCIDENT.md`). Suspension is reversible: an admin with access to the phone's area can reinstate it for the same employee in the same unit, if no replacement was enrolled since, and the held work then syncs (designed, not yet proven on a real phone). Revocation is permanent: no reinstatement, re-registration or new phone sends the old phone's outbox, and the server refuses another device replaying its operation IDs. Its unsent work needs supervised recovery from the phone under custody; trainers must not promise sellers that an admin can "restore" a revoked phone. Items under **To review** may exist only in the phone's outbox (typically a refused Start and the call sheet/End held behind it), but not always: a fresh-key retry of a visit the server already accepted shows as a conflict while the original server visit and its acknowledgement remain. Before any supervised recapture, reconcile against the office's received visits and acknowledgements so accepted work is not recorded twice.
@@ -248,16 +272,15 @@ Client rules used here: the 2 Oct 2026 call answers (no distance limit, MCP orde
 
 ## Refreshing the screenshots
 
-The pictures come from the instrumented test `apps/field-android/app/src/androidTest/java/com/sunpride/field/FieldSalesGuideScreenshotsTest.kt`, which drives the real app screens with fictional data and also checks the flow (order saved with the call sheet, End queued, sync labels). Run it on the emulator only:
+The pictures come from the instrumented test `apps/field-android/app/src/androidTest/java/com/sunpride/field/FieldSalesGuideScreenshotsTest.kt`, which drives the real app screens with fictional data and also checks the flow (call sheet saved, order drafted, reviewed and sent once, End queued, sync labels). The current set was taken on the Galaxy test phone (3-button navigation) and scaled to 540 px wide with `sips -Z 1170`. On a physical phone, route the receiver through `adb reverse` and pass the host:
 
 ```sh
 python3 apps/field-android/scripts/receive-screenshots.py docs/guides/field-sales/images --prefix guide- &
-cd apps/field-android
-export JAVA_HOME='/Applications/Android Studio.app/Contents/jbr/Contents/Home' ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SERIAL=emulator-5554
-./gradlew :app:connectedDevDebugAndroidTest \
-  -Pandroid.testInstrumentationRunnerArguments.class=com.sunpride.field.FieldSalesGuideScreenshotsTest \
-  -Pandroid.testInstrumentationRunnerArguments.calmScreenshots=true
-kill %1
+adb reverse tcp:28765 tcp:28765
+adb shell am instrument -w -e class com.sunpride.field.FieldSalesGuideScreenshotsTest \
+  -e calmScreenshots true -e calmScreenshotHost 127.0.0.1 \
+  com.sunpride.field.dev.test/androidx.test.runner.AndroidJUnitRunner
+adb reverse --remove tcp:28765; kill %1
 ```
 
-Without `calmScreenshots=true` the test still runs its checks and sends no pictures.
+Install the dev app and test APK first (`./gradlew installDevDebug installDevDebugAndroidTest`), take the shared phone lock used by `sunpride-android-phone-test.sh`, and afterwards uninstall only `com.sunpride.field.dev.test`. On an emulator, omit `adb reverse` and `calmScreenshotHost` (it reaches the host at 10.0.2.2). Without `calmScreenshots=true` the test still runs its checks and sends no pictures.
