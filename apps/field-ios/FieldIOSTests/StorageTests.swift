@@ -154,6 +154,55 @@ final class StorageTests: XCTestCase {
         }
     }
 
+    /// QSR-010: sign-out removes every partition's cached plan, outlets, customers, route and lease,
+    /// survives reopen, and keeps the unsent intent held until the same partition rebootstraps.
+    func testSignOutPurgeDropsServerCacheButKeepsUnsentEvidence() throws {
+        let a = try partition, b = try StorePartition(subject: "issuer|other", deviceId: "phone-1", scope: "scope-1")
+        let store = try open(), op = intent()
+        try seeded(store, a); try seeded(store, b)
+        let change = try JSONDecoder().decode(DeltaChange.self, from: Data(
+            #"{"seq":1,"entity":"visit","id":"planned-1","revision":2,"op":"upsert","value":{"status":"open"}}"#.utf8))
+        try store.applyDelta([change], nextCursor: "after-delta", for: a)
+        XCTAssertNotNil(try store.deltaValue(entity: "visit", id: "planned-1", for: a))
+        try store.enqueue(op, for: a, now: now)
+        try store.purgeAllCachesForReview()
+        store.close()
+        let reopened = try open()
+        for p in [a, b] {
+            XCTAssertNil(try reopened.snapshot(for: p))
+            XCTAssertTrue(try reopened.outlets(for: p).isEmpty)
+            XCTAssertTrue(try reopened.todayVisits("2026-09-26", for: p).isEmpty)
+            XCTAssertTrue(try reopened.callSheets(for: p).isEmpty)
+            XCTAssertNil(try reopened.cursor(for: p))
+            XCTAssertNil(try reopened.leaseExpiry(for: p))
+            XCTAssertNil(try reopened.cacheExpiry(for: p))
+            XCTAssertFalse(try reopened.isLeaseValid(now: now, for: p))
+            XCTAssertTrue(try reopened.isHeld(p))
+        }
+        XCTAssertNil(try reopened.deltaValue(entity: "visit", id: "planned-1", for: a))
+        XCTAssertTrue(try reopened.pendingOutbox(for: a).isEmpty)
+        XCTAssertEqual(try reopened.heldOutbox(for: a).first?.intent, op)
+        XCTAssertThrowsError(try reopened.enqueue(intent(), for: a, now: now))
+        try seeded(reopened, a)
+        try reopened.releaseHeld(a)
+        XCTAssertEqual(try reopened.pendingOutbox(for: a).first?.intent, op)
+        XCTAssertEqual(try reopened.outlets(for: a).count, 1)
+    }
+
+    func testRevocationPurgeIsScopedToOnePartition() throws {
+        let a = try partition, d = try StorePartition(subject: "issuer|seller", deviceId: "phone-1", scope: "scope-2")
+        let store = try open(), op = intent()
+        try seeded(store, a); try seeded(store, d)
+        try store.enqueue(op, for: a, now: now)
+        try store.purgeCacheForReview(a)
+        XCTAssertNil(try store.snapshot(for: a))
+        XCTAssertTrue(try store.isHeld(a))
+        XCTAssertEqual(try store.heldOutbox(for: a).first?.intent, op)
+        XCTAssertNotNil(try store.snapshot(for: d))
+        XCTAssertFalse(try store.isHeld(d))
+        XCTAssertTrue(try store.isLeaseValid(now: now, for: d))
+    }
+
     func testMigrationsV0PreserveUUIDAndV1NoOp() throws {
         let p = try partition, op = intent()
         try EncryptedFieldStore.createLegacyV0(url: url, secrets: secrets, keyAccount: keyName, partition: p, intent: op)
@@ -215,7 +264,7 @@ final class StorageTests: XCTestCase {
         XCTAssertEqual(store.schemaVersion, 2)
         store.close()
         let upgraded = try open()
-        XCTAssertEqual(upgraded.schemaVersion, 3)
+        XCTAssertEqual(upgraded.schemaVersion, 4)
         XCTAssertEqual(try upgraded.pendingOutbox(for: p).map(\.intent), [pending])
         XCTAssertEqual(try upgraded.ack(for: accepted.requestId, in: p), ack)
         XCTAssertEqual(try upgraded.snapshot(for: p)?.visits.first?.id, "planned-1")
@@ -226,7 +275,7 @@ final class StorageTests: XCTestCase {
                                   cacheExpiresAt: 1_790_467_200_000, for: p)
         upgraded.close()
         let reopened = try open()
-        XCTAssertEqual(reopened.schemaVersion, 3)
+        XCTAssertEqual(reopened.schemaVersion, 4)
         XCTAssertEqual(try reopened.snapshot(for: p)?.callSheets.count, 1)
         XCTAssertEqual(try reopened.pendingOutbox(for: p).first?.intent, pending)
         reopened.close()

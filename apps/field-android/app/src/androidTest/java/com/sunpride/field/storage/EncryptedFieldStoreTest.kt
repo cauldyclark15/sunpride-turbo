@@ -304,6 +304,52 @@ class EncryptedFieldStoreTest {
         Unit
     }
 
+    /** QSR-010: sign-out/revocation removes cached plan, customers, prices and summaries, never unsent work. */
+    @Test fun signOutPurgeDropsServerCacheButKeepsUnsentEvidence() = runBlocking {
+        store().swap(store().stage(snapshot().copy(localCustomers = listOf(SnapshotItem("customer-1", "PRIVATE-CUSTOMER")),
+            callSheets = listOf(callSheet()))), "opaque-cursor", 2000, 2000)
+        store().putLocalCache("local.team", "2026-09-28|direct", "{\"d\":1}", 20, "2026-09-28|")
+        val i = intent()
+        store().enqueue(i, 100)
+        val other = StoreScope("issuer|person-B-${UUID.randomUUID()}", "device-A", "scope-A")
+        ready(store(other), "other-visit")
+        db.close()
+        EncryptedFieldDatabase.purgeExisting(context)
+        db = EncryptedFieldDatabase.open(context)
+        for (s in listOf(store(), store(other))) {
+            assertTrue(s.todaysVisits("2026-09-26").isEmpty())
+            assertTrue(s.outlets().isEmpty())
+            assertTrue(s.customers().isEmpty())
+            assertNull(s.callSheet("outlet-1"))
+            assertNull(s.route())
+            assertNull(s.employeeRole())
+            assertNull(s.cursor())
+            assertFalse(s.isLeaseValid(100))
+            assertEquals("held_for_review", s.syncHealth())
+        }
+        assertNull(store().localCache("local.team", "2026-09-28|direct"))
+        // The unsent intent survives, held; a verified same-partition bootstrap releases it.
+        assertEquals(i.requestId, store().pending().single().first.requestId)
+        assertThrows(IllegalStateException::class.java) { runBlocking { store().enqueue(intent(), 100) } }
+        store().swap(store().stage(snapshot("fresh")), "fresh-cursor", 3000, 3000, releaseHeld = true)
+        assertEquals("fresh", store().todaysVisits("2026-09-26").single().json)
+        assertEquals(i.requestId, store().pending().single().first.requestId)
+    }
+
+    @Test fun revocationPurgeIsScopedToOnePartition() = runBlocking {
+        ready(store())
+        val other = StoreScope(scope.account, scope.deviceId, "scope-B")
+        ready(store(other), "kept")
+        val i = intent()
+        store().enqueue(i, 100)
+        store().purgeCacheForReview()
+        assertTrue(store().todaysVisits("2026-09-26").isEmpty())
+        assertEquals("held_for_review", store().syncHealth())
+        assertEquals(i.requestId, store().pending().single().first.requestId)
+        assertEquals("kept", store(other).todaysVisits("2026-09-26").single().json)
+        assertTrue(store(other).isLeaseValid(100))
+    }
+
     @Test fun backupAndDeviceTransferExcludeDatabaseAndWrappedKey() {
         val app = context.applicationInfo
         assertEquals(0, app.flags and android.content.pm.ApplicationInfo.FLAG_ALLOW_BACKUP)
@@ -414,5 +460,129 @@ class EncryptedFieldStoreTest {
         val scenario = androidx.test.core.app.ActivityScenario.launch(MainActivity::class.java)
         try { scenario.recreate() } finally { scenario.close() }
         assertEquals(i.requestId, store().pending().single().first.requestId)
+    }
+
+    private suspend fun orderReady(): IntentRow {
+        val outlet = org.json.JSONObject().put("id", "outlet-1").put("name", "Outlet").put("routeId", "route-1")
+            .put("customerId", "customer-1").put("territoryId", "territory-1").put("territoryCode", "T-1")
+        store().swap(store().stage(ScopedSnapshot("{\"id\":\"employee\"}", null, emptyList(),
+            listOf(SnapshotItem("outlet-1", outlet.toString())),
+            listOf(SnapshotItem("customer-1", "{\"id\":\"customer-1\",\"code\":\"C-1\"}")), emptyList(),
+            listOf(callSheet()))), "cursor", 2000, 2000)
+        return com.sunpride.field.ui.diagnosticvisit.VisitIntentFactory.create(scope, "visit.checkIn", null, null, null,
+            "planned-1", "outlet-1", emptyList(), null, null, null, null, null, at = 100).also { store().enqueue(it, 100) }
+    }
+
+    @Test fun orderDraftsPersistEncryptedScopedAndNeverEnterTheOutbox() = runBlocking {
+        val check = orderReady()
+        val marker = "ORDERMARKER${UUID.randomUUID().toString().take(8)}"
+        val draft = com.sunpride.field.ui.saveOrderDraftIn(store(), null, check.clientVisitId, check.requestId,
+            listOf("product-1" to 7), 500)
+        assertEquals("territory-1", draft.territoryId); assertEquals("C-1", draft.customerCode)
+        // Reopen: the draft survives a process restart in SQLCipher, partitioned by subject/device/scope.
+        db.close(); db = EncryptedFieldDatabase.open(context)
+        assertEquals(listOf(draft), store().orderDrafts())
+        assertTrue(store(scope.copy(account = "other")).orderDrafts().isEmpty())
+        assertTrue(store(scope.copy(fingerprint = "other")).orderDrafts().isEmpty())
+        assertEquals(listOf("visit.checkIn"), store().history().map { it.first.kind })
+        // Update in place; a forged association is refused inside the transaction.
+        val updated = com.sunpride.field.ui.saveOrderDraftIn(store(), draft.draftId, check.clientVisitId, check.requestId,
+            listOf("product-1" to 9), 600)
+        assertEquals(listOf(updated), store().orderDrafts())
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { store().saveOrderDraft(updated.copy(territoryId = marker, updatedAt = 700), 700) }
+        }
+        assertEquals(listOf(updated), store().orderDrafts())
+        db.close()
+        val bytes = context.getDatabasePath(PassphraseVault.DB_NAME).readBytes().toString(Charsets.ISO_8859_1)
+        assertFalse(bytes.contains("territory-1") && bytes.contains(updated.draftId))
+        db = EncryptedFieldDatabase.open(context)
+        // After End call the draft is frozen; holdForReview freezes discard too.
+        store().enqueue(com.sunpride.field.ui.diagnosticvisit.VisitIntentFactory.create(scope, "visit.checkOut",
+            check.clientVisitId, check.requestId, check.requestId, null, "outlet-1", emptyList(), null, null,
+            "completed", null, null, at = 200), 200)
+        val ended = runCatching { com.sunpride.field.ui.saveOrderDraftIn(store(), draft.draftId, check.clientVisitId,
+            check.requestId, listOf("product-1" to 1), 800) }.exceptionOrNull() as com.sunpride.field.orders.OrderDraftFailure
+        assertEquals(com.sunpride.field.orders.OrderDraftFailure.Code.CALL_ENDED, ended.code)
+        store().holdForReview()
+        assertTrue(runCatching { store().discardOrderDraft(draft.draftId) }.isFailure)
+        assertEquals(listOf(updated), store().orderDrafts())
+    }
+
+    @Test fun leaseExpiryRefusesOrderWorkOnAnAlreadyOpenCallInTheTransaction() = runBlocking {
+        val check = orderReady() // lease ends at 2,000; the call opened at 100
+        val draft = com.sunpride.field.ui.saveOrderDraftIn(store(), null, check.clientVisitId, check.requestId,
+            listOf("product-1" to 3), 1_999)
+        for (now in listOf(2_000L, 9_000L)) {
+            val failure = runCatching { com.sunpride.field.ui.saveOrderDraftIn(store(), draft.draftId, check.clientVisitId,
+                check.requestId, listOf("product-1" to 4), now) }.exceptionOrNull() as com.sunpride.field.orders.OrderDraftFailure
+            assertEquals(com.sunpride.field.orders.OrderDraftFailure.Code.OFFLINE_EXPIRED, failure.code)
+            assertTrue(runCatching { com.sunpride.field.ui.saveOrderDraftIn(store(), null, check.clientVisitId,
+                check.requestId, listOf("product-1" to 1), now) }.isFailure)
+        }
+        assertEquals(listOf(draft), store().orderDrafts())
+    }
+
+    @Test fun discardRemovesOnlyThatDraft() = runBlocking {
+        val check = orderReady()
+        val one = com.sunpride.field.ui.saveOrderDraftIn(store(), null, check.clientVisitId, check.requestId, listOf("product-1" to 1), 1)
+        val two = com.sunpride.field.ui.saveOrderDraftIn(store(), null, check.clientVisitId, check.requestId, listOf("product-1" to 2), 2)
+        store().discardOrderDraft(one.draftId)
+        assertEquals(listOf(two), store().orderDrafts())
+        assertThrows(IllegalStateException::class.java) { runBlocking { store().discardOrderDraft(one.draftId) } }
+        Unit
+    }
+
+    /** SP-0060: queueing the order and freezing its draft commit together in SQLCipher, or not at all. */
+    @Test fun submittedOrderQueuesAtomicallyAndSurvivesReopen() = runBlocking {
+        val check = orderReady()
+        val draft = com.sunpride.field.ui.saveOrderDraftIn(store(), null, check.clientVisitId, check.requestId,
+            listOf("product-1" to 7), 500)
+        // A request whose lines differ from the draft rolls back: nothing queued, draft still editable.
+        val forged = com.sunpride.field.orders.OrderSubmission.intent(scope,
+            draft.copy(lines = listOf(draft.lines.single().copy(quantity = 8))), check.requestId, 600)
+        assertTrue(runCatching { store().submitOrderDraft(draft.draftId, forged, 600) }.isFailure)
+        assertEquals(listOf("visit.checkIn"), store().history().map { it.first.kind })
+        assertNull(store().orderDrafts().single().submittedRequestId)
+
+        val sent = com.sunpride.field.orders.submitOrderDraftIn(store(), scope, draft.draftId, check.requestId, 600)
+        db.close(); db = EncryptedFieldDatabase.open(context)
+        val stored = store().orderDrafts().single()
+        assertEquals(sent, stored)
+        val queued = store().pending().last().first
+        assertEquals(stored.submittedRequestId, queued.requestId)
+        val activity = org.json.JSONObject(queued.serializedOperation).getJSONObject("payload").getJSONObject("activity")
+        assertEquals("order_intent", activity.getString("kind")); assertEquals(draft.draftId, activity.getString("clientOrderId"))
+        assertEquals(com.sunpride.field.orders.OrderStatus.QUEUED,
+            com.sunpride.field.orders.OrderSubmission.status(stored, store().history().map { it.first to it.second.state }))
+        // Sent orders never queue twice, change or disappear.
+        for (attempt in listOf<suspend () -> Unit>(
+            { com.sunpride.field.orders.submitOrderDraftIn(store(), scope, draft.draftId, queued.requestId, 700) },
+            { com.sunpride.field.ui.saveOrderDraftIn(store(), draft.draftId, check.clientVisitId, check.requestId, listOf("product-1" to 1), 700) },
+            { store().discardOrderDraft(draft.draftId) })) {
+            val e = runCatching { attempt() }.exceptionOrNull() as com.sunpride.field.orders.OrderDraftFailure
+            assertEquals(com.sunpride.field.orders.OrderDraftFailure.Code.SUBMITTED, e.code)
+        }
+        assertEquals(2, store().history().size)
+        store().recordAck(queued.requestId, "server-activity", "[]", 1)
+        assertEquals(com.sunpride.field.orders.OrderStatus.RECEIVED,
+            com.sunpride.field.orders.OrderSubmission.status(stored, store().history().map { it.first to it.second.state }))
+    }
+
+    /** SP-0060: order B's request under draft A rolls back in SQLCipher; neither draft freezes. */
+    @Test fun aDraftIsFrozenOnlyByItsOwnOrderRequest() = runBlocking {
+        val check = orderReady()
+        val a = com.sunpride.field.ui.saveOrderDraftIn(store(), null, check.clientVisitId, check.requestId,
+            listOf("product-1" to 7), 500)
+        val b = com.sunpride.field.ui.saveOrderDraftIn(store(), null, check.clientVisitId, check.requestId,
+            listOf("product-1" to 2), 510)
+        val intentB = com.sunpride.field.orders.OrderSubmission.intent(scope, b, check.requestId, 600)
+        assertTrue(runCatching { store().submitOrderDraft(a.draftId, intentB, 600) }.exceptionOrNull()
+            is IllegalArgumentException)
+        assertEquals(listOf("visit.checkIn"), store().history().map { it.first.kind })
+        assertTrue(store().orderDrafts().all { it.submittedRequestId == null })
+        store().submitOrderDraft(b.draftId, intentB, 600)
+        assertEquals(intentB.requestId, store().orderDrafts().single { it.draftId == b.draftId }.submittedRequestId)
+        assertNull(store().orderDrafts().single { it.draftId == a.draftId }.submittedRequestId)
     }
 }

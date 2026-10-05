@@ -8,10 +8,11 @@ Run a single area: `cd packages/backend && bunx vitest run convex/<path>`.
 
 ## End-to-end acceptance
 
-| Flow                                                                                                                                                                                                                              | Test                                               |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| Foundation: bootstrap, org scope, roles, readers                                                                                                                                                                                  | `convex/acceptance/foundation.acceptance.test.ts`  |
-| Field pilot day: MCP authored → manager signs → activation creates planned visits → phone pushes planned check-in, order intent and End offline → whole-batch retry is a no-op → teammate cannot execute, edit or replay the call | `convex/acceptance/field_pilot.acceptance.test.ts` |
+| Flow                                                                                                                                                                                                                                              | Test                                                                                                         |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Foundation: bootstrap, org scope, roles, readers                                                                                                                                                                                                  | `convex/acceptance/foundation.acceptance.test.ts`                                                            |
+| Shared foundation exit gate (SFD-019): web CSV templates → opening stock → ledger → web overview and van POS; replay, adjustment retry, count variance, cross-scope denial, audit; frozen client contracts. See `docs/qa/FOUNDATION_EXIT_GATE.md` | `convex/acceptance/foundation_exit_gate.acceptance.test.ts`, `convex/acceptance/foundation_contract.test.ts` |
+| Field pilot day: MCP authored → manager signs → activation creates planned visits → phone pushes planned check-in, order intent and End offline → whole-batch retry is a no-op → teammate cannot execute, edit or replay the call                 | `convex/acceptance/field_pilot.acceptance.test.ts`                                                           |
 
 ## By acceptance criterion
 

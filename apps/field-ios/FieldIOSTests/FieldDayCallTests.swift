@@ -47,17 +47,22 @@ final class FieldDayCallTests: XCTestCase {
     private func planned(_ id: String, sequence: Int? = nil) -> StoreSnapshot.Visit {
         .init(id: id, outletId: id, serviceDate: day, planId: "plan", planVersion: 1, intents: ["audit"], sequence: sequence)
     }
-    private func save(_ visits: [StoreSnapshot.Visit]) throws {
+    private func save(_ visits: [StoreSnapshot.Visit], target: StoreSnapshot.DayTarget? = nil) throws {
         let expiry = Int64(FieldDay.nextClose(after: clock.now).timeIntervalSince1970 * 1000)
+        let pin = StoreSnapshot.Coordinate(latitude: 14.5764, longitude: 121.0851)
+        let outlets: [StoreSnapshot.Outlet] = ["first", "second", "extra"].map { id in
+            StoreSnapshot.Outlet(id: id, name: id, routeId: nil, location: id == "second" ? nil : pin)
+        }
         try store.saveSnapshot(.init(employee: .init(id: "seller", role: "sales", orgUnitId: "unit"), visits: visits,
-            outlets: ["first", "second", "extra"].map { .init(id: $0, name: $0, routeId: nil) },
-            customers: [], route: nil, tasks: []), cursor: "cursor", leaseExpiresAt: expiry, cacheExpiresAt: expiry, for: partition)
+            outlets: outlets,
+            customers: [], route: nil, tasks: [], dayTarget: target), cursor: "cursor", leaseExpiresAt: expiry, cacheExpiresAt: expiry, for: partition)
     }
     private func visit(_ id: String) throws -> AppModel.TodayVisit {
         try XCTUnwrap(model.visits.first { $0.id == id })
     }
     private func start(_ visit: AppModel.TodayVisit, location: VisitLocation? = nil) throws {
-        try model.queueCheckIn(visit, unplannedReason: visit.planned ? nil : "Extra call", location: location)
+        try model.queueCheckIn(visit, unplannedReason: visit.planned ? nil : "Extra call",
+                               intents: visit.planned ? [] : ["sell"], location: location)
     }
     private func expect(_ error: AppModel.CallFailure, _ work: () throws -> Void) {
         XCTAssertThrowsError(try work()) { XCTAssertEqual($0 as? AppModel.CallFailure, error) }
@@ -120,7 +125,7 @@ final class FieldDayCallTests: XCTestCase {
     }
     func testOpenCallOnPastDayDoesNotBlockTodaysCall() throws {
         let old = try DiagnosticOperation.checkIn(plannedId: nil, outletId: "extra", day: "2026-10-01",
-            intents: [], reason: "Earlier call", location: nil, now: clock.now.addingTimeInterval(-86_400))
+            intents: ["sell"], reason: "Earlier call", location: nil, now: clock.now.addingTimeInterval(-86_400))
         try store.enqueue(old, for: partition, now: clock.now)
         try start(try visit("first"))
     }
@@ -135,7 +140,8 @@ final class FieldDayCallTests: XCTestCase {
             XCTAssertEqual(recorded["latitude"] as? Double, -80)
             XCTAssertEqual(recorded["longitude"] as? Double, -170)
             XCTAssertEqual(recorded["accuracyMeters"] as? Double, 9_999)
-            XCTAssertEqual(recorded["provider"] as? String, "gps")
+            XCTAssertEqual(recorded["provider"] as? String, "fused")
+            XCTAssertEqual(recorded["mockSignal"] as? Bool, false)
             XCTAssertEqual((recorded["fixTime"] as? NSNumber)?.int64Value, fix.fixTime)
         }
         let second = try visit("second")
@@ -143,6 +149,18 @@ final class FieldDayCallTests: XCTestCase {
         try model.queueCheckOut(outcome: "completed", reason: nil, for: second, location: nil)
         let missing = try store.intents(for: partition).suffix(2)
         XCTAssertTrue(missing.allSatisfy { $0.payload?["location"] is NSNull })
+    }
+    func testVisitRowsCarryVerifiedPinForOnPhoneDistance() throws {
+        XCTAssertEqual(try visit("first").pin, OutletPin(latitude: 14.5764, longitude: 121.0851))
+        XCTAssertNil(try visit("second").pin, "no verified pin: server flags the fix for review")
+        XCTAssertEqual(try visit("unplanned-extra").pin, OutletPin(latitude: 14.5764, longitude: 121.0851))
+        // The pin survives the check-in refresh, and a far fix still queues Start (no distance limit).
+        let far = try VisitLocation(latitude: 14.6764, longitude: 121.0851, accuracyMeters: 8,
+                                    fixTime: Int64(clock.now.timeIntervalSince1970 * 1000))
+        try start(try visit("first"), location: far)
+        XCTAssertNotNil(try visit("first").pin)
+        XCTAssertEqual(try store.intents(for: partition).count, 1)
+        XCTAssertTrue(LocationAssessment.notice(.captured(far), pin: try visit("first").pin, at: clock.now).review)
     }
     func testRejectedEndDoesNotUnlockNextStoreAndMapsServerReasons() throws {
         let first = try visit("first"), second = try visit("second")
@@ -159,5 +177,83 @@ final class FieldDayCallTests: XCTestCase {
         try store.recordRejection(code: "mcp_order", for: rejected.requestId, in: partition)
         model.refreshToday()
         XCTAssertTrue(model.review.contains { $0.contains("Visit stores in plan order") })
+    }
+    func testTodayDashboardFollowsTheDayFromTheStoreAndSurvivesRelaunch() async throws {
+        try save([planned("second", sequence: 1), planned("first", sequence: 0)],
+                 target: .init(dailyCalls: 30, productivePct: 85, sourceRef: "memo"))
+        model.refreshToday()
+        var board = model.dashboard
+        XCTAssertEqual(board.dateLabel, "Fri, 2 Oct")
+        XCTAssertEqual(board.route.map(\.id), ["first", "second"])
+        XCTAssertEqual(board.route.map(\.position), [1, 2])
+        XCTAssertEqual(board.next?.id, "first")
+        XCTAssertNil(board.current)
+        XCTAssertEqual(board.callsLabel, "0 of 30")
+        XCTAssertEqual(board.productiveLabel, "0 · target 85%")
+        XCTAssertEqual(board.completionLabel, "0 of 2 stores")
+
+        try start(try visit("first"))
+        board = model.dashboard
+        XCTAssertEqual(board.current?.id, "first")
+        XCTAssertNil(board.next, "no next outlet while a call is open")
+        XCTAssertEqual(board.route.map(\.state), [.inProgress, .upcoming])
+
+        clock.advance(20 * 60)
+        try model.queueNote("Talked to the buyer", for: try visit("first"))
+        try model.queueCheckOut(outcome: "completed", reason: nil, for: try visit("first"))
+        board = model.dashboard
+        XCTAssertEqual(board.next?.id, "second")
+        XCTAssertEqual(board.route.first?.timeSpent, "20 min")
+        XCTAssertEqual(board.callsLabel, "1 of 30")
+        XCTAssertEqual(try visit("first").activityKinds, ["note"])
+        // Governed rule (sfa/productive_call.ts): a completed End with only a note is not productive.
+        XCTAssertEqual(board.productiveLabel, "0 · 0% of 85%")
+
+        // Offline: queued work and the saved target survive a relaunch without a network round trip.
+        model.enrollment.signedOut()
+        model = try await makeModel()
+        try start(try visit("second"))
+        try model.queueCheckOut(outcome: "nonproductive", reason: "Store closed", for: try visit("second"))
+        board = model.dashboard
+        XCTAssertEqual(board.target?.dailyCalls, 30)
+        XCTAssertTrue(board.dayComplete)
+        XCTAssertNil(board.next)
+        XCTAssertEqual(board.completionLabel, "2 of 2 stores")
+        XCTAssertEqual(board.productiveLabel, "0 · 0% of 85%")
+        XCTAssertEqual(try store.pendingOutbox(for: partition).count + store.deferredOutbox(for: partition).count, 5)
+    }
+    func testTodayDashboardNeverOffersAStopTheStartGuardRefuses() throws {
+        // A rejected first check-in: AppModel refuses stop two (plan order), so it is not "Next".
+        try start(try visit("first"))
+        let checkIn = try XCTUnwrap(store.pendingOutbox(for: partition).first?.intent)
+        try store.recordRejection(code: "invalid_plan", for: checkIn.requestId, in: partition)
+        model.refreshToday()
+        XCTAssertEqual(model.startFailure(for: try visit("second")), .mcpOrder)
+        let board = model.dashboard
+        XCTAssertEqual(board.route.map(\.state), [.review, .upcoming])
+        XCTAssertNil(board.next)
+        XCTAssertNil(board.current)
+    }
+    func testTodayDashboardShowsSavedServerSalesOffline() throws {
+        let expiry = Int64(FieldDay.nextClose(after: clock.now).timeIntervalSince1970 * 1000)
+        try store.saveSnapshot(.init(employee: .init(id: "seller", role: "sales", orgUnitId: "unit"),
+            visits: [planned("first", sequence: 0)], outlets: [.init(id: "first", name: "first", routeId: nil)],
+            customers: [], route: nil, tasks: [],
+            daySales: .init(amountMinor: 175_050, orders: 2, targetMinor: 500_000)),
+            cursor: "cursor", leaseExpiresAt: expiry, cacheExpiresAt: expiry, for: partition)
+        model.refreshToday()
+        XCTAssertEqual(model.dashboard.sales?.amountMinor, 175_050)
+        XCTAssertEqual(model.dashboard.salesLabel, "₱1,750.50 of ₱5,000.00")
+    }
+    func testTodayDashboardRejectedEndNeedsReviewAndDoesNotCount() throws {
+        try start(try visit("first"))
+        try model.queueCheckOut(outcome: "completed", reason: nil, for: try visit("first"))
+        let end = try XCTUnwrap(store.deferredOutbox(for: partition).first?.intent)
+        try store.recordRejection(code: "call_open", for: end.requestId, in: partition)
+        model.refreshToday()
+        let board = model.dashboard
+        XCTAssertEqual(board.route.first?.state, .review)
+        XCTAssertEqual(board.calls, 0)
+        XCTAssertEqual(board.callsLabel, "0 · no target set")
     }
 }

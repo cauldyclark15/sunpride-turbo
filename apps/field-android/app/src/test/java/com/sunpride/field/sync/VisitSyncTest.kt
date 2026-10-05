@@ -80,6 +80,8 @@ class VisitSyncTest {
         override suspend fun syncHealth() = health
         override suspend fun setSyncHealth(value: String) { health = value }
         override suspend fun holdForReview() { held = true; token = null; health = "held_for_review" }
+        var purged = false
+        override suspend fun purgeCacheForReview() { holdForReview(); purged = true; visits = emptyList(); outlets = emptyList() }
         override suspend fun delta(entity: String, id: String) = deltas["$entity:$id"]
         override suspend fun applyDelta(changes: List<DeltaRow>, nextCursor: String) {
             changes.forEach { c -> if ((deltas["${c.entity}:${c.entityId}"]?.revision ?: 0) < c.revision)
@@ -235,6 +237,20 @@ class VisitSyncTest {
         denied.replies.add(401 to "")
         engine(other, denied).sync()
         assertTrue(other.held); assertEquals("pending", other.rows.single().second.state)
+    }
+    /** QSR-010: a confirmed revocation drops the cached plan; an unexplained 401 only holds. */
+    @Test fun revokedDevicePurgesCacheButUnauthorizedOnlyHolds() = runBlocking {
+        val revoked = Store(); val t = Transport(); enqueue(revoked, "visit.checkIn")
+        revoked.outlets = listOf(SnapshotItem("outlet-1", "{}"))
+        t.replies.add(403 to fixture("error-device-revoked.json"))
+        engine(revoked, t).sync()
+        assertTrue(revoked.held); assertTrue(revoked.purged); assertTrue(revoked.outlets.isEmpty())
+        assertEquals("pending", revoked.rows.single().second.state) // unsent work kept for review
+        val denied = Store(); val d = Transport(); enqueue(denied, "visit.checkIn")
+        denied.outlets = listOf(SnapshotItem("outlet-1", "{}"))
+        d.replies.add(401 to ""); d.replies.add(401 to "")
+        engine(denied, d).sync()
+        assertTrue(denied.held); assertFalse(denied.purged); assertEquals(1, denied.outlets.size)
     }
     @Test fun rebootstrapKeepsValidPastDayEvenWhenNewBootstrapOmitsItsPlan() = runBlocking {
         val store = Store(); val transport = Transport()

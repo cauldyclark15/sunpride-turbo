@@ -1,0 +1,14 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/docs/training/**",
+        "$TURBO_ROOT$/packages/backend/convex/**",
+        "$TURBO_ROOT$/packages/ui/src/**"
+      ]
+    }
+  }
+}

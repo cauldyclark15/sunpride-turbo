@@ -1,10 +1,12 @@
 import { ConvexError, v } from "convex/values";
+import { queueOrderRollup } from "../analytics/rollups";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { mutation, query } from "../_generated/server";
 import { requireIdentity, requireRole } from "../lib/auth";
 import { requireNationalScope, requireScopedRole } from "../lib/scope";
 import { SUNPRIDE_ORGANIZATION_ID } from "./constants";
+import { queueAgentDayForOrder } from "../analytics/agent_metrics";
 import {
   findExistingCommand,
   hashPayload,
@@ -179,6 +181,7 @@ export const postSale = mutation({
         reasonCode: "rolling_truck_pos_sale",
       });
     }
+    await queueOrderRollup(ctx, orderId);
     const movement = await postMovement(ctx, {
       idempotencyKey: commandKey,
       payloadHash,
@@ -195,6 +198,7 @@ export const postSale = mutation({
       inventoryMovementId: movement.movementId,
       updatedAt: Date.now(),
     });
+    await queueAgentDayForOrder(ctx, orderId);
     await ctx.db.patch(args.routeSessionId, {
       lastAcknowledgedSequence: args.deviceSequence,
       leaseExpiresAt: Date.now() + 15 * 60_000,
@@ -236,6 +240,7 @@ export const voidSale = mutation({
       sourceDocumentId: order._id,
       note: args.reason,
     });
+    await queueOrderRollup(ctx, order._id);
     await ctx.db.patch(order._id, {
       status: "voided",
       voidMovementId: movement.movementId,
@@ -243,6 +248,7 @@ export const voidSale = mutation({
       voidedBy: identity.tokenIdentifier,
       updatedAt: Date.now(),
     });
+    await queueAgentDayForOrder(ctx, order._id);
     return movement.movementId;
   },
 });
@@ -414,6 +420,8 @@ export const returnSale = mutation({
         lineTotal: -input.quantity * unitPrice,
       });
     }
+    await queueOrderRollup(ctx, returnOrderId);
+    await queueOrderRollup(ctx, original._id);
     const movement = await postMovement(ctx, {
       idempotencyKey: `pos-return:${args.clientRequestId}`,
       payloadHash,
@@ -438,6 +446,8 @@ export const returnSale = mutation({
         returnedBase === originalTotalBase ? "returned" : "partially_voided",
       updatedAt: Date.now(),
     });
+    await queueAgentDayForOrder(ctx, returnOrderId);
+    await queueAgentDayForOrder(ctx, original._id);
     return {
       returnOrderId,
       movementId: movement.movementId,

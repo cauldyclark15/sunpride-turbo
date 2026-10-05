@@ -17,7 +17,7 @@ extension VisitIntent {
 }
 
 enum DiagnosticOperation {
-    enum Failure: Error { case invalidReason, invalidNote, invalidOutcome }
+    enum Failure: Error { case invalidReason, invalidNote, invalidOutcome, invalidIntents, invalidActivity }
     private static func make(_ kind: String, payload: [String: Any], dependency: UUID? = nil) throws -> VisitIntent {
         let id = UUID()
         var object: [String: Any] = ["kind": kind, "clientRequestId": id.uuidString.lowercased(), "payload": payload]
@@ -29,6 +29,12 @@ enum DiagnosticOperation {
                         reason: String?, location: VisitLocation?, now: Date = Date()) throws -> VisitIntent {
         if plannedId == nil && (reason?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false || (reason?.count ?? 0) > 500) {
             throw Failure.invalidReason
+        }
+        // IOS-013: a planned visit carries its signed MCP intents; an unplanned one needs at least
+        // one chosen purpose from the v1 set, each once.
+        if plannedId == nil && (intents.isEmpty || Set(intents).count != intents.count ||
+                                !intents.allSatisfy(ActivityRules.intents.contains)) {
+            throw Failure.invalidIntents
         }
         let fix: Any = try location.map { try JSONSerialization.jsonObject(with: JSONEncoder().encode($0)) } ?? NSNull()
         var payload: [String: Any] = ["clientVisitId": UUID().uuidString.lowercased(),
@@ -53,12 +59,32 @@ enum DiagnosticOperation {
         if let visitId { payload["visitId"] = visitId }
         return try make("visit.activity", payload: payload, dependency: checkIn)
     }
+    /// IOS-013 structured form, already built by `ActivityForms` (re-validated by the store).
+    static func activity(_ activity: [String: Any], checkIn: UUID, visitId: String?, now: Date = Date()) throws -> VisitIntent {
+        guard let kind = activity["kind"] as? String, ActivityRules.structuredForms.contains(kind),
+              JSONSerialization.isValidJSONObject(activity) else { throw Failure.invalidActivity }
+        var payload: [String: Any] = ["activity": activity, "deviceTime": Int64(now.timeIntervalSince1970 * 1000)]
+        if let visitId { payload["visitId"] = visitId }
+        return try make("visit.activity", payload: payload, dependency: checkIn)
+    }
+    /// IOS-015 submitted order: the `order_intent` built by `OrderSubmission.activity` from a saved
+    /// draft. The store only accepts it through `submitOrderDraft`, bound to that unsent draft.
+    static func order(_ activity: [String: Any], checkIn: UUID, visitId: String?, now: Date = Date()) throws -> VisitIntent {
+        do { try OrderSubmission.validateActivity(activity) } catch { throw Failure.invalidActivity }
+        var payload: [String: Any] = ["activity": activity, "deviceTime": Int64(now.timeIntervalSince1970 * 1000)]
+        if let visitId { payload["visitId"] = visitId }
+        return try make("visit.activity", payload: payload, dependency: checkIn)
+    }
     static func checkOut(outcome: String, reason: String?, checkIn: UUID, visitId: String?, location: VisitLocation? = nil, now: Date = Date()) throws -> VisitIntent {
-        guard ["completed", "nonproductive"].contains(outcome),
-              outcome != "nonproductive" || reason?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else { throw Failure.invalidOutcome }
+        // IOS-017: the reason is trimmed and bounded like the server's `boundedText`; a not-productive
+        // End needs one, and a completed End may carry one (the truck seller's no-sales marker).
+        let cleaned = VisitCompletion.cleanReason(reason)
+        let supplied = reason?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        guard ["completed", "nonproductive"].contains(outcome), !(supplied && cleaned == nil),
+              outcome != "nonproductive" || cleaned != nil else { throw Failure.invalidOutcome }
         let fix: Any = try location.map { try JSONSerialization.jsonObject(with: JSONEncoder().encode($0)) } ?? NSNull()
         var payload: [String: Any] = ["outcome": outcome,
-            "reasonCode": (reason as Any?) ?? NSNull(), "location": fix,
+            "reasonCode": (cleaned as Any?) ?? NSNull(), "location": fix,
             "deviceTime": Int64(now.timeIntervalSince1970 * 1000)]
         if let visitId { payload["visitId"] = visitId }
         return try make("visit.checkOut", payload: payload, dependency: checkIn)
