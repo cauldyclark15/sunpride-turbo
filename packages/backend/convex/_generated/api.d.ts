@@ -18,6 +18,8 @@ import type * as analytics_productivity from "../analytics/productivity.js";
 import type * as analytics_productivity_model from "../analytics/productivity_model.js";
 import type * as analytics_rollups from "../analytics/rollups.js";
 import type * as analytics_rollups_model from "../analytics/rollups_model.js";
+import type * as analytics_suggested_order_model from "../analytics/suggested_order_model.js";
+import type * as analytics_suggested_orders from "../analytics/suggested_orders.js";
 import type * as analytics_territory from "../analytics/territory.js";
 import type * as analytics_territory_model from "../analytics/territory_model.js";
 import type * as auth from "../auth.js";
@@ -102,6 +104,7 @@ import type * as merchandising_assortments from "../merchandising/assortments.js
 import type * as merchandising_audits from "../merchandising/audits.js";
 import type * as merchandising_validators from "../merchandising/validators.js";
 import type * as migrations from "../migrations.js";
+import type * as mobile_account_summary from "../mobile/account_summary.js";
 import type * as mobile_bootstrap from "../mobile/bootstrap.js";
 import type * as mobile_budget from "../mobile/budget.js";
 import type * as mobile_cursor from "../mobile/cursor.js";
@@ -184,6 +187,8 @@ declare const fullApi: ApiFromModules<{
   "analytics/productivity_model": typeof analytics_productivity_model;
   "analytics/rollups": typeof analytics_rollups;
   "analytics/rollups_model": typeof analytics_rollups_model;
+  "analytics/suggested_order_model": typeof analytics_suggested_order_model;
+  "analytics/suggested_orders": typeof analytics_suggested_orders;
   "analytics/territory": typeof analytics_territory;
   "analytics/territory_model": typeof analytics_territory_model;
   auth: typeof auth;
@@ -268,6 +273,7 @@ declare const fullApi: ApiFromModules<{
   "merchandising/audits": typeof merchandising_audits;
   "merchandising/validators": typeof merchandising_validators;
   migrations: typeof migrations;
+  "mobile/account_summary": typeof mobile_account_summary;
   "mobile/bootstrap": typeof mobile_bootstrap;
   "mobile/budget": typeof mobile_budget;
   "mobile/cursor": typeof mobile_cursor;

@@ -53,6 +53,29 @@ export type ActivityRuleV1 = {
   version: string;
   activities: Array<{ kind: string; required: boolean }>;
 };
+/**
+ * IOS-011: cached account figures for one outlet, as of the page's serverTime. Amounts are PHP
+ * centavos; `withheld` carries no figures (account shared outside the person's plan).
+ * `openOrders` are submitted orders not yet fulfilled/posted, never a receivables balance.
+ */
+export type AccountSummaryV1 = {
+  outletId: string;
+  asOfDate: string;
+  availability: "available" | "withheld";
+  creditLimitMinor: number | null;
+  sales: {
+    from: string;
+    to: string;
+    complete: boolean;
+    orders: number;
+    amountMinor: number;
+    recentOrders: number;
+    recentAmountMinor: number;
+    lastOrderDate: string | null;
+    lastOrderAmountMinor: number | null;
+  } | null;
+  openOrders: { count: number; amountMinor: number } | null;
+};
 /** AND-016: one visit photo type (code is an open string; label is display text). */
 export type PhotoTypeV1 = { code: string; label: string };
 export type CallSheetV1 = {
@@ -142,6 +165,8 @@ export type BootstrapResponse = {
   activityRules?: Array<ActivityRuleV1>;
   /** AND-016 visit photo types. Optional: added after v1 shipped. */
   photoTypes?: Array<PhotoTypeV1>;
+  /** IOS-011 account summaries. Optional: added after v1 shipped. */
+  accountSummaries?: Array<AccountSummaryV1>;
   page: number;
   nextPageCursor: string | null;
   syncCursor: string | null;

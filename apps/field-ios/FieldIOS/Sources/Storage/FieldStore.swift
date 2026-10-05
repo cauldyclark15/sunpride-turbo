@@ -57,6 +57,9 @@ struct StoreSnapshot: Sendable {
             guard let latitude, let longitude else { return nil }
             return Coordinate(latitude: latitude, longitude: longitude)
         }
+        /// Verified pin for the Start/End distance notice; nil when absent or out of range.
+        var pin: OutletPin? { OutletPin(latitude: latitude, longitude: longitude) }
+        var hasValidPinFields: Bool { (latitude == nil && longitude == nil) || pin != nil }
     }
     struct Customer: Codable, Sendable { let id: String; let code: String }
     struct Route: Codable, Sendable { let id: String; let code: String }
@@ -92,6 +95,8 @@ struct StoreSnapshot: Sendable {
     let callSheets: [CallSheet]
     let productCatalog: [BootstrapV1.Product]
     let inventoryAvailability: [BootstrapV1.InventoryAvailability]
+    /// IOS-011 cached account figures, one per outlet; stored with the snapshot generation.
+    let accountSummaries: [AccountSummary]
     var dayTarget: DayTarget? = nil
     var daySales: DaySales? = nil
     /// IOS-013 activity-form rules per visit intent, in server order; empty from older servers.
@@ -100,10 +105,12 @@ struct StoreSnapshot: Sendable {
     init(employee: Employee, visits: [Visit], outlets: [Outlet], customers: [Customer],
          route: Route?, tasks: [Task], callSheets: [CallSheet] = [],
          productCatalog: [BootstrapV1.Product] = [], inventoryAvailability: [BootstrapV1.InventoryAvailability] = [],
+         accountSummaries: [AccountSummary] = [],
          dayTarget: DayTarget? = nil, daySales: DaySales? = nil, activityRules: [ActivityRule] = []) {
         self.employee = employee; self.visits = visits; self.outlets = outlets
         self.customers = customers; self.route = route; self.tasks = tasks; self.callSheets = callSheets
         self.productCatalog = productCatalog; self.inventoryAvailability = inventoryAvailability
+        self.accountSummaries = accountSummaries
         self.dayTarget = dayTarget; self.daySales = daySales; self.activityRules = activityRules
     }
 }
@@ -464,12 +471,16 @@ final class EncryptedFieldStore: FieldLocalStore {
         for v in snapshot.customers { rows.append(("customer", v.id, nil, try encode(v))) }
         if let route = snapshot.route { rows.append(("route", route.id, nil, try encode(route))) }
         for v in snapshot.tasks { rows.append(("task", v.id, nil, try encode(v))) }
+        // Account figures ride in the same generation rows, so they promote and expire with the plan.
+        for v in snapshot.accountSummaries { rows.append(("account_summary", v.outletId, nil, try encode(v))) }
         if let target = snapshot.dayTarget { rows.append(("dayTarget", "today", nil, try encode(target))) }
         if let sales = snapshot.daySales { rows.append(("daySales", "today", nil, try encode(sales))) }
         // One row keeps the server's rule order; it rides the generic snapshot table (no migration).
         if !snapshot.activityRules.isEmpty { rows.append(("activityRules", "all", nil, try encode(snapshot.activityRules))) }
         guard rows.allSatisfy({ !$0.1.isEmpty }), snapshot.callSheets.allSatisfy(\.isValid),
-              snapshot.callSheets.allSatisfy({ sheet in snapshot.outlets.contains { $0.id == sheet.outletId } }) else { throw StoreError.invalidInput }
+              snapshot.callSheets.allSatisfy({ sheet in snapshot.outlets.contains { $0.id == sheet.outletId } }),
+              Set(snapshot.accountSummaries.map(\.outletId)).count == snapshot.accountSummaries.count,
+              snapshot.accountSummaries.allSatisfy({ $0.isValid && snapshot.outlets.map(\.id).contains($0.outletId) }) else { throw StoreError.invalidInput }
         guard snapshot.productCatalog.allSatisfy(\.isValid), snapshot.inventoryAvailability.allSatisfy(\.isValid) else {
             throw StoreError.invalidInput
         }
@@ -559,6 +570,7 @@ final class EncryptedFieldStore: FieldLocalStore {
             tasks: entities(StoreSnapshot.Task.self, kind: "task", partition: partition),
             callSheets: callSheets(for: partition), productCatalog: catalog(for: partition),
             inventoryAvailability: referenceRows(BootstrapV1.InventoryAvailability.self, entity: "inventory", partition: partition),
+            accountSummaries: entities(AccountSummary.self, kind: "account_summary", partition: partition),
             dayTarget: entities(StoreSnapshot.DayTarget.self, kind: "dayTarget", partition: partition).first,
             daySales: entities(StoreSnapshot.DaySales.self, kind: "daySales", partition: partition).first,
             activityRules: activityRules(for: partition))

@@ -44,6 +44,7 @@ final class BootstrapClient {
         var callSheets: [CallSheet] = []
         var products: [BootstrapV1.Product] = []
         var inventory: [BootstrapV1.InventoryAvailability] = []
+        var summaries: [AccountSummary] = []
         var customers: [StoreSnapshot.Customer] = []
         var tasks: [StoreSnapshot.Task] = []
         var route: StoreSnapshot.Route?
@@ -72,6 +73,7 @@ final class BootstrapClient {
             callSheets += page.callSheets
             products += page.productCatalog
             inventory += page.inventoryAvailability
+            summaries += page.accountSummaries
             customers += page.localCustomers
             tasks += page.tasks
             if let target = page.dayTarget {
@@ -110,13 +112,16 @@ final class BootstrapClient {
             let uniqueCallSheets = try Self.unique(callSheets, id: { $0.outletId }, equivalent: { $0 == $1 })
             let uniqueProducts = try Self.unique(products, id: { $0.id }, equivalent: { $0 == $1 })
             let uniqueInventory = try Self.unique(inventory, id: { $0.id }, equivalent: { $0 == $1 })
+            // The server ships each outlet's figures once per snapshot; a repeat must be identical.
+            let uniqueSummaries = try Self.unique(summaries, id: { $0.outletId }, equivalent: { $0 == $1 })
             guard Set(visits.map(\.id)).count == visits.count,
                   Set(tasks.map(\.id)).count == tasks.count,
                   visits.allSatisfy({ visit in uniqueOutlets.contains(where: { $0.id == visit.outletId }) }) else { throw Failure.invalidResponse }
             let snapshot = StoreSnapshot(employee: initial.employee, visits: visits, outlets: uniqueOutlets,
                                          customers: uniqueCustomers, route: route, tasks: tasks, callSheets: uniqueCallSheets,
                                          productCatalog: uniqueProducts, inventoryAvailability: uniqueInventory,
-                                         dayTarget: dayTarget, daySales: daySales, activityRules: activityRules ?? [])
+                                         accountSummaries: uniqueSummaries, dayTarget: dayTarget, daySales: daySales,
+                                         activityRules: activityRules ?? [])
             try store.saveSnapshot(snapshot, cursor: cursor, leaseExpiresAt: lease, cacheExpiresAt: cache, for: partition)
             try store.setSyncHealth(SyncHealth(lastSuccessfulSyncAt: page.serverTime, lastErrorCode: nil), for: partition)
             return partition

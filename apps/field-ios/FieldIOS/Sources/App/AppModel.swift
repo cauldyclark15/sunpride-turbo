@@ -30,6 +30,10 @@ final class AppModel {
     private(set) var outletDetails: [String: StoreSnapshot.Outlet] = [:]
     private(set) var customerDetails: [String: StoreSnapshot.Customer] = [:]
     private(set) var routeCode: String?
+    /// IOS-011 customer directory: only outlets in the active verified scope partition, offline.
+    private(set) var customers: [CustomerRecord] = []
+    /// Day-level tasks from the same saved snapshot.
+    private(set) var dayTasks: [StoreSnapshot.Task] = []
     private(set) var callSheets: [CallSheet] = []
     /// IOS-013 activity-form rules per visit intent from the active snapshot.
     private(set) var activityRules: [ActivityRule] = []
@@ -49,6 +53,8 @@ final class AppModel {
         let id: String; let outletId: String; let outlet: String
         let serviceDate: String; let intents: [String]; let planned: Bool; let status: String
         var sequence: Int? = nil
+        /// Current verified outlet pin, for the on-phone distance shown at Start/End (display only).
+        var pin: OutletPin? = nil
         var startedAt: Date? = nil
         var endedAt: Date? = nil
         /// End outcome recorded on this phone ("completed" or "nonproductive"), queued or synced.
@@ -224,7 +230,7 @@ final class AppModel {
 
     private func clearToday() {
         visits = []; callSheets = []; activityRules = []; outletDetails = [:]; customerDetails = [:]; routeCode = nil
-        dayTarget = nil; daySales = nil
+        customers = []; dayTasks = []; dayTarget = nil; daySales = nil
     }
 
     /// Confirmed revocation/suspension (QSR-010): hold unsent work and drop this partition's cached
@@ -263,16 +269,18 @@ final class AppModel {
             let outlets = Dictionary(uniqueKeysWithValues: try store.outlets(for: partition).map { ($0.id, $0.name) })
             let planned = try store.todayVisits(day, for: partition)
             let localOutlets = try store.outlets(for: partition)
+            let pins = Dictionary(localOutlets.compactMap { outlet in outlet.pin.map { (outlet.id, $0) } }, uniquingKeysWith: { a, _ in a })
             let saved = try store.snapshot(for: partition)
             outletDetails = Dictionary(localOutlets.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             customerDetails = Dictionary((saved?.customers ?? []).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             routeCode = saved?.route?.code
             let rows = planned.map { visit in
                 TodayVisit(id: visit.id, outletId: visit.outletId, outlet: outlets[visit.outletId] ?? "Unknown outlet",
-                    serviceDate: visit.serviceDate, intents: visit.intents, planned: true, status: "Planned", sequence: visit.sequence)
+                    serviceDate: visit.serviceDate, intents: visit.intents, planned: true, status: "Planned", sequence: visit.sequence,
+                    pin: pins[visit.outletId])
             } + localOutlets.filter { outlet in !planned.contains(where: { $0.outletId == outlet.id }) }.map { outlet in
                 TodayVisit(id: "unplanned-\(outlet.id)", outletId: outlet.id, outlet: outlet.name,
-                    serviceDate: day, intents: [], planned: false, status: "Unplanned")
+                    serviceDate: day, intents: [], planned: false, status: "Unplanned", pin: outlet.pin)
             }
             let intents = try store.intents(for: partition)
             let queued = Set(try store.pendingOutbox(for: partition).map { $0.intent.requestId } +
@@ -314,10 +322,20 @@ final class AppModel {
                 } ?? []
                 return TodayVisit(id: visit.id, outletId: visit.outletId, outlet: visit.outlet,
                                   serviceDate: visit.serviceDate, intents: visit.intents, planned: visit.planned, status: status,
-                                  sequence: visit.sequence, startedAt: call?.initial.deviceTime, endedAt: call?.end?.deviceTime,
+                                  sequence: visit.sequence, pin: visit.pin, startedAt: call?.initial.deviceTime, endedAt: call?.end?.deviceTime,
                                   outcome: call?.end?.payload?["outcome"] as? String,
                                   activityKinds: activityKinds, reasonCode: call?.end?.payload?["reasonCode"] as? String)
             }
+            let held = try store.isHeld(partition)
+            let rejectedIds = Set(rejected.map { $0.intent.requestId })
+            customers = CustomerDirectory.build(snapshot: saved, today: visits, day: day, history: intents.map { intent in
+                let state: LocalIntentState
+                if rejectedIds.contains(intent.requestId) { state = .review }
+                else if queued.contains(intent.requestId) { state = held ? .held : .waiting }
+                else { state = .sent }
+                return (intent, state)
+            })
+            dayTasks = saved?.tasks ?? []
             dayTarget = saved?.dayTarget
             daySales = saved?.daySales
             lastSyncedAt = try store.syncHealth(for: partition).flatMap { $0.lastSuccessfulSyncAt }
