@@ -473,6 +473,12 @@ class DiagnosticVisitTest {
         rule.onNodeWithTag("activity-merchandising").performScrollTo().performClick()
         rule.onNodeWithTag("activity-form-title").assertTextContains("Merchandising")
         rule.onNodeWithTag("activity-save").assertIsNotEnabled()
+        // Form inputs stay disabled until Start finishes re-reading the call and today's list (busy covers
+        // the whole Start). On a real phone that encrypted re-read outlasts the tap, so wait like the call sheet.
+        rule.waitUntil(10_000) { runCatching {
+            rule.onNodeWithTag("activity-display-needs_action").assertIsEnabled()
+            rule.onNodeWithTag("activity-text").assertIsEnabled()
+        }.isSuccess }
         rule.onNodeWithTag("activity-display-needs_action").performScrollTo().performClick()
         rule.onNodeWithTag("activity-text").performScrollTo().performTextInput("Re-faced shelf")
         androidx.test.espresso.Espresso.pressBack()
@@ -481,6 +487,8 @@ class DiagnosticVisitTest {
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-note").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithTag("diagnostic-note").performScrollTo().performTextInput("Damaged cans reported")
         androidx.test.espresso.Espresso.closeSoftKeyboard()
+        // Add note is held while the saved activity's re-read finishes; a tap on a disabled button is dropped.
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("diagnostic-add-note").assertIsEnabled() }.isSuccess }
         rule.onNodeWithTag("diagnostic-add-note").performScrollTo().performClick()
         rule.waitUntil(10_000) { backend.visitStates().size == 3 }
         // The outcome is chosen on the visit screen; opening a form screen leaves it, so choose again.
