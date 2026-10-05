@@ -800,4 +800,49 @@ describe("per-diem validation", () => {
       contentHash: complete.contentHash,
     });
   });
+
+  it("reads past the 50th activity: a form recorded 51st counts and changes the hash", async () => {
+    const { t, ids, as } = await fixture();
+    const manager = as("managerA");
+    const view = async () =>
+      (
+        await manager.query(api.supervision.per_diem.validation, {
+          ...period,
+          profileId: ids.ana.id,
+        })
+      ).selected!;
+    await t.run((ctx) => ctx.db.patch(ids.v1.id, { intents: ["merchandise"] }));
+    const add = (
+      activity:
+        | { kind: "note"; text: string }
+        | { kind: "merchandising"; displayCondition: "compliant" },
+      offset: number,
+    ) =>
+      t.run(async (ctx) => {
+        const visit = (await ctx.db.get(ids.v1.id))!;
+        await ctx.db.insert("visitActivities", {
+          organizationId: "sunpride",
+          orgUnitId: visit.orgUnitId,
+          visitId: visit._id,
+          assigneeProfileId: visit.assigneeProfileId,
+          outletId: visit.outletId,
+          activity,
+          evidenceIds: [],
+          deviceTime: visit.checkedInAt! + offset,
+          serverTime: visit.checkedInAt! + offset,
+        });
+      });
+    for (let i = 0; i < 50; i += 1)
+      await add({ kind: "note", text: `note ${i}` }, i + 1);
+    const held = await view();
+    expect(
+      held.items.find((row) => row.id === ids.v1.id)!.missingForms,
+    ).toEqual(["merchandising"]);
+    await add({ kind: "merchandising", displayCondition: "compliant" }, 51);
+    const complete = await view();
+    expect(
+      complete.items.find((row) => row.id === ids.v1.id)!.missingForms,
+    ).toEqual([]);
+    expect(complete.contentHash).not.toBe(held.contentHash);
+  });
 });

@@ -22,6 +22,7 @@ import {
   ruleHistories,
   rulesFromHistories,
 } from "../visits/activity_rules";
+import { MAX_VISIT_ACTIVITIES } from "../visits/commands";
 import { dayCloseAt } from "./model";
 import {
   claimPeriod,
@@ -135,6 +136,9 @@ async function decisionsFor(
   ).filter((row) => row.periodFrom === from && row.periodTo === to);
 }
 
+/** Activity rows one validation may read before it refuses (Convex read budget). */
+const MAX_PERIOD_ACTIVITY_READS = 16_000;
+
 /**
  * The validation itself: planned stops and visits for the period, each visit classified
  * against its signed planned stop, location evidence, late-sync review and call reports.
@@ -192,6 +196,7 @@ async function computeValidation(
   const histories = await ruleHistories(ctx);
 
   const items: Item[] = [];
+  let activityReads = 0;
   for (const visit of visits) {
     let link = visit.plannedVisitId
       ? (plannedById.get(visit.plannedVisitId) ?? null)
@@ -222,10 +227,19 @@ async function computeValidation(
         status,
       });
     }
+    // Read the visit's complete activity set (the writer caps it at MAX_VISIT_ACTIVITIES):
+    // a truncated prefix would miss later forms and leave the decision fingerprint stale.
     const activities = await ctx.db
       .query("visitActivities")
       .withIndex("by_visitId_and_serverTime", (q) => q.eq("visitId", visit._id))
-      .take(50);
+      .take(MAX_VISIT_ACTIVITIES + 1);
+    if (activities.length > MAX_VISIT_ACTIVITIES)
+      throw new ConvexError("A call has more activities than supported");
+    activityReads += activities.length;
+    if (activityReads > MAX_PERIOD_ACTIVITY_READS)
+      throw new ConvexError(
+        "Too many call records in this period. Split it in two.",
+      );
     if (!sheetRequired.has(visit.outletId))
       sheetRequired.set(
         visit.outletId,
