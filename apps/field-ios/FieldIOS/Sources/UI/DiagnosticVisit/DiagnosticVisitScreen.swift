@@ -166,6 +166,7 @@ struct DiagnosticVisitScreen: View {
                             .font(SunprideTokens.TypeStyle.meta)
                             .foregroundStyle(SunprideTokens.secondaryText)
                     }
+                    orderSection(open: true)
                     SectionCard(title: "Outcome") {
                         VStack(alignment: .leading, spacing: 0) {
                             Menu {
@@ -214,6 +215,7 @@ struct DiagnosticVisitScreen: View {
                             if let result = model.visitResult(for: currentVisit) { resultRows(result) }
                         }
                     }
+                    if !model.orderDrafts(for: currentVisit).isEmpty { orderSection(open: false) }
                 }
                 if checkedIn {
                     SectionCard(title: "Activity") {
@@ -389,6 +391,45 @@ struct DiagnosticVisitScreen: View {
             } label: { row }
             .buttonStyle(.plain)
             .accessibilityIdentifier("activity-\(item.kind)")
+        }
+    }
+    /// SP-0044: order drafts for this call (local only); new orders only while the call is open.
+    @ViewBuilder private func orderSection(open: Bool) -> some View {
+        let drafts = model.orderDrafts(for: currentVisit)
+        SectionCard(title: "Order") {
+            VStack(spacing: 0) {
+                ForEach(Array(drafts.enumerated()), id: \.element.draftId) { index, draft in
+                    if index > 0 { activityDivider }
+                    let count = draft.lines.count == 1 ? "1 product" : "\(draft.lines.count) products"
+                    NavigationLink {
+                        OrderDraftScreen(model: model, visit: currentVisit, draftId: draft.draftId)
+                    } label: {
+                        CalmListRow(symbol: "cart", title: "Order draft",
+                                    meta: "\(count) · saved on this phone" + (open ? "" : " · review comes next"),
+                                    trailing: "chevron.right")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("orderDraft")
+                }
+                if open {
+                    if !drafts.isEmpty { activityDivider }
+                    if model.orderCatalog(for: currentVisit).isEmpty {
+                        Text(OrderDraftFailure.noCatalog.message)
+                            .font(SunprideTokens.TypeStyle.meta).foregroundStyle(SunprideTokens.secondaryText)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(16)
+                            .accessibilityIdentifier("orderUnavailable")
+                    } else {
+                        NavigationLink {
+                            OrderDraftScreen(model: model, visit: currentVisit)
+                        } label: {
+                            CalmListRow(symbol: "cart.badge.plus", title: "New order",
+                                        meta: "Search this account's products", trailing: "chevron.right")
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("newOrder")
+                    }
+                }
+            }
         }
     }
     private var activityDivider: some View {
