@@ -4,7 +4,11 @@ import { mutation } from "../_generated/server";
 import type { MutationCtx } from "../_generated/server";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
 import { requireCapability } from "../lib/capabilities";
-import { outletRows, resolveOutletScopeAt } from "../outlets/validation";
+import {
+  MAX_RADIUS_METERS,
+  outletRows,
+  resolveOutletScopeAt,
+} from "../outlets/validation";
 import { activeAt } from "../org/validation";
 import { append } from "./events";
 import { VISIT_LOCATION_POLICY as policy } from "./policy";
@@ -62,11 +66,13 @@ export async function recordLocation(
       activeAt(p.effectiveFrom, p.effectiveTo, serverTime),
   );
   // No distance limit (client answer 13): pin problems or a far fix are flagged for
-  // supervisor review, never a reason to refuse the check-in.
+  // supervisor review, never a reason to refuse the check-in. The verified pin's own radius
+  // applies (malls and warehouses get a wider one through the two-person pin verification).
   const pin =
     pins.length === 1 &&
     Number.isFinite(pins[0]!.radiusMeters) &&
-    pins[0]!.radiusMeters > 0
+    pins[0]!.radiusMeters > 0 &&
+    pins[0]!.radiusMeters <= MAX_RADIUS_METERS
       ? pins[0]
       : undefined;
   if (
@@ -81,16 +87,15 @@ export async function recordLocation(
       location.fixTime < 0)
   )
     throw new ConvexError("invalid_request");
-  const radius = pin
-    ? Math.min(pin.radiusMeters, policy.radiusMeters)
-    : undefined;
+  const radius = pin?.radiusMeters;
   const distance = location && pin ? haversine(location, pin) : undefined;
   const unreliable =
     !!location &&
     (location.mockSignal === true ||
       location.provider === "unknown" ||
       location.accuracyMeters > policy.maxAccuracyMeters ||
-      location.fixTime > serverTime ||
+      // A fix dated after the server clock means the phone clock is off; small drift is noise.
+      location.fixTime > serverTime + policy.maxFixClockDriftMs ||
       // Fix age is measured at the moment of the check-in/out, so a day delivered late
       // offline is not mislabelled unreliable merely because it arrived later.
       Math.abs(deviceTime - location.fixTime) > policy.maxFixAgeMs);

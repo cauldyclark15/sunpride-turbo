@@ -46,17 +46,18 @@ Mutation-testing the sweep: disabling the subtree check in `requireCapability` f
 
 Some writes reject the generic row on state before reaching the scope check (for example "Transfer is not awaiting approval"). For each, the scope gate was reviewed in code and has a dedicated test:
 
-| Endpoint                                                    | Gate                                                | Test                                                    |
-| ----------------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------- |
-| `inventory/transfers:ship/receive/approve`                  | Stored source and destination locations             | `inventory/transfers.scope.test.ts`                     |
-| `inventory/receipts:reverse`                                | Stored receiving location                           | `inventory/receipts.scope.test.ts`                      |
-| `inventory/adjustments:decide/reverse`                      | Every stored line location; no self-approval        | `inventory/adjustments.test.ts`                         |
-| `inventory/counts:submit/approveAndPost`                    | Stored session location; reassignment rechecked     | `inventory/counts.test.ts`                              |
-| `imports/mcp:commit`, `imports/{adjustments,counts}:commit` | Plan assignee unit; every row's location            | `imports/*.test.ts`                                     |
-| `targets/sales:set`                                         | Subject's current unit; never one's own target      | `targets/sales.test.ts`                                 |
-| `coverage/away:record/end`                                  | Self, own supervisor, or `admin.manage` on the unit | `coverage/plans.test.ts`                                |
-| `inventory/pos:*` (van POS)                                 | Truck location's stored unit (fixed in this change) | `inventory/pos.test.ts` "van POS authorization"         |
-| Mobile HTTP gateway (bootstrap, pull, push)                 | Convex JWT + bound device proof + person/day scope  | `mobile/device_auth`, `push`, `pull`, `bootstrap` tests |
+| Endpoint                                                              | Gate                                                                         | Test                                                    |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `inventory/transfers:ship/receive/approve`                            | Stored source and destination locations                                      | `inventory/transfers.scope.test.ts`                     |
+| `inventory/receipts:reverse`                                          | Stored receiving location                                                    | `inventory/receipts.scope.test.ts`                      |
+| `inventory/adjustments:decide/reverse`                                | Every stored line location; no self-approval                                 | `inventory/adjustments.test.ts`                         |
+| `inventory/counts:submit/approveAndPost`                              | Stored session location; reassignment rechecked                              | `inventory/counts.test.ts`                              |
+| `imports/mcp:commit`, `imports/{adjustments,counts}:commit`           | Plan assignee unit; every row's location                                     | `imports/*.test.ts`                                     |
+| `targets/sales:set`                                                   | Subject's current unit; never one's own target                               | `targets/sales.test.ts`                                 |
+| `coverage/away:record/end`                                            | Self, own supervisor, or `admin.manage` on the unit                          | `coverage/plans.test.ts`                                |
+| `inventory/pos:*` (van POS)                                           | Truck location's stored unit (fixed in this change)                          | `inventory/pos.test.ts` "van POS authorization"         |
+| Mobile HTTP gateway (bootstrap, pull, push)                           | Convex JWT + bound device proof + person/day scope                           | `mobile/device_auth`, `push`, `pull`, `bootstrap` tests |
+| `mobile/devices:suspend/reinstate/revoke`, `list`, `lostDeviceReport` | `admin.manage` on stored (and current) unit; list/report filtered to subtree | `mobile/devices.test.ts` "lost-device handling"         |
 
 ## 3. Findings fixed in this change
 

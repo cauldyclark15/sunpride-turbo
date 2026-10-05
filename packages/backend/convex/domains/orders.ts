@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values";
+import { queueOrderRollup } from "../analytics/rollups";
 import { mutation, query } from "../_generated/server";
 import type { Doc } from "../_generated/dataModel";
 import type { QueryCtx, MutationCtx } from "../_generated/server";
@@ -239,6 +240,7 @@ export const create = mutation({
         ...line,
         lineTotal: line.quantity * line.unitPrice,
       });
+    await queueOrderRollup(ctx, orderId);
     const workflowId = await ctx.db.insert("workflowInstances", {
       entityType: "order",
       entityId: orderId,
@@ -298,6 +300,7 @@ export const decide = mutation({
       .unique();
     const now = Date.now();
     await ctx.db.patch(args.orderId, { status: args.decision, updatedAt: now });
+    await queueOrderRollup(ctx, args.orderId);
     await ctx.db.patch(workflow._id, { status: args.decision, updatedAt: now });
     if (approval)
       await ctx.db.patch(approval._id, {
