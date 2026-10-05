@@ -7,6 +7,7 @@ import { requireCapability } from "../lib/capabilities";
 import { collectScopeUnitIds, rootOrgUnitId } from "../lib/scope";
 import { readableLocationIds } from "../inventory/location_scope";
 import { adjustMetrics } from "../lib/metrics";
+import { queueAgentDayForOrder } from "../analytics/agent_metrics";
 import { hashPayload } from "../inventory/posting";
 
 /** Legacy customer territory is text; only active, territory-matching assignments to
@@ -277,6 +278,7 @@ export const create = mutation({
       pendingApprovalCount: 1,
       salesToday: total,
     });
+    await queueAgentDayForOrder(ctx, orderId);
     return orderId;
   },
 });
@@ -346,6 +348,7 @@ export const decide = mutation({
       createdAt: now,
     });
     await adjustMetrics(ctx, { pendingApprovalCount: -1 });
+    await queueAgentDayForOrder(ctx, args.orderId);
     return null;
   },
 });

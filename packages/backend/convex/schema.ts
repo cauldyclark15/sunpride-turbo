@@ -46,6 +46,7 @@ import {
   workWithTrainingLog,
 } from "./supervision/work_with_model";
 import { fieldReportKind, fieldReportSummary } from "./field_reports/model";
+import { agentDayMetricsFields } from "./analytics/agent_metrics_model";
 import {
   talkSheetItemStatus,
   talkSheetStatus,
@@ -2143,6 +2144,38 @@ export default defineSchema({
     "serviceDate",
     "revision",
   ]),
+  /**
+   * CVX-031 daily agent metric rollup: one row per person and Manila service date,
+   * recomputed from visits, collections and orders by analytics/agent_metrics.ts. Derived
+   * data only; the source tables stay authoritative. `orgUnitId` is the person's unit on
+   * the day and is the scope key for readers.
+   */
+  agentDailyMetrics: defineTable({
+    organizationId: v.string(),
+    profileId: v.id("profiles"),
+    serviceDate: v.string(), // YYYY-MM-DD, Manila
+    localMonth: v.string(),
+    orgUnitId: v.optional(v.id("orgUnits")),
+    positionId: v.optional(v.id("positions")),
+    ...agentDayMetricsFields,
+    /** False when a bounded read was cut short; the day then needs review. */
+    complete: v.boolean(),
+    ruleVersion: v.string(),
+    metricsVersion: v.string(),
+    computedAt: v.number(),
+  })
+    .index("by_profileId_and_serviceDate", ["profileId", "serviceDate"])
+    .index("by_organizationId_and_serviceDate", [
+      "organizationId",
+      "serviceDate",
+    ])
+    .index("by_orgUnitId_and_serviceDate", ["orgUnitId", "serviceDate"]),
+  /** Pending rollup recomputes: at most one per person and day, deleted when it runs. */
+  agentMetricRefreshes: defineTable({
+    profileId: v.id("profiles"),
+    serviceDate: v.string(),
+    requestedAt: v.number(),
+  }).index("by_profileId_and_serviceDate", ["profileId", "serviceDate"]),
   /**
    * Sales targets (CVX-017): one number per subject (employee, team or territory), period
    * (daily or monthly) and metric, effective-dated with the document it came from. Exactly
