@@ -116,6 +116,21 @@ describe("authenticated operational workflow", () => {
     const first = await user.mutation(api.domains.orders.create, args);
     const duplicate = await user.mutation(api.domains.orders.create, args);
     expect(duplicate).toBe(first);
+    // A timed-out retry may re-stamp its offline time; it is still the same order.
+    expect(
+      await user.mutation(api.domains.orders.create, {
+        ...args,
+        offlineCreatedAt: 2,
+      }),
+    ).toBe(first);
+    // Reusing the request ID for different content is refused, never a second order
+    // and never a silent edit of the first.
+    await expect(
+      user.mutation(api.domains.orders.create, {
+        ...args,
+        lines: [{ ...args.lines[0]!, quantity: 3 }],
+      }),
+    ).rejects.toThrow(/Request ID was reused with another order/);
     const state = await t.run(async (ctx) => ({
       orders: await ctx.db.query("orders").collect(),
       lines: await ctx.db.query("orderLines").collect(),
