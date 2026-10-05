@@ -37,7 +37,7 @@ final class AppModel {
     private(set) var callSheets: [CallSheet] = []
     /// IOS-013 activity-form rules per visit intent from the active snapshot.
     private(set) var activityRules: [ActivityRule] = []
-    /// SP-0044 local order drafts in the verified partition (never sent; review/submit is IOS-015).
+    /// SP-0044 order drafts in the verified partition; IOS-015 marks a sent one with its queued request.
     private(set) var orderDrafts: [OrderDraft] = []
     private(set) var lastSyncedAt: Date?
     private(set) var syncStatus: FieldSyncStatus?
@@ -559,6 +559,47 @@ final class AppModel {
         guard let partition = activeStoragePartition else { throw StoreError.invalidInput }
         try storage(for: partition).discardOrderDraft(draftId, for: partition)
         refreshToday()
+    }
+    /// IOS-015 review: the rules the phone can check offline for this saved draft.
+    func orderChecks(_ draft: OrderDraft) -> [OrderSubmission.Check] {
+        _ = visits // Observe durable refreshes.
+        guard let partition = activeStoragePartition, let store = try? storage(for: partition),
+              let context = try? OrderCallContext.read(store: store, partition: partition) else {
+            return [.init(label: "Phone can still record today's work", problem: "Cached work is unavailable. Sync and try again.")]
+        }
+        let summary = (try? store.snapshot(for: partition))?.accountSummaries.first { $0.outletId == draft.outletId }
+        return OrderSubmission.checks(context, draft: draft,
+                                      phoneCanRecord: (try? store.isLeaseValid(now: now(), for: partition)) == true,
+                                      held: (try? store.isHeld(partition)) ?? true, summary: summary)
+    }
+    /// IOS-015: where this order is on its way to the office, from the durable outbox.
+    func orderStatus(_ draft: OrderDraft) -> OrderSubmission.Status {
+        _ = visits
+        guard let partition = activeStoragePartition, let store = try? storage(for: partition) else { return .queued }
+        let context = try? OrderCallContext.read(store: store, partition: partition)
+        let callOpen = context.map { (try? OrderDraftRules.openCheckIn($0, clientVisitId: draft.clientVisitId,
+                                                                        checkInRequestId: draft.checkInRequestId)) != nil } ?? false
+        let state = draft.submittedRequestId.flatMap(UUID.init(uuidString:)).flatMap { try? store.requestState(for: $0, in: partition) }
+        return OrderSubmission.status(draft, callOpen: callOpen, requestState: state,
+                                      held: (try? store.isHeld(partition)) ?? false, syncing: syncing)
+    }
+    /// IOS-015: queue the reviewed draft's order for the office. Works offline: it waits in the
+    /// outbox (behind the call start) and is sent on the next sync. The draft is read-only after.
+    @discardableResult
+    func submitOrderDraft(_ draftId: String) throws -> OrderDraft {
+        guard let partition = activeStoragePartition else { throw StoreError.invalidInput }
+        let store = try storage(for: partition)
+        guard let draft = try store.orderDrafts(for: partition).first(where: { $0.draftId == draftId }) else {
+            throw OrderDraftFailure.unknownDraft
+        }
+        if draft.submittedRequestId != nil { throw OrderDraftFailure.submitted }
+        guard let checkIn = UUID(uuidString: draft.checkInRequestId) else { throw OrderDraftFailure.callNotOpen }
+        let timestamp = now()
+        let intent = try DiagnosticOperation.order(OrderSubmission.activity(draft), checkIn: checkIn,
+            visitId: try store.ack(for: checkIn, in: partition)?.entityId, now: timestamp)
+        let sent = try store.submitOrderDraft(draftId, intent: intent, for: partition, now: timestamp)
+        didQueueWork()
+        return sent
     }
     func queueCheckOut(outcome: String, reason: String?, for visit: TodayVisit, location: VisitLocation? = nil) throws {
         let (initial, store, partition) = try checkIn(for: visit)

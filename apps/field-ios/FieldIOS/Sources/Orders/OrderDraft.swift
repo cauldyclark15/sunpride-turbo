@@ -10,8 +10,8 @@ import Foundation
 /// ADR-008), so a draft carries whole quantities in the setup UOM only — never a price, amount or
 /// total. The account's free-text pricing note is shown as a reference, never computed.
 ///
-/// Drafts are local only (SQLCipher `order_drafts`) and never enter the outbox. Review and
-/// submission are IOS-015.
+/// Drafts are local (SQLCipher `order_drafts`) until reviewed and sent: IOS-015 (`OrderSubmission`)
+/// queues the draft's own `order_intent` and freezes the draft in the same transaction.
 enum OrderCatalog {
     struct Item: Equatable, Sendable {
         let productId: String; let code: String; let name: String; let uom: String

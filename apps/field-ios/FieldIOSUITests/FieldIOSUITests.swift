@@ -283,6 +283,52 @@ final class FieldIOSUITests: XCTestCase {
         XCTAssertTrue(retained.buttons["discardOrderDraft"].exists)
     }
 
+    /// SP-0043: review an order offline, send it (queued behind the call start), then see it
+    /// received after the next online sync.
+    func testOrderReviewSendOfflineThenReceivedAfterSync() {
+        let app = launchStub("registers")
+        signIn(app, password: "correct-horse")
+        XCTAssertTrue(app.staticTexts["Stub Outlet"].waitForExistence(timeout: 20))
+        app.terminate()
+        let offline = launchStub("offline")
+        XCTAssertTrue(offline.buttons["visit-planned-stub-1"].waitForExistence(timeout: 15))
+        offline.buttons["visit-planned-stub-1"].tap()
+        offline.buttons["diagnosticCheckIn"].tap()
+        let newOrder = offline.buttons["newOrder"]
+        XCTAssertTrue(newOrder.waitForExistence(timeout: 10))
+        offline.swipeUp()
+        newOrder.tap()
+        let quantity = offline.textFields["orderQty-product-stub-1"]
+        XCTAssertTrue(quantity.waitForExistence(timeout: 5))
+        quantity.tap(); quantity.typeText("12")
+        offline.buttons["reviewOrder"].tap()
+        XCTAssertTrue(offline.staticTexts["orderReviewTitle"].waitForExistence(timeout: 5))
+        XCTAssertEqual(offline.staticTexts["orderStatus"].label, "Draft · not sent")
+        XCTAssertTrue(offline.staticTexts["Priced by the office"].exists)
+        XCTAssertFalse(offline.otherElements["orderCheckProblem"].exists || offline.staticTexts["orderCheckProblem"].exists)
+        capture(offline, "order-review-offline")
+        offline.buttons["orderSubmit"].tap()
+        let confirm = offline.buttons["Send now"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        confirm.tap()
+        XCTAssertTrue(offline.staticTexts["Waiting to send"].waitForExistence(timeout: 5))
+        XCTAssertFalse(offline.buttons["orderSubmit"].exists, "a sent order can't be sent or edited again")
+        capture(offline, "order-sent-offline-queued")
+        offline.terminate()
+        let online = launchStub("online")
+        XCTAssertTrue(online.buttons["visit-planned-stub-1"].waitForExistence(timeout: 15))
+        online.buttons["visit-planned-stub-1"].tap()
+        let order = online.buttons["orderDraft"]
+        XCTAssertTrue(order.waitForExistence(timeout: 10))
+        let received = online.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@", "Received by office")).firstMatch
+        XCTAssertTrue(received.waitForExistence(timeout: 20))
+        online.swipeUp()
+        order.tap()
+        XCTAssertTrue(online.staticTexts["Received by office · not yet posted"].waitForExistence(timeout: 5))
+        capture(online, "order-received")
+    }
+
     func testPlanOrderOpenCallRelaunchAndDeniedGPSStillAllowsStartEnd() {
         let app = launchStub("registers")
         signIn(app, password: "correct-horse")

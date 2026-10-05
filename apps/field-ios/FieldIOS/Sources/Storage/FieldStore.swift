@@ -236,12 +236,18 @@ protocol FieldLocalStore: AnyObject {
     func releaseHeld(subject: String, deviceId: String) throws
     func isHeld(_ partition: StorePartition) throws -> Bool
     func hasOtherHeldWork(for partition: StorePartition) throws -> Bool
-    /// SP-0044 local-only order drafts: never in the outbox; submission is IOS-015.
+    /// SP-0044 order drafts (local); a draft reaches the outbox only through `submitOrderDraft` (IOS-015).
     func orderDrafts(for partition: StorePartition) throws -> [OrderDraft]
     /// Insert or replace one draft after `OrderDraftRules.validate` inside the same transaction.
     func saveOrderDraft(_ draft: OrderDraft, for partition: StorePartition, now: Date) throws
     /// The salesperson discards their own unsent draft; a held partition stays frozen.
     func discardOrderDraft(_ draftId: String, for partition: StorePartition) throws
+    /// IOS-015: queue the draft's own `order_intent` request and freeze the draft, in one transaction.
+    /// The request is deferred until the check-in ack supplies the server visit ID.
+    @discardableResult
+    func submitOrderDraft(_ draftId: String, intent: VisitIntent, for partition: StorePartition, now: Date) throws -> OrderDraft
+    /// Stored outbox state of one request: pending, deferred, done or "rejected:<code>"; nil if unknown.
+    func requestState(for requestId: UUID, in partition: StorePartition) throws -> String?
 }
 
 /// SQLCipher 4 database. Keychain loss with an existing file is an error, never a new plaintext DB.
@@ -613,6 +619,8 @@ final class EncryptedFieldStore: FieldLocalStore {
         guard item.kind == "visit.activity" || item.kind == "visit.checkOut", let payload = item.payload else { return }
         let activity = payload["activity"] as? [String: Any]
         if item.kind == "visit.activity" {
+            // IOS-015: an order is queued only by `submitOrderDraft`, bound to its unsent draft.
+            if activity?["kind"] as? String == OrderSubmission.kind { throw StoreError.invalidInput }
             guard let kind = activity?["kind"] as? String, ActivityRules.structuredForms.contains(kind) else { return }
         } else if payload["outcome"] as? String != "completed" { return }
         guard let dependency = item.dependencies.first, let checkInId = UUID(uuidString: dependency),
@@ -826,6 +834,50 @@ final class EncryptedFieldStore: FieldLocalStore {
             if existing.submittedRequestId != nil { throw OrderDraftFailure.submitted }
             try run("DELETE FROM order_drafts WHERE \(Self.predicate) AND draft_id=?", p(partition) + [.text(draftId)])
         }
+    }
+    @discardableResult
+    func submitOrderDraft(_ draftId: String, intent: VisitIntent, for partition: StorePartition, now: Date) throws -> OrderDraft {
+        guard let object = intent.object, object["kind"] as? String == intent.kind,
+              object["clientRequestId"] as? String == intent.requestId.uuidString.lowercased(),
+              let payload = intent.payload else { throw StoreError.invalidInput }
+        var sent: OrderDraft?
+        try transaction {
+            guard try state(partition)?.1 == false else { throw OrderDraftFailure.held }
+            guard try isLeaseValid(now: now, for: partition) else { throw OrderDraftFailure.offlineExpired }
+            guard let draft = try orderDraft(draftId, partition) else { throw OrderDraftFailure.unknownDraft }
+            if draft.submittedRequestId != nil { throw OrderDraftFailure.submitted }
+            try OrderSubmission.requireIntent(intent, for: draft)
+            // Order rules first, so an ended call reads as an order refusal, not a generic visit one.
+            try OrderDraftRules.validate(OrderCallContext.read(store: self, partition: partition), draft: draft, existing: nil)
+            // The wire visit ID, when present, must be the server's ID for this draft's own check-in.
+            guard let checkIn = UUID(uuidString: draft.checkInRequestId) else { throw StoreError.invalidInput }
+            let visitId = try ack(for: checkIn, in: partition)?.entityId
+            guard payload["visitId"] as? String == visitId, visitId != nil || payload["visitId"] == nil else {
+                throw StoreError.invalidInput
+            }
+            let id = intent.requestId.uuidString.lowercased()
+            try run("INSERT INTO intents(subject,device,scope,request_id,kind,body) VALUES (?,?,?,?,?,?)",
+                    p(partition) + [.text(id), .text(intent.kind), .blob(intent.operationJSON)])
+            try run("INSERT INTO outbox(subject,device,scope,request_id,status) VALUES (?,?,?,?,?)",
+                    p(partition) + [.text(id), .text(visitId == nil ? "deferred" : "pending")])
+            var frozen = draft
+            frozen.submittedRequestId = id
+            frozen.submittedAt = Int64(now.timeIntervalSince1970 * 1000)
+            try run("UPDATE order_drafts SET body=? WHERE \(Self.predicate) AND draft_id=?",
+                    [try encode(frozen)] + p(partition) + [.text(draftId)])
+            sent = frozen
+        }
+        try protectFiles()
+        guard let sent else { throw StoreError.database }
+        return sent
+    }
+    func requestState(for requestId: UUID, in partition: StorePartition) throws -> String? {
+        try query("SELECT status,rejection_code FROM outbox WHERE \(Self.predicate) AND request_id=?",
+                  p(partition) + [.text(requestId.uuidString.lowercased())]) { row in
+            let status = Self.text(row, 0)
+            guard status == "rejected" else { return status }
+            return "rejected:" + (sqlite3_column_type(row, 1) == SQLITE_NULL ? "unknown_code" : Self.text(row, 1))
+        }.first
     }
 
     #if DEBUG
