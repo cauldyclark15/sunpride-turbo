@@ -171,7 +171,7 @@ export async function summaryViewer(
 }
 
 /** Source-order scope: author and source location, read from the persisted order. */
-function orderScopeCheck(ctx: QueryCtx, viewer: SummaryViewer) {
+export function orderScopeCheck(ctx: QueryCtx, viewer: SummaryViewer) {
   const authors = new Map<string, boolean>();
   const locations = new Map<string, boolean>();
   return async (order: Doc<"orders">) => {
