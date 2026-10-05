@@ -39,6 +39,8 @@ import com.sunpride.field.storage.RoomFieldStore
 import com.sunpride.field.storage.ScopedSnapshot
 import com.sunpride.field.storage.SnapshotItem
 import com.sunpride.field.storage.StoreScope
+import com.sunpride.field.storage.VisitCallRules
+import com.sunpride.field.storage.ProductiveCall
 import com.sunpride.field.ui.AccountGlyph
 import com.sunpride.field.ui.FieldApp
 import com.sunpride.field.ui.FieldBackend
@@ -70,6 +72,8 @@ import java.util.UUID
  * connected suite; screenshots are only transferred with `-Pandroid.testInstrumentationRunnerArguments.calmScreenshots=true`
  * and `apps/field-android/scripts/receive-screenshots.py` listening (see the guide's "Refreshing screenshots").
  */
+private const val DAY = 86_400_000L
+
 @RunWith(AndroidJUnit4::class)
 class FieldSalesGuideScreenshotsTest {
     @get:Rule val rule = createAndroidComposeRule<androidx.activity.ComponentActivity>()
@@ -121,13 +125,25 @@ class FieldSalesGuideScreenshotsTest {
         override fun signOut() = Unit
         override fun refreshEnrollment(signer: DeviceSigner) = enrollment
         private fun pending() = visitStates().count { it.second == "pending" }
-        override fun today(deviceId: String, signer: DeviceSigner, sync: Boolean) = TodayData(stops,
+        override fun today(deviceId: String, signer: DeviceSigner, sync: Boolean) = TodayData(decorated(),
             lastSynced = System.currentTimeMillis() - 1_800_000, stale = false, queuedCount = pending(),
             syncStatus = status ?: SyncStatus(queued = pending(), health = "synced",
-                lastSuccess = System.currentTimeMillis() - 1_800_000,
-                leaseExpiresAt = com.sunpride.field.ui.syncstatus.dayCloseFor(System.currentTimeMillis()),
-                cacheExpiresAt = System.currentTimeMillis() + 86_400_000),
+                lastSuccess = System.currentTimeMillis() - 1_800_000, leaseExpiresAt = close(),
+                cacheExpiresAt = System.currentTimeMillis() + 86_400_000, earliestUnsentCloseAt = close()),
             customers = customers, tasks = listOf(CustomerTask("price_check", true)))
+        /** Same Done / In progress projection FieldController applies to Today from the phone's visit history. */
+        private fun decorated(): List<VisitDisplay> {
+            val history = visitStates()
+            return stops.map { visit ->
+                val call = VisitCallRules.related(visit.plannedVisitId, visit.outletId, today, history)
+                visit.copy(status = when {
+                    call.any { it.second == "review" } -> "Needs review"
+                    VisitCallRules.closed(call) -> "Done"
+                    VisitCallRules.started(call) -> "In progress"
+                    else -> visit.status
+                }, timeSpent = VisitCallRules.timeSpent(call), callFacts = ProductiveCall.factsOf(call))
+            }
+        }
         override fun visitStates(): List<Pair<IntentRow, String>> {
             val store = scoped()
             return try { runBlocking { store.history().map { it.first to it.second.state } } } finally { store.close() }
@@ -314,7 +330,8 @@ class FieldSalesGuideScreenshotsTest {
         rule.onNodeWithTag("visit-back").performClick()
         waitTag("order-unsent")
         rule.onNodeWithTag("order-draft").assertTextContains("Draft · not sent", substring = true)
-        rule.onNodeWithTag("order-draft").performScrollTo()
+        rule.onNodeWithTag("order-unsent").assertTextContains("1 order draft is not sent", substring = true)
+            .performScrollTo()
         shot("23-order-unsent")
         rule.onNodeWithTag("order-draft").performClick()
         waitTag("order-review")
@@ -322,6 +339,8 @@ class FieldSalesGuideScreenshotsTest {
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("order-check-ok").fetchSemanticsNodes().size == 5 }
         rule.onNodeWithTag("order-review-title").assertTextContains("Review order")
         rule.onNodeWithTag("order-totals").assertTextContains("2 products", substring = true)
+        // Scroll the note below Checks into view so the whole Checks card shows above the buttons.
+        rule.onNodeWithText("Sending queues this order", substring = true).performScrollTo()
         shot("24-order-review")
         rule.onNodeWithTag("order-submit").assertIsEnabled().performClick()
         rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("order-status").assertTextContains("Waiting to send") }.isSuccess }
@@ -351,6 +370,9 @@ class FieldSalesGuideScreenshotsTest {
 
         waitTag("today-title")
         rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("sync-status").assertTextContains("Sync before 10 PM") }.isSuccess }
+        // Stop 1 is Done after End, so Today counts it and Carbon Market is the next store.
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("today-calls").assertTextContains("1 of 3") }.isSuccess }
+        rule.onNodeWithTag("today-next-store").assertTextContains("Carbon Market Stall 14", substring = true)
         shot("13-today-waiting")
         rule.onNodeWithTag("sync-status").performClick()
         waitTag("sync-now")
@@ -364,29 +386,41 @@ class FieldSalesGuideScreenshotsTest {
         rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("sync-status").assertTextContains(pill) }.isSuccess }
         rule.onNodeWithTag("sync-status").performClick()
         waitTag("sync-now")
+        // Day close on the Sync screen is always a 10 PM Manila close, as the guide says. Wait for the
+        // fixture status: before the first load the empty default status also reads "Day closed".
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("day-close-time")
+            .assertTextContains("10:00 PM", substring = true) }.isSuccess }
+        waitEnabled("sync-now")
         shot(name)
     }
 
     private val now get() = System.currentTimeMillis()
+    /** Today's 10 PM Manila day close, or tomorrow's once it has passed, so labels match the guide at any hour. */
+    private fun close(): Long = com.sunpride.field.ui.syncstatus.dayCloseFor(System.currentTimeMillis())
+        .let { if (it > System.currentTimeMillis()) it else it + DAY }
+    private val previousClose get() = close() - DAY
 
     @Test fun needsReviewState() = syncState(SyncStatus(review = 1, health = "synced", lastSuccess = now - 600_000,
-        leaseExpiresAt = now + 3_600_000, cacheExpiresAt = now + 3_600_000,
+        leaseExpiresAt = close(), cacheExpiresAt = close() + DAY,
         reviewReasons = listOf(SyncStatus.plainReason("mcp_order"))), "Needs review · not synced", "15-sync-needs-review")
 
-    @Test fun lateState() = syncState(SyncStatus(queued = 3, health = "synced", lastSuccess = now - 14 * 3_600_000L,
-        leaseExpiresAt = now + 3_600_000, cacheExpiresAt = now + 3_600_000, earliestUnsentCloseAt = now - 60_000),
+    @Test fun lateState() = syncState(SyncStatus(queued = 3, health = "synced", lastSuccess = previousClose - 4 * 3_600_000L,
+        leaseExpiresAt = previousClose, cacheExpiresAt = close() + DAY, earliestUnsentCloseAt = previousClose),
         "Late · held for review", "16-sync-late")
 
     @Test fun heldState() = syncState(SyncStatus(held = 2, health = "held_for_review", lastSuccess = now - 3_600_000,
-        leaseExpiresAt = now + 3_600_000, cacheExpiresAt = now + 3_600_000), "Held · needs review", "17-sync-held")
+        leaseExpiresAt = close(), cacheExpiresAt = close() + DAY), "Held · needs review", "17-sync-held")
 
-    @Test fun dayClosedState() = syncState(SyncStatus(health = "synced", lastSuccess = now - 86_400_000,
-        leaseExpiresAt = now - 60_000, cacheExpiresAt = now + 3_600_000), "Day closed · sync for access", "18-sync-day-closed")
+    @Test fun dayClosedState() = syncState(SyncStatus(health = "synced", lastSuccess = previousClose - 4 * 3_600_000L,
+        leaseExpiresAt = previousClose, cacheExpiresAt = close() + DAY), "Day closed · sync for access", "18-sync-day-closed")
 
     @Test fun phoneRemovedScreen() {
         launch(Backend(EnrollmentState.Removed, status = SyncStatus(queued = 2)))
         waitTag("enrollment-title")
         rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("enrollment-title").assertTextContains("Phone removed") }.isSuccess }
+        // The guide's recovery step: Check again (not Sync now) is the action on this screen.
+        rule.onNodeWithTag("check-again-primary").assertIsEnabled()
+        rule.onNodeWithTag("sync-now").assertDoesNotExist()
         shot("19-phone-removed")
     }
 
@@ -405,8 +439,8 @@ class FieldSalesGuideScreenshotsTest {
      * top bar pill and Today screen with `offline = true` instead of toggling the shared emulator's network.
      */
     @Test fun offlineToday() {
-        val status = SyncStatus(health = "synced", lastSuccess = now - 1_800_000, leaseExpiresAt = now + 3_600_000,
-            cacheExpiresAt = now + 3_600_000, offline = true)
+        val status = SyncStatus(health = "synced", lastSuccess = now - 1_800_000, leaseExpiresAt = close(),
+            cacheExpiresAt = close() + DAY, offline = true)
         rule.setContent {
             MaterialTheme(colorScheme = SunprideTokens.lightColors, shapes = SunprideTokens.shapes,
                 typography = SunprideTokens.typography) {
