@@ -111,9 +111,29 @@ export async function rulesAt(
   ctx: QueryCtx | MutationCtx,
   instant: number,
 ): Promise<Array<ActivityRule & { sourceRef: string; provisional: boolean }>> {
+  return rulesFromHistories(await ruleHistories(ctx), instant);
+}
+
+export type RuleHistories = Map<VisitIntent, Doc<"visitActivityRules">[]>;
+
+/** Every intent's bounded rule history, loaded once for many `rulesFromHistories` calls. */
+export async function ruleHistories(
+  ctx: QueryCtx | MutationCtx,
+): Promise<RuleHistories> {
+  const histories: RuleHistories = new Map();
+  for (const intent of VISIT_INTENTS)
+    histories.set(intent, await history(ctx, intent));
+  return histories;
+}
+
+/** `rulesAt` over preloaded histories. Pure. */
+export function rulesFromHistories(
+  histories: RuleHistories,
+  instant: number,
+): Array<ActivityRule & { sourceRef: string; provisional: boolean }> {
   const rules = [];
   for (const intent of VISIT_INTENTS) {
-    const row = activeRow(await history(ctx, intent), instant);
+    const row = activeRow(histories.get(intent) ?? [], instant);
     rules.push(
       row
         ? {

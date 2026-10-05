@@ -166,6 +166,17 @@ struct DiagnosticVisitScreen: View {
                             .font(SunprideTokens.TypeStyle.meta)
                             .foregroundStyle(SunprideTokens.secondaryText)
                     }
+                    NavigationLink {
+                        PhotoCaptureScreen(model: model, visit: visit)
+                    } label: {
+                        SectionCard(title: "Photos") {
+                            CalmListRow(symbol: "camera", title: "Visit photos",
+                                        meta: EvidencePhotos.summary(model.photos(for: currentVisit)) ?? "Optional · store front, shelf, price tags",
+                                        trailing: "chevron.right")
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("openPhotos")
                     orderSection(open: true)
                     SectionCard(title: "Outcome") {
                         VStack(alignment: .leading, spacing: 0) {
@@ -213,6 +224,11 @@ struct DiagnosticVisitScreen: View {
                             CalmListRow(symbol: "checkmark.circle", title: "Visit complete", meta: currentVisit.timeSpent ?? "Saved on phone")
                                 .accessibilityIdentifier("callTimeSpent")
                             if let result = model.visitResult(for: currentVisit) { resultRows(result) }
+                            if let photos = EvidencePhotos.summary(model.photos(for: currentVisit)) {
+                                activityDivider
+                                CalmListRow(symbol: "camera", title: "Photos", meta: photos)
+                                    .accessibilityIdentifier("donePhotos")
+                            }
                         }
                     }
                     if !model.orderDrafts(for: currentVisit).isEmpty { orderSection(open: false) }
