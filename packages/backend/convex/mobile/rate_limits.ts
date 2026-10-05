@@ -2,7 +2,6 @@ import { ConvexError, v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import {
   internalMutation,
-  internalQuery,
   type MutationCtx,
   type QueryCtx,
 } from "../_generated/server";
@@ -16,9 +15,12 @@ import {
  * - Request rate: every signed bootstrap/pull/push consumes exactly one one-time
  *   challenge, so a per-device token bucket on challenge issuance bounds the device's
  *   whole signed request rate (and bind attempts and outstanding challenge rows).
- * - Invalid retries: rejected requests (malformed, bad proof, replayed nonce, tampered
- *   cursor) spend a per-identity failure budget; when it is empty the identity is told
- *   to back off (HTTP 429) before any proof verification or database work.
+ * - Invalid retries: every signed request and every bind attempt RESERVES one unit of a
+ *   per-identity failure budget in its own committed transaction before any proof
+ *   verification; a request that turns out valid gets the unit back, a rejected one
+ *   (malformed, bad proof, replayed nonce, tampered cursor) keeps it spent. Because the
+ *   reservation is atomic, N concurrent bad requests cannot all pass a shared pre-check:
+ *   at most `capacity` reach signature work, the rest are told to back off (HTTP 429).
  */
 export const MOBILE_LIMITS = {
   maxBodyBytes: 128 * 1024,
@@ -121,27 +123,53 @@ export async function takeChallenge(
   await save(ctx, key, row, decision.state);
 }
 
-/** HTTP pre-check: `now` comes from the action (queries must not read the clock). */
-export const backoff = internalQuery({
-  args: { subject: v.string(), now: v.number() },
-  returns: v.number(),
-  handler: async (ctx, { subject, now }) =>
-    await failureBackoff(ctx, subject, now),
-});
+/**
+ * Atomically spend one unit of the identity's invalid-request budget BEFORE expensive work.
+ * Returns 0 when the unit was reserved, otherwise the milliseconds to back off (nothing spent).
+ */
+export async function reserveAttempt(
+  ctx: MutationCtx,
+  subject: string,
+  now: number,
+): Promise<number> {
+  const key = failureKey(subject);
+  const row = await bucket(ctx, key);
+  const decision = take(row, FAILURE_BUCKET, now);
+  if (!decision.allowed) return decision.retryAfterMs;
+  await save(ctx, key, row, decision.state);
+  return 0;
+}
 
-/** Spend one unit of the identity's invalid-request budget; returns the resulting backoff. */
-export const recordFailure = internalMutation({
+/** Give back a reserved unit once the request proved legitimate (never above capacity). */
+export async function refundAttempt(
+  ctx: MutationCtx,
+  subject: string,
+  now: number,
+): Promise<void> {
+  const key = failureKey(subject);
+  const row = await bucket(ctx, key);
+  if (!row) return;
+  const tokens = Math.min(
+    FAILURE_BUCKET.capacity,
+    available(row, FAILURE_BUCKET, now) + 1,
+  );
+  await save(ctx, key, row, { tokens, updatedAt: now });
+}
+
+/** HTTP gateway: reserve before proof verification; 0 = reserved, else back-off ms. */
+export const reserve = internalMutation({
   args: { subject: v.string() },
   returns: v.number(),
+  handler: async (ctx, { subject }) =>
+    await reserveAttempt(ctx, subject, Date.now()),
+});
+
+/** HTTP gateway: the request was not an invalid attempt; return its reserved unit. */
+export const refund = internalMutation({
+  args: { subject: v.string() },
+  returns: v.null(),
   handler: async (ctx, { subject }) => {
-    const now = Date.now();
-    const key = failureKey(subject);
-    const row = await bucket(ctx, key);
-    const decision = take(row, FAILURE_BUCKET, now);
-    // An exhausted bucket stays at its refilled level; time alone restores it.
-    await save(ctx, key, row, decision.state);
-    if (!decision.allowed) return decision.retryAfterMs;
-    const left = decision.state.tokens;
-    return left >= 1 ? 0 : Math.ceil((1 - left) * FAILURE_BUCKET.refillMs);
+    await refundAttempt(ctx, subject, Date.now());
+    return null;
   },
 });

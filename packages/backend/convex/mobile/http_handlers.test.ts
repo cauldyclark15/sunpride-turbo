@@ -1,3 +1,4 @@
+import { getFunctionName } from "convex/server";
 import { describe, expect, it, vi } from "vitest";
 import type { ActionCtx } from "../_generated/server";
 import { handleMobile } from "./http_handlers";
@@ -16,14 +17,26 @@ const body = {
   contractVersion: 1,
   deviceId: "device",
 };
-function harness(auth = true, backoffMs = 0) {
+/**
+ * `budget` models the per-identity failure bucket: `reserve` atomically takes a unit (a
+ * Convex mutation is serialized, so the check-and-decrement happens before any await),
+ * `refund` returns it. `spent()` = units kept by rejected requests.
+ */
+function harness(auth = true, budget = 10, waitMs = 30_000) {
   const burned = new Set<string>();
-  const failures: string[] = [];
-  const backoff = vi.fn(async () => backoffMs);
-  const recordFailure = vi.fn(async (args: { subject: string }) => {
-    failures.push(args.subject);
-    return 0;
+  let tokens = budget;
+  const reserve = vi.fn(async () => {
+    if (tokens >= 1) {
+      tokens -= 1;
+      return 0;
+    }
+    return waitMs;
   });
+  const refund = vi.fn(async () => {
+    tokens = Math.min(budget, tokens + 1);
+    return null;
+  });
+  const spent = () => budget - tokens;
   const registry = new Map<string, unknown>();
   const authorize = vi.fn(async (args: { nonce: string; proof: string }) => {
     if (args.proof !== "signed" || burned.has(args.nonce))
@@ -59,7 +72,9 @@ function harness(auth = true, backoffMs = 0) {
         ? apply(args as Parameters<typeof apply>[0])
         : "proof" in args
           ? authorize(args as Parameters<typeof authorize>[0])
-          : recordFailure(args as { subject: string }),
+          : getFunctionName(_fn as never) === "mobile/rate_limits:refund"
+            ? refund()
+            : reserve(),
     ),
     runQuery: vi.fn(async (_fn: unknown, args: Record<string, unknown>) =>
       "actor" in args
@@ -69,16 +84,16 @@ function harness(auth = true, backoffMs = 0) {
             serverTime: 123,
             plannedVisits: [],
           }
-        : backoff(),
+        : null,
     ),
   };
   return {
     ctx: ctx as unknown as ActionCtx,
     authorize,
     apply,
-    backoff,
-    recordFailure,
-    failures,
+    reserve,
+    refund,
+    spent,
   };
 }
 async function request(
@@ -457,7 +472,7 @@ describe("mobile HTTP boundary", () => {
           )
         ).status,
       ).toBe(413);
-      expect(h.failures).toEqual([actor.subject, actor.subject, actor.subject]);
+      expect(h.spent()).toBe(3);
       expect(
         (
           await handleMobile(
@@ -467,7 +482,10 @@ describe("mobile HTTP boundary", () => {
           )
         ).status,
       ).toBe(200);
-      expect(h.recordFailure).toHaveBeenCalledTimes(3);
+      // The valid request reserved a unit and got it back.
+      expect(h.reserve).toHaveBeenCalledTimes(4);
+      expect(h.refund).toHaveBeenCalledTimes(1);
+      expect(h.spent()).toBe(3);
     });
     it("counts a tampered cursor but not a legitimate rebootstrap", async () => {
       const pull = {
@@ -495,11 +513,11 @@ describe("mobile HTTP boundary", () => {
         );
         expect(r.status).toBe(409);
         expect((await r.json()).code).toBe(code);
-        expect(h.recordFailure).toHaveBeenCalledTimes(counted);
+        expect(h.spent()).toBe(counted);
       }
     });
     it("tells a throttled identity to back off before parsing or verifying proof", async () => {
-      const h = harness(true, 12_345);
+      const h = harness(true, 0, 12_345);
       const r = await handleMobile(
         h.ctx,
         await request("bootstrap", body),
@@ -514,7 +532,7 @@ describe("mobile HTTP boundary", () => {
         retryable: true,
       });
       expect(h.authorize).not.toHaveBeenCalled();
-      expect(h.recordFailure).not.toHaveBeenCalled();
+      expect(h.refund).not.toHaveBeenCalled();
     });
     it("never checks the budget for an unauthenticated request", async () => {
       const h = harness(false);
@@ -527,21 +545,70 @@ describe("mobile HTTP boundary", () => {
           )
         ).status,
       ).toBe(401);
-      expect(h.backoff).not.toHaveBeenCalled();
-      expect(h.recordFailure).not.toHaveBeenCalled();
+      expect(h.reserve).not.toHaveBeenCalled();
+      expect(h.refund).not.toHaveBeenCalled();
     });
-    it("keeps the client error when failure accounting itself fails", async () => {
+    it("fails closed when the reservation cannot be made, and keeps a served response if the refund fails", async () => {
       const h = harness();
-      h.recordFailure.mockRejectedValueOnce(new Error("conflict"));
+      h.reserve.mockRejectedValueOnce(new Error("conflict"));
+      const refused = await handleMobile(
+        h.ctx,
+        await request("bootstrap", body),
+        "bootstrap",
+      );
+      expect(refused.status).toBe(429);
+      expect(h.authorize).not.toHaveBeenCalled();
+      h.refund.mockRejectedValueOnce(new Error("conflict"));
       expect(
         (
           await handleMobile(
             h.ctx,
-            await request("bootstrap", body, { "x-mobile-signature": "bad" }),
+            await request("bootstrap", body),
             "bootstrap",
           )
         ).status,
-      ).toBe(401);
+      ).toBe(200);
+    });
+    it("bounds 100 concurrent bad proofs to the budget: the rest back off before proof work", async () => {
+      const h = harness();
+      const requests = await Promise.all(
+        Array.from({ length: 100 }, () =>
+          request("bootstrap", body, { "x-mobile-signature": "bad" }),
+        ),
+      );
+      const responses = await Promise.all(
+        requests.map((r) => handleMobile(h.ctx, r, "bootstrap")),
+      );
+      const statuses = responses.map((r) => r.status);
+      expect(statuses.filter((s) => s === 401)).toHaveLength(10);
+      expect(statuses.filter((s) => s === 429)).toHaveLength(90);
+      expect(h.authorize).toHaveBeenCalledTimes(10);
+      expect(h.refund).not.toHaveBeenCalled();
+      expect(h.spent()).toBe(10);
+    });
+    it("lets a legitimate phone burst concurrently without spending its budget", async () => {
+      const h = harness();
+      const requests = await Promise.all(
+        Array.from({ length: 10 }, () => request("bootstrap", body)),
+      );
+      const statuses = (
+        await Promise.all(
+          requests.map((r) => handleMobile(h.ctx, r, "bootstrap")),
+        )
+      ).map((r) => r.status);
+      expect(statuses).toEqual(Array.from({ length: 10 }, () => 200));
+      expect(h.spent()).toBe(0);
+      // Sequential intermittent sync afterwards never runs dry.
+      for (let i = 0; i < 50; i += 1)
+        expect(
+          (
+            await handleMobile(
+              h.ctx,
+              await request("bootstrap", body),
+              "bootstrap",
+            )
+          ).status,
+        ).toBe(200);
     });
   });
   it("passes a well-formed field order through and rejects malformed lines before proof", async () => {
@@ -688,6 +755,7 @@ describe("QSR-013 bootstrap response strategy", () => {
       retryable: false,
     });
     // An honest phone with an oversized plan must not burn its invalid-request budget.
-    expect(h.recordFailure).not.toHaveBeenCalled();
+    expect(h.refund).toHaveBeenCalledTimes(1);
+    expect(h.spent()).toBe(0);
   });
 });

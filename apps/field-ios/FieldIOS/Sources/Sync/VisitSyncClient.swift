@@ -3,7 +3,11 @@ import Foundation
 /// Foreground-only, single-flight at the AppModel boundary. The store owns every durable transition.
 @MainActor
 final class VisitSyncClient {
-    enum Failure: Error, Equatable { case rebootstrap, unauthorized, revoked, updateRequired, retryable, invalidResponse }
+    enum Failure: Error, Equatable { case rebootstrap, unauthorized, revoked, updateRequired, retryable, invalidResponse
+        /// QSR-009 back-off (HTTP 429 or a refused challenge): keep work queued and retry on a later
+        /// sync, never immediately — an immediate retry would only be refused again.
+        case throttled
+    }
     private let site: URL
     private let auth: AuthClient
     private let registry: DeviceRegistry
@@ -36,7 +40,9 @@ final class VisitSyncClient {
     private func post(path: String, body: Data, deviceId: String) async throws -> Data {
         for attempt in 0..<2 {
             let jwt = try await auth.convexToken(forceRefresh: attempt > 0)
-            let challenge = try await registry.challenge(deviceId: deviceId)
+            let challenge: ChallengeResult
+            do { challenge = try await registry.challenge(deviceId: deviceId) }
+            catch MobileError.rateLimited { throw Failure.throttled }
             guard challenge.expiresAt.isFinite, challenge.expiresAt > 30_000,
                   challenge.expiresAt < 9_007_199_254_740_991 else { throw Failure.invalidResponse }
             let timestamp = Int64(challenge.expiresAt) - 30_000
@@ -58,6 +64,7 @@ final class VisitSyncClient {
                 if attempt == 0 { continue }
                 throw Failure.unauthorized // A masked 401 does not establish revocation.
             }
+            if response.statusCode == 429 { throw Failure.throttled }
             if response.statusCode == 409 { throw Failure.rebootstrap }
             guard response.statusCode == 200 else {
                 throw response.statusCode >= 500 ? Failure.retryable : Failure.invalidResponse

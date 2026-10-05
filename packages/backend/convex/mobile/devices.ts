@@ -20,7 +20,7 @@ import {
   importDeviceKey,
   verifyDeviceSignature,
 } from "./device_auth";
-import { takeChallenge } from "./rate_limits";
+import { refundAttempt, reserveAttempt, takeChallenge } from "./rate_limits";
 
 const appValidator = v.union(
   v.literal("IOS"),
@@ -225,7 +225,9 @@ export const bind = mutation({
     timestamp: v.number(),
     proof: v.string(),
   },
-  returns: v.object({ bindingStatus: v.literal("bound") }),
+  returns: v.object({
+    bindingStatus: v.union(v.literal("bound"), v.literal("rejected")),
+  }),
   handler: async (ctx, args) => {
     const { device, subject } = await devicePerson(ctx, args.deviceId);
     if (!device.publicKey || device.boundSubject || device.credentialId)
@@ -243,13 +245,26 @@ export const bind = mutation({
         : bounded(args.attestation.keyId, 128);
     // Attestation is recorded as unverified metadata; this is possession proof, not MDM attestation.
     const now = Date.now();
-    assertProofTime(args.timestamp, now);
-    await verifyDeviceSignature(
-      device.publicKey,
-      args.proof,
-      `BIND|${device._id}|${credentialId}|${args.nonce}|${args.timestamp}`,
-    );
-    await consumeChallenge(ctx, device, args.nonce, now);
+    // QSR-009: reserve the caller's invalid-attempt budget before signature work. A rejected
+    // proof must NOT throw (that would roll back the reservation and the burned challenge),
+    // so it returns `rejected` with the unit spent and the one-time challenge consumed.
+    if ((await reserveAttempt(ctx, subject, now)) > 0)
+      throw new ConvexError("rate_limited");
+    try {
+      assertProofTime(args.timestamp, now);
+      // Burn the nonce first: one signature verification per issued challenge.
+      await consumeChallenge(ctx, device, args.nonce, now);
+      await verifyDeviceSignature(
+        device.publicKey,
+        args.proof,
+        `BIND|${device._id}|${credentialId}|${args.nonce}|${args.timestamp}`,
+      );
+    } catch (error) {
+      if (error instanceof ConvexError)
+        return { bindingStatus: "rejected" as const };
+      throw error;
+    }
+    await refundAttempt(ctx, subject, now);
     await ctx.db.patch(device._id, {
       boundSubject: subject,
       credentialId,

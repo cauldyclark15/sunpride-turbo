@@ -422,24 +422,37 @@ export async function handleMobile(
   if (!bearer || !/^Bearer [^\s]+$/.test(bearer) || !identity)
     return failure("unauthorized", 401);
   const subject = identity.tokenIdentifier;
-  // QSR-009: an identity that spent its invalid-request budget backs off before any
-  // body parsing, proof verification or database work.
-  const wait = await ctx.runQuery(internal.mobile.rate_limits.backoff, {
-    subject,
-    now: Date.now(),
-  });
-  if (wait > 0) return throttled(wait);
-  const response = await serve(ctx, request, route);
-  if (await invalidAttempt(response)) {
-    try {
-      await ctx.runMutation(internal.mobile.rate_limits.recordFailure, {
-        subject,
-      });
-    } catch {
-      // Accounting must never turn a client error into a server failure.
-    }
+  // QSR-009: reserve one unit of the identity's invalid-request budget in its own committed
+  // transaction BEFORE body parsing, proof verification or database work. A separate
+  // read-then-record would let N concurrent bad requests all pass the read.
+  let wait: number;
+  try {
+    wait = await ctx.runMutation(internal.mobile.rate_limits.reserve, {
+      subject,
+    });
+  } catch {
+    // Fail closed: no reservation, no expensive work.
+    return throttled(1_000);
   }
+  if (wait > 0) return throttled(wait);
+  let response: Response;
+  try {
+    response = await serve(ctx, request, route);
+  } catch (error) {
+    await refund(ctx, subject);
+    throw error;
+  }
+  // Only rejected requests keep the reserved unit spent.
+  if (!(await invalidAttempt(response))) await refund(ctx, subject);
   return response;
+}
+
+async function refund(ctx: ActionCtx, subject: string): Promise<void> {
+  try {
+    await ctx.runMutation(internal.mobile.rate_limits.refund, { subject });
+  } catch {
+    // Accounting must never turn a served response into a server failure.
+  }
 }
 
 async function serve(

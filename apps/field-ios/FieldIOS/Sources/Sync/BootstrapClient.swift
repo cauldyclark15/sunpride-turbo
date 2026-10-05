@@ -6,6 +6,8 @@ import Foundation
 final class BootstrapClient {
     enum Failure: Error, Equatable {
         case phoneRemoved, updateRequired, unauthorized, retryable, invalidResponse, restartRequired
+        /// QSR-009 back-off (HTTP 429 or a refused challenge): retry on a later sync, not immediately.
+        case throttled
     }
     private let site: URL
     private let auth: AuthClient
@@ -148,7 +150,9 @@ final class BootstrapClient {
                                                                referenceData: cursor == nil ? true : nil))
         for attempt in 0..<2 {
             let jwt = try await auth.convexToken(forceRefresh: attempt > 0)
-            let challenge = try await registry.challenge(deviceId: deviceId)
+            let challenge: ChallengeResult
+            do { challenge = try await registry.challenge(deviceId: deviceId) }
+            catch MobileError.rateLimited { throw Failure.throttled }
             // Challenge returns only expiresAt, not issuedAt; backend issues it at now + 60_000.
             // Midpoint is within ±30 s of server time throughout its lifetime, regardless of phone clock.
             guard challenge.expiresAt.isFinite, challenge.expiresAt > 30_000,
@@ -171,6 +175,7 @@ final class BootstrapClient {
                 // "unauthorized" for proof failures; never infer revocation from 401 alone.
                 throw Failure.unauthorized
             }
+            if response.statusCode == 429 { throw Failure.throttled }
             if let error = try? BootstrapV1.decodeFailure(data) {
                 switch error.error.code.rawValue {
                 case "device_revoked":

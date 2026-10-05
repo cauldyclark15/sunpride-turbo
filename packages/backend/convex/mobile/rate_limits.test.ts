@@ -92,7 +92,7 @@ async function fixture() {
   });
   const challenge = () =>
     sales.actor.mutation(api.mobile.devices.challenge, { deviceId });
-  return { t, sales, deviceId, challenge };
+  return { t, sales, deviceId, challenge, privateKey: keys.privateKey };
 }
 
 describe("mobile rate limits (QSR-009)", () => {
@@ -145,48 +145,100 @@ describe("mobile rate limits (QSR-009)", () => {
     }
   });
 
-  it("budgets invalid retries per identity and blocks its challenges until it backs off", async () => {
+  it("reserves invalid-request budget atomically per identity and refunds legitimate requests", async () => {
     const f = await fixture();
     const subject = f.sales.subject;
-    expect(
-      await f.t.query(internal.mobile.rate_limits.backoff, {
-        subject,
-        now: START,
-      }),
-    ).toBe(0);
-    let wait = 0;
-    for (let i = 0; i < FAILURE_BUCKET.capacity; i += 1)
-      wait = await f.t.mutation(internal.mobile.rate_limits.recordFailure, {
-        subject,
-      });
-    expect(wait).toBe(FAILURE_BUCKET.refillMs);
-    expect(
-      await f.t.query(internal.mobile.rate_limits.backoff, {
-        subject,
-        now: START,
-      }),
-    ).toBe(FAILURE_BUCKET.refillMs);
+    const reserve = (who = subject) =>
+      f.t.mutation(internal.mobile.rate_limits.reserve, { subject: who });
+    // 100 concurrent reservations: exactly `capacity` succeed, no matter the interleaving.
+    const waits = await Promise.all(
+      Array.from({ length: 100 }, () => reserve()),
+    );
+    expect(waits.filter((w) => w === 0)).toHaveLength(FAILURE_BUCKET.capacity);
+    expect(waits.filter((w) => w === FAILURE_BUCKET.refillMs)).toHaveLength(
+      100 - FAILURE_BUCKET.capacity,
+    );
     // Another identity is unaffected.
-    expect(
-      await f.t.query(internal.mobile.rate_limits.backoff, {
-        subject: "issuer|someone-else",
-        now: START,
-      }),
-    ).toBe(0);
+    expect(await reserve("issuer|someone-else")).toBe(0);
     await expect(f.challenge()).rejects.toThrow("rate_limited");
-    // Hammering while blocked does not extend the lockout beyond one refill.
-    expect(
-      await f.t.mutation(internal.mobile.rate_limits.recordFailure, {
-        subject,
-      }),
-    ).toBe(FAILURE_BUCKET.refillMs);
+    // Refused reservations spend nothing: one refill restores exactly one attempt.
     vi.setSystemTime(START + FAILURE_BUCKET.refillMs);
-    expect(
-      await f.t.query(internal.mobile.rate_limits.backoff, {
-        subject,
-        now: Date.now(),
-      }),
-    ).toBe(0);
+    expect(await reserve()).toBe(0);
+    expect(await reserve()).toBeGreaterThan(0);
+    // A refund returns the unit; refunds never exceed capacity.
+    await f.t.mutation(internal.mobile.rate_limits.refund, { subject });
+    expect(await reserve()).toBe(0);
+    vi.setSystemTime(START + 100 * FAILURE_BUCKET.refillMs);
+    for (let i = 0; i < 5; i += 1)
+      await f.t.mutation(internal.mobile.rate_limits.refund, { subject });
+    const after = await Promise.all(
+      Array.from({ length: 20 }, () => reserve()),
+    );
+    expect(after.filter((w) => w === 0)).toHaveLength(FAILURE_BUCKET.capacity);
+    // Legitimate traffic (reserve + refund) never drains the budget.
+    vi.setSystemTime(START + 200 * FAILURE_BUCKET.refillMs);
+    for (let i = 0; i < 50; i += 1) {
+      expect(await reserve()).toBe(0);
+      await f.t.mutation(internal.mobile.rate_limits.refund, { subject });
+    }
     await f.challenge();
+  });
+
+  it("bounds direct bind attempts: 100 concurrent bad proofs, then the identity backs off", async () => {
+    const f = await fixture();
+    const { nonce } = await f.challenge();
+    const credentialId = "credential-1";
+    const timestamp = Date.now();
+    const impostor = await crypto.subtle.generateKey(
+      { name: "ECDSA", namedCurve: "P-256" },
+      true,
+      ["sign", "verify"],
+    );
+    const sign = async (key: CryptoKey, n: string) =>
+      encode(
+        await crypto.subtle.sign(
+          { name: "ECDSA", hash: "SHA-256" },
+          key,
+          new TextEncoder().encode(
+            `BIND|${f.deviceId}|${credentialId}|${n}|${timestamp}`,
+          ),
+        ),
+      );
+    const bad = await sign(impostor.privateKey, nonce);
+    const bind = (n: string, proof: string) =>
+      f.sales.actor.mutation(api.mobile.devices.bind, {
+        deviceId: f.deviceId,
+        credentialId,
+        attestation: { format: "none" },
+        nonce: n,
+        timestamp,
+        proof,
+      });
+    const outcomes = await Promise.allSettled(
+      Array.from({ length: 100 }, () => bind(nonce, bad)),
+    );
+    const rejected = outcomes.filter(
+      (o) => o.status === "fulfilled" && o.value.bindingStatus === "rejected",
+    );
+    const throttled = outcomes.filter(
+      (o) =>
+        o.status === "rejected" && String(o.reason).includes("rate_limited"),
+    );
+    expect(rejected).toHaveLength(FAILURE_BUCKET.capacity);
+    expect(throttled).toHaveLength(100 - FAILURE_BUCKET.capacity);
+    // The first rejected attempt burned the challenge; nothing was bound.
+    const row = await f.t.run((ctx) => ctx.db.get(f.deviceId));
+    expect(row?.boundSubject).toBeUndefined();
+    const challenges = await f.t.run((ctx) =>
+      ctx.db.query("deviceChallenges").collect(),
+    );
+    expect(challenges.every((c) => c.consumedAt !== undefined)).toBe(true);
+    // Spent budget also blocks new challenges until the identity backs off.
+    await expect(f.challenge()).rejects.toThrow("rate_limited");
+    vi.setSystemTime(START + FAILURE_BUCKET.refillMs);
+    const fresh = await f.challenge();
+    expect(
+      await bind(fresh.nonce, await sign(f.privateKey, fresh.nonce)),
+    ).toEqual({ bindingStatus: "bound" });
   });
 });
