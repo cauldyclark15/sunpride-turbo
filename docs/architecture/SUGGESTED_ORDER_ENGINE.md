@@ -100,7 +100,9 @@ The iOS and Android call sheets show the suggestion for the store being visited.
   when the verified scope changes (including A → B → A), the partition is held, the session ends, the phone
   is removed, or the user signs out: an answer from an ended lifetime is never saved, never clears a refusal
   and never shows, and suggestions already on screen are cleared at that boundary. Closing the call sheet
-  also stops an in-flight answer from being saved. Residual gap: if every refusal-marker write fails and the app process dies
+  also stops an in-flight answer from being saved. Sign-out ends the lifetime before purging the phone's data,
+  so a failed purge cannot let a pre-sign-out answer be saved after the same account signs back in; refusals
+  stay latched until the purge succeeds. Residual gap: if every refusal-marker write fails and the app process dies
   before one succeeds, the in-memory refusal is lost and the old answer can reappear offline after relaunch.
   Without a connection or a saved answer the card says to enter the order as usual.
 - Not recorded in v1: whether the salesperson accepted or changed a suggestion (would need a mobile contract

@@ -254,6 +254,39 @@ class SuggestedOrderTest {
         assertTrue(cache.rows.isEmpty())
     }
 
+    /**
+     * Release counterexample: the sign-out purge throws while the old saved answers stay readable, then the same
+     * account/scope signs back in. The pre-sign-out success must not be saved or shown, and a refusal latched
+     * before sign-out must keep hiding the still-readable answer.
+     */
+    @Test fun signOutRetiresAnInFlightSuccessEvenIfThePurgeFails() {
+        val refusedCache = object : SuggestedOrderCache {
+            val inner = Cache()
+            override fun read(key: String) = inner.read(key)
+            override fun write(key: String, json: String, savedAt: Long) = inner.write(key, json, savedAt)
+            override fun block(key: String, reason: String, at: Long) = throw IllegalStateException("disk full")
+        }
+        assertNotNull(SuggestedOrderRepository.load(outlet, day, refusedCache, 1) { text }.order)
+        assertNull(SuggestedOrderRepository.load(outlet, day, refusedCache, 2) { throw ConvexFunctionError("Forbidden") }.order)
+        val cache = Cache()
+        val (inFlight, release) = held(cache, 3)
+        var purged = false
+        assertThrows(IllegalStateException::class.java) {
+            SuggestedOrderRepository.endSession { throw IllegalStateException("purge failed") }
+        }
+        // Same account/device/scope renewed in this process: nothing else retires the old request.
+        release.countDown()
+        assertNull(inFlight.get(5, java.util.concurrent.TimeUnit.SECONDS).order)
+        assertTrue(cache.rows.isEmpty())
+        assertNull(SuggestedOrderRepository.load(outlet, day, cache, 4, offline).order)
+        val reopened = SuggestedOrderRepository.load(outlet, day, refusedCache, 5, offline)
+        assertNull(reopened.order); assertEquals(SuggestedOrderRepository.NOT_ALLOWED, reopened.message)
+        // A successful sign-out purges first, then forgets the session's refusals.
+        SuggestedOrderRepository.endSession { purged = true }
+        assertTrue(purged)
+        assertNotNull(SuggestedOrderRepository.load(outlet, day, cache, 6) { text }.order)
+    }
+
     private fun held(cache: SuggestedOrderCache, at: Long): Pair<java.util.concurrent.CompletableFuture<SuggestedOrderView>,
         java.util.concurrent.CountDownLatch> {
         val entered = java.util.concurrent.CountDownLatch(1)

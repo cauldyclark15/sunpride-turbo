@@ -235,6 +235,18 @@ object SuggestedOrderRepository {
     }
 
     /**
+     * Sign-out teardown. The authorization lifetime ends FIRST, before the fallible [purge]: if purging the
+     * phone's data throws, no in-flight answer from before sign-out can be saved, shown or renew access, even
+     * after the same account signs back in. Refusals stay latched until the purge succeeds, since the old
+     * saved answers may still be readable; only then are they forgotten. A purge failure is rethrown.
+     */
+    fun endSession(purge: () -> Unit) {
+        retire()
+        purge()
+        forgetSessionDenials()
+    }
+
+    /**
      * Fetch live and save for today; offline, show today's saved suggestions for the same store. A server
      * refusal, ended session or unreadable answer durably replaces the saved answer with a refusal marker,
      * so a later offline open or app relaunch never restores it; only a fresh live answer clears the marker.
