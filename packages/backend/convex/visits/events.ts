@@ -4,6 +4,7 @@ import type { MutationCtx } from "../_generated/server";
 import type { AppRole } from "../lib/roles";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
 import { ConvexError } from "convex/values";
+import { queueAgentDayForEvent } from "../analytics/agent_metrics";
 
 /** Explicit redacted event fields only. Never forward arbitrary client payloads here. */
 export type EventInput = {
@@ -73,5 +74,7 @@ export async function append(ctx: MutationCtx, input: EventInput) {
     serverAt: input.serverAt,
     payloadVersion: 1,
   });
+  // CVX-031: the day this event belongs to needs its metric rollup recomputed.
+  await queueAgentDayForEvent(ctx, input);
   return eventId;
 }

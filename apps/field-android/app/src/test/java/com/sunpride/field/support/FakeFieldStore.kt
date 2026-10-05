@@ -147,9 +147,11 @@ class FakeFieldStore(val identity: StoreScope) : FieldStore {
     override suspend fun customers() = active?.localCustomers ?: emptyList()
     private val drafts = linkedMapOf<String, com.sunpride.field.orders.OrderDraft>()
     override suspend fun orderDrafts() = drafts.values.sortedWith(compareBy({ it.createdAt }, { it.draftId }))
-    override suspend fun saveOrderDraft(draft: com.sunpride.field.orders.OrderDraft) {
+    override suspend fun saveOrderDraft(draft: com.sunpride.field.orders.OrderDraft, now: Long) {
+        require(draft.updatedAt == now)
         if (held) throw com.sunpride.field.orders.OrderDraftFailure(com.sunpride.field.orders.OrderDraftFailure.Code.HELD)
         check(active != null)
+        if (!isLeaseValid(now)) throw com.sunpride.field.orders.OrderDraftFailure(com.sunpride.field.orders.OrderDraftFailure.Code.OFFLINE_EXPIRED)
         com.sunpride.field.orders.OrderDraftRules.validate(this, draft, drafts[draft.draftId])
         drafts[draft.draftId] = draft
     }

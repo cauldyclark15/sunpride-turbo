@@ -7,6 +7,7 @@ struct RouteScreen: View {
     @State private var here: StoreSnapshot.Coordinate?
     @State private var locating = true
     @State private var selected: RouteStop?
+    @State private var directions = DirectionsLauncher()
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
 
@@ -44,6 +45,11 @@ struct RouteScreen: View {
                             .foregroundStyle(SunprideTokens.secondaryText)
                             .accessibilityIdentifier("routeDistanceNote")
                     }
+                    if let failure = directions.failure {
+                        Text(failure).font(SunprideTokens.TypeStyle.meta)
+                            .foregroundStyle(SunprideTokens.dangerText)
+                            .accessibilityIdentifier("routeDirectionsError")
+                    }
                 }
                 SectionCard(title: "Stops · \(stops.count)") {
                     if stops.isEmpty {
@@ -58,6 +64,7 @@ struct RouteScreen: View {
         }
         .background(SunprideTokens.background)
         .toolbar(.hidden, for: .navigationBar)
+        .directionsChoice(directions)
         .sheet(item: $selected) { stop in RouteStopSheet(model: model, stop: stop) }
         .task {
             // Best effort: no permission or no fix simply means no distance.
@@ -99,8 +106,8 @@ struct RouteScreen: View {
             .accessibilityElement(children: .combine)
             .accessibilityHint("Shows customer details")
             .accessibilityIdentifier("routeStop-\(stop.id)")
-            if let url = stop.directionsURL {
-                Button { openURL(url) } label: {
+            if let target = stop.navigationTarget {
+                Button { directions.request(target) { url, done in openURL(url, completion: done) } } label: {
                     Image(systemName: "arrow.triangle.turn.up.right.diamond")
                         .font(.system(size: 18))
                         .foregroundStyle(SunprideTokens.text)
@@ -136,6 +143,7 @@ struct RouteScreen: View {
 struct RouteStopSheet: View {
     let model: AppModel
     let stop: RouteStop
+    @State private var directions = DirectionsLauncher()
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
 
@@ -162,9 +170,16 @@ struct RouteStopSheet: View {
                             }
                         }
                     }
-                    if let url = stop.directionsURL {
-                        SecondaryButton(title: "Directions", fullWidth: true) { openURL(url) }
-                            .accessibilityIdentifier("routeCustomerDirections")
+                    if let target = stop.navigationTarget {
+                        SecondaryButton(title: "Directions", fullWidth: true) {
+                            directions.request(target) { url, done in openURL(url, completion: done) }
+                        }
+                        .accessibilityIdentifier("routeCustomerDirections")
+                        if let failure = directions.failure {
+                            Text(failure).font(SunprideTokens.TypeStyle.meta)
+                                .foregroundStyle(SunprideTokens.dangerText)
+                                .accessibilityIdentifier("routeDirectionsError")
+                        }
                     } else {
                         Text("No map pin or address for this store yet")
                             .font(SunprideTokens.TypeStyle.meta)
@@ -190,6 +205,7 @@ struct RouteStopSheet: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
+            .directionsChoice(directions)
         }
     }
 }

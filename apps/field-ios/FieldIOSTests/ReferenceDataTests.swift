@@ -189,7 +189,7 @@ final class ReferenceDataTests: XCTestCase {
         XCTAssertTrue(try store.catalog(for: partition).isEmpty)
     }
 
-    func testV3ToV4MigrationPreservesCallSheetsEvidenceLeaseAndCursor() throws {
+    func testV3ToV5MigrationPreservesCallSheetsEvidenceLeaseAndCursor() throws {
         try seed()
         let intent = VisitIntent(requestId: UUID(), kind: "visit.checkIn", operationJSON: Data())
         let bytes = Data("{\"kind\":\"visit.checkIn\",\"clientRequestId\":\"\(intent.requestId.uuidString.lowercased())\",\"payload\":{}}".utf8)
@@ -203,7 +203,7 @@ final class ReferenceDataTests: XCTestCase {
         try store.applyDelta([visit], nextCursor: "v3-cursor", for: partition)
         try store.prepareLegacyV3(); XCTAssertEqual(store.schemaVersion, 3)
         store.close(); store = try open()
-        XCTAssertEqual(store.schemaVersion, 4)
+        XCTAssertEqual(store.schemaVersion, 5)
         XCTAssertEqual(try store.callSheets(for: partition), ReferenceDataFixture.snapshot().callSheets)
         XCTAssertEqual(try store.pendingOutbox(for: partition).map(\.intent), [pending])
         XCTAssertEqual(try store.ack(for: accepted.requestId, in: partition), ack)
@@ -213,7 +213,36 @@ final class ReferenceDataTests: XCTestCase {
         XCTAssertTrue(try store.catalog(for: partition).isEmpty)
         XCTAssertTrue(try store.availability(productId: "product-1", for: partition).isEmpty)
         try seed(); store.close(); store = try open()
-        XCTAssertEqual(store.schemaVersion, 4)
+        XCTAssertEqual(store.schemaVersion, 5)
+        XCTAssertEqual(try store.catalog(for: partition), ReferenceDataFixture.snapshot().productCatalog)
+        XCTAssertEqual(try store.pendingOutbox(for: partition).map(\.intent), [pending])
+    }
+
+    func testV4ToV5MigrationPreservesOrderDraftsCallSheetsEvidenceLeaseAndCursor() throws {
+        try seed()
+        let intent = VisitIntent(requestId: UUID(), kind: "visit.checkIn", operationJSON: Data())
+        let bytes = Data("{\"kind\":\"visit.checkIn\",\"clientRequestId\":\"\(intent.requestId.uuidString.lowercased())\",\"payload\":{}}".utf8)
+        let accepted = VisitIntent(requestId: intent.requestId, kind: intent.kind, operationJSON: bytes)
+        try store.enqueue(accepted, for: partition, now: Date(timeIntervalSince1970: 1_800_000_000))
+        let ack = ServerAck(entityId: "visit-1", eventIds: ["event-1"], serverTime: 1_800_000_000_000)
+        try store.recordAck(ack, for: accepted.requestId, in: partition)
+        let pending = try DiagnosticOperation.checkIn(plannedId: nil, outletId: "outlet-1", day: "2026-10-04", intents: ["sell"], reason: "Diagnostic", location: nil)
+        try store.enqueue(pending, for: partition, now: Date(timeIntervalSince1970: 1_800_000_000))
+        let visit = try ReferenceDataFixture.change("visit", id: "visit-2", revision: 3, value: ["id": "visit-2"])
+        try store.applyDelta([visit], nextCursor: "v3-cursor", for: partition)
+        try store.prepareLegacyV4(); XCTAssertEqual(store.schemaVersion, 4)
+        store.close(); store = try open()
+        XCTAssertEqual(store.schemaVersion, 5)
+        XCTAssertEqual(try store.callSheets(for: partition), ReferenceDataFixture.snapshot().callSheets)
+        XCTAssertEqual(try store.pendingOutbox(for: partition).map(\.intent), [pending])
+        XCTAssertEqual(try store.ack(for: accepted.requestId, in: partition), ack)
+        XCTAssertNotNil(try store.deltaValue(entity: "visit", id: "visit-2", for: partition))
+        XCTAssertEqual(try store.cursor(for: partition), "v3-cursor")
+        XCTAssertEqual(try store.leaseExpiry(for: partition), expiry)
+        XCTAssertTrue(try store.catalog(for: partition).isEmpty)
+        XCTAssertTrue(try store.availability(productId: "product-1", for: partition).isEmpty)
+        try seed(); store.close(); store = try open()
+        XCTAssertEqual(store.schemaVersion, 5)
         XCTAssertEqual(try store.catalog(for: partition), ReferenceDataFixture.snapshot().productCatalog)
         XCTAssertEqual(try store.pendingOutbox(for: partition).map(\.intent), [pending])
     }

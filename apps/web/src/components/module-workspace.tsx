@@ -30,6 +30,7 @@ import { ActivityReportsWorkspace } from "./activity-reports/activity-reports-wo
 import { CoverageCompliance } from "./analytics/coverage-compliance";
 import { CustomerExecution } from "./analytics/customer-execution";
 import { ExecutionDashboard } from "./analytics/execution-dashboard";
+import { SkuDistribution } from "./analytics/sku-distribution";
 import { TerritoryPerformance } from "./analytics/territory-performance";
 
 const modules = {
@@ -245,6 +246,10 @@ function ModuleContent({
         {/* ANA-008: MCP plan vs executed visits and persistent under-coverage. */}
         {module === "analytics" && canAccessWebModule("supervision", role) ? (
           <CoverageCompliance />
+        ) : null}
+        {/* ANA-006: buying stores, gaps and shelf signals by SKU. */}
+        {module === "analytics" && canAccessWebModule("supervision", role) ? (
+          <SkuDistribution />
         ) : null}
       </>
     );

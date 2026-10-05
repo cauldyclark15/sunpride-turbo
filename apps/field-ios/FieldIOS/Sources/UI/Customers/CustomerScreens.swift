@@ -92,6 +92,7 @@ struct CustomerDetailScreen: View {
     let model: AppModel
     let outletId: String
     @State private var actionError: String?
+    @State private var directions = DirectionsLauncher()
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
 
@@ -124,6 +125,7 @@ struct CustomerDetailScreen: View {
         }
         .background(SunprideTokens.background)
         .toolbar(.hidden, for: .navigationBar)
+        .directionsChoice(directions)
     }
 
     @ViewBuilder private func content(_ record: CustomerRecord) -> some View {
@@ -139,9 +141,10 @@ struct CustomerDetailScreen: View {
             }
         }
         HStack(spacing: 8) {
-            SecondaryButton(title: "Directions", disabled: record.directionsURL == nil, fullWidth: true) {
-                guard let url = record.directionsURL else { return }
-                openURL(url) { accepted in actionError = accepted ? nil : "No maps app on this phone" }
+            SecondaryButton(title: "Directions", disabled: record.navigationTarget == nil, fullWidth: true) {
+                guard let target = record.navigationTarget else { return }
+                actionError = nil
+                directions.request(target) { url, done in openURL(url, completion: done) }
             }
             .accessibilityIdentifier("customerDirections")
             SecondaryButton(title: "Call", disabled: record.dialURL == nil, fullWidth: true) {
@@ -161,8 +164,8 @@ struct CustomerDetailScreen: View {
             .accessibilityIdentifier("customerVisit")
         }
         #endif
-        if let actionError {
-            Text(actionError).font(SunprideTokens.TypeStyle.meta).foregroundStyle(SunprideTokens.dangerText)
+        if let message = actionError ?? directions.failure {
+            Text(message).font(SunprideTokens.TypeStyle.meta).foregroundStyle(SunprideTokens.dangerText)
                 .accessibilityIdentifier("customerActionError")
         }
 
