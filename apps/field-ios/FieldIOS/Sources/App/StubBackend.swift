@@ -7,16 +7,20 @@ import Synchronization
 /// It intercepts every request of the app's own URLSession, so the real AuthClient / ConvexFunctions /
 /// Enrollment code runs unchanged; bind proofs are verified with the enrolled public key like the server does.
 /// Scenarios: `unregistered` (never registered), `registers` (admin registers after the first lookup),
-/// `revoked`. No real account, token or network is involved.
+/// `revoked`, `supervisor` (registered manager with a team; IOS-020). No real account, token or network is involved.
 final class StubBackend: URLProtocol {
     static let environmentKey = "FIELD_STUB_BACKEND"
-    private static let state = Mutex<(scenario: String, lookups: Int, bound: Bool, nonce: String?, key: String?)>(
-        ("unregistered", 0, false, nil, nil))
+    private static let state = Mutex<(scenario: String, lookups: Int, bound: Bool, nonce: String?, key: String?, supervisor: Bool)>(
+        ("unregistered", 0, false, nil, nil, false))
 
     static var scenario: String? { ProcessInfo.processInfo.environment[environmentKey] }
+    /// IOS-020: `FIELD_STUB_TEAM_REFUSE_AFTER=n` answers the first n team reads, then refuses every later
+    /// one (a supervisor whose access is withdrawn mid-session).
+    private static let teamReads = Mutex(0)
+    private static var teamRefuseAfter: Int? { ProcessInfo.processInfo.environment["FIELD_STUB_TEAM_REFUSE_AFTER"].flatMap(Int.init) }
 
     static func configure(scenario: String) {
-        state.withLock { $0 = (scenario, 0, scenario == "online", nil, nil) }
+        state.withLock { $0 = (scenario, 0, scenario == "online", nil, nil, scenario == "supervisor") }
     }
 
     @MainActor
@@ -115,7 +119,7 @@ final class StubBackend: URLProtocol {
             }
             guard valid, h["x-mobile-body-digest"] == digest,
                   h["x-mobile-contract-version"] == "1" else { return (401, [:], json(["code": "unauthorized"])) }
-            state.withLock { $0.nonce = nil }
+            let supervisorRole = state.withLock { s in s.nonce = nil; return s.supervisor }
             let now = Int64(Date().timeIntervalSince1970 * 1000)
             let today = BootstrapClient.manilaDay(Date())
             let tomorrow = BootstrapClient.manilaDay(Date().addingTimeInterval(86_400))
@@ -123,7 +127,7 @@ final class StubBackend: URLProtocol {
             return (200, [:], json([
                 "type": "bootstrap.response", "contractVersion": 1, "serverTime": now,
                 "permissions": ["visit.read", "visit.record"],
-                "employee": ["id": "profile-1", "role": "sales", "orgUnitId": "unit-1"],
+                "employee": ["id": "profile-1", "role": supervisorRole ? "manager" : "sales", "orgUnitId": "unit-1"],
                 "scope": ["fingerprint": "stub-scope-1", "orgUnitIds": ["unit-1"]],
                 "appConfig": ["offlineLeaseExpiresAt": close, "cacheExpiresAt": close,
                               "orderCaptureEnabled": false, "priceAvailability": "unavailable", "promotionsAvailability": "unavailable"],
@@ -212,6 +216,36 @@ final class StubBackend: URLProtocol {
         }
     }
 
+    /// IOS-020 fixture: two direct reports (one with an open location exception) and, for the whole
+    /// area, a third person under another unit.
+    private static func teamSummary(day: String, directOnly: Bool) -> [String: Any] {
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        let close = Int64((FieldDay.close(serviceDay: day) ?? Date()).timeIntervalSince1970 * 1000)
+        func person(_ id: String, _ name: String, planned: Int, done: Int, productive: Int, open: Int, direct: Bool,
+                    inProgress: Bool = false) -> [String: Any] {
+            ["profileId": id, "name": name, "employeeCode": NSNull(), "positionLabel": "CDS", "channel": "general_trade",
+             "orgUnitId": direct ? "unit-1" : "unit-2", "direct": direct, "planned": planned, "plannedDone": done,
+             "done": done, "productive": productive, "nonproductive": done - productive, "unplanned": 0,
+             "inProgress": inProgress, "outOfSequence": 0, "openExceptions": open, "lateSync": 0,
+             "firstCheckInAt": done > 0 || inProgress ? now - 3_600_000 : NSNull(), "lastCheckOutAt": NSNull(),
+             "lastActivityAt": NSNull()]
+        }
+        var people = [person("profile-ana", "Ana Reyes", planned: 6, done: 3, productive: 2, open: 1, direct: true, inProgress: true),
+                      person("profile-ben", "Ben Cruz", planned: 5, done: 0, productive: 0, open: 0, direct: true)]
+        if !directOnly { people.append(person("profile-cara", "Cara Lim", planned: 4, done: 4, productive: 4, open: 0, direct: false)) }
+        let exceptions: [[String: Any]] = [
+            ["id": "location:ex-1", "kind": "location", "open": true, "profileId": "profile-ana", "personName": "Ana Reyes",
+             "outletCode": "STUB-1", "outletName": "Stub Outlet", "at": now - 1_800_000, "event": "check_in",
+             "result": "outside", "distanceMeters": 412.4, "sequence": NSNull(), "after": NSNull(), "reason": NSNull(),
+             "decisionStatus": NSNull()],
+            ["id": "sequence:ex-2", "kind": "out_of_sequence", "open": false, "profileId": "profile-ana", "personName": "Ana Reyes",
+             "outletCode": "STUB-2", "outletName": "Next Stub Outlet", "at": now - 900_000, "event": NSNull(),
+             "result": NSNull(), "distanceMeters": NSNull(), "sequence": 3, "after": 1, "reason": "Store closed early",
+             "decisionStatus": "approved_exception"]]
+        return ["serviceDate": day, "generatedAt": now, "dayCloseAt": close, "directOnly": directOnly, "truncated": false,
+                "people": people, "openExceptions": 1, "totalExceptions": exceptions.count, "exceptions": exceptions]
+    }
+
     private static func function(_ name: String, args: [String: Any]) -> [String: Any] {
         state.withLock { s in
             switch name {
@@ -220,7 +254,8 @@ final class StubBackend: URLProtocol {
             case "mobile/devices:mine":
                 s.lookups += 1
                 s.key = args["publicKey"] as? String
-                let registered = s.scenario == "revoked" || s.scenario == "online" || (s.scenario == "registers" && s.lookups > 1)
+                let registered = s.scenario == "revoked" || s.scenario == "online" || s.scenario == "supervisor" ||
+                    (s.scenario == "registers" && s.lookups > 1)
                 guard registered else { return ["status": "success", "value": NSNull()] }
                 return ["status": "success", "value": [
                     "deviceId": "stub-device-1", "status": s.scenario == "revoked" ? "revoked" : "active",
@@ -250,6 +285,13 @@ final class StubBackend: URLProtocol {
                 s.nonce = nil
                 s.bound = true
                 return ["status": "success", "value": ["bindingStatus": "bound"]]
+            case "supervision/mobile:team":
+                // The server refuses a field seller (no people.read); the stub mirrors that refusal.
+                let reads = teamReads.withLock { $0 += 1; return $0 }
+                guard s.supervisor, let day = args["serviceDate"] as? String, reads <= (teamRefuseAfter ?? .max) else {
+                    return ["status": "error", "errorMessage": "Uncaught ConvexError: Not authorized", "errorData": "Not authorized"]
+                }
+                return ["status": "success", "value": teamSummary(day: day, directOnly: args["directOnly"] as? Bool ?? true)]
             default:
                 return ["status": "error", "errorMessage": "Could not find function"]
             }
