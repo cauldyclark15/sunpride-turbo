@@ -97,20 +97,29 @@ struct StoreSnapshot: Sendable {
     let route: Route?
     let tasks: [Task]
     let callSheets: [CallSheet]
+    let productCatalog: [BootstrapV1.Product]
+    let inventoryAvailability: [BootstrapV1.InventoryAvailability]
     /// IOS-011 cached account figures, one per outlet; stored with the snapshot generation.
     let accountSummaries: [AccountSummary]
     var dayTarget: DayTarget? = nil
     var daySales: DaySales? = nil
     /// IOS-013 activity-form rules per visit intent, in server order; empty from older servers.
     var activityRules: [ActivityRule] = []
+    /// IOS-016 photo types from the server; empty from older servers (the phone then offers defaults).
+    var photoTypes: [PhotoType] = []
 
     init(employee: Employee, visits: [Visit], outlets: [Outlet], customers: [Customer],
-         route: Route?, tasks: [Task], callSheets: [CallSheet] = [], accountSummaries: [AccountSummary] = [],
-         dayTarget: DayTarget? = nil, daySales: DaySales? = nil, activityRules: [ActivityRule] = []) {
+         route: Route?, tasks: [Task], callSheets: [CallSheet] = [],
+         productCatalog: [BootstrapV1.Product] = [], inventoryAvailability: [BootstrapV1.InventoryAvailability] = [],
+         accountSummaries: [AccountSummary] = [],
+         dayTarget: DayTarget? = nil, daySales: DaySales? = nil, activityRules: [ActivityRule] = [],
+         photoTypes: [PhotoType] = []) {
         self.employee = employee; self.visits = visits; self.outlets = outlets
         self.customers = customers; self.route = route; self.tasks = tasks; self.callSheets = callSheets
+        self.productCatalog = productCatalog; self.inventoryAvailability = inventoryAvailability
         self.accountSummaries = accountSummaries
         self.dayTarget = dayTarget; self.daySales = daySales; self.activityRules = activityRules
+        self.photoTypes = photoTypes
     }
 }
 
@@ -157,8 +166,12 @@ struct DeltaChange: Decodable, Sendable {
             let raw = try c.decode([String: JSONValue].self, forKey: .value)
             value = try JSONEncoder().encode(raw)
         } else { value = nil }
-        guard seq > 0, revision > 0, !id.isEmpty, ["visit", "activity"].contains(entity),
-              (op == "upsert" && value != nil) || (op == "tombstone" && value == nil) else {
+        let reference = ["product", "inventory"].contains(entity)
+        // Reference rows share a high-water (possibly zero); it is not a deduplication key.
+        // Unsupported entities still fail closed, as they did for visit/activity-only pulls.
+        guard (reference ? seq >= 0 : seq > 0), revision > 0, !id.isEmpty,
+              ["visit", "activity", "product", "inventory"].contains(entity),
+              (op == "upsert" && value != nil) || (!reference && op == "tombstone" && value == nil) else {
             throw StoreError.invalidInput
         }
     }
@@ -166,12 +179,13 @@ struct DeltaChange: Decodable, Sendable {
 
 /// Lossless enough for the narrow server projection, preserving null/numeric/string values.
 indirect enum JSONValue: Codable {
-    case string(String), number(Double), bool(Bool), null, array([JSONValue]), object([String: JSONValue])
+    case string(String), integer(Int64), number(Double), bool(Bool), null, array([JSONValue]), object([String: JSONValue])
     init(from decoder: Decoder) throws {
         let c = try decoder.singleValueContainer()
         if c.decodeNil() { self = .null }
         else if let s = try? c.decode(String.self) { self = .string(s) }
         else if let b = try? c.decode(Bool.self) { self = .bool(b) }
+        else if let n = try? c.decode(Int64.self) { self = .integer(n) }
         else if let n = try? c.decode(Double.self) { self = .number(n) }
         else if let a = try? c.decode([JSONValue].self) { self = .array(a) }
         else { self = .object(try c.decode([String: JSONValue].self)) }
@@ -180,6 +194,7 @@ indirect enum JSONValue: Codable {
         var c = encoder.singleValueContainer()
         switch self {
         case .string(let v): try c.encode(v)
+        case .integer(let v): try c.encode(v)
         case .number(let v): try c.encode(v)
         case .bool(let v): try c.encode(v)
         case .null: try c.encodeNil()
@@ -205,6 +220,8 @@ protocol FieldLocalStore: AnyObject {
     func saveSnapshot(_ snapshot: StoreSnapshot, cursor: String, leaseExpiresAt: Int64, cacheExpiresAt: Int64, for partition: StorePartition) throws
     func todayVisits(_ date: String, for partition: StorePartition) throws -> [StoreSnapshot.Visit]
     func outlets(for partition: StorePartition) throws -> [StoreSnapshot.Outlet]
+    func catalog(for partition: StorePartition) throws -> [BootstrapV1.Product]
+    func availability(productId: String, for partition: StorePartition) throws -> [BootstrapV1.InventoryAvailability]
     func snapshot(for partition: StorePartition) throws -> StoreSnapshot?
     func enqueue(_ intent: VisitIntent, for partition: StorePartition, now: Date) throws
     func enqueueDeferred(_ intent: VisitIntent, for partition: StorePartition, now: Date) throws
@@ -236,6 +253,16 @@ protocol FieldLocalStore: AnyObject {
     func releaseHeld(subject: String, deviceId: String) throws
     func isHeld(_ partition: StorePartition) throws -> Bool
     func hasOtherHeldWork(for partition: StorePartition) throws -> Bool
+    /// IOS-016: save one captured photo's metadata for an open call (after Start, before End).
+    /// The sealed bytes must already be durable in `PhotoFiles` under the same local ID.
+    func savePhoto(_ row: EvidencePhotoRow, for partition: StorePartition, now: Date) throws
+    func photos(forCheckIn requestId: UUID, in partition: StorePartition) throws -> [EvidencePhotoRow]
+    func pendingPhotos(for partition: StorePartition) throws -> [EvidencePhotoRow]
+    func reviewPhotos(for partition: StorePartition) throws -> [EvidencePhotoRow]
+    func markPhotoUploaded(_ localId: UUID, evidenceId: String, at: Int64, in partition: StorePartition) throws
+    func reviewPhoto(_ localId: UUID, code: String, in partition: StorePartition) throws
+    /// Returns the attempt count after this failed try.
+    func countPhotoAttempt(_ localId: UUID, in partition: StorePartition) throws -> Int
     /// SP-0044 order drafts (local); a draft reaches the outbox only through `submitOrderDraft` (IOS-015).
     func orderDrafts(for partition: StorePartition) throws -> [OrderDraft]
     /// Insert or replace one draft after `OrderDraftRules.validate` inside the same transaction.
@@ -259,6 +286,7 @@ final class EncryptedFieldStore: FieldLocalStore {
     private let keyAccount: String
     #if DEBUG
     var failAfterIntentInsert = false
+    var failBeforeDeltaCursor = false
     #endif
 
     init(url: URL, secrets: SecretStore = KeychainStore(), keyAccount: String = "storage.sqlcipher.v1") throws {
@@ -415,23 +443,47 @@ final class EncryptedFieldStore: FieldLocalStore {
           PRIMARY KEY(subject,device,scope,entity,id));
         """
     private func migrate() throws {
-        guard let raw = try scalar("PRAGMA user_version"), let version = Int(raw), version <= 4 else { throw StoreError.unsupportedVersion }
-        if version == 4 { return }
+        guard let raw = try scalar("PRAGMA user_version"), let version = Int(raw), version <= 6 else { throw StoreError.unsupportedVersion }
+        if version == 6 { return }
         try transaction {
             if version < 3 { try migrateToV3(from: version) }
-            // v4 (SP-0044): local order drafts, partitioned like every other row; no existing table changes.
-            try exec("""
-                CREATE TABLE order_drafts (
-                  subject TEXT NOT NULL, device TEXT NOT NULL, scope TEXT NOT NULL,
-                  draft_id TEXT NOT NULL, client_visit_id TEXT NOT NULL, outlet_id TEXT NOT NULL,
-                  created_at INTEGER NOT NULL, body BLOB NOT NULL,
-                  PRIMARY KEY(subject,device,scope,draft_id));
-                PRAGMA user_version=4;
-                """)
+            if version < 4 {
+                // v4 (SP-0044): local order drafts, partitioned like every other row; no existing table changes.
+                try exec("""
+                    CREATE TABLE order_drafts (
+                      subject TEXT NOT NULL, device TEXT NOT NULL, scope TEXT NOT NULL,
+                      draft_id TEXT NOT NULL, client_visit_id TEXT NOT NULL, outlet_id TEXT NOT NULL,
+                      created_at INTEGER NOT NULL, body BLOB NOT NULL,
+                      PRIMARY KEY(subject,device,scope,draft_id));
+                    """)
+            }
+            if version < 5 {
+                // v5 (SP-0051): reference rows belong to the same account/device/scope and snapshot generation.
+                try exec("""
+                    CREATE TABLE reference_data (
+                      subject TEXT NOT NULL, device TEXT NOT NULL, scope TEXT NOT NULL,
+                      generation INTEGER NOT NULL, entity TEXT NOT NULL, id TEXT NOT NULL,
+                      product_id TEXT NOT NULL, revision INTEGER NOT NULL, body BLOB NOT NULL,
+                      PRIMARY KEY(subject,device,scope,generation,entity,id));
+                    CREATE INDEX reference_product ON reference_data(subject,device,scope,generation,entity,product_id);
+                    """)
+            }
+            // v6 (IOS-016): photo metadata. Bytes are sealed files; rows are evidence and are never
+            // purged with the server cache (sign-out keeps them held for supervised review).
+            try exec(Self.createPhotos + "PRAGMA user_version=6;")
         }
     }
+    private static let createPhotos = """
+        CREATE TABLE IF NOT EXISTS evidence_photos (
+          subject TEXT NOT NULL, device TEXT NOT NULL, scope TEXT NOT NULL,
+          local_id TEXT NOT NULL, check_in_request_id TEXT NOT NULL, photo_type TEXT NOT NULL,
+          mime TEXT NOT NULL, size_bytes INTEGER NOT NULL, sha256 TEXT NOT NULL, captured_at INTEGER NOT NULL,
+          state TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
+          evidence_id TEXT, review_code TEXT, uploaded_at INTEGER,
+          PRIMARY KEY(subject,device,scope,local_id));
+        CREATE INDEX IF NOT EXISTS evidence_photos_state ON evidence_photos(subject,device,scope,state,captured_at);
+        """
     private func migrateToV3(from version: Int) throws {
-        do {
             if version == 0 {
                 // Legacy v0 pilot table has durable request IDs; copy, never generate replacement UUIDs.
                 let legacy = try scalar("SELECT name FROM sqlite_master WHERE type='table' AND name='legacy_intents'") != nil
@@ -451,7 +503,6 @@ final class EncryptedFieldStore: FieldLocalStore {
                   generation INTEGER NOT NULL, outlet_id TEXT NOT NULL, body BLOB NOT NULL,
                   PRIMARY KEY(subject,device,scope,generation,outlet_id));
                 """)
-        }
     }
 
     private func ensure(_ partition: StorePartition) throws {
@@ -481,11 +532,22 @@ final class EncryptedFieldStore: FieldLocalStore {
         if let sales = snapshot.daySales { rows.append(("daySales", "today", nil, try encode(sales))) }
         // One row keeps the server's rule order; it rides the generic snapshot table (no migration).
         if !snapshot.activityRules.isEmpty { rows.append(("activityRules", "all", nil, try encode(snapshot.activityRules))) }
+        if !snapshot.photoTypes.isEmpty { rows.append(("photoTypes", "all", nil, try encode(snapshot.photoTypes))) }
         guard rows.allSatisfy({ !$0.1.isEmpty }), snapshot.callSheets.allSatisfy(\.isValid),
               snapshot.callSheets.allSatisfy({ sheet in snapshot.outlets.contains { $0.id == sheet.outletId } }),
               Set(snapshot.accountSummaries.map(\.outletId)).count == snapshot.accountSummaries.count,
               snapshot.accountSummaries.allSatisfy({ $0.isValid && snapshot.outlets.map(\.id).contains($0.outletId) }) else { throw StoreError.invalidInput }
+        guard snapshot.productCatalog.allSatisfy(\.isValid), snapshot.inventoryAvailability.allSatisfy(\.isValid) else {
+            throw StoreError.invalidInput
+        }
         let sheets = try snapshot.callSheets.map { ($0.outletId, try encode($0)) }
+        var references: [(String, String, String, Int64, Value)] = []
+        for product in snapshot.productCatalog {
+            references.append(("product", product.id, product.id, product.revision ?? 0, try encode(product)))
+        }
+        for stock in snapshot.inventoryAvailability {
+            references.append(("inventory", stock.id, stock.productId, stock.revision, try encode(stock)))
+        }
         try transaction {
             try ensure(partition)
             let generation = (try state(partition)?.0 ?? 0) + 1
@@ -497,6 +559,11 @@ final class EncryptedFieldStore: FieldLocalStore {
                 try run("INSERT INTO call_sheets(subject,device,scope,generation,outlet_id,body) VALUES (?,?,?,?,?,?)",
                         p(partition) + [.integer(generation), .text(outletId), body])
             }
+            for (entity, id, productId, revision, body) in references {
+                try writeReference(entity: entity, id: id, productId: productId, revision: revision,
+                                   body: body, generation: generation, partition: partition, replacing: false)
+            }
+            try run("DELETE FROM reference_data WHERE \(Self.predicate) AND generation<>?", p(partition) + [.integer(generation)])
             try run("DELETE FROM call_sheets WHERE \(Self.predicate) AND generation<>?", p(partition) + [.integer(generation)])
             try run("UPDATE partitions SET generation=?,cursor=?,lease_expiry=?,cache_expiry=? WHERE \(Self.predicate)",
                     [.integer(generation), .text(cursor), .integer(leaseExpiresAt), .integer(cacheExpiresAt)] + p(partition))
@@ -524,6 +591,31 @@ final class EncryptedFieldStore: FieldLocalStore {
         return try query("SELECT body FROM call_sheets WHERE \(Self.predicate) AND generation=? ORDER BY outlet_id",
                          p(partition) + [.integer(generation)]) { try decode(CallSheet.self, Self.data($0, 0)) }
     }
+    private func referenceRows<T: Decodable>(_ type: T.Type, entity: String, partition: StorePartition,
+                                             productId: String? = nil) throws -> [T] {
+        guard let (generation, _) = try state(partition), generation > 0 else { return [] }
+        return try query("SELECT body FROM reference_data WHERE \(Self.predicate) AND generation=? AND entity=?" +
+                         (productId == nil ? "" : " AND product_id=?") + " ORDER BY id",
+                         p(partition) + [.integer(generation), .text(entity)] + (productId.map { [.text($0)] } ?? [])) {
+            try decode(type, Self.data($0, 0))
+        }
+    }
+    func catalog(for partition: StorePartition) throws -> [BootstrapV1.Product] {
+        try referenceRows(BootstrapV1.Product.self, entity: "product", partition: partition).sorted {
+            $0.code == $1.code ? $0.id < $1.id : $0.code < $1.code
+        }
+    }
+    func availability(productId: String, for partition: StorePartition) throws -> [BootstrapV1.InventoryAvailability] {
+        try referenceRows(BootstrapV1.InventoryAvailability.self, entity: "inventory", partition: partition, productId: productId).sorted {
+            $0.locationCode == $1.locationCode ? $0.id < $1.id : $0.locationCode < $1.locationCode
+        }
+    }
+    private func writeReference(entity: String, id: String, productId: String, revision: Int64,
+                                body: Value, generation: Int64, partition: StorePartition, replacing: Bool = true) throws {
+        try run("INSERT " + (replacing ? "OR REPLACE " : "") +
+                "INTO reference_data(subject,device,scope,generation,entity,id,product_id,revision,body) VALUES (?,?,?,?,?,?,?,?,?)",
+                p(partition) + [.integer(generation), .text(entity), .text(id), .text(productId), .integer(revision), body])
+    }
     func snapshot(for partition: StorePartition) throws -> StoreSnapshot? {
         guard let employee = try entities(StoreSnapshot.Employee.self, kind: "employee", partition: partition).first else { return nil }
         return try StoreSnapshot(employee: employee,
@@ -532,11 +624,13 @@ final class EncryptedFieldStore: FieldLocalStore {
             customers: entities(StoreSnapshot.Customer.self, kind: "customer", partition: partition),
             route: entities(StoreSnapshot.Route.self, kind: "route", partition: partition).first,
             tasks: entities(StoreSnapshot.Task.self, kind: "task", partition: partition),
-            callSheets: callSheets(for: partition),
+            callSheets: callSheets(for: partition), productCatalog: catalog(for: partition),
+            inventoryAvailability: referenceRows(BootstrapV1.InventoryAvailability.self, entity: "inventory", partition: partition),
             accountSummaries: entities(AccountSummary.self, kind: "account_summary", partition: partition),
             dayTarget: entities(StoreSnapshot.DayTarget.self, kind: "dayTarget", partition: partition).first,
             daySales: entities(StoreSnapshot.DaySales.self, kind: "daySales", partition: partition).first,
-            activityRules: activityRules(for: partition))
+            activityRules: activityRules(for: partition),
+            photoTypes: entities([PhotoType].self, kind: "photoTypes", partition: partition).first ?? [])
     }
     func activityRules(for partition: StorePartition) throws -> [ActivityRule] {
         try entities([ActivityRule].self, kind: "activityRules", partition: partition).first ?? []
@@ -672,8 +766,12 @@ final class EncryptedFieldStore: FieldLocalStore {
     func applyDelta(_ changes: [DeltaChange], nextCursor: String, for partition: StorePartition) throws {
         guard !nextCursor.isEmpty else { throw StoreError.invalidInput }
         try transaction {
-            guard try state(partition) != nil else { throw StoreError.invalidInput }
+            guard let (generation, _) = try state(partition) else { throw StoreError.invalidInput }
             for change in changes {
+                if ["product", "inventory"].contains(change.entity) {
+                    try applyReference(change, generation: generation, partition: partition)
+                    continue
+                }
                 let existing = try query("SELECT revision FROM delta WHERE \(Self.predicate) AND entity=? AND id=?", p(partition) + [.text(change.entity), .text(change.id)]) { sqlite3_column_int64($0, 0) }.first ?? 0
                 guard change.revision > existing else { continue }
                 let pending = try query("SELECT i.body FROM intents i JOIN outbox o ON o.subject=i.subject AND o.device=i.device AND o.scope=i.scope AND o.request_id=i.request_id WHERE i.subject=? AND i.device=? AND i.scope=? AND o.status IN ('pending','deferred')", p(partition)) { Self.data($0, 0) }
@@ -688,7 +786,43 @@ final class EncryptedFieldStore: FieldLocalStore {
                 try run("INSERT OR REPLACE INTO delta(subject,device,scope,entity,id,revision,body) VALUES (?,?,?,?,?,?,?)",
                         p(partition) + [.text(change.entity), .text(change.id), .integer(change.revision), change.value.map(Value.blob) ?? .null])
             }
+            #if DEBUG
+            if failBeforeDeltaCursor { throw StoreError.database }
+            #endif
             try run("UPDATE partitions SET cursor=? WHERE \(Self.predicate)", [.text(nextCursor)] + p(partition))
+        }
+    }
+    private func applyReference(_ change: DeltaChange, generation: Int64, partition: StorePartition) throws {
+        guard generation > 0, change.op == "upsert", let body = change.value else { throw StoreError.invalidInput }
+        let product: BootstrapV1.Product?
+        let productId: String
+        if change.entity == "product" {
+            let value = try decode(BootstrapV1.Product.self, body)
+            guard value.isValid, value.id == change.id, value.revision == change.revision else { throw StoreError.invalidInput }
+            product = value; productId = value.id
+        } else {
+            let value = try decode(BootstrapV1.InventoryAvailability.self, body)
+            guard value.isValid, value.id == change.id, value.revision == change.revision else { throw StoreError.invalidInput }
+            product = nil; productId = value.productId
+        }
+        let existing = try query("SELECT revision FROM reference_data WHERE \(Self.predicate) AND generation=? AND entity=? AND id=?",
+                                 p(partition) + [.integer(generation), .text(change.entity), .text(change.id)]) {
+            sqlite3_column_int64($0, 0)
+        }.first ?? 0
+        guard change.revision >= existing else { return }
+        try writeReference(entity: change.entity, id: change.id, productId: productId, revision: change.revision,
+                           body: .blob(body), generation: generation, partition: partition)
+        if let product {
+            // Keep header/sheet revision and per-account pricing; only refresh product master fields.
+            for sheet in try callSheets(for: partition) where sheet.lines.contains(where: { $0.productId == product.id }) {
+                let lines = sheet.lines.map { line in
+                    line.productId == product.id ? CallSheet.Line(productId: line.productId, code: product.code,
+                        name: product.name, uom: product.uom, barcode: product.barcodes?.first?.barcode, pricing: line.pricing) : line
+                }
+                let refreshed = CallSheet(outletId: sheet.outletId, revision: sheet.revision, header: sheet.header, lines: lines)
+                try run("UPDATE call_sheets SET body=? WHERE \(Self.predicate) AND generation=? AND outlet_id=?",
+                        [try encode(refreshed)] + p(partition) + [.integer(generation), .text(sheet.outletId)])
+            }
         }
     }
     func deltaValue(entity: String, id: String, for partition: StorePartition) throws -> Data? {
@@ -785,7 +919,7 @@ final class EncryptedFieldStore: FieldLocalStore {
         try exec("PRAGMA wal_checkpoint(TRUNCATE)")
     }
     private func purge(where clause: String, _ values: [Value]) throws {
-        for table in ["snapshot", "call_sheets", "delta"] {
+        for table in ["snapshot", "call_sheets", "reference_data", "delta"] {
             try run("DELETE FROM \(table) WHERE \(clause)", values)
         }
         try run("UPDATE partitions SET held=1,cursor=NULL,lease_expiry=NULL,cache_expiry=NULL WHERE \(clause)", values)
@@ -801,8 +935,100 @@ final class EncryptedFieldStore: FieldLocalStore {
     }
     func isHeld(_ partition: StorePartition) throws -> Bool { try state(partition)?.1 ?? false }
     func hasOtherHeldWork(for partition: StorePartition) throws -> Bool {
-        try query("SELECT 1 FROM partitions p JOIN outbox o ON o.subject=p.subject AND o.device=p.device AND o.scope=p.scope WHERE p.subject=? AND p.device=? AND p.scope<>? AND p.held=1 AND o.status IN ('pending','deferred') LIMIT 1",
-                  p(partition)) { _ in true }.first ?? false
+        if try query("SELECT 1 FROM partitions p JOIN outbox o ON o.subject=p.subject AND o.device=p.device AND o.scope=p.scope WHERE p.subject=? AND p.device=? AND p.scope<>? AND p.held=1 AND o.status IN ('pending','deferred') LIMIT 1",
+                     p(partition), { _ in true }).first == true { return true }
+        // IOS-016: a prior scope holding only photos (waiting or for review) is held work too.
+        return try query("SELECT 1 FROM partitions p JOIN evidence_photos e ON e.subject=p.subject AND e.device=p.device AND e.scope=p.scope WHERE p.subject=? AND p.device=? AND p.scope<>? AND p.held=1 AND e.state IN ('pending','review') LIMIT 1",
+                         p(partition)) { _ in true }.first ?? false
+    }
+
+    // MARK: IOS-016 visit photos
+
+    func savePhoto(_ row: EvidencePhotoRow, for partition: StorePartition, now: Date) throws {
+        let types = try snapshot(for: partition)?.photoTypes ?? []
+        guard EvidencePhotos.isValidNew(row, types: types) else { throw StoreError.invalidInput }
+        try transaction {
+            guard try isLeaseValid(now: now, for: partition) else { throw StoreError.leaseExpired }
+            guard try state(partition)?.1 == false else { throw StoreError.heldForReview }
+            // The call must be open: a non-rejected Start, and no queued or accepted End against it. A
+            // server-rejected End reopens the call (IOS-017), so photos may still be taken.
+            let start = row.checkInRequestId.uuidString.lowercased()
+            guard let checkIn = try intent(for: row.checkInRequestId, in: partition), checkIn.kind == "visit.checkIn",
+                  try outcome(start, partition) != "rejected" else { throw AppModel.CallFailure.notStarted }
+            let rejected = Set(try reviewOutbox(for: partition).map(\.intent.requestId))
+            guard VisitCompletion.isOpen(checkIn, intents: try intents(for: partition), rejected: rejected) else {
+                throw AppModel.CallFailure.alreadyClosed
+            }
+            let count = try query("SELECT count(*) FROM evidence_photos WHERE \(Self.predicate) AND check_in_request_id=?",
+                                  p(partition) + [.text(start)]) { sqlite3_column_int64($0, 0) }.first ?? 0
+            guard count < EvidencePhotos.maxPerVisit else { throw AppModel.CallFailure.photoLimit }
+            try run("""
+                INSERT INTO evidence_photos(subject,device,scope,local_id,check_in_request_id,photo_type,mime,size_bytes,sha256,captured_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """, p(partition) + [.text(row.localId.uuidString.lowercased()), .text(start), .text(row.photoType),
+                                     .text(row.mime), .integer(row.sizeBytes), .text(row.sha256), .integer(row.capturedAt)])
+        }
+        try protectFiles()
+    }
+    private static let photoColumns = "local_id,check_in_request_id,photo_type,mime,size_bytes,sha256,captured_at,state,attempts,evidence_id,review_code,uploaded_at"
+    private static func photo(_ row: OpaquePointer) throws -> EvidencePhotoRow {
+        guard let id = UUID(uuidString: text(row, 0)), let start = UUID(uuidString: text(row, 1)) else { throw StoreError.database }
+        let optional: (Int32) -> String? = { sqlite3_column_type(row, $0) == SQLITE_NULL ? nil : text(row, $0) }
+        return EvidencePhotoRow(localId: id, checkInRequestId: start, photoType: text(row, 2), mime: text(row, 3),
+            sizeBytes: sqlite3_column_int64(row, 4), sha256: text(row, 5), capturedAt: sqlite3_column_int64(row, 6),
+            state: text(row, 7), attempts: Int(sqlite3_column_int64(row, 8)), evidenceId: optional(9),
+            reviewCode: optional(10), uploadedAt: sqlite3_column_type(row, 11) == SQLITE_NULL ? nil : sqlite3_column_int64(row, 11))
+    }
+    func photos(forCheckIn requestId: UUID, in partition: StorePartition) throws -> [EvidencePhotoRow] {
+        try query("SELECT \(Self.photoColumns) FROM evidence_photos WHERE \(Self.predicate) AND check_in_request_id=? ORDER BY captured_at,rowid",
+                  p(partition) + [.text(requestId.uuidString.lowercased())], Self.photo)
+    }
+    func pendingPhotos(for partition: StorePartition) throws -> [EvidencePhotoRow] {
+        try query("SELECT \(Self.photoColumns) FROM evidence_photos WHERE \(Self.predicate) AND state='pending' ORDER BY captured_at,rowid",
+                  p(partition), Self.photo)
+    }
+    func reviewPhotos(for partition: StorePartition) throws -> [EvidencePhotoRow] {
+        try query("SELECT \(Self.photoColumns) FROM evidence_photos WHERE \(Self.predicate) AND state='review' ORDER BY captured_at,rowid",
+                  p(partition), Self.photo)
+    }
+    private func photoState(_ localId: UUID, _ partition: StorePartition) throws -> String? {
+        try query("SELECT state FROM evidence_photos WHERE \(Self.predicate) AND local_id=?",
+                  p(partition) + [.text(localId.uuidString.lowercased())]) { Self.text($0, 0) }.first
+    }
+    func markPhotoUploaded(_ localId: UUID, evidenceId: String, at: Int64, in partition: StorePartition) throws {
+        guard !evidenceId.isEmpty, at > 0 else { throw StoreError.invalidInput }
+        try transaction {
+            // A held partition freezes its photos for supervised review.
+            guard try self.state(partition)?.1 == false else { throw StoreError.heldForReview }
+            let state = try photoState(localId, partition)
+            guard state == "pending" else { throw state == nil ? StoreError.unknownIntent : StoreError.alreadyResolved }
+            try run("UPDATE evidence_photos SET state='uploaded',evidence_id=?,uploaded_at=? WHERE \(Self.predicate) AND local_id=?",
+                    [.text(evidenceId), .integer(at)] + p(partition) + [.text(localId.uuidString.lowercased())])
+        }
+    }
+    func reviewPhoto(_ localId: UUID, code: String, in partition: StorePartition) throws {
+        guard !code.isEmpty else { throw StoreError.invalidInput }
+        try transaction {
+            // A held partition freezes its photos for supervised review.
+            guard try self.state(partition)?.1 == false else { throw StoreError.heldForReview }
+            let state = try photoState(localId, partition)
+            guard state == "pending" else { throw state == nil ? StoreError.unknownIntent : StoreError.alreadyResolved }
+            try run("UPDATE evidence_photos SET state='review',review_code=? WHERE \(Self.predicate) AND local_id=?",
+                    [.text(code)] + p(partition) + [.text(localId.uuidString.lowercased())])
+        }
+    }
+    func countPhotoAttempt(_ localId: UUID, in partition: StorePartition) throws -> Int {
+        var attempts = 0
+        try transaction {
+            // A held partition freezes its photos for supervised review.
+            guard try self.state(partition)?.1 == false else { throw StoreError.heldForReview }
+            guard try photoState(localId, partition) == "pending" else { throw StoreError.alreadyResolved }
+            try run("UPDATE evidence_photos SET attempts=attempts+1 WHERE \(Self.predicate) AND local_id=?",
+                    p(partition) + [.text(localId.uuidString.lowercased())])
+            attempts = Int(try query("SELECT attempts FROM evidence_photos WHERE \(Self.predicate) AND local_id=?",
+                                     p(partition) + [.text(localId.uuidString.lowercased())]) { sqlite3_column_int64($0, 0) }.first ?? 0)
+        }
+        return attempts
     }
 
     func orderDrafts(for partition: StorePartition) throws -> [OrderDraft] {
@@ -881,13 +1107,21 @@ final class EncryptedFieldStore: FieldLocalStore {
     }
 
     #if DEBUG
-    /// Downgrade harness: preserve actual v2 snapshot/outbox/acks while removing the v3 and v4 additions.
+    /// Downgrade harness: preserve actual v2 snapshot/outbox/acks while removing the v3, v4 and v5 additions.
     func prepareLegacyV2() throws {
-        try transaction { try exec("DROP TABLE call_sheets; DROP TABLE order_drafts; PRAGMA user_version=2") }
+        try transaction { try exec("DROP TABLE evidence_photos; DROP TABLE reference_data; DROP TABLE call_sheets; DROP TABLE order_drafts; PRAGMA user_version=2") }
     }
-    /// Downgrade harness: remove only the v4 order-draft table.
+    /// Preserve real v3 call sheets and durable evidence while removing the v4, v5 and v6 additions.
     func prepareLegacyV3() throws {
-        try transaction { try exec("DROP TABLE order_drafts; PRAGMA user_version=3") }
+        try transaction { try exec("DROP TABLE evidence_photos; DROP TABLE reference_data; DROP TABLE order_drafts; PRAGMA user_version=3") }
+    }
+    /// Preserve real v4 order drafts while removing the v5 reference data and v6 photo tables.
+    func prepareLegacyV4() throws {
+        try transaction { try exec("DROP TABLE evidence_photos; DROP TABLE reference_data; PRAGMA user_version=4") }
+    }
+    /// The v5 schema with its data, only the v6 photo table removed.
+    func prepareLegacyV5() throws {
+        try transaction { try exec("DROP TABLE evidence_photos; PRAGMA user_version=5") }
     }
     var schemaVersion: Int { (try? scalar("PRAGMA user_version")).flatMap(Int.init) ?? -1 }
 
@@ -897,7 +1131,7 @@ final class EncryptedFieldStore: FieldLocalStore {
         // Initialize an encrypted file, then recreate the v0 schema under its existing key.
         let store = try EncryptedFieldStore(url: url, secrets: secrets, keyAccount: keyAccount)
         try store.transaction {
-            try store.exec("DROP TABLE order_drafts; DROP TABLE call_sheets; DROP TABLE acks; DROP TABLE outbox; DROP TABLE intents; DROP TABLE snapshot; DROP TABLE partitions")
+            try store.exec("DROP TABLE evidence_photos; DROP TABLE reference_data; DROP TABLE order_drafts; DROP TABLE call_sheets; DROP TABLE acks; DROP TABLE outbox; DROP TABLE intents; DROP TABLE snapshot; DROP TABLE partitions")
             try store.exec("CREATE TABLE legacy_intents(subject TEXT,device TEXT,scope TEXT,request_id TEXT,kind TEXT,body BLOB)")
             try store.run("INSERT INTO legacy_intents VALUES(?,?,?,?,?,?)", store.p(partition) + [.text(intent.requestId.uuidString.lowercased()), .text(intent.kind), .blob(intent.operationJSON)])
             try store.exec("PRAGMA user_version=0")

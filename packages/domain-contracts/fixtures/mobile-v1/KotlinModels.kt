@@ -18,7 +18,9 @@ data class BootstrapRequest(
   // schema-field: bootstrapRequest.pageCursor
   val pageCursor: OptionalField<String>,
   // schema-field: bootstrapRequest.limit
-  val limit: OptionalField<Long>
+  val limit: OptionalField<Long>,
+  // schema-field: bootstrapRequest.referenceData
+  val referenceData: OptionalField<Boolean>
 )
 // schema-object: bootstrapResponse
 data class BootstrapResponse(
@@ -50,6 +52,8 @@ data class BootstrapResponse(
   val productCatalog: List<BootstrapResponseProductCatalogItem>,
   // schema-field: bootstrapResponse.callSheets
   val callSheets: OptionalField<List<BootstrapResponseCallSheetsItem>>,
+  // schema-field: bootstrapResponse.inventoryAvailability
+  val inventoryAvailability: OptionalField<List<BootstrapResponseInventoryAvailabilityItem>>,
   // schema-field: bootstrapResponse.activityRules
   val activityRules: OptionalField<List<BootstrapResponseActivityRulesItem>>,
   // schema-field: bootstrapResponse.photoTypes
@@ -188,7 +192,17 @@ data class BootstrapResponseProductCatalogItem(
   // schema-field: bootstrapResponse.productCatalog[].name
   val name: String,
   // schema-field: bootstrapResponse.productCatalog[].uom
-  val uom: String
+  val uom: String,
+  // schema-field: bootstrapResponse.productCatalog[].revision
+  val revision: OptionalField<Long>,
+  // schema-field: bootstrapResponse.productCatalog[].quantityScale
+  val quantityScale: OptionalField<Long>,
+  // schema-field: bootstrapResponse.productCatalog[].baseUom
+  val baseUom: OptionalField<BootstrapResponseProductCatalogItemBaseUomVariant0?>,
+  // schema-field: bootstrapResponse.productCatalog[].sellingUoms
+  val sellingUoms: OptionalField<List<BootstrapResponseProductCatalogItemSellingUomsItem>>,
+  // schema-field: bootstrapResponse.productCatalog[].barcodes
+  val barcodes: OptionalField<List<BootstrapResponseProductCatalogItemBarcodesItem>>
 )
 // schema-object: pullRequest
 data class PullRequest(
@@ -875,3 +889,63 @@ data class PushRequestOperationsItemVariant1PayloadActivityVariant6LinesItem(
 )
 // schema-enum: pushRequest.operations[]#1.payload.activity#6.kind
 // schema-enum-value: pushRequest.operations[]#1.payload.activity#6.kind = call_sheet
+// Additive after v1 shipped: mobile reference data, products and stock (SP-0051).
+// schema-object: bootstrapResponse.productCatalog[].baseUom#0
+data class BootstrapResponseProductCatalogItemBaseUomVariant0(
+  // schema-field: bootstrapResponse.productCatalog[].baseUom#0.code
+  val code: String,
+  // schema-field: bootstrapResponse.productCatalog[].baseUom#0.name
+  val name: String,
+  // schema-field: bootstrapResponse.productCatalog[].baseUom#0.decimalPlaces
+  val decimalPlaces: Long
+)
+// schema-object: bootstrapResponse.productCatalog[].sellingUoms[]
+data class BootstrapResponseProductCatalogItemSellingUomsItem(
+  // schema-field: bootstrapResponse.productCatalog[].sellingUoms[].code
+  val code: String,
+  // schema-field: bootstrapResponse.productCatalog[].sellingUoms[].name
+  val name: String,
+  // schema-field: bootstrapResponse.productCatalog[].sellingUoms[].decimalPlaces
+  val decimalPlaces: Long,
+  // schema-field: bootstrapResponse.productCatalog[].sellingUoms[].toBase
+  val toBase: BootstrapResponseProductCatalogItemSellingUomsItemToBaseVariant0?
+)
+// schema-object: bootstrapResponse.productCatalog[].sellingUoms[].toBase#0
+data class BootstrapResponseProductCatalogItemSellingUomsItemToBaseVariant0(
+  // schema-field: bootstrapResponse.productCatalog[].sellingUoms[].toBase#0.numerator
+  val numerator: Long,
+  // schema-field: bootstrapResponse.productCatalog[].sellingUoms[].toBase#0.denominator
+  val denominator: Long,
+  // schema-field: bootstrapResponse.productCatalog[].sellingUoms[].toBase#0.roundingMode
+  val roundingMode: String
+)
+// schema-object: bootstrapResponse.productCatalog[].barcodes[]
+data class BootstrapResponseProductCatalogItemBarcodesItem(
+  // schema-field: bootstrapResponse.productCatalog[].barcodes[].barcode
+  val barcode: String,
+  // schema-field: bootstrapResponse.productCatalog[].barcodes[].uom
+  val uom: String?
+)
+// schema-object: bootstrapResponse.inventoryAvailability[]
+data class BootstrapResponseInventoryAvailabilityItem(
+  // schema-field: bootstrapResponse.inventoryAvailability[].id
+  val id: String,
+  // schema-field: bootstrapResponse.inventoryAvailability[].productId
+  val productId: String,
+  // schema-field: bootstrapResponse.inventoryAvailability[].locationId
+  val locationId: String,
+  // schema-field: bootstrapResponse.inventoryAvailability[].locationCode
+  val locationCode: String,
+  // schema-field: bootstrapResponse.inventoryAvailability[].locationName
+  val locationName: String,
+  // schema-field: bootstrapResponse.inventoryAvailability[].availableBase
+  val availableBase: Long,
+  // schema-field: bootstrapResponse.inventoryAvailability[].physicalBase
+  val physicalBase: Long,
+  // schema-field: bootstrapResponse.inventoryAvailability[].reservedBase
+  val reservedBase: Long,
+  // schema-field: bootstrapResponse.inventoryAvailability[].revision
+  val revision: Long,
+  // schema-field: bootstrapResponse.inventoryAvailability[].asOf
+  val asOf: Long
+)

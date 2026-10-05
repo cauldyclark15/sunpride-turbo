@@ -48,10 +48,12 @@ enum BootstrapV1 {
         let deviceId: String
         let dayFrom: String?
         let pageCursor: String?
+        let referenceData: Bool?
         let limit: Int
-        enum CodingKeys: String, CodingKey { case type, contractVersion, deviceId, dayFrom, pageCursor, limit }
-        init(deviceId: String, dayFrom: String? = nil, pageCursor: String? = nil, limit: Int = 100) {
-            self.deviceId = deviceId; self.dayFrom = dayFrom; self.pageCursor = pageCursor; self.limit = limit
+        enum CodingKeys: String, CodingKey { case type, contractVersion, deviceId, dayFrom, pageCursor, referenceData, limit }
+        init(deviceId: String, dayFrom: String? = nil, pageCursor: String? = nil, referenceData: Bool? = nil, limit: Int = 100) {
+            self.deviceId = deviceId; self.dayFrom = dayFrom; self.pageCursor = pageCursor
+            self.referenceData = referenceData; self.limit = limit
         }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -60,6 +62,7 @@ enum BootstrapV1 {
             deviceId = try c.decode(String.self, forKey: .deviceId)
             dayFrom = try c.decodeIfPresent(String.self, forKey: .dayFrom)
             pageCursor = try c.decodeIfPresent(String.self, forKey: .pageCursor)
+            referenceData = try c.decodeIfPresent(Bool.self, forKey: .referenceData)
             limit = try c.decode(Int.self, forKey: .limit)
             guard (1...100).contains(limit) else { throw WireError.invalidEnvelope }
         }
@@ -73,7 +76,36 @@ enum BootstrapV1 {
         let priceAvailability: ResponseValue
         let promotionsAvailability: ResponseValue
     }
-    struct Product: Codable, Equatable { let id: String; let code: String; let name: String; let uom: String }
+    /// Additive metadata is optional so the original four-field catalog remains readable.
+    struct Product: Codable, Equatable, Sendable {
+        struct Uom: Codable, Equatable, Sendable {
+            let code: String; let name: String; let decimalPlaces: Int
+        }
+        struct Conversion: Codable, Equatable, Sendable {
+            let numerator: Int64; let denominator: Int64; let roundingMode: String
+        }
+        struct SellingUom: Codable, Equatable, Sendable {
+            let code: String; let name: String; let decimalPlaces: Int; let toBase: Conversion?
+        }
+        struct Barcode: Codable, Equatable, Sendable { let barcode: String; let uom: String? }
+        let id: String; let code: String; let name: String; let uom: String
+        var revision: Int64? = nil
+        var quantityScale: Int? = nil
+        var baseUom: Uom? = nil
+        var sellingUoms: [SellingUom]? = nil
+        var barcodes: [Barcode]? = nil
+        var isValid: Bool {
+            !id.isEmpty && (revision == nil || revision! > 0) && (quantityScale == nil || quantityScale! > 0) &&
+            (barcodes?.count ?? 0) <= 20 && (barcodes ?? []).allSatisfy { !$0.barcode.isEmpty && $0.barcode.count <= 64 }
+        }
+    }
+    struct InventoryAvailability: Codable, Equatable, Sendable {
+        let id: String; let productId: String; let locationId: String
+        let locationCode: String; let locationName: String
+        let availableBase: Int64; let physicalBase: Int64; let reservedBase: Int64
+        let revision: Int64; let asOf: Int64
+        var isValid: Bool { !id.isEmpty && !productId.isEmpty && !locationId.isEmpty && revision > 0 && asOf > 0 }
+    }
     struct Page: Codable {
         let type: String
         let contractVersion: Int
@@ -88,6 +120,7 @@ enum BootstrapV1 {
         let route: StoreSnapshot.Route?
         let tasks: [StoreSnapshot.Task]
         let productCatalog: [Product]
+        let inventoryAvailability: [InventoryAvailability]
         let callSheets: [CallSheet]
         /// IOS-011 additive field: cached account figures for this page's newly shipped outlets.
         let accountSummaries: [AccountSummary]
@@ -100,11 +133,13 @@ enum BootstrapV1 {
         let daySales: StoreSnapshot.DaySales?
         /// Additive optional v1 field (IOS-013): activity-form rules per visit intent. nil = older server.
         let activityRules: [ActivityRule]?
+        /// Additive optional v1 field (IOS-016): photo types a visit photo may carry. nil = older server.
+        let photoTypes: [PhotoType]?
 
         enum CodingKeys: String, CodingKey {
             case type, contractVersion, serverTime, permissions, employee, scope, appConfig,
                  plannedVisits, outlets, localCustomers, route, tasks, productCatalog, page,
-                 nextPageCursor, syncCursor, callSheets, accountSummaries, dayTarget, daySales, activityRules
+                 nextPageCursor, syncCursor, callSheets, inventoryAvailability, accountSummaries, dayTarget, daySales, activityRules, photoTypes
         }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -134,6 +169,7 @@ enum BootstrapV1 {
             route = try c.decodeIfPresent(StoreSnapshot.Route.self, forKey: .route)
             tasks = try c.decode([StoreSnapshot.Task].self, forKey: .tasks)
             productCatalog = try c.decode([Product].self, forKey: .productCatalog)
+            inventoryAvailability = try c.decodeIfPresent([InventoryAvailability].self, forKey: .inventoryAvailability) ?? []
             if c.contains(.callSheets) {
                 callSheets = try c.decode([CallSheet].self, forKey: .callSheets)
             } else { callSheets = [] } // Old servers omit the additive field.
@@ -156,6 +192,11 @@ enum BootstrapV1 {
                 guard rules.count <= 32, Set(rules.map(\.intent)).count == rules.count else { throw WireError.unsafeValue }
                 activityRules = rules
             } else { activityRules = nil }
+            if c.contains(.photoTypes) {
+                let types = try c.decode([PhotoType].self, forKey: .photoTypes)
+                guard types.count <= 32, Set(types.map(\.code)).count == types.count else { throw WireError.unsafeValue }
+                photoTypes = types
+            } else { photoTypes = nil }
             guard Set(callSheets.map(\.outletId)).count == callSheets.count,
                   callSheets.allSatisfy({ sheet in plannedVisits.contains { $0.outletId == sheet.outletId } }) else {
                 throw WireError.unsafeValue
@@ -172,7 +213,7 @@ enum BootstrapV1 {
                   !appConfig.orderCaptureEnabled,
                   appConfig.priceAvailability.rawValue == "unavailable",
                   appConfig.promotionsAvailability.rawValue == "unavailable",
-                  productCatalog.isEmpty,
+                  productCatalog.allSatisfy(\.isValid), inventoryAvailability.allSatisfy(\.isValid),
                   nextPageCursor == nil || syncCursor == nil,
                   nextPageCursor != nil || (syncCursor != nil && !syncCursor!.isEmpty) else { throw WireError.unsafeValue }
         }
@@ -187,10 +228,12 @@ enum BootstrapV1 {
             try c.encode(productCatalog, forKey: .productCatalog); try c.encode(page, forKey: .page)
             try c.encode(nextPageCursor, forKey: .nextPageCursor); try c.encode(syncCursor, forKey: .syncCursor)
             try c.encode(callSheets, forKey: .callSheets)
+            try c.encode(inventoryAvailability, forKey: .inventoryAvailability)
             try c.encode(accountSummaries, forKey: .accountSummaries)
             try c.encodeIfPresent(dayTarget, forKey: .dayTarget)
             try c.encodeIfPresent(daySales, forKey: .daySales)
             try c.encodeIfPresent(activityRules, forKey: .activityRules)
+            try c.encodeIfPresent(photoTypes, forKey: .photoTypes)
         }
     }
 

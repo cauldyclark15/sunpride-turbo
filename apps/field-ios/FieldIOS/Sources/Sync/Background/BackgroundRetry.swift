@@ -12,7 +12,8 @@ final class BackgroundRetry {
     static func hasRetryableWork(store: any FieldLocalStore, partition: StorePartition) -> Bool {
         guard (try? store.isHeld(partition)) == false else { return false }
         return ((try? store.pendingOutbox(for: partition).count) ?? 0) +
-            ((try? store.deferredOutbox(for: partition).count) ?? 0) > 0
+            ((try? store.deferredOutbox(for: partition).count) ?? 0) +
+            ((try? store.pendingPhotos(for: partition).count) ?? 0) > 0 // IOS-016 waiting photos
     }
 
     private struct UnsafeTask: @unchecked Sendable { let value: BGAppRefreshTask }

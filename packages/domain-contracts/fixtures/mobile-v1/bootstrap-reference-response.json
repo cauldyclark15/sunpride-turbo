@@ -1,0 +1,109 @@
+{
+  "type": "bootstrap.response",
+  "contractVersion": 1,
+  "serverTime": 1790380800000,
+  "permissions": ["visit.record", "visit.read"],
+  "employee": {
+    "id": "profile-1",
+    "role": "sales",
+    "orgUnitId": "unit-1"
+  },
+  "scope": {
+    "fingerprint": "scope-v1",
+    "orgUnitIds": ["unit-1"]
+  },
+  "appConfig": {
+    "offlineLeaseExpiresAt": 1790467200000,
+    "cacheExpiresAt": 1790467200000,
+    "orderCaptureEnabled": false,
+    "priceAvailability": "unavailable",
+    "promotionsAvailability": "unavailable"
+  },
+  "plannedVisits": [
+    {
+      "id": "planned-1",
+      "outletId": "outlet-1",
+      "serviceDate": "2026-09-26",
+      "planId": "plan-1",
+      "planVersion": 1,
+      "intents": ["merchandise"]
+    }
+  ],
+  "outlets": [
+    {
+      "id": "outlet-1",
+      "name": "Outlet One",
+      "routeId": null
+    }
+  ],
+  "localCustomers": [],
+  "route": null,
+  "tasks": [],
+  "productCatalog": [
+    {
+      "id": "product-1",
+      "code": "SUNP-001",
+      "name": "Sunpride Corned Beef 150g",
+      "uom": "CAN",
+      "revision": 1790380700000,
+      "quantityScale": 1000,
+      "baseUom": {
+        "code": "CAN",
+        "name": "Can",
+        "decimalPlaces": 0
+      },
+      "sellingUoms": [
+        {
+          "code": "CS",
+          "name": "Case",
+          "decimalPlaces": 0,
+          "toBase": {
+            "numerator": 48000,
+            "denominator": 1,
+            "roundingMode": "exact"
+          }
+        },
+        {
+          "code": "CAN",
+          "name": "Can",
+          "decimalPlaces": 0,
+          "toBase": null
+        }
+      ],
+      "barcodes": [
+        {
+          "barcode": "4800000000017",
+          "uom": "CAN"
+        }
+      ]
+    },
+    {
+      "id": "product-2",
+      "code": "SUNP-LEGACY",
+      "name": "Legacy item",
+      "uom": "PC",
+      "revision": 1790380600000,
+      "quantityScale": 1000,
+      "baseUom": null,
+      "sellingUoms": [],
+      "barcodes": []
+    }
+  ],
+  "page": 1,
+  "nextPageCursor": null,
+  "syncCursor": "opaque-start",
+  "inventoryAvailability": [
+    {
+      "id": "balance-1",
+      "productId": "product-1",
+      "locationId": "location-1",
+      "locationCode": "BR-MNL-01",
+      "locationName": "Manila branch",
+      "availableBase": 24000,
+      "physicalBase": 30000,
+      "reservedBase": 6000,
+      "revision": 1790380750000,
+      "asOf": 1790380750000
+    }
+  ]
+}
