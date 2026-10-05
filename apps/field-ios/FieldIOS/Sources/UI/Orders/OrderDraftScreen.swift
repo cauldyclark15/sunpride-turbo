@@ -11,6 +11,8 @@ struct OrderDraftScreen: View {
     @State private var query = ""
     @State private var message: String?
     @State private var seeded = false
+    /// IOS-015: the saved draft opens in review (lines, totals, checks, Send).
+    @State private var reviewing = false
     @FocusState private var focusedField: String?
     @Environment(\.dismiss) private var dismiss
 
@@ -92,8 +94,9 @@ struct OrderDraftScreen: View {
                             }
                         }
                     }
-                    Text("The call has ended. Review and sending come next.")
+                    Text(model.orderStatus(draft).label)
                         .font(SunprideTokens.TypeStyle.meta).foregroundStyle(SunprideTokens.secondaryText)
+                        .accessibilityIdentifier("orderDraftStatus")
                 }
             }
             .padding(16)
@@ -105,6 +108,9 @@ struct OrderDraftScreen: View {
         .toolbar(.visible, for: .navigationBar)
         .scrollDismissesKeyboard(.interactively)
         .onAppear(perform: seed)
+        .navigationDestination(isPresented: $reviewing) {
+            if let draftId { OrderReviewScreen(model: model, draftId: draftId) }
+        }
         .safeAreaInset(edge: .bottom) {
             if editable && !catalog.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
@@ -122,8 +128,10 @@ struct OrderDraftScreen: View {
                             SecondaryButton(title: "Discard", destructive: true, action: discard)
                                 .accessibilityIdentifier("discardOrderDraft")
                         }
-                        PrimaryBottomButton(title: "Save draft", action: save)
+                        SecondaryButton(title: "Save draft", action: { save() })
                             .accessibilityIdentifier("saveOrderDraft")
+                        PrimaryBottomButton(title: "Review order") { if save() { reviewing = true } }
+                            .accessibilityIdentifier("reviewOrder")
                     }
                 }
                 .padding(16)
@@ -166,7 +174,9 @@ struct OrderDraftScreen: View {
         for line in draft.lines where current.contains(line.productId) { quantities[line.productId] = String(line.quantity) }
     }
 
-    private func save() {
+    /// Saves the quantities on screen; true when the draft was saved (Review opens only then).
+    @discardableResult
+    private func save() -> Bool {
         do {
             // Setup order; products that left the setup are dropped (shown above as stale).
             let entries = try catalog.compactMap { item -> (productId: String, quantity: Int)? in
@@ -176,10 +186,12 @@ struct OrderDraftScreen: View {
             draftId = saved.draftId
             focusedField = nil
             message = "Draft saved on this phone."
+            return true
         } catch let failure as OrderDraftFailure { message = failure.message }
         catch StoreError.leaseExpired { message = OrderDraftFailure.offlineExpired.message }
         catch StoreError.heldForReview { message = OrderDraftFailure.held.message }
         catch { message = "Could not save the order draft. Check the quantities and try again." }
+        return false
     }
 
     private func discard() {

@@ -279,23 +279,34 @@ struct DiagnosticVisitScreen: View {
             .accessibilityIdentifier("activity-\(item.kind)")
         }
     }
-    /// SP-0044: order drafts for this call (local only); new orders only while the call is open.
+    /// SP-0044/IOS-015: this call's orders; each row shows where it is on its way to the office.
+    /// Unsent drafts open the editor while the call is open; sent or ended ones open the review.
     @ViewBuilder private func orderSection(open: Bool) -> some View {
         let drafts = model.orderDrafts(for: currentVisit)
+        let unsent = drafts.filter { $0.submittedRequestId == nil }.count
         SectionCard(title: "Order") {
             VStack(spacing: 0) {
                 ForEach(Array(drafts.enumerated()), id: \.element.draftId) { index, draft in
                     if index > 0 { activityDivider }
-                    let count = draft.lines.count == 1 ? "1 product" : "\(draft.lines.count) products"
+                    let status = model.orderStatus(draft)
+                    let total = OrderSubmission.totals(draft).text
                     NavigationLink {
-                        OrderDraftScreen(model: model, visit: currentVisit, draftId: draft.draftId)
+                        if status == .draft { OrderDraftScreen(model: model, visit: currentVisit, draftId: draft.draftId) }
+                        else { OrderReviewScreen(model: model, draftId: draft.draftId) }
                     } label: {
-                        CalmListRow(symbol: "cart", title: "Order draft",
-                                    meta: "\(count) · saved on this phone" + (open ? "" : " · review comes next"),
-                                    trailing: "chevron.right")
+                        CalmListRow(symbol: status.sent ? "cart.fill" : "cart", title: status.sent ? "Order" : "Order draft",
+                                    meta: "\(total) · \(status.label)", trailing: "chevron.right")
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("orderDraft")
+                }
+                if open && unsent > 0 {
+                    // An unsent draft stays on this phone once the call ends; say so before End.
+                    Text(unsent == 1 ? "1 order draft is not sent. Review and send it before End call, or it stays on this phone."
+                         : "\(unsent) order drafts are not sent. Review and send them before End call, or they stay on this phone.")
+                        .font(SunprideTokens.TypeStyle.meta).foregroundStyle(SunprideTokens.secondaryText)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(16)
+                        .accessibilityIdentifier("orderUnsent")
                 }
                 if open {
                     if !drafts.isEmpty { activityDivider }
