@@ -203,7 +203,8 @@ class VisitSync(private val gateway: SignedVisitGateway, private val store: Fiel
             val page = VisitCodec.pullPage(text)
             val changes = page.changes.map { c ->
                 val entity = c.getString("entity"); val op = c.getString("op")
-                check(entity in setOf("visit", "activity") && op in setOf("upsert", "tombstone"))
+                check(entity in setOf("visit", "activity", "product", "inventory") && op in setOf("upsert", "tombstone"))
+                check(entity !in setOf("product", "inventory") || op == "upsert")
                 val value = if (op == "upsert") c.getJSONObject("value").toString() else null
                 DeltaRow(scope.account, scope.deviceId, scope.fingerprint, entity, c.getString("id"),
                     c.getLong("revision"), value, op == "tombstone")

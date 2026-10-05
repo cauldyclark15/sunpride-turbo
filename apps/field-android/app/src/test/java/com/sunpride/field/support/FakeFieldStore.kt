@@ -7,21 +7,28 @@ import java.util.UUID
 class FakeFieldStore(val identity: StoreScope) : FieldStore {
     private val staged = mutableMapOf<String, ScopedSnapshot>()
     private var active: ScopedSnapshot? = null
+    private var activeGeneration: String? = null
     private var lease = 0L
     private var token: String? = null
     private var held = false
     private var health = "never_synced"
     private val rows = mutableListOf<Pair<IntentRow, OutboxRow>>()
     private val acks = mutableMapOf<String, AckRow>()
+    private val deltas = mutableMapOf<Pair<String, String>, DeltaRow>()
     override suspend fun stage(snapshot: ScopedSnapshot): String {
         require(snapshot.employeeJson.isNotBlank())
         require(snapshot.callSheets.map { it.outletId }.distinct().size == snapshot.callSheets.size)
         snapshot.callSheets.forEach { CallSheetCodec.decode(CallSheetCodec.encode(it)) }
+        require(snapshot.productCatalog.distinctBy { it.id }.size == snapshot.productCatalog.size)
+        require(snapshot.inventoryAvailability.distinctBy { it.id }.size == snapshot.inventoryAvailability.size)
+        snapshot.productCatalog.forEach { ReferenceDataCodec.product(ReferenceDataCodec.encode(it)) }
+        snapshot.inventoryAvailability.forEach { ReferenceDataCodec.availability(ReferenceDataCodec.encode(it)) }
         return UUID.randomUUID().toString().also { staged[it] = snapshot }
     }
     override suspend fun swap(generation: String, cursor: String, leaseExpiresAt: Long, cacheExpiresAt: Long, releaseHeld: Boolean) {
         require(generation.isNotBlank() && cursor.isNotBlank() && leaseExpiresAt > 0 && cacheExpiresAt > 0)
         active = staged[generation] ?: error("Unstaged snapshot")
+        activeGeneration = generation
         lease = leaseExpiresAt
         held = held && !releaseHeld
         token = if (held) null else cursor
@@ -31,6 +38,63 @@ class FakeFieldStore(val identity: StoreScope) : FieldStore {
     override suspend fun todaysVisits(day: String) = active?.visits?.filter { it.serviceDate == day } ?: emptyList()
     override suspend fun outlets() = active?.outlets ?: emptyList()
     override suspend fun callSheet(outletId: String) = active?.callSheets?.singleOrNull { it.outletId == outletId }
+    override suspend fun catalog() = active?.productCatalog?.sortedWith(compareBy({ it.code }, { it.id })) ?: emptyList()
+    override suspend fun availability(productId: String) = active?.inventoryAvailability
+        ?.filter { it.productId == productId }?.sortedWith(compareBy({ it.locationCode }, { it.id })) ?: emptyList()
+    override suspend fun delta(entity: String, id: String): DeltaRow? = when (entity) {
+        "product" -> active?.productCatalog?.find { it.id == id }?.let {
+            DeltaRow(identity.account, identity.deviceId, identity.fingerprint, entity, id,
+                it.revision, ReferenceDataCodec.encode(it).toString(), false)
+        }
+        "inventory" -> active?.inventoryAvailability?.find { it.id == id }?.let {
+            DeltaRow(identity.account, identity.deviceId, identity.fingerprint, entity, id,
+                it.revision, ReferenceDataCodec.encode(it).toString(), false)
+        }
+        else -> deltas[entity to id]
+    }
+    override suspend fun applyDelta(changes: List<DeltaRow>, nextCursor: String) {
+        require(nextCursor.isNotBlank())
+        check(!held && active != null)
+        // Work on copies; malformed later rows roll back earlier changes and cursor, just like Room.
+        var snapshot = active!!
+        val nextDeltas = deltas.toMutableMap()
+        val nextStaged = staged.toMutableMap()
+        fun refresh(s: ScopedSnapshot, p: CatalogProduct) = s.copy(callSheets = s.callSheets.map { sheet ->
+            sheet.copy(lines = sheet.lines.map { line -> if (line.productId != p.id) line else
+                line.copy(code = p.code, name = p.name, uom = p.uom, barcode = p.barcodes.firstOrNull()?.barcode) })
+        })
+        for (change in changes) {
+            require(change.account == identity.account && change.deviceId == identity.deviceId &&
+                change.scope == identity.fingerprint && change.revision > 0 &&
+                change.entity in setOf("visit", "activity", "product", "inventory"))
+            when (change.entity) {
+                "product" -> {
+                    val p = ReferenceDataCodec.productChange(change)
+                    val prior = snapshot.productCatalog.find { it.id == p.id }
+                    if (prior == null || p.revision >= prior.revision) {
+                        snapshot = refresh(snapshot.copy(productCatalog = snapshot.productCatalog.filter { it.id != p.id } + p), p)
+                        nextStaged.replaceAll { _, s -> refresh(s, p) }
+                    }
+                }
+                "inventory" -> {
+                    val i = ReferenceDataCodec.inventoryChange(change)
+                    val prior = snapshot.inventoryAvailability.find { it.id == i.id }
+                    if (prior == null || i.revision >= prior.revision)
+                        snapshot = snapshot.copy(inventoryAvailability = snapshot.inventoryAvailability.filter { it.id != i.id } + i)
+                }
+                else -> {
+                    val key = change.entity to change.entityId
+                    val prior = nextDeltas[key]
+                    if (prior == null || change.revision > prior.revision) nextDeltas[key] = change
+                }
+            }
+        }
+        active = snapshot
+        nextStaged[activeGeneration!!] = snapshot
+        staged.clear(); staged.putAll(nextStaged)
+        deltas.clear(); deltas.putAll(nextDeltas)
+        token = nextCursor
+    }
     override suspend fun activityRules() = active?.activityRules ?: emptyList()
     override suspend fun isLeaseValid(now: Long) = !held && active != null && now < lease
     override suspend fun enqueue(intent: IntentRow, now: Long) {

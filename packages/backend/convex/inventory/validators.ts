@@ -87,6 +87,22 @@ export type MovementType =
   | "production_scrap"
   | "reversal";
 
+/** Outbound movement types a distributor negative-stock allowance may cover (SP-0085). */
+export const NEGATIVE_STOCK_MOVEMENT_TYPES = [
+  "pos_sale",
+  "inventory_issue",
+  "transfer_ship",
+] as const;
+
+export type NegativeStockMovementType =
+  (typeof NEGATIVE_STOCK_MOVEMENT_TYPES)[number];
+
+export const negativeStockMovementTypeValidator = v.union(
+  v.literal("pos_sale"),
+  v.literal("inventory_issue"),
+  v.literal("transfer_ship"),
+);
+
 export const enteredQuantityValidator = v.object({
   quantity: v.string(),
   uomCode: v.string(),

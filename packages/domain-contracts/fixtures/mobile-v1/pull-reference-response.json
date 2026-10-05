@@ -1,0 +1,79 @@
+{
+  "type": "pull.response",
+  "contractVersion": 1,
+  "serverTime": 1790380800001,
+  "changes": [
+    {
+      "seq": 7,
+      "entity": "visit",
+      "id": "visit-1",
+      "revision": 7,
+      "op": "tombstone"
+    },
+    {
+      "seq": 7,
+      "entity": "inventory",
+      "id": "balance-1",
+      "revision": 1790380790000,
+      "op": "upsert",
+      "value": {
+        "id": "balance-1",
+        "productId": "product-1",
+        "locationId": "location-1",
+        "locationCode": "BR-MNL-01",
+        "locationName": "Manila branch",
+        "availableBase": 12000,
+        "physicalBase": 30000,
+        "reservedBase": 6000,
+        "revision": 1790380790000,
+        "asOf": 1790380790000
+      }
+    },
+    {
+      "seq": 7,
+      "entity": "product",
+      "id": "product-1",
+      "revision": 1790380790000,
+      "op": "upsert",
+      "value": {
+        "id": "product-1",
+        "code": "SUNP-001",
+        "name": "Sunpride Corned Beef 150g (new label)",
+        "uom": "CAN",
+        "revision": 1790380790000,
+        "quantityScale": 1000,
+        "baseUom": {
+          "code": "CAN",
+          "name": "Can",
+          "decimalPlaces": 0
+        },
+        "sellingUoms": [
+          {
+            "code": "CS",
+            "name": "Case",
+            "decimalPlaces": 0,
+            "toBase": {
+              "numerator": 48000,
+              "denominator": 1,
+              "roundingMode": "exact"
+            }
+          },
+          {
+            "code": "CAN",
+            "name": "Can",
+            "decimalPlaces": 0,
+            "toBase": null
+          }
+        ],
+        "barcodes": [
+          {
+            "barcode": "4800000000017",
+            "uom": "CAN"
+          }
+        ]
+      }
+    }
+  ],
+  "nextCursor": "opaque-next",
+  "hasMore": false
+}
