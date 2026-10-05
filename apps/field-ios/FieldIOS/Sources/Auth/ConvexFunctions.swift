@@ -77,8 +77,12 @@ final class ConvexFunctions {
             return success.value
         case "error":
             let failure = try? JSONDecoder().decode(Failure.self, from: data)
-            if case .text(let text)? = failure?.errorData { throw MobileError.rejected(Self.reason(text)) }
-            throw MobileError.rejected(Self.reason(failure?.errorMessage ?? "unknown error"))
+            let reason: String
+            if case .text(let text)? = failure?.errorData { reason = Self.reason(text) }
+            else { reason = Self.reason(failure?.errorMessage ?? "unknown error") }
+            // QSR-009: the server's back-off signal (challenge/bind budget spent) is retryable later.
+            if reason == "rate_limited" { throw MobileError.rateLimited }
+            throw MobileError.rejected(reason)
         default:
             throw MobileError.invalidResponse
         }

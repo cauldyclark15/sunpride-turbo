@@ -193,7 +193,7 @@ try {
     deviceId,
   });
   const timestamp = Date.now();
-  await sales.mutation(api.mobile.devices.bind, {
+  const bound = await sales.mutation(api.mobile.devices.bind, {
     deviceId,
     credentialId,
     attestation: { format: "dev-unverified" },
@@ -203,6 +203,7 @@ try {
       `BIND|${deviceId}|${credentialId}|${challenge.nonce}|${timestamp}`,
     ),
   });
+  if (bound.bindingStatus !== "bound") throw new Error("Bind proof rejected");
   statuses.push("bound");
   let snapshot = await post("bootstrap", { limit: 100 });
   const visits = [...(snapshot.plannedVisits as Record<string, unknown>[])];

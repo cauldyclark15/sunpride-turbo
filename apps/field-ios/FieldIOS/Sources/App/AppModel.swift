@@ -746,6 +746,9 @@ final class AppModel {
                 if case .removed = enrollment.state { holdActive() }
                 syncMessage = "Sync proof refused — work retained."
                 return
+            } catch VisitSyncClient.Failure.throttled {
+                syncMessage = "Sync is busy — queued work retained; it will try again shortly."
+                return
             } catch is CancellationError {
                 breadcrumb(.syncCancelled)
                 return
@@ -796,6 +799,8 @@ final class AppModel {
                 await enrollment.check()
                 if case .removed = enrollment.state { holdActive() }
                 syncMessage = "Sync proof refused — work retained."
+            } catch VisitSyncClient.Failure.throttled {
+                syncMessage = "Sync is busy — queued work retained; it will try again shortly."
             } catch is CancellationError {
                 breadcrumb(.syncCancelled)
                 return
@@ -818,6 +823,7 @@ final class AppModel {
                     holdActive()
                 } else { syncMessage = "Sign-in or phone proof was refused." }
             case .retryable: syncMessage = "Sync unavailable. Showing last saved visits."
+            case .throttled: syncMessage = "Sync is busy. It will try again shortly; showing last saved visits."
             case .invalidResponse: syncMessage = "Unexpected sync response. Showing saved visits."
             }
         } catch is CancellationError {
