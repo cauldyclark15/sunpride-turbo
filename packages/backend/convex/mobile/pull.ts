@@ -11,6 +11,7 @@ import {
   signCursor,
 } from "./cursor";
 import { assertDevice, dayProjection } from "./projection";
+import { REFERENCE_OVERLAP_MS, referenceChanges } from "./reference";
 import type { AuthorizedDevice } from "./types";
 
 const changeDTO = v.object({
@@ -127,10 +128,15 @@ export const delta = internalQuery({
       throw new ConvexError("invalid_request");
     const cursor = await readCursor(token, "pull", actor, now);
     const day = manilaDate(now);
-    if (
-      cursor.day !== day ||
-      (await dayProjection(ctx, actor, day, now)).manifest !== cursor.manifest
-    )
+    if (cursor.day !== day) throw new ConvexError("rebootstrap_required");
+    const projection = await dayProjection(
+      ctx,
+      actor,
+      day,
+      now,
+      !!cursor.reference,
+    );
+    if (projection.manifest !== cursor.manifest)
       throw new ConvexError("rebootstrap_required");
     // Close a finite window at the start of each new pull cycle. Continue that exact high-water
     // over filtered pages; a later write cannot move the end of this cycle.
@@ -174,11 +180,42 @@ export const delta = internalQuery({
       const change = await project(ctx, row, actor, now);
       if (change) changes.push(change);
     }
-    const hasMore = rows.length > selected.length;
+    const feedMore = rows.length > selected.length;
+    // Reference rows (SP-0051) follow the person's own feed once it is drained for this cycle.
+    let reference = cursor.reference;
+    let referenceMore = false;
+    if (reference && projection.reference && !feedMore) {
+      const { low } = reference;
+      const top = reference.pos === null ? now : reference.high;
+      const after = reference.pos ?? "";
+      const pending = referenceChanges(projection.reference).filter(
+        (c) => c.revision > low && c.revision <= top && c.key > after,
+      );
+      const room = Math.max(0, (limit ?? 50) - selected.length);
+      const emitted = pending.slice(0, room);
+      for (const c of emitted)
+        changes.push({
+          seq: high,
+          entity: c.entity,
+          id: c.id,
+          revision: c.revision,
+          op: "upsert",
+          value: c.value,
+        });
+      referenceMore = pending.length > emitted.length;
+      if (referenceMore)
+        reference = { low, high: top, pos: emitted.at(-1)?.key ?? after };
+      else {
+        const next = Math.max(low, top - REFERENCE_OVERLAP_MS);
+        reference = { low: next, high: next, pos: null };
+      }
+    }
+    const hasMore = feedMore || referenceMore;
     const next = {
       ...cursor,
+      ...(reference ? { reference } : {}),
       watermark: high,
-      after: hasMore ? expected : high,
+      after: feedMore ? expected : high,
       tie: selected.at(-1)?._id ?? cursor.tie,
       expires: now + CURSOR_TTL_MS,
     };

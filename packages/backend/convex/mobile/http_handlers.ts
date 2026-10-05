@@ -478,6 +478,7 @@ async function serve(
           "dayFrom",
           "pageCursor",
           "limit",
+          "referenceData",
         ]
       : route === "pull"
         ? ["type", "contractVersion", "deviceId", "cursor", "limit"]
@@ -489,7 +490,9 @@ async function serve(
         (typeof body.dayFrom !== "string" ||
           !/^\d{4}-\d{2}-\d{2}$/.test(body.dayFrom))) ||
         (body.pageCursor !== undefined &&
-          typeof body.pageCursor !== "string"))) ||
+          typeof body.pageCursor !== "string") ||
+        (body.referenceData !== undefined &&
+          typeof body.referenceData !== "boolean"))) ||
     (route === "pull" &&
       (typeof body.cursor !== "string" || body.cursor.length > 4096)) ||
     (route !== "push" &&
@@ -550,6 +553,7 @@ async function serve(
         dayFrom: body.dayFrom as string | undefined,
         pageCursor: body.pageCursor as string | undefined,
         limit: body.limit as number | undefined,
+        referenceData: body.referenceData as boolean | undefined,
       });
       return await readJson(request, value);
     }

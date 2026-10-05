@@ -27,7 +27,25 @@ export type Cursor = {
   day: string;
   manifest: string;
   page: number;
+  /**
+   * Reference-data opt-in (SP-0051). Pull cycle over revisions in (low, high]; `pos` is the last
+   * emitted key inside an open cycle ("" when opened with nothing emitted), null between cycles.
+   */
+  reference?: { low: number; high: number; pos: string | null };
 };
+function validReference(value: unknown) {
+  if (value === undefined) return true;
+  if (!value || typeof value !== "object") return false;
+  const ref = value as Record<string, unknown>;
+  return (
+    Object.keys(ref).length === 3 &&
+    Number.isSafeInteger(ref.low) &&
+    Number.isSafeInteger(ref.high) &&
+    (ref.low as number) >= 0 &&
+    (ref.high as number) >= (ref.low as number) &&
+    (ref.pos === null || (typeof ref.pos === "string" && ref.pos.length <= 512))
+  );
+}
 const enc = new TextEncoder();
 const b64 = (bytes: Uint8Array) =>
   btoa(Array.from(bytes, (b) => String.fromCharCode(b)).join(""))
@@ -108,7 +126,8 @@ export async function readCursor(
       !Number.isSafeInteger(value.page) ||
       value.page < 0 ||
       !Number.isSafeInteger(value.expires) ||
-      value.expires <= now
+      value.expires <= now ||
+      !validReference(value.reference)
     )
       throw new Error("binding");
     return value;
