@@ -42,13 +42,17 @@ class RouteScreenTest {
     private fun summaries() = rule.onAllNodesWithTag("route-stop-summary", useUnmergedTree = false)
 
     @Test fun listsStopsInPlanOrderWithStateAndDistanceFromTheCachedDay() {
-        val location = FakeLocation(JSONObject().put("latitude", 14.5764).put("longitude", 121.0851))
+        // A complete fix, as AndroidVisitLocation returns one: a bare lat/lng is not a fix the app accepts.
+        val location = FakeLocation(JSONObject().put("latitude", 14.5764).put("longitude", 121.0851)
+            .put("accuracyMeters", 8.0).put("fixTime", System.currentTimeMillis()).put("provider", "fused"))
         rule.setContent {
             MaterialTheme(colorScheme = SunprideTokens.lightColors) {
                 RouteScreen(day, location, onNavigate = { true }, offline = true)
             }
         }
         rule.waitUntil(5_000) { location.calls > 0 }
+        // The fix lands after the call returns; distance shows once the "needs location" row goes away.
+        rule.waitUntil(5_000) { rule.onAllNodesWithTag("route-location").fetchSemanticsNodes().isEmpty() }
         rule.onNodeWithTag("route-summary").assertTextContains("1 of 4 done · Saved on this phone")
         summaries().assertCountEquals(4)
         summaries()[0].assertTextContains("First Store").assertTextContains("Done · 10 m · 12 min")
