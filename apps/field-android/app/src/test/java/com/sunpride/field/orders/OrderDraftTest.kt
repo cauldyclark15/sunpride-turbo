@@ -137,12 +137,14 @@ class OrderDraftTest {
         for (forged in listOf(draft.copy(territoryId = "other"), draft.copy(customerId = "other"),
             draft.copy(outletId = "outlet-2"), draft.copy(routeId = null),
             draft.copy(lines = listOf(draft.lines.single().copy(uom = "CASE"))), draft.copy(priceAvailability = "available"))) {
-            assertTrue(runCatching { store.saveOrderDraft(forged) }.isFailure)
+            assertTrue(runCatching { store.saveOrderDraft(forged, forged.updatedAt) }.isFailure)
         }
         assertTrue(store.orderDrafts().isEmpty())
-        assertEquals(OrderDraftFailure.Code.CATALOG_CHANGED, failure { store.saveOrderDraft(draft.copy(catalogRevision = 1)) })
-        store.saveOrderDraft(draft)
-        assertTrue(runCatching { store.saveOrderDraft(draft.copy(createdAt = 11)) }.isFailure)
+        assertEquals(OrderDraftFailure.Code.CATALOG_CHANGED, failure { store.saveOrderDraft(draft.copy(catalogRevision = 1), 10) })
+        store.saveOrderDraft(draft, 10)
+        // The save time is the draft's own time; a mismatched clock never persists.
+        assertTrue(runCatching { store.saveOrderDraft(draft.copy(updatedAt = 12), 11) }.isFailure)
+        assertTrue(runCatching { store.saveOrderDraft(draft.copy(createdAt = 11), 10) }.isFailure)
         // The office later removes product-1 from the account setup: the saved line is reported stale.
         val sheet = store.callSheet("outlet-1")!!
         assertEquals(listOf("product-1"), OrderDraftRules.staleLines(draft, sheet.copy(lines = sheet.lines.drop(1))).map { it.productId })
@@ -154,9 +156,29 @@ class OrderDraftTest {
         val check = checkIn(store)
         val draft = saveOrderDraftIn(store, null, check.clientVisitId, check.requestId, listOf("product-1" to 2), 10)
         store.holdForReview()
-        assertEquals(OrderDraftFailure.Code.HELD, failure { store.saveOrderDraft(draft.copy(updatedAt = 20)) })
+        assertEquals(OrderDraftFailure.Code.HELD, failure { store.saveOrderDraft(draft.copy(updatedAt = 20), 20) })
         assertEquals(OrderDraftFailure.Code.HELD, failure { store.discardOrderDraft(draft.draftId) })
         assertEquals(listOf(draft), store.orderDrafts())
+    }
+
+    @Test fun openCallCannotTakeNewOrderWorkAfterTheOfflineLeaseExpires() = runBlocking {
+        val store = FakeFieldStore(scope).apply { swap(stage(snapshot()), "cursor", 1_000, Long.MAX_VALUE) }
+        val check = checkIn(store) // call opened at 100, inside the lease
+        val draft = saveOrderDraftIn(store, null, check.clientVisitId, check.requestId, listOf("product-1" to 2), 999)
+        // The call is still open, but the lease ended at 1,000: no new draft and no edit to the saved one.
+        assertEquals(OrderDraftFailure.Code.OFFLINE_EXPIRED, failure {
+            saveOrderDraftIn(store, null, check.clientVisitId, check.requestId, listOf("product-1" to 1), 1_000)
+        })
+        assertEquals(OrderDraftFailure.Code.OFFLINE_EXPIRED, failure {
+            saveOrderDraftIn(store, draft.draftId, check.clientVisitId, check.requestId, listOf("product-1" to 5), 5_000)
+        })
+        // A forged early timestamp on a late save is refused too (draft time must equal save time).
+        assertTrue(runCatching { store.saveOrderDraft(draft.copy(updatedAt = 999), 5_000) }.isFailure)
+        assertEquals(listOf(draft), store.orderDrafts())
+        // A fresh sync renews the lease and editing resumes.
+        store.swap(store.stage(snapshot()), "cursor-2", 10_000, Long.MAX_VALUE)
+        val renewed = saveOrderDraftIn(store, draft.draftId, check.clientVisitId, check.requestId, listOf("product-1" to 5), 5_000)
+        assertEquals(listOf(renewed), store.orderDrafts())
     }
 
     private val signer = object : DeviceSigner {

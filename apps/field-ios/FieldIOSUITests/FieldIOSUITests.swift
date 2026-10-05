@@ -27,9 +27,10 @@ final class FieldIOSUITests: XCTestCase {
 
     // MARK: Stubbed backend (DEBUG `FIELD_STUB_BACKEND`; no network, no real account)
 
-    private func launchStub(_ scenario: String) -> XCUIApplication {
+    private func launchStub(_ scenario: String, environment: [String: String] = [:]) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["FIELD_STUB_BACKEND"] = scenario
+        for (key, value) in environment { app.launchEnvironment[key] = value }
         app.launch()
         return app
     }
@@ -565,6 +566,40 @@ final class FieldIOSUITests: XCTestCase {
         XCTAssertTrue(offline.descendants(matching: .any)["teamPerson-profile-ana"].exists)
         XCTAssertTrue(offline.staticTexts["teamSummary"].label.hasSuffix("Saved on this phone"))
         capture(offline, "team-saved-offline")
+    }
+
+    /// IOS-018: with several navigation apps installed, Directions asks which one to hand the pin to.
+    func testDirectionsOffersEachInstalledNavigationApp() {
+        let app = launchStub("registers", environment: ["FIELD_STUB_NAV_APPS": "googleMaps,waze"])
+        signIn(app, password: "correct-horse")
+        let open = app.buttons["openRoute"]
+        XCTAssertTrue(open.waitForExistence(timeout: 20))
+        open.tap()
+        let directions = app.buttons["routeDirections-planned-stub-1"]
+        XCTAssertTrue(directions.waitForExistence(timeout: 5))
+        directions.tap()
+        XCTAssertTrue(app.buttons["navigateWith-appleMaps"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["navigateWith-googleMaps"].exists)
+        XCTAssertTrue(app.buttons["navigateWith-waze"].exists)
+        // Waze is only pretended installed here, so the system refuses it and the route says so.
+        app.buttons["navigateWith-waze"].firstMatch.tap()
+        let failure = app.staticTexts["routeDirectionsError"]
+        XCTAssertTrue(failure.waitForExistence(timeout: 5))
+        XCTAssertEqual(failure.label, "Could not open Waze")
+        XCTAssertTrue(app.staticTexts["routeTitle"].exists, "a refused app leaves the seller on the route")
+        // The stop sheet offers the same choice; Apple Maps really opens with the stop.
+        app.buttons["routeStop-planned-stub-1"].tap()
+        let sheetDirections = app.buttons["routeCustomerDirections"]
+        XCTAssertTrue(sheetDirections.waitForExistence(timeout: 5))
+        sheetDirections.tap()
+        let apple = app.buttons["navigateWith-appleMaps"].firstMatch
+        XCTAssertTrue(apple.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["navigateWith-googleMaps"].exists)
+        apple.tap()
+        let maps = XCUIApplication(bundleIdentifier: "com.apple.Maps")
+        XCTAssertTrue(maps.wait(for: .runningForeground, timeout: 15), "Apple Maps takes over navigation")
+        app.activate()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
     }
 
     /// IOS-011: search only the downloaded (scoped) outlets, offline, and open an outlet's detail.
