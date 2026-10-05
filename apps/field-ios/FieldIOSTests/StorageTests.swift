@@ -253,7 +253,7 @@ final class StorageTests: XCTestCase {
         return StoreSnapshot(employee: page.employee, visits: page.plannedVisits, outlets: page.outlets,
                              customers: [], route: nil, tasks: [], callSheets: page.callSheets)
     }
-    func testV2ToV3MigrationPreservesSnapshotUUIDsAcksLeaseAndOutbox() throws {
+    func testV2ToV6MigrationPreservesSnapshotUUIDsAcksLeaseAndOutbox() throws {
         let p = try partition, store = try open(), accepted = intent(), pending = intent()
         try seeded(store, p)
         try store.enqueue(accepted, for: p, now: now)
@@ -264,7 +264,7 @@ final class StorageTests: XCTestCase {
         XCTAssertEqual(store.schemaVersion, 2)
         store.close()
         let upgraded = try open()
-        XCTAssertEqual(upgraded.schemaVersion, 5)
+        XCTAssertEqual(upgraded.schemaVersion, 6)
         XCTAssertEqual(try upgraded.pendingOutbox(for: p).map(\.intent), [pending])
         XCTAssertEqual(try upgraded.ack(for: accepted.requestId, in: p), ack)
         XCTAssertEqual(try upgraded.snapshot(for: p)?.visits.first?.id, "planned-1")
@@ -275,7 +275,7 @@ final class StorageTests: XCTestCase {
                                   cacheExpiresAt: 1_790_467_200_000, for: p)
         upgraded.close()
         let reopened = try open()
-        XCTAssertEqual(reopened.schemaVersion, 5)
+        XCTAssertEqual(reopened.schemaVersion, 6)
         XCTAssertEqual(try reopened.snapshot(for: p)?.callSheets.count, 1)
         XCTAssertEqual(try reopened.pendingOutbox(for: p).first?.intent, pending)
         reopened.close()

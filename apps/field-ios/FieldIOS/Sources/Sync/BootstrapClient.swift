@@ -42,6 +42,8 @@ final class BootstrapClient {
         var visits: [StoreSnapshot.Visit] = []
         var outlets: [StoreSnapshot.Outlet] = []
         var callSheets: [CallSheet] = []
+        var products: [BootstrapV1.Product] = []
+        var inventory: [BootstrapV1.InventoryAvailability] = []
         var summaries: [AccountSummary] = []
         var customers: [StoreSnapshot.Customer] = []
         var tasks: [StoreSnapshot.Task] = []
@@ -70,6 +72,8 @@ final class BootstrapClient {
             visits += page.plannedVisits
             outlets += page.outlets
             callSheets += page.callSheets
+            products += page.productCatalog
+            inventory += page.inventoryAvailability
             summaries += page.accountSummaries
             customers += page.localCustomers
             tasks += page.tasks
@@ -112,6 +116,8 @@ final class BootstrapClient {
             let uniqueOutlets = try Self.unique(outlets, id: { $0.id }, equivalent: { $0.name == $1.name && $0.routeId == $1.routeId })
             let uniqueCustomers = try Self.unique(customers, id: { $0.id }, equivalent: { $0.code == $1.code })
             let uniqueCallSheets = try Self.unique(callSheets, id: { $0.outletId }, equivalent: { $0 == $1 })
+            let uniqueProducts = try Self.unique(products, id: { $0.id }, equivalent: { $0 == $1 })
+            let uniqueInventory = try Self.unique(inventory, id: { $0.id }, equivalent: { $0 == $1 })
             // The server ships each outlet's figures once per snapshot; a repeat must be identical.
             let uniqueSummaries = try Self.unique(summaries, id: { $0.outletId }, equivalent: { $0 == $1 })
             guard Set(visits.map(\.id)).count == visits.count,
@@ -119,6 +125,7 @@ final class BootstrapClient {
                   visits.allSatisfy({ visit in uniqueOutlets.contains(where: { $0.id == visit.outletId }) }) else { throw Failure.invalidResponse }
             let snapshot = StoreSnapshot(employee: initial.employee, visits: visits, outlets: uniqueOutlets,
                                          customers: uniqueCustomers, route: route, tasks: tasks, callSheets: uniqueCallSheets,
+                                         productCatalog: uniqueProducts, inventoryAvailability: uniqueInventory,
                                          accountSummaries: uniqueSummaries, dayTarget: dayTarget, daySales: daySales,
                                          activityRules: activityRules ?? [], photoTypes: photoTypes ?? [])
             try store.saveSnapshot(snapshot, cursor: cursor, leaseExpiresAt: lease, cacheExpiresAt: cache, for: partition)
@@ -143,7 +150,8 @@ final class BootstrapClient {
 
     private func fetch(deviceId: String, cursor: String?, previous: StorePartition?,
                        store: any FieldLocalStore) async throws -> BootstrapV1.Page {
-        let body = try JSONEncoder().encode(BootstrapV1.Request(deviceId: deviceId, pageCursor: cursor))
+        let body = try JSONEncoder().encode(BootstrapV1.Request(deviceId: deviceId, pageCursor: cursor,
+                                                               referenceData: cursor == nil ? true : nil))
         for attempt in 0..<2 {
             let jwt = try await auth.convexToken(forceRefresh: attempt > 0)
             let challenge = try await registry.challenge(deviceId: deviceId)
