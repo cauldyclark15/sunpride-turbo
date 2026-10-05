@@ -224,7 +224,8 @@ completed; Medium = workaround exists; Low = cosmetic.
   the server once, in order; a second sync creates nothing new; the phone shows all synced.
 - Automated: `packages/backend/convex/acceptance/sfa_pilot.acceptance.test.ts` — "UAT-E2E-02 offline replay is idempotent, payload conflicts and missing dependencies reject, and MCP call order is enforced"
 - Automated: `packages/backend/convex/mobile/push.test.ts` — "replays a batch across calls and clock advance without new domain/event/change rows"
-- Manual only: airplane mode, app restart and reconnect on the real phone.
+- Automated: `packages/backend/convex/mobile/chaos.test.ts` — "drains a two-store offline day exactly once under 40 seeded mixes of airplane mode, lost requests, lost acks, duplicates and restart replays"
+- Manual only: airplane mode, app restart and reconnect on the real phone (device protocol in `docs/qa/OFFLINE_CHAOS_TESTS.md`).
 
 ### E. Orders
 

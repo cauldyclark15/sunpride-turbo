@@ -8,6 +8,8 @@
  * @module
  */
 
+import type * as analytics_agent_metrics from "../analytics/agent_metrics.js";
+import type * as analytics_agent_metrics_model from "../analytics/agent_metrics_model.js";
 import type * as analytics_compliance from "../analytics/compliance.js";
 import type * as analytics_compliance_model from "../analytics/compliance_model.js";
 import type * as analytics_customer from "../analytics/customer.js";
@@ -18,6 +20,8 @@ import type * as analytics_productivity from "../analytics/productivity.js";
 import type * as analytics_productivity_model from "../analytics/productivity_model.js";
 import type * as analytics_rollups from "../analytics/rollups.js";
 import type * as analytics_rollups_model from "../analytics/rollups_model.js";
+import type * as analytics_sku from "../analytics/sku.js";
+import type * as analytics_sku_model from "../analytics/sku_model.js";
 import type * as analytics_suggested_order_model from "../analytics/suggested_order_model.js";
 import type * as analytics_suggested_orders from "../analytics/suggested_orders.js";
 import type * as analytics_territory from "../analytics/territory.js";
@@ -178,6 +182,8 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  "analytics/agent_metrics": typeof analytics_agent_metrics;
+  "analytics/agent_metrics_model": typeof analytics_agent_metrics_model;
   "analytics/compliance": typeof analytics_compliance;
   "analytics/compliance_model": typeof analytics_compliance_model;
   "analytics/customer": typeof analytics_customer;
@@ -188,6 +194,8 @@ declare const fullApi: ApiFromModules<{
   "analytics/productivity_model": typeof analytics_productivity_model;
   "analytics/rollups": typeof analytics_rollups;
   "analytics/rollups_model": typeof analytics_rollups_model;
+  "analytics/sku": typeof analytics_sku;
+  "analytics/sku_model": typeof analytics_sku_model;
   "analytics/suggested_order_model": typeof analytics_suggested_order_model;
   "analytics/suggested_orders": typeof analytics_suggested_orders;
   "analytics/territory": typeof analytics_territory;

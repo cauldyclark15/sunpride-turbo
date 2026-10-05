@@ -178,7 +178,9 @@ class VisitSync(private val gateway: SignedVisitGateway, private val store: Fiel
     }
     private suspend fun backoff() {
         val step = retry.updateAndGet { min(it + 1, 6) }
-        store.setSyncHealth("retry_pending")
+        // A held partition (e.g. lease renewal that lost the network mid-bootstrap) stays held: only a
+        // verified bootstrap releases it, and Room forbids overwriting the hold with retry_pending.
+        if (store.syncHealth() != "held_for_review") store.setSyncHealth("retry_pending")
         pause(min(30_000L, 500L shl step) + jitter())
     }
     private fun failure(code: Int, body: String): BootstrapFailure {
