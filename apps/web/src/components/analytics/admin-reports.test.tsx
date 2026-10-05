@@ -75,6 +75,7 @@ vi.mock("convex/react", () => {
           ]
         : [],
     collectionLinesTruncated: false,
+    buyingAccountsTruncated: false,
   });
   return {
     useQuery: (ref: unknown) => {
@@ -124,7 +125,7 @@ vi.mock("convex/react", () => {
   };
 });
 
-import { AdminReports } from "./admin-reports";
+import { AdminReports, AdminReportsView } from "./admin-reports";
 
 describe("admin report pack", () => {
   it("adds every page into the four memo figures, programs and collections", () => {
@@ -150,5 +151,38 @@ describe("admin report pack", () => {
     expect(html).toContain("Claims Summary (ADP)");
     expect(html).toContain("Export CSV");
     expect(html).toContain("Region B");
+  });
+
+  it("refuses to export a report whose source rows were capped", () => {
+    const view = (flags: {
+      truncated?: boolean;
+      buyingAccountsTruncated?: boolean;
+      collectionLinesTruncated?: boolean;
+    }) =>
+      renderToStaticMarkup(
+        createElement(AdminReportsView, {
+          serviceDate: "2026-09-30",
+          rows: [ana] as never,
+          programs: [],
+          collectionLines: [],
+          peopleInScope: 1,
+          loading: false,
+          truncated: flags.truncated ?? false,
+          collectionLinesTruncated: flags.collectionLinesTruncated ?? false,
+          buyingAccountsTruncated: flags.buyingAccountsTruncated,
+        }),
+      );
+    const disabled = (html: string) =>
+      html.match(/<button[^>]*disabled[^>]*>/g)?.length ?? 0;
+    expect(disabled(view({}))).toBe(0);
+    const uba = view({ buyingAccountsTruncated: true });
+    expect(uba).toContain("UBA is incomplete and cannot be exported");
+    expect(disabled(uba)).toBe(1);
+    const lines = view({ collectionLinesTruncated: true });
+    expect(lines).toContain(
+      "cannot be\n              exported".replace(/\n\s+/, " "),
+    );
+    expect(disabled(lines)).toBe(1);
+    expect(disabled(view({ truncated: true }))).toBe(3);
   });
 });

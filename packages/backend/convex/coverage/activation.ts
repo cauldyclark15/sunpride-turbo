@@ -10,6 +10,8 @@ import schema from "../schema";
 import { requireCapability } from "../lib/capabilities";
 import { requireActiveProfile } from "../lib/auth";
 import { auditPlan, planState } from "./audit";
+import { queuePlanRollup } from "../analytics/rollups";
+import { queueAgentDay } from "../analytics/agent_metrics";
 import {
   approvedSlots,
   bounded,
@@ -91,6 +93,10 @@ async function reconcile(
   const visitIds: Id<"plannedVisits">[] = [];
   const newBySlot = new Map<string, Id<"plannedVisits">>();
   const newByOutlet = new Map<string, Id<"plannedVisits">>();
+  // Person/days whose planned calls changed; their daily agent metrics are refreshed below.
+  const touchedDays = new Map<string, [Id<"profiles">, string]>();
+  const touch = (profileId: Id<"profiles">, serviceDate: string) =>
+    touchedDays.set(`${profileId}|${serviceDate}`, [profileId, serviceDate]);
   for (const slot of eligible) {
     const snapshot = slot.approvedSnapshot!;
     const generationKey = [
@@ -126,6 +132,7 @@ async function reconcile(
         expectedDurationMinutes: slot.expectedDurationMinutes,
         generatedAt: now,
       }));
+    if (!existing[0]) touch(plan.assigneeProfileId, slot.serviceDate);
     visitIds.push(id);
     newBySlot.set(`${slot.serviceDate}|${slot.slotKey}`, id);
     newByOutlet.set(`${slot.serviceDate}|${snapshot.outletId}`, id);
@@ -174,6 +181,7 @@ async function reconcile(
       });
       if (replacement)
         await ctx.db.patch(replacement, { replacementOfVisitId: old._id });
+      touch(old.assigneeProfileId, old.serviceDate);
       await auditPlan(
         ctx,
         predecessor,
@@ -190,6 +198,7 @@ async function reconcile(
       displaced++;
     }
     await signalPlan(ctx, predecessor, now);
+    await queuePlanRollup(ctx, predecessor._id);
     await ctx.db.patch(predecessor._id, {
       status: "superseded",
       supersededAt: now,
@@ -215,8 +224,12 @@ async function reconcile(
       },
     );
   }
+  // Bounded: one entry per plan service date (a plan covers one month) for each side.
+  for (const [profileId, serviceDate] of touchedDays.values())
+    await queueAgentDay(ctx, profileId, serviceDate);
   if (isNew) {
     await signalPlan(ctx, plan, now);
+    await queuePlanRollup(ctx, plan._id);
     await ctx.db.patch(plan._id, {
       status: "active",
       activatedAt: now,

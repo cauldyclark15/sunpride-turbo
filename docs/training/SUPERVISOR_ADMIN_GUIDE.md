@@ -723,6 +723,10 @@ review.
   person's day to see their calls and what they filed. Reports are due daily by 10:00 PM
   (Client rule). Statuses: **Submitted**, **Late**, **Due 10 PM**, **Missing**,
   **Off day**. Supervisors read these; there is no approve step.
+- Reports (`/analytics`) › **Customer execution**: choose **As of** and **Period**, type in
+  **Find a store**, then click the store. Shows **Visit regularity**, **Days since last
+  order**, **Order trend (last 4 weeks)**, **Missed planned calls**, **Distribution** and
+  **On-shelf availability**, then **Week by week** and **Assortment and distribution**.
 
 ## 18. Order approvals
 

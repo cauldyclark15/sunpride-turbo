@@ -4,7 +4,11 @@ import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import schema from "../schema";
 import { modules } from "../test.setup";
-import { sortedPrograms, tallyProgram } from "./admin_reports_model";
+import {
+  MAX_DAY_ORDERS,
+  sortedPrograms,
+  tallyProgram,
+} from "./admin_reports_model";
 
 type T = TestConvex<typeof schema>;
 const HOUR = 3_600_000;
@@ -425,6 +429,107 @@ describe("admin report pack", () => {
       }),
     ]);
     expect(data.collectionLinesTruncated).toBe(false);
+    expect(data.buyingAccountsTruncated).toBe(false);
+  });
+
+  it("counts only visits inside the selected unit, not the caller's whole scope", async () => {
+    const { t, ids, as } = await fixture();
+    await anaDay(t, ids);
+    await t.run(async (ctx) => {
+      // Root-scoped reader, so region B is inside the caller's scope.
+      const since = now - 60 * DAY;
+      const root = (await ctx.db.get(ids.regionA))!.parentId!;
+      const boss = await ctx.db.insert("profiles", {
+        authSubject: subject("boss"),
+        name: "boss",
+        email: "boss@test.local",
+        role: "super_admin",
+        status: "active",
+        orgUnitId: root,
+        updatedAt: since,
+      });
+      await ctx.db.insert("employeeAssignments", {
+        profileId: boss,
+        orgUnitId: root,
+        role: "super_admin",
+        effectiveFrom: since,
+        actorSubject: "fixture",
+        reason: "fixture",
+        createdAt: since,
+      });
+      // Ana also served a region B store today: a checked-in visit with a collection.
+      const visitB = await ctx.db.insert("visitExecutions", {
+        organizationId: "sunpride",
+        clientVisitId: "vB",
+        assigneeProfileId: ids.ana.id,
+        outletId: ids.stops[0]!.outlet,
+        orgUnitId: ids.regionB,
+        serviceDate: date,
+        source: "unplanned",
+        intents: ["sell"],
+        state: "checked-out",
+        productivity: "pending",
+        createdAt: now - 3 * HOUR,
+        lastServerTime: now - 3 * HOUR,
+        checkedInAt: now - 3 * HOUR,
+        checkedOutAt: now - 2 * HOUR,
+      });
+      await ctx.db.insert("fieldCollections", {
+        organizationId: "sunpride",
+        orgUnitId: ids.regionB,
+        customerId: ids.customer,
+        outletId: ids.stops[0]!.outlet,
+        visitId: visitB,
+        assigneeProfileId: ids.ana.id,
+        amountMinor: 777_00n,
+        currency: "PHP",
+        method: "cash",
+        reference: "OR-B",
+        status: "recorded",
+        deviceTime: now - 3 * HOUR,
+        serverTime: now - 3 * HOUR,
+      });
+    });
+    const all = await as("boss").query(api.analytics.admin_reports.day, {
+      serviceDate: date,
+    });
+    const anaAll = all.rows.find((row) => row.name === "Ana")!;
+    expect(anaAll).toMatchObject({ collections: 2, collectedMinor: 2_277_00 });
+    const a = await as("boss").query(api.analytics.admin_reports.day, {
+      serviceDate: date,
+      orgUnitId: ids.regionA,
+    });
+    expect(a.rows.map((row) => row.name)).toEqual(["Ana"]);
+    expect(a.rows[0]).toMatchObject({
+      calls: 2,
+      collections: 1,
+      collectedMinor: 1_500_00,
+    });
+    expect(a.collectionLines.map((line) => line.reference)).toEqual(["OR-77"]);
+  });
+
+  it("flags UBA as incomplete when a person's orders overflow the read cap", async () => {
+    const { t, ids, as } = await fixture();
+    await anaDay(t, ids);
+    await t.run(async (ctx) => {
+      for (let n = 0; n < MAX_DAY_ORDERS; n++)
+        await ctx.db.insert("orders", {
+          organizationId: "sunpride",
+          clientRequestId: `bulk-${n}`,
+          orderNumber: `SI-B${n}`,
+          customerCode: `C-B${n}`,
+          salespersonSubject: subject("Ana"),
+          status: "posted",
+          subtotal: 10,
+          total: 10,
+          createdAt: now - 6 * HOUR,
+          updatedAt: now - 6 * HOUR,
+        });
+    });
+    const data = await as("managerA").query(api.analytics.admin_reports.day, {
+      serviceDate: date,
+    });
+    expect(data.buyingAccountsTruncated).toBe(true);
   });
 
   it("keeps other regions out and counts no manday without a check-in", async () => {

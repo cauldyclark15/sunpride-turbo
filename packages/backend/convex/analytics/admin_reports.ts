@@ -42,6 +42,7 @@ import {
   adminPackPersonRow,
   collectionLine,
   MAX_COLLECTION_LINES,
+  MAX_DAY_ORDERS,
   programTally,
   sortedPrograms,
   tallyProgram,
@@ -51,7 +52,6 @@ import {
 } from "./admin_reports_model";
 
 const DAY_MS = 86_400_000;
-const MAX_DAY_ORDERS = 400;
 const MAX_VISIT_ROWS = 100;
 
 const unitOption = v.object({
@@ -74,7 +74,11 @@ async function cached<K extends Id<"customers"> | Id<"outlets">, D>(
   return map.get(id) ?? null;
 }
 
-/** Distinct customer codes with a positive counted sale written on the day (UBA). */
+/**
+ * Distinct customer codes with a positive counted sale written on the day (UBA). Reads at
+ * most MAX_DAY_ORDERS orders; past that the figure is incomplete, so it reports `truncated`
+ * and the web refuses to export a partial count.
+ */
 async function buyingAccounts(
   ctx: QueryCtx,
   authSubject: string,
@@ -89,9 +93,10 @@ async function buyingAccounts(
         .gte("createdAt", dayStart)
         .lt("createdAt", dayEnd + LATE_ORDER_WINDOW_MS),
     )
-    .take(MAX_DAY_ORDERS);
+    .take(MAX_DAY_ORDERS + 1);
+  const truncated = orders.length > MAX_DAY_ORDERS;
   const codes = new Set<string>();
-  for (const order of orders) {
+  for (const order of orders.slice(0, MAX_DAY_ORDERS)) {
     if (
       order.organizationId !== undefined &&
       order.organizationId !== SUNPRIDE_ORGANIZATION_ID
@@ -102,7 +107,7 @@ async function buyingAccounts(
     const instant = saleInstant(order);
     if (instant >= dayStart && instant < dayEnd) codes.add(order.customerCode);
   }
-  return [...codes].sort();
+  return { codes: [...codes].sort(), truncated };
 }
 
 async function personPack(
@@ -113,7 +118,11 @@ async function personPack(
   programs: Map<string, ProgramTally>,
   lines: CollectionLine[],
   lookups: Lookups,
-): Promise<{ row: AdminPackPersonRow; linesTruncated: boolean }> {
+): Promise<{
+  row: AdminPackPersonRow;
+  linesTruncated: boolean;
+  ordersTruncated: boolean;
+}> {
   const dayStart = localDate(serviceDate);
   const noon = dayStart + DAY_MS / 2;
   const positionId = member.assignment.positionId ?? member.profile.positionId;
@@ -126,7 +135,11 @@ async function personPack(
   );
   const rule = standard?.productiveCallRule ?? "any_listed_activity";
 
-  const { visits } = await personDay(ctx, sc, member.profile._id, serviceDate);
+  // personDay keeps the caller's whole scope; the pack counts only the selected units, so a
+  // person's visits in another unit of the caller's area never reach a unit's totals.
+  const visits = (
+    await personDay(ctx, sc, member.profile._id, serviceDate)
+  ).visits.filter((visit) => sc.units.has(visit.orgUnitId));
   const evaluations: CallEvaluation[] = [];
   let osaAudits = 0;
   let osaRequired = 0;
@@ -221,8 +234,10 @@ async function personPack(
     }
   }
   const calls = summarizeCalls(evaluations);
+  const uba = await buyingAccounts(ctx, member.profile.authSubject, dayStart);
   return {
     linesTruncated,
+    ordersTruncated: uba.truncated,
     row: {
       profileId: member.profile._id,
       name: member.profile.name,
@@ -238,11 +253,7 @@ async function personPack(
       productiveTargetPct: sellingDay
         ? (standard?.productiveCallTargetPct ?? null)
         : null,
-      buyingAccounts: await buyingAccounts(
-        ctx,
-        member.profile.authSubject,
-        dayStart,
-      ),
+      buyingAccounts: uba.codes,
       osaAudits,
       osaRequired,
       osaAvailable,
@@ -271,6 +282,8 @@ export const day = query({
     programs: v.array(programTally),
     collectionLines: v.array(collectionLine),
     collectionLinesTruncated: v.boolean(),
+    /** Some person had more than MAX_DAY_ORDERS orders: UBA is incomplete, no export. */
+    buyingAccountsTruncated: v.boolean(),
   }),
   handler: async (ctx, args) => {
     const page = args.page ?? 0;
@@ -289,6 +302,7 @@ export const day = query({
     const lookups: Lookups = { customers: new Map(), outlets: new Map() };
     const rows: AdminPackPersonRow[] = [];
     let collectionLinesTruncated = false;
+    let buyingAccountsTruncated = false;
     for (const member of members.slice(
       page * ADMIN_PACK_PAGE_SIZE,
       (page + 1) * ADMIN_PACK_PAGE_SIZE,
@@ -304,6 +318,7 @@ export const day = query({
       );
       rows.push(result.row);
       if (result.linesTruncated) collectionLinesTruncated = true;
+      if (result.ordersTruncated) buyingAccountsTruncated = true;
     }
     return {
       serviceDate: args.serviceDate,
@@ -318,6 +333,7 @@ export const day = query({
       programs: sortedPrograms(programs),
       collectionLines: lines,
       collectionLinesTruncated,
+      buyingAccountsTruncated,
     };
   },
 });

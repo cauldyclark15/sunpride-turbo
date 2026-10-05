@@ -28,7 +28,11 @@ import { DailySalesWorkspace } from "./daily-sales/daily-sales-workspace";
 import { TrainingWorkspace } from "./training/trainer-forms";
 import { ActivityReportsWorkspace } from "./activity-reports/activity-reports-workspace";
 import { AdminReports } from "./analytics/admin-reports";
+import { CoverageCompliance } from "./analytics/coverage-compliance";
+import { CustomerExecution } from "./analytics/customer-execution";
 import { ExecutionDashboard } from "./analytics/execution-dashboard";
+import { SkuDistribution } from "./analytics/sku-distribution";
+import { TerritoryPerformance } from "./analytics/territory-performance";
 
 const modules = {
   dashboard: { title: "Home" },
@@ -234,6 +238,19 @@ function ModuleContent({
             dashboard; the endpoints enforce scope. */}
         {module === "analytics" && canAccessWebModule("supervision", role) ? (
           <ExecutionDashboard />
+        ) : null}
+        {module === "analytics" ? <TerritoryPerformance /> : null}
+        {/* ANA-005: the same readers get one store's customer execution. */}
+        {module === "analytics" && canAccessWebModule("supervision", role) ? (
+          <CustomerExecution />
+        ) : null}
+        {/* ANA-008: MCP plan vs executed visits and persistent under-coverage. */}
+        {module === "analytics" && canAccessWebModule("supervision", role) ? (
+          <CoverageCompliance />
+        ) : null}
+        {/* ANA-006: buying stores, gaps and shelf signals by SKU. */}
+        {module === "analytics" && canAccessWebModule("supervision", role) ? (
+          <SkuDistribution />
         ) : null}
         {/* SOP-012: the memo's admin report pack, same readers and scope as above. */}
         {module === "analytics" && canAccessWebModule("supervision", role) ? (

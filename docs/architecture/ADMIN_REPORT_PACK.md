@@ -11,6 +11,12 @@ hold `report.read`, limited to their organizational scope. Field `sales` do not 
 Endpoint: `analytics/admin_reports:day` (paged, 10 people per page; the web adds the pages).
 Every report has an **Export CSV** button (UTF-8 with BOM, spreadsheet formula guard).
 
+When a unit is picked, every figure (calls, OSA, programs, collections) counts only visits made in
+that unit, even if the same person also worked elsewhere in the reader's area that day. Exports
+fail closed: a report whose source rows hit a read cap (more than 80 people, more than 400 orders
+for one person's UBA, more than 200 collection lines per page) shows a warning and its Export CSV
+button is disabled until the reader narrows the unit or channel.
+
 ## Terms (Sir Francis's email, 30 Sep 2026)
 
 | Short form | Meaning                          |

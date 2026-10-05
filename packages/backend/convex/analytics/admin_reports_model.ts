@@ -16,6 +16,9 @@ export const ADMIN_PACK_PAGE_SIZE = 10;
 /** Collection lines listed per page for the AR reckoning view. */
 export const MAX_COLLECTION_LINES = 200;
 
+/** Orders read per person-day for UBA; more than this marks the page's UBA incomplete. */
+export const MAX_DAY_ORDERS = 400;
+
 const nullableNumber = v.union(v.number(), v.null());
 
 export const adminPackPersonRow = v.object({

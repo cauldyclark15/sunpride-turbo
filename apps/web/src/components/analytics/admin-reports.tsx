@@ -70,6 +70,7 @@ export function AdminReportsView({
   loading,
   truncated,
   collectionLinesTruncated,
+  buyingAccountsTruncated = false,
 }: {
   serviceDate: string;
   rows: readonly AdminPackRow[];
@@ -79,7 +80,12 @@ export function AdminReportsView({
   loading: boolean;
   truncated: boolean;
   collectionLinesTruncated: boolean;
+  buyingAccountsTruncated?: boolean;
 }) {
+  // Fail closed: a report whose source rows were capped is never exported as if complete.
+  const dailyIncomplete = truncated || buyingAccountsTruncated;
+  const programsIncomplete = truncated;
+  const collectionsIncomplete = truncated || collectionLinesTruncated;
   const totals = packTotals(rows);
   const people: PersonRow[] = rows.map((row) => ({
     ...row,
@@ -243,8 +249,8 @@ export function AdminReportsView({
       ) : null}
       {truncated ? (
         <p className="text-[13px] text-muted">
-          Only the first {peopleInScope} people are counted. Pick a unit or
-          channel.
+          Only the first {peopleInScope} people are counted, so the reports
+          cannot be exported. Pick a unit or channel.
         </p>
       ) : null}
       <Card
@@ -275,11 +281,17 @@ export function AdminReportsView({
               detail={`of ${totals.people} people`}
             />
           </div>
+          {buyingAccountsTruncated ? (
+            <p className="text-[13px] text-muted">
+              Someone wrote too many orders today to count every buying account.
+              UBA is incomplete and cannot be exported. Pick a unit or channel.
+            </p>
+          ) : null}
           <div>
             <Button
               variant="outline"
               className="h-10"
-              isDisabled={loading}
+              isDisabled={loading || dailyIncomplete}
               onPress={() =>
                 downloadCsv(
                   `pc-uba-osa-mandays-${serviceDate}.csv`,
@@ -317,7 +329,7 @@ export function AdminReportsView({
             <Button
               variant="outline"
               className="h-10"
-              isDisabled={loading}
+              isDisabled={loading || programsIncomplete}
               onPress={() =>
                 downloadCsv(
                   `programs-${serviceDate}.csv`,
@@ -351,14 +363,15 @@ export function AdminReportsView({
           </p>
           {collectionLinesTruncated ? (
             <p className="text-[13px] text-muted">
-              Only the first collections are listed. Pick a unit or channel.
+              Only the first collections are listed and the list cannot be
+              exported. Pick a unit or channel.
             </p>
           ) : null}
           <div>
             <Button
               variant="outline"
               className="h-10"
-              isDisabled={loading}
+              isDisabled={loading || collectionsIncomplete}
               onPress={() =>
                 downloadCsv(
                   `collections-${serviceDate}.csv`,
@@ -431,6 +444,9 @@ function AdminReportsData({ filters }: { filters: SupervisionFilters }) {
       peopleInScope={first.peopleInScope}
       loading={loading}
       truncated={first.truncated}
+      buyingAccountsTruncated={pages.some(
+        (page) => page.buyingAccountsTruncated,
+      )}
       collectionLinesTruncated={pages.some(
         (page) => page.collectionLinesTruncated,
       )}
