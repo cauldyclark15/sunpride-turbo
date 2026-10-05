@@ -253,6 +253,7 @@ async function fixture() {
     await person("viewerA", "viewer", regionA);
     const ana = await person("Ana", "sales", regionA);
     await person("Ben", "sales", regionA);
+    await person("Cara", "sales", regionB);
 
     const territory = await ctx.db.insert("territories", {
       organizationId: "sunpride",
@@ -486,7 +487,7 @@ async function fixture() {
         available,
         asOf: since,
       });
-    return { outlet, p, depotA, depotB };
+    return { outlet, customer, regionB, p, depotA, depotB };
   });
   const as = (name: string) =>
     t.withIdentity({
@@ -506,6 +507,7 @@ describe("suggested order for a store", () => {
     );
     expect(result).toMatchObject({
       customer: { code: "C1" },
+      historyStatus: "complete",
       historyFrom: "2026-07-08",
       historyDays: 84,
       nextVisit: { days: 7, source: "cycle", date: null },
@@ -689,5 +691,151 @@ describe("suggested order for a store", () => {
     expect(after.lines.find((row) => row.code === "P1")?.promotion).toBeNull();
     const stored = await t.run((ctx) => ctx.db.get(id));
     expect(stored?.actorSubject).toBe(subject("admin"));
+  });
+
+  it("uses only orders in the caller's scope, never another region's", async () => {
+    const { t, ids, as } = await fixture();
+    await t.run(async (ctx) => {
+      const product = (code: string) =>
+        ctx.db.insert("products", {
+          code,
+          name: `Product ${code}`,
+          category: "Canned",
+          uom: "CS",
+          unitPrice: 100,
+          active: true,
+          updatedAt: now,
+        });
+      await product("P8");
+      await product("P9");
+      const order = async (
+        ref: string,
+        author: string,
+        code: string,
+        sourceLocationId?: Id<"inventoryLocations">,
+      ) => {
+        const id = await ctx.db.insert("orders", {
+          organizationId: "sunpride",
+          clientRequestId: ref,
+          orderNumber: ref,
+          customerCode: "C1",
+          salespersonSubject: subject(author),
+          status: "submitted",
+          subtotal: 1000,
+          total: 1000,
+          ...(sourceLocationId ? { sourceLocationId } : {}),
+          createdAt: at("2026-09-20"),
+          updatedAt: at("2026-09-20"),
+        });
+        await ctx.db.insert("orderLines", {
+          orderId: id,
+          productCode: code,
+          description: code,
+          quantity: 40,
+          unitPrice: 100,
+          lineTotal: 4000,
+        });
+      };
+      // A Region B seller's order on the same account, and a Region A order sold
+      // from a Region B depot: neither belongs to a Region A reader.
+      await order("B-1", "Cara", "P9");
+      await order("A-B", "Ana", "P8", ids.depotB);
+    });
+    const q = api.analytics.suggested_orders.forOutlet;
+    const args = { outletId: ids.outlet, asOfDate: AS_OF };
+    for (const name of ["managerA", "viewerA", "Ana"]) {
+      const result = await as(name).query(q, args);
+      expect(result.historyStatus).toBe("partial_scope");
+      const codes = result.lines.map((row) => row.code);
+      expect(codes).not.toContain("P8");
+      expect(codes).not.toContain("P9");
+      // In-scope figures are unchanged by the foreign orders.
+      expect(result.lines.find((row) => row.code === "P1")).toMatchObject({
+        historyQuantity: 84,
+        suggestedQuantity: 8,
+      });
+    }
+    // The national administrator sees both.
+    const national = await as("admin").query(q, args);
+    expect(national.historyStatus).toBe("complete");
+    expect(national.lines.map((row) => row.code)).toEqual(
+      expect.arrayContaining(["P8", "P9"]),
+    );
+  });
+
+  it("withholds history when the account is shared with another store", async () => {
+    const { t, ids, as } = await fixture();
+    await t.run(async (ctx) => {
+      const other = await ctx.db.insert("outlets", {
+        organizationId: "sunpride",
+        code: "O2",
+        name: "Store O2",
+        status: "active",
+        custodianOrgUnitId: ids.regionB,
+        createdAt: now - 1000,
+        updatedAt: now - 1000,
+        createdBy: "fixture",
+      });
+      await ctx.db.insert("outletCustomerLinks", {
+        outletId: other,
+        customerId: ids.customer,
+        source: "fixture",
+        effectiveFrom: now - 1000,
+        actorSubject: "fixture",
+        reason: "fixture",
+        createdAt: now - 1000,
+      });
+    });
+    const result = await as("managerA").query(
+      api.analytics.suggested_orders.forOutlet,
+      { outletId: ids.outlet, asOfDate: AS_OF, locationId: ids.depotA },
+    );
+    expect(result.historyStatus).toBe("shared_account");
+    // Only the required assortment remains, with no invented velocity or stock.
+    expect(result.lines.map((row) => row.code)).toEqual(["P1", "P3"]);
+    for (const row of result.lines) {
+      expect(row).toMatchObject({
+        status: "no_history",
+        historyQuantity: 0,
+        lastPurchaseDate: null,
+        storeStock: 0,
+        stockSource: "none",
+        suggestedQuantity: 0,
+      });
+      expect(row.reasons.join(" ")).toMatch(/shared with other stores/);
+    }
+    expect(result.totals.suggestedSkus).toBe(0);
+  });
+
+  it("lists the selling locations the caller may check, latest source first", async () => {
+    const { t, ids, as } = await fixture();
+    await t.run(async (ctx) => {
+      const order = await ctx.db
+        .query("orders")
+        .withIndex("by_client_request", (q) => q.eq("clientRequestId", "req-4"))
+        .unique();
+      await ctx.db.patch(order!._id, { sourceLocationId: ids.depotA });
+    });
+    const list = api.analytics.suggested_orders.sellingLocations;
+    const args = { outletId: ids.outlet };
+    expect(await as("managerA").query(list, args)).toEqual([
+      expect.objectContaining({ code: "DEPOT-A", recent: true }),
+    ]);
+    expect(await as("Ana").query(list, args)).toEqual([
+      expect.objectContaining({ code: "DEPOT-A", recent: true }),
+    ]);
+    expect(
+      (await as("admin").query(list, args)).map((row) => row.code),
+    ).toEqual(["DEPOT-A", "DEPOT-B"]);
+    await expect(as("managerB").query(list, args)).rejects.toThrow(
+      /outside your organizational scope/,
+    );
+    // The listed location is accepted by the suggestion itself.
+    const [depot] = await as("Ana").query(list, args);
+    const result = await as("Ana").query(
+      api.analytics.suggested_orders.forOutlet,
+      { outletId: ids.outlet, asOfDate: AS_OF, locationId: depot!.locationId },
+    );
+    expect(result.location?.code).toBe("DEPOT-A");
   });
 });

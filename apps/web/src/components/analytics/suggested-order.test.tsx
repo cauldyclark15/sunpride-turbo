@@ -7,7 +7,9 @@ vi.mock("convex/react", () => ({
 }));
 
 import {
+  HISTORY_NOTE,
   LINE_STATUS,
+  SellingLocationPicker,
   STOCK_SOURCE,
   SuggestedOrderPanel,
   SuggestedOrderView,
@@ -47,6 +49,7 @@ const data = (over: Partial<Data> = {}): Data => ({
     name: "Store O1",
   },
   customer: { code: "C1", name: "Customer C1" },
+  historyStatus: "complete",
   asOfDate: "2026-09-29",
   historyFrom: "2026-07-08",
   historyDays: 84,
@@ -145,5 +148,43 @@ describe("suggested order view", () => {
         />,
       ),
     ).toContain("Loading suggested order");
+  });
+
+  it("says when the history is limited or withheld", () => {
+    expect(
+      renderToStaticMarkup(<SuggestedOrderView data={data()} />),
+    ).not.toContain("Only orders within your access");
+    for (const status of [
+      "partial_scope",
+      "shared_account",
+      "no_customer",
+    ] as const)
+      expect(
+        renderToStaticMarkup(
+          <SuggestedOrderView data={data({ historyStatus: status })} />,
+        ),
+      ).toContain(HISTORY_NOTE[status]!);
+  });
+
+  it("offers the permitted selling locations, marking the last used", () => {
+    const html = renderToStaticMarkup(
+      <SellingLocationPicker
+        locations={[
+          {
+            locationId: "l1" as NonNullable<Data["location"]>["locationId"],
+            code: "DEPOT-A",
+            name: "Depot A",
+            type: "warehouse",
+            recent: true,
+          },
+        ]}
+        value={"l1" as NonNullable<Data["location"]>["locationId"]}
+        onChange={() => {}}
+      />,
+    );
+    expect(html).toContain("Sell from");
+    expect(html).toContain("Depot stock not checked");
+    expect(html).toContain("Depot A (DEPOT-A) · last used");
+    expect(html).toMatch(/<option value="l1" selected="">/);
   });
 });

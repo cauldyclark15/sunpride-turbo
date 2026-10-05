@@ -11,11 +11,15 @@ import {
 } from "@sunpride/ui";
 import { useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
+import { useState } from "react";
 
 type Suggestion = FunctionReturnType<
   typeof api.analytics.suggested_orders.forOutlet
 >;
 type LineRow = Suggestion["lines"][number] & { id: string };
+type SellingLocation = FunctionReturnType<
+  typeof api.analytics.suggested_orders.sellingLocations
+>[number];
 type Tone = "success" | "warning" | "danger" | "neutral";
 
 export const LINE_STATUS: Record<
@@ -46,6 +50,18 @@ export const NEXT_VISIT_SOURCE: Record<
   cycle: "visit cycle",
   default: "default cycle",
 };
+
+/** Why the sales history may not be the store's whole history; null when it is. */
+export const HISTORY_NOTE: Record<Suggestion["historyStatus"], string | null> =
+  {
+    complete: null,
+    partial_scope:
+      "Only orders within your access are used; orders written by sellers or depots outside it are left out.",
+    shared_account:
+      "The customer account of this store is shared with other stores, so its orders cannot be attributed to this store and no history is used.",
+    no_customer:
+      "This store is not linked to a customer account, so there is no order history.",
+  };
 
 const quantity = (n: number) =>
   Number.isInteger(n) ? String(n) : n.toFixed(2);
@@ -131,6 +147,9 @@ export function SuggestedOrderView({ data }: { data: Suggestion }) {
         {` + ${data.leadTimeDays} day(s) delivery lead time`}
         {data.leadTimeProvisional ? " (provisional)" : ""}
         {`. Sales history ${data.historyFrom} to ${data.asOfDate}.`}
+        {HISTORY_NOTE[data.historyStatus]
+          ? ` ${HISTORY_NOTE[data.historyStatus]}`
+          : ""}
       </p>
       {data.lines.length ? (
         <DataTable
@@ -158,6 +177,43 @@ export function SuggestedOrderView({ data }: { data: Suggestion }) {
   );
 }
 
+const NOT_CHECKED = "";
+
+/** The depot or truck whose stock limits the suggestion. */
+export function SellingLocationPicker({
+  locations,
+  value,
+  onChange,
+}: {
+  locations: SellingLocation[];
+  value: Id<"inventoryLocations"> | typeof NOT_CHECKED;
+  onChange: (value: Id<"inventoryLocations"> | typeof NOT_CHECKED) => void;
+}) {
+  return (
+    <label className="grid max-w-sm gap-1 text-[13px] text-muted">
+      Sell from
+      <select
+        aria-label="Sell from"
+        className="h-10 w-full"
+        value={value}
+        onChange={(event) =>
+          onChange(
+            event.target.value as Id<"inventoryLocations"> | typeof NOT_CHECKED,
+          )
+        }
+      >
+        <option value={NOT_CHECKED}>Depot stock not checked</option>
+        {locations.map((row) => (
+          <option key={row.locationId} value={row.locationId}>
+            {`${row.name} (${row.code})${row.recent ? " · last used" : ""}`}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+/** Keyed by store: the selection starts at the store's last-used selling location. */
 export function SuggestedOrderPanel({
   outletId,
   asOfDate,
@@ -165,13 +221,43 @@ export function SuggestedOrderPanel({
   outletId: Id<"outlets">;
   asOfDate: string;
 }) {
-  const data = useQuery(api.analytics.suggested_orders.forOutlet, {
+  const locations = useQuery(api.analytics.suggested_orders.sellingLocations, {
     outletId,
-    asOfDate,
   });
-  if (data === undefined)
+  const [choice, setChoice] = useState<
+    Id<"inventoryLocations"> | typeof NOT_CHECKED | null
+  >(null);
+  const selected =
+    choice ?? locations?.find((row) => row.recent)?.locationId ?? NOT_CHECKED;
+  const data = useQuery(
+    api.analytics.suggested_orders.forOutlet,
+    locations === undefined
+      ? "skip"
+      : {
+          outletId,
+          asOfDate,
+          ...(selected ? { locationId: selected } : {}),
+        },
+  );
+  if (locations === undefined || data === undefined)
     return (
       <span className="text-[13px] text-muted">Loading suggested order…</span>
     );
-  return <SuggestedOrderView data={data} />;
+  return (
+    <div className="grid gap-3">
+      {locations.length ? (
+        <SellingLocationPicker
+          locations={locations}
+          value={selected}
+          onChange={setChoice}
+        />
+      ) : (
+        <p className="text-[13px] text-muted">
+          No selling location is within your access, so depot stock is not
+          checked.
+        </p>
+      )}
+      <SuggestedOrderView data={data} />
+    </div>
+  );
 }

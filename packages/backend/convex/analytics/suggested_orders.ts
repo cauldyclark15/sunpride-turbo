@@ -5,6 +5,14 @@
  * are currently assigned to) plus `report.read` in the store's current owner unit. The
  * optional selling location needs `inventory.read` in the location's unit.
  *
+ * Order history is never keyed by the accounting customer alone (ADR-005: a shared account
+ * is not an access key):
+ * - each source order is gated like `mobile/account_summary`: a salesperson counts only
+ *   their own orders, anyone else only orders written by an active profile currently in
+ *   their unit subtree, and an order's source location (when set) must be in that subtree;
+ * - when the customer is currently linked to more than this one store, its orders cannot be
+ *   attributed to this store, so no order history is used at all (`shared_account`).
+ *
  * Every read is bounded: one store, one customer's last 84 days of orders, its visits and
  * the latest merchandising audit in that window, and at most MAX_SKUS products.
  */
@@ -15,7 +23,20 @@ import { localDate, manilaDate } from "../coverage/validation";
 import { countsAsSale, manilaDateOf, saleInstant } from "../dsr/model";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
 import { capabilityRoles, requireCapability } from "../lib/capabilities";
-import { requireNationalScope } from "../lib/scope";
+import {
+  collectScopeUnitIds,
+  requireNationalScope,
+  rootOrgUnitId,
+} from "../lib/scope";
+import {
+  readableLocationIds,
+  requireLocationCapability,
+} from "../inventory/location_scope";
+import {
+  MAX_ACCOUNT_LINKS,
+  orderScopeCheck,
+  type SummaryViewer,
+} from "../mobile/account_summary";
 import { assortmentAt, usableProduct } from "../merchandising/assortments";
 import { activeAt, prospective } from "../org/validation";
 import {
@@ -50,6 +71,55 @@ const MAX_VISITS = 150;
 const MAX_ACTIVITIES_PER_VISIT = 200;
 const MAX_SKUS = 200;
 const MAX_PROMOTION_HISTORY = 200;
+const MAX_LOCATIONS = 100;
+
+/**
+ * Whose orders the history may use: `complete` (every order read was in the caller's
+ * scope), `partial_scope` (some were not and were left out), `shared_account` (the customer
+ * is linked to other stores too, so no history is used), `no_customer` (store not linked).
+ */
+export const historyStatus = v.union(
+  v.literal("complete"),
+  v.literal("partial_scope"),
+  v.literal("shared_account"),
+  v.literal("no_customer"),
+);
+
+/** The caller as an order-scope viewer; cross-scope roles see the whole tree. */
+async function orderViewer(
+  ctx: QueryCtx,
+  profile: Doc<"profiles">,
+): Promise<SummaryViewer> {
+  const crossScope =
+    profile.role === "super_admin" || profile.role === "analyst";
+  const top = crossScope ? await rootOrgUnitId(ctx) : profile.orgUnitId;
+  return {
+    subject: profile.authSubject,
+    role: profile.role,
+    units: new Set(top ? await collectScopeUnitIds(ctx, top) : []),
+  };
+}
+
+/** Whether the customer is currently linked to any store other than `outletId`. */
+async function sharedAccount(
+  ctx: QueryCtx,
+  customerId: Id<"customers">,
+  outletId: Id<"outlets">,
+  now: number,
+) {
+  const rows = await ctx.db
+    .query("outletCustomerLinks")
+    .withIndex("by_customerId_and_effectiveFrom", (q) =>
+      q.eq("customerId", customerId).lte("effectiveFrom", now),
+    )
+    .take(MAX_ACCOUNT_LINKS + 1);
+  if (rows.length > MAX_ACCOUNT_LINKS) return true;
+  return rows.some(
+    (row) =>
+      row.outletId !== outletId &&
+      activeAt(row.effectiveFrom, row.effectiveTo, now),
+  );
+}
 
 const nullableNumber = v.union(v.number(), v.null());
 const nullableString = v.union(v.string(), v.null());
@@ -142,6 +212,7 @@ export const forOutlet = query({
       v.object({ code: v.string(), name: v.string() }),
       v.null(),
     ),
+    historyStatus,
     asOfDate: v.string(),
     historyFrom: v.string(),
     historyDays: v.number(),
@@ -195,22 +266,11 @@ export const forOutlet = query({
     // Selling location: scoped to the caller like every inventory read.
     let location: Doc<"inventoryLocations"> | null = null;
     if (args.locationId) {
-      location = await ctx.db.get(args.locationId);
-      if (
-        !location ||
-        location.organizationId !== SUNPRIDE_ORGANIZATION_ID ||
-        !location.active ||
-        !location.allowsSale
-      )
+      location = (
+        await requireLocationCapability(ctx, "inventory.read", args.locationId)
+      ).location;
+      if (!location.allowsSale)
         throw new ConvexError("Selling location not found");
-      if (location.orgUnitId)
-        await requireCapability(ctx, "inventory.read", location.orgUnitId);
-      else if (profile.role === "super_admin" || profile.role === "analyst")
-        await requireCapability(ctx, "inventory.read");
-      else
-        throw new ConvexError(
-          "Selling location has no organizational unit; ask an administrator to map it",
-        );
     }
 
     let truncated = false;
@@ -226,6 +286,11 @@ export const forOutlet = query({
       now,
     );
     const customer = link ? await ctx.db.get(link.customerId) : null;
+    let status: typeof historyStatus.type = customer
+      ? (await sharedAccount(ctx, customer._id, outlet._id, now))
+        ? "shared_account"
+        : "complete"
+      : "no_customer";
 
     // Orders of the store's customer in the window (DSR sale rule, Manila day written).
     type Bought = {
@@ -235,7 +300,8 @@ export const forOutlet = query({
     };
     const bought = new Map<string, Bought>();
     let firstOrderDate: string | null = null;
-    if (customer) {
+    if (customer && status === "complete") {
+      const inScope = orderScopeCheck(ctx, await orderViewer(ctx, profile));
       const orders = await ctx.db
         .query("orders")
         .withIndex("by_customer", (q) => q.eq("customerCode", customer.code))
@@ -246,7 +312,7 @@ export const forOutlet = query({
         const oldest = orders[orders.length - 1]!;
         if (manilaDateOf(saleInstant(oldest)) >= from) truncated = true;
       }
-      const inWindow = orders
+      const sales = orders
         .filter(
           (order) =>
             (order.organizationId === undefined ||
@@ -255,7 +321,13 @@ export const forOutlet = query({
             order.total > 0,
         )
         .map((order) => ({ order, date: manilaDateOf(saleInstant(order)) }))
-        .filter((row) => row.date >= from && row.date <= args.asOfDate)
+        .filter((row) => row.date >= from && row.date <= args.asOfDate);
+      // Source-order scope: foreign authors and selling locations never contribute.
+      const visible: typeof sales = [];
+      for (const row of sales)
+        if (await inScope(row.order)) visible.push(row);
+        else status = "partial_scope";
+      const inWindow = visible
         // Oldest first so the last purchase of each SKU wins.
         .sort(
           (a, b) =>
@@ -478,6 +550,10 @@ export const forOutlet = query({
         available,
       };
       const suggestion = suggestLine(facts, settings);
+      if (status === "shared_account")
+        suggestion.reasons = [
+          `Account ${customer!.code} is shared with other stores, so its orders cannot be attributed to this store`,
+        ];
       if (location && product && available === null)
         suggestion.reasons.push(
           "Depot stock is kept in another unit, so it was not checked",
@@ -497,6 +573,7 @@ export const forOutlet = query({
       sourceRef: SUGGESTED_ORDER_SOURCE,
       outlet: { outletId: outlet._id, code: outlet.code, name: outlet.name },
       customer: customer ? { code: customer.code, name: customer.name } : null,
+      historyStatus: status,
       asOfDate: args.asOfDate,
       historyFrom: from,
       historyDays: settings.historyDays,
@@ -523,6 +600,83 @@ export const forOutlet = query({
       },
       truncated,
     };
+  },
+});
+
+/**
+ * Selling locations (depots, trucks) the caller may check availability at for this store:
+ * active, `allowsSale`, and readable under the caller's inventory scope. `recent` marks the
+ * source location of the store's latest in-scope order, the web's default.
+ */
+export const sellingLocations = query({
+  args: { outletId: v.id("outlets") },
+  returns: v.array(
+    v.object({
+      locationId: v.id("inventoryLocations"),
+      code: v.string(),
+      name: v.string(),
+      type: v.string(),
+      recent: v.boolean(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const scope = await requireOutletCapability(
+      ctx,
+      "outlet.read",
+      args.outletId,
+    );
+    const { profile } = await requireCapability(
+      ctx,
+      "report.read",
+      scope.orgUnitId,
+    );
+    if (!capabilityRoles("inventory.read").includes(profile.role)) return [];
+    const canRead = await readableLocationIds(ctx);
+    const rows = await ctx.db
+      .query("inventoryLocations")
+      .withIndex("by_organizationId_and_code", (q) =>
+        q.eq("organizationId", SUNPRIDE_ORGANIZATION_ID),
+      )
+      .take(MAX_LOCATIONS);
+    const visible: Doc<"inventoryLocations">[] = [];
+    for (const row of rows)
+      if (row.allowsSale && (await canRead(row._id))) visible.push(row);
+
+    // The store's latest in-scope order's source location, when the account is its own.
+    let recent: Id<"inventoryLocations"> | null = null;
+    const now = Date.now();
+    const link = currentRow(
+      await outletRows(ctx, "outletCustomerLinks", scope.outlet._id),
+      now,
+    );
+    const customer = link ? await ctx.db.get(link.customerId) : null;
+    if (
+      customer &&
+      !(await sharedAccount(ctx, customer._id, scope.outlet._id, now))
+    ) {
+      const inScope = orderScopeCheck(ctx, await orderViewer(ctx, profile));
+      const orders = await ctx.db
+        .query("orders")
+        .withIndex("by_customer", (q) => q.eq("customerCode", customer.code))
+        .order("desc")
+        .take(MAX_LINE_ORDERS);
+      for (const order of orders)
+        if (
+          order.sourceLocationId &&
+          countsAsSale(order.status) &&
+          (await inScope(order))
+        ) {
+          recent = order.sourceLocationId;
+          break;
+        }
+    }
+    return visible.map((row) => ({
+      locationId: row._id,
+      code: row.code,
+      name: row.name,
+      type: row.type,
+      recent: row._id === recent,
+    }));
   },
 });
 
