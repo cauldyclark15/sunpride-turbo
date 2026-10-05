@@ -85,8 +85,11 @@ interface FieldStore {
     suspend fun applyDelta(changes: List<DeltaRow>, nextCursor: String) { setCursor(nextCursor) }
     /** Local-only order drafts (SP-0061): never sent by the outbox; submission is a later step. */
     suspend fun orderDrafts(): List<com.sunpride.field.orders.OrderDraft> = emptyList()
-    /** Insert or replace one draft after [com.sunpride.field.orders.OrderDraftRules.validate] in one transaction. */
-    suspend fun saveOrderDraft(draft: com.sunpride.field.orders.OrderDraft): Unit = error("Order drafts unavailable")
+    /**
+     * Insert or replace one draft after [com.sunpride.field.orders.OrderDraftRules.validate] in one transaction.
+     * Refused once the offline lease has expired at [now] (the draft's own updatedAt), like every outbox write.
+     */
+    suspend fun saveOrderDraft(draft: com.sunpride.field.orders.OrderDraft, now: Long): Unit = error("Order drafts unavailable")
     /** The salesperson discards their own unsent draft; a held partition stays frozen. */
     suspend fun discardOrderDraft(draftId: String): Unit = error("Order drafts unavailable")
     /**
@@ -410,11 +413,14 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
     }
     override suspend fun orderDrafts(): List<com.sunpride.field.orders.OrderDraft> =
         dao.orderDrafts(a, d, s).map { com.sunpride.field.orders.OrderDraftCodec.decode(it.json) }
-    override suspend fun saveOrderDraft(draft: com.sunpride.field.orders.OrderDraft) {
+    override suspend fun saveOrderDraft(draft: com.sunpride.field.orders.OrderDraft, now: Long) {
+        require(draft.updatedAt == now) { "Draft time must be the save time" }
         db.withTransaction {
             val meta = metadata()
             if (meta.held) throw com.sunpride.field.orders.OrderDraftFailure(com.sunpride.field.orders.OrderDraftFailure.Code.HELD)
             check(meta.activeGeneration != null) { "No cached snapshot" }
+            // Same lease gate as enqueue: an already-open call cannot take new order work after expiry.
+            if (!isLeaseValid(now)) throw com.sunpride.field.orders.OrderDraftFailure(com.sunpride.field.orders.OrderDraftFailure.Code.OFFLINE_EXPIRED)
             val existing = dao.orderDraft(a, d, s, draft.draftId)?.let { com.sunpride.field.orders.OrderDraftCodec.decode(it.json) }
             com.sunpride.field.orders.OrderDraftRules.validate(this@RoomFieldStore, draft, existing)
             dao.putOrderDraft(OrderDraftRow(a, d, s, draft.draftId, draft.clientVisitId, draft.outletId, draft.serviceDate,

@@ -31,6 +31,7 @@ import { CoverageCompliance } from "./analytics/coverage-compliance";
 import { CustomerExecution } from "./analytics/customer-execution";
 import { ExecutionDashboard } from "./analytics/execution-dashboard";
 import { ManagementExceptions } from "./analytics/management-exceptions";
+import { SkuDistribution } from "./analytics/sku-distribution";
 import { TerritoryPerformance } from "./analytics/territory-performance";
 
 const modules = {
@@ -250,6 +251,10 @@ function ModuleContent({
         {/* ANA-007: the same readers get the management exception dashboard. */}
         {module === "analytics" && canAccessWebModule("supervision", role) ? (
           <ManagementExceptions />
+        ) : null}
+        {/* ANA-006: buying stores, gaps and shelf signals by SKU. */}
+        {module === "analytics" && canAccessWebModule("supervision", role) ? (
+          <SkuDistribution />
         ) : null}
       </>
     );

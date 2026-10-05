@@ -267,6 +267,9 @@ vi.mock("./analytics/customer-execution", () => ({
   CustomerExecution: () =>
     createElement("p", null, "Mounted customer execution"),
 }));
+vi.mock("./analytics/sku-distribution", () => ({
+  SkuDistribution: () => createElement("p", null, "Mounted SKU distribution"),
+}));
 vi.mock("./analytics/execution-dashboard", () => ({
   ExecutionDashboard: () =>
     createElement("p", null, "Mounted execution dashboard"),
@@ -359,6 +362,7 @@ describe("calm generic modules", () => {
     expect(render("analytics")).toContain("Mounted management exceptions");
     expect(render("analytics")).toContain("Mounted customer execution");
     expect(render("analytics")).toContain("Mounted coverage compliance");
+    expect(render("analytics")).toContain("Mounted SKU distribution");
     state.pathname = "/dashboard";
     expect(render("dashboard")).not.toContain("Mounted execution dashboard");
     expect(render("dashboard")).not.toContain("Mounted customer execution");
@@ -372,6 +376,7 @@ describe("calm generic modules", () => {
       expect(html).not.toContain("Mounted management exceptions");
       expect(html).not.toContain("Mounted customer execution");
       expect(html).not.toContain("Mounted coverage compliance");
+      expect(html).not.toContain("Mounted SKU distribution");
     }
   });
 

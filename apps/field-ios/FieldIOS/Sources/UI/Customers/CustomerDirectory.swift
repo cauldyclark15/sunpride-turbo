@@ -54,7 +54,8 @@ struct CustomerRecord: Identifiable {
 
     /// Address from the outlet master, else from the account sheet.
     var displayAddress: String? { address ?? account?.address.flatMap(CustomerDirectory.clean) }
-    var directionsURL: URL? { DailyRoute.directionsURL(name: name, location: location, address: displayAddress) }
+    var navigationTarget: NavigationTarget? { NavigationTarget(name: name, location: location, address: displayAddress) }
+    var directionsURL: URL? { navigationTarget.flatMap { TurnByTurn.url(.appleMaps, to: $0) } }
     var dialURL: URL? { CustomerDirectory.dialURL(account?.contactNumber) }
     var codes: String? {
         let parts = [outletCode, customerCode.flatMap { $0 == outletCode ? nil : $0 }].compactMap { $0 }
