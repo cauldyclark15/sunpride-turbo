@@ -222,6 +222,9 @@ class BootstrapTest {
         override fun token(refresh: Boolean): String { if (refresh) refreshes++; return "jwt" }
         override fun post(body: ByteArray, headers: Map<String,String>, bearer: String): Pair<Int,String> {
             bodies.add(body)
+            val request = JSONObject(String(body))
+            if (request.has("pageCursor")) assertFalse(request.has("referenceData"))
+            else assertTrue(request.getBoolean("referenceData"))
             assertEquals(com.sunpride.field.device.RequestSigner.bodyDigest(body), headers["x-mobile-body-digest"])
             assertEquals("1", headers["x-mobile-contract-version"])
             assertEquals("ANDROID", headers["x-mobile-app"])
