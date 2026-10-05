@@ -57,11 +57,16 @@ order visits, tasks, products (by code), stock (by location code, then product c
 }
 ```
 
-- `baseUom` may be `null` (legacy product without a unit record); `toBase` is `null` when no
-  conversion is in force. `toBase` converts a quantity in the selling unit into base quantity
-  (`quantityBase = quantity × numerator ÷ denominator`, in base units × `quantityScale`).
-- `barcodes` lists active barcodes (at most 20, 64 characters each) in server order. The call
-  sheet line's `barcode` is always `barcodes[0].barcode` or `null`.
+- Only active units are ever shipped. `baseUom` is `null` for a legacy product without a unit
+  record or when its base unit is retired (then no selling unit has a `toBase`); a retired selling
+  unit is left out. `toBase` is `null` when no conversion is in force. `toBase` converts a
+  quantity in the selling unit into base quantity (`quantityBase = quantity × numerator ÷
+denominator`, in base units × `quantityScale`). The server reads a unit pair's full conversion
+  history (up to 100 rows, product-specific first, then global); more rows fail the request with
+  `reference_data_too_large` rather than guessing.
+- `barcodes` lists active barcodes whose unit is active (at most 20, 64 characters each) in server
+  order. The call sheet line's `barcode` is normally `barcodes[0].barcode` or `null`; with
+  reference data, prefer `barcodes[0]` (a barcode for a retired unit is dropped here).
 
 `inventoryAvailability[]` (one per balance row on this page):
 

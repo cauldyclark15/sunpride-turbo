@@ -17,6 +17,7 @@ import {
 } from "../imports/test_helpers";
 import { fixture } from "./bootstrap.test";
 import { readCursor } from "./cursor";
+import { MAX_CONVERSION_HISTORY } from "./reference";
 
 // Manila noon today: two-minute steps never cross the field-day boundary.
 const NOON = Date.parse(`${manilaDate(Date.now())}T04:00:00Z`);
@@ -393,4 +394,149 @@ describe("mobile reference data (SP-0051)", () => {
       }),
     ).rejects.toThrow("rebootstrap_required");
   });
+
+  it("never ships a retired base, selling or barcode unit", async () => {
+    const f = await setup();
+    const { caseId, eachId } = await units(f);
+    await f.t.run(async (ctx) => {
+      await ctx.db.insert("productBarcodes", {
+        organizationId: "sunpride",
+        productId: f.product._id,
+        barcode: "4800000000555",
+        uomId: eachId,
+        active: true,
+        source: "fixture",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      await ctx.db.insert("uomConversions", conversion(eachId, caseId, 1n));
+    });
+    const before = await catalog(f);
+    expect(before.barcodes!.map((b) => b.uom)).toEqual(["CASE", "EACH"]);
+    expect(before.sellingUoms!.find((u) => u.code === "EACH")!.toBase).toEqual({
+      numerator: 1,
+      denominator: 24,
+      roundingMode: "exact",
+    });
+    advance(1000);
+    await f.t.run((ctx) =>
+      ctx.db.patch(eachId, { active: false, updatedAt: Date.now() }),
+    );
+    const noEach = await catalog(f);
+    expect(noEach.barcodes).toEqual([
+      { barcode: "4800000000001", uom: "CASE" },
+    ]);
+    expect(noEach.sellingUoms!.map((u) => u.code)).toEqual(["CASE"]);
+    expect(noEach.revision).toBe(Date.now());
+    advance(1000);
+    await f.t.run((ctx) =>
+      ctx.db.patch(caseId, { active: false, updatedAt: Date.now() }),
+    );
+    const noBase = await catalog(f);
+    expect(noBase.baseUom).toBeNull();
+    expect(noBase.barcodes).toEqual([]);
+    expect(noBase.sellingUoms).toEqual([]);
+  });
+
+  it("finds the in-force conversion behind more than 20 older or other-product rows", async () => {
+    const f = await setup();
+    const { caseId, eachId } = await units(f);
+    await f.t.run(async (ctx) => {
+      // 25 expired product-specific rows, created before the one in force.
+      for (let i = 0; i < 25; i++)
+        await ctx.db.insert("uomConversions", {
+          ...conversion(eachId, caseId, 1n, f.product._id),
+          denominator: 12n,
+          effectiveTo: NOON - 60_000,
+        });
+      await ctx.db.insert(
+        "uomConversions",
+        conversion(eachId, caseId, 1n, f.product._id),
+      );
+    });
+    const specific = await catalog(f);
+    expect(
+      specific.sellingUoms!.find((u) => u.code === "EACH")!.toBase,
+    ).toMatchObject({ numerator: 1, denominator: 24 });
+
+    // A global conversion created after 25 rows for another product is still found.
+    const g = await setup();
+    const ids = await units(g);
+    await g.t.run(async (ctx) => {
+      for (let i = 0; i < 25; i++)
+        await ctx.db.insert(
+          "uomConversions",
+          conversion(ids.eachId, ids.caseId, 1n, g.offSheet._id),
+        );
+      await ctx.db.insert("uomConversions", {
+        ...conversion(ids.eachId, ids.caseId, 1n),
+        denominator: 6n,
+      });
+    });
+    const global = await catalog(g);
+    expect(
+      global.sellingUoms!.find((u) => u.code === "EACH")!.toBase,
+    ).toMatchObject({ numerator: 1, denominator: 6 });
+  });
+
+  it("fails loudly instead of truncating an oversized conversion history", async () => {
+    const f = await setup();
+    const { caseId, eachId } = await units(f);
+    await f.t.run(async (ctx) => {
+      for (let i = 0; i <= MAX_CONVERSION_HISTORY; i++)
+        await ctx.db.insert(
+          "uomConversions",
+          conversion(eachId, caseId, 1n, f.product._id),
+        );
+    });
+    await expect(
+      f.caller.query(internal.mobile.bootstrap.snapshot, {
+        actor: f.actor,
+        referenceData: true,
+      }),
+    ).rejects.toThrow("reference_data_too_large");
+  });
 });
+
+async function units(f: Awaited<ReturnType<typeof setup>>) {
+  return f.t.run(async (ctx) => {
+    const code = async (c: string) =>
+      (await ctx.db
+        .query("unitsOfMeasure")
+        .withIndex("by_organizationId_and_code", (q) =>
+          q.eq("organizationId", "sunpride").eq("code", c),
+        )
+        .unique())!._id;
+    return { caseId: await code("CASE"), eachId: await code("EACH") };
+  });
+}
+
+function conversion(
+  fromUomId: Id<"unitsOfMeasure">,
+  toUomId: Id<"unitsOfMeasure">,
+  numerator: bigint,
+  productId?: Id<"products">,
+) {
+  return {
+    organizationId: "sunpride",
+    ...(productId ? { productId } : {}),
+    fromUomId,
+    toUomId,
+    numerator,
+    denominator: 24n,
+    roundingMode: "exact" as const,
+    effectiveFrom: NOON - 3_600_000,
+    active: true,
+    createdAt: NOON - 3_600_000,
+    updatedAt: NOON - 3_600_000,
+  };
+}
+
+async function catalog(f: Awaited<ReturnType<typeof setup>>) {
+  const r = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+    actor: f.actor,
+    referenceData: true,
+  });
+  expect(r.productCatalog).toHaveLength(1);
+  return r.productCatalog[0]!;
+}

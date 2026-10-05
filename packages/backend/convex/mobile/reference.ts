@@ -18,6 +18,8 @@ export const MAX_SALE_LOCATIONS = 10;
 export const MAX_UNIT_LOCATIONS_SCANNED = 200;
 export const MAX_LOCATION_BALANCES = 1000;
 const MAX_BARCODES = 20;
+/** Conversion history read per unit pair; more rows fail loudly instead of being skipped. */
+export const MAX_CONVERSION_HISTORY = 100;
 /** Pulls re-read this overlap so a commit that lands after a pull is never skipped. */
 export const REFERENCE_OVERLAP_MS = 60_000;
 
@@ -92,6 +94,29 @@ type Caches = {
   global: Map<string, Doc<"uomConversions">[]>;
 };
 
+/** All conversion rows for one unit pair (product-specific or global), or an explicit failure. */
+async function conversionHistory(
+  ctx: QueryCtx,
+  productId: Id<"products"> | undefined,
+  from: Id<"unitsOfMeasure">,
+  to: Id<"unitsOfMeasure">,
+) {
+  const rows = await ctx.db
+    .query("uomConversions")
+    .withIndex(
+      "by_organizationId_and_productId_and_fromUomId_and_toUomId",
+      (q) =>
+        q
+          .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
+          .eq("productId", productId)
+          .eq("fromUomId", from)
+          .eq("toUomId", to),
+    )
+    .take(MAX_CONVERSION_HISTORY + 1);
+  if (rows.length > MAX_CONVERSION_HISTORY) tooLarge();
+  return rows;
+}
+
 async function uom(ctx: QueryCtx, caches: Caches, id: Id<"unitsOfMeasure">) {
   let row = caches.uoms.get(id);
   if (row === undefined) {
@@ -112,32 +137,13 @@ async function toBase(
 ) {
   const base = product.baseUomId;
   if (!base) return { conversion: null, revision: 0 };
-  const specific = await ctx.db
-    .query("uomConversions")
-    .withIndex(
-      "by_organizationId_and_productId_and_fromUomId_and_toUomId",
-      (q) =>
-        q
-          .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
-          .eq("productId", product._id)
-          .eq("fromUomId", from)
-          .eq("toUomId", base),
-    )
-    .take(20);
+  // Every row for the pair is read (bounded, overflow fails), so a later or global
+  // conversion is never hidden behind older or other products' rows.
+  const specific = await conversionHistory(ctx, product._id, from, base);
   const key = `${from}|${base}`;
   let global = caches.global.get(key);
   if (!global) {
-    global = (
-      await ctx.db
-        .query("uomConversions")
-        .withIndex("by_organizationId_and_fromUomId_and_toUomId", (q) =>
-          q
-            .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
-            .eq("fromUomId", from)
-            .eq("toUomId", base),
-        )
-        .take(20)
-    ).filter((row) => row.productId === undefined);
+    global = await conversionHistory(ctx, undefined, from, base);
     caches.global.set(key, global);
   }
   let revision = 0;
@@ -178,19 +184,26 @@ async function catalogItem(
     revision = Math.max(revision, row.updatedAt);
     if (!row.active || row.barcode.length > 64) continue;
     const unit = await uom(ctx, caches, row.uomId);
-    barcodes.push({ barcode: row.barcode, uom: unit?.code ?? null });
+    if (unit) revision = Math.max(revision, unit.updatedAt);
+    // A barcode for a retired or unknown unit must not scan into that unit.
+    if (!unit?.active) continue;
+    barcodes.push({ barcode: row.barcode, uom: unit.code });
   }
-  const baseRow = product.baseUomId
+  const storedBase = product.baseUomId
     ? await uom(ctx, caches, product.baseUomId)
     : null;
-  if (baseRow) revision = Math.max(revision, baseRow.updatedAt);
+  if (storedBase) revision = Math.max(revision, storedBase.updatedAt);
+  const baseRow = storedBase?.active ? storedBase : null;
   const sellingUoms: NonNullable<CatalogItem["sellingUoms"]> = [];
   for (const id of product.sellingUomIds ?? []) {
     const row = await uom(ctx, caches, id);
     if (!row) continue;
     revision = Math.max(revision, row.updatedAt);
     if (!row.active) continue;
-    const found = await toBase(ctx, caches, product, id, now);
+    // No conversion into a retired base unit.
+    const found = baseRow
+      ? await toBase(ctx, caches, product, id, now)
+      : { conversion: null, revision: 0 };
     revision = Math.max(revision, found.revision);
     sellingUoms.push({
       code: row.code,
