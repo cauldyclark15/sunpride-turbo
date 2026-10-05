@@ -1,9 +1,12 @@
 # Deployment runbook
 
-1. Run `bun run check` from the repository root.
+1. Run `bun run check` from the repository root. It ends with the secret audit
+   (`bun run audit:secrets`), which fails if a credential is tracked or appears in
+   the built web/PWA bundles. Policy: `docs/security/SECRETS_AND_CLIENT_CONFIG.md`.
 2. Use `packages/backend/.env.deployment.example` as the checklist for Convex
-   environment values. Generate fresh values for `BETTER_AUTH_SECRET` and
-   `CONNECTOR_SIGNING_SECRET`; never commit either secret.
+   environment values. Generate fresh values for `BETTER_AUTH_SECRET`,
+   `CONNECTOR_SIGNING_SECRET` and `MOBILE_CURSOR_SECRET` for each deployment
+   (never reuse DEV values in production); never commit any of them.
 3. Deploy Convex from `packages/backend` with `bunx convex deploy`.
 4. Deploy `apps/web` as the Next.js project with its public Convex cloud/site URLs.
 5. Deploy `apps/pwa/dist` to HTTPS static hosting with SPA fallback and no-cache rules for `sw.js`.

@@ -122,7 +122,9 @@ enum BootstrapV1 {
             guard plannedVisits.allSatisfy({ $0.sequence == nil || $0.sequence! >= 0 }) else { throw WireError.unsafeValue }
             outlets = try c.decode([StoreSnapshot.Outlet].self, forKey: .outlets)
             // Additive route-screen pin: an out-of-range coordinate is a corrupt feed, never a map target.
-            guard outlets.allSatisfy({ ($0.latitude == nil) == ($0.longitude == nil) }),
+            // Additive order-association territory (SP-0044): both or neither.
+            guard outlets.allSatisfy({ ($0.territoryId == nil) == ($0.territoryCode == nil) }),
+                  outlets.allSatisfy({ ($0.latitude == nil) == ($0.longitude == nil) }),
                   outlets.allSatisfy({ outlet in outlet.location.map { RouteMath.isValid($0) } ?? true }) else {
                 throw WireError.unsafeValue
             }

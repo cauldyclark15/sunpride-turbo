@@ -5,7 +5,7 @@
 - Bootstrap: `jcing.jc@gmail.com` is the only initial super admin. First-arrival order grants no authority; every other email must be authorized before account creation.
 - Integration authentication: HMAC-SHA256 over `timestamp.body`, exact-body verification, and a five-minute replay window.
 - Network boundary: the connector polls Convex and SAP. No cloud-initiated ingress to the SAP network is required.
-- Secrets: Better Auth, connector, and SAP secrets are server/connector-only. `.env.local`, SQLite, PEM, and local connector data are ignored by Git.
+- Secrets: Better Auth, connector, mobile cursor and SAP secrets are server/connector-only. `.env.local`, SQLite, PEM, and local connector data are ignored by Git. The full inventory, where each value lives, and the automated audit that keeps them out of tracked files, client bundles and logs are in [SECRETS_AND_CLIENT_CONFIG.md](SECRETS_AND_CLIENT_CONFIG.md).
 - Data validation: Convex argument/return validators and versioned JSON Schemas define the API boundaries.
 - Auditability: order creation/decisions and role changes append actor, action, entity, time, and optional decision context.
 

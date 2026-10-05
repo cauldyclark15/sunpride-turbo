@@ -451,8 +451,10 @@ async function fixture() {
     await order("Cara", 4444, at(date, "09:00"));
     return {
       ana: ana.id,
+      anaAssignment: ana.assignment,
       cara: cara.id,
       regionA,
+      regionB,
       v1,
       v2,
       activityId,
@@ -700,5 +702,58 @@ describe("analytics.agent_metrics", () => {
       ids.cara,
     ]);
     expect((await day("analyst")).page).toHaveLength(2);
+  });
+
+  it("drops a transferred person's history from the old unit's readers", async () => {
+    const { t, ids, as } = await fixture();
+    await t.mutation(internal.analytics.agent_metrics.backfillDay, {
+      serviceDate: date,
+    });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const range = { fromDate: "2026-09-01", toDate: "2026-09-30" };
+    const day = (name: string) =>
+      as(name).query(api.analytics.agent_metrics.forDay, {
+        serviceDate: date,
+        paginationOpts: { numItems: 50, cursor: null },
+      });
+    const ids_ = (rows: { profileId: Id<"profiles"> }[]) =>
+      rows.map((row) => row.profileId).sort();
+
+    // Ana's assignment moves from region A to region B after the reported day, before
+    // the profile projection is materialized: the effective assignment alone must gate.
+    const transfer = Date.now() - 60_000;
+    await t.run(async (ctx) => {
+      await ctx.db.patch(ids.anaAssignment, { effectiveTo: transfer });
+      await ctx.db.insert("employeeAssignments", {
+        profileId: ids.ana,
+        orgUnitId: ids.regionB,
+        role: "sales",
+        effectiveFrom: transfer,
+        actorSubject: "fixture",
+        reason: "transfer",
+        createdAt: transfer,
+      });
+    });
+    expect((await day("managerA")).page).toEqual([]);
+    await expect(
+      as("managerA").query(api.analytics.agent_metrics.forPerson, {
+        profileId: ids.ana,
+        ...range,
+      }),
+    ).rejects.toThrow(/outside your organizational scope/);
+
+    // Once the profile is materialized in region B as well, region A still sees nothing.
+    await t.run((ctx) => ctx.db.patch(ids.ana, { orgUnitId: ids.regionB }));
+    expect((await day("managerA")).page).toEqual([]);
+    // The stored row keeps the unit of the day it describes (region A), so region B's
+    // manager does not gain region A's history either; cross-scope readers keep both.
+    expect(ids_((await day("managerB")).page)).toEqual([ids.cara]);
+    expect((await day("analyst")).page).toHaveLength(2);
+    expect(
+      await as("Ana").query(api.analytics.agent_metrics.forPerson, {
+        profileId: ids.ana,
+        ...range,
+      }),
+    ).toHaveLength(1);
   });
 });

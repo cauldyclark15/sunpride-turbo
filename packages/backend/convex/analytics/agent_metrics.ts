@@ -366,6 +366,19 @@ async function readableUnits(ctx: QueryCtx, profile: Doc<"profiles">) {
 }
 
 /**
+ * The person's current units: the persisted profile unit and the currently effective
+ * assignment's unit (they differ only while a transfer's projection is pending). A reader
+ * must hold both, so a historical row never outlives the person's move to another unit.
+ */
+async function currentPersonUnits(ctx: QueryCtx, person: Doc<"profiles">) {
+  const units = new Set<Id<"orgUnits">>();
+  if (person.orgUnitId) units.add(person.orgUnitId);
+  const assignment = await assignmentAt(ctx, person._id, Date.now());
+  if (assignment?.orgUnitId) units.add(assignment.orgUnitId);
+  return units;
+}
+
+/**
  * One person's daily rollups between two Manila dates (inclusive, at most MAX_RANGE_DAYS).
  * `report.read`; field `sales` read only their own. Others need scope over the person's
  * unit and over every row's unit.
@@ -399,8 +412,7 @@ export const forPerson = query({
       )
       .take(MAX_RANGE_DAYS);
     if (!self) {
-      const units = new Set<Id<"orgUnits">>();
-      if (person.orgUnitId) units.add(person.orgUnitId);
+      const units = await currentPersonUnits(ctx, person);
       for (const row of rows) if (row.orgUnitId) units.add(row.orgUnitId);
       if (!units.size) {
         const root = await rootOrgUnitId(ctx);
@@ -415,9 +427,11 @@ export const forPerson = query({
 });
 
 /**
- * Everyone's rollups for one Manila date, paged, limited to the caller's scope (rows of
- * other units are dropped from each page, so a page may come back short or empty while
- * `isDone` is false: keep paging). Field `sales` see only their own row.
+ * Everyone's rollups for one Manila date, paged, limited to the caller's scope: both the
+ * row's unit and the person's current unit (persisted and effective) must be readable, so
+ * a transferred person's history leaves the old unit's view. Rows outside scope are
+ * dropped from each page, so a page may come back short or empty while `isDone` is false:
+ * keep paging. Field `sales` see only their own row.
  */
 export const forDay = query({
   args: { serviceDate: v.string(), paginationOpts: paginationOptsValidator },
@@ -434,14 +448,23 @@ export const forDay = query({
           .eq("serviceDate", args.serviceDate),
       )
       .paginate(args.paginationOpts);
-    return {
-      ...result,
-      page: result.page.filter((row) =>
-        profile.role === "sales"
-          ? row.profileId === profile._id
-          : units === null ||
-            (row.orgUnitId !== undefined && units.has(row.orgUnitId)),
-      ),
-    };
+    const page: Doc<"agentDailyMetrics">[] = [];
+    for (const row of result.page) {
+      if (profile.role === "sales") {
+        if (row.profileId === profile._id) page.push(row);
+        continue;
+      }
+      if (units === null) {
+        page.push(row);
+        continue;
+      }
+      if (row.orgUnitId === undefined || !units.has(row.orgUnitId)) continue;
+      const person = await ctx.db.get(row.profileId);
+      if (!person) continue;
+      const current = await currentPersonUnits(ctx, person);
+      if (current.size && [...current].every((unit) => units.has(unit)))
+        page.push(row);
+    }
+    return { ...result, page };
   },
 });
