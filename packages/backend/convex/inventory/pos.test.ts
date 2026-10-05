@@ -378,6 +378,14 @@ describe("van POS offline sales", () => {
     const afterReplay = await expectReconciled(f, OPENING - 3_000n);
     expect(afterReplay.orders).toBe(afterFirst.orders);
     expect(afterReplay.movements).toBe(afterFirst.movements);
+    // Another person replaying the same request ID gets neither the order nor a new one.
+    await expect(
+      f.other.mutation(
+        api.inventory.pos.postSale,
+        f.sale(route, "queued-sale-1", 1, 3),
+      ),
+    ).rejects.toThrow(/another salesperson/);
+    await expectReconciled(f, OPENING - 3_000n);
     // A new request cannot reuse an acknowledged sequence slot.
     await expect(
       f.admin.mutation(

@@ -181,18 +181,18 @@ final class EvidencePhotosTests: XCTestCase {
         XCTAssertEqual(status.queued, 0, "a photo never counts as unsent visit work")
         XCTAssertEqual(status.photosWaiting, 1)
     }
-    func testV3ToV4MigrationKeepsOutboxAndAddsPhotos() throws {
+    func testV4ToV5MigrationKeepsOutboxAndAddsPhotos() throws {
         let call = try start()
-        try store.prepareLegacyV3()
-        XCTAssertEqual(store.schemaVersion, 3)
+        try store.prepareLegacyV4()
+        XCTAssertEqual(store.schemaVersion, 4)
         store.close()
         store = try EncryptedFieldStore(url: directory.appending(path: "field.sqlite"), secrets: secrets, keyAccount: "db")
-        XCTAssertEqual(store.schemaVersion, 4)
+        XCTAssertEqual(store.schemaVersion, 5)
         XCTAssertEqual(try store.pendingOutbox(for: partition).map(\.intent.requestId), [call])
         try store.savePhoto(row(call), for: partition, now: Date())
         store.close()
         store = try EncryptedFieldStore(url: directory.appending(path: "field.sqlite"), secrets: secrets, keyAccount: "db")
-        XCTAssertEqual(store.schemaVersion, 4)
+        XCTAssertEqual(store.schemaVersion, 5)
         XCTAssertEqual(try store.photos(forCheckIn: call, in: partition).count, 1)
     }
 

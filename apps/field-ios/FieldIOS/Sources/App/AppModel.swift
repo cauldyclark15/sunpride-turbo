@@ -41,6 +41,8 @@ final class AppModel {
     private(set) var photoTypes: [PhotoType] = []
     /// IOS-016 photos on this phone per call, keyed by the call's Start request ID.
     private(set) var visitPhotos: [UUID: [VisitPhoto]] = [:]
+    /// SP-0044 order drafts in the verified partition; IOS-015 marks a sent one with its queued request.
+    private(set) var orderDrafts: [OrderDraft] = []
     private(set) var lastSyncedAt: Date?
     private(set) var syncStatus: FieldSyncStatus?
     private(set) var isOffline = false
@@ -75,6 +77,7 @@ final class AppModel {
     enum CallFailure: Error, Equatable {
         case callOpen, mcpOrder, alreadyStarted, notStarted, alreadyClosed, intentRequired, activitiesRequired
         case photoLimit, photoInvalid
+        case outcomeRequired, reasonRequired
         var message: String {
             switch self {
             case .callOpen: "Finish the open call first"
@@ -86,6 +89,8 @@ final class AppModel {
             case .activitiesRequired: "Record the required activities, or end as not productive"
             case .photoLimit: "This call already has \(EvidencePhotos.maxPerVisit) photos"
             case .photoInvalid: "Couldn't keep that photo. Take it again."
+            case .outcomeRequired: "Choose how the call ended"
+            case .reasonRequired: "Give a reason (up to 200 characters)"
             }
         }
     }
@@ -241,7 +246,7 @@ final class AppModel {
     }
 
     private func clearToday() {
-        visits = []; callSheets = []; activityRules = []; photoTypes = []; visitPhotos = [:]
+        visits = []; callSheets = []; activityRules = []; photoTypes = []; visitPhotos = [:]; orderDrafts = []
         outletDetails = [:]; customerDetails = [:]; routeCode = nil
         customers = []; dayTasks = []; dayTarget = nil; daySales = nil
     }
@@ -279,6 +284,7 @@ final class AppModel {
             callSheets = try store.snapshot(for: partition)?.callSheets ?? []
             activityRules = try store.snapshot(for: partition)?.activityRules ?? []
             photoTypes = try store.snapshot(for: partition)?.photoTypes ?? []
+            orderDrafts = try store.orderDrafts(for: partition)
             let day = BootstrapClient.manilaDay(now())
             let outlets = Dictionary(uniqueKeysWithValues: try store.outlets(for: partition).map { ($0.id, $0.name) })
             let planned = try store.todayVisits(day, for: partition)
@@ -422,8 +428,7 @@ final class AppModel {
     }
     func queueNote(_ note: String, for visit: TodayVisit) throws {
         let (initial, store, partition) = try checkIn(for: visit)
-        guard !(try store.intents(for: partition)).contains(where: { $0.kind == "visit.checkOut" &&
-            $0.dependencies.contains(initial.requestId.uuidString.lowercased()) }) else { throw CallFailure.alreadyClosed }
+        try requireOpen(initial, store: store, partition: partition)
         let ack = try store.ack(for: initial.requestId, in: partition)
         let timestamp = now()
         let intent = try DiagnosticOperation.note(note, checkIn: initial.requestId, visitId: ack?.entityId, now: timestamp)
@@ -455,7 +460,7 @@ final class AppModel {
     /// Queue one structured activity form (merchandising, promotion, inventory or price check).
     func queueActivity(_ activity: [String: Any], for visit: TodayVisit) throws {
         let (initial, store, partition) = try checkIn(for: visit)
-        guard !visitProgress(for: visit).checkedOut else { throw CallFailure.alreadyClosed }
+        try requireOpen(initial, store: store, partition: partition)
         // Validate against the active encrypted snapshot, not a stale editor projection.
         let sheet = try store.snapshot(for: partition)?.callSheets.first { $0.outletId == visit.outletId }
         try ActivityForms.validate(activity, sheet: sheet)
@@ -471,12 +476,43 @@ final class AppModel {
         callSheets.first { $0.outletId == visit.outletId }
     }
     func visitProgress(for visit: TodayVisit) -> (checkedIn: Bool, checkedOut: Bool) {
-        guard let (initial, store, partition) = try? checkIn(for: visit) else { return (false, false) }
-        let checkedOut = (try? store.intents(for: partition))?.contains { item in
-            item.kind == "visit.checkOut" &&
-            ((try? JSONSerialization.jsonObject(with: item.operationJSON) as? [String: Any])?["dependsOn"] as? [String])?.contains(initial.requestId.uuidString.lowercased()) == true
-        } ?? false
-        return (true, checkedOut)
+        guard let (initial, store, partition) = try? checkIn(for: visit),
+              let intents = try? store.intents(for: partition),
+              let rejected = try? Set(store.reviewOutbox(for: partition).map { $0.intent.requestId }) else { return (false, false) }
+        return (true, !VisitCompletion.isOpen(initial, intents: intents, rejected: rejected))
+    }
+    /// IOS-017: a queued (or accepted) End makes the call final on this phone; a server-rejected End
+    /// does not, so the person can still finish the call.
+    private func requireOpen(_ initial: VisitIntent, store: any FieldLocalStore, partition: StorePartition) throws {
+        let rejected = Set(try store.reviewOutbox(for: partition).map { $0.intent.requestId })
+        guard VisitCompletion.isOpen(initial, intents: try store.intents(for: partition), rejected: rejected) else {
+            throw CallFailure.alreadyClosed
+        }
+    }
+    /// IOS-017: what End will record (outcome, reason, recorded forms, forms the office will review,
+    /// time so far, productive call), re-read from the encrypted store. Refuses exactly what End refuses.
+    func endReview(outcome: String?, reason: String?, for visit: TodayVisit) throws -> EndReview {
+        let (initial, store, partition) = try checkIn(for: visit)
+        let snapshot = try store.snapshot(for: partition)
+        return try VisitCompletion.review(checkIn: initial, outcome: outcome, reason: reason,
+            rules: snapshot?.activityRules ?? [], intents: try store.intents(for: partition),
+            rejected: Set(try store.reviewOutbox(for: partition).map { $0.intent.requestId }),
+            sheet: snapshot?.callSheets.first { $0.outletId == visit.outletId },
+            productiveRule: snapshot?.dayTarget?.productiveCallRule, now: now())
+    }
+    /// IOS-017: the call's final, immutable result once its End is queued; nil while open.
+    func visitResult(for visit: TodayVisit) -> VisitResult? {
+        guard let (initial, store, partition) = try? checkIn(for: visit),
+              let intents = try? store.intents(for: partition),
+              let rejected = try? Set(store.reviewOutbox(for: partition).map { $0.intent.requestId }),
+              let pending = try? store.pendingOutbox(for: partition), let deferred = try? store.deferredOutbox(for: partition),
+              let heldRows = try? store.heldOutbox(for: partition) else { return nil }
+        let snapshot = try? store.snapshot(for: partition)
+        let queued = Set((pending + deferred + heldRows).map { $0.intent.requestId })
+        return VisitCompletion.result(checkIn: initial, rules: snapshot?.activityRules ?? [], intents: intents,
+            rejected: rejected, queued: queued, held: (try? store.isHeld(partition)) == true,
+            sheet: snapshot?.callSheets.first { $0.outletId == visit.outletId },
+            productiveRule: snapshot?.dayTarget?.productiveCallRule)
     }
     func callSheetStatus(for visit: TodayVisit) -> String? {
         guard let (initial, store, partition) = try? checkIn(for: visit),
@@ -496,7 +532,7 @@ final class AppModel {
     func queueCallSheet(_ drafts: [String: CallSheetDraft], for visit: TodayVisit) throws {
         let (initial, store, partition) = try checkIn(for: visit)
         // The call sheet belongs to the open call: after Start and before End.
-        guard !visitProgress(for: visit).checkedOut else { throw CallFailure.alreadyClosed }
+        try requireOpen(initial, store: store, partition: partition)
         // Always validate against the active encrypted snapshot, not a stale editor projection.
         guard let sheet = try store.snapshot(for: partition)?.callSheets.first(where: { $0.outletId == visit.outletId }) else {
             throw StoreError.invalidInput
@@ -509,22 +545,87 @@ final class AppModel {
         else { try store.enqueue(intent, for: partition, now: timestamp) }
         didQueueWork()
     }
+    /// SP-0044: the account's authorized products for this visit (Annex C setup), in setup order.
+    func orderCatalog(for visit: TodayVisit) -> [OrderCatalog.Item] { OrderCatalog.items(callSheet(for: visit)) }
+    /// Drafts taken during this visit's call on this phone.
+    func orderDrafts(for visit: TodayVisit) -> [OrderDraft] {
+        _ = visits // Observe durable refreshes.
+        guard let (initial, _, _) = try? checkIn(for: visit) else { return [] }
+        let id = initial.requestId.uuidString.lowercased()
+        return orderDrafts.filter { $0.checkInRequestId == id }
+    }
+    /// Save a new draft (`draftId` nil) or the next version of one for the open call. The association
+    /// is built from the stored check-in and cached snapshot; the store re-validates in its transaction.
+    @discardableResult
+    func saveOrderDraft(draftId: String?, quantities: [(productId: String, quantity: Int)], for visit: TodayVisit) throws -> OrderDraft {
+        guard let partition = activeStoragePartition else { throw StoreError.invalidInput }
+        let store = try storage(for: partition)
+        guard let initial = try store.intents(for: partition).first(where: { $0.matches(visit) }) else { throw OrderDraftFailure.callNotOpen }
+        let existing = try draftId.map { id in
+            guard let draft = try store.orderDrafts(for: partition).first(where: { $0.draftId == id }) else { throw OrderDraftFailure.unknownDraft }
+            return draft
+        }
+        let timestamp = now()
+        let draft = try OrderDraftRules.build(OrderCallContext.read(store: store, partition: partition), existing: existing,
+                                              checkIn: initial, quantities: quantities, now: timestamp)
+        try store.saveOrderDraft(draft, for: partition, now: timestamp)
+        refreshToday()
+        return draft
+    }
+    func discardOrderDraft(_ draftId: String) throws {
+        guard let partition = activeStoragePartition else { throw StoreError.invalidInput }
+        try storage(for: partition).discardOrderDraft(draftId, for: partition)
+        refreshToday()
+    }
+    /// IOS-015 review: the rules the phone can check offline for this saved draft.
+    func orderChecks(_ draft: OrderDraft) -> [OrderSubmission.Check] {
+        _ = visits // Observe durable refreshes.
+        guard let partition = activeStoragePartition, let store = try? storage(for: partition),
+              let context = try? OrderCallContext.read(store: store, partition: partition) else {
+            return [.init(label: "Phone can still record today's work", problem: "Cached work is unavailable. Sync and try again.")]
+        }
+        let summary = (try? store.snapshot(for: partition))?.accountSummaries.first { $0.outletId == draft.outletId }
+        return OrderSubmission.checks(context, draft: draft,
+                                      phoneCanRecord: (try? store.isLeaseValid(now: now(), for: partition)) == true,
+                                      held: (try? store.isHeld(partition)) ?? true, summary: summary)
+    }
+    /// IOS-015: where this order is on its way to the office, from the durable outbox.
+    func orderStatus(_ draft: OrderDraft) -> OrderSubmission.Status {
+        _ = visits
+        guard let partition = activeStoragePartition, let store = try? storage(for: partition) else { return .queued }
+        let context = try? OrderCallContext.read(store: store, partition: partition)
+        let callOpen = context.map { (try? OrderDraftRules.openCheckIn($0, clientVisitId: draft.clientVisitId,
+                                                                        checkInRequestId: draft.checkInRequestId)) != nil } ?? false
+        let state = draft.submittedRequestId.flatMap(UUID.init(uuidString:)).flatMap { try? store.requestState(for: $0, in: partition) }
+        return OrderSubmission.status(draft, callOpen: callOpen, requestState: state,
+                                      held: (try? store.isHeld(partition)) ?? false, syncing: syncing)
+    }
+    /// IOS-015: queue the reviewed draft's order for the office. Works offline: it waits in the
+    /// outbox (behind the call start) and is sent on the next sync. The draft is read-only after.
+    @discardableResult
+    func submitOrderDraft(_ draftId: String) throws -> OrderDraft {
+        guard let partition = activeStoragePartition else { throw StoreError.invalidInput }
+        let store = try storage(for: partition)
+        guard let draft = try store.orderDrafts(for: partition).first(where: { $0.draftId == draftId }) else {
+            throw OrderDraftFailure.unknownDraft
+        }
+        if draft.submittedRequestId != nil { throw OrderDraftFailure.submitted }
+        guard let checkIn = UUID(uuidString: draft.checkInRequestId) else { throw OrderDraftFailure.callNotOpen }
+        let timestamp = now()
+        let intent = try DiagnosticOperation.order(OrderSubmission.activity(draft), checkIn: checkIn,
+            visitId: try store.ack(for: checkIn, in: partition)?.entityId, now: timestamp)
+        let sent = try store.submitOrderDraft(draftId, intent: intent, for: partition, now: timestamp)
+        didQueueWork()
+        return sent
+    }
     func queueCheckOut(outcome: String, reason: String?, for visit: TodayVisit, location: VisitLocation? = nil) throws {
         let (initial, store, partition) = try checkIn(for: visit)
-        guard !(try store.intents(for: partition)).contains(where: { $0.kind == "visit.checkOut" &&
-            $0.dependencies.contains(initial.requestId.uuidString.lowercased()) }) else { throw CallFailure.alreadyClosed }
-        // IOS-013: a completed End needs every capturable required form; not productive needs none.
-        if outcome == "completed" {
-            let snapshot = try store.snapshot(for: partition)
-            let rejected = Set(try store.reviewOutbox(for: partition).map { $0.intent.requestId })
-            let missing = ActivityRules.missingForEnd(checkIn: initial, rules: snapshot?.activityRules ?? [],
-                intents: try store.intents(for: partition), rejected: rejected,
-                sheet: snapshot?.callSheets.first { $0.outletId == visit.outletId })
-            if !missing.isEmpty { throw CallFailure.activitiesRequired }
-        }
+        // IOS-017: the same review the person confirmed — open call, outcome, reason, and (IOS-013) every
+        // capturable required form for a completed End; not productive needs none.
+        let review = try endReview(outcome: outcome, reason: reason, for: visit)
         let ack = try store.ack(for: initial.requestId, in: partition)
         let timestamp = now()
-        let intent = try DiagnosticOperation.checkOut(outcome: outcome, reason: reason,
+        let intent = try DiagnosticOperation.checkOut(outcome: review.outcome, reason: review.reasonCode,
             checkIn: initial.requestId, visitId: ack?.entityId, location: location, now: timestamp)
         if ack == nil { try store.enqueueDeferred(intent, for: partition, now: timestamp) }
         else { try store.enqueue(intent, for: partition, now: timestamp) }

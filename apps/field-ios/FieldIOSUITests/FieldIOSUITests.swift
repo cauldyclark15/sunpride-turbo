@@ -27,9 +27,10 @@ final class FieldIOSUITests: XCTestCase {
 
     // MARK: Stubbed backend (DEBUG `FIELD_STUB_BACKEND`; no network, no real account)
 
-    private func launchStub(_ scenario: String) -> XCUIApplication {
+    private func launchStub(_ scenario: String, environment: [String: String] = [:]) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["FIELD_STUB_BACKEND"] = scenario
+        for (key, value) in environment { app.launchEnvironment[key] = value }
         app.launch()
         return app
     }
@@ -246,6 +247,89 @@ final class FieldIOSUITests: XCTestCase {
         XCTAssertTrue(online.staticTexts["Call sheet · Sent"].waitForExistence(timeout: 10))
     }
 
+    /// SP-0044: an order draft is taken offline from the account's setup and survives a relaunch.
+    func testOrderDraftOfflineFromAccountCatalogSurvivesRelaunch() {
+        let app = launchStub("registers")
+        signIn(app, password: "correct-horse")
+        XCTAssertTrue(app.staticTexts["Stub Outlet"].waitForExistence(timeout: 20))
+        app.terminate()
+        let offline = launchStub("offline")
+        XCTAssertTrue(offline.buttons["visit-planned-stub-1"].waitForExistence(timeout: 15))
+        offline.buttons["visit-planned-stub-1"].tap()
+        offline.buttons["diagnosticCheckIn"].tap()
+        let newOrder = offline.buttons["newOrder"]
+        XCTAssertTrue(newOrder.waitForExistence(timeout: 10))
+        offline.swipeUp() // Clear the pinned End call button.
+        newOrder.tap()
+        let search = offline.textFields["orderSearch"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap(); search.typeText("hotdog")
+        let quantity = offline.textFields["orderQty-product-stub-1"]
+        XCTAssertTrue(quantity.waitForExistence(timeout: 5))
+        offline.buttons["saveOrderDraft"].tap()
+        XCTAssertTrue(offline.staticTexts["Add at least one product."].waitForExistence(timeout: 5))
+        quantity.tap(); quantity.typeText("12")
+        offline.buttons["saveOrderDraft"].tap()
+        XCTAssertTrue(offline.staticTexts["Draft saved on this phone."].waitForExistence(timeout: 5))
+        capture(offline, "order-draft-offline-saved")
+        offline.terminate()
+        let retained = launchStub("offline")
+        XCTAssertTrue(retained.buttons["visit-planned-stub-1"].waitForExistence(timeout: 15))
+        retained.buttons["visit-planned-stub-1"].tap()
+        let draft = retained.buttons["orderDraft"]
+        XCTAssertTrue(draft.waitForExistence(timeout: 10))
+        retained.swipeUp()
+        draft.tap()
+        XCTAssertEqual(retained.textFields["orderQty-product-stub-1"].value as? String, "12")
+        XCTAssertTrue(retained.buttons["discardOrderDraft"].exists)
+    }
+
+    /// SP-0043: review an order offline, send it (queued behind the call start), then see it
+    /// received after the next online sync.
+    func testOrderReviewSendOfflineThenReceivedAfterSync() {
+        let app = launchStub("registers")
+        signIn(app, password: "correct-horse")
+        XCTAssertTrue(app.staticTexts["Stub Outlet"].waitForExistence(timeout: 20))
+        app.terminate()
+        let offline = launchStub("offline")
+        XCTAssertTrue(offline.buttons["visit-planned-stub-1"].waitForExistence(timeout: 15))
+        offline.buttons["visit-planned-stub-1"].tap()
+        offline.buttons["diagnosticCheckIn"].tap()
+        let newOrder = offline.buttons["newOrder"]
+        XCTAssertTrue(newOrder.waitForExistence(timeout: 10))
+        offline.swipeUp()
+        newOrder.tap()
+        let quantity = offline.textFields["orderQty-product-stub-1"]
+        XCTAssertTrue(quantity.waitForExistence(timeout: 5))
+        quantity.tap(); quantity.typeText("12")
+        offline.buttons["reviewOrder"].tap()
+        XCTAssertTrue(offline.staticTexts["orderReviewTitle"].waitForExistence(timeout: 5))
+        XCTAssertEqual(offline.staticTexts["orderStatus"].label, "Draft · not sent")
+        XCTAssertTrue(offline.staticTexts["Priced by the office"].exists)
+        XCTAssertFalse(offline.otherElements["orderCheckProblem"].exists || offline.staticTexts["orderCheckProblem"].exists)
+        capture(offline, "order-review-offline")
+        offline.buttons["orderSubmit"].tap()
+        let confirm = offline.buttons["Send now"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        confirm.tap()
+        XCTAssertTrue(offline.staticTexts["Waiting to send"].waitForExistence(timeout: 5))
+        XCTAssertFalse(offline.buttons["orderSubmit"].exists, "a sent order can't be sent or edited again")
+        capture(offline, "order-sent-offline-queued")
+        offline.terminate()
+        let online = launchStub("online")
+        XCTAssertTrue(online.buttons["visit-planned-stub-1"].waitForExistence(timeout: 15))
+        online.buttons["visit-planned-stub-1"].tap()
+        let order = online.buttons["orderDraft"]
+        XCTAssertTrue(order.waitForExistence(timeout: 10))
+        let received = online.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@", "Received by office")).firstMatch
+        XCTAssertTrue(received.waitForExistence(timeout: 20))
+        online.swipeUp()
+        order.tap()
+        XCTAssertTrue(online.staticTexts["Received by office · not yet posted"].waitForExistence(timeout: 5))
+        capture(online, "order-received")
+    }
+
     func testPlanOrderOpenCallRelaunchAndDeniedGPSStillAllowsStartEnd() {
         let app = launchStub("registers")
         signIn(app, password: "correct-horse")
@@ -283,7 +367,14 @@ final class FieldIOSUITests: XCTestCase {
         reveal(reason, in: offline)
         reason.tap(); reason.typeText("Store closed")
         offline.buttons["diagnosticCheckOut"].tap()
+        // IOS-017: End shows what will be recorded; nothing is queued until Confirm end.
+        XCTAssertTrue(offline.buttons["diagnosticConfirmEnd"].waitForExistence(timeout: 5))
+        XCTAssertTrue(offline.descendants(matching: .any)["endReviewOutcome"].label.contains("Not productive · Store closed"))
+        offline.buttons["diagnosticConfirmEnd"].tap()
         XCTAssertTrue(offline.staticTexts["callTimeSpent"].waitForExistence(timeout: 10))
+        let endLocation = offline.descendants(matching: .any)["resultLocationReview"]
+        reveal(endLocation, in: offline)
+        XCTAssertTrue(endLocation.label.contains("End location unavailable"), "denied GPS is flagged, not refused")
         XCTAssertTrue(offline.staticTexts["callTimeSpent"].label.contains("min"))
         offline.buttons["BackButton"].tap()
         offline.buttons["visit-planned-stub-2"].tap()
@@ -336,6 +427,8 @@ final class FieldIOSUITests: XCTestCase {
         XCTAssertFalse(offline.staticTexts["activitiesMissing"].exists)
         XCTAssertTrue(offline.buttons["diagnosticCheckOut"].isEnabled)
         offline.buttons["diagnosticCheckOut"].tap()
+        XCTAssertTrue(offline.buttons["diagnosticConfirmEnd"].waitForExistence(timeout: 5))
+        offline.buttons["diagnosticConfirmEnd"].tap()
         XCTAssertTrue(offline.staticTexts["callTimeSpent"].waitForExistence(timeout: 10))
         offline.terminate()
     }
@@ -370,7 +463,21 @@ final class FieldIOSUITests: XCTestCase {
         offline.buttons["diagnosticOutcome"].tap()
         offline.buttons["Completed"].tap()
         offline.buttons["diagnosticCheckOut"].tap()
+        // IOS-017: Back keeps the call open and editable; Confirm end queues the immutable End.
+        XCTAssertTrue(offline.buttons["endReviewBack"].waitForExistence(timeout: 5))
+        capture(offline, "end-review")
+        offline.buttons["endReviewBack"].tap()
+        XCTAssertTrue(offline.buttons["diagnosticCheckOut"].waitForExistence(timeout: 5))
+        offline.buttons["diagnosticCheckOut"].tap()
+        XCTAssertTrue(offline.buttons["diagnosticConfirmEnd"].waitForExistence(timeout: 5))
+        offline.buttons["diagnosticConfirmEnd"].tap()
         XCTAssertTrue(offline.staticTexts["callTimeSpent"].waitForExistence(timeout: 5))
+        let sync = offline.descendants(matching: .any)["resultSync"]
+        XCTAssertTrue(sync.waitForExistence(timeout: 5))
+        XCTAssertTrue(sync.label.contains("Waiting to send"))
+        XCTAssertTrue(offline.descendants(matching: .any)["resultOutcome"].label.contains("Completed"))
+        XCTAssertFalse(offline.buttons["diagnosticCheckOut"].exists, "no End after End")
+        XCTAssertFalse(offline.textFields["diagnosticNote"].exists, "no edits after End")
         XCTAssertTrue(offline.staticTexts["callTimeSpent"].label.contains("min"))
         XCTAssertTrue(offline.staticTexts["Planned · Done"].exists)
         XCTAssertTrue(offline.staticTexts["Waiting"].firstMatch.exists)
@@ -417,6 +524,9 @@ final class FieldIOSUITests: XCTestCase {
         offline.buttons["diagnosticOutcome"].tap()
         offline.buttons["Completed"].tap()
         offline.buttons["diagnosticCheckOut"].tap()
+        // IOS-017 End review: a waiting photo never blocks Confirm end.
+        XCTAssertTrue(offline.buttons["diagnosticConfirmEnd"].waitForExistence(timeout: 5))
+        offline.buttons["diagnosticConfirmEnd"].tap()
         XCTAssertTrue(offline.staticTexts["callTimeSpent"].waitForExistence(timeout: 10))
         let done = offline.descendants(matching: .any)["donePhotos"]
         XCTAssertTrue(done.waitForExistence(timeout: 5))
@@ -467,6 +577,40 @@ final class FieldIOSUITests: XCTestCase {
         app.buttons["routeOpenVisit"].tap()
         XCTAssertTrue(app.buttons["diagnosticCheckIn"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["diagnosticCheckIn"].isEnabled)
+    }
+
+    /// IOS-018: with several navigation apps installed, Directions asks which one to hand the pin to.
+    func testDirectionsOffersEachInstalledNavigationApp() {
+        let app = launchStub("registers", environment: ["FIELD_STUB_NAV_APPS": "googleMaps,waze"])
+        signIn(app, password: "correct-horse")
+        let open = app.buttons["openRoute"]
+        XCTAssertTrue(open.waitForExistence(timeout: 20))
+        open.tap()
+        let directions = app.buttons["routeDirections-planned-stub-1"]
+        XCTAssertTrue(directions.waitForExistence(timeout: 5))
+        directions.tap()
+        XCTAssertTrue(app.buttons["navigateWith-appleMaps"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["navigateWith-googleMaps"].exists)
+        XCTAssertTrue(app.buttons["navigateWith-waze"].exists)
+        // Waze is only pretended installed here, so the system refuses it and the route says so.
+        app.buttons["navigateWith-waze"].firstMatch.tap()
+        let failure = app.staticTexts["routeDirectionsError"]
+        XCTAssertTrue(failure.waitForExistence(timeout: 5))
+        XCTAssertEqual(failure.label, "Could not open Waze")
+        XCTAssertTrue(app.staticTexts["routeTitle"].exists, "a refused app leaves the seller on the route")
+        // The stop sheet offers the same choice; Apple Maps really opens with the stop.
+        app.buttons["routeStop-planned-stub-1"].tap()
+        let sheetDirections = app.buttons["routeCustomerDirections"]
+        XCTAssertTrue(sheetDirections.waitForExistence(timeout: 5))
+        sheetDirections.tap()
+        let apple = app.buttons["navigateWith-appleMaps"].firstMatch
+        XCTAssertTrue(apple.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["navigateWith-googleMaps"].exists)
+        apple.tap()
+        let maps = XCUIApplication(bundleIdentifier: "com.apple.Maps")
+        XCTAssertTrue(maps.wait(for: .runningForeground, timeout: 15), "Apple Maps takes over navigation")
+        app.activate()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
     }
 
     /// IOS-011: search only the downloaded (scoped) outlets, offline, and open an outlet's detail.

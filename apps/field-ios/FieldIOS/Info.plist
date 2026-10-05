@@ -8,6 +8,7 @@
 <key>CFBundleShortVersionString</key><string>1.0</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>UILaunchScreen</key><dict/>
+<key>LSApplicationQueriesSchemes</key><array><string>comgooglemaps</string><string>waze</string></array>
 <key>NSLocationWhenInUseUsageDescription</key><string>Show how far today's stores are and record a location fix when you start and end a call. Call locations are sent to the server only when you sync.</string>
 <key>NSLocationTemporaryUsageDescriptionDictionary</key><dict><key>VisitCheckIn</key><string>Precise location shows your supervisor you were at the store when you started or ended the visit.</string></dict>
 <key>NSCameraUsageDescription</key><string>Take visit photos (store front, shelf, price tags) as evidence for your supervisor. Photos stay locked in this app until they upload; they are never saved to your photo library.</string>

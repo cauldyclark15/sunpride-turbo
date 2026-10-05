@@ -43,7 +43,7 @@ falls back to the same provisional defaults).
 3. The JPEG is sealed with AES-256-GCM (CryptoKit) under a random key in the Keychain (after first
    unlock, this device only), written atomically to a backup-excluded, file-protected folder beside the
    encrypted store; the local ID is bound as associated data. Metadata goes into the SQLCipher store
-   (`evidence_photos`, schema v4). At most 20 photos per call.
+   (`evidence_photos`, schema v5). At most 20 photos per call.
 4. Upload (`Evidence/EvidenceUploader.swift`) runs after every successful sync and right after a photo
    is saved when online; the background refresh task also wakes for waiting photos. The sync pill reads
    "Synced · photos uploading" while photos wait; the Sync sheet counts waiting and office-review photos.
