@@ -25,6 +25,17 @@ struct TodayScreen: View {
                     .accessibilityIdentifier("openRoute")
                 }
             }
+            // IOS-020: supervisors (role hint; the server decides access) see their team.
+            if model.supervisor {
+                SectionCard(title: "Team") {
+                    NavigationLink { TeamScreen(model: model) } label: {
+                        CalmListRow(symbol: "person.2", title: "Your team today",
+                                    meta: "Coverage and exceptions for your direct reports", trailing: "chevron.right")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("openTeam")
+                }
+            }
             SectionCard(title: "Visits · \(dashboard.route.count)") {
                 if dashboard.route.isEmpty {
                     CalmListRow(symbol: "calendar", title: "No visits today", meta: "")

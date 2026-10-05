@@ -14,7 +14,8 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
             Reply(status: status, headers: headers, body: try! JSONSerialization.data(withJSONObject: object))
         }
     }
-    enum Outcome: Sendable { case reply(Reply), delayed(Reply), fail(URLError.Code) }
+    /// `held` answers on a background queue once `reply` returns (it may block until a test releases it).
+    enum Outcome: Sendable { case reply(Reply), delayed(Reply), fail(URLError.Code), held(@Sendable () -> Reply) }
 
     struct Recorded: Sendable {
         let method: String
@@ -57,6 +58,8 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
             DispatchQueue.global().asyncAfter(deadline: .now() + 1) { [self] in deliver(reply) }
         case .reply(let reply):
             deliver(reply)
+        case .held(let reply):
+            DispatchQueue.global().async { [self] in deliver(reply()) }
         }
     }
 

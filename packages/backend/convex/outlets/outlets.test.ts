@@ -1,5 +1,5 @@
 import { convexTest } from "convex-test";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import schema from "../schema";
@@ -100,6 +100,41 @@ const propose = (
   source: "survey",
   reason: "site survey",
 });
+
+type AuditRow = {
+  subject: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  details?: string;
+};
+// Inspect the authored audit content (strings only), never system ids or numeric timestamps:
+// a creation time such as 1791211210000 contains "121" without being a coordinate.
+function auditLeaks(
+  logs: AuditRow[],
+  coordinates: number[],
+  callerText: string[],
+) {
+  const leaks: string[] = [];
+  for (const log of logs) {
+    for (const value of [
+      log.subject,
+      log.action,
+      log.entityType,
+      log.entityId,
+      log.details ?? "",
+    ]) {
+      // Numbers delimited by non-alphanumerics only, so an id such as "k7121ab" is not a coordinate.
+      for (const token of value.match(
+        /(?<![\w.])-?\d+(?:\.\d+)?(?![\w]|\.\d)/g,
+      ) ?? [])
+        if (coordinates.includes(Number(token))) leaks.push(token);
+      for (const text of callerText)
+        if (value.toLowerCase().includes(text.toLowerCase())) leaks.push(text);
+    }
+  }
+  return leaks;
+}
 
 describe("outlet master and verified pin authority", () => {
   it("scopes bounded pages and denies cross-region outlet, customer link and pin even with a shared customer", async () => {
@@ -341,16 +376,91 @@ describe("outlet master and verified pin authority", () => {
         })
       ).pin?._id,
     ).toBe(second);
-    const logs = await f.t.run((ctx) =>
-      ctx.db
+    const logs = await f.t.run(async (ctx) => [
+      ...(await ctx.db
         .query("auditLogs")
         .withIndex("by_entity", (q) =>
           q.eq("entityType", "outletPin").eq("entityId", first),
         )
-        .take(20),
-    );
-    expect(JSON.stringify(logs)).not.toContain("14.6");
-    expect(JSON.stringify(logs)).not.toContain("121");
+        .take(20)),
+      ...(await ctx.db
+        .query("auditLogs")
+        .withIndex("by_entity", (q) =>
+          q.eq("entityType", "outletPin").eq("entityId", second),
+        )
+        .take(20)),
+    ]);
+    expect(logs.map((log) => [log.action, log.details])).toEqual([
+      ["outlet.pin_proposed", "Pin proposed"],
+      ["outlet.pin_verified", "Pin reviewed"],
+      ["outlet.pin_proposed", "Pin proposed"],
+      ["outlet.pin_verified", "Pin reviewed"],
+    ]);
+    expect(
+      auditLeaks(
+        logs,
+        [14.6, 121, 14.7, 121.1],
+        ["site survey", "survey", "ground survey", "moved entrance"],
+      ),
+    ).toEqual([]);
+  });
+
+  it("audit leak check ignores timestamps containing 121 but still catches coordinates and caller text", () => {
+    const base = {
+      subject: "issuer|root",
+      action: "outlet.pin_proposed",
+      entityType: "outletPin",
+      entityId: "k17912112100121abc",
+    };
+    // Timestamps live outside the inspected fields, so a 121-bearing creation time is ignored.
+    const timestamped = {
+      ...base,
+      details: "Pin proposed",
+      createdAt: 1791211210000,
+      _creationTime: 1791211210000.5,
+    };
+    expect(auditLeaks([timestamped], [14.6, 121], ["site survey"])).toEqual([]);
+    expect(
+      auditLeaks(
+        [{ ...base, details: "Pin proposed at 14.6, 121.0" }],
+        [14.6, 121],
+        [],
+      ),
+    ).toEqual(["14.6", "121.0"]);
+    expect(
+      auditLeaks(
+        [{ ...base, details: "Pin proposed: Site Survey" }],
+        [14.6, 121],
+        ["site survey"],
+      ),
+    ).toEqual(["site survey"]);
+  });
+
+  it("real pin audit rows created at a 121-bearing instant pass the structural check", async () => {
+    vi.useFakeTimers({ now: 1_791_211_210_000, toFake: ["Date"] });
+    try {
+      const f = await setup();
+      const id = await create(f, "TS121");
+      const pinId = await f.root.mutation(
+        api.outlets.verification.propose,
+        propose(id),
+      );
+      const logs = await f.t.run((ctx) =>
+        ctx.db
+          .query("auditLogs")
+          .withIndex("by_entity", (q) =>
+            q.eq("entityType", "outletPin").eq("entityId", pinId),
+          )
+          .take(20),
+      );
+      expect(logs).toHaveLength(1);
+      expect(String(logs[0]!.createdAt)).toContain("121");
+      // The former substring assertion would have failed here on the timestamp alone.
+      expect(JSON.stringify(logs)).toContain("121");
+      expect(auditLeaks(logs, [14.6, 121], ["site survey"])).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("rejects invalid WGS84/radius and records rejected proposals without effective pins", async () => {
