@@ -47,6 +47,16 @@ final class FieldIOSUITests: XCTestCase {
         button.tap()
     }
 
+    /// Scroll until the element sits clear of the pinned bottom button (the visit screen grows with
+    /// its activity checklist, so cards below it can start off screen).
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
+        for _ in 0..<5 {
+            let frame = element.frame, window = app.windows.firstMatch.frame
+            if element.isHittable && frame.minY > window.minY + 100 && frame.maxY < window.maxY - 140 { return }
+            if frame.midY > window.midY { app.swipeUp() } else { app.swipeDown() }
+        }
+    }
+
     private func capture(_ app: XCUIApplication, _ name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name
@@ -173,9 +183,19 @@ final class FieldIOSUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["todayTitle"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.staticTexts["Stub Outlet"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons["outboxStatus"].exists)
+        // Today dashboard: target, completion, sales and the next outlet in plan order.
+        XCTAssertTrue(app.staticTexts["0 of 30"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["0 of 2 stores"].exists)
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH %@", "₱1,750.50 of ₱5,000.00")).firstMatch.exists)
+        XCTAssertTrue(app.buttons["nextOutlet"].exists)
+        XCTAssertTrue(app.buttons["nextOutlet"].label.contains("Stub Outlet"))
+        XCTAssertTrue(app.buttons["visit-planned-stub-2"].exists)
         app.terminate()
         let offline = launchStub("offline")
         XCTAssertTrue(offline.staticTexts["Stub Outlet"].waitForExistence(timeout: 15))
+        XCTAssertTrue(offline.staticTexts["0 of 30"].exists, "saved target shown offline")
+        XCTAssertTrue(offline.staticTexts.containing(NSPredicate(format: "label BEGINSWITH %@", "₱1,750.50 of ₱5,000.00")).firstMatch.exists,
+                      "saved sales shown offline")
         XCTAssertFalse(offline.buttons["outboxStatus"].exists)
         XCTAssertFalse(offline.staticTexts["Ready"].exists)
     }
@@ -255,10 +275,12 @@ final class FieldIOSUITests: XCTestCase {
         XCTAssertTrue(offline.buttons["visit-planned-stub-1"].waitForExistence(timeout: 15))
         offline.buttons["visit-planned-stub-1"].tap()
         XCTAssertTrue(offline.buttons["diagnosticCheckOut"].waitForExistence(timeout: 5), "open call restored")
+        reveal(offline.buttons["diagnosticOutcome"], in: offline)
         offline.buttons["diagnosticOutcome"].tap()
         offline.buttons["Nonproductive"].tap()
         XCTAssertFalse(offline.buttons["diagnosticCheckOut"].isEnabled, "nonproductive requires reason")
         let reason = offline.textFields["nonproductiveReason"]
+        reveal(reason, in: offline)
         reason.tap(); reason.typeText("Store closed")
         offline.buttons["diagnosticCheckOut"].tap()
         XCTAssertTrue(offline.staticTexts["callTimeSpent"].waitForExistence(timeout: 10))
@@ -266,6 +288,55 @@ final class FieldIOSUITests: XCTestCase {
         offline.buttons["BackButton"].tap()
         offline.buttons["visit-planned-stub-2"].tap()
         XCTAssertTrue(offline.buttons["diagnosticCheckIn"].isEnabled, "queued End unlocks next plan row")
+        offline.terminate()
+    }
+
+    /// IOS-013: an unplanned visit's purpose decides the required form; a completed End waits for it.
+    func testUnplannedPurposeRequiresItsActivityFormBeforeCompletedEnd() {
+        let app = launchStub("registers")
+        signIn(app, password: "correct-horse")
+        XCTAssertTrue(app.staticTexts["Stub Outlet"].waitForExistence(timeout: 20))
+        app.terminate()
+        let offline = launchStub("offline")
+        let row = offline.buttons["visit-unplanned-outlet-stub-extra"]
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
+        if !row.isHittable { offline.swipeUp() }
+        row.tap()
+        let merchandise = offline.buttons["intent-merchandise"]
+        XCTAssertTrue(merchandise.waitForExistence(timeout: 5))
+        let reason = offline.textFields["unplannedReason"]
+        reveal(reason, in: offline)
+        reason.tap(); reason.typeText("Walk-in\n")
+        XCTAssertFalse(offline.buttons["diagnosticCheckIn"].isEnabled, "needs a purpose")
+        reveal(merchandise, in: offline)
+        merchandise.tap()
+        XCTAssertTrue(merchandise.isSelected)
+        XCTAssertTrue(offline.buttons["diagnosticCheckIn"].isEnabled)
+        offline.buttons["diagnosticCheckIn"].tap()
+        XCTAssertTrue(offline.staticTexts["visitIntents"].waitForExistence(timeout: 10))
+        XCTAssertEqual(offline.staticTexts["visitIntents"].label, "Purpose · Merchandise")
+        let form = offline.buttons["activity-merchandising"]
+        XCTAssertTrue(form.exists)
+        XCTAssertTrue(form.label.contains("Required"))
+        reveal(offline.buttons["diagnosticOutcome"], in: offline)
+        offline.buttons["diagnosticOutcome"].tap()
+        offline.buttons["Completed"].tap()
+        XCTAssertTrue(offline.staticTexts["activitiesMissing"].waitForExistence(timeout: 5))
+        XCTAssertFalse(offline.buttons["diagnosticCheckOut"].isEnabled, "required form missing")
+        capture(offline, "activity-required")
+        reveal(form, in: offline)
+        form.tap()
+        let display = offline.buttons["activityDisplay-needs_action"]
+        XCTAssertTrue(display.waitForExistence(timeout: 5))
+        XCTAssertFalse(offline.buttons["activitySave"].isEnabled)
+        display.tap()
+        offline.buttons["activitySave"].tap()
+        XCTAssertTrue(offline.buttons["diagnosticCheckOut"].waitForExistence(timeout: 5))
+        XCTAssertTrue(offline.buttons["activity-merchandising"].label.contains("Recorded"))
+        XCTAssertFalse(offline.staticTexts["activitiesMissing"].exists)
+        XCTAssertTrue(offline.buttons["diagnosticCheckOut"].isEnabled)
+        offline.buttons["diagnosticCheckOut"].tap()
+        XCTAssertTrue(offline.staticTexts["callTimeSpent"].waitForExistence(timeout: 10))
         offline.terminate()
     }
 
@@ -287,7 +358,15 @@ final class FieldIOSUITests: XCTestCase {
         offline.buttons["diagnosticCheckIn"].tap()
         XCTAssertTrue(offline.buttons["diagnosticCheckOut"].waitForExistence(timeout: 10))
         XCTAssertEqual(offline.buttons["diagnosticCheckOut"].label, "End call")
+        // GPS check-in: accuracy and distance from the verified pin (~500 m away); beyond every
+        // store radius, so the fix is flagged for supervisor review but Start is never blocked.
+        let message = offline.staticTexts["diagnosticMessage"]
+        XCTAssertTrue(message.waitForExistence(timeout: 5))
+        let notice = message.label
+        XCTAssertTrue(notice.contains("Location recorded · ±5 m · 500 m from store"), notice)
+        XCTAssertTrue(notice.contains("supervisor will review: far from store"), notice)
         XCTAssertFalse(offline.buttons["diagnosticCheckOut"].isEnabled)
+        reveal(offline.buttons["diagnosticOutcome"], in: offline)
         offline.buttons["diagnosticOutcome"].tap()
         offline.buttons["Completed"].tap()
         offline.buttons["diagnosticCheckOut"].tap()
@@ -334,5 +413,77 @@ final class FieldIOSUITests: XCTestCase {
         app.buttons["routeOpenVisit"].tap()
         XCTAssertTrue(app.buttons["diagnosticCheckIn"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["diagnosticCheckIn"].isEnabled)
+    }
+
+    /// IOS-011: search only the downloaded (scoped) outlets, offline, and open an outlet's detail.
+    func testCustomerSearchAndOutletDetailWorkOfflineFromSavedScope() {
+        let app = launchStub("registers")
+        signIn(app, password: "correct-horse")
+        let open = app.buttons["openCustomers"]
+        XCTAssertTrue(open.waitForExistence(timeout: 20))
+        let loaded = Date().addingTimeInterval(15)
+        while !open.label.contains("3 outlets") && Date() < loaded { usleep(300_000) }
+        XCTAssertTrue(open.label.contains("3 outlets on this phone"), open.label)
+        open.tap()
+        XCTAssertTrue(app.staticTexts["customersTitle"].waitForExistence(timeout: 5))
+        let search = app.textFields["customerSearch"]
+        search.tap()
+        search.typeText("zzz")
+        XCTAssertTrue(app.staticTexts["customerNoMatch"].waitForExistence(timeout: 5))
+        search.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 3) + "c stub")
+        let result = app.buttons["customerResult-outlet-stub-1"]
+        XCTAssertTrue(result.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["customerResult-outlet-stub-2"].exists, "every word must match")
+        XCTAssertTrue(app.staticTexts["customerCount"].label.hasPrefix("1 of 3 outlets"))
+        result.tap()
+        XCTAssertTrue(app.staticTexts["customerTitle"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["customerTitle"].label, "Stub Outlet")
+        XCTAssertTrue(app.staticTexts["Stub Buyer"].exists)
+        XCTAssertTrue(app.staticTexts["0917 555 0101"].exists)
+        XCTAssertTrue(app.buttons["customerCall"].isEnabled)
+        XCTAssertTrue(app.buttons["customerDirections"].isEnabled)
+        XCTAssertTrue(app.staticTexts["Tomorrow"].exists, "planned visits beyond today")
+        XCTAssertTrue(app.staticTexts["Merchandise check"].exists)
+        XCTAssertTrue(app.staticTexts["Price survey"].exists, "day task")
+        XCTAssertTrue(app.staticTexts["Stop 1 of 2 · Not started"].exists)
+        XCTAssertTrue(app.staticTexts["Nothing recorded here from this phone yet"].exists)
+        // Office figures cached at bootstrap: sales history, open orders, credit limit.
+        XCTAssertTrue(app.staticTexts["₱48,250.50 · 9 orders"].exists, "13-week sales")
+        XCTAssertTrue(app.staticTexts["₱15,900.00 · 3 orders"].exists, "4-week sales")
+        XCTAssertTrue(app.staticTexts["1 order · ₱4,100.00"].exists, "open orders")
+        XCTAssertTrue(app.staticTexts["₱50,000.00"].exists, "credit limit")
+        app.buttons["customerVisit"].tap()
+        XCTAssertTrue(app.buttons["diagnosticCheckIn"].waitForExistence(timeout: 5))
+        app.buttons["diagnosticCheckIn"].tap()
+        XCTAssertTrue(app.buttons["diagnosticCheckOut"].waitForExistence(timeout: 10))
+        app.buttons["BackButton"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["customerTitle"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Call started"].waitForExistence(timeout: 5), "this phone's history")
+        XCTAssertTrue(app.buttons["customerVisit"].label.contains("Continue visit"))
+        app.terminate()
+
+        let offline = launchStub("offline")
+        let saved = offline.buttons["openCustomers"]
+        XCTAssertTrue(saved.waitForExistence(timeout: 15))
+        saved.tap()
+        XCTAssertTrue(offline.staticTexts["customerCount"].waitForExistence(timeout: 5))
+        XCTAssertTrue(offline.staticTexts["customerCount"].label.contains("Saved on this phone"))
+        let field = offline.textFields["customerSearch"]
+        field.tap()
+        field.typeText("next")
+        XCTAssertTrue(offline.buttons["customerResult-outlet-stub-2"].waitForExistence(timeout: 5))
+        XCTAssertFalse(offline.buttons["customerResult-outlet-stub-1"].exists)
+        // A shared account's figures never reach the phone; offline it says so instead of showing zero.
+        offline.buttons["customerResult-outlet-stub-2"].tap()
+        XCTAssertTrue(offline.staticTexts["customerSalesWithheld"].waitForExistence(timeout: 5))
+        offline.buttons["BackButton"].firstMatch.tap()
+        let again = offline.textFields["customerSearch"]
+        XCTAssertTrue(again.waitForExistence(timeout: 5))
+        again.tap()
+        again.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 4) + "STUB-1")
+        XCTAssertTrue(offline.buttons["customerResult-outlet-stub-1"].waitForExistence(timeout: 5))
+        offline.buttons["customerResult-outlet-stub-1"].tap()
+        XCTAssertTrue(offline.staticTexts["customerSalesNote"].waitForExistence(timeout: 5), "cached figures offline")
+        XCTAssertTrue(offline.staticTexts["1 order · ₱4,100.00"].exists)
     }
 }

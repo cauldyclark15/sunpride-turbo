@@ -63,17 +63,21 @@ interface FieldBackend {
     fun callSheet(outletId: String): CallSheet? = null
     fun queueCallSheet(clientVisitId: String, checkInRequestId: String, previousRequestId: String,
         outletId: String, drafts: List<CallSheetDraftLine>) { error("No local store") }
+    /** AND-013 activity-form rules from the active snapshot. */
+    fun activityRules(): List<com.sunpride.field.storage.ActivityRule> = emptyList()
+    /** Queue one structured activity form (merchandising, promotion, inventory or price check). */
+    fun queueActivity(clientVisitId: String, checkInRequestId: String, previousRequestId: String,
+        outletId: String, activity: JSONObject) { error("No local store") }
     /** Local order drafts in this verified partition (SP-0061). */
     fun orderDrafts(): List<OrderDraft> = emptyList()
     /** Builds the association from the stored check-in and cached snapshot, then saves transactionally. */
     fun saveOrderDraft(draftId: String?, clientVisitId: String, checkInRequestId: String,
         quantities: List<Pair<String, Int>>): OrderDraft = error("No local store")
     fun discardOrderDraft(draftId: String) { error("No local store") }
-    /** AND-013 activity-form rules from the active snapshot. */
-    fun activityRules(): List<com.sunpride.field.storage.ActivityRule> = emptyList()
-    /** Queue one structured activity form (merchandising, promotion, inventory or price check). */
-    fun queueActivity(clientVisitId: String, checkInRequestId: String, previousRequestId: String,
-        outletId: String, activity: JSONObject) { error("No local store") }
+    /** SP-0060: the review screen's locally checkable rules for one draft. */
+    fun orderChecks(draftId: String): List<com.sunpride.field.orders.OrderCheck> = emptyList()
+    /** Queue the reviewed draft's order after [previousRequestId] and mark it sent, in one transaction. */
+    fun submitOrderDraft(draftId: String, previousRequestId: String): OrderDraft = error("No local store")
     val cachedDeviceId: String? get() = null
     /** AND-016: configured photo types (empty → provisional defaults). */
     fun photoTypes(): List<com.sunpride.field.storage.PhotoType> = emptyList()
@@ -102,7 +106,9 @@ data class VisitDisplay(val outlet: String, val planned: String, val status: Str
     val sequence: Int? = null, val listPosition: Int? = null, val timeSpent: String? = null,
     /** Daily route facts from the cached snapshot; absent when an older server omitted them. */
     val outletCode: String? = null, val customerCode: String? = null, val address: String? = null,
-    val latitude: Double? = null, val longitude: Double? = null)
+    val latitude: Double? = null, val longitude: Double? = null,
+    /** Activity facts of the finished call from the local outbox; null while open or not started. */
+    val callFacts: com.sunpride.field.storage.ProductiveCall.Facts? = null)
 /** Planned row + cached outlet/customer JSON → what Today and the daily route show. Pure for tests. */
 fun plannedVisitDisplay(row: SnapshotItem, outlets: Map<String, JSONObject>, customers: Map<String, String>): VisitDisplay {
     val v = JSONObject(row.json)
@@ -131,9 +137,13 @@ data class TodayData(val visits: List<VisitDisplay> = emptyList(), val lastSynce
                      val customers: List<com.sunpride.field.ui.customers.CustomerRecord> = emptyList(),
                      val tasks: List<com.sunpride.field.ui.customers.CustomerTask> = emptyList(),
                      /** AND-020: offer the Team page (role hint from the snapshot; the server decides). */
-                     val supervisor: Boolean = false)
+                     val supervisor: Boolean = false,
+                     val routeCode: String? = null,
+                     /** Today's sales vs target from the daily sales report (live or saved). */
+                     val sales: com.sunpride.field.ui.today.DaySalesView = com.sunpride.field.ui.today.DaySalesView())
 
 private const val TEAM_CACHE = "local.team"
+private const val SALES_CACHE = "local.daysales"
 
 class LiveFieldBackend(
     environment: AppEnvironment,
@@ -208,17 +218,6 @@ class LiveFieldBackend(
             }
         } } finally { store.close() }
     }
-    private fun <T> withStore(block: suspend (RoomFieldStore) -> T): T {
-        val scope = storedScope() ?: error("No verified local partition")
-        val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
-        return try { runBlocking { block(store) } } finally { store.close() }
-    }
-    override fun orderDrafts(): List<OrderDraft> = if (storedScope() == null) emptyList() else withStore { it.orderDrafts() }
-    override fun saveOrderDraft(draftId: String?, clientVisitId: String, checkInRequestId: String,
-        quantities: List<Pair<String, Int>>): OrderDraft = withStore {
-        saveOrderDraftIn(it, draftId, clientVisitId, checkInRequestId, quantities, System.currentTimeMillis())
-    }
-    override fun discardOrderDraft(draftId: String) = withStore { it.discardOrderDraft(draftId) }
     override fun activityRules(): List<com.sunpride.field.storage.ActivityRule> {
         val scope = storedScope() ?: return emptyList()
         val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
@@ -279,6 +278,30 @@ class LiveFieldBackend(
                 com.sunpride.field.sync.work.SyncWork.enqueue(context)
             }
         } } finally { store.close() }
+    }
+    private fun <T> withStore(block: suspend (RoomFieldStore) -> T): T {
+        val scope = storedScope() ?: error("No verified local partition")
+        val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+        return try { runBlocking { block(store) } } finally { store.close() }
+    }
+    override fun orderDrafts(): List<OrderDraft> = if (storedScope() == null) emptyList() else withStore { it.orderDrafts() }
+    override fun saveOrderDraft(draftId: String?, clientVisitId: String, checkInRequestId: String,
+        quantities: List<Pair<String, Int>>): OrderDraft = withStore {
+        saveOrderDraftIn(it, draftId, clientVisitId, checkInRequestId, quantities, System.currentTimeMillis())
+    }
+    override fun discardOrderDraft(draftId: String) = withStore { it.discardOrderDraft(draftId) }
+    override fun orderChecks(draftId: String): List<com.sunpride.field.orders.OrderCheck> = withStore { store ->
+        val draft = store.orderDrafts().firstOrNull { it.draftId == draftId } ?: return@withStore emptyList()
+        com.sunpride.field.orders.OrderSubmission.checks(store, draft, System.currentTimeMillis())
+    }
+    override fun submitOrderDraft(draftId: String, previousRequestId: String): OrderDraft {
+        val scope = storedScope() ?: error("No verified local partition")
+        val sent = withStore {
+            com.sunpride.field.orders.submitOrderDraftIn(it, scope, draftId, previousRequestId, System.currentTimeMillis())
+        }
+        // Only after the committed transaction: a scheduler failure cannot uncommit the queued order.
+        runCatching { com.sunpride.field.sync.work.SyncWork.enqueue(context) }
+        return sent
     }
     private fun sessionKey(): String? = vault.readSession()?.let {
         MessageDigest.getInstance("SHA-256").digest(it.toByteArray(Charsets.UTF_8))
@@ -400,7 +423,8 @@ class LiveFieldBackend(
                         VisitCallRules.closed(call) -> "Done"
                         VisitCallRules.started(call) -> "In progress"
                         else -> visit.status
-                    }, timeSpent = VisitCallRules.timeSpent(call))
+                    }, timeSpent = VisitCallRules.timeSpent(call),
+                        callFacts = com.sunpride.field.storage.ProductiveCall.factsOf(call))
                 }
                 val directory = com.sunpride.field.ui.customers.CustomerDirectory.build(store.outlets(), customers,
                     store.plannedVisits(), store.route(),
@@ -421,7 +445,8 @@ class LiveFieldBackend(
                     history.count { it.second.state == "review" } + held, history.count { it.second.state == "pending" },
                     outlets.map { (id, name) -> VisitDisplay(name, "Unplanned", "Reason required", id) },
                     store.status(), directory, tasks,
-                    com.sunpride.field.ui.team.TeamRepository.offered(store.employeeRole()))
+                    com.sunpride.field.ui.team.TeamRepository.offered(store.employeeRole()),
+                    routeCode = store.routeCode(), sales = daySales(store, day, sync))
                 if (scheduleRemainder && sync && result.syncStatus.queued + result.syncStatus.sending > 0 &&
                     result.syncStatus.held == 0 && result.syncStatus.health != "held_for_review")
                     com.sunpride.field.sync.work.SyncWork.enqueue(context)
@@ -431,6 +456,23 @@ class LiveFieldBackend(
                 result
             }
         } finally { db.close() }
+    }
+    /** Live daily sales report when syncing, else today's saved copy; the server enforces who may read it. */
+    private suspend fun daySales(store: RoomFieldStore, day: String, live: Boolean): com.sunpride.field.ui.today.DaySalesView {
+        val cache = object : com.sunpride.field.ui.today.DaySalesCache {
+            override fun read(key: String) = runBlocking { store.localCache(SALES_CACHE, key) }
+                ?.let { row -> row.json?.let { it to row.revision } }
+            override fun write(key: String, json: String, savedAt: Long) = runBlocking {
+                store.putLocalCache(SALES_CACHE, key, json, savedAt, day)
+            }
+        }
+        val profileId = store.employeeId()
+        val fetch: (() -> String)? = if (!live || profileId == null) null else ({
+            val value = functions.query(com.sunpride.field.ui.today.DaySalesCodec.PATH,
+                com.sunpride.field.ui.today.DaySalesCodec.args(profileId, day))
+            (value as? JSONObject)?.toString() ?: throw com.sunpride.field.ui.today.DaySalesWireFailure()
+        })
+        return com.sunpride.field.ui.today.DaySalesRepository.load(day, cache, System.currentTimeMillis(), fetch)
     }
     override fun team(directOnly: Boolean): com.sunpride.field.ui.team.TeamView {
         val scope = storedScope() ?: return com.sunpride.field.ui.team.TeamView(message = "Sync first to see your team.")
@@ -504,8 +546,6 @@ class FieldController(
     /** Draft being edited; null while composing a new one (set after its first save). */
     var orderDraftId by mutableStateOf<String?>(null); private set
     val openOrderDraft: OrderDraft? get() = orderDraftId?.let { id -> visitOrderDrafts.firstOrNull { it.draftId == id } }
-    fun openOrder(draftId: String? = null) = scope.launch(ui) { orderOpen = true; orderDraftId = draftId; diagnosticError = null; endReview = null }
-    fun closeOrder() = scope.launch(ui) { orderOpen = false; orderDraftId = null; diagnosticError = null }
     fun openCallSheet() = scope.launch(ui) { callSheetOpen = true; diagnosticError = null; endReview = null }
     fun closeCallSheet() = scope.launch(ui) { callSheetOpen = false; diagnosticError = null }
     /** AND-013: downloaded activity-form rules, the open form, and an unplanned visit's chosen purposes. */
@@ -558,18 +598,68 @@ class FieldController(
         selectedIntents = if (intent in selectedIntents) selectedIntents - intent
             else com.sunpride.field.storage.ActivityRules.INTENTS.filter { it in selectedIntents || it == intent }
     }
+    /** SP-0060: review step of the open draft, and its locally checked rules. */
+    var orderReview by mutableStateOf(false); private set
+    var orderChecks by mutableStateOf<List<com.sunpride.field.orders.OrderCheck>>(emptyList()); private set
+    /** A sent order opens straight to its read-only review/status. */
+    fun openOrder(draftId: String? = null) = scope.launch(ui) {
+        orderOpen = true; orderDraftId = draftId; diagnosticError = null; endReview = null
+        orderReview = draftId != null && visitOrderDrafts.firstOrNull { it.draftId == draftId }?.submittedRequestId != null
+        if (orderReview) loadOrderChecks()
+    }
+    fun closeOrder() = scope.launch(ui) {
+        orderOpen = false; orderDraftId = null; orderReview = false; orderChecks = emptyList(); diagnosticError = null
+    }
+    fun openOrderReview() = scope.launch(ui) {
+        if (orderDraftId == null) return@launch
+        orderReview = true; diagnosticError = null; loadOrderChecks()
+    }
+    fun closeOrderReview() = scope.launch(ui) {
+        orderReview = false; orderChecks = emptyList(); diagnosticError = null
+        // A sent order has no editor to go back to.
+        if (openOrderDraft?.submittedRequestId != null) { orderOpen = false; orderDraftId = null }
+    }
+    private suspend fun loadOrderChecks() {
+        val id = orderDraftId ?: return
+        orderChecks = runCatching { withContext(io) { backend.orderChecks(id) } }.getOrDefault(emptyList())
+    }
+    /** What the person sees about a draft's journey to the office (outbox state). */
+    fun orderStatus(draft: OrderDraft) = com.sunpride.field.orders.OrderSubmission.status(draft, diagnosticRows)
+    /** Submit the reviewed draft: queue its order request behind the call's latest request. */
+    fun submitOrder() = scope.launch(ui) {
+        val visit = diagnostic ?: return@launch
+        val id = orderDraftId ?: return@launch
+        if (busy) return@launch
+        busy = true; diagnosticError = null
+        try {
+            refreshDiagnostic() // Re-read before enforcing, never trust a stale screen projection.
+            val draft = visitOrderDrafts.firstOrNull { it.draftId == id } ?: throw OrderDraftFailure(OrderDraftFailure.Code.CALL_NOT_OPEN)
+            if (draft.submittedRequestId != null) throw OrderDraftFailure(OrderDraftFailure.Code.SUBMITTED)
+            val related = diagnosticRows.filter { it.first.clientVisitId == draft.clientVisitId }
+            if (related.any { it.first.kind == "visit.checkOut" }) throw OrderDraftFailure(OrderDraftFailure.Code.CALL_ENDED)
+            val previous = related.lastOrNull()?.first?.requestId ?: throw OrderDraftFailure(OrderDraftFailure.Code.CALL_NOT_OPEN)
+            withContext(io) { backend.submitOrderDraft(id, previous) }
+            refreshDiagnostic(); loadToday(sync = false)
+        } catch (e: OrderDraftFailure) { diagnosticError = e.code.text }
+        catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (_: Exception) { diagnosticError = "Could not send the order. Check the lines and try again." }
+        finally {
+            busy = false
+            if (diagnostic == visit) loadOrderChecks()
+        }
+    }
     fun openDiagnostic(visit: VisitDisplay) = scope.launch(ui) {
         diagnostic = visit; diagnosticError = null; diagnosticFailure = null
         callSheetOpen = false; diagnosticCallSheet = null; activityForm = null; selectedIntents = emptyList()
-        orderOpen = false; orderDraftId = null; visitOrderDrafts = emptyList()
+        orderOpen = false; orderDraftId = null; visitOrderDrafts = emptyList(); orderReview = false; orderChecks = emptyList()
         endReview = null; photoCaptureOpen = false; diagnosticPhotos = emptyList()
         refreshDiagnostic()
     }
     var diagnosticFailure by mutableStateOf<VisitRuleFailure.Code?>(null); private set
     fun closeDiagnostic() = scope.launch(ui) {
         diagnostic = null; diagnosticError = null; diagnosticFailure = null; callSheetOpen = false; diagnosticCallSheet = null
-        orderOpen = false; orderDraftId = null; visitOrderDrafts = emptyList()
         activityForm = null; selectedIntents = emptyList(); endReview = null
+        orderOpen = false; orderDraftId = null; visitOrderDrafts = emptyList(); orderReview = false; orderChecks = emptyList()
         photoCaptureOpen = false; diagnosticPhotos = emptyList()
     }
     /** AND-017: the End confirmation (what will be recorded) while the person decides; null otherwise. */

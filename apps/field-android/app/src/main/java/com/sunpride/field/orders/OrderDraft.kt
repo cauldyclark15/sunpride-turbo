@@ -17,7 +17,7 @@ import java.util.UUID
  * ADR-008), so a draft carries quantities in the setup UOM only and never an amount or total.
  * The account's free-text pricing note is shown as a reference, never computed.
  *
- * Drafts are local only (encrypted Room); review and submission are a later step (SP-0060).
+ * Drafts are local only (encrypted Room) until reviewed and submitted (SP-0060, OrderSubmission).
  */
 data class CatalogItem(val productId: String, val code: String, val name: String, val uom: String,
     val barcode: String?, val priceNote: String?)
@@ -56,7 +56,9 @@ data class OrderDraft(
     val customerId: String?, val customerCode: String?, val territoryId: String?, val territoryCode: String?,
     val routeId: String?, val catalogRevision: Long, val lines: List<OrderDraftLine>,
     val createdAt: Long, val updatedAt: Long,
-    val priceAvailability: String = OrderDraftRules.PRICE_UNAVAILABLE)
+    val priceAvailability: String = OrderDraftRules.PRICE_UNAVAILABLE,
+    /** SP-0060: the queued `order_intent` request once submitted; the draft is read-only after that. */
+    val submittedRequestId: String? = null, val submittedAt: Long? = null)
 
 object OrderDraftCodec {
     private fun JSONObject.nullable(key: String): String? = if (!has(key) || isNull(key)) null else getString(key)
@@ -71,7 +73,9 @@ object OrderDraftCodec {
             put(JSONObject().put("productId", l.productId).put("code", l.code).put("name", l.name)
                 .put("uom", l.uom).put("quantity", l.quantity))
         } })
-        .put("createdAt", d.createdAt).put("updatedAt", d.updatedAt).toString()
+        .put("createdAt", d.createdAt).put("updatedAt", d.updatedAt)
+        .put("submittedRequestId", d.submittedRequestId ?: JSONObject.NULL)
+        .put("submittedAt", d.submittedAt ?: JSONObject.NULL).toString()
     fun decode(text: String): OrderDraft {
         val o = JSONObject(text)
         val lines = o.getJSONArray("lines")
@@ -83,7 +87,9 @@ object OrderDraftCodec {
                 OrderDraftLine(l.getString("productId"), l.getString("code"), l.getString("name"),
                     l.getString("uom"), l.getInt("quantity"))
             } },
-            o.getLong("createdAt"), o.getLong("updatedAt"), o.getString("priceAvailability"))
+            o.getLong("createdAt"), o.getLong("updatedAt"), o.getString("priceAvailability"),
+            // SP-0061 rows predate submission and omit both keys.
+            o.nullable("submittedRequestId"), if (!o.has("submittedAt") || o.isNull("submittedAt")) null else o.getLong("submittedAt"))
     }
 }
 
@@ -96,7 +102,8 @@ class OrderDraftFailure(val code: Code) : IllegalStateException(code.name) {
         EMPTY("Add at least one product."),
         INVALID_QUANTITY("Use whole numbers from 1 to 99,999."),
         HELD("This phone's work is held for review. Sync and ask your administrator."),
-        LEASE_EXPIRED("Your offline day has closed. Sync to keep taking orders."),
+        SUBMITTED("This order was sent. It can no longer be changed."),
+        OFFLINE_EXPIRED("Today's offline access has ended. Sync to continue."),
     }
 }
 
@@ -160,6 +167,9 @@ object OrderDraftRules {
     /** Re-checked inside the store transaction: a stale screen or forged draft never persists. */
     suspend fun validate(store: FieldStore, draft: OrderDraft, existing: OrderDraft?) {
         require(UUID.fromString(draft.draftId).toString() == draft.draftId)
+        // A sent order is frozen; saves never set or clear the submission marker themselves.
+        if (existing?.submittedRequestId != null) throw OrderDraftFailure(OrderDraftFailure.Code.SUBMITTED)
+        require(draft.submittedRequestId == null && draft.submittedAt == null) { "Submission is set by the store" }
         require(draft.priceAvailability == PRICE_UNAVAILABLE) // no governed price list in contract v1
         if (draft.lines.isEmpty()) throw OrderDraftFailure(OrderDraftFailure.Code.EMPTY)
         if (draft.lines.size > MAX_LINES || draft.lines.any { it.quantity !in 1..MAX_QUANTITY })

@@ -76,13 +76,6 @@ data class EvidencePhotoRow(val account: String, val deviceId: String, val scope
 
 @Dao
 interface StoreDao {
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putOrderDraft(row: OrderDraftRow)
-    @Query("SELECT * FROM order_drafts WHERE account=:account AND deviceId=:device AND scope=:scope ORDER BY createdAt, draftId")
-    suspend fun orderDrafts(account: String, device: String, scope: String): List<OrderDraftRow>
-    @Query("SELECT * FROM order_drafts WHERE account=:account AND deviceId=:device AND scope=:scope AND draftId=:draftId")
-    suspend fun orderDraft(account: String, device: String, scope: String, draftId: String): OrderDraftRow?
-    @Query("DELETE FROM order_drafts WHERE account=:account AND deviceId=:device AND scope=:scope AND draftId=:draftId")
-    suspend fun deleteOrderDraft(account: String, device: String, scope: String, draftId: String): Int
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertPhoto(row: EvidencePhotoRow)
     @Query("SELECT * FROM evidence_photos WHERE account=:account AND deviceId=:device AND scope=:scope AND clientVisitId=:clientVisitId ORDER BY createdAt, localId")
     suspend fun visitPhotos(account: String, device: String, scope: String, clientVisitId: String): List<EvidencePhotoRow>
@@ -98,6 +91,13 @@ interface StoreDao {
     suspend fun reviewPhoto(account: String, device: String, scope: String, localId: String, code: String): Int
     @Query("SELECT COUNT(*) FROM evidence_photos WHERE account=:account AND deviceId=:device AND scope=:scope AND state='pending'")
     suspend fun waitingPhotos(account: String, device: String, scope: String): Int
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putOrderDraft(row: OrderDraftRow)
+    @Query("SELECT * FROM order_drafts WHERE account=:account AND deviceId=:device AND scope=:scope ORDER BY createdAt, draftId")
+    suspend fun orderDrafts(account: String, device: String, scope: String): List<OrderDraftRow>
+    @Query("SELECT * FROM order_drafts WHERE account=:account AND deviceId=:device AND scope=:scope AND draftId=:draftId")
+    suspend fun orderDraft(account: String, device: String, scope: String, draftId: String): OrderDraftRow?
+    @Query("DELETE FROM order_drafts WHERE account=:account AND deviceId=:device AND scope=:scope AND draftId=:draftId")
+    suspend fun deleteOrderDraft(account: String, device: String, scope: String, draftId: String): Int
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertCallSheet(row: CallSheetRow)
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertCallSheetLine(row: CallSheetLineRow)
     @Query("SELECT * FROM call_sheets WHERE account=:account AND deviceId=:device AND scope=:scope AND generation=:generation AND outletId=:outlet")

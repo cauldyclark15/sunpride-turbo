@@ -42,8 +42,7 @@ class StoreMigrationTest {
             }
         }
     }
-    /** SP-0061: order drafts are a new table on top of main's v6 photos; photos, call sheets and the outbox survive. */
-    @Test fun v6ToV7KeepsPhotosCallSheetsAndOutboxAndAddsLocalOrderDrafts() {
+    @Test fun v6ToV7KeepsPhotosAndOutboxAndAddsLocalOrderDrafts() {
         val name = "migration-order-drafts-v6.db"
         helper.createDatabase(name, 6).apply {
             execSQL("INSERT INTO call_sheets (account,deviceId,scope,generation,outletId,revision,headerJson) VALUES ('a','d','s','g','o',2,'{}')")

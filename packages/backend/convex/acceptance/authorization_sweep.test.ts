@@ -345,6 +345,8 @@ const GLOBAL_TABLES = new Set([
   "positions",
   "positionStandards",
   "visitActivityRules",
+  // ANA-009: national per-SKU promotion uplifts feeding the suggested order.
+  "suggestedOrderPromotions",
   "issues",
   "issueComments",
   "issueAttachments",

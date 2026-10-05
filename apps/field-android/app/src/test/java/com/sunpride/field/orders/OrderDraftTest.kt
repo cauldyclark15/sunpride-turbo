@@ -166,10 +166,10 @@ class OrderDraftTest {
         val check = checkIn(store) // call opened at 100, inside the lease
         val draft = saveOrderDraftIn(store, null, check.clientVisitId, check.requestId, listOf("product-1" to 2), 999)
         // The call is still open, but the lease ended at 1,000: no new draft and no edit to the saved one.
-        assertEquals(OrderDraftFailure.Code.LEASE_EXPIRED, failure {
+        assertEquals(OrderDraftFailure.Code.OFFLINE_EXPIRED, failure {
             saveOrderDraftIn(store, null, check.clientVisitId, check.requestId, listOf("product-1" to 1), 1_000)
         })
-        assertEquals(OrderDraftFailure.Code.LEASE_EXPIRED, failure {
+        assertEquals(OrderDraftFailure.Code.OFFLINE_EXPIRED, failure {
             saveOrderDraftIn(store, draft.draftId, check.clientVisitId, check.requestId, listOf("product-1" to 5), 5_000)
         })
         // A forged early timestamp on a late save is refused too (draft time must equal save time).
