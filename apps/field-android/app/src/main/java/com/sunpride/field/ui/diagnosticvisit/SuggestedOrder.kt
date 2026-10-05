@@ -204,12 +204,34 @@ object SuggestedOrderRepository {
     private val lock = Any()
 
     /**
-     * Sign-out (the phone's data is purged) or a test simulating a new process. Also orphans every in-flight
-     * request, so none of their answers can be saved or shown afterwards.
+     * Authorization lifetime. Bumped whenever the verified account/device/scope, the session or the phone's
+     * enrollment changes (scope change, partition hold, removal, sign-out). A request remembers the epoch it
+     * started in; its success may renew access, be saved or be shown only while that epoch is still current.
+     * Equal store/day/partition values afterwards (A → B → A) do not make an old answer current again.
      */
-    fun forgetSessionDenials() = synchronized(lock) {
+    private var epoch = 0L
+    fun epoch(): Long = synchronized(lock) { epoch }
+
+    /**
+     * The authorization lifetime ended (scope change, hold, removal, account renewal). Orphans every in-flight
+     * request so none of their answers can be saved, renew access or be shown. Refusals stay latched.
+     */
+    fun retire(): Unit = synchronized(lock) {
+        epoch++
+        newestRequest.clear()
+    }
+
+    /** The call sheet closed: an answer still in flight is neither shown nor saved. */
+    fun abandon(): Unit = synchronized(lock) { newestRequest.clear() }
+
+    /**
+     * Sign-out (the phone's data is purged) or a test simulating a new process. Also ends the authorization
+     * lifetime, so no in-flight answer can be saved or shown afterwards.
+     */
+    fun forgetSessionDenials(): Unit = synchronized(lock) {
         sessionDenials.clear()
         newestRequest.clear()
+        epoch++
     }
 
     /**
@@ -223,20 +245,27 @@ object SuggestedOrderRepository {
              fetch: () -> String): SuggestedOrderView {
         val key = key(asOfDate, outletId)
         val ticket = nextTicket.incrementAndGet()
-        synchronized(lock) { newestRequest[key] = ticket }
+        val started = synchronized(lock) { newestRequest[key] = ticket; epoch }
         return try {
             val text = fetch()
             val order = SuggestedOrderCodec.decode(text, outletId, asOfDate)
+            var sameLifetime = true
             val current = synchronized(lock) {
-                (newestRequest[key] == ticket).also { newest ->
+                sameLifetime = epoch == started
+                (sameLifetime && newestRequest[key] == ticket).also { newest ->
                     if (newest) {
                         sessionDenials.remove(key)
                         runCatching { cache.write(key, text, now) }
                     }
                 }
             }
-            // Overtaken: show only what an offline open would (a newer refusal stays a refusal).
-            if (current) SuggestedOrderView(order) else saved(cache, key, outletId, asOfDate, now)
+            when {
+                current -> SuggestedOrderView(order)
+                // The authorization it was asked under has ended: nothing from it (or its old partition) shows.
+                !sameLifetime -> SuggestedOrderView(message = CONNECTION)
+                // Overtaken: show only what an offline open would (a newer refusal stays a refusal).
+                else -> saved(cache, key, outletId, asOfDate, now)
+            }
         } catch (_: ConvexFunctionError) {
             refuse(cache, key, BLOCKED_NOT_ALLOWED, now)
         } catch (e: AuthFailure) {
@@ -244,7 +273,8 @@ object SuggestedOrderRepository {
                 AuthFailure.Kind.SESSION_EXPIRED, AuthFailure.Kind.INVALID_CREDENTIALS ->
                     refuse(cache, key, BLOCKED_SIGN_IN, now)
                 AuthFailure.Kind.REFUSED -> refuse(cache, key, BLOCKED_NOT_ALLOWED, now)
-                else -> saved(cache, key, outletId, asOfDate, now)
+                else -> if (epoch() != started) SuggestedOrderView(message = CONNECTION)
+                    else saved(cache, key, outletId, asOfDate, now)
             }
         } catch (_: SuggestedOrderWireFailure) {
             refuse(cache, key, BLOCKED_UNREADABLE, now)

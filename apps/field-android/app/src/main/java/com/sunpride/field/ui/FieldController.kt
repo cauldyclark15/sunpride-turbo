@@ -94,6 +94,13 @@ interface FieldBackend {
     fun suggestedOrder(outletId: String): com.sunpride.field.ui.diagnosticvisit.SuggestedOrderView =
         com.sunpride.field.ui.diagnosticvisit.SuggestedOrderView(
             message = com.sunpride.field.ui.diagnosticvisit.SuggestedOrderRepository.CONNECTION)
+    /**
+     * ANA-010: the current authorization lifetime (verified account/device/scope, session and enrollment).
+     * A suggested-order answer is shown only while the epoch it was requested in is still current.
+     */
+    val authorizationEpoch: Long get() = com.sunpride.field.ui.diagnosticvisit.SuggestedOrderRepository.epoch()
+    /** The call sheet closed: an in-flight suggested-order answer must not be saved. */
+    fun abandonSuggestedOrders() { com.sunpride.field.ui.diagnosticvisit.SuggestedOrderRepository.abandon() }
 }
 
 /** Shared by the live and test backends so both build drafts exactly the same way. */
@@ -351,6 +358,7 @@ class LiveFieldBackend(
                                     // Old partition stays held; new verified scope cannot adopt its operations.
                                     prefs.edit().putString("$key.scope", page.fingerprint).apply()
                                     fingerprint = page.fingerprint
+                                    retireSuggestions()
                                 }
                             }).sync()
                         }
@@ -395,11 +403,14 @@ class LiveFieldBackend(
                     .putInt("$key.updateVersion", com.sunpride.field.BuildConfig.VERSION_CODE).apply()
                 if (warning == "Phone removed") {
                     // QSR-010: confirmed revocation/suspension drops cached plan, customers and prices.
+                    retireSuggestions()
                     runBlocking { EncryptedFieldDatabase.purgeExisting(context) }
                 } else if (e is BootstrapFailure && e.kind == BootstrapFailure.Kind.UNAUTHORIZED) {
+                    retireSuggestions()
                     runBlocking { EncryptedFieldDatabase.holdExisting(context) }
                 }
             }
+            observeSuggestionScope(storedScope())
         }
         if (subject == null || fingerprint == null || prefs.getString("$key.device", null) != deviceId)
             return TodayData(warning = warning ?: if (terminal) "Update required" else null, updateRequired = terminal)
@@ -501,6 +512,7 @@ class LiveFieldBackend(
         val repo = com.sunpride.field.ui.diagnosticvisit.SuggestedOrderRepository
         val scope = storedScope() ?: return com.sunpride.field.ui.diagnosticvisit.SuggestedOrderView(message = repo.CONNECTION)
         val day = LocalDate.now(ZoneId.of("Asia/Manila")).toString()
+        observeSuggestionScope(scope)
         val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
         try {
             val cache = com.sunpride.field.ui.diagnosticvisit.StoreSuggestedOrderCache(store, day)
@@ -511,6 +523,12 @@ class LiveFieldBackend(
             }
         } finally { store.close() }
     }
+    /** Verified scope the suggested-order lifetime belongs to; any change (A → B, or back to A) retires it. */
+    private var suggestionScope: StoreScope? = null
+    private fun observeSuggestionScope(scope: StoreScope?) = synchronized(this) {
+        if (scope != suggestionScope) { suggestionScope = scope; retireSuggestions() }
+    }
+    private fun retireSuggestions() = com.sunpride.field.ui.diagnosticvisit.SuggestedOrderRepository.retire()
     override val cachedDeviceId get() = vault.deviceId
     override val isSignedIn get() = auth.isSignedIn
     override fun loadSigner() = signerLoader()
@@ -527,10 +545,13 @@ class LiveFieldBackend(
         val state = try {
             Enrollment(ConvexDeviceApi(functions), signer, vault).refresh()
         } catch (e: AuthFailure) {
-            if (e.kind == AuthFailure.Kind.SESSION_EXPIRED)
+            if (e.kind == AuthFailure.Kind.SESSION_EXPIRED) {
+                retireSuggestions()
                 runBlocking { EncryptedFieldDatabase.holdExisting(context) }
+            }
             throw e
         }
+        if (state !is EnrollmentState.Ready) retireSuggestions()
         if (state == EnrollmentState.Removed) runBlocking { EncryptedFieldDatabase.purgeExisting(context) }
         else if (state == EnrollmentState.Unregistered) runBlocking { EncryptedFieldDatabase.holdExisting(context) }
         return state
@@ -572,12 +593,15 @@ class FieldController(
     /** ANA-010 suggested order for the open call sheet; only ever fills local Order fields. */
     var suggestedOrder by mutableStateOf(com.sunpride.field.ui.diagnosticvisit.SuggestedOrderView()); private set
     private var suggestedOrderFor: String? = null
-    /** Bumped by every load, close and sign-out: only the newest request may publish its answer. */
+    /** Bumped by every load, close, sign-out and lifetime change: only the newest request may publish its answer. */
     private var suggestedOrderRequest = 0L
+    /** Authorization epoch the shown (or loading) suggestion belongs to. */
+    private var suggestedOrderEpoch: Long? = null
     fun loadSuggestedOrder(outletId: String) = scope.launch(ui) {
         if (state !is EnrollmentState.Ready || (suggestedOrder.loading && suggestedOrderFor == outletId)) return@launch
         val request = ++suggestedOrderRequest
-        suggestedOrderFor = outletId
+        val epoch = backend.authorizationEpoch
+        suggestedOrderFor = outletId; suggestedOrderEpoch = epoch
         suggestedOrder = com.sunpride.field.ui.diagnosticvisit.SuggestedOrderView(loading = true,
             message = com.sunpride.field.ui.diagnosticvisit.SuggestedOrderRepository.LOADING)
         val result = try { withContext(io) { backend.suggestedOrder(outletId) } }
@@ -586,12 +610,25 @@ class FieldController(
                 message = com.sunpride.field.ui.diagnosticvisit.SuggestedOrderRepository.CONNECTION) }
         // A newer request (same or another store), a closed sheet or sign-out overtook this one: drop it.
         // Matching the store alone is not enough — A → B → A would let the first A answer undo a newer refusal.
-        if (request == suggestedOrderRequest) suggestedOrder = result
+        // Nor is an equal scope: the answer must come from the same, still-current authorization lifetime.
+        if (request != suggestedOrderRequest) return@launch
+        if (state is EnrollmentState.Ready && backend.authorizationEpoch == epoch) suggestedOrder = result
+        else retireSuggestedOrder()
+    }
+    /** Scope, session or enrollment changed: drop the shown suggestion and any answer still in flight. */
+    private fun retireSuggestedOrder() {
+        suggestedOrderRequest++
+        suggestedOrder = com.sunpride.field.ui.diagnosticvisit.SuggestedOrderView()
+        suggestedOrderFor = null; suggestedOrderEpoch = null
+    }
+    private fun checkSuggestedOrderLifetime() {
+        val epoch = suggestedOrderEpoch ?: return
+        if (state !is EnrollmentState.Ready || backend.authorizationEpoch != epoch) retireSuggestedOrder()
     }
     fun closeCallSheet() = scope.launch(ui) {
         callSheetOpen = false; diagnosticError = null
-        suggestedOrderRequest++
-        suggestedOrder = com.sunpride.field.ui.diagnosticvisit.SuggestedOrderView(); suggestedOrderFor = null
+        runCatching { backend.abandonSuggestedOrders() }
+        retireSuggestedOrder()
     }
     /** AND-013: downloaded activity-form rules, the open form, and an unplanned visit's chosen purposes. */
     var diagnosticRules by mutableStateOf<List<com.sunpride.field.storage.ActivityRule>>(emptyList()); private set
@@ -964,13 +1001,15 @@ class FieldController(
             error = userMessage(e)
         } finally {
             busy = false
+            checkSuggestedOrderLifetime()
         }
     }
 
     private suspend fun loadToday(sync: Boolean) {
         val ready = state as? EnrollmentState.Ready ?: return
         val loaded = ensureKey()
-        today = withContext(io) { backend.today(ready.deviceId, loaded, sync) }
+        try { today = withContext(io) { backend.today(ready.deviceId, loaded, sync) } }
+        finally { checkSuggestedOrderLifetime() }
     }
     fun refreshCache() = scope.launch(ui) {
         if (state is EnrollmentState.Ready && !busy) {
@@ -991,8 +1030,7 @@ class FieldController(
         runCatching { withContext(io) { backend.signOut() } }
         state = EnrollmentState.SignedOut; today = TodayData(); error = null; busy = false
         team = com.sunpride.field.ui.team.TeamView(); teamDirectOnly = true
-        suggestedOrderRequest++
-        suggestedOrder = com.sunpride.field.ui.diagnosticvisit.SuggestedOrderView(); suggestedOrderFor = null
+        retireSuggestedOrder()
     }
 
     companion object {

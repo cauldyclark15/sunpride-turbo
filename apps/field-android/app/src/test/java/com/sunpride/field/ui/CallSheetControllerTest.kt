@@ -262,4 +262,81 @@ class CallSheetControllerTest {
         assertNull(reopened.order); assertEquals(SuggestedOrderRepository.NOT_ALLOWED, reopened.message)
         SuggestedOrderRepository.forgetSessionDenials()
     }
+
+    /** A backend whose authorization lifetime and enrollment the test controls; suggestions can be held in flight. */
+    private inner class LifetimeBackend(store: FakeFieldStore) : FieldBackend by Backend(store) {
+        @Volatile var epoch = 0L
+        @Volatile var enrollment: EnrollmentState = EnrollmentState.Ready(scope.deviceId)
+        @Volatile var hold: java.util.concurrent.CountDownLatch? = null
+        val entered = java.util.concurrent.CountDownLatch(1)
+        override val authorizationEpoch get() = epoch
+        override fun refreshEnrollment(signer: DeviceSigner) = enrollment
+        override fun suggestedOrder(outletId: String): SuggestedOrderView {
+            hold?.let { entered.countDown(); check(it.await(5, java.util.concurrent.TimeUnit.SECONDS)) }
+            return SuggestedOrderView(SuggestedOrder("v1", "2026-09-29", outletId, 8, 7, 1, true, listOf(
+                SuggestedLine("product-1", "SUNP-001", "Hotdog", "PC", "suggest", 8.0, listOf("Suggest 8 PC")))))
+        }
+    }
+    private suspend fun lifetimeController(backend: LifetimeBackend, scope: kotlinx.coroutines.CoroutineScope) =
+        FieldController(backend, scope, Dispatchers.IO, Dispatchers.Unconfined, now = { 100L }).also { it.start().join() }
+
+    /** Verified scope A → B: suggestions already on screen are cleared at the next sync. */
+    @Test fun publishedSuggestionsAreClearedWhenTheScopeChanges() = runBlocking {
+        val store = FakeFieldStore(scope); store.swap(store.stage(snapshot()), "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
+        val backend = LifetimeBackend(store)
+        val controller = lifetimeController(backend, this)
+        controller.loadSuggestedOrder("outlet-1").join()
+        assertNotNull(controller.suggestedOrder.order)
+        controller.syncNow().join() // same lifetime: kept
+        assertNotNull(controller.suggestedOrder.order)
+        backend.epoch++ // the sync verified a new scope
+        controller.syncNow().join()
+        assertNull(controller.suggestedOrder.order)
+        // Removal confirmed while suggestions are on screen clears them too.
+        controller.loadSuggestedOrder("outlet-1").join()
+        assertNotNull(controller.suggestedOrder.order)
+        backend.enrollment = EnrollmentState.Removed
+        controller.checkAgain().join()
+        assertNull(controller.suggestedOrder.order)
+    }
+
+    /** An answer asked under scope A never shows after A → B, nor after A → B → A. */
+    @Test fun aLateAnswerFromAnEndedLifetimeIsNotShown() = runBlocking {
+        for (changes in 1..2) {
+            val store = FakeFieldStore(scope); store.swap(store.stage(snapshot()), "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
+            val backend = LifetimeBackend(store)
+            val controller = lifetimeController(backend, this)
+            val release = java.util.concurrent.CountDownLatch(1)
+            backend.hold = release
+            val load = controller.loadSuggestedOrder("outlet-1")
+            assertTrue(backend.entered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            repeat(changes) { backend.epoch++ }
+            release.countDown(); load.join()
+            assertNull(controller.suggestedOrder.order)
+            assertFalse(controller.suggestedOrder.loading)
+            // A fresh request in the current lifetime works.
+            backend.hold = null
+            controller.loadSuggestedOrder("outlet-1").join()
+            assertNotNull(controller.suggestedOrder.order)
+        }
+    }
+
+    /** Confirmed phone removal retires both the shown suggestions and an answer still in flight. */
+    @Test fun phoneRemovalRetiresShownAndInFlightSuggestions() = runBlocking {
+        val store = FakeFieldStore(scope); store.swap(store.stage(snapshot()), "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
+        val backend = LifetimeBackend(store)
+        val controller = lifetimeController(backend, this)
+        controller.loadSuggestedOrder("outlet-1").join()
+        assertNotNull(controller.suggestedOrder.order)
+        val release = java.util.concurrent.CountDownLatch(1)
+        backend.hold = release
+        val load = controller.loadSuggestedOrder("outlet-1")
+        assertTrue(backend.entered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        backend.enrollment = EnrollmentState.Removed
+        controller.checkAgain().join()
+        assertEquals(EnrollmentState.Removed, controller.state)
+        assertNull(controller.suggestedOrder.order)
+        release.countDown(); load.join()
+        assertNull(controller.suggestedOrder.order)
+    }
 }

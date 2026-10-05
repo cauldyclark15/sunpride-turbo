@@ -254,6 +254,66 @@ class SuggestedOrderTest {
         assertTrue(cache.rows.isEmpty())
     }
 
+    private fun held(cache: SuggestedOrderCache, at: Long): Pair<java.util.concurrent.CompletableFuture<SuggestedOrderView>,
+        java.util.concurrent.CountDownLatch> {
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val future = java.util.concurrent.CompletableFuture.supplyAsync {
+            SuggestedOrderRepository.load(outlet, day, cache, at) {
+                entered.countDown(); check(release.await(5, java.util.concurrent.TimeUnit.SECONDS)); text
+            }
+        }
+        assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        return future to release
+    }
+
+    /** Scope A → B: an answer asked under A is neither saved nor shown once the lifetime has been retired. */
+    @Test fun aScopeChangeRetiresAnInFlightSuccess() {
+        val cache = Cache()
+        val (inFlight, release) = held(cache, 1)
+        SuggestedOrderRepository.retire()
+        release.countDown()
+        val late = inFlight.get(5, java.util.concurrent.TimeUnit.SECONDS)
+        assertNull(late.order); assertTrue(cache.rows.isEmpty())
+        assertNull(SuggestedOrderRepository.load(outlet, day, cache, 2, offline).order)
+    }
+
+    /**
+     * Scope A → B → A with the original partition released: equal final scope does not make the old answer
+     * current. It must not clear a refusal latched under A, nor replace A's refusal marker.
+     */
+    @Test fun scopeABackToADoesNotReadmitAnOldAnswer() {
+        val cache = Cache()
+        val (inFlight, release) = held(cache, 1)
+        SuggestedOrderRepository.retire() // A → B
+        SuggestedOrderRepository.retire() // B → A (released)
+        assertNull(SuggestedOrderRepository.load(outlet, day, cache, 2) { throw ConvexFunctionError("Forbidden") }.order)
+        release.countDown()
+        val late = inFlight.get(5, java.util.concurrent.TimeUnit.SECONDS)
+        assertNull(late.order)
+        assertNull(cache.rows.getValue("$day|$outlet").json)
+        assertEquals(SuggestedOrderRepository.NOT_ALLOWED, SuggestedOrderRepository.load(outlet, day, cache, 3, offline).message)
+        // Without any refusal: the old answer still is not saved after A → B → A.
+        val clean = Cache()
+        val (second, release2) = held(clean, 4)
+        SuggestedOrderRepository.retire(); SuggestedOrderRepository.retire()
+        release2.countDown()
+        assertNull(second.get(5, java.util.concurrent.TimeUnit.SECONDS).order)
+        assertTrue(clean.rows.isEmpty())
+        // A request started in the current lifetime still works.
+        assertNotNull(SuggestedOrderRepository.load(outlet, day, clean, 5) { text }.order)
+    }
+
+    /** Closing the call sheet: the answer still in flight is not saved. */
+    @Test fun abandoningAnInFlightRequestDoesNotSaveIt() {
+        val cache = Cache()
+        val (inFlight, release) = held(cache, 1)
+        SuggestedOrderRepository.abandon()
+        release.countDown()
+        inFlight.get(5, java.util.concurrent.TimeUnit.SECONDS)
+        assertTrue(cache.rows.isEmpty())
+    }
+
     @Test fun aLatchedRefusalIsPerStoreAndDay() {
         val cache = Cache()
         assertNotNull(SuggestedOrderRepository.load(outlet, day, cache, 1) { text }.order)

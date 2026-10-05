@@ -96,7 +96,11 @@ The iOS and Android call sheets show the suggestion for the store being visited.
   request for a store and day may clear a refusal or overwrite the saved answer, and only the newest request
   on the screen may publish its result (closing the sheet or signing out also retires in-flight requests).
   An older success that lands after a newer refusal is discarded, on screen and on the phone (iOS does the
-  same with per-request IDs). Residual gap: if every refusal-marker write fails and the app process dies
+  same with per-request IDs). Android also ties every request to an authorization lifetime (epoch) that ends
+  when the verified scope changes (including A → B → A), the partition is held, the session ends, the phone
+  is removed, or the user signs out: an answer from an ended lifetime is never saved, never clears a refusal
+  and never shows, and suggestions already on screen are cleared at that boundary. Closing the call sheet
+  also stops an in-flight answer from being saved. Residual gap: if every refusal-marker write fails and the app process dies
   before one succeeds, the in-memory refusal is lost and the old answer can reappear offline after relaunch.
   Without a connection or a saved answer the card says to enter the order as usual.
 - Not recorded in v1: whether the salesperson accepted or changed a suggestion (would need a mobile contract
