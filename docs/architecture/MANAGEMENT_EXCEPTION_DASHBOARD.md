@@ -2,7 +2,7 @@
 
 Where: web **Reports** (`/analytics`), below the daily execution dashboard, for supervision readers (`people.read` + `visit.read` + `report.read`: super admin, admin, manager, analyst, viewer). Backend: `packages/backend/convex/analytics/exceptions.ts` (`field`, `geofence`, `operations`, `outOfStock`); pure rules and every threshold in `analytics/exception_model.ts`, mirrored by `apps/web/src/lib/management-exceptions.ts` (a test keeps them equal).
 
-Managers manage exceptions instead of inspecting every transaction (blueprint §58). Filters: a period of Manila dates (default month to date, at most 31 days), unit (inside the caller's own scope, never wider), channel and "My team only". Channel and My team narrow the people lists; unit narrows everything. Each list is its own query inside its own error boundary, so one failing list never blanks the others.
+Managers manage exceptions instead of inspecting every transaction (blueprint §58). Filters: a period of Manila dates (default month to date, at most 31 days), unit (inside the caller's own scope, never wider), channel and "My team only". Channel and My team narrow the people lists; unit narrows everything. Missed high-value outlets, location issues and out-of-stock findings also follow each outlet's current owner (territory owner, else custodian, as outlet detail resolves it): once an outlet moves to another region, the former region's readers no longer receive its name or findings, even for history recorded while they owned it. Each list is its own query inside its own error boundary, so one failing list never blanks the others.
 
 ## Lists
 

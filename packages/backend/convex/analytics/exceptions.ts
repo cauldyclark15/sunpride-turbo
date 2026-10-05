@@ -30,6 +30,7 @@ import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
 import { capabilityRoles, requireCapability } from "../lib/capabilities";
 import type { AppRole } from "../lib/roles";
 import { rootOrgUnitId } from "../lib/scope";
+import { resolveOutletScopeAt } from "../outlets/validation";
 import {
   DEFAULT_SELLING_WEEKDAYS,
   isSellingDay,
@@ -153,6 +154,32 @@ async function nationalView(
   );
 }
 
+/**
+ * Canonical outlet authorization for historical sources: the outlet's CURRENT persisted
+ * owner (territory owner, else custodian), exactly as outlet detail resolves it, must be
+ * inside the caller's current scope. Historical unit stamps alone are not enough: after an
+ * outlet moves from Region A to B, A's manager must no longer receive its identity or
+ * findings. Unresolvable ownership (e.g. overlapping rows) fails closed. Cached per read.
+ */
+function currentOutletGate(ctx: QueryCtx, sc: SupervisorContext) {
+  const now = Date.now();
+  const cache = new Map<Id<"outlets">, boolean>();
+  return async (outletId: Id<"outlets">) => {
+    const known = cache.get(outletId);
+    if (known !== undefined) return known;
+    let allowed = false;
+    try {
+      const current = await resolveOutletScopeAt(ctx, outletId, now);
+      allowed = sc.scope.has(current.orgUnitId);
+    } catch {
+      allowed = false;
+    }
+    cache.set(outletId, allowed);
+    return allowed;
+  };
+}
+type OutletGate = ReturnType<typeof currentOutletGate>;
+
 // ---------------------------------------------------------------------------------------
 // Field: missed high-value outlets and people materially behind plan (paged).
 
@@ -204,6 +231,7 @@ async function personPeriod(
   from: string,
   to: string,
   outletOf: (id: Id<"outlets">) => Promise<Doc<"outlets"> | null>,
+  outletAllowed: OutletGate,
   now: number,
 ): Promise<FieldRow> {
   const profileId = member.profile._id;
@@ -229,14 +257,18 @@ async function personPeriod(
   let truncated =
     plannedRows.length > MAX_PERIOD_ROWS || visitRows.length > MAX_PERIOD_ROWS;
   const closed = (date: string) => dayCloseAt(date) < now;
-  const planned = plannedRows.slice(0, MAX_PERIOD_ROWS).filter(
-    (row) =>
+  const planned: Doc<"plannedVisits">[] = [];
+  for (const row of plannedRows.slice(0, MAX_PERIOD_ROWS))
+    if (
       row.status === "planned" &&
       closed(row.serviceDate) &&
       // The selected unit filter (sc.units), not the caller's whole scope: a Region A
       // view must not list stops this person once served in Region B.
-      sc.units.has(row.approvedSnapshot.orgUnitId),
-  );
+      sc.units.has(row.approvedSnapshot.orgUnitId) &&
+      // And the outlet's current owner must still be in the caller's scope.
+      (await outletAllowed(row.outletId))
+    )
+      planned.push(row);
   const done = new Set(
     visitRows
       .slice(0, MAX_PERIOD_ROWS)
@@ -405,13 +437,23 @@ export const field = query({
       return outlets.get(id) ?? null;
     };
     const now = Date.now();
+    const outletAllowed = currentOutletGate(ctx, sc);
     const rows: FieldRow[] = [];
     for (const member of members.slice(
       page * EXCEPTION_PAGE_SIZE,
       (page + 1) * EXCEPTION_PAGE_SIZE,
     ))
       rows.push(
-        await personPeriod(ctx, sc, member, args.from, args.to, outletOf, now),
+        await personPeriod(
+          ctx,
+          sc,
+          member,
+          args.from,
+          args.to,
+          outletOf,
+          outletAllowed,
+          now,
+        ),
       );
     return {
       from: args.from,
@@ -498,6 +540,7 @@ export const geofence = query({
       at: number;
     };
     const issues: Issue[] = [];
+    const outletAllowed = currentOutletGate(ctx, sc);
     let read = 0;
     let truncated = peopleTruncated;
     for (const unitId of sc.units)
@@ -525,6 +568,7 @@ export const geofence = query({
             visits.set(row.visitId, await ctx.db.get(row.visitId));
           const visit = visits.get(row.visitId);
           if (!visit || !team.has(visit.assigneeProfileId)) continue;
+          if (!(await outletAllowed(visit.outletId))) continue;
           issues.push({
             profileId: visit.assigneeProfileId,
             outletId: visit.outletId,
@@ -1058,6 +1102,7 @@ export const outOfStock = query({
   }),
   handler: async (ctx, args) => {
     const { sc } = await context(ctx, args);
+    const outletAllowed = currentOutletGate(ctx, sc);
     const findings: OosFinding[] = [];
     let read = 0;
     let truncated = false;
@@ -1079,7 +1124,10 @@ export const outOfStock = query({
       if (rows.length > room) truncated = true;
       read += Math.min(rows.length, room);
       for (const row of rows.slice(0, room))
-        if (row.status === "out_of_stock")
+        if (
+          row.status === "out_of_stock" &&
+          (await outletAllowed(row.outletId))
+        )
           findings.push({
             outletId: row.outletId,
             productId: row.productId,

@@ -281,6 +281,24 @@ async function fixture() {
       reason: "fixture",
       createdAt: since,
     });
+    const territoryB = await ctx.db.insert("territories", {
+      organizationId: "sunpride",
+      code: "T-B",
+      name: "Territory B",
+      status: "active",
+      effectiveFrom: since,
+      createdAt: since,
+      updatedAt: since,
+      createdBy: "fixture",
+    });
+    await ctx.db.insert("territoryOwnerships", {
+      territoryId: territoryB,
+      orgUnitId: regionB,
+      effectiveFrom: since,
+      actorSubject: "fixture",
+      reason: "fixture",
+      createdAt: since,
+    });
     const outlet = (
       code: string,
       orgUnitId: Id<"orgUnits">,
@@ -322,6 +340,7 @@ async function fixture() {
       ana,
       cara,
       territory,
+      territoryB,
       ownership,
       outlets,
       products,
@@ -371,16 +390,28 @@ async function fixture() {
         updatedBy: "fixture",
         updatedAt: since,
       });
-      const outletAssignment = await ctx.db.insert("outletAssignments", {
-        outletId: args.outlet,
-        territoryId: ids.territory,
-        sequence: n,
-        effectiveFrom: since,
-        actorSubject: "fixture",
-        reason: "fixture",
-        createdAt: since,
-      });
       const outlet = (await ctx.db.get(args.outlet))!;
+      // One persisted owner per outlet: its custodian region's territory.
+      const existing = await ctx.db
+        .query("outletAssignments")
+        .withIndex("by_outletId_and_effectiveFrom", (q) =>
+          q.eq("outletId", args.outlet),
+        )
+        .first();
+      const outletAssignment =
+        existing?._id ??
+        (await ctx.db.insert("outletAssignments", {
+          outletId: args.outlet,
+          territoryId:
+            outlet.custodianOrgUnitId === ids.regionB
+              ? ids.territoryB
+              : ids.territory,
+          sequence: n,
+          effectiveFrom: since,
+          actorSubject: "fixture",
+          reason: "fixture",
+          createdAt: since,
+        }));
       const approvedSnapshot = {
         outletId: args.outlet,
         outletCode: outlet.code,
@@ -477,7 +508,31 @@ async function fixture() {
       }),
     );
 
-  return { t, ids, as, stop, evidence };
+  /** Moves an outlet's current persisted owner to Territory B (region B) an hour ago. */
+  const transferToB = (outletId: Id<"outlets">) =>
+    t.run(async (ctx) => {
+      const moved = now - HOUR;
+      const rows = await ctx.db
+        .query("outletAssignments")
+        .withIndex("by_outletId_and_effectiveFrom", (q) =>
+          q.eq("outletId", outletId),
+        )
+        .collect();
+      for (const row of rows)
+        if (row.effectiveTo === undefined)
+          await ctx.db.patch(row._id, { effectiveTo: moved });
+      await ctx.db.insert("outletAssignments", {
+        outletId,
+        territoryId: ids.territoryB,
+        sequence: 99,
+        effectiveFrom: moved,
+        actorSubject: "fixture",
+        reason: "transfer",
+        createdAt: moved,
+      });
+    });
+
+  return { t, ids, as, stop, evidence, transferToB };
 }
 
 describe("management exception dashboard", () => {
@@ -1136,5 +1191,104 @@ describe("management exception dashboard", () => {
       "B1",
       "HV1",
     ]);
+  });
+
+  it("drops an outlet from a former owner's missed, geofence and out-of-stock lists after it transfers", async () => {
+    const { t, ids, as, stop, evidence, transferToB } = await fixture();
+    // History in region A at the A-class outlet: a missed stop, three off-radius fixes
+    // and three out-of-stock findings.
+    await stop({
+      who: ids.ana,
+      orgUnitId: ids.regionA,
+      outlet: ids.outlets.hv,
+      date: "2026-09-29",
+    });
+    for (const date of ["2026-09-25", "2026-09-26", "2026-09-28"]) {
+      const { visitId } = await stop({
+        who: ids.ana,
+        orgUnitId: ids.regionA,
+        outlet: ids.outlets.hv,
+        date,
+        visited: true,
+      });
+      await evidence(visitId!, ids.regionA, "outside_radius", at(date));
+      await t.run(async (ctx) => {
+        const audit = await ctx.db.insert("merchandisingAudits", {
+          organizationId: "sunpride",
+          orgUnitId: ids.regionA,
+          visitId: visitId!,
+          outletId: ids.outlets.hv,
+          assigneeProfileId: ids.ana.id,
+          serviceDate: date,
+          clientAuditId: `audit-${date}`,
+          payloadHash: "hash",
+          auditVersion: "test",
+          requiredCount: 0,
+          requiredAvailableCount: 0,
+          requiredOutOfStockCount: 0,
+          missingRequiredProductIds: [],
+          evidenceIds: [],
+          actorSubject: subject("Ana"),
+          source: "mobile",
+          deviceTime: now,
+          serverTime: now,
+        });
+        await ctx.db.insert("merchandisingAvailability", {
+          organizationId: "sunpride",
+          orgUnitId: ids.regionA,
+          auditId: audit,
+          outletId: ids.outlets.hv,
+          productId: ids.products.p1,
+          serviceDate: date,
+          required: true,
+          status: "out_of_stock",
+          evidenceIds: [],
+        });
+      });
+    }
+    const read = async (who: string) => {
+      const field = await as(who).query(api.analytics.exceptions.field, period);
+      const geofence = await as(who).query(
+        api.analytics.exceptions.geofence,
+        period,
+      );
+      const oos = await as(who).query(
+        api.analytics.exceptions.outOfStock,
+        period,
+      );
+      return {
+        missed: field.rows.flatMap((row) =>
+          row.missedHighValue.map((stop) => stop.outletCode),
+        ),
+        geofenceIssues: geofence.issues,
+        geofenceOutlets: geofence.outlets.map((row) => row.outletCode),
+        oosFindings: oos.findings,
+        oosOutlets: oos.outlets.map((row) => row.outletCode),
+      };
+    };
+    // While region A owns it, its manager sees all three lists.
+    expect(await read("managerA")).toEqual({
+      missed: ["HV1"],
+      geofenceIssues: 3,
+      geofenceOutlets: ["HV1"],
+      oosFindings: 3,
+      oosOutlets: ["HV1"],
+    });
+
+    await transferToB(ids.outlets.hv);
+    // Region A no longer owns it: nothing about it reaches A's manager.
+    expect(await read("managerA")).toEqual({
+      missed: [],
+      geofenceIssues: 0,
+      geofenceOutlets: [],
+      oosFindings: 0,
+      oosOutlets: [],
+    });
+    // A cross-scope reader still sees the history.
+    expect(await read("boss")).toMatchObject({
+      missed: ["HV1"],
+      geofenceOutlets: ["HV1"],
+      oosOutlets: ["HV1"],
+    });
   });
 });
