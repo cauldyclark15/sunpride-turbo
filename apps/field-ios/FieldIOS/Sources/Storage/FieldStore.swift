@@ -537,6 +537,7 @@ final class EncryptedFieldStore: FieldLocalStore {
         try transaction {
             guard try isLeaseValid(now: now, for: partition) else { throw StoreError.leaseExpired }
             guard try state(partition)?.1 == false else { throw StoreError.heldForReview }
+            try validateOpenCall(intent, partition)
             try validateActivityRules(intent, partition)
             try run("INSERT INTO intents(subject,device,scope,request_id,kind,body) VALUES (?,?,?,?,?,?)",
                     p(partition) + [.text(intent.requestId.uuidString.lowercased()), .text(intent.kind), .blob(intent.operationJSON)])
@@ -561,6 +562,7 @@ final class EncryptedFieldStore: FieldLocalStore {
         try transaction {
             guard try isLeaseValid(now: now, for: partition) else { throw StoreError.leaseExpired }
             guard try state(partition)?.1 == false else { throw StoreError.heldForReview }
+            try validateOpenCall(intent, partition)
             try validateActivityRules(intent, partition)
             try run("INSERT INTO intents(subject,device,scope,request_id,kind,body) VALUES (?,?,?,?,?,?)",
                     p(partition) + [.text(intent.requestId.uuidString.lowercased()), .text(intent.kind), .blob(intent.operationJSON)])
@@ -568,6 +570,18 @@ final class EncryptedFieldStore: FieldLocalStore {
                     p(partition) + [.text(intent.requestId.uuidString.lowercased())])
         }
         try protectFiles()
+    }
+    /// IOS-017, inside the enqueue transaction: once a call's End is queued (or accepted) the visit
+    /// is final on this phone — no activity may be added and it cannot end twice. A server-rejected
+    /// End does not close the call.
+    private func validateOpenCall(_ item: VisitIntent, _ partition: StorePartition) throws {
+        guard item.kind == "visit.activity" || item.kind == "visit.checkOut",
+              let dependency = item.dependencies.first, let checkInId = UUID(uuidString: dependency),
+              let checkIn = try intent(for: checkInId, in: partition), checkIn.kind == "visit.checkIn" else { return }
+        let rejected = Set(try reviewOutbox(for: partition).map { $0.intent.requestId })
+        guard VisitCompletion.isOpen(checkIn, intents: try intents(for: partition), rejected: rejected) else {
+            throw StoreError.invalidInput
+        }
     }
     /// IOS-013, inside the enqueue transaction: a structured form must match its wire shape and the
     /// account's call-sheet products, and a "completed" End needs every capturable required form

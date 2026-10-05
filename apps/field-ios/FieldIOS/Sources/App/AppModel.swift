@@ -70,6 +70,7 @@ final class AppModel {
     }
     enum CallFailure: Error, Equatable {
         case callOpen, mcpOrder, alreadyStarted, notStarted, alreadyClosed, intentRequired, activitiesRequired
+        case outcomeRequired, reasonRequired
         var message: String {
             switch self {
             case .callOpen: "Finish the open call first"
@@ -79,6 +80,8 @@ final class AppModel {
             case .alreadyClosed: "Call already ended"
             case .intentRequired: "Choose at least one visit purpose"
             case .activitiesRequired: "Record the required activities, or end as not productive"
+            case .outcomeRequired: "Choose how the call ended"
+            case .reasonRequired: "Give a reason (up to 200 characters)"
             }
         }
     }
@@ -405,8 +408,7 @@ final class AppModel {
     }
     func queueNote(_ note: String, for visit: TodayVisit) throws {
         let (initial, store, partition) = try checkIn(for: visit)
-        guard !(try store.intents(for: partition)).contains(where: { $0.kind == "visit.checkOut" &&
-            $0.dependencies.contains(initial.requestId.uuidString.lowercased()) }) else { throw CallFailure.alreadyClosed }
+        try requireOpen(initial, store: store, partition: partition)
         let ack = try store.ack(for: initial.requestId, in: partition)
         let timestamp = now()
         let intent = try DiagnosticOperation.note(note, checkIn: initial.requestId, visitId: ack?.entityId, now: timestamp)
@@ -438,7 +440,7 @@ final class AppModel {
     /// Queue one structured activity form (merchandising, promotion, inventory or price check).
     func queueActivity(_ activity: [String: Any], for visit: TodayVisit) throws {
         let (initial, store, partition) = try checkIn(for: visit)
-        guard !visitProgress(for: visit).checkedOut else { throw CallFailure.alreadyClosed }
+        try requireOpen(initial, store: store, partition: partition)
         // Validate against the active encrypted snapshot, not a stale editor projection.
         let sheet = try store.snapshot(for: partition)?.callSheets.first { $0.outletId == visit.outletId }
         try ActivityForms.validate(activity, sheet: sheet)
@@ -454,12 +456,43 @@ final class AppModel {
         callSheets.first { $0.outletId == visit.outletId }
     }
     func visitProgress(for visit: TodayVisit) -> (checkedIn: Bool, checkedOut: Bool) {
-        guard let (initial, store, partition) = try? checkIn(for: visit) else { return (false, false) }
-        let checkedOut = (try? store.intents(for: partition))?.contains { item in
-            item.kind == "visit.checkOut" &&
-            ((try? JSONSerialization.jsonObject(with: item.operationJSON) as? [String: Any])?["dependsOn"] as? [String])?.contains(initial.requestId.uuidString.lowercased()) == true
-        } ?? false
-        return (true, checkedOut)
+        guard let (initial, store, partition) = try? checkIn(for: visit),
+              let intents = try? store.intents(for: partition),
+              let rejected = try? Set(store.reviewOutbox(for: partition).map { $0.intent.requestId }) else { return (false, false) }
+        return (true, !VisitCompletion.isOpen(initial, intents: intents, rejected: rejected))
+    }
+    /// IOS-017: a queued (or accepted) End makes the call final on this phone; a server-rejected End
+    /// does not, so the person can still finish the call.
+    private func requireOpen(_ initial: VisitIntent, store: any FieldLocalStore, partition: StorePartition) throws {
+        let rejected = Set(try store.reviewOutbox(for: partition).map { $0.intent.requestId })
+        guard VisitCompletion.isOpen(initial, intents: try store.intents(for: partition), rejected: rejected) else {
+            throw CallFailure.alreadyClosed
+        }
+    }
+    /// IOS-017: what End will record (outcome, reason, recorded forms, forms the office will review,
+    /// time so far, productive call), re-read from the encrypted store. Refuses exactly what End refuses.
+    func endReview(outcome: String?, reason: String?, for visit: TodayVisit) throws -> EndReview {
+        let (initial, store, partition) = try checkIn(for: visit)
+        let snapshot = try store.snapshot(for: partition)
+        return try VisitCompletion.review(checkIn: initial, outcome: outcome, reason: reason,
+            rules: snapshot?.activityRules ?? [], intents: try store.intents(for: partition),
+            rejected: Set(try store.reviewOutbox(for: partition).map { $0.intent.requestId }),
+            sheet: snapshot?.callSheets.first { $0.outletId == visit.outletId },
+            productiveRule: snapshot?.dayTarget?.productiveCallRule, now: now())
+    }
+    /// IOS-017: the call's final, immutable result once its End is queued; nil while open.
+    func visitResult(for visit: TodayVisit) -> VisitResult? {
+        guard let (initial, store, partition) = try? checkIn(for: visit),
+              let intents = try? store.intents(for: partition),
+              let rejected = try? Set(store.reviewOutbox(for: partition).map { $0.intent.requestId }),
+              let pending = try? store.pendingOutbox(for: partition), let deferred = try? store.deferredOutbox(for: partition),
+              let heldRows = try? store.heldOutbox(for: partition) else { return nil }
+        let snapshot = try? store.snapshot(for: partition)
+        let queued = Set((pending + deferred + heldRows).map { $0.intent.requestId })
+        return VisitCompletion.result(checkIn: initial, rules: snapshot?.activityRules ?? [], intents: intents,
+            rejected: rejected, queued: queued, held: (try? store.isHeld(partition)) == true,
+            sheet: snapshot?.callSheets.first { $0.outletId == visit.outletId },
+            productiveRule: snapshot?.dayTarget?.productiveCallRule)
     }
     func callSheetStatus(for visit: TodayVisit) -> String? {
         guard let (initial, store, partition) = try? checkIn(for: visit),
@@ -479,7 +512,7 @@ final class AppModel {
     func queueCallSheet(_ drafts: [String: CallSheetDraft], for visit: TodayVisit) throws {
         let (initial, store, partition) = try checkIn(for: visit)
         // The call sheet belongs to the open call: after Start and before End.
-        guard !visitProgress(for: visit).checkedOut else { throw CallFailure.alreadyClosed }
+        try requireOpen(initial, store: store, partition: partition)
         // Always validate against the active encrypted snapshot, not a stale editor projection.
         guard let sheet = try store.snapshot(for: partition)?.callSheets.first(where: { $0.outletId == visit.outletId }) else {
             throw StoreError.invalidInput
@@ -494,20 +527,12 @@ final class AppModel {
     }
     func queueCheckOut(outcome: String, reason: String?, for visit: TodayVisit, location: VisitLocation? = nil) throws {
         let (initial, store, partition) = try checkIn(for: visit)
-        guard !(try store.intents(for: partition)).contains(where: { $0.kind == "visit.checkOut" &&
-            $0.dependencies.contains(initial.requestId.uuidString.lowercased()) }) else { throw CallFailure.alreadyClosed }
-        // IOS-013: a completed End needs every capturable required form; not productive needs none.
-        if outcome == "completed" {
-            let snapshot = try store.snapshot(for: partition)
-            let rejected = Set(try store.reviewOutbox(for: partition).map { $0.intent.requestId })
-            let missing = ActivityRules.missingForEnd(checkIn: initial, rules: snapshot?.activityRules ?? [],
-                intents: try store.intents(for: partition), rejected: rejected,
-                sheet: snapshot?.callSheets.first { $0.outletId == visit.outletId })
-            if !missing.isEmpty { throw CallFailure.activitiesRequired }
-        }
+        // IOS-017: the same review the person confirmed — open call, outcome, reason, and (IOS-013) every
+        // capturable required form for a completed End; not productive needs none.
+        let review = try endReview(outcome: outcome, reason: reason, for: visit)
         let ack = try store.ack(for: initial.requestId, in: partition)
         let timestamp = now()
-        let intent = try DiagnosticOperation.checkOut(outcome: outcome, reason: reason,
+        let intent = try DiagnosticOperation.checkOut(outcome: review.outcome, reason: review.reasonCode,
             checkIn: initial.requestId, visitId: ack?.entityId, location: location, now: timestamp)
         if ack == nil { try store.enqueueDeferred(intent, for: partition, now: timestamp) }
         else { try store.enqueue(intent, for: partition, now: timestamp) }

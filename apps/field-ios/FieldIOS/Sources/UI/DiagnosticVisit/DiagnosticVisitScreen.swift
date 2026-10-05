@@ -21,6 +21,18 @@ struct DiagnosticVisitScreen: View {
     private var checkedOut: Bool { currentVisit.endedAt != nil }
     private var startFailure: AppModel.CallFailure? { model.startFailure(for: currentVisit) }
     @State private var noteQueued = false
+    /// IOS-017: the End confirmation (what will be recorded) while the person decides; nil otherwise.
+    @State private var review: EndReview?
+    /// IOS-017: a truck seller's "visited, no sales due to inventory" End marker.
+    @State private var noSales = false
+    private var truckSeller: Bool { model.dayTarget?.productiveCallRule == "truck_seller" }
+    private var endReason: String? {
+        switch outcome {
+        case "nonproductive": reason
+        case "completed": truckSeller && noSales ? VisitCompletion.noSalesDueToInventory : nil
+        default: nil
+        }
+    }
     /// IOS-013: purposes chosen for an unplanned visit before Start.
     @State private var purposes: [String] = []
     private var intents: [String] {
@@ -110,7 +122,7 @@ struct DiagnosticVisitScreen: View {
                         }.padding(16)
                     }
                 }
-                if checkedIn && !checkedOut && !checklist.isEmpty {
+                if checkedIn && !checkedOut && review == nil && !checklist.isEmpty {
                     SectionCard(title: "Activity forms") {
                         VStack(spacing: 0) {
                             ForEach(Array(checklist.enumerated()), id: \.element.kind) { index, item in
@@ -120,7 +132,9 @@ struct DiagnosticVisitScreen: View {
                         }
                     }
                 }
-                if checkedIn && !checkedOut {
+                if checkedIn && !checkedOut, let review {
+                    reviewCard(review)
+                } else if checkedIn && !checkedOut {
                     SectionCard(title: "Note") {
                         VStack(alignment: .trailing, spacing: 8) {
                             CalmField(label: nil) {
@@ -177,6 +191,13 @@ struct DiagnosticVisitScreen: View {
                                     .padding(.bottom, 16)
                                     .accessibilityIdentifier("activitiesMissing")
                             }
+                            if outcome == "completed" && truckSeller {
+                                Toggle("No sales · store has enough stock", isOn: $noSales)
+                                    .font(SunprideTokens.TypeStyle.row)
+                                    .frame(minHeight: 48)
+                                    .padding(.bottom, 8)
+                                    .accessibilityIdentifier("noSalesDueToInventory")
+                            }
                             if outcome == "nonproductive" {
                                 CalmField(label: "Reason") {
                                     TextField("Reason", text: $reason).accessibilityIdentifier("nonproductiveReason")
@@ -187,8 +208,11 @@ struct DiagnosticVisitScreen: View {
                     }
                 } else if checkedOut {
                     SectionCard(title: "Done") {
-                        CalmListRow(symbol: "checkmark.circle", title: "Visit complete", meta: currentVisit.timeSpent ?? "Saved on phone")
-                            .accessibilityIdentifier("callTimeSpent")
+                        VStack(spacing: 0) {
+                            CalmListRow(symbol: "checkmark.circle", title: "Visit complete", meta: currentVisit.timeSpent ?? "Saved on phone")
+                                .accessibilityIdentifier("callTimeSpent")
+                            if let result = model.visitResult(for: currentVisit) { resultRows(result) }
+                        }
                     }
                 }
                 if checkedIn {
@@ -221,26 +245,37 @@ struct DiagnosticVisitScreen: View {
         }
         .background(SunprideTokens.background)
         .safeAreaInset(edge: .bottom) {
-            if !checkedOut {
+            if checkedIn && !checkedOut && review != nil {
+                HStack(spacing: 12) {
+                    SecondaryButton(title: "Back", disabled: busy) { review = nil }
+                        .accessibilityIdentifier("endReviewBack")
+                    PrimaryBottomButton(title: busy ? "Saving…" : "Confirm end", disabled: busy) { confirmEnd() }
+                        .accessibilityIdentifier("diagnosticConfirmEnd")
+                }
+                .padding(16)
+                .background(SunprideTokens.background)
+            } else if !checkedOut {
                 PrimaryBottomButton(title: busy ? "Saving…" : checkedIn ? "End call" : "Start",
                                     disabled: busy || (!checkedIn && (startFailure != nil || (unplanned && (reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || purposes.isEmpty)))) || (checkedIn && (outcome.isEmpty || (outcome == "nonproductive" && reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) || (outcome == "completed" && !missing.isEmpty)))) {
                     let ending = checkedIn
+                    if ending {
+                        // IOS-017: nothing is queued yet; show what End will record. The store re-checks on Confirm.
+                        do { review = try model.endReview(outcome: outcome, reason: endReason, for: currentVisit); message = nil }
+                        catch let error as AppModel.CallFailure { message = error.message }
+                        catch { message = "Could not check this call · Try again" }
+                        return
+                    }
                     busy = true
                     Task {
-                        // Always attempt fresh evidence for both arrival and departure. A failed
+                        // Always attempt fresh arrival evidence (departure: `confirmEnd`). A failed
                         // fix is serialized as null; the server records distance and geofence result,
                         // and only the supervisor decides an exception. Never a reason to refuse.
                         let captured = await location.capture()
                         let fix = captured.fix
                         do {
-                            if ending {
-                                try model.queueCheckOut(outcome: outcome, reason: outcome == "nonproductive" ? reason : nil,
-                                                        for: visit, location: fix)
-                            } else {
-                                try model.queueCheckIn(visit, unplannedReason: unplanned ? reason : nil,
-                                                       intents: purposes, location: fix)
-                                reason = ""
-                            }
+                            try model.queueCheckIn(visit, unplannedReason: unplanned ? reason : nil,
+                                                   intents: purposes, location: fix)
+                            reason = ""
                             message = LocationAssessment.notice(captured, pin: currentVisit.pin, at: Date()).text
                         } catch let error as AppModel.CallFailure { message = error.message }
                         catch StoreError.leaseExpired { message = "Day access closed · Reconnect to continue" }
@@ -257,6 +292,83 @@ struct DiagnosticVisitScreen: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
+        // A change to what End would record invalidates the confirmation.
+        .onChange(of: outcome) { review = nil }
+        .onChange(of: reason) { review = nil }
+        .onChange(of: noSales) { review = nil }
+    }
+    /// IOS-017: capture the final location, then queue the immutable End the person just reviewed.
+    private func confirmEnd() {
+        busy = true
+        Task {
+            // Fresh departure evidence; a failed fix is serialized as null and flagged, never blocking.
+            let captured = await location.capture()
+            do {
+                try model.queueCheckOut(outcome: outcome, reason: endReason, for: currentVisit, location: captured.fix)
+                review = nil
+                message = LocationAssessment.notice(captured, pin: currentVisit.pin, at: Date()).text
+            } catch let error as AppModel.CallFailure { review = nil; message = error.message }
+            catch StoreError.leaseExpired { message = "Day access closed · Reconnect to continue" }
+            catch StoreError.heldForReview { message = "Work held · Contact supervisor" }
+            catch StoreError.invalidInput { review = nil; message = "Invalid call · Sync and retry" }
+            catch StoreError.database { message = "Storage unavailable · Contact support" }
+            catch { message = "Call not saved · Check outcome or reason" }
+            busy = false
+        }
+    }
+    private func kinds(_ kinds: [String]) -> String {
+        kinds.isEmpty ? "None recorded" : kinds.map(ActivityRules.kindLabel).joined(separator: ", ")
+    }
+    private func outcomeText(_ outcome: String, _ reason: String?) -> String {
+        ([VisitCompletion.outcomeLabel(outcome)] + [reason.map(VisitCompletion.reasonLabel)].compactMap { $0 }).joined(separator: " · ")
+    }
+    private func productiveText(_ productive: Bool?) -> String? {
+        productive.map { $0 ? "Yes" : "No productive activity" }
+    }
+    private func reviewCard(_ review: EndReview) -> some View {
+        SectionCard(title: "Review and end") {
+            VStack(alignment: .leading, spacing: 0) {
+                DetailRow(label: "Outcome", value: outcomeText(review.outcome, review.reasonCode))
+                    .accessibilityElement(children: .combine).accessibilityIdentifier("endReviewOutcome")
+                DetailRow(label: "Time so far", value: "\(review.minutes) min")
+                DetailRow(label: "Activities", value: kinds(review.recorded))
+                    .accessibilityElement(children: .combine).accessibilityIdentifier("endReviewActivities")
+                if !review.officeReview.isEmpty {
+                    DetailRow(label: "Office will review", value: kinds(review.officeReview))
+                        .accessibilityElement(children: .combine).accessibilityIdentifier("endReviewOffice")
+                }
+                if let productive = productiveText(review.productive) {
+                    DetailRow(label: "Productive call", value: productive)
+                        .accessibilityElement(children: .combine).accessibilityIdentifier("endReviewProductive")
+                }
+                Text("Your location is recorded when you confirm. You can't change this call after it ends.")
+                    .font(SunprideTokens.TypeStyle.meta)
+                    .foregroundStyle(SunprideTokens.secondaryText)
+                    .padding(16)
+            }
+        }
+    }
+    @ViewBuilder private func resultRows(_ result: VisitResult) -> some View {
+        DetailRow(label: "Outcome", value: outcomeText(result.outcome, result.reasonCode))
+            .accessibilityElement(children: .combine).accessibilityIdentifier("resultOutcome")
+        DetailRow(label: "Activities", value: kinds(result.recorded))
+            .accessibilityElement(children: .combine).accessibilityIdentifier("resultActivities")
+        if !result.officeReview.isEmpty {
+            DetailRow(label: "Office will review", value: kinds(result.officeReview))
+                .accessibilityElement(children: .combine).accessibilityIdentifier("resultOffice")
+        }
+        if let productive = productiveText(result.productive) {
+            DetailRow(label: "Productive call", value: productive)
+                .accessibilityElement(children: .combine).accessibilityIdentifier("resultProductive")
+        }
+        DetailRow(label: "Sync", value: result.sync)
+            .accessibilityElement(children: .combine).accessibilityIdentifier("resultSync")
+        Text(result.location)
+            .font(SunprideTokens.TypeStyle.meta)
+            .foregroundStyle(SunprideTokens.secondaryText)
+            .padding(.horizontal, 16).padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier(result.locationReview ? "resultLocationReview" : "resultLocation")
     }
     /// One checklist row: opens its form, or the call sheet; the note uses the Note card below.
     @ViewBuilder private func activityRow(_ item: ActivityRules.Requirement) -> some View {
