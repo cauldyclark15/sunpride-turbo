@@ -519,6 +519,7 @@ class LiveFieldBackend(
         // QSR-010: sign-out leaves only held, encrypted unsent evidence; no cached plan, customers,
         // prices or session-keyed scope index survive for the next person on this phone.
         runBlocking { EncryptedFieldDatabase.purgeExisting(context) }
+        com.sunpride.field.ui.diagnosticvisit.SuggestedOrderRepository.forgetSessionDenials()
         prefs.edit().clear().commit()
         auth.signOut()
     }

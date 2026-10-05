@@ -8,6 +8,7 @@ import com.sunpride.field.storage.CallSheetProduct
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
+import org.junit.Before
 import org.junit.Test
 
 class SuggestedOrderTest {
@@ -27,6 +28,9 @@ class SuggestedOrderTest {
     private val blank get() = sheet.lines.map { CallSheetDraftLine(it.productId) }
 
     private fun mutate(block: (JSONObject) -> Unit) = JSONObject(text).also(block).toString()
+
+    /** Each test starts as a fresh app process: no refusal latched in memory. */
+    @Before fun freshProcess() = SuggestedOrderRepository.forgetSessionDenials()
 
     @Test fun decodesTheEngineResponseForTheRequestedStoreAndDay() {
         val o = order
@@ -160,7 +164,59 @@ class SuggestedOrderTest {
         }
         val refused = SuggestedOrderRepository.load(outlet, day, cache, 1) { throw ConvexFunctionError(null) }
         assertNull(refused.order); assertEquals(SuggestedOrderRepository.NOT_ALLOWED, refused.message)
-        assertEquals(SuggestedOrderRepository.CONNECTION, SuggestedOrderRepository.load(outlet, day, cache, 2, offline).message)
+        val reopened = SuggestedOrderRepository.load(outlet, day, cache, 2, offline)
+        assertNull(reopened.order); assertEquals(SuggestedOrderRepository.NOT_ALLOWED, reopened.message)
+    }
+
+    /** Release counterexample: reads keep working while the refusal-marker write fails. */
+    @Test fun readableCacheMustNotReturnAfterFailedDenialWrite() {
+        for ((refusal, message) in listOf<Pair<() -> String, String>>(
+            { throw ConvexFunctionError("Forbidden") } to SuggestedOrderRepository.NOT_ALLOWED,
+            { throw AuthFailure(AuthFailure.Kind.REFUSED) } to SuggestedOrderRepository.NOT_ALLOWED,
+            { throw AuthFailure(AuthFailure.Kind.INVALID_CREDENTIALS) } to SuggestedOrderRepository.SIGN_IN,
+            { "{}" } to SuggestedOrderRepository.UNREADABLE)) {
+            SuggestedOrderRepository.forgetSessionDenials()
+            var blockFailures = Int.MAX_VALUE
+            var blockAttempts = 0
+            val cache = object : SuggestedOrderCache {
+                val inner = Cache()
+                override fun read(key: String) = inner.read(key)
+                override fun write(key: String, json: String, savedAt: Long) = inner.write(key, json, savedAt)
+                override fun block(key: String, reason: String, at: Long) {
+                    blockAttempts++
+                    if (blockFailures-- > 0) throw IllegalStateException("disk full")
+                    inner.block(key, reason, at)
+                }
+            }
+            assertNotNull(SuggestedOrderRepository.load(outlet, day, cache, 10) { text }.order)
+            val refused = SuggestedOrderRepository.load(outlet, day, cache, 11, refusal)
+            assertNull(refused.order); assertEquals(message, refused.message)
+            // The old answer is still readable on the phone, but this session never shows it again.
+            assertNotNull(cache.inner.rows.getValue("$day|$outlet").json)
+            repeat(3) {
+                val reopened = SuggestedOrderRepository.load(outlet, day, cache, 12L + it, offline)
+                assertNull(reopened.order); assertEquals(message, reopened.message)
+            }
+            // Each blocked offline open retries the durable marker; once storage recovers it sticks across relaunch.
+            val before = blockAttempts
+            blockFailures = 0
+            assertNull(SuggestedOrderRepository.load(outlet, day, cache, 20, offline).order)
+            assertEquals(before + 1, blockAttempts)
+            assertNull(cache.inner.rows.getValue("$day|$outlet").json)
+            SuggestedOrderRepository.forgetSessionDenials() // app relaunch
+            val relaunched = SuggestedOrderRepository.load(outlet, day, cache, 21, offline)
+            assertNull(relaunched.order); assertEquals(message, relaunched.message)
+            // Only a fresh live answer brings suggestions back, in memory and on the phone.
+            assertNotNull(SuggestedOrderRepository.load(outlet, day, cache, 22) { text }.order)
+            assertNotNull(SuggestedOrderRepository.load(outlet, day, cache, 23, offline).order)
+        }
+    }
+
+    @Test fun aLatchedRefusalIsPerStoreAndDay() {
+        val cache = Cache()
+        assertNotNull(SuggestedOrderRepository.load(outlet, day, cache, 1) { text }.order)
+        SuggestedOrderRepository.load("other", day, cache, 2) { throw ConvexFunctionError(null) }
+        assertNotNull(SuggestedOrderRepository.load(outlet, day, cache, 3, offline).order)
     }
 
     @Test fun repositorySavesLiveAnswersAndOnlyFallsBackWhenOffline() {

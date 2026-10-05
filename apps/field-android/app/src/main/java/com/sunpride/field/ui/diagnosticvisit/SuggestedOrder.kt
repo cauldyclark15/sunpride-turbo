@@ -186,9 +186,20 @@ object SuggestedOrderRepository {
     const val BLOCKED_UNREADABLE = "unreadable"
 
     /**
+     * In-session deny latch (key -> refusal reason). Set BEFORE the durable write, so a refusal blocks saved
+     * suggestions for the rest of this process even when the phone storage can still be read but the refusal
+     * marker could not be written. Only a fresh live answer for the same store and day clears it.
+     */
+    private val sessionDenials = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /** Sign-out (the phone's data is purged) or a test simulating a new process. */
+    fun forgetSessionDenials() = sessionDenials.clear()
+
+    /**
      * Fetch live and save for today; offline, show today's saved suggestions for the same store. A server
      * refusal, ended session or unreadable answer durably replaces the saved answer with a refusal marker,
      * so a later offline open or app relaunch never restores it; only a fresh live answer clears the marker.
+     * The in-session latch keeps the refusal even when that marker cannot be written.
      */
     fun load(outletId: String, asOfDate: String, cache: SuggestedOrderCache, now: Long,
              fetch: () -> String): SuggestedOrderView {
@@ -196,6 +207,7 @@ object SuggestedOrderRepository {
         return try {
             val text = fetch()
             val order = SuggestedOrderCodec.decode(text, outletId, asOfDate)
+            sessionDenials.remove(key)
             runCatching { cache.write(key, text, now) }
             SuggestedOrderView(order)
         } catch (_: ConvexFunctionError) {
@@ -205,7 +217,7 @@ object SuggestedOrderRepository {
                 AuthFailure.Kind.SESSION_EXPIRED, AuthFailure.Kind.INVALID_CREDENTIALS ->
                     refuse(cache, key, BLOCKED_SIGN_IN, now)
                 AuthFailure.Kind.REFUSED -> refuse(cache, key, BLOCKED_NOT_ALLOWED, now)
-                else -> saved(cache, key, outletId, asOfDate)
+                else -> saved(cache, key, outletId, asOfDate, now)
             }
         } catch (_: SuggestedOrderWireFailure) {
             refuse(cache, key, BLOCKED_UNREADABLE, now)
@@ -213,6 +225,7 @@ object SuggestedOrderRepository {
     }
 
     private fun refuse(cache: SuggestedOrderCache, key: String, reason: String, now: Long): SuggestedOrderView {
+        sessionDenials[key] = reason
         runCatching { cache.block(key, reason, now) }
         return SuggestedOrderView(message = blockedMessage(reason))
     }
@@ -223,7 +236,14 @@ object SuggestedOrderRepository {
         else -> NOT_ALLOWED
     }
 
-    private fun saved(cache: SuggestedOrderCache, key: String, outletId: String, asOfDate: String): SuggestedOrderView {
+    private fun saved(cache: SuggestedOrderCache, key: String, outletId: String, asOfDate: String,
+                      now: Long): SuggestedOrderView {
+        // Refused earlier in this session: never read the saved answer; retry the durable marker so a later
+        // relaunch stays refused too if storage has recovered.
+        sessionDenials[key]?.let { reason ->
+            runCatching { cache.block(key, reason, now) }
+            return SuggestedOrderView(message = blockedMessage(reason))
+        }
         val hit = runCatching { cache.read(key) }.getOrNull() ?: return SuggestedOrderView(message = CONNECTION)
         // A refusal stays a refusal offline, even after relaunch.
         hit.blocked?.let { return SuggestedOrderView(message = blockedMessage(it)) }

@@ -89,7 +89,9 @@ The iOS and Android call sheets show the suggestion for the store being visited.
 - Offline: Android keeps today's answer per store in the encrypted local cache, iOS in memory for the session;
   either shows "Offline — showing suggestions loaded at h:mm". A refusal, ended session or unreadable answer
   deletes the saved answer and never shows saved data; Android replaces it with a durable refusal marker, so a
-  later offline open or app relaunch still shows the refusal until a fresh live answer arrives.
+  later offline open or app relaunch still shows the refusal until a fresh live answer arrives. Android also
+  latches the refusal in memory first, so if the marker write fails while old rows stay readable, that app
+  session still never shows them; each blocked offline open retries the marker write.
   Without a connection or a saved answer the card says to enter the order as usual.
 - Not recorded in v1: whether the salesperson accepted or changed a suggestion (would need a mobile contract
   change).

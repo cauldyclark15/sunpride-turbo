@@ -304,6 +304,7 @@ class EncryptedFieldStoreTest {
         val offline: () -> String = { throw com.sunpride.field.auth.AuthFailure(com.sunpride.field.auth.AuthFailure.Kind.OFFLINE) }
         fun cache() = com.sunpride.field.ui.diagnosticvisit.StoreSuggestedOrderCache(store(), day)
         ready(store())
+        repo.forgetSessionDenials()
         assertNotNull(repo.load("outlet-1", day, cache(), 10) { live }.order)
         assertNotNull(repo.load("outlet-1", day, cache(), 11, offline).order)
         val refused = repo.load("outlet-1", day, cache(), 12) {
@@ -313,6 +314,7 @@ class EncryptedFieldStoreTest {
         assertTrue(row.tombstone); assertFalse(row.json!!.contains("product-1"))
         assertEquals(repo.NOT_ALLOWED, repo.load("outlet-1", day, cache(), 13, offline).also { assertNull(it.order) }.message)
         db.close(); db = EncryptedFieldDatabase.open(context) // app relaunch
+        repo.forgetSessionDenials() // a new process has no in-memory refusal; the phone's marker must hold
         val relaunched = repo.load("outlet-1", day, cache(), 14, offline)
         assertNull(relaunched.order); assertEquals(repo.NOT_ALLOWED, relaunched.message)
         // A fresh live answer clears the marker; a refusal while the partition is held still removes the data.
@@ -322,6 +324,7 @@ class EncryptedFieldStoreTest {
             throw com.sunpride.field.auth.AuthFailure(com.sunpride.field.auth.AuthFailure.Kind.SESSION_EXPIRED) }
         assertNull(store().localCache("local.suggestedOrder", repo.key(day, "outlet-1")))
         db.close(); db = EncryptedFieldDatabase.open(context)
+        repo.forgetSessionDenials()
         assertNull(repo.load("outlet-1", day, cache(), 17, offline).order)
     }
 
