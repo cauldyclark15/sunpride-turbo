@@ -88,11 +88,14 @@ struct TeamWireFailure: Error {}
 protocol TeamCache {
     func read(key: String) -> (body: Data, savedAt: Int64)?
     func write(key: String, body: Data, savedAt: Int64)
+    /// Forget every saved summary (both filters, every day): access was refused or the session ended.
+    func clear()
 }
 
 enum TeamRepository {
     static let path = "supervision/mobile:team"
     static let cacheEntity = "local.team"
+    static let signInAgain = "Sign in again to see your team."
     struct Args: Encodable, Equatable { let serviceDate: String; let directOnly: Bool }
 
     /// Roles the server lets read the team (people.read ∩ visit.read). A UI hint only; the server decides.
@@ -103,7 +106,9 @@ enum TeamRepository {
     static func keepPrefix(serviceDate: String) -> String { "\(serviceDate)|" }
 
     /// Fetch live and save; when the server can't be reached, show today's saved summary for the same
-    /// filter. A server refusal or an ended session never shows saved data (access may have been withdrawn).
+    /// filter. A server refusal or an ended session never shows saved data (access may have been withdrawn)
+    /// and erases every saved summary, so a later offline open, relaunch or filter switch can't bring it
+    /// back; only a new successful server answer saves again.
     @MainActor
     static func load(serviceDate: String, directOnly: Bool, unavailable: String? = nil, cache: TeamCache, now: Date,
                      fetch: () async throws -> TeamSummary?) async -> TeamView {
@@ -117,9 +122,11 @@ enum TeamRepository {
             }
             return TeamView(summary: summary)
         } catch MobileError.rejected {
+            cache.clear()
             return TeamView(notAllowed: true, message: "Team view isn't available for your account.")
         } catch MobileError.sessionExpired, MobileError.notSignedIn, MobileError.unauthorized {
-            return TeamView(message: "Sign in again to see your team.")
+            cache.clear()
+            return TeamView(message: signInAgain)
         } catch MobileError.offline {
             return saved(cache, key, "Offline")
         } catch MobileError.server {

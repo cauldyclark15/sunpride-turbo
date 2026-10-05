@@ -14,6 +14,10 @@ final class StubBackend: URLProtocol {
         ("unregistered", 0, false, nil, nil, false))
 
     static var scenario: String? { ProcessInfo.processInfo.environment[environmentKey] }
+    /// IOS-020: `FIELD_STUB_TEAM_REFUSE_AFTER=n` answers the first n team reads, then refuses every later
+    /// one (a supervisor whose access is withdrawn mid-session).
+    private static let teamReads = Mutex(0)
+    private static var teamRefuseAfter: Int? { ProcessInfo.processInfo.environment["FIELD_STUB_TEAM_REFUSE_AFTER"].flatMap(Int.init) }
 
     static func configure(scenario: String) {
         state.withLock { $0 = (scenario, 0, scenario == "online", nil, nil, scenario == "supervisor") }
@@ -267,7 +271,8 @@ final class StubBackend: URLProtocol {
                 return ["status": "success", "value": ["bindingStatus": "bound"]]
             case "supervision/mobile:team":
                 // The server refuses a field seller (no people.read); the stub mirrors that refusal.
-                guard s.supervisor, let day = args["serviceDate"] as? String else {
+                let reads = teamReads.withLock { $0 += 1; return $0 }
+                guard s.supervisor, let day = args["serviceDate"] as? String, reads <= (teamRefuseAfter ?? .max) else {
                     return ["status": "error", "errorMessage": "Uncaught ConvexError: Not authorized", "errorData": "Not authorized"]
                 }
                 return ["status": "success", "value": teamSummary(day: day, directOnly: args["directOnly"] as? Bool ?? true)]

@@ -568,6 +568,44 @@ final class FieldIOSUITests: XCTestCase {
         capture(offline, "team-saved-offline")
     }
 
+    /// IOS-020 release counterexample: both filters are saved, then the server refuses. Neither saved copy
+    /// may come back in-session, after an offline relaunch, or on switching filters.
+    func testSupervisorTeamRefusalErasesBothSavedFilters() {
+        let app = launchStub("supervisor", environment: ["FIELD_STUB_TEAM_REFUSE_AFTER": "2"])
+        signIn(app, password: "correct-horse")
+        let open = app.buttons["openTeam"]
+        XCTAssertTrue(open.waitForExistence(timeout: 20))
+        open.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["teamPerson-profile-ana"].waitForExistence(timeout: 10))
+        app.buttons["teamAll"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["teamPerson-profile-cara"].waitForExistence(timeout: 10))
+        app.buttons["teamDirect"].tap() // third read: refused
+        let message = app.staticTexts["teamMessage"]
+        XCTAssertTrue(message.waitForExistence(timeout: 10))
+        XCTAssertEqual(message.label, "Team view isn't available for your account.")
+        XCTAssertFalse(app.descendants(matching: .any)["teamPerson-profile-ana"].exists)
+        app.buttons["teamAll"].tap()
+        XCTAssertTrue(message.waitForExistence(timeout: 10))
+        XCTAssertEqual(message.label, "Team view isn't available for your account.")
+        XCTAssertFalse(app.descendants(matching: .any)["teamPerson-profile-cara"].exists)
+        app.terminate()
+
+        let offline = launchStub("offline")
+        let reopen = offline.buttons["openTeam"]
+        XCTAssertTrue(reopen.waitForExistence(timeout: 15))
+        reopen.tap()
+        for filter in ["teamDirect", "teamAll", "teamDirect"] {
+            offline.buttons[filter].tap()
+            let text = offline.staticTexts["teamMessage"]
+            XCTAssertTrue(text.waitForExistence(timeout: 10))
+            // "Offline" or "Phone not verified yet" depending on launch timing; either way, nothing saved.
+            XCTAssertTrue(text.label.hasSuffix(". Connect and try again."), "\(filter): \(text.label)")
+            XCTAssertFalse(offline.staticTexts["teamSummary"].exists, filter)
+            XCTAssertFalse(offline.descendants(matching: .any)["teamPerson-profile-ana"].exists, filter)
+            XCTAssertFalse(offline.descendants(matching: .any)["teamPerson-profile-cara"].exists, filter)
+        }
+    }
+
     /// IOS-018: with several navigation apps installed, Directions asks which one to hand the pin to.
     func testDirectionsOffersEachInstalledNavigationApp() {
         let app = launchStub("registers", environment: ["FIELD_STUB_NAV_APPS": "googleMaps,waze"])

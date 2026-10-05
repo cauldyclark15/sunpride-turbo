@@ -32,6 +32,7 @@ final class TeamSummaryTests: XCTestCase {
         var writes = 0
         func read(key: String) -> (body: Data, savedAt: Int64)? { rows[key] }
         func write(key: String, body: Data, savedAt: Int64) { writes += 1; rows[key] = (body, savedAt) }
+        func clear() { rows = [:] }
     }
 
     // MARK: Wire
@@ -98,6 +99,32 @@ final class TeamSummaryTests: XCTestCase {
         for error in [MobileError.sessionExpired, .notSignedIn, .unauthorized] {
             let view = await TeamRepository.load(serviceDate: day, directOnly: true, cache: cache, now: now) { throw error }
             XCTAssertEqual(view, TeamView(message: "Sign in again to see your team."))
+        }
+    }
+
+    /// Release counterexample: success (both filters) -> refusal -> offline must show nothing for either filter.
+    func testRefusalErasesBothFiltersSoOfflineShowsNothing() async throws {
+        for error in [MobileError.rejected("Not authorized"), .sessionExpired, .notSignedIn, .unauthorized] {
+            let cache = MemoryCache()
+            let direct = try decoded(summaryJSON()), all = try decoded(summaryJSON(directOnly: false))
+            _ = await TeamRepository.load(serviceDate: day, directOnly: true, cache: cache, now: now) { direct }
+            _ = await TeamRepository.load(serviceDate: day, directOnly: false, cache: cache, now: now) { all }
+            XCTAssertEqual(cache.rows.count, 2)
+            _ = await TeamRepository.load(serviceDate: day, directOnly: true, cache: cache, now: now) { throw error }
+            XCTAssertTrue(cache.rows.isEmpty, "\(error)")
+            for directOnly in [true, false] {
+                let offline = await TeamRepository.load(serviceDate: day, directOnly: directOnly, unavailable: "Offline",
+                                                        cache: cache, now: now) { nil }
+                XCTAssertEqual(offline, TeamView(message: "Offline. Connect and try again."), "\(error) \(directOnly)")
+                let down = await TeamRepository.load(serviceDate: day, directOnly: directOnly, cache: cache, now: now) {
+                    throw MobileError.server
+                }
+                XCTAssertNil(down.summary, "\(error) \(directOnly)")
+            }
+            // Only a new successful answer saves again.
+            _ = await TeamRepository.load(serviceDate: day, directOnly: true, cache: cache, now: now) { direct }
+            let back = await TeamRepository.load(serviceDate: day, directOnly: true, unavailable: "Offline", cache: cache, now: now) { nil }
+            XCTAssertEqual(back.summary, direct)
         }
     }
 
@@ -182,6 +209,14 @@ final class TeamSummaryTests: XCTestCase {
                 XCTAssertNil(raw.range(of: Data("TeamCacheMarker".utf8)))
             }
         }
+        // A refusal erases every saved team row of this partition only, even when held.
+        try store.putLocalCache(entity: entity, key: "2026-10-05|direct", body: Data("b".utf8), savedAt: 4, keepPrefix: "2026-10-05|", for: b)
+        try store.holdForReview(a)
+        try store.clearLocalCache(entity: entity, for: a)
+        XCTAssertNil(try store.localCache(entity: entity, key: "2026-10-05|direct", for: a))
+        XCTAssertNil(try store.localCache(entity: entity, key: "2026-10-05|all", for: a))
+        XCTAssertEqual(try store.localCache(entity: entity, key: "2026-10-05|direct", for: b)?.body, Data("b".utf8))
+        XCTAssertThrowsError(try store.clearLocalCache(entity: "visit", for: a))
         // QSR-010 sign-out purge drops the saved team with the rest of the server cache.
         try store.purgeAllCachesForReview()
         XCTAssertNil(try store.localCache(entity: entity, key: "2026-10-05|direct", for: a))

@@ -139,7 +139,7 @@ export async function phoneCallSheet(
     Id<"products">,
     { product: Doc<"products"> | null; barcode: string | null }
   >,
-): Promise<{ sheet: PhoneCallSheet; stamp: string }> {
+): Promise<{ sheet: PhoneCallSheet; stamp: string; membershipStamp: string }> {
   const lines: PhoneCallSheet["lines"] = [];
   const stamps: string[] = [];
   for (const line of account.lines) {
@@ -181,5 +181,7 @@ export async function phoneCallSheet(
       lines,
     },
     stamp: `${account._id}|${account.revision}|${account.updatedAt}|${stamps.join(",")}`,
+    // Sheet and line membership only: product content reaches reference-data phones as deltas.
+    membershipStamp: `${account._id}|${account.revision}|${account.updatedAt}|${lines.map((line) => line.productId).join(",")}`,
   };
 }

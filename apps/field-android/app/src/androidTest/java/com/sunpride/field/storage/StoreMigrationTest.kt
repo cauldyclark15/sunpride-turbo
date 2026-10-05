@@ -101,6 +101,55 @@ class StoreMigrationTest {
             EncryptedFieldDatabase.MIGRATION_2_3, EncryptedFieldDatabase.MIGRATION_3_4,
             EncryptedFieldDatabase.MIGRATION_4_5, EncryptedFieldDatabase.MIGRATION_5_6).close()
     }
+    @Test fun v7ToV8RetainsDraftsPhotosCallSheetsOutboxAndCursorAndAddsScopedReferenceTables() {
+        val name = "migration-reference-v7.db"
+        helper.createDatabase(name, 7).apply {
+            execSQL("INSERT INTO order_drafts (account,deviceId,scope,draftId,clientVisitId,outletId,serviceDate,json,createdAt,updatedAt) VALUES ('a','d','s','x','v','o','2026-10-04','{\"lines\":[]}',1,2)")
+            execSQL("INSERT INTO evidence_photos (account,deviceId,scope,localId,clientVisitId,checkInRequestId,outletId,photoType,mime,sizeBytes,sha256,capturedAt,createdAt,state,attempts) VALUES ('a','d','s','p','v','r','o','shelf_display','image/jpeg',10,'aa',1,2,'pending',0)")
+            execSQL("INSERT INTO call_sheets (account,deviceId,scope,generation,outletId,revision,headerJson) VALUES ('a','d','s','g','o',9,'{}')")
+            execSQL("INSERT INTO call_sheet_lines (account,deviceId,scope,generation,outletId,productId,position,code,name,uom,barcode,pricing) VALUES ('a','d','s','g','o','p',2,'SKU','Product','CAN','barcode','price')")
+            execSQL("INSERT INTO partitions (account,deviceId,scope,activeGeneration,cursor,syncHealth,held,lastSuccessfulSync) VALUES ('a','d','s','g','cursor','synced',0,123)")
+            execSQL("INSERT INTO intents (account,deviceId,scope,requestId,clientVisitId,kind,serializedOperation,createdAt) VALUES ('a','d','s','r','v','visit.activity','immutable',1)")
+            execSQL("INSERT INTO outbox (account,deviceId,scope,requestId,createdAt,state) VALUES ('a','d','s','r',1,'pending')")
+            close()
+        }
+        helper.runMigrationsAndValidate(name, 8, true, EncryptedFieldDatabase.MIGRATION_7_8).use { db ->
+            db.query("SELECT state FROM evidence_photos WHERE localId='p'").use { c ->
+                assertEquals(true, c.moveToFirst()); assertEquals("pending", c.getString(0))
+            }
+            db.query("SELECT json,updatedAt FROM order_drafts WHERE draftId='x'").use { c ->
+                assertEquals(true, c.moveToFirst()); assertEquals("{\"lines\":[]}", c.getString(0)); assertEquals(2L, c.getLong(1))
+            }
+            db.query("SELECT position,barcode,pricing FROM call_sheet_lines").use { c ->
+                assertEquals(true, c.moveToFirst()); assertEquals(2, c.getInt(0))
+                assertEquals("barcode", c.getString(1)); assertEquals("price", c.getString(2))
+            }
+            db.query("SELECT revision FROM call_sheets").use { c -> c.moveToFirst(); assertEquals(9L, c.getLong(0)) }
+            db.query("SELECT cursor,lastSuccessfulSync FROM partitions").use { c ->
+                c.moveToFirst(); assertEquals("cursor", c.getString(0)); assertEquals(123L, c.getLong(1))
+            }
+            db.query("SELECT serializedOperation,state FROM intents JOIN outbox USING (account,deviceId,scope,requestId)").use { c ->
+                c.moveToFirst(); assertEquals("immutable", c.getString(0)); assertEquals("pending", c.getString(1))
+            }
+            for (scope in listOf("s", "other")) {
+                db.execSQL("INSERT INTO catalog_products (account,deviceId,scope,generation,id,code,revision,json) VALUES ('a','d',?,'g','p','SKU',1759550000000,'{}')", arrayOf(scope))
+                db.execSQL("INSERT INTO inventory_availability (account,deviceId,scope,generation,id,productId,locationCode,revision,json) VALUES ('a','d',?,'g','balance','p','LOC',1759550000123,'{}')", arrayOf(scope))
+            }
+            for (table in listOf("catalog_products", "inventory_availability")) {
+                db.query("SELECT COUNT(*) FROM $table").use { c -> c.moveToFirst(); assertEquals(2, c.getInt(0)) }
+            }
+        }
+    }
+    @Test fun v4ToV8AndCompleteV1ToV8ChainsValidate() {
+        for (version in listOf(1, 4)) {
+            val name = "migration-reference-v$version.db"
+            helper.createDatabase(name, version).close()
+            helper.runMigrationsAndValidate(name, 8, true, EncryptedFieldDatabase.MIGRATION_1_2,
+                EncryptedFieldDatabase.MIGRATION_2_3, EncryptedFieldDatabase.MIGRATION_3_4,
+                EncryptedFieldDatabase.MIGRATION_4_5, EncryptedFieldDatabase.MIGRATION_5_6,
+                EncryptedFieldDatabase.MIGRATION_6_7, EncryptedFieldDatabase.MIGRATION_7_8).close()
+        }
+    }
     @Test fun completeV1ToV5ChainValidates() {
         val name = "migration-call-sheet-v1.db"
         helper.createDatabase(name, 1).close()
