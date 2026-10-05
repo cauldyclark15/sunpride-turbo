@@ -96,6 +96,8 @@ vi.mock("convex/react", () => ({
         truncated: false,
         issues: 4,
         open: 2,
+        peopleTotal: 1,
+        outletsTotal: 1,
         people: [
           {
             profileId: "p1",
@@ -126,6 +128,7 @@ vi.mock("convex/react", () => ({
         sap: {
           available: true,
           truncated: false,
+          total: 1,
           failed: 1,
           deadLetter: 0,
           stuck: 1,
@@ -146,6 +149,7 @@ vi.mock("convex/react", () => ({
         trips: {
           available: true,
           truncated: false,
+          total: 1,
           items: [
             {
               routeSessionId: "r1",
@@ -167,6 +171,8 @@ vi.mock("convex/react", () => ({
         truncated: false,
         findings: 5,
         outletsAffected: 3,
+        outletsTotal: 1,
+        productsTotal: 1,
         outlets: [
           {
             outletId: "o1",
@@ -212,7 +218,11 @@ vi.mock("convex/react", () => ({
     ),
 }));
 
-import { ManagementExceptions } from "./management-exceptions";
+import {
+  ManagementExceptions,
+  OperationsView,
+  OutOfStockView,
+} from "./management-exceptions";
 
 describe("management exception dashboard", () => {
   it("shows every exception list for the scope, adding all field pages", () => {
@@ -257,5 +267,125 @@ describe("management exception dashboard", () => {
     expect(html).toContain("Region A 4");
     expect(html).toContain("My team only");
     expect(html).toContain("provisional until Sunpride confirms");
+  });
+
+  it("never claims a clean state on a partial read, and says when a list is cut", () => {
+    const trip = {
+      routeSessionId: "r1",
+      routeCode: "R-1",
+      truckCode: "TRK-1",
+      salespersonName: "Ana",
+      status: "open",
+      openedAt: at("2026-09-28", "06:00"),
+    };
+    const count = {
+      sessionId: "c1",
+      countNumber: "CNT-1",
+      countType: "cycle_count",
+      status: "submitted",
+      open: true,
+      locationCode: "WH-1",
+      locationName: "Main",
+      snapshotAt: at("2026-09-28", "06:00"),
+      varianceLines: 1,
+      missingLines: 1,
+      overLines: 0,
+    };
+    const partialEmpty = renderToStaticMarkup(
+      createElement(OperationsView, {
+        now,
+        data: {
+          from: "2026-09-01",
+          to: "2026-09-30",
+          sap: {
+            available: true,
+            truncated: true,
+            total: 0,
+            failed: 0,
+            deadLetter: 0,
+            stuck: 0,
+            connectorsDown: [],
+            items: [],
+          },
+          trips: { available: true, truncated: true, total: 0, items: [] },
+          stock: {
+            available: true,
+            truncated: true,
+            countsTotal: 0,
+            counts: [],
+            blindWithheld: 0,
+            sapDifferences: {
+              open: 0,
+              byClassification: [],
+              unmappedHidden: false,
+            },
+          },
+          cash: { tracked: false, reason: "Not recorded." },
+        } as never,
+      }),
+    );
+    expect(partialEmpty).not.toContain("No SAP failures.");
+    expect(partialEmpty).not.toContain("Every van trip closed by 10 PM.");
+    expect(partialEmpty).not.toContain("No stock count found a difference.");
+    expect(partialEmpty).toContain("None found in the part that was read");
+
+    // 26 trips and counts found, 25 listed: the badge and a note give the real total.
+    const cut = renderToStaticMarkup(
+      createElement(OperationsView, {
+        now,
+        data: {
+          from: "2026-09-01",
+          to: "2026-09-30",
+          sap: { available: false, reason: "National only" },
+          trips: {
+            available: true,
+            truncated: false,
+            total: 26,
+            items: Array.from({ length: 25 }, (_, i) => ({
+              ...trip,
+              routeSessionId: `r${i}`,
+            })),
+          },
+          stock: {
+            available: true,
+            truncated: false,
+            countsTotal: 26,
+            counts: Array.from({ length: 25 }, (_, i) => ({
+              ...count,
+              sessionId: `c${i}`,
+            })),
+            blindWithheld: 0,
+            sapDifferences: {
+              open: 0,
+              byClassification: [],
+              unmappedHidden: false,
+            },
+          },
+          cash: { tracked: false, reason: "Not recorded." },
+        } as never,
+      }),
+    );
+    expect(cut.match(/Showing 25 of 26\./g)).toHaveLength(2);
+    expect(cut).toContain("Unclosed trips · 26");
+    expect(cut).toContain("Stock variances · 26");
+
+    const oos = renderToStaticMarkup(
+      createElement(OutOfStockView, {
+        data: {
+          from: "2026-09-01",
+          to: "2026-09-30",
+          truncated: true,
+          findings: 0,
+          outletsAffected: 0,
+          outletsTotal: 0,
+          productsTotal: 0,
+          outlets: [],
+          products: [],
+          units: [],
+        } as never,
+      }),
+    );
+    expect(oos).not.toContain("No out-of-stock hotspots.");
+    expect(oos).toContain("None found in the part that was read");
   });
 });

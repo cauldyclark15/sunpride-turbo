@@ -26,6 +26,7 @@ import {
   saleInstant,
   toMinor,
 } from "../dsr/model";
+import { orderAccessible } from "../domains/orders";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
 import { capabilityRoles, requireCapability } from "../lib/capabilities";
 import type { AppRole } from "../lib/roles";
@@ -44,7 +45,7 @@ import {
   type SupervisorContext,
   type TeamMember,
 } from "../supervision/access";
-import { dayCloseAt, DONE_STATES } from "../supervision/model";
+import { dayCloseAt, DONE_STATES, MAX_PEOPLE } from "../supervision/model";
 import { subjectTargetAt } from "../targets/sales";
 import {
   behindPlan,
@@ -180,6 +181,62 @@ function currentOutletGate(ctx: QueryCtx, sc: SupervisorContext) {
 }
 type OutletGate = ReturnType<typeof currentOutletGate>;
 
+/**
+ * Canonical source-order authorization (`domains/orders.orderAccessible`, the same check the
+ * Orders screen applies): the order's creator, stored source location and customer must
+ * all be readable by the caller. A person's current membership in the team is not enough:
+ * an order written at a Region B truck stays hidden from a Region A manager. The result
+ * depends only on creator, location and customer, so it is cached per read. A refusal
+ * (e.g. no inventory access for a located order) fails closed.
+ */
+function orderGate(ctx: QueryCtx, sc: SupervisorContext) {
+  const cache = new Map<string, boolean>();
+  return async (order: Doc<"orders">) => {
+    const key = `${order.salespersonSubject}|${order.sourceLocationId ?? ""}|${order.customerCode}`;
+    const known = cache.get(key);
+    if (known !== undefined) return known;
+    let allowed = false;
+    try {
+      allowed = await orderAccessible(
+        ctx,
+        order,
+        sc.profile,
+        sc.identity.tokenIdentifier,
+      );
+    } catch {
+      allowed = false;
+    }
+    cache.set(key, allowed);
+    return allowed;
+  };
+}
+type OrderGate = ReturnType<typeof orderGate>;
+
+/**
+ * `teamMembers` reads at most MAX_PEOPLE * 4 profiles per unit before filtering to active
+ * field people, without saying so. Re-check each unit's prefix: when a unit holds more
+ * profiles than that, an active salesperson may sit past the prefix, so the people list is
+ * reported incomplete instead of silently complete.
+ */
+async function teamInScope(
+  ctx: QueryCtx,
+  sc: SupervisorContext,
+  filters: Parameters<typeof teamMembers>[2],
+) {
+  const team = await teamMembers(ctx, sc, filters);
+  let truncated = team.truncated;
+  const prefix = MAX_PEOPLE * 4;
+  for (const unitId of sc.units) {
+    if (truncated) break;
+    const rows = await ctx.db
+      .query("profiles")
+      .withIndex("by_orgUnitId", (q) => q.eq("orgUnitId", unitId))
+      .take(prefix + 1);
+    if (rows.length > prefix) truncated = true;
+  }
+  return { members: team.members, truncated };
+}
+
 // ---------------------------------------------------------------------------------------
 // Field: missed high-value outlets and people materially behind plan (paged).
 
@@ -232,6 +289,7 @@ async function personPeriod(
   to: string,
   outletOf: (id: Id<"outlets">) => Promise<Doc<"outlets"> | null>,
   outletAllowed: OutletGate,
+  orderAllowed: OrderGate,
   now: number,
 ): Promise<FieldRow> {
   const profileId = member.profile._id;
@@ -319,7 +377,8 @@ async function personPeriod(
     if (
       (order.organizationId !== undefined &&
         order.organizationId !== SUNPRIDE_ORGANIZATION_ID) ||
-      !countsAsSale(order.status)
+      !countsAsSale(order.status) ||
+      !(await orderAllowed(order))
     )
       continue;
     const instant = saleInstant(order);
@@ -425,7 +484,7 @@ export const field = query({
     if (!Number.isInteger(page) || page < 0)
       throw new ConvexError("Page must be a whole number from 0");
     const { sc, filters } = await context(ctx, args);
-    const { members, truncated } = await teamMembers(ctx, sc, filters);
+    const { members, truncated } = await teamInScope(ctx, sc, filters);
     const pageCount = Math.max(
       1,
       Math.ceil(members.length / EXCEPTION_PAGE_SIZE),
@@ -438,6 +497,7 @@ export const field = query({
     };
     const now = Date.now();
     const outletAllowed = currentOutletGate(ctx, sc);
+    const orderAllowed = orderGate(ctx, sc);
     const rows: FieldRow[] = [];
     for (const member of members.slice(
       page * EXCEPTION_PAGE_SIZE,
@@ -452,6 +512,7 @@ export const field = query({
           args.to,
           outletOf,
           outletAllowed,
+          orderAllowed,
           now,
         ),
       );
@@ -493,6 +554,9 @@ export const geofence = query({
     truncated: v.boolean(),
     issues: v.number(),
     open: v.number(),
+    /** Every repeated person / outlet found; the lists below hold the first MAX_LISTED. */
+    peopleTotal: v.number(),
+    outletsTotal: v.number(),
     people: v.array(
       v.object({
         profileId: v.id("profiles"),
@@ -518,7 +582,7 @@ export const geofence = query({
   }),
   handler: async (ctx, args) => {
     const { sc, filters } = await context(ctx, args);
-    const { members, truncated: peopleTruncated } = await teamMembers(
+    const { members, truncated: peopleTruncated } = await teamInScope(
       ctx,
       sc,
       filters,
@@ -619,6 +683,8 @@ export const geofence = query({
       truncated,
       issues: issues.length,
       open: issues.filter((row) => row.open).length,
+      peopleTotal: people.length,
+      outletsTotal: outlets.length,
       people: people.slice(0, MAX_LISTED),
       outlets: outlets.slice(0, MAX_LISTED),
     };
@@ -638,6 +704,8 @@ const sapSection = v.union(
   v.object({
     available: v.literal(true),
     truncated: v.boolean(),
+    /** Every issue found; `items` holds the newest MAX_LISTED. */
+    total: v.number(),
     failed: v.number(),
     deadLetter: v.number(),
     stuck: v.number(),
@@ -672,6 +740,8 @@ const tripsSection = v.union(
   v.object({
     available: v.literal(true),
     truncated: v.boolean(),
+    /** Every unclosed trip found; `items` holds the oldest MAX_LISTED. */
+    total: v.number(),
     items: v.array(
       v.object({
         routeSessionId: v.id("truckRouteSessions"),
@@ -690,6 +760,8 @@ const stockSection = v.union(
   v.object({
     available: v.literal(true),
     truncated: v.boolean(),
+    /** Every count with a difference; `counts` holds the first MAX_LISTED (open first). */
+    countsTotal: v.number(),
     counts: v.array(
       v.object({
         sessionId: v.id("stockCountSessions"),
@@ -777,6 +849,7 @@ async function sapIssues(
   return {
     available: true as const,
     truncated,
+    total: items.length,
     failed: counts.failed,
     deadLetter: counts.dead_letter,
     stuck: counts.stuck,
@@ -791,11 +864,22 @@ async function sapIssues(
   };
 }
 
-/** Active inventory locations whose unit is inside the selected scope. */
-async function scopedLocations(ctx: QueryCtx, sc: SupervisorContext) {
+/**
+ * Active inventory locations whose unit is inside the selected scope. Locations not yet
+ * mapped to a unit (legacy rows) are included on the national view for the readers the
+ * canonical inventory check allows (super admin, admin on the national root), so their
+ * trips and counts are not silently missing there; everyone else cannot read them.
+ */
+async function scopedLocations(
+  ctx: QueryCtx,
+  sc: SupervisorContext,
+  orgUnitId: Id<"orgUnits"> | undefined,
+) {
   const locations: Doc<"inventoryLocations">[] = [];
   let truncated = false;
-  for (const unitId of sc.units) {
+  const units: (Id<"orgUnits"> | undefined)[] = [...sc.units];
+  if (await nationalView(ctx, sc, orgUnitId, ["admin"])) units.push(undefined);
+  for (const unitId of units) {
     if (locations.length >= MAX_LOCATIONS) {
       truncated = true;
       break;
@@ -867,6 +951,7 @@ async function unclosedTrips(
   return {
     available: true as const,
     truncated,
+    total: items.length,
     items: items.slice(0, MAX_LISTED),
   };
 }
@@ -984,6 +1069,7 @@ async function stockVariances(
   return {
     available: true as const,
     truncated,
+    countsTotal: counts.length,
     counts: counts.slice(0, MAX_LISTED),
     blindWithheld,
     sapDifferences: {
@@ -1025,7 +1111,11 @@ export const operations = query({
     let trips: typeof tripsSection.type = noInventory;
     let stock: typeof stockSection.type = noInventory;
     if (holds(sc, "inventory.read")) {
-      const { locations, truncated } = await scopedLocations(ctx, sc);
+      const { locations, truncated } = await scopedLocations(
+        ctx,
+        sc,
+        args.orgUnitId,
+      );
       const tripResult = await unclosedTrips(
         ctx,
         locations.filter((row) => row.type === "truck"),
@@ -1073,6 +1163,9 @@ export const outOfStock = query({
     truncated: v.boolean(),
     findings: v.number(),
     outletsAffected: v.number(),
+    /** Every hotspot found; the lists below hold the first MAX_LISTED. */
+    outletsTotal: v.number(),
+    productsTotal: v.number(),
     outlets: v.array(
       v.object({
         outletId: v.id("outlets"),
@@ -1168,6 +1261,8 @@ export const outOfStock = query({
       truncated,
       findings: findings.length,
       outletsAffected: new Set(findings.map((row) => row.outletId)).size,
+      outletsTotal: hot.outlets.length,
+      productsTotal: hot.products.length,
       outlets,
       products,
       units: [...byUnit.entries()]

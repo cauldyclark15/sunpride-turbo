@@ -58,6 +58,26 @@ function Muted({ children }: { children: ReactNode }) {
   return <p className={muted}>{children}</p>;
 }
 
+/** Says when a list shows only part of what was found, so a cut list never looks complete. */
+function Shown({ shown, total }: { shown: number; total: number }) {
+  if (total <= shown) return null;
+  return <Muted>{`Showing ${shown} of ${total}.`}</Muted>;
+}
+
+/**
+ * The empty state of a list: a clean statement only when everything was read. On a partial
+ * read it says nothing was found in what was read, never that there is nothing at all.
+ */
+function Empty({ truncated, clean }: { truncated: boolean; clean: string }) {
+  return (
+    <Muted>
+      {truncated
+        ? "None found in the part that was read. Not everything could be read: pick a unit or a shorter period."
+        : clean}
+    </Muted>
+  );
+}
+
 function Person({ name, detail }: { name: string; detail: (string | null)[] }) {
   return (
     <span className="flex flex-col">
@@ -205,7 +225,10 @@ export function FieldExceptionsView({
             ) : null}
           </>
         ) : (
-          <Muted>No high-value outlet was missed in this period.</Muted>
+          <Empty
+            truncated={truncated}
+            clean="No high-value outlet was missed in this period."
+          />
         )}
       </Card>
       <Card
@@ -217,9 +240,10 @@ export function FieldExceptionsView({
         {behind.length ? (
           <DataTable rows={behind} columns={behindColumns} bare empty={null} />
         ) : (
-          <Muted>
-            Nobody is materially behind plan out of {totals.people} people.
-          </Muted>
+          <Empty
+            truncated={truncated}
+            clean={`Nobody is materially behind plan out of ${totals.people} people.`}
+          />
         )}
       </Card>
       <Muted>
@@ -350,7 +374,7 @@ export function GeofenceView({ data }: { data: Geofence }) {
   return (
     <Card
       label="Repeated location issues"
-      count={people.length + outlets.length}
+      count={data.peopleTotal + data.outletsTotal}
       icon={<WorkspaceIcon name="mobile" />}
     >
       <div className="grid gap-3">
@@ -364,10 +388,21 @@ export function GeofenceView({ data }: { data: Geofence }) {
           <Muted>Only part of the period was read. Pick a unit.</Muted>
         ) : null}
         {people.length === 0 && outlets.length === 0 ? (
-          <Muted>No repeated location issues.</Muted>
+          <Empty
+            truncated={data.truncated}
+            clean="No repeated location issues."
+          />
         ) : null}
         {people.length ? (
-          <DataTable rows={people} columns={peopleColumns} bare empty={null} />
+          <>
+            <DataTable
+              rows={people}
+              columns={peopleColumns}
+              bare
+              empty={null}
+            />
+            <Shown shown={people.length} total={data.peopleTotal} />
+          </>
         ) : null}
         {outlets.length ? (
           <>
@@ -381,6 +416,7 @@ export function GeofenceView({ data }: { data: Geofence }) {
               bare
               empty={null}
             />
+            <Shown shown={outlets.length} total={data.outletsTotal} />
           </>
         ) : null}
         <Muted>Review and decide them in Supervision → Exceptions.</Muted>
@@ -553,36 +589,67 @@ export function OperationsView({
               ))}
             </div>
             {sapItems.length ? (
-              <DataTable
-                rows={sapItems}
-                columns={sapColumns}
-                bare
-                empty={null}
-              />
+              <>
+                <DataTable
+                  rows={sapItems}
+                  columns={sapColumns}
+                  bare
+                  empty={null}
+                />
+                <div className="px-4 pb-2">
+                  <Shown shown={sapItems.length} total={sap.total} />
+                </div>
+              </>
             ) : (
-              <Muted>No SAP failures.</Muted>
+              <Empty truncated={sap.truncated} clean="No SAP failures." />
             )}
+            {sap.truncated && sapItems.length ? (
+              <div className="px-4 pb-2">
+                <Muted>
+                  Only part of the SAP events was read; there may be more.
+                </Muted>
+              </div>
+            ) : null}
           </div>
         )}
       </Card>
       <Card
         label="Unclosed trips"
-        count={tripItems.length}
+        count={trips.available ? trips.total : 0}
         icon={<WorkspaceIcon name="inventory" />}
         flush={tripItems.length > 0}
       >
         {!trips.available ? (
           <Muted>{trips.reason}.</Muted>
         ) : tripItems.length ? (
-          <DataTable rows={tripItems} columns={tripColumns} bare empty={null} />
+          <>
+            <DataTable
+              rows={tripItems}
+              columns={tripColumns}
+              bare
+              empty={null}
+            />
+            <div className="px-4 pb-2">
+              <Shown shown={tripItems.length} total={trips.total} />
+              {trips.truncated ? (
+                <Muted>
+                  Only part of the van trips was read; there may be more. Pick a
+                  unit.
+                </Muted>
+              ) : null}
+            </div>
+          </>
         ) : (
-          <Muted>Every van trip closed by 10 PM.</Muted>
+          <Empty
+            truncated={trips.truncated}
+            clean="Every van trip closed by 10 PM."
+          />
         )}
       </Card>
       <Card
         label="Stock variances"
         count={
-          stock.available ? countItems.length + stock.sapDifferences.open : 0
+          stock.available ? stock.countsTotal + stock.sapDifferences.open : 0
         }
         icon={<WorkspaceIcon name="inventory" />}
       >
@@ -591,14 +658,20 @@ export function OperationsView({
         ) : (
           <div className="grid gap-3">
             {countItems.length ? (
-              <DataTable
-                rows={countItems}
-                columns={countColumns}
-                bare
-                empty={null}
-              />
+              <>
+                <DataTable
+                  rows={countItems}
+                  columns={countColumns}
+                  bare
+                  empty={null}
+                />
+                <Shown shown={countItems.length} total={stock.countsTotal} />
+              </>
             ) : (
-              <Muted>No stock count found a difference.</Muted>
+              <Empty
+                truncated={stock.truncated}
+                clean="No stock count found a difference."
+              />
             )}
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-[13px] text-foreground">
@@ -711,7 +784,7 @@ export function OutOfStockView({ data }: { data: OutOfStock }) {
   return (
     <Card
       label="Out-of-stock hotspots"
-      count={outlets.length + products.length}
+      count={data.outletsTotal + data.productsTotal}
       icon={<WorkspaceIcon name="catalog" />}
     >
       <div className="grid gap-3">
@@ -724,18 +797,29 @@ export function OutOfStockView({ data }: { data: OutOfStock }) {
           <Muted>Only part of the period was read. Pick a unit.</Muted>
         ) : null}
         {outlets.length === 0 && products.length === 0 ? (
-          <Muted>No out-of-stock hotspots.</Muted>
+          <Empty truncated={data.truncated} clean="No out-of-stock hotspots." />
         ) : null}
         {outlets.length ? (
-          <DataTable rows={outlets} columns={outletColumns} bare empty={null} />
+          <>
+            <DataTable
+              rows={outlets}
+              columns={outletColumns}
+              bare
+              empty={null}
+            />
+            <Shown shown={outlets.length} total={data.outletsTotal} />
+          </>
         ) : null}
         {products.length ? (
-          <DataTable
-            rows={products}
-            columns={productColumns}
-            bare
-            empty={null}
-          />
+          <>
+            <DataTable
+              rows={products}
+              columns={productColumns}
+              bare
+              empty={null}
+            />
+            <Shown shown={products.length} total={data.productsTotal} />
+          </>
         ) : null}
         {data.units.length > 1 ? (
           <div className="flex flex-wrap gap-2">

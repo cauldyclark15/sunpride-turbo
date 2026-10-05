@@ -598,6 +598,23 @@ describe("management exception dashboard", () => {
         createdAt: from,
         updatedAt: from,
       });
+      // Ana's customer, assigned to her: her orders pass the Orders screen's own check.
+      await ctx.db.insert("customers", {
+        code: "C-1",
+        name: "Customer 1",
+        channel: "GT",
+        territory: "T-A",
+        creditLimit: 0,
+        active: true,
+        updatedAt: from,
+      });
+      await ctx.db.insert("salesAssignments", {
+        salespersonSubject: subject("Ana"),
+        customerCode: "C-1",
+        territory: "T-A",
+        active: true,
+        updatedAt: from,
+      });
       for (const [k, total, createdAt] of [
         [1, 5_000, at("2026-09-28", "11:00")],
         [2, 9_999, at("2026-09-30", "11:00")],
@@ -1290,5 +1307,243 @@ describe("management exception dashboard", () => {
       geofenceOutlets: ["HV1"],
       oosOutlets: ["HV1"],
     });
+  });
+
+  it("keeps behind-plan sales to orders the reader may open in Orders", async () => {
+    const { t, ids, as } = await fixture();
+    await t.run(async (ctx) => {
+      const from = Date.parse("2026-09-01T00:00:00+08:00");
+      await ctx.db.insert("salesTargets", {
+        organizationId: "sunpride",
+        subjectKind: "employee",
+        profileId: ids.ana.id,
+        period: "monthly",
+        metric: "sales_value",
+        value: 104_000_00,
+        effectiveFrom: from,
+        sourceRef: "fixture",
+        createdBy: "fixture",
+        createdAt: from,
+        updatedAt: from,
+      });
+      await ctx.db.insert("customers", {
+        code: "C-1",
+        name: "Customer 1",
+        channel: "GT",
+        territory: "T-A",
+        creditLimit: 0,
+        active: true,
+        updatedAt: from,
+      });
+      await ctx.db.insert("salesAssignments", {
+        salespersonSubject: subject("Ana"),
+        customerCode: "C-1",
+        territory: "T-A",
+        active: true,
+        updatedAt: from,
+      });
+      // Ana (now region A) sold from a region B truck: the order's source is B's.
+      const truckB = await ctx.db.insert("inventoryLocations", {
+        organizationId: "sunpride",
+        orgUnitId: ids.regionB,
+        siteCode: "S1",
+        code: "TRK-B",
+        name: "Truck B",
+        type: "truck",
+        truckCode: "TRK-B",
+        active: true,
+        allowsPicking: true,
+        allowsReceiving: true,
+        allowsSale: true,
+        allowsProduction: false,
+        createdAt: from,
+        updatedAt: from,
+      });
+      const createdAt = at("2026-09-28", "11:00");
+      await ctx.db.insert("orders", {
+        organizationId: "sunpride",
+        clientRequestId: "req-b",
+        orderNumber: "SI-B",
+        customerCode: "C-1",
+        salespersonSubject: subject("Ana"),
+        status: "posted",
+        subtotal: 123,
+        total: 123,
+        sourceLocationId: truckB,
+        createdAt,
+        updatedAt: createdAt,
+      });
+    });
+    // The Orders screen hides it from manager A and shows it nationally.
+    expect(await as("managerA").query(api.domains.orders.list, {})).toEqual([]);
+    expect(
+      await as("adminRoot").query(api.domains.orders.list, {}),
+    ).toHaveLength(1);
+    const a = await as("managerA").query(
+      api.analytics.exceptions.field,
+      period,
+    );
+    expect(a.rows.find((row) => row.name === "Ana")).toMatchObject({
+      sales: 0,
+      salesPct: 0,
+    });
+    const national = await as("adminRoot").query(
+      api.analytics.exceptions.field,
+      period,
+    );
+    expect(national.rows.find((row) => row.name === "Ana")).toMatchObject({
+      sales: 12_300,
+    });
+  });
+
+  it("reports the people list incomplete when a unit holds more profiles than are read", async () => {
+    const { t, ids, as, stop } = await fixture();
+    // 321 disabled office profiles fill region A's profile prefix before a late salesperson.
+    const late = await t.run(async (ctx) => {
+      const since = now - 90 * DAY;
+      for (let i = 0; i < 321; i++)
+        await ctx.db.insert("profiles", {
+          authSubject: subject(`old${i}`),
+          name: `Old ${i}`,
+          email: `old${i}@test.local`,
+          role: "viewer",
+          status: "disabled",
+          orgUnitId: ids.regionA,
+          updatedAt: since,
+        });
+      const id = await ctx.db.insert("profiles", {
+        authSubject: subject("Late"),
+        name: "Late",
+        email: "Late@test.local",
+        role: "sales",
+        status: "active",
+        orgUnitId: ids.regionA,
+        updatedAt: since,
+      });
+      const assignment = await ctx.db.insert("employeeAssignments", {
+        profileId: id,
+        orgUnitId: ids.regionA,
+        role: "sales",
+        effectiveFrom: since,
+        actorSubject: "fixture",
+        reason: "fixture",
+        createdAt: since,
+      });
+      return { id, assignment };
+    });
+    await stop({
+      who: late,
+      orgUnitId: ids.regionA,
+      outlet: ids.outlets.hv,
+      date: "2026-09-29",
+    });
+    const field = await as("managerA").query(
+      api.analytics.exceptions.field,
+      period,
+    );
+    expect(field.truncated).toBe(true);
+    const geofence = await as("managerA").query(
+      api.analytics.exceptions.geofence,
+      period,
+    );
+    expect(geofence.truncated).toBe(true);
+  });
+
+  it("gives the real totals when lists are cut, and includes unmapped locations nationally", async () => {
+    const { t, ids, as } = await fixture();
+    await t.run(async (ctx) => {
+      const since = now - 90 * DAY;
+      const location = (
+        code: string,
+        orgUnitId: Id<"orgUnits"> | undefined,
+        type: "truck" | "warehouse",
+      ) =>
+        ctx.db.insert("inventoryLocations", {
+          organizationId: "sunpride",
+          ...(orgUnitId ? { orgUnitId } : {}),
+          siteCode: "S1",
+          code,
+          name: `Location ${code}`,
+          type,
+          active: true,
+          allowsPicking: true,
+          allowsReceiving: true,
+          allowsSale: type === "truck",
+          allowsProduction: false,
+          ...(type === "truck" ? { truckCode: code } : {}),
+          createdAt: since,
+          updatedAt: since,
+        });
+      const varied = async (
+        locationId: Id<"inventoryLocations">,
+        countNumber: string,
+      ) => {
+        const sessionId = await ctx.db.insert("stockCountSessions", {
+          organizationId: "sunpride",
+          countNumber,
+          countType: "cycle",
+          locationId,
+          status: "submitted",
+          blindCount: false,
+          snapshotAt: at("2026-09-20"),
+          createdBy: "fixture",
+          createdAt: at("2026-09-20"),
+          updatedAt: at("2026-09-20"),
+        });
+        await ctx.db.insert("stockCountLines", {
+          organizationId: "sunpride",
+          sessionId,
+          productId: ids.products.p1,
+          stockStatus: "available",
+          systemBase: 10n,
+          countedBase: 7n,
+          varianceBase: -3n,
+        });
+      };
+      for (let i = 0; i < 26; i++) {
+        const truck = await location(`TRK-${i}`, ids.regionA, "truck");
+        await ctx.db.insert("truckRouteSessions", {
+          organizationId: "sunpride",
+          routeCode: `R-${i}`,
+          truckLocationId: truck,
+          salespersonSubject: subject("Ana"),
+          assignedDeviceId: "dev",
+          status: "open",
+          openedAt: at("2026-09-28", "06:00"),
+          lastAcknowledgedSequence: 0,
+          createdAt: at("2026-09-28", "06:00"),
+          updatedAt: at("2026-09-28", "06:00"),
+        });
+        await varied(truck, `CNT-${i}`);
+      }
+      // A legacy warehouse never mapped to a unit, with a -3 count.
+      await varied(await location("WH-X", undefined, "warehouse"), "CNT-X");
+    });
+    const a = await as("managerA").query(
+      api.analytics.exceptions.operations,
+      period,
+    );
+    if (!a.trips.available || !a.stock.available)
+      throw new Error("inventory hidden");
+    expect(a.trips).toMatchObject({ total: 26, truncated: false });
+    expect(a.trips.items).toHaveLength(25);
+    expect(a.stock).toMatchObject({ countsTotal: 26 });
+    expect(a.stock.counts).toHaveLength(25);
+    expect(a.stock.counts.some((row) => row.countNumber === "CNT-X")).toBe(
+      false,
+    );
+    // The national admin also gets the unmapped warehouse's count, as count detail does.
+    const root = await as("adminRoot").query(
+      api.analytics.exceptions.operations,
+      period,
+    );
+    if (!root.stock.available) throw new Error("inventory hidden");
+    expect(root.stock.countsTotal).toBe(27);
+    const narrowed = await as("adminRoot").query(
+      api.analytics.exceptions.operations,
+      { ...period, orgUnitId: ids.regionA },
+    );
+    if (!narrowed.stock.available) throw new Error("inventory hidden");
+    expect(narrowed.stock.countsTotal).toBe(26);
   });
 });
