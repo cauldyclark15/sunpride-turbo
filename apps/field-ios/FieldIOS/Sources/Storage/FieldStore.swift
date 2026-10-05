@@ -35,10 +35,54 @@ struct StoreSnapshot: Sendable {
             }.map(\.element)
         }
     }
-    struct Outlet: Codable, Sendable { let id: String; let name: String; let routeId: String? }
+    struct Coordinate: Codable, Sendable, Equatable { let latitude: Double; let longitude: Double }
+    /// code/customerId/address/latitude/longitude are additive v1 route-screen fields; older feeds omit them.
+    struct Outlet: Codable, Sendable {
+        let id: String; let name: String; let routeId: String?
+        var code: String? = nil
+        var customerId: String? = nil
+        var address: String? = nil
+        /// Current verified pin, sent flat on the wire: both or neither.
+        var latitude: Double? = nil
+        var longitude: Double? = nil
+
+        init(id: String, name: String, routeId: String?, code: String? = nil, customerId: String? = nil,
+             address: String? = nil, location: Coordinate? = nil) {
+            self.id = id; self.name = name; self.routeId = routeId
+            self.code = code; self.customerId = customerId; self.address = address
+            latitude = location?.latitude; longitude = location?.longitude
+        }
+
+        var location: Coordinate? {
+            guard let latitude, let longitude else { return nil }
+            return Coordinate(latitude: latitude, longitude: longitude)
+        }
+    }
     struct Customer: Codable, Sendable { let id: String; let code: String }
     struct Route: Codable, Sendable { let id: String; let code: String }
     struct Task: Codable, Sendable { let id: String; let kind: String; let required: Bool }
+    /// Daily position standard (client memo; call answer 1: targets are per day, per route).
+    struct DayTarget: Codable, Sendable, Equatable {
+        var dailyCalls: Int? = nil
+        var productivePct: Double? = nil
+        var sourceRef: String? = nil
+        /// Governed productive-call rule (server sfa/productive_call.ts); absent = any listed activity.
+        var productiveCallRule: String? = nil
+        var isValid: Bool {
+            (dailyCalls.map { $0 >= 0 } ?? true) && (productivePct.map { $0.isFinite && (0...100).contains($0) } ?? true)
+                && (sourceRef.map { !$0.isEmpty } ?? true) && (productiveCallRule.map { !$0.isEmpty } ?? true)
+        }
+    }
+    /// Today's sales as the server counted them (Daily Sales Report rules), PHP centavos, as of
+    /// the bootstrap's server time. Order capture is not on the phone, so this is the day's total.
+    struct DaySales: Codable, Sendable, Equatable {
+        let amountMinor: Int64
+        let orders: Int
+        var targetMinor: Int64? = nil
+        /// Server time of the download (epoch ms); set by the phone, never read from the wire.
+        var asOf: Int64? = nil
+        var isValid: Bool { orders >= 0 && (targetMinor.map { $0 >= 0 } ?? true) }
+    }
     let employee: Employee
     let visits: [Visit]
     let outlets: [Outlet]
@@ -46,11 +90,20 @@ struct StoreSnapshot: Sendable {
     let route: Route?
     let tasks: [Task]
     let callSheets: [CallSheet]
+    /// IOS-011 cached account figures, one per outlet; stored with the snapshot generation.
+    let accountSummaries: [AccountSummary]
+    var dayTarget: DayTarget? = nil
+    var daySales: DaySales? = nil
+    /// IOS-013 activity-form rules per visit intent, in server order; empty from older servers.
+    var activityRules: [ActivityRule] = []
 
     init(employee: Employee, visits: [Visit], outlets: [Outlet], customers: [Customer],
-         route: Route?, tasks: [Task], callSheets: [CallSheet] = []) {
+         route: Route?, tasks: [Task], callSheets: [CallSheet] = [], accountSummaries: [AccountSummary] = [],
+         dayTarget: DayTarget? = nil, daySales: DaySales? = nil, activityRules: [ActivityRule] = []) {
         self.employee = employee; self.visits = visits; self.outlets = outlets
         self.customers = customers; self.route = route; self.tasks = tasks; self.callSheets = callSheets
+        self.accountSummaries = accountSummaries
+        self.dayTarget = dayTarget; self.daySales = daySales; self.activityRules = activityRules
     }
 }
 
@@ -390,8 +443,16 @@ final class EncryptedFieldStore: FieldLocalStore {
         for v in snapshot.customers { rows.append(("customer", v.id, nil, try encode(v))) }
         if let route = snapshot.route { rows.append(("route", route.id, nil, try encode(route))) }
         for v in snapshot.tasks { rows.append(("task", v.id, nil, try encode(v))) }
+        // Account figures ride in the same generation rows, so they promote and expire with the plan.
+        for v in snapshot.accountSummaries { rows.append(("account_summary", v.outletId, nil, try encode(v))) }
+        if let target = snapshot.dayTarget { rows.append(("dayTarget", "today", nil, try encode(target))) }
+        if let sales = snapshot.daySales { rows.append(("daySales", "today", nil, try encode(sales))) }
+        // One row keeps the server's rule order; it rides the generic snapshot table (no migration).
+        if !snapshot.activityRules.isEmpty { rows.append(("activityRules", "all", nil, try encode(snapshot.activityRules))) }
         guard rows.allSatisfy({ !$0.1.isEmpty }), snapshot.callSheets.allSatisfy(\.isValid),
-              snapshot.callSheets.allSatisfy({ sheet in snapshot.outlets.contains { $0.id == sheet.outletId } }) else { throw StoreError.invalidInput }
+              snapshot.callSheets.allSatisfy({ sheet in snapshot.outlets.contains { $0.id == sheet.outletId } }),
+              Set(snapshot.accountSummaries.map(\.outletId)).count == snapshot.accountSummaries.count,
+              snapshot.accountSummaries.allSatisfy({ $0.isValid && snapshot.outlets.map(\.id).contains($0.outletId) }) else { throw StoreError.invalidInput }
         let sheets = try snapshot.callSheets.map { ($0.outletId, try encode($0)) }
         try transaction {
             try ensure(partition)
@@ -439,7 +500,14 @@ final class EncryptedFieldStore: FieldLocalStore {
             customers: entities(StoreSnapshot.Customer.self, kind: "customer", partition: partition),
             route: entities(StoreSnapshot.Route.self, kind: "route", partition: partition).first,
             tasks: entities(StoreSnapshot.Task.self, kind: "task", partition: partition),
-            callSheets: callSheets(for: partition))
+            callSheets: callSheets(for: partition),
+            accountSummaries: entities(AccountSummary.self, kind: "account_summary", partition: partition),
+            dayTarget: entities(StoreSnapshot.DayTarget.self, kind: "dayTarget", partition: partition).first,
+            daySales: entities(StoreSnapshot.DaySales.self, kind: "daySales", partition: partition).first,
+            activityRules: activityRules(for: partition))
+    }
+    func activityRules(for partition: StorePartition) throws -> [ActivityRule] {
+        try entities([ActivityRule].self, kind: "activityRules", partition: partition).first ?? []
     }
     func leaseExpiry(for partition: StorePartition) throws -> Int64? {
         try query("SELECT lease_expiry FROM partitions WHERE \(Self.predicate)", p(partition)) {
@@ -466,6 +534,7 @@ final class EncryptedFieldStore: FieldLocalStore {
         try transaction {
             guard try isLeaseValid(now: now, for: partition) else { throw StoreError.leaseExpired }
             guard try state(partition)?.1 == false else { throw StoreError.heldForReview }
+            try validateActivityRules(intent, partition)
             try run("INSERT INTO intents(subject,device,scope,request_id,kind,body) VALUES (?,?,?,?,?,?)",
                     p(partition) + [.text(intent.requestId.uuidString.lowercased()), .text(intent.kind), .blob(intent.operationJSON)])
             #if DEBUG
@@ -489,12 +558,38 @@ final class EncryptedFieldStore: FieldLocalStore {
         try transaction {
             guard try isLeaseValid(now: now, for: partition) else { throw StoreError.leaseExpired }
             guard try state(partition)?.1 == false else { throw StoreError.heldForReview }
+            try validateActivityRules(intent, partition)
             try run("INSERT INTO intents(subject,device,scope,request_id,kind,body) VALUES (?,?,?,?,?,?)",
                     p(partition) + [.text(intent.requestId.uuidString.lowercased()), .text(intent.kind), .blob(intent.operationJSON)])
             try run("INSERT INTO outbox(subject,device,scope,request_id,status) VALUES (?,?,?,?,'deferred')",
                     p(partition) + [.text(intent.requestId.uuidString.lowercased())])
         }
         try protectFiles()
+    }
+    /// IOS-013, inside the enqueue transaction: a structured form must match its wire shape and the
+    /// account's call-sheet products, and a "completed" End needs every capturable required form
+    /// recorded for its call. Notes, call sheets and not-productive Ends keep their own checks.
+    private func validateActivityRules(_ item: VisitIntent, _ partition: StorePartition) throws {
+        guard item.kind == "visit.activity" || item.kind == "visit.checkOut", let payload = item.payload else { return }
+        let activity = payload["activity"] as? [String: Any]
+        if item.kind == "visit.activity" {
+            guard let kind = activity?["kind"] as? String, ActivityRules.structuredForms.contains(kind) else { return }
+        } else if payload["outcome"] as? String != "completed" { return }
+        guard let dependency = item.dependencies.first, let checkInId = UUID(uuidString: dependency),
+              let checkIn = try intent(for: checkInId, in: partition), checkIn.kind == "visit.checkIn",
+              let outletId = checkIn.payload?["outletId"] as? String else {
+            if item.kind == "visit.checkOut" { return } // The call guards own an End without a Start.
+            throw StoreError.invalidInput
+        }
+        let sheet = try callSheets(for: partition).first { $0.outletId == outletId }
+        if item.kind == "visit.activity", let activity {
+            do { try ActivityForms.validate(activity, sheet: sheet) } catch { throw StoreError.invalidInput }
+            return
+        }
+        let rejected = Set(try reviewOutbox(for: partition).map { $0.intent.requestId })
+        let missing = ActivityRules.missingForEnd(checkIn: checkIn, rules: try activityRules(for: partition),
+                                                  intents: try intents(for: partition), rejected: rejected, sheet: sheet)
+        guard missing.isEmpty else { throw StoreError.invalidInput }
     }
     func deferredOutbox(for partition: StorePartition) throws -> [OutboxItem] {
         try query("SELECT o.sequence,i.request_id,i.kind,i.body FROM outbox o JOIN intents i ON i.subject=o.subject AND i.device=o.device AND i.scope=o.scope AND i.request_id=o.request_id WHERE o.subject=? AND o.device=? AND o.scope=? AND o.status='deferred' ORDER BY o.sequence", p(partition)) { row in

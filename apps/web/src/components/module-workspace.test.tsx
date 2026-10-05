@@ -259,6 +259,10 @@ vi.mock("@sunpride/ui", () => ({
     createElement("span", null, children),
 }));
 vi.mock("./admin-workspace", () => ({ AdminWorkspace: () => null }));
+vi.mock("./analytics/coverage-compliance", () => ({
+  CoverageCompliance: () =>
+    createElement("p", null, "Mounted coverage compliance"),
+}));
 vi.mock("./analytics/customer-execution", () => ({
   CustomerExecution: () =>
     createElement("p", null, "Mounted customer execution"),
@@ -349,6 +353,7 @@ describe("calm generic modules", () => {
     state.pathname = "/analytics";
     expect(render("analytics")).toContain("Mounted execution dashboard");
     expect(render("analytics")).toContain("Mounted customer execution");
+    expect(render("analytics")).toContain("Mounted coverage compliance");
     state.pathname = "/dashboard";
     expect(render("dashboard")).not.toContain("Mounted execution dashboard");
     expect(render("dashboard")).not.toContain("Mounted customer execution");
@@ -359,6 +364,7 @@ describe("calm generic modules", () => {
       expect(html).toContain("<h1>Reports</h1>");
       expect(html).not.toContain("Mounted execution dashboard");
       expect(html).not.toContain("Mounted customer execution");
+      expect(html).not.toContain("Mounted coverage compliance");
     }
   });
 
