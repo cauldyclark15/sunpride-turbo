@@ -37,6 +37,8 @@ final class AppModel {
     private(set) var callSheets: [CallSheet] = []
     /// IOS-013 activity-form rules per visit intent from the active snapshot.
     private(set) var activityRules: [ActivityRule] = []
+    /// SP-0044 local order drafts in the verified partition (never sent; review/submit is IOS-015).
+    private(set) var orderDrafts: [OrderDraft] = []
     private(set) var lastSyncedAt: Date?
     private(set) var syncStatus: FieldSyncStatus?
     private(set) var isOffline = false
@@ -227,7 +229,7 @@ final class AppModel {
     }
 
     private func clearToday() {
-        visits = []; callSheets = []; activityRules = []; outletDetails = [:]; customerDetails = [:]; routeCode = nil
+        visits = []; callSheets = []; activityRules = []; orderDrafts = []; outletDetails = [:]; customerDetails = [:]; routeCode = nil
         customers = []; dayTasks = []; dayTarget = nil; daySales = nil
     }
 
@@ -263,6 +265,7 @@ final class AppModel {
         do {
             callSheets = try store.snapshot(for: partition)?.callSheets ?? []
             activityRules = try store.snapshot(for: partition)?.activityRules ?? []
+            orderDrafts = try store.orderDrafts(for: partition)
             let day = BootstrapClient.manilaDay(now())
             let outlets = Dictionary(uniqueKeysWithValues: try store.outlets(for: partition).map { ($0.id, $0.name) })
             let planned = try store.todayVisits(day, for: partition)
@@ -487,6 +490,38 @@ final class AppModel {
         if ack == nil { try store.enqueueDeferred(intent, for: partition, now: timestamp) }
         else { try store.enqueue(intent, for: partition, now: timestamp) }
         didQueueWork()
+    }
+    /// SP-0044: the account's authorized products for this visit (Annex C setup), in setup order.
+    func orderCatalog(for visit: TodayVisit) -> [OrderCatalog.Item] { OrderCatalog.items(callSheet(for: visit)) }
+    /// Drafts taken during this visit's call on this phone.
+    func orderDrafts(for visit: TodayVisit) -> [OrderDraft] {
+        _ = visits // Observe durable refreshes.
+        guard let (initial, _, _) = try? checkIn(for: visit) else { return [] }
+        let id = initial.requestId.uuidString.lowercased()
+        return orderDrafts.filter { $0.checkInRequestId == id }
+    }
+    /// Save a new draft (`draftId` nil) or the next version of one for the open call. The association
+    /// is built from the stored check-in and cached snapshot; the store re-validates in its transaction.
+    @discardableResult
+    func saveOrderDraft(draftId: String?, quantities: [(productId: String, quantity: Int)], for visit: TodayVisit) throws -> OrderDraft {
+        guard let partition = activeStoragePartition else { throw StoreError.invalidInput }
+        let store = try storage(for: partition)
+        guard let initial = try store.intents(for: partition).first(where: { $0.matches(visit) }) else { throw OrderDraftFailure.callNotOpen }
+        let existing = try draftId.map { id in
+            guard let draft = try store.orderDrafts(for: partition).first(where: { $0.draftId == id }) else { throw OrderDraftFailure.unknownDraft }
+            return draft
+        }
+        let timestamp = now()
+        let draft = try OrderDraftRules.build(OrderCallContext.read(store: store, partition: partition), existing: existing,
+                                              checkIn: initial, quantities: quantities, now: timestamp)
+        try store.saveOrderDraft(draft, for: partition, now: timestamp)
+        refreshToday()
+        return draft
+    }
+    func discardOrderDraft(_ draftId: String) throws {
+        guard let partition = activeStoragePartition else { throw StoreError.invalidInput }
+        try storage(for: partition).discardOrderDraft(draftId, for: partition)
+        refreshToday()
     }
     func queueCheckOut(outcome: String, reason: String?, for visit: TodayVisit, location: VisitLocation? = nil) throws {
         let (initial, store, partition) = try checkIn(for: visit)

@@ -117,6 +117,31 @@ final class BootstrapTests: XCTestCase {
         }
     }
 
+    func testOptionalOutletTerritoryBothOrNeither() throws {
+        let both = try altered("bootstrap-response") { object in
+            var outlets = object["outlets"] as! [[String: Any]]
+            outlets[0]["territoryId"] = "territory-1"; outlets[0]["territoryCode"] = "T-NCR-1"; object["outlets"] = outlets
+        }
+        let page = try JSONDecoder().decode(BootstrapV1.Page.self, from: both)
+        XCTAssertEqual(page.outlets[0].territoryId, "territory-1")
+        XCTAssertEqual(page.outlets[0].territoryCode, "T-NCR-1")
+        let round = try JSONDecoder().decode(BootstrapV1.Page.self, from: JSONEncoder().encode(page))
+        XCTAssertEqual(round.outlets[0].territoryCode, "T-NCR-1")
+        let older = try altered("bootstrap-response") { object in
+            var outlets = object["outlets"] as! [[String: Any]]
+            outlets[0].removeValue(forKey: "territoryId"); outlets[0].removeValue(forKey: "territoryCode"); object["outlets"] = outlets
+        }
+        XCTAssertNil(try JSONDecoder().decode(BootstrapV1.Page.self, from: older).outlets[0].territoryId)
+        for key in ["territoryId", "territoryCode"] {
+            let half = try altered("bootstrap-response") { object in
+                var outlets = object["outlets"] as! [[String: Any]]
+                outlets[0][key] = "only-one"
+                outlets[0].removeValue(forKey: key == "territoryId" ? "territoryCode" : "territoryId"); object["outlets"] = outlets
+            }
+            XCTAssertThrowsError(try JSONDecoder().decode(BootstrapV1.Page.self, from: half))
+        }
+    }
+
     func testOptionalDayTargetPresentAbsentAndInvalid() throws {
         let page = try JSONDecoder().decode(BootstrapV1.Page.self, from: fixture("bootstrap-response"))
         XCTAssertEqual(page.dayTarget, StoreSnapshot.DayTarget(dailyCalls: 30, productivePct: 85, sourceRef: "memo-2026-01-20",
