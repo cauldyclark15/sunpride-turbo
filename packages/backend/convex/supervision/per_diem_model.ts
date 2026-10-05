@@ -16,7 +16,7 @@ import { localDate, monthDates } from "../coverage/validation";
  */
 
 /** Bumped whenever a rule below changes; stored with every supervisor decision. */
-export const PER_DIEM_RULE_VERSION = "sop-004/2026-10-04";
+export const PER_DIEM_RULE_VERSION = "sop-004/2026-10-05";
 /** Planned stops and visits read per person per claim period (31 days × 60). */
 export const MAX_PERIOD_ROWS = 1_860;
 export const MAX_NOTE = 500;
@@ -33,6 +33,7 @@ export const perDiemReason = v.union(
   v.literal("late_rejected"),
   v.literal("no_report"),
   v.literal("no_call_sheet"),
+  v.literal("forms_missing"),
   v.literal("not_visited"),
 );
 export type PerDiemReason = typeof perDiemReason.type;
@@ -56,6 +57,9 @@ const HELD: ReadonlySet<PerDiemReason> = new Set([
   "still_open",
   "no_location",
   "late_pending",
+  // A completed call without its purpose's required forms is held, never validated, until
+  // the forms are recorded or a supervisor returns the period.
+  "forms_missing",
 ]);
 
 export const REASON_LABELS: Record<PerDiemReason, string> = {
@@ -70,6 +74,7 @@ export const REASON_LABELS: Record<PerDiemReason, string> = {
   late_rejected: "Sent after the 10 PM close and rejected",
   no_report: "No call report recorded",
   no_call_sheet: "Call sheet not filled for this account",
+  forms_missing: "Required forms for the call's purpose are missing",
   not_visited: "Planned stop not visited",
 };
 
@@ -95,6 +100,12 @@ export type VisitFacts = {
   activityCount: number;
   hasCallSheet: boolean;
   callSheetRequired: boolean;
+  /**
+   * Required activity forms for the visit's intents (governing rules at call start) that
+   * are not recorded, merged with what was flagged at End. Empty for a nonproductive
+   * outcome (a closed store files no merchandising form).
+   */
+  requiredMissing: readonly string[];
 };
 
 /** Every reason a visit does not count, plus non-blocking notes. */
@@ -140,8 +151,11 @@ export function classifyVisit(facts: VisitFacts): {
 
   if (DONE.has(facts.state)) {
     if (facts.activityCount === 0) reasons.push("no_report");
-    else if (facts.callSheetRequired && !facts.hasCallSheet)
-      reasons.push("no_call_sheet");
+    else {
+      if (facts.callSheetRequired && !facts.hasCallSheet)
+        reasons.push("no_call_sheet");
+      if (facts.requiredMissing.length) reasons.push("forms_missing");
+    }
   }
 
   const status: PerDiemStatus = reasons.some((reason) => !HELD.has(reason))
@@ -221,6 +235,28 @@ export function summarizePeriod(
       heldDays: days.filter((day) => day.dayStatus === "held").length,
     },
   };
+}
+
+/**
+ * Required forms still missing: governing rules recomputed against the recorded kinds,
+ * united with what End flagged. A nonproductive outcome needs no purpose forms (the same
+ * rule `visits/commands` applies at End). Pure; stable order.
+ */
+export function missingForms(input: {
+  outcome: string | null;
+  storedMissing: readonly string[] | null;
+  required: readonly string[];
+  recorded: readonly string[];
+}): string[] {
+  // Fail closed: only an explicit nonproductive End is excused from the purpose's forms.
+  if (input.outcome === "nonproductive") return [];
+  const missing = input.required.filter(
+    (kind) => !input.recorded.includes(kind),
+  );
+  for (const kind of input.storedMissing ?? [])
+    if (!missing.includes(kind) && !input.recorded.includes(kind))
+      missing.push(kind);
+  return missing;
 }
 
 /** Stable SHA-256 of what the supervisor looked at, so a stale decision is refused. */

@@ -51,12 +51,42 @@ struct BootstrapResponse {
   let productCatalog: [BootstrapResponseProductCatalogItem]
   // schema-field: bootstrapResponse.callSheets
   let callSheets: OptionalField<[BootstrapResponseCallSheetsItem]>
+  // schema-field: bootstrapResponse.activityRules
+  let activityRules: OptionalField<[BootstrapResponseActivityRulesItem]>
+  // schema-field: bootstrapResponse.photoTypes
+  let photoTypes: OptionalField<[BootstrapResponsePhotoTypesItem]>
+  // schema-field: bootstrapResponse.accountSummaries
+  let accountSummaries: OptionalField<[BootstrapResponseAccountSummariesItem]>
   // schema-field: bootstrapResponse.page
   let page: Int64
   // schema-field: bootstrapResponse.nextPageCursor
   let nextPageCursor: String?
   // schema-field: bootstrapResponse.syncCursor
   let syncCursor: String?
+  // schema-field: bootstrapResponse.dayTarget
+  let dayTarget: OptionalField<BootstrapResponseDayTarget>
+  // schema-field: bootstrapResponse.daySales
+  let daySales: OptionalField<BootstrapResponseDaySales>
+}
+// schema-object: bootstrapResponse.dayTarget
+struct BootstrapResponseDayTarget {
+  // schema-field: bootstrapResponse.dayTarget.dailyCalls
+  let dailyCalls: OptionalField<Int64>
+  // schema-field: bootstrapResponse.dayTarget.productivePct
+  let productivePct: OptionalField<Double>
+  // schema-field: bootstrapResponse.dayTarget.sourceRef
+  let sourceRef: OptionalField<String>
+  // schema-field: bootstrapResponse.dayTarget.productiveCallRule
+  let productiveCallRule: OptionalField<String>
+}
+// schema-object: bootstrapResponse.daySales
+struct BootstrapResponseDaySales {
+  // schema-field: bootstrapResponse.daySales.amountMinor
+  let amountMinor: Int64
+  // schema-field: bootstrapResponse.daySales.orders
+  let orders: Int64
+  // schema-field: bootstrapResponse.daySales.targetMinor
+  let targetMinor: OptionalField<Int64>
 }
 // schema-object: bootstrapResponse.employee
 struct BootstrapResponseEmployee {
@@ -112,6 +142,20 @@ struct BootstrapResponseOutletsItem {
   let name: String
   // schema-field: bootstrapResponse.outlets[].routeId
   let routeId: String?
+  // schema-field: bootstrapResponse.outlets[].code
+  let code: OptionalField<String>
+  // schema-field: bootstrapResponse.outlets[].customerId
+  let customerId: OptionalField<String>
+  // schema-field: bootstrapResponse.outlets[].territoryId
+  let territoryId: OptionalField<String>
+  // schema-field: bootstrapResponse.outlets[].territoryCode
+  let territoryCode: OptionalField<String>
+  // schema-field: bootstrapResponse.outlets[].address
+  let address: OptionalField<String>
+  // schema-field: bootstrapResponse.outlets[].latitude
+  let latitude: OptionalField<Double>
+  // schema-field: bootstrapResponse.outlets[].longitude
+  let longitude: OptionalField<Double>
 }
 // schema-object: bootstrapResponse.localCustomers[]
 struct BootstrapResponseLocalCustomersItem {
@@ -316,6 +360,17 @@ struct PushRequestOperationsItemVariant1PayloadActivityVariant4 {
   let clientOrderId: String
   // schema-field: pushRequest.operations[]#1.payload.activity#4.note
   let note: OptionalField<String>
+  // schema-field: pushRequest.operations[]#1.payload.activity#4.lines
+  let lines: OptionalField<[PushRequestOperationsItemVariant1PayloadActivityVariant4LinesItem]>
+}
+// schema-object: pushRequest.operations[]#1.payload.activity#4.lines[]
+struct PushRequestOperationsItemVariant1PayloadActivityVariant4LinesItem {
+  // schema-field: pushRequest.operations[]#1.payload.activity#4.lines[].productId
+  let productId: String
+  // schema-field: pushRequest.operations[]#1.payload.activity#4.lines[].uom
+  let uom: String
+  // schema-field: pushRequest.operations[]#1.payload.activity#4.lines[].quantity
+  let quantity: Int64
 }
 // schema-object: pushRequest.operations[]#1.payload.activity#5
 struct PushRequestOperationsItemVariant1PayloadActivityVariant5 {
@@ -699,6 +754,78 @@ struct BootstrapResponseCallSheetsItemLinesItem {
   // schema-field: bootstrapResponse.callSheets[].lines[].pricing
   let pricing: String?
 }
+// Additive after v1 shipped: visit activity-form rules per intent (AND-013).
+// schema-object: bootstrapResponse.activityRules[]
+struct BootstrapResponseActivityRulesItem {
+  // schema-field: bootstrapResponse.activityRules[].intent
+  let intent: String
+  // schema-field: bootstrapResponse.activityRules[].version
+  let version: String
+  // schema-field: bootstrapResponse.activityRules[].activities
+  let activities: [BootstrapResponseActivityRulesItemActivitiesItem]
+}
+// schema-object: bootstrapResponse.activityRules[].activities[]
+struct BootstrapResponseActivityRulesItemActivitiesItem {
+  // schema-field: bootstrapResponse.activityRules[].activities[].kind
+  let kind: String
+  // schema-field: bootstrapResponse.activityRules[].activities[].required
+  let required: Bool
+}
+// Additive after v1 shipped: visit photo types (AND-016).
+// schema-object: bootstrapResponse.photoTypes[]
+struct BootstrapResponsePhotoTypesItem {
+  // schema-field: bootstrapResponse.photoTypes[].code
+  let code: String
+  // schema-field: bootstrapResponse.photoTypes[].label
+  let label: String
+}
+// Additive after v1 shipped: cached account figures for the outlet detail (IOS-011).
+// schema-object: bootstrapResponse.accountSummaries[]
+struct BootstrapResponseAccountSummariesItem {
+  // schema-field: bootstrapResponse.accountSummaries[].outletId
+  let outletId: String
+  // schema-field: bootstrapResponse.accountSummaries[].asOfDate
+  let asOfDate: String
+  // schema-field: bootstrapResponse.accountSummaries[].availability
+  let availability: OpenEnum
+  // schema-field: bootstrapResponse.accountSummaries[].creditLimitMinor
+  let creditLimitMinor: Int64?
+  // schema-field: bootstrapResponse.accountSummaries[].sales
+  let sales: BootstrapResponseAccountSummariesItemSalesVariant0?
+  // schema-field: bootstrapResponse.accountSummaries[].openOrders
+  let openOrders: BootstrapResponseAccountSummariesItemOpenOrdersVariant0?
+}
+// schema-object: bootstrapResponse.accountSummaries[].sales#0
+struct BootstrapResponseAccountSummariesItemSalesVariant0 {
+  // schema-field: bootstrapResponse.accountSummaries[].sales#0.from
+  let from: String
+  // schema-field: bootstrapResponse.accountSummaries[].sales#0.to
+  let to: String
+  // schema-field: bootstrapResponse.accountSummaries[].sales#0.complete
+  let complete: Bool
+  // schema-field: bootstrapResponse.accountSummaries[].sales#0.orders
+  let orders: Int64
+  // schema-field: bootstrapResponse.accountSummaries[].sales#0.amountMinor
+  let amountMinor: Int64
+  // schema-field: bootstrapResponse.accountSummaries[].sales#0.recentOrders
+  let recentOrders: Int64
+  // schema-field: bootstrapResponse.accountSummaries[].sales#0.recentAmountMinor
+  let recentAmountMinor: Int64
+  // schema-field: bootstrapResponse.accountSummaries[].sales#0.lastOrderDate
+  let lastOrderDate: String?
+  // schema-field: bootstrapResponse.accountSummaries[].sales#0.lastOrderAmountMinor
+  let lastOrderAmountMinor: Int64?
+}
+// schema-object: bootstrapResponse.accountSummaries[].openOrders#0
+struct BootstrapResponseAccountSummariesItemOpenOrdersVariant0 {
+  // schema-field: bootstrapResponse.accountSummaries[].openOrders#0.count
+  let count: Int64
+  // schema-field: bootstrapResponse.accountSummaries[].openOrders#0.amountMinor
+  let amountMinor: Int64
+}
+// schema-enum: bootstrapResponse.accountSummaries[].availability
+// schema-enum-value: bootstrapResponse.accountSummaries[].availability = available
+// schema-enum-value: bootstrapResponse.accountSummaries[].availability = withheld
 // schema-object: pushRequest.operations[]#1.payload.activity#6
 struct PushRequestOperationsItemVariant1PayloadActivityVariant6 {
   // schema-field: pushRequest.operations[]#1.payload.activity#6.kind

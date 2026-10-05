@@ -19,6 +19,7 @@ const item = {
   checkedInAt: null,
   productivity: "verified",
   notes: [],
+  missingForms: [] as string[],
 };
 const data = {
   localMonth: "2026-09",
@@ -84,6 +85,15 @@ const selected = {
     },
     {
       ...item,
+      id: "v4",
+      visitId: "v4",
+      outletName: "Outlet 4",
+      status: "held",
+      reasons: ["forms_missing"],
+      missingForms: ["merchandising", "inventory_check"],
+    },
+    {
+      ...item,
       id: "v3",
       visitId: "v3",
       outletName: "Outlet 3",
@@ -131,6 +141,11 @@ describe("per-diem view rules", () => {
     expect(reasonText(["outside_mcp", "no_report"])).toBe(
       "Not in the approved MCP · No call report recorded",
     );
+    expect(
+      reasonText(["forms_missing"], ["merchandising", "inventory_check"]),
+    ).toBe(
+      "Required forms for the call's purpose are missing: merchandising, inventory check",
+    );
     expect(statusTone("held")).toBe("warning");
     expect(statusTone("validated")).toBe("success");
     expect(decisionError({ data: "stale_validation" })).toContain(
@@ -164,6 +179,9 @@ describe("per-diem screen", () => {
     expect(html).toContain("of 6 planned stops");
     expect(html).toContain("Sent after the 10 PM close, waiting for review");
     expect(html).toContain("Not in the approved MCP");
+    expect(html).toContain(
+      "purpose are missing: merchandising, inventory check",
+    );
     // The valid call is not an exception.
     expect(html.match(/Outlet 1/g)).toHaveLength(1);
     expect(html).toContain("Decide the 1 held call first");

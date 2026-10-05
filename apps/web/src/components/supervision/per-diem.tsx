@@ -211,7 +211,7 @@ function SelectedView({
       render: (row) => (
         <span className="text-[13px]">
           {[
-            reasonText(row.reasons),
+            reasonText(row.reasons, row.missingForms),
             ...row.notes.map((note) => NOTE_LABELS[note] ?? note),
           ]
             .filter(Boolean)

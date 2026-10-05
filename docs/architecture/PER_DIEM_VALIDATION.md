@@ -20,9 +20,14 @@ A call counts when all hold:
 4. It was not sent after the 10 PM close, or the late update was accepted.
 5. A call report was recorded (at least one activity), and for an Annex C account the call sheet
    was filled.
+6. Every form the call's purpose requires is recorded: the visit activity rules
+   (`visits/activity_rules.ts`) in effect when the call started, for the visit's intents, plus
+   anything End flagged in `missingActivities`. A merchandise call with only a note lacks its
+   merchandising form. A nonproductive End owes no purpose forms.
 
-Calls still open, missing a location, or waiting for a late review are **held**: they count once
-reviewed. Everything else **does not count** and is listed with the reason. Planned stops on a
+Calls still open, missing a location, waiting for a late review, or missing a required form are
+**held**: they count once reviewed or completed, and the period cannot be validated meanwhile
+(return it instead). Everything else **does not count** and is listed with the reason. Planned stops on a
 closed day with no call are listed as not visited.
 
 A day counts when it has at least one valid call and nothing held (provisional).
@@ -31,7 +36,8 @@ A day counts when it has at least one valid call and nothing held (provisional).
 
 Holders of `mcp.approve` for the person's unit (manager, super admin) validate or return a claim
 period (whole month, 1–15 or 16–end). Validation needs every held call decided first; a return
-needs a note. The decision stores the counts, the valid dates and a hash of what was shown; if
+needs a note. The decision stores the counts, the valid dates and a hash of what was shown (each call's
+status, reasons and missing required forms); if
 the calls change afterwards the decision is marked "calls changed since" and the supervisor can
 decide again. Decisions are append-only (`perDiemValidations`), with an audit log row. No
 self-approval.

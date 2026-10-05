@@ -79,6 +79,11 @@ dependencies {
     implementation(libs.sqlcipher)
     implementation(libs.sqlite)
     implementation(libs.work.runtime)
+    // AND-016 visit photo evidence: CameraX preview + still capture.
+    implementation(libs.camera.core)
+    implementation(libs.camera.camera2)
+    implementation(libs.camera.lifecycle)
+    implementation(libs.camera.view)
     kapt(libs.room.compiler)
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.test.manifest)

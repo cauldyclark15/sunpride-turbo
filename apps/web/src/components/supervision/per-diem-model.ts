@@ -17,6 +17,7 @@ export type PerDiemReason =
   | "late_rejected"
   | "no_report"
   | "no_call_sheet"
+  | "forms_missing"
   | "not_visited";
 
 export const REASON_LABELS: Record<PerDiemReason, string> = {
@@ -31,6 +32,7 @@ export const REASON_LABELS: Record<PerDiemReason, string> = {
   late_rejected: "Sent after the 10 PM close and rejected",
   no_report: "No call report recorded",
   no_call_sheet: "Call sheet not filled for this account",
+  forms_missing: "Required forms for the call's purpose are missing",
   not_visited: "Planned stop not visited",
 };
 
@@ -73,9 +75,27 @@ export const STATUS_LABELS: Record<string, string> = {
   none: "No valid call",
 };
 
-export function reasonText(reasons: readonly string[]) {
+/** Activity forms a call's purpose can require (visit activity rules). */
+export const FORM_LABELS: Record<string, string> = {
+  call_sheet: "call sheet",
+  merchandising: "merchandising",
+  inventory_check: "inventory check",
+  price_check: "price check",
+  promotion: "promotion",
+  order_intent: "order",
+  note: "note",
+};
+
+export function reasonText(
+  reasons: readonly string[],
+  missingForms: readonly string[] = [],
+) {
   return reasons
-    .map((reason) => REASON_LABELS[reason as PerDiemReason] ?? reason)
+    .map((reason) => {
+      const label = REASON_LABELS[reason as PerDiemReason] ?? reason;
+      if (reason !== "forms_missing" || !missingForms.length) return label;
+      return `${label}: ${missingForms.map((kind) => FORM_LABELS[kind] ?? kind).join(", ")}`;
+    })
     .join(" · ");
 }
 

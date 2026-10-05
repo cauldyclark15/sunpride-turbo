@@ -17,12 +17,18 @@ import {
   type SupervisorContext,
   type TeamMember,
 } from "./access";
+import {
+  requiredKinds,
+  ruleHistories,
+  rulesFromHistories,
+} from "../visits/activity_rules";
 import { dayCloseAt } from "./model";
 import {
   claimPeriod,
   classifyVisit,
   MAX_NOTE,
   MAX_PERIOD_ROWS,
+  missingForms,
   PER_DIEM_RULE_VERSION,
   perDiemNote,
   perDiemReason,
@@ -69,6 +75,8 @@ const item = v.object({
   notes: v.array(perDiemNote),
   checkedInAt: nullableNumber,
   productivity: v.union(v.string(), v.null()),
+  /** Required forms for the call's purpose that are not recorded. */
+  missingForms: v.array(v.string()),
 });
 type Item = typeof item.type;
 
@@ -180,6 +188,8 @@ async function computeValidation(
   };
   const sheetRequired = new Map<Id<"outlets">, boolean>();
   const outlets = new Map<Id<"outlets">, Doc<"outlets"> | null>();
+  // Governing activity-form rules (AND-013), loaded once and resolved at each call's start.
+  const histories = await ruleHistories(ctx);
 
   const items: Item[] = [];
   for (const visit of visits) {
@@ -224,6 +234,18 @@ async function computeValidation(
           .withIndex("by_outletId", (q) => q.eq("outletId", visit.outletId))
           .first()) !== null,
       );
+    const recorded = activities.map((row) => row.activity.kind as string);
+    const startedAt =
+      visit.startedAt ?? visit.checkedInAt ?? visit._creationTime;
+    const requiredMissing = missingForms({
+      outcome: visit.outcome ?? null,
+      storedMissing: visit.missingActivities ?? null,
+      required: requiredKinds(
+        rulesFromHistories(histories, startedAt),
+        visit.intents,
+      ),
+      recorded,
+    });
     const verdict = classifyVisit({
       source: visit.source,
       state: visit.state,
@@ -239,6 +261,7 @@ async function computeValidation(
         (row) => row.activity.kind === "call_sheet",
       ),
       callSheetRequired: sheetRequired.get(visit.outletId) ?? false,
+      requiredMissing,
     });
     let outletCode = link?.approvedSnapshot.outletCode;
     let outletName = link?.approvedSnapshot.outletName;
@@ -262,6 +285,7 @@ async function computeValidation(
       notes: verdict.notes,
       checkedInAt: visit.checkedInAt ?? null,
       productivity: visit.productivity,
+      missingForms: requiredMissing,
     });
   }
 
@@ -288,6 +312,7 @@ async function computeValidation(
       notes: [] as PerDiemNote[],
       checkedInAt: null,
       productivity: null,
+      missingForms: [] as string[],
     });
   }
   items.sort(
@@ -304,7 +329,12 @@ async function computeValidation(
     from,
     to,
     ...items
-      .map((row) => `${row.id}|${row.status}|${row.reasons.join(",")}`)
+      // Required-form facts are part of what was decided: recording or losing a form,
+      // or a rule change, makes an earlier decision stale.
+      .map(
+        (row) =>
+          `${row.id}|${row.status}|${row.reasons.join(",")}|${row.missingForms.join(",")}`,
+      )
       .sort(),
   ]);
   return { items, truncated, contentHash, ...summary };

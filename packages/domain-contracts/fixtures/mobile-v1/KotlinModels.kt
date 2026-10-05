@@ -50,12 +50,42 @@ data class BootstrapResponse(
   val productCatalog: List<BootstrapResponseProductCatalogItem>,
   // schema-field: bootstrapResponse.callSheets
   val callSheets: OptionalField<List<BootstrapResponseCallSheetsItem>>,
+  // schema-field: bootstrapResponse.activityRules
+  val activityRules: OptionalField<List<BootstrapResponseActivityRulesItem>>,
+  // schema-field: bootstrapResponse.photoTypes
+  val photoTypes: OptionalField<List<BootstrapResponsePhotoTypesItem>>,
+  // schema-field: bootstrapResponse.accountSummaries
+  val accountSummaries: OptionalField<List<BootstrapResponseAccountSummariesItem>>,
   // schema-field: bootstrapResponse.page
   val page: Long,
   // schema-field: bootstrapResponse.nextPageCursor
   val nextPageCursor: String?,
   // schema-field: bootstrapResponse.syncCursor
-  val syncCursor: String?
+  val syncCursor: String?,
+  // schema-field: bootstrapResponse.dayTarget
+  val dayTarget: OptionalField<BootstrapResponseDayTarget>,
+  // schema-field: bootstrapResponse.daySales
+  val daySales: OptionalField<BootstrapResponseDaySales>
+)
+// schema-object: bootstrapResponse.dayTarget
+data class BootstrapResponseDayTarget(
+  // schema-field: bootstrapResponse.dayTarget.dailyCalls
+  val dailyCalls: OptionalField<Long>,
+  // schema-field: bootstrapResponse.dayTarget.productivePct
+  val productivePct: OptionalField<Double>,
+  // schema-field: bootstrapResponse.dayTarget.sourceRef
+  val sourceRef: OptionalField<String>,
+  // schema-field: bootstrapResponse.dayTarget.productiveCallRule
+  val productiveCallRule: OptionalField<String>
+)
+// schema-object: bootstrapResponse.daySales
+data class BootstrapResponseDaySales(
+  // schema-field: bootstrapResponse.daySales.amountMinor
+  val amountMinor: Long,
+  // schema-field: bootstrapResponse.daySales.orders
+  val orders: Long,
+  // schema-field: bootstrapResponse.daySales.targetMinor
+  val targetMinor: OptionalField<Long>
 )
 // schema-object: bootstrapResponse.employee
 data class BootstrapResponseEmployee(
@@ -110,7 +140,21 @@ data class BootstrapResponseOutletsItem(
   // schema-field: bootstrapResponse.outlets[].name
   val name: String,
   // schema-field: bootstrapResponse.outlets[].routeId
-  val routeId: String?
+  val routeId: String?,
+  // schema-field: bootstrapResponse.outlets[].code
+  val code: OptionalField<String>,
+  // schema-field: bootstrapResponse.outlets[].customerId
+  val customerId: OptionalField<String>,
+  // schema-field: bootstrapResponse.outlets[].territoryId
+  val territoryId: OptionalField<String>,
+  // schema-field: bootstrapResponse.outlets[].territoryCode
+  val territoryCode: OptionalField<String>,
+  // schema-field: bootstrapResponse.outlets[].address
+  val address: OptionalField<String>,
+  // schema-field: bootstrapResponse.outlets[].latitude
+  val latitude: OptionalField<Double>,
+  // schema-field: bootstrapResponse.outlets[].longitude
+  val longitude: OptionalField<Double>
 )
 // schema-object: bootstrapResponse.localCustomers[]
 data class BootstrapResponseLocalCustomersItem(
@@ -314,7 +358,18 @@ data class PushRequestOperationsItemVariant1PayloadActivityVariant4(
   // schema-field: pushRequest.operations[]#1.payload.activity#4.clientOrderId
   val clientOrderId: String,
   // schema-field: pushRequest.operations[]#1.payload.activity#4.note
-  val note: OptionalField<String>
+  val note: OptionalField<String>,
+  // schema-field: pushRequest.operations[]#1.payload.activity#4.lines
+  val lines: OptionalField<List<PushRequestOperationsItemVariant1PayloadActivityVariant4LinesItem>>
+)
+// schema-object: pushRequest.operations[]#1.payload.activity#4.lines[]
+data class PushRequestOperationsItemVariant1PayloadActivityVariant4LinesItem(
+  // schema-field: pushRequest.operations[]#1.payload.activity#4.lines[].productId
+  val productId: String,
+  // schema-field: pushRequest.operations[]#1.payload.activity#4.lines[].uom
+  val uom: String,
+  // schema-field: pushRequest.operations[]#1.payload.activity#4.lines[].quantity
+  val quantity: Long
 )
 // schema-object: pushRequest.operations[]#1.payload.activity#5
 data class PushRequestOperationsItemVariant1PayloadActivityVariant5(
@@ -722,6 +777,78 @@ data class BootstrapResponseCallSheetsItemLinesItem(
   // schema-field: bootstrapResponse.callSheets[].lines[].pricing
   val pricing: String?
 )
+// Additive after v1 shipped: visit activity-form rules per intent (AND-013).
+// schema-object: bootstrapResponse.activityRules[]
+data class BootstrapResponseActivityRulesItem(
+  // schema-field: bootstrapResponse.activityRules[].intent
+  val intent: String,
+  // schema-field: bootstrapResponse.activityRules[].version
+  val version: String,
+  // schema-field: bootstrapResponse.activityRules[].activities
+  val activities: List<BootstrapResponseActivityRulesItemActivitiesItem>
+)
+// schema-object: bootstrapResponse.activityRules[].activities[]
+data class BootstrapResponseActivityRulesItemActivitiesItem(
+  // schema-field: bootstrapResponse.activityRules[].activities[].kind
+  val kind: String,
+  // schema-field: bootstrapResponse.activityRules[].activities[].required
+  val required: Boolean
+)
+// Additive after v1 shipped: visit photo types (AND-016).
+// schema-object: bootstrapResponse.photoTypes[]
+data class BootstrapResponsePhotoTypesItem(
+  // schema-field: bootstrapResponse.photoTypes[].code
+  val code: String,
+  // schema-field: bootstrapResponse.photoTypes[].label
+  val label: String
+)
+// Additive after v1 shipped: cached account figures for the outlet detail (IOS-011).
+// schema-object: bootstrapResponse.accountSummaries[]
+data class BootstrapResponseAccountSummariesItem(
+  // schema-field: bootstrapResponse.accountSummaries[].outletId
+  val outletId: String,
+  // schema-field: bootstrapResponse.accountSummaries[].asOfDate
+  val asOfDate: String,
+  // schema-field: bootstrapResponse.accountSummaries[].availability
+  val availability: OpenEnum,
+  // schema-field: bootstrapResponse.accountSummaries[].creditLimitMinor
+  val creditLimitMinor: Long?,
+  // schema-field: bootstrapResponse.accountSummaries[].sales
+  val sales: BootstrapResponseAccountSummariesItemSalesVariant0?,
+  // schema-field: bootstrapResponse.accountSummaries[].openOrders
+  val openOrders: BootstrapResponseAccountSummariesItemOpenOrdersVariant0?
+)
+// schema-object: bootstrapResponse.accountSummaries[].sales#0
+data class BootstrapResponseAccountSummariesItemSalesVariant0(
+  // schema-field: bootstrapResponse.accountSummaries[].sales#0.from
+  val from: String,
+  // schema-field: bootstrapResponse.accountSummaries[].sales#0.to
+  val to: String,
+  // schema-field: bootstrapResponse.accountSummaries[].sales#0.complete
+  val complete: Boolean,
+  // schema-field: bootstrapResponse.accountSummaries[].sales#0.orders
+  val orders: Long,
+  // schema-field: bootstrapResponse.accountSummaries[].sales#0.amountMinor
+  val amountMinor: Long,
+  // schema-field: bootstrapResponse.accountSummaries[].sales#0.recentOrders
+  val recentOrders: Long,
+  // schema-field: bootstrapResponse.accountSummaries[].sales#0.recentAmountMinor
+  val recentAmountMinor: Long,
+  // schema-field: bootstrapResponse.accountSummaries[].sales#0.lastOrderDate
+  val lastOrderDate: String?,
+  // schema-field: bootstrapResponse.accountSummaries[].sales#0.lastOrderAmountMinor
+  val lastOrderAmountMinor: Long?
+)
+// schema-object: bootstrapResponse.accountSummaries[].openOrders#0
+data class BootstrapResponseAccountSummariesItemOpenOrdersVariant0(
+  // schema-field: bootstrapResponse.accountSummaries[].openOrders#0.count
+  val count: Long,
+  // schema-field: bootstrapResponse.accountSummaries[].openOrders#0.amountMinor
+  val amountMinor: Long
+)
+// schema-enum: bootstrapResponse.accountSummaries[].availability
+// schema-enum-value: bootstrapResponse.accountSummaries[].availability = available
+// schema-enum-value: bootstrapResponse.accountSummaries[].availability = withheld
 // schema-object: pushRequest.operations[]#1.payload.activity#6
 data class PushRequestOperationsItemVariant1PayloadActivityVariant6(
   // schema-field: pushRequest.operations[]#1.payload.activity#6.kind

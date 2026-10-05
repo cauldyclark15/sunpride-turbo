@@ -62,6 +62,38 @@ class BootstrapTest {
         assertNull(sheet.lines.last().barcode)
         assertTrue(BootstrapCodec.page(first).callSheets.isEmpty())
     }
+    @Test fun activityRulesDecodeStrictlyAndStayOptional() {
+        val text = fixture("bootstrap-activity-rules-response.json")
+        val rules = BootstrapCodec.page(text).activityRules!!
+        assertEquals(listOf("merchandise", "complaint", "future-intent"), rules.map { it.intent })
+        assertEquals(RuleActivity("merchandising", true), rules.first().activities.first())
+        // Unknown intents/kinds stay raw; they never become a form this phone pretends to support.
+        assertEquals("future_form", rules.last().activities.single().kind)
+        assertNull(BootstrapCodec.page(first).activityRules)
+        assertTrue(BootstrapCodec.snapshot(listOf(BootstrapCodec.page(first))).activityRules.isEmpty())
+        assertEquals(rules, BootstrapCodec.snapshot(listOf(BootstrapCodec.page(text))).activityRules)
+        val mutations: List<(JSONObject) -> Unit> = listOf(
+            { it.put("activityRules", JSONObject.NULL) },
+            { it.getJSONArray("activityRules").getJSONObject(0).remove("version") },
+            { it.getJSONArray("activityRules").getJSONObject(0).put("label", "x") },
+            { it.getJSONArray("activityRules").getJSONObject(0).getJSONArray("activities").getJSONObject(0).put("required", "yes") },
+            { it.getJSONArray("activityRules").put(it.getJSONArray("activityRules").getJSONObject(0)) })
+        for (mutate in mutations) {
+            val bad = JSONObject(text).also(mutate).toString()
+            assertThrows(WireFailure::class.java) { BootstrapCodec.page(bad) }
+        }
+        // Pages of one download must agree on the rule set.
+        val one = BootstrapCodec.page(page(text, 1, "next", null))
+        val other = JSONObject(text).also { it.getJSONArray("activityRules").remove(2) }
+        val two = BootstrapCodec.page(page(other.toString(), 2, null, "cursor"))
+        assertThrows(IllegalArgumentException::class.java) { BootstrapCodec.snapshot(listOf(one, two)) }
+    }
+    @Test fun activityRulesSurviveStagingInTheGenericSnapshotTable() = runBlocking {
+        val store = com.sunpride.field.support.FakeFieldStore(StoreScope("a", "d", "s"))
+        val snapshot = BootstrapCodec.snapshot(listOf(BootstrapCodec.page(fixture("bootstrap-activity-rules-response.json"))))
+        store.swap(store.stage(snapshot), "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
+        assertEquals(3, store.activityRules().size)
+    }
     @Test fun callSheetMalformedRequiredFieldsAndWrongPageOutletFailClosed() {
         val original = fixture("bootstrap-call-sheet-response.json")
         val mutations: List<(JSONObject) -> Unit> = listOf(
@@ -121,6 +153,38 @@ class BootstrapTest {
         }
         for (value in listOf(-1, 1.5, "2", true, JSONObject.NULL, 2147483648L)) {
             val wire = JSONObject(absent.toString()).apply { getJSONArray("plannedVisits").getJSONObject(0).put("sequence", value) }
+            assertThrows(WireFailure::class.java) { BootstrapCodec.page(wire.toString()) }
+        }
+    }
+    @Test fun optionalRouteOutletFieldsAreValidatedAndOlderServersStillDecode() {
+        val outlet = BootstrapCodec.page(first).outlets.single()
+        val json = JSONObject(outlet.json)
+        assertEquals("OUT-0001", json.getString("code"))
+        assertEquals(14.5764, json.getDouble("latitude"), 0.0)
+        val bare = JSONObject(first).apply {
+            val o = getJSONArray("outlets").getJSONObject(0)
+            listOf("code", "address", "latitude", "longitude").forEach { o.remove(it) }
+        }
+        assertFalse(JSONObject(BootstrapCodec.page(bare.toString()).outlets.single().json).has("latitude"))
+        val bad = listOf<(JSONObject) -> Unit>(
+            { it.remove("longitude") }, { it.put("latitude", 91) }, { it.put("longitude", "121") },
+            { it.put("address", "") }, { it.put("customerId", 7) }, { it.put("code", 5) })
+        for (mutate in bad) {
+            val wire = JSONObject(first).apply { mutate(getJSONArray("outlets").getJSONObject(0)) }
+            assertThrows(WireFailure::class.java) { BootstrapCodec.page(wire.toString()) }
+        }
+    }
+    @Test fun optionalOutletTerritoryIsBothOrNeither() {
+        val json = JSONObject(BootstrapCodec.page(first).outlets.single().json)
+        assertEquals("territory-1", json.getString("territoryId")); assertEquals("PASIG-01", json.getString("territoryCode"))
+        val bare = JSONObject(first).apply {
+            getJSONArray("outlets").getJSONObject(0).apply { remove("territoryId"); remove("territoryCode") }
+        }
+        assertFalse(JSONObject(BootstrapCodec.page(bare.toString()).outlets.single().json).has("territoryId"))
+        val bad = listOf<(JSONObject) -> Unit>({ it.remove("territoryCode") }, { it.remove("territoryId") },
+            { it.put("territoryId", "") }, { it.put("territoryCode", 3) }, { it.put("territoryId", JSONObject.NULL) })
+        for (mutate in bad) {
+            val wire = JSONObject(first).apply { mutate(getJSONArray("outlets").getJSONObject(0)) }
             assertThrows(WireFailure::class.java) { BootstrapCodec.page(wire.toString()) }
         }
     }

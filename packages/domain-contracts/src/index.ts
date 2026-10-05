@@ -11,6 +11,37 @@ export type BootstrapRequest = {
   pageCursor?: string;
   limit?: number;
 };
+/** One visit intent's required/optional activity forms (kind is an open string). */
+export type ActivityRuleV1 = {
+  intent: string;
+  version: string;
+  activities: Array<{ kind: string; required: boolean }>;
+};
+/**
+ * IOS-011: cached account figures for one outlet, as of the page's serverTime. Amounts are PHP
+ * centavos; `withheld` carries no figures (account shared outside the person's plan).
+ * `openOrders` are submitted orders not yet fulfilled/posted, never a receivables balance.
+ */
+export type AccountSummaryV1 = {
+  outletId: string;
+  asOfDate: string;
+  availability: "available" | "withheld";
+  creditLimitMinor: number | null;
+  sales: {
+    from: string;
+    to: string;
+    complete: boolean;
+    orders: number;
+    amountMinor: number;
+    recentOrders: number;
+    recentAmountMinor: number;
+    lastOrderDate: string | null;
+    lastOrderAmountMinor: number | null;
+  } | null;
+  openOrders: { count: number; amountMinor: number } | null;
+};
+/** AND-016: one visit photo type (code is an open string; label is display text). */
+export type PhotoTypeV1 = { code: string; label: string };
 export type CallSheetV1 = {
   outletId: string;
   revision: number;
@@ -45,6 +76,12 @@ export type CallSheetLineV1 = {
   offtake: number | null;
   endInventory: number | null;
 };
+/** One submitted field order line: a whole quantity in the product's unit (SP-0060). */
+export type FieldOrderLineV1 = {
+  productId: string;
+  uom: string;
+  quantity: number;
+};
 export type BootstrapResponse = {
   type: "bootstrap.response";
   contractVersion: 1;
@@ -68,7 +105,18 @@ export type BootstrapResponse = {
     intents: Array<string>;
     sequence?: number;
   }>;
-  outlets: Array<{ id: string; name: string; routeId: string | null }>;
+  outlets: Array<{
+    id: string;
+    name: string;
+    routeId: string | null;
+    code?: string;
+    customerId?: string;
+    territoryId?: string;
+    territoryCode?: string;
+    address?: string;
+    latitude?: number;
+    longitude?: number;
+  }>;
   localCustomers: Array<{ id: string; code: string }>;
   route: { id: string; code: string } | null;
   tasks: Array<{ id: string; kind: string; required: boolean }>;
@@ -80,9 +128,28 @@ export type BootstrapResponse = {
   }>;
   /** Annex C call sheets for this page's accounts. Optional: added after v1 shipped. */
   callSheets?: Array<CallSheetV1>;
+  /** AND-013 activity-form rules per visit intent. Optional: added after v1 shipped. */
+  activityRules?: Array<ActivityRuleV1>;
+  /** AND-016 visit photo types. Optional: added after v1 shipped. */
+  photoTypes?: Array<PhotoTypeV1>;
+  /** IOS-011 account summaries. Optional: added after v1 shipped. */
+  accountSummaries?: Array<AccountSummaryV1>;
   page: number;
   nextPageCursor: string | null;
   syncCursor: string | null;
+  dayTarget?: {
+    dailyCalls?: number;
+    productivePct?: number;
+    sourceRef?: string;
+    /** "any_listed_activity" | "truck_seller"; open string, unknown means the default rule. */
+    productiveCallRule?: string;
+  };
+  /** Today's sales (PHP centavos), as of serverTime. Optional: added after v1 shipped. */
+  daySales?: {
+    amountMinor: number;
+    orders: number;
+    targetMinor?: number;
+  };
 };
 export type PullRequest = {
   type: "pull.request";
@@ -172,7 +239,13 @@ export type PushRequest = {
                 programRef: string;
                 finding: "executed" | "not_executed" | "not_applicable";
               }
-            | { kind: "order_intent"; clientOrderId: string; note?: string }
+            | {
+                kind: "order_intent";
+                clientOrderId: string;
+                note?: string;
+                /** SP-0060 submitted field order lines; quantities only, never prices. */
+                lines?: Array<FieldOrderLineV1>;
+              }
             | { kind: "note"; text: string }
             | { kind: "call_sheet"; lines: Array<CallSheetLineV1> };
           deviceTime: number;

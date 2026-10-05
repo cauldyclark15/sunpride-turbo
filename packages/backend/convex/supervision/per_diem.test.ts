@@ -7,6 +7,7 @@ import { modules } from "../test.setup";
 import {
   claimPeriod,
   classifyVisit,
+  missingForms,
   summarizePeriod,
   type VisitFacts,
 } from "./per_diem_model";
@@ -37,6 +38,7 @@ const base: VisitFacts = {
   activityCount: 1,
   hasCallSheet: false,
   callSheetRequired: false,
+  requiredMissing: [],
 };
 
 describe("per-diem rules", () => {
@@ -128,6 +130,61 @@ describe("per-diem rules", () => {
       classifyVisit({ ...base, callSheetRequired: true, hasCallSheet: true })
         .status,
     ).toBe("valid");
+  });
+
+  it("holds a completed call missing its purpose's required forms", () => {
+    // Release counterexample: merchandise intent, only a note recorded.
+    const requiredMissing = missingForms({
+      outcome: "completed",
+      storedMissing: ["merchandising"],
+      required: ["merchandising"],
+      recorded: ["note"],
+    });
+    expect(requiredMissing).toEqual(["merchandising"]);
+    expect(classifyVisit({ ...base, requiredMissing })).toEqual({
+      status: "held",
+      reasons: ["forms_missing"],
+      notes: [],
+    });
+    // Once recorded, the form no longer blocks (even if End had flagged it).
+    expect(
+      missingForms({
+        outcome: "completed",
+        storedMissing: ["merchandising"],
+        required: ["merchandising"],
+        recorded: ["note", "merchandising"],
+      }),
+    ).toEqual([]);
+    // What End flagged still counts when today's recomputation misses it.
+    expect(
+      missingForms({
+        outcome: "completed",
+        storedMissing: ["inventory_check"],
+        required: [],
+        recorded: ["note"],
+      }),
+    ).toEqual(["inventory_check"]);
+    // A nonproductive End owes no purpose forms; an unknown outcome fails closed.
+    const merch = {
+      storedMissing: null,
+      required: ["merchandising"],
+      recorded: ["note"],
+    };
+    expect(missingForms({ ...merch, outcome: "nonproductive" })).toEqual([]);
+    expect(missingForms({ ...merch, outcome: null })).toEqual([
+      "merchandising",
+    ]);
+    // Missing forms next to an invalid reason stay invalid.
+    expect(
+      classifyVisit({
+        ...base,
+        requiredMissing,
+        callSheetRequired: true,
+      }),
+    ).toMatchObject({
+      status: "invalid",
+      reasons: ["no_call_sheet", "forms_missing"],
+    });
   });
 
   it("shows an off-pin fix without blocking (no fixed distance)", () => {
@@ -383,6 +440,7 @@ async function fixture() {
         evidence?: "within_radius" | "outside_radius";
         note?: boolean;
         callSheet?: boolean;
+        intents?: ("follow-up" | "merchandise")[];
       },
     ) => {
       const checkedInAt = at(serviceDate, `0${outlet + 7}:00`);
@@ -398,8 +456,10 @@ async function fixture() {
         orgUnitId: regionA,
         serviceDate,
         source: plannedVisitId ? "planned" : "unplanned",
-        intents: ["sell"],
+        // Follow-up calls require a note under the provisional activity-form rules.
+        intents: opts.intents ?? ["follow-up"],
         state: "checked-out",
+        outcome: "completed",
         productivity: "verified",
         createdAt: checkedInAt,
         lastServerTime: checkedInAt + HOUR / 2,
@@ -659,5 +719,85 @@ describe("per-diem validation", () => {
     expect((await t.run((ctx) => ctx.db.get(returned)))!.note).toBe(
       "Stop 1 was not done",
     );
+  });
+
+  it("holds a call missing its purpose's required forms and refuses validation", async () => {
+    const { t, ids, as } = await fixture();
+    const manager = as("managerA");
+    const view = async () =>
+      (
+        await manager.query(api.supervision.per_diem.validation, {
+          ...period,
+          profileId: ids.ana.id,
+        })
+      ).selected!;
+    // Clear the late hold so only the forms gap blocks validation.
+    await t.run((ctx) =>
+      ctx.db.patch(ids.v2.id, { lateReviewStatus: "accepted" }),
+    );
+    // Stop 1 was a merchandise call with only a note: End flagged the missing form.
+    await t.run((ctx) =>
+      ctx.db.patch(ids.v1.id, {
+        intents: ["merchandise"],
+        missingActivities: ["merchandising"],
+      }),
+    );
+    const held = await view();
+    expect(held.items.find((row) => row.id === ids.v1.id)).toMatchObject({
+      status: "held",
+      reasons: ["forms_missing"],
+      missingForms: ["merchandising"],
+    });
+    expect(held.totals).toMatchObject({ validCalls: 2, heldCalls: 1 });
+    await expect(
+      manager.mutation(api.supervision.per_diem.decide, {
+        profileId: ids.ana.id,
+        ...period,
+        decision: "validated",
+        contentHash: held.contentHash,
+      }),
+    ).rejects.toThrow("Decide the held calls");
+    // The rule governs even without End's flag: the recomputation still holds the call.
+    await t.run((ctx) =>
+      ctx.db.patch(ids.v1.id, { missingActivities: undefined }),
+    );
+    expect(
+      (await view()).items.find((row) => row.id === ids.v1.id)!.missingForms,
+    ).toEqual(["merchandising"]);
+    // Recording the form changes what was decided: the old view is stale, the call counts.
+    await t.run(async (ctx) => {
+      const visit = (await ctx.db.get(ids.v1.id))!;
+      await ctx.db.insert("visitActivities", {
+        organizationId: "sunpride",
+        orgUnitId: visit.orgUnitId,
+        visitId: visit._id,
+        assigneeProfileId: visit.assigneeProfileId,
+        outletId: visit.outletId,
+        activity: { kind: "merchandising", displayCondition: "compliant" },
+        evidenceIds: [],
+        deviceTime: visit.checkedInAt!,
+        serverTime: visit.checkedInAt!,
+      });
+    });
+    await expect(
+      manager.mutation(api.supervision.per_diem.decide, {
+        profileId: ids.ana.id,
+        ...period,
+        decision: "validated",
+        contentHash: held.contentHash,
+      }),
+    ).rejects.toThrow("stale_validation");
+    const complete = await view();
+    expect(complete.items.find((row) => row.id === ids.v1.id)).toMatchObject({
+      status: "valid",
+      missingForms: [],
+    });
+    expect(complete.contentHash).not.toBe(held.contentHash);
+    await manager.mutation(api.supervision.per_diem.decide, {
+      profileId: ids.ana.id,
+      ...period,
+      decision: "validated",
+      contentHash: complete.contentHash,
+    });
   });
 });
