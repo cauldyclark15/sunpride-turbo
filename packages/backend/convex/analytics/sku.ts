@@ -6,8 +6,13 @@ import { LATE_ORDER_WINDOW_MS, saleInstant } from "../dsr/model";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
 import { requireCapability } from "../lib/capabilities";
 import { MAX_AVAILABILITY_LINES } from "../merchandising/validators";
+import { orderScopeCheck } from "../mobile/account_summary";
 import { activeAt } from "../org/validation";
-import { supervisorContext } from "../supervision/access";
+import { resolveOutletScopeAt } from "../outlets/validation";
+import {
+  supervisorContext,
+  type SupervisorContext,
+} from "../supervision/access";
 import { resolveTerritoryOwnerAt } from "../territories/validation";
 import { MAX_ORDER_LINES, orderFigures } from "./rollups_model";
 import {
@@ -29,6 +34,10 @@ import { periodError } from "./territory_model";
  *
  * Access: as ANA-004 — supervision readers (`people.read` + `visit.read`) who also hold
  * `report.read`, inside their own organizational scope. Field `sales` never sees it.
+ * Historical store membership never widens access: each store must also sit in the
+ * caller's CURRENT scope through its current persisted owner (territory owner, else
+ * custodian), and each order counts only when its author and source location are in
+ * scope — a shared accounting customer is never an access key.
  *
  * Computed live from the source tables: `dailySkuMetrics` (CVX-032) has no store
  * dimension, so it cannot count buying stores. Pure rules: `./sku_model.ts`.
@@ -100,7 +109,7 @@ async function loadTerritory(
     throw new ConvexError(
       "Requested territory is outside your organizational scope",
     );
-  return territory;
+  return { territory, sc };
 }
 
 type Product = { code: string; name: string; category: string };
@@ -112,6 +121,7 @@ type Product = { code: string; name: string; category: string };
  */
 async function territoryData(
   ctx: QueryCtx,
+  sc: SupervisorContext,
   territory: Doc<"territories">,
   from: string,
   to: string,
@@ -135,6 +145,22 @@ async function territoryData(
     )
       byOutlet.set(row.outletId, [...(byOutlet.get(row.outletId) ?? []), row]);
   if (byOutlet.size > MAX_OUTLET_ROWS) throw new ConvexError(TOO_BIG);
+  // A store that has since moved out of the caller's scope is dropped from every figure,
+  // even for days it belonged to this territory.
+  for (const outletId of [...byOutlet.keys()]) {
+    let unit: Id<"orgUnits"> | null = null;
+    try {
+      unit = (await resolveOutletScopeAt(ctx, outletId, now)).orgUnitId;
+    } catch {
+      // Broken or missing ownership never widens access.
+    }
+    if (!unit || !sc.scope.has(unit)) byOutlet.delete(outletId);
+  }
+  const inScope = orderScopeCheck(ctx, {
+    subject: sc.profile.authSubject,
+    role: sc.profile.role,
+    units: sc.scope,
+  });
   const inTerritoryAt = (outletId: Id<"outlets">, instant: number) =>
     (byOutlet.get(outletId) ?? []).some((row) =>
       activeAt(row.effectiveFrom, row.effectiveTo, instant),
@@ -224,6 +250,7 @@ async function territoryData(
         // A customer shared by two stores of the territory is counted once.
         if (counted.has(order._id)) continue;
         counted.add(order._id);
+        if (!(await inScope(order))) continue;
         const lines = await ctx.db
           .query("orderLines")
           .withIndex("by_order", (q) => q.eq("orderId", order._id))
@@ -320,13 +347,13 @@ export const territory = query({
     ),
   }),
   handler: async (ctx, args) => {
-    const territory = await loadTerritory(
+    const { territory, sc } = await loadTerritory(
       ctx,
       args.territoryId,
       args.from,
       args.to,
     );
-    const data = await territoryData(ctx, territory, args.from, args.to);
+    const data = await territoryData(ctx, sc, territory, args.from, args.to);
     const codes = [...data.figures.keys()].sort();
     const skus = [];
     for (const code of codes.slice(0, MAX_SKUS)) {
@@ -382,13 +409,13 @@ export const gaps = query({
     const productCode = args.productCode.trim();
     if (!productCode || productCode.length > 80)
       throw new ConvexError("invalid_request");
-    const territory = await loadTerritory(
+    const { territory, sc } = await loadTerritory(
       ctx,
       args.territoryId,
       args.from,
       args.to,
     );
-    const data = await territoryData(ctx, territory, args.from, args.to);
+    const data = await territoryData(ctx, sc, territory, args.from, args.to);
     const buying = data.buyers.get(productCode) ?? new Set();
     const rows = [];
     for (const [outletId, outlet] of data.active) {

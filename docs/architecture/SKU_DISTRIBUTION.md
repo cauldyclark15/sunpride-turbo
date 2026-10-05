@@ -22,6 +22,7 @@ Totals and splits sum territories first and divide afterwards; a SKU absent from
 ## Access and limits
 
 - Supervision readers (`people.read` + `visit.read`) who also hold `report.read`, inside their own organizational scope (`super_admin` and `analyst` see everything). Field `sales` never sees it. Territories come from `analytics/territory:list`; the web subscribes one `analytics/sku:territory` per territory and, for the selected SKU, one `analytics/sku:gaps` per territory.
+- Historical membership never widens access. A store counts (in active stores, buyers, shelf signals and gap lists) only while its CURRENT persisted owner — its current territory's owner, else its custodian — is in the caller's current scope; a store since moved to another region drops out of that region's history for the old region's managers. Each order counts only when its author and source location are in the caller's scope, so a shared accounting customer never brings in another region's sales.
 - One read covers one territory: at most 300 stores, 1,000 orders per customer, 6,000 order lines and 400 SKUs (`truncated`).
 - Computed live from orders, order lines, store assignments and merchandising audits. `dailySkuMetrics` (CVX-032) has no store dimension, so it cannot count buying stores; nothing needs backfilling after deploy.
 

@@ -80,6 +80,7 @@ async function fixture() {
     await person("managerA", "manager", regionA);
     await person("analyst", "analyst", root);
     const ana = await person("Ana", "sales", regionA);
+    await person("Bea", "sales", regionB);
 
     const territory = async (
       code: string,
@@ -287,7 +288,7 @@ async function fixture() {
     ]);
     // An audit before the period gives no signal.
     await audit(1, "2026-09-20", [[p1, "out_of_stock"]]);
-    return { ta, tb };
+    return { ta, tb, o };
   });
   const as = (name: string) =>
     t.withIdentity({
@@ -449,6 +450,146 @@ describe("SKU distribution queries", () => {
         }),
       }),
     ]);
+  });
+});
+
+describe("SKU distribution current scope", () => {
+  /** O3 moves from T-A (region A) to T-B (region B) at D2 midnight. */
+  async function transferO3(t: T, o: Id<"outlets">[], tb: Id<"territories">) {
+    await t.run(async (ctx) => {
+      const old = await ctx.db
+        .query("outletAssignments")
+        .withIndex("by_outletId_and_effectiveFrom", (q) =>
+          q.eq("outletId", o[2]!),
+        )
+        .first();
+      await ctx.db.patch(old!._id, { effectiveTo: at(D2, "00:00") });
+      await ctx.db.insert("outletAssignments", {
+        outletId: o[2]!,
+        territoryId: tb,
+        sequence: 9,
+        effectiveFrom: at(D2, "00:00"),
+        actorSubject: "fixture",
+        reason: "transfer",
+        createdAt: at(D2, "00:00"),
+      });
+    });
+  }
+
+  it("drops a store transferred out of scope from historical gaps", async () => {
+    const { t, ids, as } = await fixture();
+    await transferO3(t, ids.o, ids.tb);
+    const args = { territoryId: ids.ta, from: D1, to: D1, productCode: "P1" };
+    const manager = await as("managerA").query(api.analytics.sku.gaps, args);
+    expect(manager.outlets.map((row) => row.code)).toEqual(["O4"]);
+    expect(manager.gapCount).toBe(1);
+    // The national analyst still sees the store's history in T-A.
+    const analyst = await as("analyst").query(api.analytics.sku.gaps, args);
+    expect(analyst.outlets.map((row) => row.code).sort()).toEqual(["O3", "O4"]);
+  });
+
+  it("drops a transferred store's stores, audits and sales from historical figures", async () => {
+    const { t, ids, as } = await fixture();
+    await transferO3(t, ids.o, ids.tb);
+    await t.run(async (ctx) => {
+      // O3's account buys P2 on D1, while O3 was still in T-A.
+      const id = await ctx.db.insert("orders", {
+        organizationId: "sunpride",
+        clientRequestId: "o3-sale",
+        orderNumber: "SO-o3-sale",
+        customerCode: "C3",
+        salespersonSubject: subject("Ana"),
+        status: "submitted",
+        subtotal: 700,
+        total: 700,
+        createdAt: at(D1, "12:00"),
+        updatedAt: at(D1, "12:00"),
+      });
+      await ctx.db.insert("orderLines", {
+        orderId: id,
+        productCode: "P2",
+        description: "P2",
+        quantity: 7,
+        unitPrice: 100,
+        lineTotal: 700,
+      });
+    });
+    const args = { territoryId: ids.ta, from: D1, to: D1 };
+    const manager = await as("managerA").query(
+      api.analytics.sku.territory,
+      args,
+    );
+    expect(manager.activeOutlets).toBe(3);
+    expect(manager.auditedOutlets).toBe(0);
+    const p2 = manager.skus.find((row) => row.productCode === "P2")!;
+    expect(p2.figures).toMatchObject({ buyingOutlets: 1, quantity: 5 });
+    const analyst = await as("analyst").query(
+      api.analytics.sku.territory,
+      args,
+    );
+    expect(analyst.activeOutlets).toBe(4);
+    expect(analyst.auditedOutlets).toBe(1);
+    expect(
+      analyst.skus.find((row) => row.productCode === "P2")!.figures,
+    ).toMatchObject({ buyingOutlets: 2, quantity: 12 });
+  });
+
+  it("never counts a shared account's orders authored outside scope", async () => {
+    const { t, ids, as } = await fixture();
+    await t.run(async (ctx) => {
+      // C1 is also linked to O7 in T-B; region B's salesperson sells P3 on it.
+      const customer = await ctx.db
+        .query("customers")
+        .withIndex("by_code", (q) => q.eq("code", "C1"))
+        .unique();
+      await ctx.db.insert("outletCustomerLinks", {
+        outletId: ids.o[6]!,
+        customerId: customer!._id,
+        source: "fixture",
+        effectiveFrom: at(D1, "00:00") - 10 * DAY_MS,
+        actorSubject: "fixture",
+        reason: "fixture",
+        createdAt: at(D1, "00:00") - 10 * DAY_MS,
+      });
+      const id = await ctx.db.insert("orders", {
+        organizationId: "sunpride",
+        clientRequestId: "bea-1",
+        orderNumber: "SO-bea-1",
+        customerCode: "C1",
+        salespersonSubject: subject("Bea"),
+        status: "submitted",
+        subtotal: 400,
+        total: 400,
+        createdAt: at(D1, "15:00"),
+        updatedAt: at(D1, "15:00"),
+      });
+      await ctx.db.insert("orderLines", {
+        orderId: id,
+        productCode: "P3",
+        description: "P3",
+        quantity: 4,
+        unitPrice: 100,
+        lineTotal: 400,
+      });
+    });
+    const args = { territoryId: ids.ta, from: D1, to: D1 };
+    const manager = await as("managerA").query(
+      api.analytics.sku.territory,
+      args,
+    );
+    expect(manager.skus.map((row) => row.productCode)).not.toContain("P3");
+    const gaps = await as("managerA").query(api.analytics.sku.gaps, {
+      ...args,
+      productCode: "P3",
+    });
+    expect(gaps.outlets.map((row) => row.code)).toContain("O1");
+    const analyst = await as("analyst").query(
+      api.analytics.sku.territory,
+      args,
+    );
+    expect(
+      analyst.skus.find((row) => row.productCode === "P3")!.figures,
+    ).toMatchObject({ buyingOutlets: 1, quantity: 4 });
   });
 });
 
