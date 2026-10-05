@@ -628,7 +628,18 @@ final class FieldIOSUITests: XCTestCase {
     /// IOS-020 release counterexample: both filters are saved, then the server refuses. Neither saved copy
     /// may come back in-session, after an offline relaunch, or on switching filters.
     func testSupervisorTeamRefusalErasesBothSavedFilters() {
-        let app = launchStub("supervisor", environment: ["FIELD_STUB_TEAM_REFUSE_AFTER": "2"])
+        assertTeamRefusalWithdrawsBothSavedFilters(eraseFails: false)
+    }
+
+    /// Release counterexample: erasing the saved team fails while it stays readable; the refusal must still
+    /// withdraw both filters in session and after an offline relaunch.
+    func testSupervisorTeamRefusalWithdrawsSavedFiltersEvenWhenEraseFails() {
+        assertTeamRefusalWithdrawsBothSavedFilters(eraseFails: true)
+    }
+
+    private func assertTeamRefusalWithdrawsBothSavedFilters(eraseFails: Bool) {
+        let erase = eraseFails ? ["FIELD_STUB_TEAM_ERASE_FAILS": "1"] : [:]
+        let app = launchStub("supervisor", environment: erase.merging(["FIELD_STUB_TEAM_REFUSE_AFTER": "2"]) { a, _ in a })
         signIn(app, password: "correct-horse")
         let open = app.buttons["openTeam"]
         XCTAssertTrue(open.waitForExistence(timeout: 20))
@@ -647,7 +658,7 @@ final class FieldIOSUITests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["teamPerson-profile-cara"].exists)
         app.terminate()
 
-        let offline = launchStub("offline")
+        let offline = launchStub("offline", environment: erase)
         let reopen = offline.buttons["openTeam"]
         XCTAssertTrue(reopen.waitForExistence(timeout: 15))
         reopen.tap()

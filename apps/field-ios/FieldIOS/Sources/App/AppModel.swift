@@ -56,9 +56,10 @@ final class AppModel {
     private(set) var team = TeamView()
     private(set) var teamDirectOnly = true
     private(set) var teamLoading = false
-    /// IOS-020: set by a server refusal or ended session, cleared only by a new live summary. While set,
-    /// no saved team copy is read even if erasing it failed.
-    private var teamRefused = false
+    /// IOS-020: in-session withdrawal per filter (a refusal blocks every saved copy until that filter gets a
+    /// new live answer), plus durable per-filter grants that a refusal revokes even if erasing rows fails.
+    @ObservationIgnored private var teamLatch = TeamSessionLatch()
+    @ObservationIgnored var teamGrantDefaults: UserDefaults = .standard
     var dashboard: TodayDashboard {
         TodayDashboard.make(visits: visits, target: dayTarget, sales: daySales, now: now(),
                             canStart: { [weak self] in self?.startFailure(for: $0) == nil })
@@ -258,7 +259,7 @@ final class AppModel {
         visits = []; callSheets = []; activityRules = []; photoTypes = []; visitPhotos = [:]; orderDrafts = []
         outletDetails = [:]; customerDetails = [:]; routeCode = nil
         customers = []; dayTasks = []; dayTarget = nil; daySales = nil
-        supervisor = false; team = TeamView(); teamDirectOnly = true; teamRefused = false
+        supervisor = false; team = TeamView(); teamDirectOnly = true; teamLatch = TeamSessionLatch()
     }
 
     /// Confirmed revocation/suspension (QSR-010): hold unsent work and drop this partition's cached
@@ -655,8 +656,13 @@ final class AppModel {
         teamLoading = true
         defer { teamLoading = false }
         let day = BootstrapClient.manilaDay(now())
-        let cache = StoreTeamCache(store: store, partition: partition, keepPrefix: TeamRepository.keepPrefix(serviceDate: day),
-                                   blocked: teamRefused)
+        let rows = FieldStoreTeamRows(store: store, partition: partition, keepPrefix: TeamRepository.keepPrefix(serviceDate: day))
+        #if DEBUG
+        // UI tests: an erase that fails while saved rows stay readable (release counterexample).
+        rows.eraseFails = ProcessInfo.processInfo.environment["FIELD_STUB_TEAM_ERASE_FAILS"] == "1"
+        #endif
+        let cache = GuardedTeamCache(rows: rows, grants: DefaultsTeamGrants(defaults: teamGrantDefaults, partition: partition),
+                                     latch: teamLatch, keepPrefix: TeamRepository.keepPrefix(serviceDate: day))
         let functions = functions
         // Without a network or a verified phone, only today's saved copy can be shown.
         let unavailable: String? = isOffline ? "Offline" : (enrollment.state.isReady ? nil : "Phone not verified yet")
@@ -666,26 +672,11 @@ final class AppModel {
             return try await functions.query(TeamRepository.path,
                                              TeamRepository.Args(serviceDate: day, directOnly: directOnly), as: TeamSummary.self)
         }
-        // A refusal blocks saved copies for the rest of the session; only a live answer lifts it.
-        if view.notAllowed || (view.summary == nil && view.message == TeamRepository.signInAgain) { teamRefused = true }
-        else if view.summary != nil && !view.saved { teamRefused = false }
+        // A refusal revokes every filter's grant and latches the session (inside the cache); only a live
+        // answer for the same filter shows a saved copy of it again.
         // A sign-out or partition change during the request discards its result.
         guard signedIn, activeStoragePartition == partition, teamDirectOnly == directOnly else { return }
         team = view
-    }
-    @MainActor private struct StoreTeamCache: TeamCache {
-        let store: any FieldLocalStore
-        let partition: StorePartition
-        let keepPrefix: String
-        let blocked: Bool
-        func read(key: String) -> (body: Data, savedAt: Int64)? {
-            blocked ? nil : try? store.localCache(entity: TeamRepository.cacheEntity, key: key, for: partition)
-        }
-        func clear() { try? store.clearLocalCache(entity: TeamRepository.cacheEntity, for: partition) }
-        func write(key: String, body: Data, savedAt: Int64) {
-            try? store.putLocalCache(entity: TeamRepository.cacheEntity, key: key, body: body, savedAt: savedAt,
-                                     keepPrefix: keepPrefix, for: partition)
-        }
     }
 
     // MARK: IOS-016 visit photos

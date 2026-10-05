@@ -128,6 +128,127 @@ final class TeamSummaryTests: XCTestCase {
         }
     }
 
+    // MARK: Withdrawal when erasing fails (release counterexample)
+
+    /// Rows whose erase fails while reads and writes still succeed.
+    private final class StubbornRows: TeamRowStore {
+        var rows: [String: (body: Data, savedAt: Int64)] = [:]
+        var clearAttempts = 0
+        func read(key: String) throws -> (body: Data, savedAt: Int64)? { rows[key] }
+        func write(key: String, body: Data, savedAt: Int64) throws { rows[key] = (body, savedAt) }
+        func clear() throws { clearAttempts += 1; throw StoreError.invalidInput }
+    }
+    private final class MemoryGrants: TeamGrantStore {
+        var tokens: [String: String] = [:]
+        func token(key: String) -> String? { tokens[key] }
+        func grant(key: String, token: String, keepPrefix: String) {
+            tokens = tokens.filter { $0.key.hasPrefix(keepPrefix) }; tokens[key] = token
+        }
+        func revokeAll() { tokens = [:] }
+    }
+
+    private func offlineView(_ cache: TeamCache, directOnly: Bool) async -> TeamView {
+        await TeamRepository.load(serviceDate: day, directOnly: directOnly, unavailable: "Offline", cache: cache, now: now) { nil }
+    }
+
+    func testRefusalWithFailedEraseStaysWithdrawnInSessionAndAfterRelaunch() async throws {
+        for error in [MobileError.rejected("Insufficient permission"), .sessionExpired, .notSignedIn, .unauthorized] {
+            let rows = StubbornRows(), grants = MemoryGrants()
+            let direct = try decoded(summaryJSON()), all = try decoded(summaryJSON(directOnly: false))
+            let session = GuardedTeamCache(rows: rows, grants: grants, latch: TeamSessionLatch(), keepPrefix: "\(day)|")
+            _ = await TeamRepository.load(serviceDate: day, directOnly: true, cache: session, now: now) { direct }
+            _ = await TeamRepository.load(serviceDate: day, directOnly: false, cache: session, now: now) { all }
+            let v1 = await offlineView(session, directOnly: false)
+            XCTAssertEqual(v1.summary, all, "saved before the refusal")
+            _ = await TeamRepository.load(serviceDate: day, directOnly: true, cache: session, now: now) { throw error }
+            XCTAssertEqual(rows.clearAttempts, 1)
+            XCTAssertEqual(rows.rows.count, 2, "erase failed; the rows are still readable")
+            // Same session, then a relaunch (fresh latch) on the same rows and grants.
+            let relaunch = GuardedTeamCache(rows: rows, grants: grants, latch: TeamSessionLatch(), keepPrefix: "\(day)|")
+            for cache in [session, relaunch] {
+                for directOnly in [true, false, true] {
+                    let v2 = await offlineView(cache, directOnly: directOnly)
+                    XCTAssertEqual(v2, TeamView(message: "Offline. Connect and try again."),
+                                   "\(error) \(directOnly)")
+                    let down = await TeamRepository.load(serviceDate: day, directOnly: directOnly, cache: cache, now: now) {
+                        throw MobileError.server
+                    }
+                    XCTAssertNil(down.summary, "\(error) \(directOnly)")
+                }
+            }
+        }
+    }
+
+    func testLiveAnswerForOneFilterNeverRenewsTheOther() async throws {
+        let rows = StubbornRows(), grants = MemoryGrants(), latch = TeamSessionLatch()
+        let session = GuardedTeamCache(rows: rows, grants: grants, latch: latch, keepPrefix: "\(day)|")
+        let direct = try decoded(summaryJSON()), all = try decoded(summaryJSON(directOnly: false))
+        _ = await TeamRepository.load(serviceDate: day, directOnly: true, cache: session, now: now) { direct }
+        _ = await TeamRepository.load(serviceDate: day, directOnly: false, cache: session, now: now) { all }
+        _ = await TeamRepository.load(serviceDate: day, directOnly: true, cache: session, now: now) { throw MobileError.rejected("x") }
+        // A new live Direct reports answer (even an empty team) renews Direct reports only.
+        let renewed = try TeamSummary(serviceDate: day, generatedAt: direct.generatedAt, dayCloseAt: direct.dayCloseAt, directOnly: true,
+                                      truncated: false, people: [], openExceptions: 0, totalExceptions: 0, exceptions: []).validated()
+        _ = await TeamRepository.load(serviceDate: day, directOnly: true, cache: session, now: now) { renewed }
+        let relaunch = GuardedTeamCache(rows: rows, grants: grants, latch: TeamSessionLatch(), keepPrefix: "\(day)|")
+        for cache in [session, relaunch] {
+            let v3 = await offlineView(cache, directOnly: true)
+            XCTAssertEqual(v3.summary, renewed)
+            let v4 = await offlineView(cache, directOnly: false)
+            XCTAssertNil(v4.summary, "the old whole-area copy stays withdrawn")
+        }
+        // Only a live whole-area answer brings that filter back.
+        _ = await TeamRepository.load(serviceDate: day, directOnly: false, cache: session, now: now) { all }
+        let v5 = await offlineView(session, directOnly: false)
+        XCTAssertEqual(v5.summary, all)
+    }
+
+    func testOldOrForeignRowsWithoutAMatchingGrantAreNeverShown() async throws {
+        let rows = StubbornRows(), grants = MemoryGrants()
+        let cache = GuardedTeamCache(rows: rows, grants: grants, latch: TeamSessionLatch(), keepPrefix: "\(day)|")
+        let key = TeamRepository.key(serviceDate: day, directOnly: true)
+        rows.rows[key] = (Data(summaryJSON().utf8), 1) // pre-upgrade row with no token
+        XCTAssertNil(cache.read(key: key))
+        rows.rows[key] = (GuardedTeamCache.wrap(UUID().uuidString, Data("{}".utf8)), 1)
+        grants.tokens[key] = UUID().uuidString // a different token
+        XCTAssertNil(cache.read(key: key))
+    }
+
+    /// The production adapters: real SQLCipher rows (erase forced to fail) and UserDefaults grants.
+    func testProductionAdaptersWithdrawAcrossRelaunchWhenEraseFails() async throws {
+        let a = try StorePartition(subject: "issuer|manager", deviceId: "phone-1", scope: "scope-1")
+        let other = try StorePartition(subject: "issuer|other", deviceId: "phone-1", scope: "scope-1")
+        let store = try seededStore(a, other)
+        let suite = "team.grants.tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        func cache(_ p: StorePartition, latch: TeamSessionLatch) -> GuardedTeamCache {
+            let rows = FieldStoreTeamRows(store: store, partition: p, keepPrefix: "\(day)|")
+            rows.eraseFails = true
+            return GuardedTeamCache(rows: rows, grants: DefaultsTeamGrants(defaults: defaults, partition: p), latch: latch,
+                                    keepPrefix: "\(day)|")
+        }
+        let direct = try decoded(summaryJSON()), all = try decoded(summaryJSON(directOnly: false))
+        let session = cache(a, latch: TeamSessionLatch()), bystander = cache(other, latch: TeamSessionLatch())
+        _ = await TeamRepository.load(serviceDate: day, directOnly: true, cache: session, now: now) { direct }
+        _ = await TeamRepository.load(serviceDate: day, directOnly: false, cache: session, now: now) { all }
+        _ = await TeamRepository.load(serviceDate: day, directOnly: true, cache: bystander, now: now) { direct }
+        _ = await TeamRepository.load(serviceDate: day, directOnly: true, cache: session, now: now) { throw MobileError.unauthorized }
+        XCTAssertNotNil(try store.localCache(entity: TeamRepository.cacheEntity, key: "\(day)|all", for: a), "erase failed")
+        for directOnly in [true, false] {
+            let relaunched = await offlineView(cache(a, latch: TeamSessionLatch()), directOnly: directOnly)
+            XCTAssertNil(relaunched.summary, "\(directOnly)")
+        }
+        let theirs = await offlineView(cache(other, latch: TeamSessionLatch()), directOnly: true)
+        XCTAssertEqual(theirs.summary, direct, "another account's grant is untouched")
+        // A live Direct reports answer renews only that filter, also after relaunch.
+        _ = await TeamRepository.load(serviceDate: day, directOnly: true, cache: session, now: now) { direct }
+        let directBack = await offlineView(cache(a, latch: TeamSessionLatch()), directOnly: true)
+        XCTAssertEqual(directBack.summary, direct)
+        let allStill = await offlineView(cache(a, latch: TeamSessionLatch()), directOnly: false)
+        XCTAssertNil(allStill.summary)
+    }
+
     func testWrongDayFilterOrNullAnswerFallsBackToSavedCopy() async throws {
         let cache = MemoryCache()
         let live = try decoded(summaryJSON())
