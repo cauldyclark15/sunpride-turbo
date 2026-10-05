@@ -45,6 +45,10 @@ export function NegativeStockPanel({
   const flags = useQuery(api.inventory.negative_stock.flags, {
     status: "open",
   });
+  // Only national administrators may switch an allowance; everyone else sees
+  // the state read-only rather than a control the server refuses.
+  const canManage =
+    useQuery(api.inventory.negative_stock.canManageAllowances, {}) === true;
   const setAllowance = useMutation(api.inventory.negative_stock.setAllowance);
   const resolveFlag = useMutation(api.inventory.negative_stock.resolveFlag);
   const [notes, setNotes] = useState<Record<string, string>>({});
@@ -153,27 +157,31 @@ export function NegativeStockPanel({
                 <StatusPill tone={allowed ? "warning" : "neutral"}>
                   {allowed ? "Can sell below zero" : "Stops at zero"}
                 </StatusPill>
-                <Button
-                  variant="secondary"
-                  isPending={busy === location._id}
-                  onPress={() =>
-                    void run(location._id, () =>
-                      setAllowance({
-                        locationId: location._id as Id<"inventoryLocations">,
-                        active: !allowed,
-                        movementTypes: allowance?.movementTypes.length
-                          ? allowance.movementTypes
-                          : [...DEFAULT_MOVEMENT_TYPES],
-                        ...(allowance?.limitBase != null
-                          ? { limitBase: allowance.limitBase }
-                          : {}),
-                        sourceRef: allowance?.sourceRef ?? SOURCE_REF,
-                      }),
-                    )
-                  }
-                >
-                  {allowed ? "Stop" : "Allow"}
-                </Button>
+                {canManage ? (
+                  <Button
+                    variant="secondary"
+                    isPending={busy === location._id}
+                    onPress={() =>
+                      void run(location._id, () =>
+                        setAllowance({
+                          locationId: location._id as Id<"inventoryLocations">,
+                          active: !allowed,
+                          movementTypes: allowance?.movementTypes.length
+                            ? allowance.movementTypes
+                            : [...DEFAULT_MOVEMENT_TYPES],
+                          ...(allowance?.limitBase != null
+                            ? { limitBase: allowance.limitBase }
+                            : {}),
+                          sourceRef: allowance?.sourceRef ?? SOURCE_REF,
+                        }),
+                      )
+                    }
+                  >
+                    {allowed ? "Stop" : "Allow"}
+                  </Button>
+                ) : (
+                  <span aria-hidden="true" />
+                )}
               </div>
             );
           })}

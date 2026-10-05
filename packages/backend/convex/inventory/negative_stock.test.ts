@@ -423,6 +423,94 @@ describe("distributor negative stock (SP-0085)", () => {
     ).rejects.toThrow("already resolved");
   });
 
+  it("accepts a costlier partial receipt into negative stock and keeps the ledger equal to the balance value", async () => {
+    const { t, admin, product, truck } = await provision();
+    await setTracking(t, product._id, "none");
+    await t.run(async (ctx) => {
+      const policy = await ctx.db
+        .query("productInventoryPolicies")
+        .withIndex("by_organizationId_and_productId", (q) =>
+          q.eq("organizationId", "sunpride").eq("productId", product._id),
+        )
+        .unique();
+      await ctx.db.patch(policy!._id, { qualityReleaseRequired: false });
+    });
+    await admin.mutation(api.inventory.negative_stock.setAllowance, {
+      locationId: truck._id,
+      active: true,
+      movementTypes: ["inventory_issue"],
+      sourceRef: "CALL-10",
+    });
+    await post(
+      t,
+      outbound(product._id, truck._id, "short-1000", OPENING + 1_000n),
+    );
+    const short = await balance(t, product._id, truck._id);
+    expect(short?.physicalBase).toBe(-1_000n);
+    const shortValue = short!.inventoryValueMinor!;
+    const shortCost = short!.weightedAverageCostMinor;
+    expect(shortValue < 0n).toBe(true);
+
+    async function ledgerValue() {
+      const entries = await t.run(async (ctx) =>
+        ctx.db
+          .query("inventoryLedgerEntries")
+          .withIndex(
+            "by_organizationId_and_productId_and_locationId_and_effectiveAt",
+            (q) =>
+              q
+                .eq("organizationId", "sunpride")
+                .eq("productId", product._id)
+                .eq("locationId", truck._id),
+          )
+          .collect(),
+      );
+      return entries.reduce(
+        (sum, entry) => sum + (entry.valueDeltaMinor ?? 0n),
+        0n,
+      );
+    }
+    expect(await ledgerValue()).toBe(shortValue);
+
+    // A receipt that covers only part of the shortfall at a much higher cost
+    // improves physical stock and must not be refused for its valuation.
+    const partial = await admin.mutation(api.inventory.receipts.post, {
+      idempotencyKey: "costly-partial",
+      receiptType: "purchase_order",
+      receivingLocationId: truck._id,
+      lines: [
+        {
+          productId: product._id,
+          quantityBase: 100n,
+          unitCostMinor: (shortCost ?? 10_000n) * 12n,
+        },
+      ],
+    });
+    expect(partial.movement.duplicate).toBe(false);
+    const partly = await balance(t, product._id, truck._id);
+    expect(partly?.physicalBase).toBe(-900n);
+    // The remaining shortfall keeps the cost it was issued at; its value only
+    // moves towards zero.
+    expect(partly?.inventoryValueMinor).toBe((shortValue * 900n) / 1_000n);
+    expect(partly?.weightedAverageCostMinor).toBe(shortCost);
+    expect(await ledgerValue()).toBe(partly?.inventoryValueMinor);
+
+    // Crossing zero values only the surplus at the receipt cost.
+    await admin.mutation(api.inventory.receipts.post, {
+      idempotencyKey: "covering",
+      receiptType: "purchase_order",
+      receivingLocationId: truck._id,
+      lines: [
+        { productId: product._id, quantityBase: 1_400n, unitCostMinor: 9_000n },
+      ],
+    });
+    const covered = await balance(t, product._id, truck._id);
+    expect(covered?.physicalBase).toBe(500n);
+    expect(covered?.availableBase).toBe(500n);
+    expect(covered?.weightedAverageCostMinor).toBe(9_000n);
+    expect(await ledgerValue()).toBe(covered?.inventoryValueMinor);
+  });
+
   it("restricts who may grant an allowance and where", async () => {
     const { t, admin, truck, inTransit } = await provision();
     await expect(
@@ -459,6 +547,12 @@ describe("distributor negative stock (SP-0085)", () => {
     });
     const ops = t.withIdentity({ subject: "ops", email: "ops@example.test" });
     await ops.mutation(api.domains.profiles.ensure);
+    expect(
+      await admin.query(api.inventory.negative_stock.canManageAllowances, {}),
+    ).toBe(true);
+    expect(
+      await ops.query(api.inventory.negative_stock.canManageAllowances, {}),
+    ).toBe(false);
     await expect(
       ops.mutation(api.inventory.negative_stock.setAllowance, {
         locationId: truck._id,

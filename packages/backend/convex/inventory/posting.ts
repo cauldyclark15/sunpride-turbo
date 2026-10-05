@@ -249,12 +249,17 @@ export async function applySummaryDelta(
   const valueBefore = base.inventoryValueMinor ?? ZERO;
   const unitCostMinor =
     args.unitCostMinor ?? base.weightedAverageCostMinor ?? ZERO;
-  // Receiving into a negative balance settles the shortfall: what remains on
-  // hand is valued at the receipt cost rather than averaging against the
-  // phantom negative value.
+  // Receiving into a negative balance settles the shortfall first. The settled
+  // quantity releases the negative position at the cost it was issued at, so a
+  // balance that stays negative keeps its own average cost (its value only moves
+  // towards zero, whatever the receipt cost). Only the surplus beyond zero is
+  // valued at the receipt cost; the settlement difference is the movement's
+  // value delta, so the ledger still sums to the balance value.
   const inventoryValueAfter =
     physicalBefore < ZERO && args.physicalDeltaBase > ZERO
-      ? (unitCostMinor * physicalAfter) / quantityScale
+      ? physicalAfter <= ZERO
+        ? (valueBefore * physicalAfter) / physicalBefore
+        : (unitCostMinor * physicalAfter) / quantityScale
       : valueBefore +
         (args.physicalDeltaBase === ZERO
           ? ZERO

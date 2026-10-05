@@ -7,10 +7,12 @@ import {
   negativeStockErrorMessage,
 } from "./negative-stock-panel";
 
-const data = vi.hoisted(() => ({ empty: false }));
+const data = vi.hoisted(() => ({ empty: false, national: true }));
 vi.mock("convex/react", () => ({
   useQuery: (ref: unknown) => {
     const name = getFunctionName(ref as never);
+    if (name === "inventory/negative_stock:canManageAllowances")
+      return data.national;
     if (name === "inventory/negative_stock:allowances")
       return data.empty
         ? []
@@ -98,6 +100,20 @@ describe("NegativeStockPanel (SP-0085)", () => {
     // Pull-outs (returns) and bookkeeping locations are never offered.
     expect(html).not.toContain("TRANSIT");
     expect(html).not.toContain("RET<");
+  });
+
+  it("shows allowances read-only to anyone who is not a national administrator", () => {
+    data.national = false;
+    const html = renderToStaticMarkup(
+      createElement(NegativeStockPanel, { locations }),
+    );
+    expect(html).toContain("<span>Can sell below zero</span>");
+    expect(html).toContain("<span>Stops at zero</span>");
+    expect(html).not.toContain("<button>Stop</button>");
+    expect(html).not.toContain("<button>Allow</button>");
+    // Settling stays available; the server checks approval per location.
+    expect(html).toContain("<button>Settle</button>");
+    data.national = true;
   });
 
   it("shows calm empty states", () => {

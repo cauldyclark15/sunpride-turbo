@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "../_generated/server";
+import { requireActiveProfile } from "../lib/auth";
 import { requireNationalScope } from "../lib/scope";
 import { displayQuantity, SUNPRIDE_ORGANIZATION_ID } from "./constants";
 import {
@@ -53,6 +54,23 @@ const flagRow = v.object({
   createdAt: v.number(),
   resolvedAt: v.union(v.number(), v.null()),
   resolutionNote: v.union(v.string(), v.null()),
+});
+
+export const canManageAllowances = query({
+  args: {},
+  returns: v.boolean(),
+  handler: async (ctx) => {
+    // Signed-out and unprovisioned callers are refused like every other
+    // endpoint; for a provisioned profile this is the same rule as
+    // setAllowance, so the web never offers a refused control.
+    await requireActiveProfile(ctx);
+    try {
+      await requireNationalScope(ctx, ["admin"]);
+      return true;
+    } catch {
+      return false;
+    }
+  },
 });
 
 export const setAllowance = mutation({
