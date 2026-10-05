@@ -572,8 +572,11 @@ class FieldController(
     /** ANA-010 suggested order for the open call sheet; only ever fills local Order fields. */
     var suggestedOrder by mutableStateOf(com.sunpride.field.ui.diagnosticvisit.SuggestedOrderView()); private set
     private var suggestedOrderFor: String? = null
+    /** Bumped by every load, close and sign-out: only the newest request may publish its answer. */
+    private var suggestedOrderRequest = 0L
     fun loadSuggestedOrder(outletId: String) = scope.launch(ui) {
         if (state !is EnrollmentState.Ready || (suggestedOrder.loading && suggestedOrderFor == outletId)) return@launch
+        val request = ++suggestedOrderRequest
         suggestedOrderFor = outletId
         suggestedOrder = com.sunpride.field.ui.diagnosticvisit.SuggestedOrderView(loading = true,
             message = com.sunpride.field.ui.diagnosticvisit.SuggestedOrderRepository.LOADING)
@@ -581,10 +584,15 @@ class FieldController(
             catch (e: kotlinx.coroutines.CancellationException) { throw e }
             catch (_: Exception) { com.sunpride.field.ui.diagnosticvisit.SuggestedOrderView(
                 message = com.sunpride.field.ui.diagnosticvisit.SuggestedOrderRepository.CONNECTION) }
-        // A different store opened meanwhile: drop this answer rather than show it on the wrong sheet.
-        if (suggestedOrderFor == outletId) suggestedOrder = result
+        // A newer request (same or another store), a closed sheet or sign-out overtook this one: drop it.
+        // Matching the store alone is not enough — A → B → A would let the first A answer undo a newer refusal.
+        if (request == suggestedOrderRequest) suggestedOrder = result
     }
-    fun closeCallSheet() = scope.launch(ui) { callSheetOpen = false; diagnosticError = null }
+    fun closeCallSheet() = scope.launch(ui) {
+        callSheetOpen = false; diagnosticError = null
+        suggestedOrderRequest++
+        suggestedOrder = com.sunpride.field.ui.diagnosticvisit.SuggestedOrderView(); suggestedOrderFor = null
+    }
     /** AND-013: downloaded activity-form rules, the open form, and an unplanned visit's chosen purposes. */
     var diagnosticRules by mutableStateOf<List<com.sunpride.field.storage.ActivityRule>>(emptyList()); private set
     var activityForm by mutableStateOf<String?>(null); private set
@@ -983,6 +991,7 @@ class FieldController(
         runCatching { withContext(io) { backend.signOut() } }
         state = EnrollmentState.SignedOut; today = TodayData(); error = null; busy = false
         team = com.sunpride.field.ui.team.TeamView(); teamDirectOnly = true
+        suggestedOrderRequest++
         suggestedOrder = com.sunpride.field.ui.diagnosticvisit.SuggestedOrderView(); suggestedOrderFor = null
     }
 

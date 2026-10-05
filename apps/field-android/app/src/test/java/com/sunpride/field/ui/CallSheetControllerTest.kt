@@ -215,4 +215,51 @@ class CallSheetControllerTest {
         controller.queueCallSheet(drafts) { cleared++ }.join()
         assertEquals(2, store.history().size); assertEquals(0, cleared)
     }
+    /**
+     * Release counterexample: open store A (its success is held in flight), then B, then A again, whose newer
+     * request is refused. When the first A success finally lands it must neither show nor renew the cache.
+     */
+    @Test fun anOldStoreAnswerCannotUndoANewerRefusalAfterAStoreSwitch() = runBlocking {
+        SuggestedOrderRepository.forgetSessionDenials()
+        val json = javaClass.classLoader!!.getResourceAsStream("for-outlet.json")!!.bufferedReader().use { it.readText() }
+        val a = JSONObject(json).getJSONObject("outlet").getString("outletId")
+        val day = JSONObject(json).getString("asOfDate")
+        val rows = mutableMapOf<String, SuggestedOrderCacheRow>()
+        val cache = object : SuggestedOrderCache {
+            override fun read(key: String) = synchronized(rows) { rows[key] }
+            override fun write(key: String, json: String, savedAt: Long) { synchronized(rows) { rows[key] = SuggestedOrderCacheRow(json, savedAt) } }
+            override fun block(key: String, reason: String, at: Long) { synchronized(rows) { rows[key] = SuggestedOrderCacheRow(null, at, reason) } }
+        }
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val calls = java.util.concurrent.atomic.AtomicInteger()
+        val store = FakeFieldStore(scope)
+        store.swap(store.stage(snapshot()), "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
+        val backend = object : FieldBackend by Backend(store) {
+            override fun suggestedOrder(outletId: String): SuggestedOrderView =
+                if (outletId != a) SuggestedOrderView(message = "store B")
+                else SuggestedOrderRepository.load(a, day, cache, 1) {
+                    if (calls.incrementAndGet() == 1) {
+                        entered.countDown(); check(release.await(5, java.util.concurrent.TimeUnit.SECONDS)); json
+                    } else throw com.sunpride.field.auth.ConvexFunctionError("Forbidden")
+                }
+        }
+        val controller = FieldController(backend, this, Dispatchers.IO, Dispatchers.Unconfined, now = { 100L })
+        controller.start().join()
+        val old = controller.loadSuggestedOrder(a)
+        assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        controller.loadSuggestedOrder("store-b").join()
+        controller.loadSuggestedOrder(a).join()
+        assertNull(controller.suggestedOrder.order)
+        assertEquals(SuggestedOrderRepository.NOT_ALLOWED, controller.suggestedOrder.message)
+        release.countDown(); old.join()
+        // Neither the screen nor the phone's cache takes the overtaken answer.
+        assertNull(controller.suggestedOrder.order)
+        assertEquals(SuggestedOrderRepository.NOT_ALLOWED, controller.suggestedOrder.message)
+        assertNull(rows.getValue("$day|$a").json)
+        val reopened = SuggestedOrderRepository.load(a, day, cache, 2) { throw com.sunpride.field.auth.AuthFailure(
+            com.sunpride.field.auth.AuthFailure.Kind.OFFLINE) }
+        assertNull(reopened.order); assertEquals(SuggestedOrderRepository.NOT_ALLOWED, reopened.message)
+        SuggestedOrderRepository.forgetSessionDenials()
+    }
 }

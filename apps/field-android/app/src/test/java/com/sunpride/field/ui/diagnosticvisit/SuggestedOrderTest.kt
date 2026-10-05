@@ -212,6 +212,48 @@ class SuggestedOrderTest {
         }
     }
 
+    /** Release counterexample: an older in-flight success lands after a newer refusal for the same store/day. */
+    @Test fun anOverlappingOlderSuccessNeverUndoesANewerRefusal() {
+        val cache = Cache()
+        assertNotNull(SuggestedOrderRepository.load(outlet, day, cache, 1) { text }.order)
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val older = java.util.concurrent.CompletableFuture.supplyAsync {
+            SuggestedOrderRepository.load(outlet, day, cache, 2) {
+                entered.countDown(); check(release.await(5, java.util.concurrent.TimeUnit.SECONDS)); text
+            }
+        }
+        assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        assertNull(SuggestedOrderRepository.load(outlet, day, cache, 3) { throw ConvexFunctionError("Forbidden") }.order)
+        release.countDown()
+        val late = older.get(5, java.util.concurrent.TimeUnit.SECONDS)
+        assertNull(late.order); assertEquals(SuggestedOrderRepository.NOT_ALLOWED, late.message)
+        assertNull(cache.rows.getValue("$day|$outlet").json)
+        val reopened = SuggestedOrderRepository.load(outlet, day, cache, 4, offline)
+        assertNull(reopened.order); assertEquals(SuggestedOrderRepository.NOT_ALLOWED, reopened.message)
+        SuggestedOrderRepository.forgetSessionDenials() // relaunch: the durable marker still refuses
+        assertNull(SuggestedOrderRepository.load(outlet, day, cache, 5, offline).order)
+        // A fresh live answer (started after the refusal) still renews.
+        assertNotNull(SuggestedOrderRepository.load(outlet, day, cache, 6) { text }.order)
+    }
+
+    /** Sign-out orphans in-flight requests: a success that lands afterwards is neither saved nor shown. */
+    @Test fun signOutOrphansAnInFlightSuccess() {
+        val cache = Cache()
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val inFlight = java.util.concurrent.CompletableFuture.supplyAsync {
+            SuggestedOrderRepository.load(outlet, day, cache, 1) {
+                entered.countDown(); check(release.await(5, java.util.concurrent.TimeUnit.SECONDS)); text
+            }
+        }
+        assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        SuggestedOrderRepository.forgetSessionDenials()
+        release.countDown()
+        assertNull(inFlight.get(5, java.util.concurrent.TimeUnit.SECONDS).order)
+        assertTrue(cache.rows.isEmpty())
+    }
+
     @Test fun aLatchedRefusalIsPerStoreAndDay() {
         val cache = Cache()
         assertNotNull(SuggestedOrderRepository.load(outlet, day, cache, 1) { text }.order)

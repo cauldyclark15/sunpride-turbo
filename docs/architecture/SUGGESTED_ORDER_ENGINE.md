@@ -92,6 +92,12 @@ The iOS and Android call sheets show the suggestion for the store being visited.
   later offline open or app relaunch still shows the refusal until a fresh live answer arrives. Android also
   latches the refusal in memory first, so if the marker write fails while old rows stay readable, that app
   session still never shows them; each blocked offline open retries the marker write.
+  Overlapping requests (store A, then B, then A again): every request gets a generation; only the newest
+  request for a store and day may clear a refusal or overwrite the saved answer, and only the newest request
+  on the screen may publish its result (closing the sheet or signing out also retires in-flight requests).
+  An older success that lands after a newer refusal is discarded, on screen and on the phone (iOS does the
+  same with per-request IDs). Residual gap: if every refusal-marker write fails and the app process dies
+  before one succeeds, the in-memory refusal is lost and the old answer can reappear offline after relaunch.
   Without a connection or a saved answer the card says to enter the order as usual.
 - Not recorded in v1: whether the salesperson accepted or changed a suggestion (would need a mobile contract
   change).

@@ -192,24 +192,51 @@ object SuggestedOrderRepository {
      */
     private val sessionDenials = java.util.concurrent.ConcurrentHashMap<String, String>()
 
-    /** Sign-out (the phone's data is purged) or a test simulating a new process. */
-    fun forgetSessionDenials() = sessionDenials.clear()
+    /**
+     * Request generations: every load takes a fresh, never-reused ticket and records it as the newest request
+     * for its store and day. A success may renew access (clear the latch, overwrite the saved answer) only if
+     * no newer request for that key started meanwhile — so an old in-flight success can never undo a newer
+     * refusal, in memory or on the phone. Refusals always apply (fail closed). Guarded by [lock] so the
+     * check and the latch/cache writes are one step.
+     */
+    private val nextTicket = java.util.concurrent.atomic.AtomicLong(0)
+    private val newestRequest = HashMap<String, Long>()
+    private val lock = Any()
+
+    /**
+     * Sign-out (the phone's data is purged) or a test simulating a new process. Also orphans every in-flight
+     * request, so none of their answers can be saved or shown afterwards.
+     */
+    fun forgetSessionDenials() = synchronized(lock) {
+        sessionDenials.clear()
+        newestRequest.clear()
+    }
 
     /**
      * Fetch live and save for today; offline, show today's saved suggestions for the same store. A server
      * refusal, ended session or unreadable answer durably replaces the saved answer with a refusal marker,
      * so a later offline open or app relaunch never restores it; only a fresh live answer clears the marker.
-     * The in-session latch keeps the refusal even when that marker cannot be written.
+     * The in-session latch keeps the refusal even when that marker cannot be written. An answer that was
+     * overtaken by a newer request for the same store and day is discarded, never saved.
      */
     fun load(outletId: String, asOfDate: String, cache: SuggestedOrderCache, now: Long,
              fetch: () -> String): SuggestedOrderView {
         val key = key(asOfDate, outletId)
+        val ticket = nextTicket.incrementAndGet()
+        synchronized(lock) { newestRequest[key] = ticket }
         return try {
             val text = fetch()
             val order = SuggestedOrderCodec.decode(text, outletId, asOfDate)
-            sessionDenials.remove(key)
-            runCatching { cache.write(key, text, now) }
-            SuggestedOrderView(order)
+            val current = synchronized(lock) {
+                (newestRequest[key] == ticket).also { newest ->
+                    if (newest) {
+                        sessionDenials.remove(key)
+                        runCatching { cache.write(key, text, now) }
+                    }
+                }
+            }
+            // Overtaken: show only what an offline open would (a newer refusal stays a refusal).
+            if (current) SuggestedOrderView(order) else saved(cache, key, outletId, asOfDate, now)
         } catch (_: ConvexFunctionError) {
             refuse(cache, key, BLOCKED_NOT_ALLOWED, now)
         } catch (e: AuthFailure) {
@@ -225,8 +252,10 @@ object SuggestedOrderRepository {
     }
 
     private fun refuse(cache: SuggestedOrderCache, key: String, reason: String, now: Long): SuggestedOrderView {
-        sessionDenials[key] = reason
-        runCatching { cache.block(key, reason, now) }
+        synchronized(lock) {
+            sessionDenials[key] = reason
+            runCatching { cache.block(key, reason, now) }
+        }
         return SuggestedOrderView(message = blockedMessage(reason))
     }
 
