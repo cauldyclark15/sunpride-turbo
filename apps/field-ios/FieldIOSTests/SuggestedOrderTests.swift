@@ -165,6 +165,15 @@ final class SuggestedOrderTests: XCTestCase {
         var value = try object(); value["leadTimeProvisional"] = false
         XCTAssertEqual(SuggestedOrderRules(order: try decode(value)).summary,
             "3 product(s) suggested · covers 8 days (7 to next visit + 1 lead time)")
+        XCTAssertEqual(order.historyStatus, "complete")
+        var shared = try object(); shared["historyStatus"] = "shared_account"
+        XCTAssertEqual(SuggestedOrderRules(order: try decode(shared)).summary,
+            "3 product(s) suggested · covers 8 days (7 to next visit + 1 lead time)\nLead time is provisional.\nThis account is shared with another store, so its order history is not used.")
+        XCTAssertEqual(SuggestedOrderRules.historyNote("partial_scope"),
+            "Some of this account's orders are outside your area and were not counted.")
+        XCTAssertNil(SuggestedOrderRules.historyNote("something_new"))
+        var missing = try object(); missing.removeValue(forKey: "historyStatus")
+        XCTAssertNil(try decode(missing).historyStatus)
         XCTAssertEqual(SuggestedOrderRules.note, "Suggestions only. Nothing is ordered until you save the call sheet.")
     }
     func testSuggestedAndManuallyTypedPayloadsAreIdentical() throws {

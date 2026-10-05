@@ -11,6 +11,8 @@ struct SuggestedOrder: Decodable, Equatable, Sendable {
     let nextVisit: NextVisit
     let outlet: Outlet
     let lines: [Line]
+    /// ANA-009 history scope: complete, partial_scope, shared_account or no_customer (unknown kept raw).
+    let historyStatus: String?
 
     struct NextVisit: Decodable, Equatable, Sendable { let days: Int }
     struct Outlet: Decodable, Equatable, Sendable { let outletId: String }
@@ -52,7 +54,7 @@ struct SuggestedOrder: Decodable, Equatable, Sendable {
 
     enum Failure: Error, Equatable { case tooManyLines, requestMismatch }
     enum CodingKeys: String, CodingKey {
-        case version, asOfDate, coverDays, leadTimeDays, leadTimeProvisional, nextVisit, outlet, lines
+        case version, asOfDate, coverDays, leadTimeDays, leadTimeProvisional, nextVisit, outlet, lines, historyStatus
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -63,6 +65,7 @@ struct SuggestedOrder: Decodable, Equatable, Sendable {
         leadTimeProvisional = try c.decode(Bool.self, forKey: .leadTimeProvisional)
         nextVisit = try c.decode(NextVisit.self, forKey: .nextVisit)
         outlet = try c.decode(Outlet.self, forKey: .outlet)
+        historyStatus = (try? c.decodeIfPresent(String.self, forKey: .historyStatus))?.map { String($0.prefix(40)) }
         var items = try c.nestedUnkeyedContainer(forKey: .lines)
         if let count = items.count, count > 200 { throw Failure.tooManyLines }
         var decoded: [Line] = []
@@ -135,6 +138,18 @@ struct SuggestedOrderRules {
     var summary: String {
         let count = order.lines.filter { $0.canUse && ($0.wholeQuantity ?? 0) > 0 }.count
         let text = "\(count) product(s) suggested · covers \(order.coverDays) days (\(order.nextVisit.days) to next visit + \(order.leadTimeDays) lead time)"
-        return text + (order.leadTimeProvisional ? "\nLead time is provisional." : "")
+        let withLead = text + (order.leadTimeProvisional ? "\nLead time is provisional." : "")
+        guard let note = Self.historyNote(order.historyStatus) else { return withLead }
+        return withLead + "\n" + note
+    }
+
+    /// Why the engine used less history than usual (it never invents the missing part).
+    static func historyNote(_ status: String?) -> String? {
+        switch status {
+        case "partial_scope": "Some of this account's orders are outside your area and were not counted."
+        case "shared_account": "This account is shared with another store, so its order history is not used."
+        case "no_customer": "No customer account is linked to this store, so there is no order history."
+        default: nil
+        }
     }
 }

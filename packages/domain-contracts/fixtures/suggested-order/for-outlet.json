@@ -7,6 +7,7 @@
   },
   "historyDays": 84,
   "historyFrom": "2026-07-08",
+  "historyStatus": "complete",
   "leadTimeDays": 1,
   "leadTimeProvisional": true,
   "lines": [

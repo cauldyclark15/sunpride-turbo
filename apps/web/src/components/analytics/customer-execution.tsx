@@ -538,7 +538,11 @@ export function CustomerExecution() {
                 key={`suggested-${outletId}-${asOfDate}`}
                 label="Suggested order"
               >
-                <SuggestedOrderPanel outletId={outletId} asOfDate={asOfDate} />
+                <SuggestedOrderPanel
+                  key={outletId}
+                  outletId={outletId}
+                  asOfDate={asOfDate}
+                />
               </PanelErrorBoundary>
             </div>
           </PanelErrorBoundary>

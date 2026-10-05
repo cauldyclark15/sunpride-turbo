@@ -33,12 +33,32 @@ availability. Each line carries the plain-language reasons the salesperson sees.
 Line statuses: `suggest`, `unavailable` (would suggest but nothing to sell), `enough_stock`,
 `no_history` (required SKU never bought in the window: nothing to compute velocity from).
 
+## Whose orders count (`historyStatus`)
+
+A customer (accounting account) is never an access key, so order history is scoped twice:
+
+- **Source-order scope**, as in `mobile/account_summary`: a salesperson counts only their own
+  orders; anyone else only orders written by an active profile currently in their unit subtree,
+  and an order's source location (when set) must be in that subtree. Super admin and analyst
+  see the whole tree. Out-of-scope orders are left out and the result says `partial_scope`.
+- **Shared account**: when the customer is currently linked to any other store, its orders
+  cannot be attributed to this store. No order history is used at all (`shared_account`): only
+  the required assortment is listed, as `no_history`, with that reason. Nothing is estimated.
+
+Other values: `complete` (every order read was in scope), `no_customer` (store not linked).
+
 ## Access
 
 `forOutlet`: `outlet.read` on the store (a salesperson only for stores in a territory they are
 currently assigned to) and `report.read` in its current owner unit. A selling location also
-needs `inventory.read` in the location's unit; an unmapped location is super admin / analyst
-only. Promotion uplifts are national: `schedulePromotion` / `endPromotion` need a national
+needs `inventory.read` on it (`requireLocationCapability`: its unit, or national scope for an
+unmapped location) and must allow sale.
+
+`sellingLocations({outletId})`: same store gate; returns the active `allowsSale` locations the
+caller can read (at most 100), marking `recent` the source location of the store's latest
+in-scope sale (never for a shared account). The web panel offers them as "Sell from", defaults
+to the recent one and passes it as `locationId`, so availability is checked in the delivered
+workflow; "Depot stock not checked" remains a choice. Promotion uplifts are national: `schedulePromotion` / `endPromotion` need a national
 master-data manager (super admin, admin, operations at the root unit); future-effective only,
 no overlaps per SKU.
 
@@ -60,6 +80,9 @@ The iOS and Android call sheets show the suggestion for the store being visited.
 - A "Suggested order" card shows the summary (products suggested, cover days, provisional lead time), the fixed
   note "Suggestions only. Nothing is ordered until you save the call sheet." and suggested products that are not
   on this call sheet (read-only). Each call-sheet product shows its status and the engine's reasons.
+- History scope: when `historyStatus` is `partial_scope`, `shared_account` or `no_customer`, the summary adds one
+  plain sentence saying why less order history was used (out-of-area orders not counted, shared account history
+  not used, no linked account). Unknown statuses add nothing; the apps never fill in the missing history.
 - Accept: "Use N" writes N into that product's Order field; "Use all suggestions" fills only empty Order fields.
   The field stays editable. Nothing is queued or sent until the salesperson taps "Save call sheet", and the saved
   call-sheet payload is unchanged (no suggestion data goes on the wire; the mobile v1 contract is untouched).
@@ -76,6 +99,6 @@ The iOS and Android call sheets show the suggestion for the store being visited.
 2. Delivery lead time per channel / depot (v1 uses 1 day).
 3. Promotion master (ARCH-006 / SP-0033 samples): v1 keeps a per-SKU national uplift until real
    promotions exist; it will read from the promotion master once it lands.
-4. Which depot or truck sells to each store, so availability can be chosen automatically (the field apps
-   cannot cap by availability until then).
+4. Which depot or truck sells to each store; v1 defaults to the store's last order source (the field apps do
+   not yet pass a selling location, so they cannot cap by availability).
 5. Whether Sunpride wants to measure how often salespeople accept or change the suggestion.

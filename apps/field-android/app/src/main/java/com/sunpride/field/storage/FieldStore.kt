@@ -52,6 +52,9 @@ interface FieldStore {
     suspend fun tasks(): List<SnapshotItem> = emptyList()
     /** The active snapshot's route JSON (`{id, code}`), or null. */
     suspend fun route(): String? = null
+    /** Code of the promoted snapshot's route (server `route.code`), or null when the day has no route. */
+    suspend fun routeCode(): String? = route()
+        ?.let { runCatching { JSONObject(it).optString("code").takeIf { code -> code.isNotBlank() } }.getOrNull() }
     suspend fun isLeaseValid(now: Long): Boolean
     /** Immutable serialized v1 operation and UUID. A crash cannot persist just one of intent/outbox. */
     suspend fun enqueue(intent: IntentRow, now: Long)
@@ -80,8 +83,21 @@ interface FieldStore {
     suspend fun intent(requestId: String): IntentRow? = null
     suspend fun delta(entity: String, id: String): DeltaRow? = null
     suspend fun applyDelta(changes: List<DeltaRow>, nextCursor: String) { setCursor(nextCursor) }
+    /** Local-only order drafts (SP-0061): never sent by the outbox; submission is a later step. */
+    suspend fun orderDrafts(): List<com.sunpride.field.orders.OrderDraft> = emptyList()
+    /** Insert or replace one draft after [com.sunpride.field.orders.OrderDraftRules.validate] in one transaction. */
+    suspend fun saveOrderDraft(draft: com.sunpride.field.orders.OrderDraft): Unit = error("Order drafts unavailable")
+    /** The salesperson discards their own unsent draft; a held partition stays frozen. */
+    suspend fun discardOrderDraft(draftId: String): Unit = error("Order drafts unavailable")
+    /**
+     * SP-0060: enqueue the reviewed draft's `order_intent` [intent] and mark the draft sent in ONE
+     * transaction, so a crash never leaves a queued order with an editable draft (or the reverse).
+     */
+    suspend fun submitOrderDraft(draftId: String, intent: IntentRow, now: Long): Unit = error("Order drafts unavailable")
     /** Role from the active bootstrap's employee header: a UI hint only, the server authorizes. */
     suspend fun employeeRole(): String? = null
+    /** The signed-in employee's profile ID from the active snapshot (`employee.id`). */
+    suspend fun employeeId(): String? = null
     /**
      * AND-020 small server summaries saved for offline display, kept in this partition's deltas table
      * under a reserved `local.` entity (server deltas are only `visit`/`activity`), so no migration.
@@ -125,12 +141,18 @@ object EncryptedFieldDatabase {
             db.execSQL("CREATE INDEX IF NOT EXISTS `index_evidence_photos_account_deviceId_scope_state_createdAt` ON `evidence_photos` (`account`, `deviceId`, `scope`, `state`, `createdAt`)")
         }
     }
+    /** Local order drafts (SP-0061), partitioned like every other row; no existing table changes. Layered on main's v6 photo table. */
+    val MIGRATION_6_7 = object : Migration(6, 7) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `order_drafts` (`account` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `scope` TEXT NOT NULL, `draftId` TEXT NOT NULL, `clientVisitId` TEXT NOT NULL, `outletId` TEXT NOT NULL, `serviceDate` TEXT NOT NULL, `json` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`account`, `deviceId`, `scope`, `draftId`))")
+        }
+    }
     fun open(context: Context): StoreDatabase {
         System.loadLibrary("sqlcipher")
         val passphrase = PassphraseVault(context).passphrase()
         return Room.databaseBuilder(context.applicationContext, StoreDatabase::class.java, PassphraseVault.DB_NAME)
             .openHelperFactory(SupportOpenHelperFactory(passphrase))
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
             .build()
     }
 
@@ -306,6 +328,7 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             VisitCompletion.requireOpenForActivity(intent, history().map { it.first to it.second.state })
             CallSheetQueueRules.validate(this@RoomFieldStore, intent)
             ActivityQueueRules.validate(this@RoomFieldStore, intent)
+            com.sunpride.field.orders.OrderQueueRules.validate(this@RoomFieldStore, intent)
             val orderedAt = maxOf(intent.createdAt, (dao.latestCreatedAt(a, d, s) ?: Long.MIN_VALUE) + 1)
             dao.insertIntent(intent.copy(createdAt = orderedAt))
             checkpoint()
@@ -385,8 +408,50 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             dao.putPartition(old.copy(cursor = nextCursor))
         }
     }
+    override suspend fun orderDrafts(): List<com.sunpride.field.orders.OrderDraft> =
+        dao.orderDrafts(a, d, s).map { com.sunpride.field.orders.OrderDraftCodec.decode(it.json) }
+    override suspend fun saveOrderDraft(draft: com.sunpride.field.orders.OrderDraft) {
+        db.withTransaction {
+            val meta = metadata()
+            if (meta.held) throw com.sunpride.field.orders.OrderDraftFailure(com.sunpride.field.orders.OrderDraftFailure.Code.HELD)
+            check(meta.activeGeneration != null) { "No cached snapshot" }
+            val existing = dao.orderDraft(a, d, s, draft.draftId)?.let { com.sunpride.field.orders.OrderDraftCodec.decode(it.json) }
+            com.sunpride.field.orders.OrderDraftRules.validate(this@RoomFieldStore, draft, existing)
+            dao.putOrderDraft(OrderDraftRow(a, d, s, draft.draftId, draft.clientVisitId, draft.outletId, draft.serviceDate,
+                com.sunpride.field.orders.OrderDraftCodec.encode(draft), draft.createdAt, draft.updatedAt))
+        }
+    }
+    override suspend fun discardOrderDraft(draftId: String) {
+        db.withTransaction {
+            if (metadata().held) throw com.sunpride.field.orders.OrderDraftFailure(com.sunpride.field.orders.OrderDraftFailure.Code.HELD)
+            val existing = dao.orderDraft(a, d, s, draftId) ?: error("Unknown draft")
+            if (com.sunpride.field.orders.OrderDraftCodec.decode(existing.json).submittedRequestId != null)
+                throw com.sunpride.field.orders.OrderDraftFailure(com.sunpride.field.orders.OrderDraftFailure.Code.SUBMITTED)
+            check(dao.deleteOrderDraft(a, d, s, draftId) == 1) { "Unknown draft" }
+        }
+    }
+    override suspend fun submitOrderDraft(draftId: String, intent: IntentRow, now: Long) {
+        db.withTransaction {
+            if (metadata().held) throw com.sunpride.field.orders.OrderDraftFailure(com.sunpride.field.orders.OrderDraftFailure.Code.HELD)
+            if (!isLeaseValid(now))
+                throw com.sunpride.field.orders.OrderDraftFailure(com.sunpride.field.orders.OrderDraftFailure.Code.OFFLINE_EXPIRED)
+            val existing = dao.orderDraft(a, d, s, draftId)?.let { com.sunpride.field.orders.OrderDraftCodec.decode(it.json) }
+                ?: error("Unknown draft")
+            if (existing.submittedRequestId != null)
+                throw com.sunpride.field.orders.OrderDraftFailure(com.sunpride.field.orders.OrderDraftFailure.Code.SUBMITTED)
+            com.sunpride.field.orders.OrderQueueRules.requireIntentFor(draftId, intent)
+            // Order rules first, so an ended call reads as an order refusal (CALL_ENDED), not a generic visit one.
+            com.sunpride.field.orders.OrderQueueRules.validate(this@RoomFieldStore, intent)
+            enqueue(intent, now) // OrderQueueRules re-checks the request against this unsent draft.
+            val sent = existing.copy(submittedRequestId = intent.requestId, submittedAt = now)
+            dao.putOrderDraft(OrderDraftRow(a, d, s, sent.draftId, sent.clientVisitId, sent.outletId, sent.serviceDate,
+                com.sunpride.field.orders.OrderDraftCodec.encode(sent), sent.createdAt, sent.updatedAt))
+        }
+    }
     override suspend fun employeeRole(): String? = metadata().takeIf { it.activeGeneration != null }?.employeeJson
         ?.let { runCatching { JSONObject(it).optString("role") }.getOrNull() }?.takeIf { it.isNotBlank() }
+    override suspend fun employeeId(): String? = metadata().takeIf { it.activeGeneration != null }?.employeeJson
+        ?.let { runCatching { JSONObject(it).optString("id") }.getOrNull() }?.takeIf { it.isNotBlank() }
     override suspend fun localCache(entity: String, key: String): DeltaRow? {
         require(entity.startsWith("local."))
         return dao.delta(a, d, s, entity, key)

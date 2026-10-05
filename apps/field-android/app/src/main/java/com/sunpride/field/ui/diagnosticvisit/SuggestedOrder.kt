@@ -26,7 +26,9 @@ data class SuggestedLine(val productId: String?, val code: String, val name: Str
 }
 
 data class SuggestedOrder(val version: String, val asOfDate: String, val outletId: String, val coverDays: Int,
-    val nextVisitDays: Int, val leadTimeDays: Int, val leadTimeProvisional: Boolean, val lines: List<SuggestedLine>)
+    val nextVisitDays: Int, val leadTimeDays: Int, val leadTimeProvisional: Boolean, val lines: List<SuggestedLine>,
+    /** ANA-009 history scope: complete, partial_scope, shared_account or no_customer (unknown kept raw). */
+    val historyStatus: String? = null)
 
 class SuggestedOrderWireFailure : Exception()
 
@@ -66,7 +68,7 @@ object SuggestedOrderCodec {
                 val reasons = l.getJSONArray("reasons")
                 SuggestedLine(productId, l.text("code"), l.text("name"), l.text("unit"), l.text("status"), quantity,
                     (0 until minOf(reasons.length(), MAX_REASONS)).map { reasons.getString(it).take(MAX_REASON_LENGTH) })
-            })
+            }, (o.opt("historyStatus") as? String)?.take(40))
         if (order.outletId != outletId || order.asOfDate != asOfDate) throw SuggestedOrderWireFailure()
         order
     } catch (_: JSONException) { throw SuggestedOrderWireFailure() }
@@ -122,7 +124,16 @@ object SuggestedOrderRules {
         val count = order.lines.count { it.canUse && (it.wholeQuantity ?: 0) > 0 }
         val text = "$count product(s) suggested · covers ${order.coverDays} days " +
             "(${order.nextVisitDays} to next visit + ${order.leadTimeDays} lead time)"
-        return if (order.leadTimeProvisional) "$text\nLead time is provisional." else text
+        val withLead = if (order.leadTimeProvisional) "$text\nLead time is provisional." else text
+        return historyNote(order.historyStatus)?.let { "$withLead\n$it" } ?: withLead
+    }
+
+    /** Why the engine used less history than usual (it never invents the missing part). */
+    fun historyNote(status: String?): String? = when (status) {
+        "partial_scope" -> "Some of this account's orders are outside your area and were not counted."
+        "shared_account" -> "This account is shared with another store, so its order history is not used."
+        "no_customer" -> "No customer account is linked to this store, so there is no order history."
+        else -> null
     }
 }
 

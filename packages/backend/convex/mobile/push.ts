@@ -10,6 +10,7 @@ import { applyVisitOperation, type VisitOperation } from "../visits/commands";
 import { locationValidator } from "../visits/location";
 import { accessOwnedVisit, visitTarget } from "../visits/validation";
 import { callSheetActivityValidator } from "../callSheets/validators";
+import { fieldOrderLineValidator } from "../orders/field_order_validators";
 
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -68,6 +69,7 @@ const activity = v.union(
     kind: v.literal("order_intent"),
     clientOrderId: v.string(),
     note: v.optional(v.string()),
+    lines: v.optional(v.array(fieldOrderLineValidator)),
   }),
   v.object({ kind: v.literal("note"), text: v.string() }),
   callSheetActivityValidator,

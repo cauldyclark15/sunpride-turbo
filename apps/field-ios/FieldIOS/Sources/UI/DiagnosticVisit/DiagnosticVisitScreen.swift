@@ -21,6 +21,17 @@ struct DiagnosticVisitScreen: View {
     private var checkedOut: Bool { currentVisit.endedAt != nil }
     private var startFailure: AppModel.CallFailure? { model.startFailure(for: currentVisit) }
     @State private var noteQueued = false
+    /// IOS-013: purposes chosen for an unplanned visit before Start.
+    @State private var purposes: [String] = []
+    private var intents: [String] {
+        _ = model.visits // Observe durable outbox refreshes.
+        return !checkedIn && !visit.planned ? purposes : model.visitIntents(for: currentVisit)
+    }
+    private var checklist: [ActivityRules.Requirement] {
+        _ = model.visits
+        return model.activityChecklist(for: currentVisit)
+    }
+    private var missing: [String] { ActivityRules.missing(checklist) }
     @FocusState private var noteFocused: Bool
     @Environment(\.dismiss) private var dismiss
 
@@ -64,6 +75,29 @@ struct DiagnosticVisitScreen: View {
                         .foregroundStyle(SunprideTokens.secondaryText)
                         .accessibilityIdentifier("callStartBlocked")
                 }
+                if checkedIn || visit.planned {
+                    if !intents.isEmpty {
+                        Text("Purpose · " + intents.map(ActivityRules.intentLabel).joined(separator: ", "))
+                            .font(SunprideTokens.TypeStyle.row)
+                            .accessibilityIdentifier("visitIntents")
+                    }
+                } else {
+                    SectionCard(title: "Visit purpose") {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text("Choose one or more").font(SunprideTokens.TypeStyle.meta)
+                                .foregroundStyle(SunprideTokens.secondaryText)
+                                .padding(.horizontal, 16).padding(.vertical, 8)
+                            ForEach(ActivityRules.intents, id: \.self) { intent in
+                                ChoiceRow(label: ActivityRules.intentLabel(intent), selected: purposes.contains(intent),
+                                          disabled: busy) {
+                                    if let index = purposes.firstIndex(of: intent) { purposes.remove(at: index) }
+                                    else { purposes.append(intent) }
+                                }
+                                .accessibilityIdentifier("intent-\(intent)")
+                            }
+                        }
+                    }
+                }
                 if !checkedIn && unplanned {
                     SectionCard(title: "Start") {
                         VStack(alignment: .leading, spacing: 12) {
@@ -74,6 +108,16 @@ struct DiagnosticVisitScreen: View {
                                     .accessibilityIdentifier("unplannedReason")
                             }
                         }.padding(16)
+                    }
+                }
+                if checkedIn && !checkedOut && !checklist.isEmpty {
+                    SectionCard(title: "Activity forms") {
+                        VStack(spacing: 0) {
+                            ForEach(Array(checklist.enumerated()), id: \.element.kind) { index, item in
+                                if index > 0 { activityDivider }
+                                activityRow(item)
+                            }
+                        }
                     }
                 }
                 if checkedIn && !checkedOut {
@@ -126,6 +170,13 @@ struct DiagnosticVisitScreen: View {
                                 .contentShape(Rectangle())
                             }
                             .accessibilityIdentifier("diagnosticOutcome")
+                            if outcome == "completed" && !missing.isEmpty {
+                                Text("Still required: " + missing.map(ActivityRules.kindLabel).joined(separator: ", "))
+                                    .font(SunprideTokens.TypeStyle.meta)
+                                    .foregroundStyle(SunprideTokens.secondaryText)
+                                    .padding(.bottom, 16)
+                                    .accessibilityIdentifier("activitiesMissing")
+                            }
                             if outcome == "nonproductive" {
                                 CalmField(label: "Reason") {
                                     TextField("Reason", text: $reason).accessibilityIdentifier("nonproductiveReason")
@@ -148,6 +199,10 @@ struct DiagnosticVisitScreen: View {
                                 activityDivider
                                 CalmListRow(symbol: "note.text", title: "Note", meta: "Waiting")
                             }
+                            ForEach(currentVisit.activityKinds.filter(ActivityRules.structuredForms.contains), id: \.self) { kind in
+                                activityDivider
+                                CalmListRow(symbol: "checklist", title: ActivityRules.kindLabel(kind), meta: "Recorded")
+                            }
                             if let status = model.callSheetStatus(for: visit) {
                                 activityDivider
                                 CalmListRow(symbol: "tablecells", title: "Call sheet", meta: status)
@@ -168,22 +223,25 @@ struct DiagnosticVisitScreen: View {
         .safeAreaInset(edge: .bottom) {
             if !checkedOut {
                 PrimaryBottomButton(title: busy ? "Saving…" : checkedIn ? "End call" : "Start",
-                                    disabled: busy || (!checkedIn && (startFailure != nil || (unplanned && reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))) || (checkedIn && (outcome.isEmpty || (outcome == "nonproductive" && reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)))) {
+                                    disabled: busy || (!checkedIn && (startFailure != nil || (unplanned && (reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || purposes.isEmpty)))) || (checkedIn && (outcome.isEmpty || (outcome == "nonproductive" && reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) || (outcome == "completed" && !missing.isEmpty)))) {
                     let ending = checkedIn
                     busy = true
                     Task {
                         // Always attempt fresh evidence for both arrival and departure. A failed
-                        // fix is serialized as null; only the supervisor decides its reliability.
-                        let fix = await location.captureIfAvailable()
+                        // fix is serialized as null; the server records distance and geofence result,
+                        // and only the supervisor decides an exception. Never a reason to refuse.
+                        let captured = await location.capture()
+                        let fix = captured.fix
                         do {
                             if ending {
                                 try model.queueCheckOut(outcome: outcome, reason: outcome == "nonproductive" ? reason : nil,
                                                         for: visit, location: fix)
                             } else {
-                                try model.queueCheckIn(visit, unplannedReason: unplanned ? reason : nil, location: fix)
+                                try model.queueCheckIn(visit, unplannedReason: unplanned ? reason : nil,
+                                                       intents: purposes, location: fix)
                                 reason = ""
                             }
-                            message = fix == nil ? "Location unavailable · Saved for supervisor review" : nil
+                            message = LocationAssessment.notice(captured, pin: currentVisit.pin, at: Date()).text
                         } catch let error as AppModel.CallFailure { message = error.message }
                         catch StoreError.leaseExpired { message = "Day access closed · Reconnect to continue" }
                         catch StoreError.heldForReview { message = "Work held · Contact supervisor" }
@@ -199,6 +257,27 @@ struct DiagnosticVisitScreen: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
+    }
+    /// One checklist row: opens its form, or the call sheet; the note uses the Note card below.
+    @ViewBuilder private func activityRow(_ item: ActivityRules.Requirement) -> some View {
+        let meta: String = switch item.status {
+        case .done: "Recorded"
+        case .unavailable: "Not available on this phone" + (item.required ? " · office will review" : "")
+        case .toDo: item.required ? "Required" : "Optional"
+        }
+        let row = CalmListRow(symbol: item.status == .done ? "checkmark.circle" : "square.and.pencil",
+                              title: ActivityRules.kindLabel(item.kind), meta: meta,
+                              trailing: item.status == .unavailable || item.kind == "note" ? nil : "chevron.right")
+        if item.status == .unavailable || item.kind == "note" {
+            row.opacity(item.status == .unavailable ? 0.6 : 1).accessibilityIdentifier("activity-\(item.kind)")
+        } else {
+            NavigationLink {
+                if item.kind == "call_sheet" { CallSheetScreen(model: model, visit: visit) }
+                else { ActivityFormScreen(model: model, visit: visit, kind: item.kind) }
+            } label: { row }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("activity-\(item.kind)")
+        }
     }
     private var activityDivider: some View {
         Rectangle().fill(SunprideTokens.secondaryText.opacity(0.2)).frame(height: 1).padding(.leading, 16)
