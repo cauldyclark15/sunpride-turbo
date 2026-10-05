@@ -37,6 +37,10 @@ final class AppModel {
     private(set) var callSheets: [CallSheet] = []
     /// IOS-013 activity-form rules per visit intent from the active snapshot.
     private(set) var activityRules: [ActivityRule] = []
+    /// IOS-016 photo types from the active snapshot (empty = provisional defaults are offered).
+    private(set) var photoTypes: [PhotoType] = []
+    /// IOS-016 photos on this phone per call, keyed by the call's Start request ID.
+    private(set) var visitPhotos: [UUID: [VisitPhoto]] = [:]
     private(set) var lastSyncedAt: Date?
     private(set) var syncStatus: FieldSyncStatus?
     private(set) var isOffline = false
@@ -70,6 +74,7 @@ final class AppModel {
     }
     enum CallFailure: Error, Equatable {
         case callOpen, mcpOrder, alreadyStarted, notStarted, alreadyClosed, intentRequired, activitiesRequired
+        case photoLimit, photoInvalid
         var message: String {
             switch self {
             case .callOpen: "Finish the open call first"
@@ -79,6 +84,8 @@ final class AppModel {
             case .alreadyClosed: "Call already ended"
             case .intentRequired: "Choose at least one visit purpose"
             case .activitiesRequired: "Record the required activities, or end as not productive"
+            case .photoLimit: "This call already has \(EvidencePhotos.maxPerVisit) photos"
+            case .photoInvalid: "Couldn't keep that photo. Take it again."
             }
         }
     }
@@ -105,6 +112,8 @@ final class AppModel {
     @ObservationIgnored private let networkMonitor = NWPathMonitor()
     @ObservationIgnored private var monitoring = false
     @ObservationIgnored private var breadcrumbs: DiagnosticBreadcrumbs?
+    @ObservationIgnored private var photoFiles: PhotoFiles?
+    @ObservationIgnored private let evidenceAPI: EvidenceAPI?
     var hasRetryableWork: Bool {
         guard signedIn, let partition = activeStoragePartition, let store = fieldStore else { return false }
         return BackgroundRetry.hasRetryableWork(store: store, partition: partition)
@@ -148,6 +157,7 @@ final class AppModel {
     init(auth: AuthClient, registry: DeviceRegistry, store: SecretStore,
          pollInterval: Duration = .seconds(10), site: URL? = nil, functions: ConvexFunctions? = nil,
          http: HTTPClient? = nil, localStore: EncryptedFieldStore? = nil,
+         photoFiles: PhotoFiles? = nil, evidenceAPI: EvidenceAPI? = nil,
          now: @escaping () -> Date = { Date() }, loadKey: @escaping () throws -> any DeviceSigningKey) {
         self.auth = auth
         self.registry = registry
@@ -157,6 +167,8 @@ final class AppModel {
         self.http = http
         self.loadKey = loadKey
         self.fieldStore = localStore
+        self.photoFiles = photoFiles
+        self.evidenceAPI = evidenceAPI
         self.now = now
         enrollment = Enrollment(registry: registry, store: store, pollInterval: pollInterval)
         enrollment.onSessionEnded = { [weak self] in
@@ -229,7 +241,8 @@ final class AppModel {
     }
 
     private func clearToday() {
-        visits = []; callSheets = []; activityRules = []; outletDetails = [:]; customerDetails = [:]; routeCode = nil
+        visits = []; callSheets = []; activityRules = []; photoTypes = []; visitPhotos = [:]
+        outletDetails = [:]; customerDetails = [:]; routeCode = nil
         customers = []; dayTasks = []; dayTarget = nil; daySales = nil
     }
 
@@ -265,6 +278,7 @@ final class AppModel {
         do {
             callSheets = try store.snapshot(for: partition)?.callSheets ?? []
             activityRules = try store.snapshot(for: partition)?.activityRules ?? []
+            photoTypes = try store.snapshot(for: partition)?.photoTypes ?? []
             let day = BootstrapClient.manilaDay(now())
             let outlets = Dictionary(uniqueKeysWithValues: try store.outlets(for: partition).map { ($0.id, $0.name) })
             let planned = try store.todayVisits(day, for: partition)
@@ -283,6 +297,9 @@ final class AppModel {
                     serviceDate: day, intents: [], planned: false, status: "Unplanned", pin: outlet.pin)
             }
             let intents = try store.intents(for: partition)
+            visitPhotos = try Dictionary(uniqueKeysWithValues: intents.filter { $0.kind == "visit.checkIn" }.map { start in
+                (start.requestId, try store.photos(forCheckIn: start.requestId, in: partition).map(EvidencePhotos.view))
+            })
             let queued = Set(try store.pendingOutbox(for: partition).map { $0.intent.requestId } +
                              (try store.deferredOutbox(for: partition).map { $0.intent.requestId }) +
                              (try store.heldOutbox(for: partition).map { $0.intent.requestId }))
@@ -513,6 +530,57 @@ final class AppModel {
         else { try store.enqueue(intent, for: partition, now: timestamp) }
         didQueueWork()
     }
+    // MARK: IOS-016 visit photos
+
+    /// The types offered for a new photo: the server's list, or the provisional defaults.
+    var photoTypeChoices: [PhotoType] { EvidencePhotos.offered(photoTypes) }
+    func photoTypeLabel(_ code: String) -> String { EvidencePhotos.label(code, types: photoTypes) }
+    /// Photos taken in this visit's call on this phone (waiting, uploaded or for review).
+    func photos(for visit: TodayVisit) -> [VisitPhoto] {
+        _ = visitPhotos // Observe refreshes.
+        guard let (initial, _, _) = try? checkIn(for: visit) else { return [] }
+        return visitPhotos[initial.requestId] ?? []
+    }
+    /// Keep one JPEG for the open call: sealed on the phone first, then its metadata. Never waits
+    /// for a network; upload follows separately.
+    func savePhoto(type: String, jpeg: Data, capturedAt: Date, for visit: TodayVisit) throws {
+        let (initial, store, partition) = try checkIn(for: visit)
+        guard !visitProgress(for: visit).checkedOut else { throw CallFailure.alreadyClosed }
+        guard EvidencePhotos.isJpeg(jpeg), (1...EvidencePhotos.maxBytes).contains(Int64(jpeg.count)) else {
+            throw CallFailure.photoInvalid
+        }
+        let row = EvidencePhotoRow(localId: UUID(), checkInRequestId: initial.requestId, photoType: type,
+            mime: EvidencePhotos.mime, sizeBytes: Int64(jpeg.count), sha256: EvidencePhotos.sha256Hex(jpeg),
+            capturedAt: Int64(capturedAt.timeIntervalSince1970 * 1000))
+        let files = try evidenceFiles()
+        try files.write(row.localId, jpeg)
+        do { try store.savePhoto(row, for: partition, now: now()) }
+        catch { files.delete(row.localId); throw error }
+        breadcrumb(.workQueued)
+        refreshToday()
+        BackgroundRetry.shared.scheduleIfNeeded()
+        if !isOffline { Task { await uploadPhotos() } }
+    }
+    private func evidenceFiles() throws -> PhotoFiles {
+        if let photoFiles { return photoFiles }
+        let files = try SealedPhotoFiles.live(folder: storeFolder, secrets: secrets)
+        photoFiles = files
+        return files
+    }
+    /// Upload waiting photos whose call's Start the server has accepted. Separate from the visit
+    /// outbox and from sync health: a slow upload never changes what Start/End report.
+    func uploadPhotos() async {
+        guard signedIn, !isOffline, case .ready = enrollment.state, let partition = activeStoragePartition,
+              let store = fieldStore, (try? store.pendingPhotos(for: partition).isEmpty) == false else { return }
+        let api: EvidenceAPI
+        if let evidenceAPI { api = evidenceAPI }
+        else if let functions, let http { api = ConvexEvidenceAPI(functions: functions, http: http) }
+        else { return }
+        guard let files = try? evidenceFiles() else { return }
+        _ = await EvidenceUploader(store: store, partition: partition, files: files, api: api, now: now).run()
+        refreshToday()
+    }
+
     private func didQueueWork() {
         refreshToday()
         breadcrumb(.workQueued)
@@ -552,6 +620,7 @@ final class AppModel {
                 breadcrumb(.syncSucceeded)
                 succeeded = true
                 if syncMessage?.hasPrefix("Scope changed") != true { syncMessage = nil }
+                await uploadPhotos()
                 return
             } catch VisitSyncClient.Failure.rebootstrap {
                 try? store.holdForReview(current)
@@ -604,6 +673,7 @@ final class AppModel {
                 try store.setSyncHealth(SyncHealth(lastSuccessfulSyncAt: Int64(Date().timeIntervalSince1970 * 1000), lastErrorCode: nil), for: partition)
                 breadcrumb(.syncSucceeded)
                 succeeded = true
+                await uploadPhotos()
             } catch VisitSyncClient.Failure.rebootstrap {
                 try store.holdForReview(partition)
                 syncMessage = "Plan or cursor changed again — unsent work held for review."
@@ -652,13 +722,16 @@ final class AppModel {
     }
 
     private struct EmptyArgs: Encodable {}
+    private var storeFolder: String {
+        #if DEBUG
+        StubBackend.scenario == nil ? "FieldStore" : "FieldStoreStub"
+        #else
+        "FieldStore"
+        #endif
+    }
     private func storageForBootstrap() throws -> any FieldLocalStore {
         if let fieldStore { return fieldStore }
-        #if DEBUG
-        let folder = StubBackend.scenario == nil ? "FieldStore" : "FieldStoreStub"
-        #else
-        let folder = "FieldStore"
-        #endif
+        let folder = storeFolder
         let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
             appropriateFor: nil, create: true).appending(path: folder, directoryHint: .isDirectory)
         let store = try EncryptedFieldStore(url: directory.appending(path: "field.sqlite"), secrets: secrets)
@@ -669,11 +742,7 @@ final class AppModel {
     /// The local store if one exists on disk; never creates a database (or its key) just to sign out.
     private func existingStore() throws -> EncryptedFieldStore? {
         if let fieldStore { return fieldStore }
-        #if DEBUG
-        let folder = StubBackend.scenario == nil ? "FieldStore" : "FieldStoreStub"
-        #else
-        let folder = "FieldStore"
-        #endif
+        let folder = storeFolder
         guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
               FileManager.default.fileExists(atPath: support.appending(path: folder).appending(path: "field.sqlite").path)
         else { return nil }

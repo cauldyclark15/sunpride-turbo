@@ -140,6 +140,7 @@ struct SignInShell: View {
         if status.sending > 0 || model.syncing { return "Syncing" }
         if status.queued > 0 { return "\(status.queued) waiting" }
         if status.lastErrorCode != nil || status.cacheStale || model.stale { return "Offline" }
+        if status.photosWaiting > 0 { return "Synced · photos uploading" }
         return "Synced"
     }
     private var canSubmit: Bool {

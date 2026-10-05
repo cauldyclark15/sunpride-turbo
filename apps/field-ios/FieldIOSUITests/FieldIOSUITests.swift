@@ -384,6 +384,60 @@ final class FieldIOSUITests: XCTestCase {
         XCTAssertTrue(online.buttons["outboxStatus"].label.contains("Synced"))
     }
 
+    /// IOS-016: an offline photo is sealed on the phone, never blocks End, and uploads after reconnecting.
+    func testVisitPhotoSavedOfflineDoesNotBlockEndAndUploadsAfterSync() {
+        let app = launchStub("registers")
+        signIn(app, password: "correct-horse")
+        XCTAssertTrue(app.staticTexts["Stub Outlet"].waitForExistence(timeout: 20))
+        app.terminate()
+        let offline = launchStub("offline")
+        let row = offline.buttons["visit-planned-stub-1"]
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
+        row.tap()
+        offline.buttons["diagnosticCheckIn"].tap()
+        let photos = offline.buttons["openPhotos"]
+        XCTAssertTrue(photos.waitForExistence(timeout: 10))
+        reveal(photos, in: offline)
+        photos.tap()
+        let take = offline.buttons["photoTake"]
+        XCTAssertTrue(take.waitForExistence(timeout: 5))
+        XCTAssertFalse(take.isEnabled, "choose a photo type first")
+        // The bootstrap's configured list, not the phone's defaults.
+        XCTAssertTrue(offline.buttons["photoType-shelf_display"].exists)
+        XCTAssertFalse(offline.buttons["photoType-price_tag"].exists)
+        offline.buttons["photoType-storefront"].tap()
+        take.tap()
+        let saved = offline.descendants(matching: .any)["photo-storefront"]
+        XCTAssertTrue(saved.waitForExistence(timeout: 5))
+        XCTAssertTrue(saved.label.contains("Saved on phone"), saved.label)
+        capture(offline, "visit-photo-saved-offline")
+        offline.buttons["photoBack"].tap()
+        XCTAssertTrue(offline.buttons["openPhotos"].label.contains("1 waiting to upload"))
+        reveal(offline.buttons["diagnosticOutcome"], in: offline)
+        offline.buttons["diagnosticOutcome"].tap()
+        offline.buttons["Completed"].tap()
+        offline.buttons["diagnosticCheckOut"].tap()
+        XCTAssertTrue(offline.staticTexts["callTimeSpent"].waitForExistence(timeout: 10))
+        let done = offline.descendants(matching: .any)["donePhotos"]
+        XCTAssertTrue(done.waitForExistence(timeout: 5))
+        XCTAssertTrue(done.label.contains("1 waiting to upload"), done.label)
+        offline.terminate()
+        let online = launchStub("online")
+        XCTAssertTrue(online.buttons["visit-planned-stub-1"].waitForExistence(timeout: 15))
+        XCTAssertTrue(online.buttons["outboxStatus"].waitForExistence(timeout: 15))
+        let status = online.buttons["outboxStatus"]
+        let deadline = Date().addingTimeInterval(20)
+        while Date() < deadline && !(status.label.contains("Synced") && !status.label.contains("photos")) {
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        XCTAssertTrue(status.label.contains("Synced") && !status.label.contains("photos"), status.label)
+        online.buttons["visit-planned-stub-1"].tap()
+        let uploaded = online.descendants(matching: .any)["donePhotos"]
+        XCTAssertTrue(uploaded.waitForExistence(timeout: 10))
+        XCTAssertEqual(uploaded.label.contains("waiting"), false, uploaded.label)
+        XCTAssertTrue(uploaded.label.contains("1 photo"), uploaded.label)
+    }
+
     func testDailyRouteListsStopsInOrderWithDistanceCustomerAndDirections() {
         let app = launchStub("registers")
         signIn(app, password: "correct-horse")

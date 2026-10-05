@@ -100,11 +100,13 @@ enum BootstrapV1 {
         let daySales: StoreSnapshot.DaySales?
         /// Additive optional v1 field (IOS-013): activity-form rules per visit intent. nil = older server.
         let activityRules: [ActivityRule]?
+        /// Additive optional v1 field (IOS-016): photo types a visit photo may carry. nil = older server.
+        let photoTypes: [PhotoType]?
 
         enum CodingKeys: String, CodingKey {
             case type, contractVersion, serverTime, permissions, employee, scope, appConfig,
                  plannedVisits, outlets, localCustomers, route, tasks, productCatalog, page,
-                 nextPageCursor, syncCursor, callSheets, accountSummaries, dayTarget, daySales, activityRules
+                 nextPageCursor, syncCursor, callSheets, accountSummaries, dayTarget, daySales, activityRules, photoTypes
         }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -154,6 +156,11 @@ enum BootstrapV1 {
                 guard rules.count <= 32, Set(rules.map(\.intent)).count == rules.count else { throw WireError.unsafeValue }
                 activityRules = rules
             } else { activityRules = nil }
+            if c.contains(.photoTypes) {
+                let types = try c.decode([PhotoType].self, forKey: .photoTypes)
+                guard types.count <= 32, Set(types.map(\.code)).count == types.count else { throw WireError.unsafeValue }
+                photoTypes = types
+            } else { photoTypes = nil }
             guard Set(callSheets.map(\.outletId)).count == callSheets.count,
                   callSheets.allSatisfy({ sheet in plannedVisits.contains { $0.outletId == sheet.outletId } }) else {
                 throw WireError.unsafeValue
@@ -189,6 +196,7 @@ enum BootstrapV1 {
             try c.encodeIfPresent(dayTarget, forKey: .dayTarget)
             try c.encodeIfPresent(daySales, forKey: .daySales)
             try c.encodeIfPresent(activityRules, forKey: .activityRules)
+            try c.encodeIfPresent(photoTypes, forKey: .photoTypes)
         }
     }
 

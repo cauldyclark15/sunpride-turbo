@@ -49,6 +49,7 @@ final class BootstrapClient {
         var dayTarget: StoreSnapshot.DayTarget?
         var daySales: StoreSnapshot.DaySales?
         var activityRules: [ActivityRule]?
+        var photoTypes: [PhotoType]?
         var next: String?
         var seen = Set<String>()
         var lease = Int64.max, cache = Int64.max
@@ -88,6 +89,11 @@ final class BootstrapClient {
                 if let previousRules = activityRules, previousRules != rules { throw Failure.restartRequired }
                 activityRules = rules
             }
+            if let types = page.photoTypes {
+                // Same rule as activityRules: one download, one list; a change restarts.
+                if let previousTypes = photoTypes, previousTypes != types { throw Failure.restartRequired }
+                photoTypes = types
+            }
             if let r = page.route {
                 if let previousRoute = route,
                    (previousRoute.id != r.id || previousRoute.code != r.code) { throw Failure.invalidResponse }
@@ -114,7 +120,7 @@ final class BootstrapClient {
             let snapshot = StoreSnapshot(employee: initial.employee, visits: visits, outlets: uniqueOutlets,
                                          customers: uniqueCustomers, route: route, tasks: tasks, callSheets: uniqueCallSheets,
                                          accountSummaries: uniqueSummaries, dayTarget: dayTarget, daySales: daySales,
-                                         activityRules: activityRules ?? [])
+                                         activityRules: activityRules ?? [], photoTypes: photoTypes ?? [])
             try store.saveSnapshot(snapshot, cursor: cursor, leaseExpiresAt: lease, cacheExpiresAt: cache, for: partition)
             try store.setSyncHealth(SyncHealth(lastSuccessfulSyncAt: page.serverTime, lastErrorCode: nil), for: partition)
             return partition

@@ -30,6 +30,27 @@ uses the same server API and bootstrap field.
    `generateUploadUrl` → POST bytes to the signed URL → `attach` with `source: "mobile"`. The phone copy
    is deleted after attach succeeds.
 
+## On iOS (IOS-016, SP-0042)
+
+Same rules, same server API, same bootstrap `photoTypes` (strict decode; an older server's empty list
+falls back to the same provisional defaults).
+
+1. The visit screen shows a Photos card while the call is open; the photo screen lists the configured
+   types and the call's photos with their state.
+2. The system camera (`UIImagePickerController`, back camera, stills) returns the image in memory; it is
+   redrawn to about 2 MP and encoded as JPEG quality 0.85, which drops all camera metadata (no EXIF/GPS).
+   Nothing is saved to the photo library. Camera permission text is `NSCameraUsageDescription`.
+3. The JPEG is sealed with AES-256-GCM (CryptoKit) under a random key in the Keychain (after first
+   unlock, this device only), written atomically to a backup-excluded, file-protected folder beside the
+   encrypted store; the local ID is bound as associated data. Metadata goes into the SQLCipher store
+   (`evidence_photos`, schema v4). At most 20 photos per call.
+4. Upload (`Evidence/EvidenceUploader.swift`) runs after every successful sync and right after a photo
+   is saved when online; the background refresh task also wakes for waiting photos. The sync pill reads
+   "Synced · photos uploading" while photos wait; the Sync sheet counts waiting and office-review photos.
+5. Visit association is the call's Start request ID, resolved to the server visit ID from the Start ack.
+   The capture time is the moment the camera returned the photo. No separate per-photo location is
+   recorded: `attach` has no location field, and the call's Start/End fixes already locate the visit.
+
 ## Retry and review
 
 - Offline, signed out or server busy: nothing changes; the job retries later.

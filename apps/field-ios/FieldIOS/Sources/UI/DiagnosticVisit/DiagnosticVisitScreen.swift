@@ -152,6 +152,17 @@ struct DiagnosticVisitScreen: View {
                             .font(SunprideTokens.TypeStyle.meta)
                             .foregroundStyle(SunprideTokens.secondaryText)
                     }
+                    NavigationLink {
+                        PhotoCaptureScreen(model: model, visit: visit)
+                    } label: {
+                        SectionCard(title: "Photos") {
+                            CalmListRow(symbol: "camera", title: "Visit photos",
+                                        meta: EvidencePhotos.summary(model.photos(for: currentVisit)) ?? "Optional · store front, shelf, price tags",
+                                        trailing: "chevron.right")
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("openPhotos")
                     SectionCard(title: "Outcome") {
                         VStack(alignment: .leading, spacing: 0) {
                             Menu {
@@ -187,8 +198,15 @@ struct DiagnosticVisitScreen: View {
                     }
                 } else if checkedOut {
                     SectionCard(title: "Done") {
-                        CalmListRow(symbol: "checkmark.circle", title: "Visit complete", meta: currentVisit.timeSpent ?? "Saved on phone")
-                            .accessibilityIdentifier("callTimeSpent")
+                        VStack(spacing: 0) {
+                            CalmListRow(symbol: "checkmark.circle", title: "Visit complete", meta: currentVisit.timeSpent ?? "Saved on phone")
+                                .accessibilityIdentifier("callTimeSpent")
+                            if let photos = EvidencePhotos.summary(model.photos(for: currentVisit)) {
+                                activityDivider
+                                CalmListRow(symbol: "camera", title: "Photos", meta: photos)
+                                    .accessibilityIdentifier("donePhotos")
+                            }
+                        }
                     }
                 }
                 if checkedIn {
