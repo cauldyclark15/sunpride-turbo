@@ -297,6 +297,7 @@ final class EncryptedFieldStore: FieldLocalStore {
     #if DEBUG
     var failAfterIntentInsert = false
     var failBeforeDeltaCursor = false
+    var purgeFailsForTests = false
     #endif
 
     init(url: URL, secrets: SecretStore = KeychainStore(), keyAccount: String = "storage.sqlcipher.v1") throws {
@@ -953,6 +954,10 @@ final class EncryptedFieldStore: FieldLocalStore {
         try exec("PRAGMA wal_checkpoint(TRUNCATE)")
     }
     private func purge(where clause: String, _ values: [Value]) throws {
+        #if DEBUG
+        // Tests only: the cache DELETE fails (rolled back) while reads and a separate hold still work.
+        if purgeFailsForTests { throw StoreError.invalidInput }
+        #endif
         for table in ["snapshot", "call_sheets", "reference_data", "delta"] {
             try run("DELETE FROM \(table) WHERE \(clause)", values)
         }

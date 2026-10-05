@@ -72,10 +72,10 @@ final class TeamAuthorizationEpochTests: XCTestCase {
         try await super.tearDown()
     }
 
-    private func summaryReply(_ marker: String) -> StubURLProtocol.Reply {
+    private func summaryReply(_ marker: String, directOnly: Bool = true) -> StubURLProtocol.Reply {
         let json = """
         {"status":"success","value":{"serviceDate":"\(day)","generatedAt":1791170000000,"dayCloseAt":1791208800000,
-        "directOnly":true,"truncated":false,"openExceptions":1,"totalExceptions":1,
+        "directOnly":\(directOnly),"truncated":false,"openExceptions":1,"totalExceptions":1,
         "people":[{"profileId":"p1","name":"\(marker) person","positionLabel":"CDS","channel":"general_trade","direct":true,
           "planned":6,"plannedDone":3,"done":4,"productive":2,"nonproductive":1,"unplanned":1,"inProgress":false,
           "outOfSequence":0,"openExceptions":1,"lateSync":0,"firstCheckInAt":1791160000000,"lastCheckOutAt":null,"lastActivityAt":null}],
@@ -192,5 +192,113 @@ final class TeamAuthorizationEpochTests: XCTestCase {
         XCTAssertNil(app.team.summary, "a removed phone never shows the team")
         let offline = await relaunchedOffline(a)
         XCTAssertNil(offline.summary)
+    }
+
+    // MARK: Withdrawal when the encrypted purge fails (release counterexample on e793290)
+
+    private func rowKey(_ directOnly: Bool) -> String { TeamRepository.key(serviceDate: day, directOnly: directOnly) }
+
+    /// Both views live, saved and readable offline in a fresh process.
+    private func cacheBothViews(_ app: AppModel) async throws {
+        script.push(.reply(summaryReply("Direct", directOnly: true)))
+        await app.loadTeam(directOnly: true)
+        script.push(.reply(summaryReply("Whole area", directOnly: false)))
+        await app.loadTeam(directOnly: false)
+        let direct = await relaunchedOffline(a, directOnly: true)
+        let all = await relaunchedOffline(a, directOnly: false)
+        XCTAssertEqual(direct.summary?.people.first?.name, "Direct person")
+        XCTAssertEqual(all.summary?.people.first?.name, "Whole area person")
+    }
+
+    /// The purge failed: the old rows are still in the encrypted store and readable.
+    private func assertRowsRetained(file: StaticString = #filePath, line: UInt = #line) throws {
+        for directOnly in [true, false] {
+            XCTAssertNotNil(try store.localCache(entity: TeamRepository.cacheEntity, key: rowKey(directOnly), for: a),
+                            "precondition: the failed purge leaves the row readable", file: file, line: line)
+        }
+    }
+
+    /// A fresh AppModel on the same encrypted store, Keychain and grants; the server can't be reached, so the
+    /// phone launches unverified with the retained partition, the reviewer's offline Today → Team route.
+    private func relaunchAppOffline() async throws -> AppModel {
+        model?.enrollment.signedOut()
+        try secrets.save(Data("test-session".utf8), for: StoreAccount.session)
+        try secrets.save(Data(#"{"subject":"issuer|manager","deviceId":"device-1","scope":"scope-a"}"#.utf8),
+                         for: "field.lastVerifiedPartition")
+        let registry = FakeRegistry()
+        registry.lastMine = .failure(.offline)
+        let auth = AuthClient(site: StubHTTP.site, store: secrets, http: StubHTTP.client())
+        let functions = ConvexFunctions(url: StubHTTP.cloud, auth: auth, http: StubHTTP.client())
+        let fixed = now, key = key
+        let app = AppModel(auth: auth, registry: registry, store: secrets, functions: functions, localStore: store,
+                           now: { fixed }) { key }
+        app.teamGrantDefaults = defaults
+        await app.launch()
+        XCTAssertTrue(app.signedIn)
+        XCTAssertFalse(app.enrollment.state.isReady)
+        model = app
+        return app
+    }
+
+    func testPhoneRemovalWithFailedPurgeNeverShowsSavedTeamAfterOfflineRelaunch() async throws {
+        let app = try await launchModel()
+        try await cacheBothViews(app)
+        store.purgeFailsForTests = true
+        app.enrollment.markRemoved()
+        await app.phoneStateChanged(.removed)
+        try assertRowsRetained()
+        XCTAssertTrue(try store.isHeld(a), "the fallback hold still applies")
+        for directOnly in [true, false] {
+            let offline = await relaunchedOffline(a, directOnly: directOnly)
+            XCTAssertNil(offline.summary, "withdrawn team readable after relaunch (directOnly=\(directOnly))")
+        }
+        // The real app, relaunched offline/unverified on the retained partition, shows neither view.
+        let relaunched = try await relaunchAppOffline()
+        await relaunched.loadTeam(directOnly: true)
+        XCTAssertNil(relaunched.team.summary)
+        await relaunched.loadTeam(directOnly: false)
+        XCTAssertNil(relaunched.team.summary)
+    }
+
+    /// Revoking the grants is enough on its own: even if the held mark is lost, the rows stay withdrawn.
+    func testRemovalRevokesGrantsIndependentlyOfHeldPartition() async throws {
+        let app = try await launchModel()
+        try await cacheBothViews(app)
+        store.purgeFailsForTests = true
+        app.enrollment.markRemoved()
+        await app.phoneStateChanged(.removed)
+        try store.releaseHeld(a)
+        try assertRowsRetained()
+        for directOnly in [true, false] {
+            let offline = await relaunchedOffline(a, directOnly: directOnly)
+            XCTAssertNil(offline.summary, "removal must revoke grants before the fallible purge (directOnly=\(directOnly))")
+        }
+    }
+
+    /// Blocking held partitions is enough on its own: valid rows and grants in a held partition show nothing.
+    func testHeldPartitionNeverShowsSavedTeamEvenWithValidGrants() async throws {
+        let app = try await launchModel()
+        try await cacheBothViews(app)
+        try store.holdForReview(a)
+        for directOnly in [true, false] {
+            let offline = await relaunchedOffline(a, directOnly: directOnly)
+            XCTAssertNil(offline.summary, "held partition read (directOnly=\(directOnly))")
+        }
+        try store.releaseHeld(a)
+        let back = await relaunchedOffline(a, directOnly: true)
+        XCTAssertEqual(back.summary?.people.first?.name, "Direct person", "released after verification: readable again")
+    }
+
+    func testSignOutWithFailedPurgeWithdrawsSavedTeam() async throws {
+        let app = try await launchModel()
+        try await cacheBothViews(app)
+        store.purgeFailsForTests = true
+        await app.signOut()
+        try assertRowsRetained()
+        try store.releaseHeld(a) // even without the held mark
+        for directOnly in [true, false] {
+            let offline = await relaunchedOffline(a, directOnly: directOnly)
+            XCTAssertNil(offline.summary, "signed-out team readable (directOnly=\(directOnly))")
+        }
     }
 }

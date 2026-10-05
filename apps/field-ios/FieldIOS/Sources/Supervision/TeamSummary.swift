@@ -193,8 +193,11 @@ final class FieldStoreTeamRows: TeamRowStore {
     init(store: any FieldLocalStore, partition: StorePartition, keepPrefix: String) {
         self.store = store; self.partition = partition; self.keepPrefix = keepPrefix
     }
+    /// A held partition (phone removed, signed out, or scope not yet re-verified) shows no saved team,
+    /// whatever its rows or grants say; if the held state can't be read, nothing is shown.
     func read(key: String) throws -> (body: Data, savedAt: Int64)? {
-        try store.localCache(entity: TeamRepository.cacheEntity, key: key, for: partition)
+        guard try !store.isHeld(partition) else { return nil }
+        return try store.localCache(entity: TeamRepository.cacheEntity, key: key, for: partition)
     }
     func write(key: String, body: Data, savedAt: Int64) throws {
         try store.putLocalCache(entity: TeamRepository.cacheEntity, key: key, body: body, savedAt: savedAt,

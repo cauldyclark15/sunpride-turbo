@@ -280,9 +280,21 @@ final class AppModel {
         teamLatch.invalidate()
     }
 
+    /// Phone removed/suspended or signing out: withdraw every saved Team copy of this account BEFORE any
+    /// fallible storage purge. The in-session refusal is latched and the durable grants (kept outside the
+    /// encrypted store) are revoked, so a purge that fails while the old rows stay readable can never bring
+    /// them back, in this session or after an offline relaunch. Only a new live answer grants again.
+    private func withdrawTeam() {
+        teamLatch.deny()
+        if let partition = activeStoragePartition {
+            DefaultsTeamGrants(defaults: teamGrantDefaults, partition: partition).revokeAll()
+        }
+    }
+
     /// Confirmed revocation/suspension (QSR-010): hold unsent work and drop this partition's cached
     /// plan, outlets, customers and prices from storage and memory.
     private func holdActive() {
+        withdrawTeam()
         if let partition = activeStoragePartition {
             do { try fieldStore?.purgeCacheForReview(partition) }
             catch { try? fieldStore?.holdForReview(partition) }
@@ -938,6 +950,7 @@ final class AppModel {
     func signOut() async {
         enrollment.signedOut()
         signInError = nil
+        withdrawTeam()
         // QSR-010: every partition is held and its cached plan, customers and prices removed; only
         // encrypted unsent evidence remains for supervised review.
         do { try existingStore()?.purgeAllCachesForReview() }
