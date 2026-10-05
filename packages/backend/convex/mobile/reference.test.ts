@@ -17,7 +17,11 @@ import {
 } from "../imports/test_helpers";
 import { fixture } from "./bootstrap.test";
 import { readCursor } from "./cursor";
-import { MAX_CONVERSION_HISTORY } from "./reference";
+import {
+  MAX_BARCODE_HISTORY,
+  MAX_BARCODES,
+  MAX_CONVERSION_HISTORY,
+} from "./reference";
 
 // Manila noon today: two-minute steps never cross the field-day boundary.
 const NOON = Date.parse(`${manilaDate(Date.now())}T04:00:00Z`);
@@ -496,7 +500,183 @@ describe("mobile reference data (SP-0051)", () => {
       }),
     ).rejects.toThrow("reference_data_too_large");
   });
+
+  it("ships every CSV-imported barcode up to the contract cap, in bootstrap and pull", async () => {
+    const f = await setup();
+    // 19 more office CSV imports, each adding a new barcode: 20 active in total.
+    for (let i = 1; i < MAX_BARCODES; i++) {
+      advance(1000);
+      await productImport(f.admin, `barcode-${i}`, { barcode: ean(i) });
+    }
+    const active = await activeBarcodes(f);
+    expect(active).toHaveLength(MAX_BARCODES);
+    const boot = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+      referenceData: true,
+    });
+    expect(
+      boot.productCatalog[0]!.barcodes!.map((b) => b.barcode).sort(),
+    ).toEqual(active.sort());
+    // A later CSV change to the 20th barcode reaches the phone as a pull upsert.
+    advance(2 * 60_000);
+    const settled = await f.caller.query(internal.mobile.pull.delta, {
+      actor: f.actor,
+      cursor: boot.syncCursor!,
+    });
+    advance(2 * 60_000);
+    const quiet = await f.caller.query(internal.mobile.pull.delta, {
+      actor: f.actor,
+      cursor: settled.nextCursor,
+    });
+    expect(quiet.changes).toEqual([]);
+    advance(1000);
+    await f.t.run(async (ctx) => {
+      const last = (await ctx.db
+        .query("productBarcodes")
+        .withIndex("by_organizationId_and_barcode", (q) =>
+          q
+            .eq("organizationId", "sunpride")
+            .eq("barcode", ean(MAX_BARCODES - 1)),
+        )
+        .unique())!;
+      await ctx.db.patch(last._id, { active: false, updatedAt: Date.now() });
+    });
+    const delta = await f.caller.query(internal.mobile.pull.delta, {
+      actor: f.actor,
+      cursor: quiet.nextCursor,
+    });
+    const product = delta.changes.find((c) => c.entity === "product");
+    expect(product).toMatchObject({ op: "upsert", revision: Date.now() });
+    const shipped = (product!.value as { barcodes: { barcode: string }[] })
+      .barcodes;
+    expect(shipped).toHaveLength(MAX_BARCODES - 1);
+    expect(shipped.map((b) => b.barcode)).not.toContain(ean(MAX_BARCODES - 1));
+
+    // The 21st CSV barcode cannot fit the v1 contract: fail closed, never a partial list.
+    advance(1000);
+    await productImport(f.admin, "barcode-21", { barcode: ean(MAX_BARCODES) });
+    advance(1000);
+    await productImport(f.admin, "barcode-22", {
+      barcode: ean(MAX_BARCODES + 1),
+    });
+    expect(await activeBarcodes(f)).toHaveLength(MAX_BARCODES + 1);
+    await expect(
+      f.caller.query(internal.mobile.bootstrap.snapshot, {
+        actor: f.actor,
+        referenceData: true,
+      }),
+    ).rejects.toThrow("reference_data_too_large");
+    await expect(
+      f.caller.query(internal.mobile.pull.delta, {
+        actor: f.actor,
+        cursor: delta.nextCursor,
+      }),
+    ).rejects.toThrow("reference_data_too_large");
+  });
+
+  it("finds active barcodes and revisions behind more than 20 retired rows", async () => {
+    const f = await setup();
+    const { eachId } = await units(f);
+    await f.t.run(async (ctx) => {
+      for (let i = 0; i < 25; i++)
+        await ctx.db.insert("productBarcodes", {
+          organizationId: "sunpride",
+          productId: f.product._id,
+          barcode: ean(100 + i),
+          uomId: eachId,
+          active: false,
+          source: "fixture",
+          createdAt: NOON - 60_000,
+          updatedAt: NOON - 60_000,
+        });
+    });
+    advance(1000);
+    await productImport(f.admin, "late-barcode", { barcode: ean(500) });
+    const boot = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+      referenceData: true,
+    });
+    const item = boot.productCatalog[0]!;
+    expect(item.barcodes!.map((b) => b.barcode).sort()).toEqual(
+      ["4800000000001", ean(500)].sort(),
+    );
+    // Retiring a row stored after the first 20 still bumps the product revision.
+    advance(2 * 60_000);
+    const first = await f.caller.query(internal.mobile.pull.delta, {
+      actor: f.actor,
+      cursor: boot.syncCursor!,
+    });
+    advance(2 * 60_000);
+    const quiet = await f.caller.query(internal.mobile.pull.delta, {
+      actor: f.actor,
+      cursor: first.nextCursor,
+    });
+    expect(quiet.changes).toEqual([]);
+    advance(1000);
+    await f.t.run(async (ctx) => {
+      const late = (await ctx.db
+        .query("productBarcodes")
+        .withIndex("by_organizationId_and_barcode", (q) =>
+          q.eq("organizationId", "sunpride").eq("barcode", ean(500)),
+        )
+        .unique())!;
+      await ctx.db.patch(late._id, { active: false, updatedAt: Date.now() });
+    });
+    const delta = await f.caller.query(internal.mobile.pull.delta, {
+      actor: f.actor,
+      cursor: quiet.nextCursor,
+    });
+    expect(delta.changes).toMatchObject([
+      {
+        entity: "product",
+        op: "upsert",
+        revision: Date.now(),
+        value: { barcodes: [{ barcode: "4800000000001", uom: "CASE" }] },
+      },
+    ]);
+  });
+
+  it("fails loudly instead of truncating an oversized barcode history", async () => {
+    const f = await setup();
+    const { eachId } = await units(f);
+    await f.t.run(async (ctx) => {
+      for (let i = 0; i < MAX_BARCODE_HISTORY; i++)
+        await ctx.db.insert("productBarcodes", {
+          organizationId: "sunpride",
+          productId: f.product._id,
+          barcode: ean(200 + i),
+          uomId: eachId,
+          active: false,
+          source: "fixture",
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+    });
+    await expect(
+      f.caller.query(internal.mobile.bootstrap.snapshot, {
+        actor: f.actor,
+        referenceData: true,
+      }),
+    ).rejects.toThrow("reference_data_too_large");
+  });
 });
+
+const ean = (i: number) => `48100${String(i).padStart(8, "0")}`;
+
+async function activeBarcodes(f: Awaited<ReturnType<typeof setup>>) {
+  return f.t.run(async (ctx) =>
+    (
+      await ctx.db
+        .query("productBarcodes")
+        .withIndex("by_organizationId_and_productId", (q) =>
+          q.eq("organizationId", "sunpride").eq("productId", f.product._id),
+        )
+        .collect()
+    )
+      .filter((row) => row.active)
+      .map((row) => row.barcode),
+  );
+}
 
 async function units(f: Awaited<ReturnType<typeof setup>>) {
   return f.t.run(async (ctx) => {

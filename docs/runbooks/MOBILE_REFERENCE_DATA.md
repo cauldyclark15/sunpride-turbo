@@ -66,7 +66,12 @@ denominator`, in base units × `quantityScale`). The server reads a unit pair's 
   `reference_data_too_large` rather than guessing.
 - `barcodes` lists active barcodes whose unit is active (at most 20, 64 characters each) in server
   order. The call sheet line's `barcode` is normally `barcodes[0].barcode` or `null`; with
-  reference data, prefer `barcodes[0]` (a barcode for a retired unit is dropped here).
+  reference data, prefer `barcodes[0]` (a barcode for a retired unit is dropped here). The server
+  reads a product's whole barcode history, retired rows included (up to 50 rows), so a newer
+  barcode or a change to it is never hidden behind older rows. More than 50 rows, or more than 20
+  shippable barcodes (the v1 contract limit), fails the request with `reference_data_too_large`
+  instead of sending a partial list. Product CSV imports add barcodes without retiring old ones,
+  so the office must retire unused barcodes before a product reaches 21.
 
 `inventoryAvailability[]` (one per balance row on this page):
 

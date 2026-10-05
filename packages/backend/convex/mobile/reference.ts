@@ -17,7 +17,10 @@ export const MAX_REFERENCE_PRODUCTS = 300;
 export const MAX_SALE_LOCATIONS = 10;
 export const MAX_UNIT_LOCATIONS_SCANNED = 200;
 export const MAX_LOCATION_BALANCES = 1000;
-const MAX_BARCODES = 20;
+/** Active barcodes one product may ship; the v1 contract (and the native decoders) cap it at 20. */
+export const MAX_BARCODES = 20;
+/** Every barcode row of one product (inactive history included) is read up to this bound. */
+export const MAX_BARCODE_HISTORY = 50;
 /** Conversion history read per unit pair; more rows fail loudly instead of being skipped. */
 export const MAX_CONVERSION_HISTORY = 100;
 /** Pulls re-read this overlap so a commit that lands after a pull is never skipped. */
@@ -178,7 +181,10 @@ async function catalogItem(
         .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
         .eq("productId", product._id),
     )
-    .take(MAX_BARCODES);
+    .take(MAX_BARCODE_HISTORY + 1);
+  // The whole history is read so an active row (or a revision bump) after older or
+  // retired rows is never silently dropped; overflow fails instead of truncating.
+  if (barcodeRows.length > MAX_BARCODE_HISTORY) tooLarge();
   const barcodes: NonNullable<CatalogItem["barcodes"]> = [];
   for (const row of barcodeRows) {
     revision = Math.max(revision, row.updatedAt);
@@ -189,6 +195,8 @@ async function catalogItem(
     if (!unit?.active) continue;
     barcodes.push({ barcode: row.barcode, uom: unit.code });
   }
+  // More shippable barcodes than the contract allows: fail closed, never a partial list.
+  if (barcodes.length > MAX_BARCODES) tooLarge();
   const storedBase = product.baseUomId
     ? await uom(ctx, caches, product.baseUomId)
     : null;
