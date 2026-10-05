@@ -10,6 +10,7 @@ import schema from "../schema";
 import { requireCapability } from "../lib/capabilities";
 import { requireActiveProfile } from "../lib/auth";
 import { auditPlan, planState } from "./audit";
+import { queuePlanRollup } from "../analytics/rollups";
 import {
   approvedSlots,
   bounded,
@@ -190,6 +191,7 @@ async function reconcile(
       displaced++;
     }
     await signalPlan(ctx, predecessor, now);
+    await queuePlanRollup(ctx, predecessor._id);
     await ctx.db.patch(predecessor._id, {
       status: "superseded",
       supersededAt: now,
@@ -217,6 +219,7 @@ async function reconcile(
   }
   if (isNew) {
     await signalPlan(ctx, plan, now);
+    await queuePlanRollup(ctx, plan._id);
     await ctx.db.patch(plan._id, {
       status: "active",
       activatedAt: now,

@@ -78,6 +78,9 @@ object BootstrapCodec {
         if (v.has("code") && v.get("code") !is String) throw WireFailure("Invalid code")
         if (v.has("customerId")) v.str("customerId")
         if (v.has("address")) v.str("address")
+        // Signed planned-visit territory (order association, SP-0061): both or neither.
+        if (v.has("territoryId") != v.has("territoryCode")) throw WireFailure("Invalid territory")
+        if (v.has("territoryId")) { v.str("territoryId"); v.str("territoryCode") }
         if (v.has("latitude") != v.has("longitude")) throw WireFailure("Invalid pin")
         if (v.has("latitude")) {
             val lat = (v.get("latitude") as? Number)?.toDouble() ?: throw WireFailure("Invalid pin")

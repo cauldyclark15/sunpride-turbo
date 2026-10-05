@@ -1,4 +1,4 @@
-# Visit intents and activity-form rules (AND-013)
+# Visit intents and activity-form rules (AND-013, IOS-013)
 
 A visit has one or more **intents** (its purposes for that store). Each intent has a
 backend **rule** listing the activity forms it requires or offers. The field phone
@@ -9,7 +9,8 @@ downloads the rules with its day and builds the visit's activity checklist from 
 `sell`, `collect`, `merchandise`, `audit`, `deliver`, `promotion`, `complaint`, `follow-up`.
 
 - Planned visit: the intents come from the signed MCP slot and cannot be changed on the phone.
-- Unplanned visit: the salesperson picks one or more before Start (Android requires at least one).
+- Unplanned visit: the salesperson picks one or more before Start (Android and iOS both require
+  at least one).
 
 ## Forms a rule can name
 
@@ -29,6 +30,9 @@ downloads the rules with its day and builds the visit's activity checklist from 
   recorded. A **not productive** End (with a reason) needs no forms.
 - A required form the phone cannot capture (no account products, unknown kind) is shown as
   "Not available on this phone" and does not block End.
+- Both apps enforce this twice: in the visit screen and again inside the encrypted store's
+  enqueue transaction, which also re-checks each structured form's wire shape and that its
+  product is on the account's call sheet. A rejected (needs-review) form does not count.
 - The server never refuses a queued End. On End it evaluates the rules in effect when the
   call started and stores `missingActivities` and `activityRuleVersion` on the visit for
   supervisor review (`visits/commands:detail` returns both).

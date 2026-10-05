@@ -131,6 +131,7 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                         item.status == com.sunpride.field.storage.ActivityRequirement.Status.UNAVAILABLE -> null
                         item.kind == "note" -> null // the Note card below
                         item.kind == "call_sheet" -> { { controller.openCallSheet() } }
+                        item.kind == "order_intent" -> { { controller.openOrder() } }
                         else -> { { controller.openActivityForm(item.kind) } }
                     }
                     ListRow(label, meta, "activity", Modifier.testTag("activity-${item.kind}"),
@@ -160,6 +161,21 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     else ListRow("Call sheet", "Record quantities for this visit", "activity",
                         Modifier.testTag("call-sheet-open"), onClick = { controller.openCallSheet() })
+                }
+                SectionCard("Order") {
+                    controller.visitOrderDrafts.forEach { draft ->
+                        val status = controller.orderStatus(draft)
+                        ListRow(if (draft.submittedRequestId == null) "Order draft" else "Order",
+                            "${draft.lines.size} product${if (draft.lines.size == 1) "" else "s"} · ${status.label}",
+                            "activity", Modifier.testTag(if (draft.submittedRequestId == null) "order-draft" else "order-sent"),
+                            onClick = { controller.openOrder(draft.draftId) })
+                    }
+                    if (controller.diagnosticCallSheet == null) Text(
+                        "No products set up for this account yet. Ask your office.",
+                        Modifier.padding(16.dp).testTag("order-unavailable"),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    else ListRow("New order", "Search this account's products", "activity",
+                        Modifier.testTag("order-new"), onClick = { controller.openOrder() })
                 }
                 SectionCard("Note") {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -195,6 +211,12 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                     }
                 }
             }
+            // SP-0060: an unsent draft stays on this phone once the call ends; say so before End.
+            val unsent = controller.visitOrderDrafts.count { it.submittedRequestId == null }
+            if (checkedIn && !checkedOut && unsent > 0) Text(
+                "$unsent order draft${if (unsent == 1) " is" else "s are"} not sent. Review and send before End call, " +
+                    "or it stays on this phone.", color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("order-unsent"))
             if (checkedIn && !checkedOut && outcome == "completed" && missing.isNotEmpty()) Text(
                 "Still required: " + missing.joinToString(", ") { com.sunpride.field.storage.ActivityRules.kindLabel(it) },
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("activities-missing"))
@@ -243,6 +265,14 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                     }
                     Text("Visit saved · ${com.sunpride.field.storage.VisitCallRules.timeSpent(related) ?: "0 min"}",
                         Modifier.padding(16.dp).testTag("call-time-spent"))
+                }
+            }
+            if (checkedOut && controller.visitOrderDrafts.isNotEmpty()) SectionCard("Order") {
+                controller.visitOrderDrafts.forEach { draft ->
+                    ListRow(if (draft.submittedRequestId == null) "Order draft" else "Order",
+                        "${draft.lines.size} product${if (draft.lines.size == 1) "" else "s"} · ${controller.orderStatus(draft).label}",
+                        "activity", Modifier.testTag("order-draft-closed"),
+                        onClick = if (draft.submittedRequestId == null) null else { { controller.openOrder(draft.draftId) } })
                 }
             }
             if (!checkedIn) startFailure?.let {
