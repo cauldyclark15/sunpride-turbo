@@ -115,37 +115,59 @@ protocol TeamGrantStore {
 
 /// In-session withdrawal: after a refusal no saved copy is read until that same filter gets a new live
 /// answer; a live answer for one filter never renews another.
+///
+/// `generation` is the authorization epoch: it moves on every refusal, scope change, phone removal and
+/// session change. A request records it when it starts and may save, grant or renew only if it is
+/// unchanged when the answer arrives, so an answer that predates a newer refusal or scope/session can
+/// never come back as a saved copy (A → B → A, sign-out → same account, deny → old success).
 @MainActor
 final class TeamSessionLatch {
     private var refused = false
     private var renewed: Set<String> = []
+    private(set) var generation: UInt64 = 0
     func allows(_ key: String) -> Bool { !refused || renewed.contains(key) }
-    func deny() { refused = true; renewed = [] }
+    func deny() { refused = true; renewed = []; generation &+= 1 }
     func renew(_ key: String) { if refused { renewed.insert(key) } }
+    /// Scope or phone state changed: in-flight answers are stale; any refusal stays in force.
+    func invalidate() { generation &+= 1 }
+    /// A new session: in-flight answers are stale and the in-session refusal starts over.
+    func reset() { refused = false; renewed = []; generation &+= 1 }
 }
 
 /// The production `TeamCache`: rows tagged with a fresh random token per live answer, shown only when the
 /// session latch allows that filter AND the durable grant for that filter matches the row's token.
+/// Bound to the latch generation current when the request started; once it moves this cache neither
+/// reads, saves nor grants.
 @MainActor
 struct GuardedTeamCache: TeamCache {
     let rows: TeamRowStore
     let grants: TeamGrantStore
     let latch: TeamSessionLatch
     let keepPrefix: String
+    let generation: UInt64
+
+    init(rows: TeamRowStore, grants: TeamGrantStore, latch: TeamSessionLatch, keepPrefix: String, generation: UInt64? = nil) {
+        self.rows = rows; self.grants = grants; self.latch = latch; self.keepPrefix = keepPrefix
+        self.generation = generation ?? latch.generation
+    }
+
+    var current: Bool { latch.generation == generation }
 
     func read(key: String) -> (body: Data, savedAt: Int64)? {
-        guard latch.allows(key), let granted = grants.token(key: key),
+        guard current, latch.allows(key), let granted = grants.token(key: key),
               let hit = try? rows.read(key: key), case let (token, body)? = Self.unwrap(hit.body), token == granted else { return nil }
         return (body, hit.savedAt)
     }
 
     func write(key: String, body: Data, savedAt: Int64) {
+        guard current else { return }
         let token = UUID().uuidString
         guard (try? rows.write(key: key, body: Self.wrap(token, body), savedAt: savedAt)) != nil else { return }
         grants.grant(key: key, token: token, keepPrefix: keepPrefix)
         latch.renew(key)
     }
 
+    /// Withdrawal is never skipped, even for a stale request: refusing is always the safe direction.
     func clear() {
         latch.deny()
         grants.revokeAll()
