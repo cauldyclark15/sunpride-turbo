@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- SP-0126: the logo's own red (sampled from packages/ui/assets/sunpride-logo.jpg; = SunprideTokens.red). -->
+    <color name="sunpride_red">#EE1C25</color>
+</resources>
