@@ -13,7 +13,6 @@ import {
   SAMPLE_PEOPLE,
   SAMPLE_PRICE_LISTS,
   SAMPLE_PRODUCTS,
-  SAMPLE_STORES,
   gs1CheckDigit,
   samplePrice,
   sampleBarcodes,
