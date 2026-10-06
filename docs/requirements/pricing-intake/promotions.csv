@@ -1,0 +1,3 @@
+promotion_code,description,rule_type,scope_level,scope_code,product_code,selling_uom,min_quantity,discount_percent,discount_amount,free_product_code,free_quantity,tier_unit_price,priority,stackable,effective_from,effective_to,notes
+EXAMPLE-PCT,5% off pineapple 1L,percent_off,channel,SARI_SARI,SP-PJ-1L,CASE,1,5,,,,,10,N,2026-11-01,2026-12-01,EXAMPLE row - delete
+EXAMPLE-B10T1,Buy 10 cases get 1 free,buy_x_get_y,base,,SP-PJ-1L,CASE,10,,,SP-PJ-1L,1,,20,N,2026-11-01,2026-12-01,EXAMPLE row - delete
