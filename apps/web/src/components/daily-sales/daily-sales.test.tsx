@@ -122,9 +122,12 @@ import { DailySalesView, DailySalesWorkspace } from "./daily-sales-workspace";
 
 describe("daily sales report screens", () => {
   it("renders the Annex B sheet: header, targets, coverage, blocks and signatures", () => {
+    // The New products placeholder is on the beta hidden list; switch it on here.
+    vi.stubEnv("NEXT_PUBLIC_BETA_ENABLE", "dsr-new-products");
     const html = renderToStaticMarkup(
       <DailySalesView report={report as never} />,
     );
+    vi.unstubAllEnvs();
     expect(html).toContain("Daily Sales Report · Ana Cruz");
     expect(html).toContain("SI-001, SI-003");
     expect(html).toContain("Route 1 Poblacion");
@@ -149,6 +152,18 @@ describe("daily sales report screens", () => {
     expect(html).toContain("PROMO-SEPT");
     expect(html).toContain("Salesman signature / date");
     expect(html).toContain("CDM / COM signature / date");
+  });
+
+  it("hides the empty New products placeholder for the beta", () => {
+    vi.stubEnv("NEXT_PUBLIC_BETA_ENABLE", "");
+    const html = renderToStaticMarkup(
+      <DailySalesView report={report as never} />,
+    );
+    vi.unstubAllEnvs();
+    expect(html).not.toContain("New products");
+    expect(html).not.toContain("Waiting for Sunpride");
+    expect(html).toContain("PROMO-SEPT");
+    expect(html).toContain("lg:grid-cols-2");
   });
 
   it("says so when the day has no coverage", () => {

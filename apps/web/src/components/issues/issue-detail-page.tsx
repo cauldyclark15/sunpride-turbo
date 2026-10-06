@@ -338,6 +338,9 @@ function IssueDetailContent({
 }) {
   const issue = detail.issue;
   const writable = access.canWrite && !issue.archived;
+  // Status, area, priority, assignee and editing the issue are triage work; every tester
+  // can still comment and attach.
+  const triage = writable && access.canTriage;
   const update = useMutation(api.issues.mutations.update);
   const move = useMutation(api.issues.mutations.move);
   const archive = useMutation(api.issues.mutations.archive);
@@ -399,7 +402,7 @@ function IssueDetailContent({
     }
   }
   async function saveIssue(fields: EditFields) {
-    if (!writable) return;
+    if (!triage) return;
     const saved = await perform(() =>
       update({
         issueId: issue._id,
@@ -452,7 +455,7 @@ function IssueDetailContent({
       <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="grid min-w-0 content-start gap-4">
           <Card label="Issue details">
-            {editing && writable ? (
+            {editing && triage ? (
               <IssueEditor
                 detail={detail}
                 busy={busy}
@@ -585,7 +588,7 @@ function IssueDetailContent({
         <aside className="h-fit min-w-0 xl:sticky xl:top-4">
           <Card label="Settings">
             <div className="grid gap-4">
-              {writable ? (
+              {triage ? (
                 <>
                   <FormField label="Status">
                     <select
@@ -722,9 +725,9 @@ function IssueDetailContent({
                   </div>
                 ))}
               </dl>
-              {writable || access.canManage ? (
+              {triage || access.canManage ? (
                 <div className="grid gap-2 border-t border-separator pt-4">
-                  {writable ? (
+                  {triage ? (
                     <Button
                       variant="outline"
                       isDisabled={busy || editing}

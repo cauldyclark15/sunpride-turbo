@@ -1,4 +1,5 @@
 import type { WorkspaceModuleTab, WorkspaceNavGroup } from "@sunpride/ui";
+import { isModuleHiddenForBeta } from "./beta";
 
 const routeToPrimary = {
   "/dashboard": "home",
@@ -102,6 +103,11 @@ function primaryIdFor(pathname: string) {
   return "home";
 }
 
+/** Beta release: drop links to modules hidden by the beta feature list. */
+function visible<T extends { href: string }>(items: T[]) {
+  return items.filter((item) => !isModuleHiddenForBeta(item.href.slice(1)));
+}
+
 export function getWebNavigation(
   pathname: string,
   canAdminister: boolean,
@@ -112,12 +118,19 @@ export function getWebNavigation(
     {
       id: "workspace",
       label: "Workspace",
-      items: canSeeIssues
-        ? [
-            ...workspaceItems,
-            { id: "issues", label: "Issues", href: "/issues", icon: "issues" },
-          ]
-        : workspaceItems,
+      items: [
+        ...visible(workspaceItems),
+        ...(canSeeIssues
+          ? [
+              {
+                id: "issues",
+                label: "Issues",
+                href: "/issues",
+                icon: "issues" as const,
+              },
+            ]
+          : []),
+      ],
     },
   ];
 
@@ -138,11 +151,36 @@ export function getWebNavigation(
 
   return {
     activePrimaryId,
-    moduleTabs: moduleTabs[activePrimaryId] ?? [],
+    moduleTabs: visible(moduleTabs[activePrimaryId] ?? []),
     navGroups,
   };
 }
 
+/**
+ * Beta release: drop sidebar items a role cannot open (they only led to "Access denied")
+ * and point each item at the first of its pages the role can open.
+ */
+export function navigationForRole(
+  groups: WorkspaceNavGroup[],
+  canOpen: (slug: string) => boolean,
+): WorkspaceNavGroup[] {
+  return groups
+    .map((group) => ({
+      ...group,
+      items: group.items.flatMap((item) => {
+        const slug = item.href.slice(1);
+        if (!isWebModuleSlug(slug)) return [item];
+        const pages = [
+          item.href,
+          ...visible(moduleTabs[item.id] ?? []).map((tab) => tab.href),
+        ];
+        const first = pages.find((href) => canOpen(href.slice(1)));
+        return first ? [{ ...item, href: first }] : [];
+      }),
+    }))
+    .filter((group) => group.items.length > 0);
+}
+
 export function getWebModuleTabs(pathname: string) {
-  return moduleTabs[primaryIdFor(pathname)] ?? [];
+  return visible(moduleTabs[primaryIdFor(pathname)] ?? []);
 }

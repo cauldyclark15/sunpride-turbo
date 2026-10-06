@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   getWebModuleTabs,
   getWebNavigation,
   isWebModuleSlug,
+  navigationForRole,
 } from "./navigation";
 
 describe("web navigation", () => {
@@ -96,6 +97,46 @@ describe("web navigation", () => {
     ]);
     expect(getWebModuleTabs("/mobile")).toEqual([]);
     expect(getWebModuleTabs("/dashboard")).toEqual([]);
+  });
+
+  it("hides the Integration (SAP) module for the beta", () => {
+    const hrefs = () =>
+      getWebNavigation("/dashboard", true, true).navGroups.flatMap((group) =>
+        group.items.map((item) => item.href),
+      );
+    expect(hrefs()).not.toContain("/sap-integration");
+    expect(hrefs()).toContain("/issues");
+    expect(hrefs()).toContain("/admin");
+    // The beta feature list switches it back on.
+    vi.stubEnv("NEXT_PUBLIC_BETA_ENABLE", "integration");
+    expect(hrefs()).toContain("/sap-integration");
+    vi.unstubAllEnvs();
+  });
+
+  it("shows each role only the sidebar items it can open", () => {
+    const groups = getWebNavigation("/dashboard", false, true).navGroups;
+    const items = (opens: string[]) =>
+      navigationForRole(groups, (slug) => opens.includes(slug)).flatMap(
+        (group) => group.items.map((item) => `${item.label}:${item.href}`),
+      );
+    // A seller opens orders but not approvals.
+    expect(items(["dashboard", "orders", "sales-force", "analytics"])).toEqual([
+      "Home:/dashboard",
+      "Commercial:/orders",
+      "Field:/sales-force",
+      "Reports:/analytics",
+      "Issues:/issues",
+    ]);
+    // A role without Orders still reaches Commercial through its first open tab.
+    expect(items(["master-data"])).toEqual([
+      "Commercial:/master-data",
+      "Issues:/issues",
+    ]);
+    // Supervision only: Field points at it instead of an Access denied page.
+    expect(items(["supervision"])).toContain("Field:/supervision");
+    expect(navigationForRole(groups, () => false)).toEqual([
+      { ...groups[0], items: [groups[0]!.items.at(-1)] },
+    ]);
   });
 
   it("recognizes only configured module slugs", () => {

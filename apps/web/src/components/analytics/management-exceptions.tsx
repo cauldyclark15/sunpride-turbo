@@ -13,6 +13,7 @@ import {
 import { useQueries, useQuery, type RequestForQueries } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { useState, type ReactNode } from "react";
+import { isBetaFeatureOn } from "../../config/beta";
 import { formatCentavos, pctLabel } from "../../lib/execution-dashboard";
 import {
   BEHIND_PLAN_PCT,
@@ -432,14 +433,19 @@ function GeofenceData({ filters }: { filters: PeopleFilters }) {
 }
 
 // ---------------------------------------------------------------------------------------
-// SAP, trips, stock and cash.
+// SAP, trips, stock and cash (SAP and cash are hidden for the beta; see config/beta.ts).
 
 export function OperationsView({
   data,
   now,
+  showSap = true,
+  showCash = true,
 }: {
   data: Operations;
   now: number;
+  /** Beta: SAP is out of scope, so the wired view passes the beta feature list. */
+  showSap?: boolean;
+  showCash?: boolean;
 }) {
   const { sap, trips, stock } = data;
   const sapCount = sap.available
@@ -560,59 +566,61 @@ export function OperationsView({
 
   return (
     <>
-      <Card
-        label="SAP failures"
-        count={sapCount}
-        icon={<WorkspaceIcon name="sap" />}
-        flush={sapItems.length > 0}
-      >
-        {!sap.available ? (
-          <Muted>{sap.reason}.</Muted>
-        ) : (
-          <div className="grid gap-2">
-            <div
-              className={`flex flex-wrap gap-2 ${sapItems.length ? "px-4 pt-3" : ""}`}
-            >
-              <StatusPill tone={sap.failed ? "danger" : "neutral"}>
-                {`Failed ${sap.failed}`}
-              </StatusPill>
-              <StatusPill tone={sap.deadLetter ? "danger" : "neutral"}>
-                {`Dead letter ${sap.deadLetter}`}
-              </StatusPill>
-              <StatusPill tone={sap.stuck ? "warning" : "neutral"}>
-                {`Stuck over 2 h ${sap.stuck}`}
-              </StatusPill>
-              {sap.connectorsDown.map((row) => (
-                <StatusPill key={row.connectorId} tone="danger">
-                  {`Connector ${row.connectorId} down since ${shortDateTime(row.lastSeenAt)}`}
+      {showSap ? (
+        <Card
+          label="SAP failures"
+          count={sapCount}
+          icon={<WorkspaceIcon name="sap" />}
+          flush={sapItems.length > 0}
+        >
+          {!sap.available ? (
+            <Muted>{sap.reason}.</Muted>
+          ) : (
+            <div className="grid gap-2">
+              <div
+                className={`flex flex-wrap gap-2 ${sapItems.length ? "px-4 pt-3" : ""}`}
+              >
+                <StatusPill tone={sap.failed ? "danger" : "neutral"}>
+                  {`Failed ${sap.failed}`}
                 </StatusPill>
-              ))}
-            </div>
-            {sapItems.length ? (
-              <>
-                <DataTable
-                  rows={sapItems}
-                  columns={sapColumns}
-                  bare
-                  empty={null}
-                />
-                <div className="px-4 pb-2">
-                  <Shown shown={sapItems.length} total={sap.total} />
-                </div>
-              </>
-            ) : (
-              <Empty truncated={sap.truncated} clean="No SAP failures." />
-            )}
-            {sap.truncated && sapItems.length ? (
-              <div className="px-4 pb-2">
-                <Muted>
-                  Only part of the SAP events was read; there may be more.
-                </Muted>
+                <StatusPill tone={sap.deadLetter ? "danger" : "neutral"}>
+                  {`Dead letter ${sap.deadLetter}`}
+                </StatusPill>
+                <StatusPill tone={sap.stuck ? "warning" : "neutral"}>
+                  {`Stuck over 2 h ${sap.stuck}`}
+                </StatusPill>
+                {sap.connectorsDown.map((row) => (
+                  <StatusPill key={row.connectorId} tone="danger">
+                    {`Connector ${row.connectorId} down since ${shortDateTime(row.lastSeenAt)}`}
+                  </StatusPill>
+                ))}
               </div>
-            ) : null}
-          </div>
-        )}
-      </Card>
+              {sapItems.length ? (
+                <>
+                  <DataTable
+                    rows={sapItems}
+                    columns={sapColumns}
+                    bare
+                    empty={null}
+                  />
+                  <div className="px-4 pb-2">
+                    <Shown shown={sapItems.length} total={sap.total} />
+                  </div>
+                </>
+              ) : (
+                <Empty truncated={sap.truncated} clean="No SAP failures." />
+              )}
+              {sap.truncated && sapItems.length ? (
+                <div className="px-4 pb-2">
+                  <Muted>
+                    Only part of the SAP events was read; there may be more.
+                  </Muted>
+                </div>
+              ) : null}
+            </div>
+          )}
+        </Card>
+      ) : null}
       <Card
         label="Unclosed trips"
         count={trips.available ? trips.total : 0}
@@ -649,7 +657,9 @@ export function OperationsView({
       <Card
         label="Stock variances"
         count={
-          stock.available ? stock.countsTotal + stock.sapDifferences.open : 0
+          stock.available
+            ? stock.countsTotal + (showSap ? stock.sapDifferences.open : 0)
+            : 0
         }
         icon={<WorkspaceIcon name="inventory" />}
       >
@@ -673,22 +683,24 @@ export function OperationsView({
                 clean="No stock count found a difference."
               />
             )}
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[13px] text-foreground">
-                {`Open SAP stock differences: ${stock.sapDifferences.open}`}
-              </span>
-              {stock.sapDifferences.byClassification.map((row) => (
-                <StatusPill key={row.classification} tone="neutral">
-                  {`${DIFFERENCE_LABELS[row.classification] ?? row.classification} ${row.count}`}
-                </StatusPill>
-              ))}
-            </div>
+            {showSap ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[13px] text-foreground">
+                  {`Open SAP stock differences: ${stock.sapDifferences.open}`}
+                </span>
+                {stock.sapDifferences.byClassification.map((row) => (
+                  <StatusPill key={row.classification} tone="neutral">
+                    {`${DIFFERENCE_LABELS[row.classification] ?? row.classification} ${row.count}`}
+                  </StatusPill>
+                ))}
+              </div>
+            ) : null}
             {stock.blindWithheld > 0 ? (
               <Muted>
                 {`${stock.blindWithheld} blind count${stock.blindWithheld === 1 ? "" : "s"} you started or counted ${stock.blindWithheld === 1 ? "is" : "are"} not shown: an approver reviews ${stock.blindWithheld === 1 ? "its" : "their"} differences.`}
               </Muted>
             ) : null}
-            {stock.sapDifferences.unmappedHidden ? (
+            {showSap && stock.sapDifferences.unmappedHidden ? (
               <Muted>
                 Differences without a location are shown on the national view
                 only.
@@ -702,9 +714,11 @@ export function OperationsView({
           </div>
         )}
       </Card>
-      <Card label="Cash variances" icon={<WorkspaceIcon name="order" />}>
-        <Muted>{data.cash.reason}</Muted>
-      </Card>
+      {showCash ? (
+        <Card label="Cash variances" icon={<WorkspaceIcon name="order" />}>
+          <Muted>{data.cash.reason}</Muted>
+        </Card>
+      ) : null}
     </>
   );
 }
@@ -718,7 +732,14 @@ function OperationsData({
 }) {
   const data = useQuery(api.analytics.exceptions.operations, filters);
   if (data === undefined) return <Muted>Checking operations…</Muted>;
-  return <OperationsView data={data} now={now} />;
+  return (
+    <OperationsView
+      data={data}
+      now={now}
+      showSap={isBetaFeatureOn("sap-status")}
+      showCash={isBetaFeatureOn("cash-variances")}
+    />
+  );
 }
 
 // ---------------------------------------------------------------------------------------

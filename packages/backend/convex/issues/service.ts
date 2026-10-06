@@ -31,6 +31,8 @@ export type IssueActor = {
   profileId?: Id<"profiles">;
   label?: string;
   canManage: boolean;
+  /** Works issues: status, board moves, assignee and editing the issue (`issues.triage`). */
+  canTriage: boolean;
   maxVideoBytes: number;
 };
 
@@ -39,16 +41,18 @@ type FieldChange = Infer<typeof issueFieldChangeValidator>;
 
 export async function requireIssueActor(
   ctx: QueryCtx | MutationCtx,
-  capability: "issues.read" | "issues.write" | "issues.manage",
+  capability:
+    "issues.read" | "issues.write" | "issues.triage" | "issues.manage",
 ): Promise<IssueActor & { profile: Doc<"profiles"> }> {
   const { profile } = await requireCapability(ctx, capability);
-  const canManage =
+  const holds = (name: "issues.triage" | "issues.manage") =>
     profile.role === "super_admin" ||
-    (CAPABILITIES["issues.manage"] as readonly string[]).includes(profile.role);
+    (CAPABILITIES[name] as readonly string[]).includes(profile.role);
   return {
     profile,
     profileId: profile._id,
-    canManage,
+    canManage: holds("issues.manage"),
+    canTriage: holds("issues.triage"),
     maxVideoBytes:
       profile.role === "super_admin"
         ? SUPERADMIN_VIDEO_UPLOAD_BYTES
@@ -61,6 +65,7 @@ export function agentActor(label: string | undefined): IssueActor {
   return {
     label: trimmed ? trimmed : "Agent",
     canManage: true,
+    canTriage: true,
     maxVideoBytes: DEFAULT_VIDEO_UPLOAD_BYTES,
   };
 }
@@ -155,11 +160,13 @@ export async function assertAssignee(
   profileId: Id<"profiles">,
 ) {
   const profile = await ctx.db.get(profileId);
-  const readers = CAPABILITIES["issues.read"] as readonly AppRole[];
+  // Issues are assigned to the staff who work them, not to every tester.
+  const workers = CAPABILITIES["issues.triage"] as readonly AppRole[];
   if (
     !profile ||
     profile.status !== "active" ||
-    !readers.includes(profile.role as AppRole)
+    (profile.role !== "super_admin" &&
+      !workers.includes(profile.role as AppRole))
   )
     throw new ConvexError(
       "Assignee must be an active person with issue access",

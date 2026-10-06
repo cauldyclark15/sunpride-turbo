@@ -366,6 +366,7 @@ beforeEach(() => {
     "issues/queries:access": {
       canRead: true,
       canWrite: true,
+      canTriage: true,
       canManage: true,
       maxVideoBytes: 75 * 1024 * 1024,
     },
@@ -572,6 +573,35 @@ describe("create issue", () => {
     });
     expect(state.pushes).toEqual(["/issues/42"]);
   });
+  it("prefills the reporting page and hides the assignee for testers", async () => {
+    state.values["issues/queries:access"] = {
+      canRead: true,
+      canWrite: true,
+      canTriage: false,
+      canManage: false,
+      maxVideoBytes: 75 * 1024 * 1024,
+    };
+    const html = render(<IssueCreatePage from="/inventory" />);
+    expect(html).toContain("Page: /inventory");
+    expect(html).not.toContain(">Assignee<");
+    expect(html).not.toContain("Unassigned");
+    state.fields = { title: "Stock looks wrong", assignee: "ben" };
+    render(<IssueCreatePage from="/inventory" />);
+    await (
+      state.elements.filter((element) => element.type === "form").at(-1)!.props
+        .onSubmit as (event: unknown) => Promise<void>
+    )({ preventDefault: vi.fn() });
+    const args = state.mutations.find(
+      (call) => call.name === "issues/mutations:create",
+    )?.args as Record<string, unknown>;
+    expect(args.title).toBe("Stock looks wrong");
+    expect(args.assigneeId).toBeUndefined();
+    expect(String(args.description)).toContain("Page: /inventory");
+  });
+  it("ignores an outside link as the reporting page", () => {
+    const html = render(<IssueCreatePage from="https://evil.example" />);
+    expect(html).not.toContain("evil.example");
+  });
   it("does not navigate on mutation failure", async () => {
     state.fields = { title: "Checkout" };
     state.reject = "issues/mutations:create";
@@ -643,6 +673,32 @@ describe("issue detail", () => {
     ])
       expect(html).not.toContain(text);
     expect(html).toContain("Confirmed in QA");
+    expect(html).toContain("Backlog");
+  });
+  it("lets a beta tester comment and attach but not triage", () => {
+    state.values["domains/profiles:current"] = {
+      status: "active",
+      role: "sales",
+    };
+    state.values["issues/queries:access"] = {
+      canRead: true,
+      canWrite: true,
+      canTriage: false,
+      canManage: false,
+      maxVideoBytes: 75 * 1024 * 1024,
+    };
+    const html = render(<IssueDetailPage number="1" />);
+    expect(html).toContain("Add a comment");
+    expect(html).toContain("Comment");
+    for (const text of [
+      "Issue status",
+      "Issue area",
+      "Issue priority",
+      "Issue assignee",
+      "Edit issue",
+      "Archive issue",
+    ])
+      expect(html).not.toContain(text);
     expect(html).toContain("Backlog");
   });
   it("makes archived issues read-only and offers Restore to managers", () => {
@@ -898,8 +954,9 @@ describe("access boundaries", () => {
   it.each([IssuesPage, IssueCreatePage, () => <IssueDetailPage number="1" />])(
     "skips issue queries for disallowed roles",
     (Component) => {
+      // Beta: every app role reads issues; an unknown role still gets nothing.
       state.values["domains/profiles:current"] = {
-        role: "sales",
+        role: "contractor",
         status: "active",
       };
       const html = render(<Component />);
