@@ -1,0 +1,301 @@
+{
+  "type": "bootstrap.response",
+  "contractVersion": 1,
+  "serverTime": 1791331200000,
+  "permissions": ["visit.record", "visit.read"],
+  "employee": {
+    "id": "profile-1",
+    "role": "sales",
+    "orgUnitId": "unit-1"
+  },
+  "scope": {
+    "fingerprint": "scope-v1",
+    "orgUnitIds": ["unit-1"]
+  },
+  "appConfig": {
+    "offlineLeaseExpiresAt": 1791417600000,
+    "cacheExpiresAt": 1791417600000,
+    "orderCaptureEnabled": false,
+    "priceAvailability": "unavailable",
+    "promotionsAvailability": "unavailable"
+  },
+  "plannedVisits": [
+    {
+      "id": "planned-1",
+      "outletId": "outlet-1",
+      "serviceDate": "2026-10-07",
+      "planId": "plan-1",
+      "planVersion": 1,
+      "intents": ["merchandise"],
+      "sequence": 1
+    },
+    {
+      "id": "planned-2",
+      "outletId": "outlet-2",
+      "serviceDate": "2026-10-07",
+      "planId": "plan-1",
+      "planVersion": 1,
+      "intents": ["merchandise"],
+      "sequence": 2
+    }
+  ],
+  "outlets": [
+    {
+      "id": "outlet-1",
+      "name": "Pasig Key Accounts",
+      "routeId": null,
+      "code": "OUT-0001",
+      "territoryId": "territory-1",
+      "territoryCode": "PASIG-01",
+      "address": "12 Rizal Avenue, Pasig",
+      "latitude": 14.5764,
+      "longitude": 121.0851
+    },
+    {
+      "id": "outlet-2",
+      "name": "Pasig Route Store",
+      "routeId": null,
+      "code": "OUT-0002",
+      "territoryId": "territory-1",
+      "territoryCode": "PASIG-01",
+      "address": "24 Rizal Avenue, Pasig"
+    }
+  ],
+  "localCustomers": [],
+  "route": null,
+  "tasks": [],
+  "productCatalog": [
+    {
+      "id": "product-1",
+      "code": "SUNP-001",
+      "name": "Sunpride Corned Beef 150g",
+      "uom": "PC",
+      "revision": 1791331200000,
+      "quantityScale": 1000,
+      "baseUom": {
+        "code": "PC",
+        "name": "Piece",
+        "decimalPlaces": 0
+      },
+      "sellingUoms": [
+        {
+          "code": "PC",
+          "name": "Piece",
+          "decimalPlaces": 0,
+          "toBase": null
+        },
+        {
+          "code": "CASE",
+          "name": "Case of 48",
+          "decimalPlaces": 0,
+          "toBase": {
+            "numerator": 48000,
+            "denominator": 1,
+            "roundingMode": "exact"
+          }
+        }
+      ],
+      "barcodes": []
+    },
+    {
+      "id": "product-2",
+      "code": "SUNP-002",
+      "name": "Sunpride Luncheon Meat 150g",
+      "uom": "PC",
+      "revision": 1791331200000,
+      "quantityScale": 1000,
+      "baseUom": {
+        "code": "PC",
+        "name": "Piece",
+        "decimalPlaces": 0
+      },
+      "sellingUoms": [
+        {
+          "code": "PC",
+          "name": "Piece",
+          "decimalPlaces": 0,
+          "toBase": null
+        },
+        {
+          "code": "CASE",
+          "name": "Case of 48",
+          "decimalPlaces": 0,
+          "toBase": {
+            "numerator": 48000,
+            "denominator": 1,
+            "roundingMode": "exact"
+          }
+        }
+      ],
+      "barcodes": []
+    }
+  ],
+  "page": 1,
+  "nextPageCursor": null,
+  "syncCursor": "opaque-start",
+  "dayTarget": {
+    "dailyCalls": 30,
+    "productivePct": 85,
+    "sourceRef": "memo-2026-01-20",
+    "productiveCallRule": "any_listed_activity"
+  },
+  "daySales": {
+    "amountMinor": 175050,
+    "orders": 2,
+    "targetMinor": 500000
+  },
+  "pricing": {
+    "priceLists": [
+      {
+        "priceListId": "price-list-key-accounts",
+        "code": "PL-KEY-ACCOUNTS",
+        "name": "Key Accounts Price List",
+        "channel": "Key Accounts",
+        "currency": "PHP",
+        "vatInclusive": true,
+        "lines": [
+          {
+            "productId": "product-1",
+            "uomCode": "PC",
+            "unitPriceMinor": 4200,
+            "effectiveFrom": 1790812800000,
+            "effectiveTo": null
+          },
+          {
+            "productId": "product-1",
+            "uomCode": "CASE",
+            "unitPriceMinor": 201600,
+            "effectiveFrom": 1790812800000,
+            "effectiveTo": null
+          },
+          {
+            "productId": "product-2",
+            "uomCode": "PC",
+            "unitPriceMinor": 4500,
+            "effectiveFrom": 1790812800000,
+            "effectiveTo": null
+          },
+          {
+            "productId": "product-2",
+            "uomCode": "CASE",
+            "unitPriceMinor": 216000,
+            "effectiveFrom": 1790812800000,
+            "effectiveTo": null
+          }
+        ]
+      },
+      {
+        "priceListId": "price-list-route-sales",
+        "code": "PL-ROUTE-SALES",
+        "name": "Route Sales Price List",
+        "channel": "Route Sales / PMOT",
+        "currency": "PHP",
+        "vatInclusive": true,
+        "lines": [
+          {
+            "productId": "product-1",
+            "uomCode": "PC",
+            "unitPriceMinor": 4500,
+            "effectiveFrom": 1790812800000,
+            "effectiveTo": null
+          },
+          {
+            "productId": "product-1",
+            "uomCode": "CASE",
+            "unitPriceMinor": 216000,
+            "effectiveFrom": 1790812800000,
+            "effectiveTo": null
+          },
+          {
+            "productId": "product-2",
+            "uomCode": "PC",
+            "unitPriceMinor": 4800,
+            "effectiveFrom": 1790812800000,
+            "effectiveTo": null
+          },
+          {
+            "productId": "product-2",
+            "uomCode": "CASE",
+            "unitPriceMinor": 230400,
+            "effectiveFrom": 1790812800000,
+            "effectiveTo": null
+          }
+        ]
+      }
+    ],
+    "outletPriceLists": [
+      {
+        "outletId": "outlet-1",
+        "priceListId": "price-list-key-accounts"
+      },
+      {
+        "outletId": "outlet-2",
+        "priceListId": "price-list-route-sales"
+      }
+    ],
+    "promotions": [
+      {
+        "promotionId": "promotion-case-bonus",
+        "code": "OCT-CASE-BONUS",
+        "name": "Buy ten cases, get twelve pieces free",
+        "priceListId": "price-list-key-accounts",
+        "effectiveFrom": 1790812800000,
+        "effectiveTo": 1793491200000,
+        "rule": {
+          "kind": "buy_x_get_y",
+          "buy": {
+            "productId": "product-1",
+            "uomCode": "CASE",
+            "quantity": 10
+          },
+          "free": {
+            "productId": "product-1",
+            "uomCode": "PC",
+            "quantity": 12
+          }
+        }
+      },
+      {
+        "promotionId": "promotion-route-discount",
+        "code": "OCT-ROUTE-OFFER",
+        "name": "October route sales offer",
+        "priceListId": "price-list-route-sales",
+        "effectiveFrom": 1790812800000,
+        "effectiveTo": 1793491200000,
+        "rule": {
+          "kind": "percent_off",
+          "item": {
+            "productId": "product-2",
+            "uomCode": "PC",
+            "quantity": 1
+          },
+          "percentOffBasisPoints": 500
+        }
+      },
+      {
+        "promotionId": "promotion-breakfast-bundle",
+        "code": "BREAKFAST-BUNDLE",
+        "name": "Corned beef and luncheon meat bundle",
+        "priceListId": null,
+        "effectiveFrom": 1790812800000,
+        "effectiveTo": null,
+        "rule": {
+          "kind": "bundle",
+          "components": [
+            {
+              "productId": "product-1",
+              "uomCode": "PC",
+              "quantity": 1
+            },
+            {
+              "productId": "product-2",
+              "uomCode": "PC",
+              "quantity": 1
+            }
+          ],
+          "bundlePriceMinor": 8000
+        }
+      }
+    ]
+  }
+}

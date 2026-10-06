@@ -29,6 +29,7 @@ import {
   type Cursor,
 } from "./cursor";
 import { REFERENCE_OVERLAP_MS } from "./reference";
+import { mobilePricing } from "../pricing/wire";
 import {
   assertDevice,
   availabilityDTO,
@@ -38,6 +39,7 @@ import {
   outletDTO,
   phonePhotoTypes,
   photoTypeDTO,
+  pricingDTO,
   productDTO,
   routeDTO,
   taskDTO,
@@ -246,6 +248,7 @@ export const snapshot = internalQuery({
     syncCursor: v.union(v.string(), v.null()),
     dayTarget: v.optional(dayTargetValidator),
     daySales: v.optional(daySalesValidator),
+    pricing: v.optional(pricingDTO),
   }),
   handler: async (
     ctx,
@@ -356,11 +359,21 @@ export const snapshot = internalQuery({
           (summaryAt.has(i) ? ACCOUNT_SUMMARY_MAX_BYTES + 1 : 0) +
           2,
     );
+    // SP-0129 / ADR-008: governed prices for every outlet in the working set, the same on
+    // every page (like the activity rules), so its size is reserved before paging.
+    const pricingOutlets = [];
+    for (const outletId of planOutlets) {
+      const outlet = await ctx.db.get(outletId as Id<"outlets">);
+      if (outlet) pricingOutlets.push(outlet);
+    }
+    const pricing = await mobilePricing(ctx, pricingOutlets, now);
+    const hasPricing = pricing.outletPriceLists.length > 0;
     const budget =
       MAX_BOOTSTRAP_PAGE_BYTES -
       PAGE_ENVELOPE_RESERVE_BYTES -
       jsonBytes(activityRules) -
-      jsonBytes(phonePhotoTypes());
+      jsonBytes(phonePhotoTypes()) -
+      (hasPricing ? jsonBytes(pricing) + 12 : 0);
     const pageLimit = limit ?? 100;
     if (
       sizes.some((size) => size + 1 > budget) ||
@@ -468,6 +481,7 @@ export const snapshot = internalQuery({
         : await signCursor({ ...base, kind: "pull", after: cursor.watermark }),
       ...(target ? { dayTarget: target } : {}),
       ...(sales ? { daySales: sales } : {}),
+      ...(hasPricing ? { pricing } : {}),
     };
   },
 });

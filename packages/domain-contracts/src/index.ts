@@ -76,6 +76,60 @@ export type AccountSummaryV1 = {
   } | null;
   openOrders: { count: number; amountMinor: number } | null;
 };
+/** One whole product/unit quantity used by a governed promotion. */
+export type PromotionUnitV1 = {
+  productId: string;
+  uomCode: string;
+  quantity: number;
+};
+/** Governed unit price in currency minor units (PHP centavos), effective at epoch milliseconds. */
+export type PriceListLineV1 = {
+  productId: string;
+  uomCode: string;
+  unitPriceMinor: number;
+  effectiveFrom: number;
+  effectiveTo: number | null;
+};
+export type PriceListV1 = {
+  priceListId: string;
+  code: string;
+  name: string;
+  channel: string;
+  currency: string;
+  vatInclusive: boolean;
+  lines: Array<PriceListLineV1>;
+};
+export type PromotionRuleV1 =
+  | { kind: "buy_x_get_y"; buy: PromotionUnitV1; free: PromotionUnitV1 }
+  | {
+      kind: "percent_off";
+      item: PromotionUnitV1;
+      percentOffBasisPoints: number;
+    }
+  | {
+      kind: "bundle";
+      components: Array<PromotionUnitV1>;
+      bundlePriceMinor: number;
+    };
+export type PromotionV1 = {
+  promotionId: string;
+  code: string;
+  name: string;
+  priceListId: string | null;
+  effectiveFrom: number;
+  effectiveTo: number | null;
+  rule: PromotionRuleV1;
+};
+/**
+ * Added 2026-10 (SP-0129); older servers omit it. Governed pricing for the working set,
+ * repeated on every page. Its presence supersedes appConfig.priceAvailability and
+ * appConfig.promotionsAvailability for the outlets it maps.
+ */
+export type PricingV1 = {
+  priceLists: Array<PriceListV1>;
+  outletPriceLists: Array<{ outletId: string; priceListId: string }>;
+  promotions: Array<PromotionV1>;
+};
 /** AND-016: one visit photo type (code is an open string; label is display text). */
 export type PhotoTypeV1 = { code: string; label: string };
 export type CallSheetV1 = {
@@ -167,6 +221,8 @@ export type BootstrapResponse = {
   photoTypes?: Array<PhotoTypeV1>;
   /** IOS-011 account summaries. Optional: added after v1 shipped. */
   accountSummaries?: Array<AccountSummaryV1>;
+  /** Governed pricing (SP-0129); presence supersedes the legacy availability flags for mapped outlets. */
+  pricing?: PricingV1;
   page: number;
   nextPageCursor: string | null;
   syncCursor: string | null;

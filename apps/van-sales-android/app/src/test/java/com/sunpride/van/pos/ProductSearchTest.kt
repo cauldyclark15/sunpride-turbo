@@ -3,6 +3,8 @@ package com.sunpride.van.pos
 import com.sunpride.van.data.PriceLine
 import com.sunpride.van.data.Product
 import com.sunpride.van.data.TruckStock
+import com.sunpride.van.sync.VanBootstrapCodec
+import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -86,6 +88,19 @@ class ProductSearchTest {
         assertNull(search(listOf(price("p1",-1))).search("sp-pj-1l").single().price)
         // An expired line beside a current one resolves to the current one.
         assertEquals(4800L,search(listOf(price("p1",4550,from = now-10,to = now-5),price("p1",4800,list = "L2"))).search("sp-pj-1l").single().price?.unitPriceMinor)
+    }
+    @Test fun decodedBootstrapPricesAppearInProductSearchWithoutApplyingPromotions() {
+        val text = javaClass.classLoader!!.getResourceAsStream("bootstrap-response.json")!!.bufferedReader().use { it.readText() }
+        val b = VanBootstrapCodec.decode(text)
+        val search = ProductSearch(b.products,b.truckStock,b.priceLines,b.serverTime)
+        val juiceHit = search.search("SP-PJ-1L").single()
+        assertEquals(PosPrice(6850,"PHP","PC"),juiceHit.price)
+        assertEquals("₱68.50 / PC",juiceHit.price?.label())
+        assertEquals("₱42.75 / PC",search.search("SP-PC-432").single().price?.label())
+        assertEquals(juiceHit.price,PriceResolver.resolve(juiceHit.product,b.priceLines,b.serverTime))
+        val withoutPrices = VanBootstrapCodec.decode(JSONObject(text).apply { remove("priceLines") }.toString())
+        assertNull(ProductSearch(withoutPrices.products,withoutPrices.truckStock,withoutPrices.priceLines,withoutPrices.serverTime)
+            .search("SP-PJ-1L").single().price)
     }
     @Test fun moneyFormatting() {
         assertEquals("₱1,234.50",PosMoney.format(123450,"PHP"))

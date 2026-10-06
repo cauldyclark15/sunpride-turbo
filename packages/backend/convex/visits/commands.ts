@@ -19,6 +19,7 @@ import {
   validateFieldOrderLines,
 } from "../orders/field_order_validators";
 import { validateFieldOrder } from "../orders/field_order";
+import { recordFieldOrderPrice } from "../pricing/wire";
 import {
   accountFor,
   callSheetWeek,
@@ -512,6 +513,15 @@ export async function applyVisitOperation(
       deviceTime: p.deviceTime,
       serverTime: now,
     });
+    // SP-0129 / ADR-008: the office's governed price, resolved here at receipt.
+    if (p.activity.kind === "order_intent" && p.activity.lines !== undefined)
+      await recordFieldOrderPrice(ctx, {
+        activityId,
+        visit,
+        clientOrderId: p.activity.clientOrderId,
+        lines: p.activity.lines,
+        at: now,
+      });
     if (p.activity.kind === "call_sheet" && account) {
       const { localMonth, week } = callSheetWeek(visit.serviceDate);
       for (const line of p.activity.lines)

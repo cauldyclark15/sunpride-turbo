@@ -768,6 +768,281 @@
             "additionalProperties": false
           }
         },
+        "pricing": {
+          "type": "object",
+          "properties": {
+            "priceLists": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "priceListId": {
+                    "type": "string"
+                  },
+                  "code": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "channel": {
+                    "type": "string"
+                  },
+                  "currency": {
+                    "type": "string",
+                    "pattern": "^[A-Z]{3}$",
+                    "minLength": 3,
+                    "maxLength": 3,
+                    "description": "Three-letter uppercase currency code; governed PHP prices are in centavos."
+                  },
+                  "vatInclusive": {
+                    "type": "boolean"
+                  },
+                  "lines": {
+                    "type": "array",
+                    "maxItems": 2000,
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "productId": {
+                          "type": "string"
+                        },
+                        "uomCode": {
+                          "type": "string"
+                        },
+                        "unitPriceMinor": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "description": "Price per unit in currency minor units (PHP centavos)."
+                        },
+                        "effectiveFrom": {
+                          "type": "integer",
+                          "description": "Effective start in epoch milliseconds."
+                        },
+                        "effectiveTo": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "productId",
+                        "uomCode",
+                        "unitPriceMinor",
+                        "effectiveFrom",
+                        "effectiveTo"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "priceListId",
+                  "code",
+                  "name",
+                  "channel",
+                  "currency",
+                  "vatInclusive",
+                  "lines"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "outletPriceLists": {
+              "type": "array",
+              "maxItems": 600,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "outletId": {
+                    "type": "string"
+                  },
+                  "priceListId": {
+                    "type": "string"
+                  }
+                },
+                "required": ["outletId", "priceListId"],
+                "additionalProperties": false
+              }
+            },
+            "promotions": {
+              "type": "array",
+              "maxItems": 100,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "promotionId": {
+                    "type": "string"
+                  },
+                  "code": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "priceListId": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "effectiveFrom": {
+                    "type": "integer"
+                  },
+                  "effectiveTo": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "rule": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "const": "buy_x_get_y"
+                          },
+                          "buy": {
+                            "type": "object",
+                            "properties": {
+                              "productId": {
+                                "type": "string"
+                              },
+                              "uomCode": {
+                                "type": "string"
+                              },
+                              "quantity": {
+                                "type": "integer",
+                                "minimum": 1
+                              }
+                            },
+                            "required": ["productId", "uomCode", "quantity"],
+                            "additionalProperties": false
+                          },
+                          "free": {
+                            "type": "object",
+                            "properties": {
+                              "productId": {
+                                "type": "string"
+                              },
+                              "uomCode": {
+                                "type": "string"
+                              },
+                              "quantity": {
+                                "type": "integer",
+                                "minimum": 1
+                              }
+                            },
+                            "required": ["productId", "uomCode", "quantity"],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": ["kind", "buy", "free"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "const": "percent_off"
+                          },
+                          "item": {
+                            "type": "object",
+                            "properties": {
+                              "productId": {
+                                "type": "string"
+                              },
+                              "uomCode": {
+                                "type": "string"
+                              },
+                              "quantity": {
+                                "type": "integer",
+                                "minimum": 1
+                              }
+                            },
+                            "required": ["productId", "uomCode", "quantity"],
+                            "additionalProperties": false
+                          },
+                          "percentOffBasisPoints": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 10000
+                          }
+                        },
+                        "required": ["kind", "item", "percentOffBasisPoints"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "const": "bundle"
+                          },
+                          "components": {
+                            "type": "array",
+                            "minItems": 2,
+                            "maxItems": 6,
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "productId": {
+                                  "type": "string"
+                                },
+                                "uomCode": {
+                                  "type": "string"
+                                },
+                                "quantity": {
+                                  "type": "integer",
+                                  "minimum": 1
+                                }
+                              },
+                              "required": ["productId", "uomCode", "quantity"],
+                              "additionalProperties": false
+                            }
+                          },
+                          "bundlePriceMinor": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        },
+                        "required": ["kind", "components", "bundlePriceMinor"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "promotionId",
+                  "code",
+                  "name",
+                  "priceListId",
+                  "effectiveFrom",
+                  "effectiveTo",
+                  "rule"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": ["priceLists", "outletPriceLists", "promotions"],
+          "additionalProperties": false,
+          "description": "Governed price lists and promotions for the working set (ADR-008), repeated unchanged on every bootstrap page. Its presence supersedes appConfig.priceAvailability and appConfig.promotionsAvailability for the outlets it maps. Amounts are currency minor units (PHP centavos); effective times are epoch milliseconds. Added 2026-10 (SP-0129); older servers omit it. Omitted when no outlet in the working set has a price list."
+        },
         "accountSummaries": {
           "type": "array",
           "description": "IOS-011: cached account figures for this page's newly shipped outlets, as of serverTime. Additive optional field; old clients ignore it. One entry per outlet per snapshot. Amounts are PHP centavos. withheld = the account is shared with an outlet outside this person's plan, so no figures are sent. openOrders are submitted orders not yet fulfilled or posted, not a receivables balance.",

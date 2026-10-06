@@ -24,6 +24,11 @@ import {
   callSheetTemplateLineValidator,
 } from "./callSheets/validators";
 import { fieldOrderLineValidator } from "./orders/field_order_validators";
+import {
+  priceListStatusValidator,
+  pricingSourceValidator,
+  promotionRuleValidator,
+} from "./pricing/validators";
 import { productiveCallRuleValidator } from "./sfa/productive_call";
 import {
   contributionFields,
@@ -3187,4 +3192,97 @@ export default defineSchema({
     "productId",
     "effectiveFrom",
   ]),
+  // SP-0129 / ADR-008: governed price baseline (channel price lists, effective-dated lines,
+  // promotions) until SAP pricing is integrated. `source` marks beta sample rows.
+  priceLists: defineTable({
+    organizationId: v.string(),
+    code: v.string(),
+    name: v.string(),
+    channel: v.string(),
+    currency: v.string(),
+    vatInclusive: v.boolean(),
+    status: priceListStatusValidator,
+    source: pricingSourceValidator,
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_code", ["organizationId", "code"])
+    .index("by_organizationId_and_status", ["organizationId", "status"]),
+  priceListLines: defineTable({
+    organizationId: v.string(),
+    priceListId: v.id("priceLists"),
+    productId: v.id("products"),
+    uomId: v.id("unitsOfMeasure"),
+    unitPriceMinor: v.int64(),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    actorSubject: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_priceListId_and_productId_and_uomId", [
+      "priceListId",
+      "productId",
+      "uomId",
+    ])
+    .index("by_priceListId_and_effectiveFrom", [
+      "priceListId",
+      "effectiveFrom",
+    ]),
+  promotions: defineTable({
+    organizationId: v.string(),
+    code: v.string(),
+    name: v.string(),
+    // Absent = applies on every price list.
+    priceListId: v.optional(v.id("priceLists")),
+    rule: promotionRuleValidator,
+    status: priceListStatusValidator,
+    source: pricingSourceValidator,
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_code", ["organizationId", "code"])
+    .index("by_organizationId_and_status", ["organizationId", "status"]),
+  // SP-0129: the server-resolved price of a submitted field order (ADR-008: prices are
+  // resolved server-side at receipt, never taken from the phone).
+  fieldOrderPrices: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    activityId: v.id("visitActivities"),
+    visitId: v.id("visitExecutions"),
+    outletId: v.id("outlets"),
+    clientOrderId: v.string(),
+    priceListId: v.optional(v.id("priceLists")),
+    currency: v.string(),
+    status: v.union(v.literal("priced"), v.literal("needs_office_price")),
+    lines: v.array(
+      v.object({
+        productId: v.id("products"),
+        uom: v.string(),
+        quantity: v.number(),
+        unitPriceMinor: v.optional(v.int64()),
+        grossMinor: v.optional(v.int64()),
+        discountMinor: v.int64(),
+        freeQuantity: v.number(),
+      }),
+    ),
+    promotionCodes: v.array(v.string()),
+    grossMinor: v.int64(),
+    discountMinor: v.int64(),
+    totalMinor: v.int64(),
+    pricedAt: v.number(),
+  })
+    .index("by_activityId", ["activityId"])
+    .index("by_visitId", ["visitId"]),
+  // SP-0129: every row the beta sample seed created (one table to find and remove them).
+  sampleDataRows: defineTable({
+    batch: v.string(),
+    tableName: v.string(),
+    rowId: v.string(),
+    key: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_batch_and_key", ["batch", "key"])
+    .index("by_batch", ["batch"]),
 });

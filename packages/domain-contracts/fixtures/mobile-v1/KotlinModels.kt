@@ -60,6 +60,8 @@ data class BootstrapResponse(
   val photoTypes: OptionalField<List<BootstrapResponsePhotoTypesItem>>,
   // schema-field: bootstrapResponse.accountSummaries
   val accountSummaries: OptionalField<List<BootstrapResponseAccountSummariesItem>>,
+  // schema-field: bootstrapResponse.pricing
+  val pricing: OptionalField<BootstrapResponsePricing>,
   // schema-field: bootstrapResponse.page
   val page: Long,
   // schema-field: bootstrapResponse.nextPageCursor
@@ -91,6 +93,141 @@ data class BootstrapResponseDaySales(
   // schema-field: bootstrapResponse.daySales.targetMinor
   val targetMinor: OptionalField<Long>
 )
+// Added 2026-10 (SP-0129); older servers omit pricing. Presence supersedes the legacy
+// appConfig availability flags for mapped outlets. Money is minor units (PHP centavos).
+// Rule variants retain OpenEnum kinds; an unknown kind stays raw and disables promotion use.
+// schema-object: bootstrapResponse.pricing
+data class BootstrapResponsePricing(
+  // schema-field: bootstrapResponse.pricing.priceLists
+  val priceLists: List<BootstrapResponsePricingPriceListsItem>,
+  // schema-field: bootstrapResponse.pricing.outletPriceLists
+  val outletPriceLists: List<BootstrapResponsePricingOutletPriceListsItem>,
+  // schema-field: bootstrapResponse.pricing.promotions
+  val promotions: List<BootstrapResponsePricingPromotionsItem>
+)
+// schema-object: bootstrapResponse.pricing.promotions[]
+data class BootstrapResponsePricingPromotionsItem(
+  // schema-field: bootstrapResponse.pricing.promotions[].promotionId
+  val promotionId: String,
+  // schema-field: bootstrapResponse.pricing.promotions[].code
+  val code: String,
+  // schema-field: bootstrapResponse.pricing.promotions[].name
+  val name: String,
+  // schema-field: bootstrapResponse.pricing.promotions[].priceListId
+  val priceListId: String?,
+  // schema-field: bootstrapResponse.pricing.promotions[].effectiveFrom
+  val effectiveFrom: Long,
+  // schema-field: bootstrapResponse.pricing.promotions[].effectiveTo
+  val effectiveTo: Long?,
+  // schema-field: bootstrapResponse.pricing.promotions[].rule
+  val rule: JSONValue
+)
+// schema-object: bootstrapResponse.pricing.promotions[].rule#2
+data class BootstrapResponsePricingPromotionsItemRuleVariant2(
+  // schema-field: bootstrapResponse.pricing.promotions[].rule#2.kind
+  val kind: OpenEnum,
+  // schema-field: bootstrapResponse.pricing.promotions[].rule#2.components
+  val components: List<BootstrapResponsePricingPromotionsItemRuleVariant2ComponentsItem>,
+  // schema-field: bootstrapResponse.pricing.promotions[].rule#2.bundlePriceMinor
+  val bundlePriceMinor: Long
+)
+// schema-object: bootstrapResponse.pricing.promotions[].rule#2.components[]
+data class BootstrapResponsePricingPromotionsItemRuleVariant2ComponentsItem(
+  // schema-field: bootstrapResponse.pricing.promotions[].rule#2.components[].productId
+  val productId: String,
+  // schema-field: bootstrapResponse.pricing.promotions[].rule#2.components[].uomCode
+  val uomCode: String,
+  // schema-field: bootstrapResponse.pricing.promotions[].rule#2.components[].quantity
+  val quantity: Long
+)
+// schema-object: bootstrapResponse.pricing.promotions[].rule#1
+data class BootstrapResponsePricingPromotionsItemRuleVariant1(
+  // schema-field: bootstrapResponse.pricing.promotions[].rule#1.kind
+  val kind: OpenEnum,
+  // schema-field: bootstrapResponse.pricing.promotions[].rule#1.item
+  val item: BootstrapResponsePricingPromotionsItemRuleVariant1Item,
+  // schema-field: bootstrapResponse.pricing.promotions[].rule#1.percentOffBasisPoints
+  val percentOffBasisPoints: Long
+)
+// schema-object: bootstrapResponse.pricing.promotions[].rule#1.item
+data class BootstrapResponsePricingPromotionsItemRuleVariant1Item(
+  // schema-field: bootstrapResponse.pricing.promotions[].rule#1.item.productId
+  val productId: String,
+  // schema-field: bootstrapResponse.pricing.promotions[].rule#1.item.uomCode
+  val uomCode: String,
+  // schema-field: bootstrapResponse.pricing.promotions[].rule#1.item.quantity
+  val quantity: Long
+)
+// schema-object: bootstrapResponse.pricing.promotions[].rule#0
+data class BootstrapResponsePricingPromotionsItemRuleVariant0(
+  // schema-field: bootstrapResponse.pricing.promotions[].rule#0.kind
+  val kind: OpenEnum,
+  // schema-field: bootstrapResponse.pricing.promotions[].rule#0.buy
+  val buy: BootstrapResponsePricingPromotionsItemRuleVariant0Buy,
+  // schema-field: bootstrapResponse.pricing.promotions[].rule#0.free
+  val free: BootstrapResponsePricingPromotionsItemRuleVariant0Free
+)
+// schema-object: bootstrapResponse.pricing.promotions[].rule#0.free
+data class BootstrapResponsePricingPromotionsItemRuleVariant0Free(
+  // schema-field: bootstrapResponse.pricing.promotions[].rule#0.free.productId
+  val productId: String,
+  // schema-field: bootstrapResponse.pricing.promotions[].rule#0.free.uomCode
+  val uomCode: String,
+  // schema-field: bootstrapResponse.pricing.promotions[].rule#0.free.quantity
+  val quantity: Long
+)
+// schema-object: bootstrapResponse.pricing.promotions[].rule#0.buy
+data class BootstrapResponsePricingPromotionsItemRuleVariant0Buy(
+  // schema-field: bootstrapResponse.pricing.promotions[].rule#0.buy.productId
+  val productId: String,
+  // schema-field: bootstrapResponse.pricing.promotions[].rule#0.buy.uomCode
+  val uomCode: String,
+  // schema-field: bootstrapResponse.pricing.promotions[].rule#0.buy.quantity
+  val quantity: Long
+)
+// schema-object: bootstrapResponse.pricing.outletPriceLists[]
+data class BootstrapResponsePricingOutletPriceListsItem(
+  // schema-field: bootstrapResponse.pricing.outletPriceLists[].outletId
+  val outletId: String,
+  // schema-field: bootstrapResponse.pricing.outletPriceLists[].priceListId
+  val priceListId: String
+)
+// schema-object: bootstrapResponse.pricing.priceLists[]
+data class BootstrapResponsePricingPriceListsItem(
+  // schema-field: bootstrapResponse.pricing.priceLists[].priceListId
+  val priceListId: String,
+  // schema-field: bootstrapResponse.pricing.priceLists[].code
+  val code: String,
+  // schema-field: bootstrapResponse.pricing.priceLists[].name
+  val name: String,
+  // schema-field: bootstrapResponse.pricing.priceLists[].channel
+  val channel: String,
+  // schema-field: bootstrapResponse.pricing.priceLists[].currency
+  val currency: String,
+  // schema-field: bootstrapResponse.pricing.priceLists[].vatInclusive
+  val vatInclusive: Boolean,
+  // schema-field: bootstrapResponse.pricing.priceLists[].lines
+  val lines: List<BootstrapResponsePricingPriceListsItemLinesItem>
+)
+// schema-object: bootstrapResponse.pricing.priceLists[].lines[]
+data class BootstrapResponsePricingPriceListsItemLinesItem(
+  // schema-field: bootstrapResponse.pricing.priceLists[].lines[].productId
+  val productId: String,
+  // schema-field: bootstrapResponse.pricing.priceLists[].lines[].uomCode
+  val uomCode: String,
+  // schema-field: bootstrapResponse.pricing.priceLists[].lines[].unitPriceMinor
+  val unitPriceMinor: Long,
+  // schema-field: bootstrapResponse.pricing.priceLists[].lines[].effectiveFrom
+  val effectiveFrom: Long,
+  // schema-field: bootstrapResponse.pricing.priceLists[].lines[].effectiveTo
+  val effectiveTo: Long?
+)
+// schema-enum: bootstrapResponse.pricing.promotions[].rule#0.kind
+// schema-enum-value: bootstrapResponse.pricing.promotions[].rule#0.kind = buy_x_get_y
+// schema-enum: bootstrapResponse.pricing.promotions[].rule#1.kind
+// schema-enum-value: bootstrapResponse.pricing.promotions[].rule#1.kind = percent_off
+// schema-enum: bootstrapResponse.pricing.promotions[].rule#2.kind
+// schema-enum-value: bootstrapResponse.pricing.promotions[].rule#2.kind = bundle
 // schema-object: bootstrapResponse.employee
 data class BootstrapResponseEmployee(
   // schema-field: bootstrapResponse.employee.id

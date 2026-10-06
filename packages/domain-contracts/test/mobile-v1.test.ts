@@ -2,6 +2,12 @@ import { describe, expect, test } from "bun:test";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import schema from "../schemas/mobile-v1.schema.json";
+import {
+  isMobileV1Envelope,
+  parseMobileV1Response,
+  type BootstrapResponse,
+  type PricingV1,
+} from "../src/index";
 
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 addFormats(ajv);
@@ -13,6 +19,255 @@ const fixtureNames = [
   "push-request",
   "push-response",
 ];
+
+describe("mobile v1 governed bootstrap pricing", () => {
+  async function readPricing(): Promise<
+    BootstrapResponse & { pricing: PricingV1 }
+  > {
+    const fixture: unknown = await Bun.file(
+      new URL(
+        "../fixtures/mobile-v1/bootstrap-pricing-response.json",
+        import.meta.url,
+      ),
+    ).json();
+    expect(validate(fixture), JSON.stringify(validate.errors)).toBe(true);
+    expect(isMobileV1Envelope(fixture)).toBe(true);
+    const response = parseMobileV1Response(fixture);
+    if (response.type !== "bootstrap.response" || !response.pricing)
+      throw new Error("Expected a bootstrap pricing fixture");
+    return { ...response, pricing: response.pricing };
+  }
+
+  function expectRejected(value: unknown, context?: string) {
+    expect(validate(value), context).toBe(false);
+    expect(isMobileV1Envelope(value), context).toBe(false);
+    expect(() => parseMobileV1Response(value)).toThrow();
+  }
+
+  function pricingObjects(
+    value: unknown,
+    path = "pricing",
+  ): Array<{ path: string; object: Record<string, unknown> }> {
+    if (Array.isArray(value))
+      return value.flatMap((item, index) =>
+        pricingObjects(item, `${path}[${index}]`),
+      );
+    if (!value || typeof value !== "object") return [];
+    const object = value as Record<string, unknown>;
+    return [
+      { path, object },
+      ...Object.entries(object).flatMap(([key, child]) =>
+        pricingObjects(child, `${path}.${key}`),
+      ),
+    ];
+  }
+
+  test("pricing fixture validates and round-trips all three governed rule kinds", async () => {
+    const original = await readPricing();
+    const parsed = parseMobileV1Response(original);
+    expect(parsed).toBe(original);
+    if (parsed.type !== "bootstrap.response")
+      throw new Error("Expected bootstrap response");
+    expect(parsed.pricing).toEqual(original.pricing);
+    expect(parsed.pricing!.priceLists).toHaveLength(2);
+    expect(parsed.pricing!.promotions.map(({ rule }) => rule.kind)).toEqual([
+      "buy_x_get_y",
+      "percent_off",
+      "bundle",
+    ]);
+    expect(parsed.appConfig.priceAvailability).toBe("unavailable");
+    expect(parsed.appConfig.promotionsAvailability).toBe("unavailable");
+    for (const list of original.pricing.priceLists) {
+      expect(list.currency).toBe("PHP");
+      expect(list.vatInclusive).toBe(true);
+      expect(new Set(list.lines.map(({ uomCode }) => uomCode))).toEqual(
+        new Set(["PC", "CASE"]),
+      );
+      for (const line of list.lines) {
+        const product = original.productCatalog.find(
+          ({ id }) => id === line.productId,
+        );
+        expect(product).toBeDefined();
+        expect(product!.sellingUoms!.map(({ code }) => code)).toContain(
+          line.uomCode,
+        );
+      }
+    }
+    expect(
+      original.pricing.outletPriceLists.map(({ outletId }) => outletId),
+    ).toEqual(original.outlets.map(({ id }) => id));
+    for (const mapping of original.pricing.outletPriceLists)
+      expect(
+        original.pricing.priceLists.map(({ priceListId }) => priceListId),
+      ).toContain(mapping.priceListId);
+  });
+
+  test("pricing omission still validates older bootstraps; explicit null does not", async () => {
+    const legacy: unknown = await Bun.file(
+      new URL("../fixtures/mobile-v1/bootstrap-response.json", import.meta.url),
+    ).json();
+    expect(validate(legacy), JSON.stringify(validate.errors)).toBe(true);
+    expect(isMobileV1Envelope(legacy)).toBe(true);
+    const parsed = parseMobileV1Response(legacy);
+    expect(parsed === legacy).toBe(true);
+    if (parsed.type !== "bootstrap.response")
+      throw new Error("Expected bootstrap response");
+    expect(parsed.pricing).toBeUndefined();
+    const withoutPricing: BootstrapResponse = await readPricing();
+    delete withoutPricing.pricing;
+    expect(validate(withoutPricing), JSON.stringify(validate.errors)).toBe(
+      true,
+    );
+    expect(isMobileV1Envelope(withoutPricing)).toBe(true);
+    expect(parseMobileV1Response(withoutPricing)).toBe(withoutPricing);
+    expectRejected({ ...withoutPricing, pricing: null });
+  });
+
+  test("unit prices are nonnegative whole centavos, including zero", async () => {
+    const original = await readPricing();
+    for (const unitPriceMinor of [-1, 12.5]) {
+      const changed = structuredClone(original);
+      changed.pricing.priceLists[0]!.lines[0]!.unitPriceMinor = unitPriceMinor;
+      expectRejected(changed, `unitPriceMinor=${unitPriceMinor}`);
+    }
+    original.pricing.priceLists[0]!.lines[0]!.unitPriceMinor = 0;
+    expect(validate(original), JSON.stringify(validate.errors)).toBe(true);
+    expect(parseMobileV1Response(original)).toBe(original);
+  });
+
+  test("unknown rule kinds fail closed in schema and runtime", async () => {
+    const changed = await readPricing();
+    Object.assign(changed.pricing.promotions[0]!.rule, {
+      kind: "future_discount",
+    });
+    expectRejected(changed);
+  });
+
+  test("percent discounts require integer basis points from 1 through 10000", async () => {
+    const original = await readPricing();
+    for (const percentOffBasisPoints of [0, 10001, 500.5, 1, 10000]) {
+      const changed = structuredClone(original);
+      const rule = changed.pricing.promotions[1]!.rule;
+      if (rule.kind !== "percent_off")
+        throw new Error("Expected percent-off fixture rule");
+      rule.percentOffBasisPoints = percentOffBasisPoints;
+      if ([1, 10000].includes(percentOffBasisPoints)) {
+        expect(validate(changed), JSON.stringify(validate.errors)).toBe(true);
+        expect(parseMobileV1Response(changed)).toBe(changed);
+      } else expectRejected(changed, `basisPoints=${percentOffBasisPoints}`);
+    }
+  });
+
+  test("every pricing object rejects extra fields and omission of any listed field", async () => {
+    const changed = await readPricing();
+    for (const { path, object } of pricingObjects(changed.pricing)) {
+      object.invented = true;
+      expectRejected(changed, `${path}.invented`);
+      delete object.invented;
+      for (const [key, value] of Object.entries(object)) {
+        delete object[key];
+        expectRejected(changed, `${path}.${key} omitted`);
+        object[key] = value;
+      }
+    }
+    expect(validate(changed), JSON.stringify(validate.errors)).toBe(true);
+  });
+
+  test("promotion units and bundles enforce whole quantities, component bounds and minor amounts", async () => {
+    const original = await readPricing();
+    for (const index of [0, 1, 2]) {
+      for (const quantity of [0, 1.5]) {
+        const changed = structuredClone(original);
+        const rule = changed.pricing.promotions[index]!.rule;
+        const units =
+          rule.kind === "buy_x_get_y"
+            ? [rule.buy, rule.free]
+            : rule.kind === "percent_off"
+              ? [rule.item]
+              : rule.components;
+        for (const unit of units) {
+          const previous = unit.quantity;
+          unit.quantity = quantity;
+          expectRejected(changed, `rule ${index} quantity=${quantity}`);
+          unit.quantity = previous;
+        }
+      }
+    }
+    for (const size of [1, 2, 6, 7]) {
+      const changed = structuredClone(original);
+      const rule = changed.pricing.promotions[2]!.rule;
+      if (rule.kind !== "bundle")
+        throw new Error("Expected bundle fixture rule");
+      rule.components = Array.from({ length: size }, () => rule.components[0]!);
+      if ([2, 6].includes(size)) {
+        expect(validate(changed), JSON.stringify(validate.errors)).toBe(true);
+        expect(isMobileV1Envelope(changed)).toBe(true);
+      } else expectRejected(changed, `bundle components=${size}`);
+    }
+    for (const bundlePriceMinor of [-1, 12.5, 0]) {
+      const changed = structuredClone(original);
+      const rule = changed.pricing.promotions[2]!.rule;
+      if (rule.kind !== "bundle")
+        throw new Error("Expected bundle fixture rule");
+      rule.bundlePriceMinor = bundlePriceMinor;
+      if (bundlePriceMinor === 0)
+        expect(validate(changed), JSON.stringify(validate.errors)).toBe(true);
+      else expectRejected(changed, `bundlePriceMinor=${bundlePriceMinor}`);
+    }
+  });
+
+  test("currency, VAT and effective times retain their wire types", async () => {
+    const original = await readPricing();
+    for (const currency of ["php", "PH", "PHPP", "P1P", "PHP\n"]) {
+      const changed = structuredClone(original);
+      changed.pricing.priceLists[0]!.currency = currency;
+      expectRejected(changed, `currency=${currency}`);
+    }
+    const wrongVat = structuredClone(original);
+    Object.assign(wrongVat.pricing.priceLists[0]!, { vatInclusive: "true" });
+    expectRejected(wrongVat);
+    for (const field of ["effectiveFrom", "effectiveTo"] as const) {
+      const changedLine = structuredClone(original);
+      changedLine.pricing.priceLists[0]!.lines[0]![field] = 1.5;
+      expectRejected(changedLine, `line.${field}`);
+      const changedPromotion = structuredClone(original);
+      changedPromotion.pricing.promotions[0]![field] = 1.5;
+      expectRejected(changedPromotion, `promotion.${field}`);
+    }
+    original.pricing.priceLists[0]!.lines[0]!.effectiveTo = original.serverTime;
+    original.pricing.promotions[0]!.effectiveTo = null;
+    expect(validate(original), JSON.stringify(validate.errors)).toBe(true);
+  });
+
+  test("pricing arrays enforce working-set bounds", async () => {
+    const original = await readPricing();
+    for (const [key, maxItems] of [
+      ["priceLists", 20],
+      ["outletPriceLists", 600],
+      ["promotions", 100],
+    ] as const) {
+      const changed = structuredClone(original);
+      Object.assign(changed.pricing, {
+        [key]: Array.from(
+          { length: maxItems + 1 },
+          () => original.pricing[key][0],
+        ),
+      });
+      expectRejected(changed, `${key} maxItems=${maxItems}`);
+    }
+    const tooManyLines = structuredClone(original);
+    tooManyLines.pricing.priceLists[0]!.lines = Array.from(
+      { length: 2001 },
+      () => original.pricing.priceLists[0]!.lines[0]!,
+    );
+    expectRejected(tooManyLines, "lines maxItems=2000");
+    const empty = {
+      ...original,
+      pricing: { priceLists: [], outletPriceLists: [], promotions: [] },
+    };
+    expect(validate(empty), JSON.stringify(validate.errors)).toBe(true);
+  });
+});
 
 describe("mobile v1 canonical contract", () => {
   for (const name of fixtureNames) {

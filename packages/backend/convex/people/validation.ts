@@ -89,6 +89,30 @@ export async function writeAssignment(
       throw new ConvexError("Duplicate employee code");
     employeeCode = code;
   }
+  await recordAssignment(
+    ctx,
+    target,
+    { ...change, orgUnitId: unitId, employeeCode },
+    reason,
+    identity.tokenIdentifier,
+  );
+}
+
+/**
+ * The history write behind `writeAssignment`, after its authorization and validation:
+ * closes the open assignment, appends the new one, refreshes the profile projection and
+ * audits. Also used by trusted internal setup (the beta sample seed) with a `system:` actor;
+ * callers must have validated the unit, position and supervisor themselves.
+ */
+export async function recordAssignment(
+  ctx: MutationCtx,
+  target: Doc<"profiles">,
+  change: Assignment,
+  reason: string,
+  actorSubject: string,
+) {
+  const unitId = change.orgUnitId ?? target.orgUnitId;
+  const employeeCode = change.employeeCode ?? target.employeeCode;
   const now = Date.now();
   const rows = await ctx.db
     .query("employeeAssignments")
@@ -127,7 +151,7 @@ export async function writeAssignment(
     positionId: change.positionId ?? target.positionId,
     supervisorId: change.supervisorId ?? current?.supervisorId,
     effectiveFrom,
-    actorSubject: identity.tokenIdentifier,
+    actorSubject,
     reason,
     createdAt: now,
   });
@@ -142,7 +166,7 @@ export async function writeAssignment(
   });
   await audit(
     ctx,
-    identity.tokenIdentifier,
+    actorSubject,
     "person.assigned",
     "profile",
     target._id,

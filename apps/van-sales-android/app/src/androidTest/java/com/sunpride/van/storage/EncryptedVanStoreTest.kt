@@ -159,9 +159,52 @@ class EncryptedVanStoreTest {
         VanSync(store,uncertain).syncNow(); assertEquals(46L,store.stock().first { it.productId==product }.availableBase)
         assertEquals(2L,store.stock().first { it.productId==product }.damagedBase); assertTrue(store.pending().isEmpty()); Unit
     }
+    private fun governedFixture(): String = InstrumentationRegistry.getInstrumentation().context.assets
+        .open("bootstrap-response.json").bufferedReader().use { it.readText() }
+    @Test fun bootstrapStoresGovernedPricesAndMissingFeedClearsOnlyOwnScope() = runBlocking {
+        val text = governedFixture()
+        val b = store.replaceBootstrap(text)
+        assertEquals(2,b.priceLines.size)
+        val expected = b.priceLines.map { PriceListLineRow(scope.fullAuthSubject,scope.deviceId,it.priceListId,it.productId,it.uomCode,it.unitPriceMinor,it.currency,it.effectiveFrom,it.effectiveTo) }.toSet()
+        assertEquals(expected,db.rows().pricelistlineRows(scope.fullAuthSubject,scope.deviceId).toSet())
+        assertEquals(listOf(4275L,6850L),store.priceLines.first().map { it.unitPriceMinor }.sorted())
+        val otherSubject = RoomVanStore(db,StoreScope("https://test.invalid|other-subject",scope.deviceId))
+        val otherDevice = RoomVanStore(db,StoreScope(scope.fullAuthSubject,"other-device"))
+        assertTrue(otherSubject.priceLines.first().isEmpty()); assertTrue(otherDevice.priceLines.first().isEmpty())
+        otherSubject.replaceBootstrap(text); otherDevice.replaceBootstrap(text)
+        db.close(); db=EncryptedVanDatabase.openWithPassphrase(context,key,name); store=RoomVanStore(db,scope)
+        assertEquals(expected,db.rows().pricelistlineRows(scope.fullAuthSubject,scope.deviceId).toSet())
+        val hit = com.sunpride.van.pos.ProductSearch(store.products.first(),store.stock(),store.priceLines.first(),at).search("SP-PJ-1L").single()
+        assertEquals("₱68.50 / PC",hit.price?.label())
+        store.replaceBootstrap(JSONObject(text).apply { remove("priceLines"); put("serverTime",at+1) }.toString())
+        assertTrue(db.rows().pricelistlineRows(scope.fullAuthSubject,scope.deviceId).isEmpty())
+        assertTrue(store.priceLines.first().isEmpty())
+        assertEquals(2,db.rows().pricelistlineRows("https://test.invalid|other-subject",scope.deviceId).size)
+        assertEquals(2,db.rows().pricelistlineRows(scope.fullAuthSubject,"other-device").size); Unit
+    }
+    @Test fun emptyPriceFeedClearsPreviousSnapshot() = runBlocking {
+        val text = governedFixture(); store.replaceBootstrap(text)
+        assertEquals(2,store.priceLines.first().size)
+        store.replaceBootstrap(JSONObject(text).put("serverTime",at+1).put("priceLines",JSONArray()).toString())
+        assertTrue(store.priceLines.first().isEmpty()); Unit
+    }
+    @Test fun priceInsertFailureRollsBackWholeBootstrap() = runBlocking {
+        val text = governedFixture(); store.replaceBootstrap(text)
+        val previousPrices = db.rows().pricelistlineRows(scope.fullAuthSubject,scope.deviceId).toSet()
+        val previousProducts = db.rows().productRows(scope.fullAuthSubject,scope.deviceId).toSet()
+        val previousMeta = db.rows().meta(scope.fullAuthSubject,scope.deviceId)
+        val next = JSONObject(text).put("serverTime",at+1)
+        next.getJSONArray("priceLines").getJSONObject(0).put("unitPriceMinor","7000")
+        next.getJSONArray("products").getJSONObject(0).put("name","Changed name")
+        db.openHelper.writableDatabase.execSQL("CREATE TRIGGER fail_price BEFORE INSERT ON price_list_line WHEN NEW.productId='k57prod0000000000000000000000002' BEGIN SELECT RAISE(ABORT,'injected'); END")
+        assertTrue(runCatching { store.replaceBootstrap(next.toString()) }.isFailure)
+        assertEquals(previousPrices,db.rows().pricelistlineRows(scope.fullAuthSubject,scope.deviceId).toSet())
+        assertEquals(previousProducts,db.rows().productRows(scope.fullAuthSubject,scope.deviceId).toSet())
+        assertEquals(previousMeta,db.rows().meta(scope.fullAuthSubject,scope.deviceId)); Unit
+    }
     @Test fun posSearchReadsCachedPriceLinesOnlyFromOwnScope() = runBlocking {
-        store.replaceBootstrap(fixture())
-        assertTrue("no governed price feed yet: table starts empty",store.priceLines.first().isEmpty())
+        store.replaceBootstrap(JSONObject(fixture()).apply { remove("priceLines") }.toString())
+        assertTrue("an omitted price feed leaves no cached prices",store.priceLines.first().isEmpty())
         db.rows().insertPriceListLine(PriceListLineRow(scope.fullAuthSubject,scope.deviceId,"L1",product,"PC",4550,"PHP",at-1,null))
         db.rows().insertPriceListLine(PriceListLineRow("https://test.invalid|other-subject",scope.deviceId,"L1",product,"PC",9999,"PHP",at-1,null))
         val lines = store.priceLines.first()

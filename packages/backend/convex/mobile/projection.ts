@@ -64,6 +64,66 @@ export const outletDTO = v.object({
   territoryCode: v.optional(v.string()),
 });
 export const customerDTO = v.object({ id: v.string(), code: v.string() });
+const promotionUnitDTO = v.object({
+  productId: v.string(),
+  uomCode: v.string(),
+  quantity: v.number(),
+});
+/**
+ * SP-0129 / ADR-008: governed prices for this page's outlets (optional in contract v1).
+ * Each outlet maps to its channel list; lines are VAT-inclusive centavos per product+unit.
+ */
+export const pricingDTO = v.object({
+  priceLists: v.array(
+    v.object({
+      priceListId: v.string(),
+      code: v.string(),
+      name: v.string(),
+      channel: v.string(),
+      currency: v.string(),
+      vatInclusive: v.boolean(),
+      lines: v.array(
+        v.object({
+          productId: v.string(),
+          uomCode: v.string(),
+          unitPriceMinor: v.number(),
+          effectiveFrom: v.number(),
+          effectiveTo: v.union(v.number(), v.null()),
+        }),
+      ),
+    }),
+  ),
+  outletPriceLists: v.array(
+    v.object({ outletId: v.string(), priceListId: v.string() }),
+  ),
+  promotions: v.array(
+    v.object({
+      promotionId: v.string(),
+      code: v.string(),
+      name: v.string(),
+      priceListId: v.union(v.string(), v.null()),
+      effectiveFrom: v.number(),
+      effectiveTo: v.union(v.number(), v.null()),
+      rule: v.union(
+        v.object({
+          kind: v.literal("buy_x_get_y"),
+          buy: promotionUnitDTO,
+          free: promotionUnitDTO,
+        }),
+        v.object({
+          kind: v.literal("percent_off"),
+          item: promotionUnitDTO,
+          percentOffBasisPoints: v.number(),
+        }),
+        v.object({
+          kind: v.literal("bundle"),
+          components: v.array(promotionUnitDTO),
+          bundlePriceMinor: v.number(),
+        }),
+      ),
+    }),
+  ),
+});
 export const routeDTO = v.union(
   v.object({ id: v.string(), code: v.string() }),
   v.null(),
@@ -330,9 +390,7 @@ export async function dayProjection(
   if (planned.length > MAX_WORKING_SET_VISITS)
     throw new ConvexError(WORKING_SET_TOO_LARGE);
   for (const row of planned) {
-    visits.push(
-      await visitProjection(ctx, row, actor, now, cache, reference),
-    );
+    visits.push(await visitProjection(ctx, row, actor, now, cache, reference));
     if (cache.products.size > MAX_WORKING_SET_PRODUCTS)
       throw new ConvexError(WORKING_SET_TOO_LARGE);
   }
