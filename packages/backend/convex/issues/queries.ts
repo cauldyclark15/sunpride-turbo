@@ -179,6 +179,7 @@ export const access = query({
   returns: v.object({
     canRead: v.boolean(),
     canWrite: v.boolean(),
+    canTriage: v.boolean(),
     canManage: v.boolean(),
     maxVideoBytes: v.number(),
   }),
@@ -190,6 +191,7 @@ export const access = query({
     return {
       canRead: holds("issues.read"),
       canWrite: holds("issues.write"),
+      canTriage: holds("issues.triage"),
       canManage: holds("issues.manage"),
       maxVideoBytes:
         profile.role === "super_admin"
@@ -226,7 +228,8 @@ export const assignees = query({
   ),
   handler: async (ctx) => {
     await requireIssueActor(ctx, "issues.read");
-    const roles = CAPABILITIES["issues.read"] as readonly AppRole[];
+    // Only the staff who work issues can be assigned (see `assertAssignee`).
+    const roles = CAPABILITIES["issues.triage"] as readonly AppRole[];
     const people = [];
     for (const role of roles) {
       const rows = await ctx.db

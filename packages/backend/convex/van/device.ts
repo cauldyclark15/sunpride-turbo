@@ -18,12 +18,14 @@ import {
   tripLoad,
 } from "./access";
 import { postTruckDamage, truckBalances } from "./ledger";
+import { creditFor } from "./credit";
 import { finishLoad } from "./loads";
 import {
   boundedText,
   DAMAGE_REASONS,
   LOAD_DISCREPANCY_REASONS,
   OPEN_TRIP_STATUSES,
+  VAN_PAYMENT_METHODS,
   VAN_POLICY,
   type VanOperationKind,
 } from "./model";
@@ -174,6 +176,7 @@ async function customersFor(
     address: string | null;
     sequence: number | null;
     source: "route" | "unplanned";
+    credit: { termsDays: number; availableMinor: string } | null;
   }[] = [];
   const seen = new Set<string>();
   const consider = async (
@@ -198,6 +201,7 @@ async function customersFor(
       address: current.outlet.address ?? null,
       sequence: source === "route" ? (row.sequence ?? null) : null,
       source,
+      credit: await creditFor(ctx, row.outletId, now),
     });
   };
   if (trip.routeId) {
@@ -388,6 +392,7 @@ function policyView(allowNegativeStock: boolean) {
     walkInAllowed: true,
     loadDiscrepancyReasons: [...LOAD_DISCREPANCY_REASONS],
     damageReasons: [...DAMAGE_REASONS],
+    paymentMethods: VAN_PAYMENT_METHODS.map((method) => ({ ...method })),
   };
 }
 

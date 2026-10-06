@@ -89,6 +89,39 @@ internal object VanWireSchema {
     "damageReason": {
       "enum": ["crushed", "leaking", "expired", "spoiled", "other"]
     },
+    "paymentMethod": {
+      "description": "VAN-012 payment method the office allows. cash gives change; other equals the total and carries a reference when referenceRequired; credit charges the customer's account and needs customer credit terms.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "label",
+        "kind",
+        "referenceRequired",
+        "referenceLabel"
+      ],
+      "properties": {
+        "code": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}${'$'}" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "kind": { "enum": ["cash", "credit", "other"] },
+        "referenceRequired": { "type": "boolean" },
+        "referenceLabel": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 40
+        }
+      }
+    },
+    "customerCredit": {
+      "description": "VAN-012 office credit terms for one customer: days until due and the credit available as of serverTime, in centavos.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["termsDays", "availableMinor"],
+      "properties": {
+        "termsDays": { "type": "integer", "minimum": 1, "maximum": 180 },
+        "availableMinor": { "${'$'}ref": "#/${'$'}defs/base" }
+      }
+    },
     "bootstrapRequest": {
       "type": "object",
       "additionalProperties": false,
@@ -150,6 +183,12 @@ internal object VanWireSchema {
             "damageReasons": {
               "type": "array",
               "items": { "${'$'}ref": "#/${'$'}defs/damageReason" }
+            },
+            "paymentMethods": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 12,
+              "items": { "${'$'}ref": "#/${'$'}defs/paymentMethod" }
             }
           }
         },
@@ -245,7 +284,13 @@ internal object VanWireSchema {
               "name": { "type": "string" },
               "address": { "type": ["string", "null"] },
               "sequence": { "type": ["integer", "null"] },
-              "source": { "enum": ["route", "unplanned"] }
+              "source": { "enum": ["route", "unplanned"] },
+              "credit": {
+                "oneOf": [
+                  { "type": "null" },
+                  { "${'$'}ref": "#/${'$'}defs/customerCredit" }
+                ]
+              }
             }
           }
         },
@@ -683,8 +728,7 @@ internal object VanWireSchema {
       }
     }
   }
-}
-"""
+}"""
 }
 
 class VanWireFailure : Exception("Invalid van gateway response", null)

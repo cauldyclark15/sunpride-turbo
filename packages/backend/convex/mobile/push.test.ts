@@ -229,6 +229,69 @@ describe("ordered push", () => {
     expect(await f.counts()).toEqual(counts);
     expect(counts).toEqual([1, 1, 3, 3, 3]);
   });
+  it("orders by server arrival, never by device clock, and keeps device time only as evidence (SFD-008)", async () => {
+    const f = await fixture();
+    const first = f.check(40);
+    const check = await f.apply(first);
+    if (check.status !== "accepted") throw new Error("not accepted");
+    const visitId = check.ack.entityId as Id<"visitExecutions">;
+    const note = (n: number, deviceTime: number) => ({
+      kind: "visit.activity" as const,
+      clientRequestId: uuid(n),
+      dependsOn: [first.clientRequestId],
+      payload: {
+        visitId,
+        activity: { kind: "note" as const, text: `note ${n}` },
+        deviceTime,
+      },
+    });
+    // The phone clock runs ahead for the first note and behind for the second.
+    vi.setSystemTime(now + 1_000);
+    const a = await f.apply(note(41, now + 60 * 60_000));
+    vi.setSystemTime(now + 2_000);
+    const b = await f.apply(note(42, now - 60 * 60_000));
+    if (a.status !== "accepted" || b.status !== "accepted")
+      throw new Error("not accepted");
+    expect(a.ack.serverTime).toBe(now + 1_000);
+    expect(b.ack.serverTime).toBe(now + 2_000);
+    const rows = await f.t.run(async (ctx) => ({
+      activities: await ctx.db
+        .query("visitActivities")
+        .withIndex("by_visitId_and_serverTime", (q) => q.eq("visitId", visitId))
+        .collect(),
+      changes: await ctx.db
+        .query("mobileChanges")
+        .withIndex("by_organizationId_and_sequence", (q) =>
+          q.eq("organizationId", "sunpride"),
+        )
+        .collect(),
+    }));
+    // Server order: a before b, although b's device time is two hours earlier.
+    expect(rows.activities.map((r) => r._id)).toEqual([
+      a.ack.entityId,
+      b.ack.entityId,
+    ]);
+    expect(rows.activities.map((r) => r.deviceTime)).toEqual([
+      now + 60 * 60_000,
+      now - 60 * 60_000,
+    ]);
+    const seq = (id: string) =>
+      rows.changes.find((c) => c.entityId === id)!.sequence;
+    expect(seq(b.ack.entityId)).toBeGreaterThan(seq(a.ack.entityId));
+    // A clock beyond the allowed skew is refused without writes and without consuming the key.
+    const before = await f.counts();
+    const skewed = note(43, now + 2 * 24 * 60 * 60_000);
+    await expect(f.apply(skewed)).rejects.toThrow("invalid_request");
+    expect(await f.counts()).toEqual(before);
+    expect(
+      (
+        await f.apply({
+          ...skewed,
+          payload: { ...skewed.payload, deviceTime: now },
+        })
+      ).status,
+    ).toBe("accepted");
+  });
   it("conflicts on changed payload or different device, and concurrent same-key calls commit once", async () => {
     const f = await fixture();
     const op = f.check(4);

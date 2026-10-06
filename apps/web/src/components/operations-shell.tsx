@@ -6,9 +6,14 @@ import { useQuery } from "convex/react";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { getWebNavigation } from "@/config/navigation";
+import { getWebNavigation, navigationForRole } from "@/config/navigation";
 import { authClient } from "@/lib/auth-client";
 import { canAccessWebModule } from "@/lib/module-access";
+import {
+  AreaPendingNotice,
+  BetaBar,
+  needsAreaAssignment,
+} from "./beta/beta-bar";
 
 export function OperationsShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -31,10 +36,12 @@ export function OperationsShell({ children }: { children: ReactNode }) {
       brand={{
         logo: <Image src="/sunpride-logo.jpg" alt="" width={40} height={40} />,
         name: "Sunpride",
-        descriptor: "Operations",
+        descriptor: "Operations · Beta",
       }}
       contentWidth="full"
-      navGroups={navigation.navGroups}
+      navGroups={navigationForRole(navigation.navGroups, (slug) =>
+        canAccessWebModule(slug, current?.role),
+      )}
       onNavigate={(href) => router.push(href)}
       onSignOut={signOut}
       user={
@@ -46,6 +53,8 @@ export function OperationsShell({ children }: { children: ReactNode }) {
           : undefined
       }
     >
+      <BetaBar pathname={pathname} canReport={canSeeIssues} />
+      {needsAreaAssignment(current) ? <AreaPendingNotice /> : null}
       {children}
     </WorkspaceShell>
   );

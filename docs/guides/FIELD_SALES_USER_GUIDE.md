@@ -125,7 +125,7 @@ Made a mistake? Fill the call sheet again and save it again. Each save is kept; 
 2. Enter the **quantity** for each product the store orders (whole numbers, 1 to 99,999). Leave the others empty. The screen counts how many products are in the order.
 3. Tap **Save draft**. The draft is saved on the phone only. You can leave it and come back: the visit lists it as **Order draft · Draft · not sent**, and tapping it opens it again to change quantities and **Save draft** again, or **Discard** it.
 4. When the quantities are right, tap **Review order**. Check the products, the total (products and units) and **Checks**. Every check must show ✓ (for example **Call is open**, **Products are set up for this account**). A check with **!** tells you what to fix; tap **Edit** to go back.
-5. Tap **Send order**. The status changes to **Waiting to send**, then **Received by office · not yet posted** after the phone syncs. This works with no signal: the order waits on the phone and is sent with your next sync.
+5. Tap **Send order**. The status changes to **Waiting to send**, then **Received by office** after the phone syncs. This works with no signal: the order waits on the phone and is sent with your next sync.
 6. **A sent order cannot be changed.** If it is wrong, or it shows **Not accepted · needs review**, tell your supervisor.
 
 There is no amount or stock check on the phone: prices are set by the office ("Amount: priced by the office") and the order records quantities only.

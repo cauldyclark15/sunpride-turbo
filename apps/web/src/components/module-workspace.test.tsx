@@ -382,6 +382,8 @@ describe("calm generic modules", () => {
 
   it("puts one Commercial header above tabs on every commercial page", () => {
     state.profile.role = "super_admin";
+    // The sample-order button is on the beta hidden list; switch it on to check placement.
+    vi.stubEnv("NEXT_PUBLIC_BETA_ENABLE", "sample-order");
     for (const slug of ["orders", "master-data", "imports"] as const) {
       state.pathname = `/${slug}`;
       const html = render(slug);
@@ -402,6 +404,17 @@ describe("calm generic modules", () => {
     expect(html).toContain('data-label="Products"');
     expect(html).toContain('data-label="Customers"');
     expect(html).not.toContain("idempotent");
+    vi.unstubAllEnvs();
+  });
+
+  it("hides the sample-order button for the beta", () => {
+    state.profile.role = "super_admin";
+    vi.stubEnv("NEXT_PUBLIC_BETA_ENABLE", "");
+    state.pathname = "/orders";
+    const html = render("orders");
+    expect(html).toContain("0 orders");
+    expect(html).not.toContain("New order");
+    vi.unstubAllEnvs();
   });
 
   it("shows names above codes for products, customers, and orders", () => {

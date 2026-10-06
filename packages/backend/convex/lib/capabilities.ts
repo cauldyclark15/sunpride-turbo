@@ -144,18 +144,40 @@ export const CAPABILITIES = {
   "target.manage": ["super_admin", "admin", "manager"],
   "integration.read": ["super_admin", "admin", "operations"],
   "integration.manage": ["super_admin", "admin"],
-  // In-app issue tracker. Internal staff only — field `sales` never sees it. `analyst` is
-  // cross-scope and therefore read-only; `issues.manage` (archive/restore, moderate any
-  // comment) stays with administrators.
+  // In-app issue tracker. Beta release (SP-0123): every signed-in role, including field
+  // `sales`, `analyst` and `viewer`, reads issues, files them, comments and attaches
+  // screenshots. Issues are unscoped tester feedback, not organizational data, so the
+  // analyst/viewer write here is the one listed exception to the read-only rule
+  // (`TESTER_FEEDBACK_CAPABILITIES`). Working an issue — status, board moves, assignee,
+  // editing the issue itself — is `issues.triage` (the staff who could do it before);
+  // archive/restore and moderating any comment stays `issues.manage`.
   "issues.read": [
     "super_admin",
     "admin",
     "operations",
     "manager",
     "approver",
+    "sales",
     "analyst",
+    "viewer",
   ],
-  "issues.write": ["super_admin", "admin", "operations", "manager", "approver"],
+  "issues.write": [
+    "super_admin",
+    "admin",
+    "operations",
+    "manager",
+    "approver",
+    "sales",
+    "analyst",
+    "viewer",
+  ],
+  "issues.triage": [
+    "super_admin",
+    "admin",
+    "operations",
+    "manager",
+    "approver",
+  ],
   "issues.manage": ["super_admin", "admin"],
   // CVX-027..029 van sales (ADR-010). The office plans vehicles, trips and load sheets; the
   // truck salesman operates the trip from the van app; a supervisor (never the confirmer)
@@ -176,6 +198,11 @@ export const CAPABILITIES = {
 } as const satisfies Record<string, readonly AppRole[]>;
 
 export type Capability = keyof typeof CAPABILITIES;
+
+/** Unscoped tester-feedback writes that read-only roles (`analyst`, `viewer`) may hold. */
+export const TESTER_FEEDBACK_CAPABILITIES: readonly Capability[] = [
+  "issues.write",
+];
 
 /** Read capabilities are the ones ending in `.read`; `capabilities.test.ts` asserts that
  * every capability `analyst` holds is one of them (cross-scope access must stay read-only). */

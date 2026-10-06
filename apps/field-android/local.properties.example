@@ -6,3 +6,11 @@ SUNPRIDE_STAGING_CONVEX_SITE_URL=https://your-staging.convex.site
 SUNPRIDE_STAGING_CONVEX_URL=https://your-staging.convex.cloud
 SUNPRIDE_PROD_CONVEX_SITE_URL=https://your-prod.convex.site
 SUNPRIDE_PROD_CONVEX_URL=https://your-prod.convex.cloud
+# SP-0124 beta build (docs/BETA_FEATURES.md). Endpoints fall back to DEV when empty.
+SUNPRIDE_BETA_CONVEX_SITE_URL=
+SUNPRIDE_BETA_CONVEX_URL=
+# Web app for Account > Report an issue (opens <url>/issues/new); hidden when empty.
+SUNPRIDE_BETA_WEB_URL=
+SUNPRIDE_BETA_BUILD=1
+# Signing key lives outside the repo; created by scripts/create-beta-keystore.sh.
+# SUNPRIDE_BETA_SIGNING_PROPERTIES=~/.sunpride-keys/field-beta.properties

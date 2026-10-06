@@ -93,12 +93,43 @@ class FakeVanBackend(fixtureJson: String = FIXTURE, context: Context? = null) : 
       "wrong_item",
       "other"
     ],
-    "damageReasons": [
-      "crushed",
-      "leaking",
-      "expired",
-      "spoiled",
-      "other"
+    "damageReasons": ["crushed", "leaking", "expired", "spoiled", "other"],
+    "paymentMethods": [
+      {
+        "code": "cash",
+        "label": "Cash",
+        "kind": "cash",
+        "referenceRequired": false,
+        "referenceLabel": null
+      },
+      {
+        "code": "check",
+        "label": "Check",
+        "kind": "other",
+        "referenceRequired": true,
+        "referenceLabel": "Check number"
+      },
+      {
+        "code": "gcash",
+        "label": "GCash",
+        "kind": "other",
+        "referenceRequired": true,
+        "referenceLabel": "GCash reference number"
+      },
+      {
+        "code": "bank_transfer",
+        "label": "Bank transfer",
+        "kind": "other",
+        "referenceRequired": true,
+        "referenceLabel": "Bank reference number"
+      },
+      {
+        "code": "credit",
+        "label": "Credit (charge to account)",
+        "kind": "credit",
+        "referenceRequired": false,
+        "referenceLabel": null
+      }
     ]
   },
   "trip": {
@@ -183,10 +214,7 @@ class FakeVanBackend(fixtureJson: String = FIXTURE, context: Context? = null) : 
       "name": "Pineapple Juice 1L",
       "uomCode": "PC",
       "quantityScale": "1",
-      "barcodes": [
-        "4800000000017",
-        "14800000000016"
-      ],
+      "barcodes": ["4800000000017", "14800000000016"],
       "barcodeUnits": [
         { "barcode": "4800000000017", "uomCode": "PC", "baseQuantity": "1" },
         { "barcode": "14800000000016", "uomCode": "CS", "baseQuantity": "24" }
@@ -208,7 +236,8 @@ class FakeVanBackend(fixtureJson: String = FIXTURE, context: Context? = null) : 
       "name": "Aling Nena Store",
       "address": "A. Soriano Ave, Mandaue",
       "sequence": 1,
-      "source": "route"
+      "source": "route",
+      "credit": { "termsDays": 30, "availableMinor": "500000" }
     },
     {
       "outletId": "k57out00000000000000000000000002",
@@ -216,7 +245,8 @@ class FakeVanBackend(fixtureJson: String = FIXTURE, context: Context? = null) : 
       "name": "JM Sari-Sari",
       "address": null,
       "sequence": 2,
-      "source": "route"
+      "source": "route",
+      "credit": null
     },
     {
       "outletId": "k57out00000000000000000000000003",

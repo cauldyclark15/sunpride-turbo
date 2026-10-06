@@ -11,7 +11,18 @@ object VanBootstrapCodec {
     internal fun nullable(o: JSONObject, key: String): String? = if (o.isNull(key)) null else o.getString(key)
     private fun base(o: JSONObject, key: String): Long = o.getString(key).toLong()
     fun policy(o: JSONObject) = VanPolicy(o.getBoolean("allowNegativeStock"), o.getBoolean("loadDiscrepancyRequiresApproval"),
-        o.getBoolean("walkInAllowed"), strings(o.getJSONArray("loadDiscrepancyReasons")), strings(o.getJSONArray("damageReasons")))
+        o.getBoolean("walkInAllowed"), strings(o.getJSONArray("loadDiscrepancyReasons")), strings(o.getJSONArray("damageReasons")),
+        o.optJSONArray("paymentMethods")?.let(::paymentMethods) ?: PaymentMethod.CASH_ONLY)
+    /** VAN-012: optional; a policy cached before it (or an older server) allows cash only. */
+    fun paymentMethods(a: JSONArray): List<PaymentMethod> {
+        val methods = objects(a).map { PaymentMethod(it.getString("code"), it.getString("label"), PaymentKind.of(it.getString("kind")),
+            it.getBoolean("referenceRequired"), nullable(it,"referenceLabel")) }
+        require(methods.isNotEmpty() && methods.size <= 12 && methods.map { it.code }.distinct().size == methods.size)
+        require(methods.all { Regex("^[a-z][a-z0-9_]{0,31}$").matches(it.code) && it.label.isNotBlank() && it.label.length <= 40 })
+        // Cash gives change and credit charges the account: neither carries a reference.
+        require(methods.none { it.kind != PaymentKind.OTHER && it.referenceRequired })
+        return methods
+    }
     fun trip(o: JSONObject): Trip = Trip(o.getString("tripId"), o.getString("tripNumber"), o.getString("status"), o.getString("serviceDate"),
         o.optJSONObject("vehicle")?.let { Vehicle(it.getString("vehicleId"), it.getString("vehicleCode"), it.getString("plateNumber"), nullable(it,"name")) },
         o.optJSONObject("route")?.let { Route(it.getString("routeId"), it.getString("code"), it.getString("name")) },
@@ -32,7 +43,8 @@ object VanBootstrapCodec {
             base(o,"quantityScale"), barcodes, units)
     }
     fun customer(o: JSONObject) = Customer(o.getString("outletId"), o.getString("code"), o.getString("name"), nullable(o,"address"),
-        if (o.isNull("sequence")) null else o.getInt("sequence"), o.getString("source"))
+        if (o.isNull("sequence")) null else o.getInt("sequence"), o.getString("source"),
+        credit = o.optJSONObject("credit")?.let { CustomerCredit(it.getInt("termsDays").also { d -> require(d in 1..180) }, base(it,"availableMinor")) })
     fun decode(text: String): VanBootstrap = try {
         val o = JSONObject(text)
         VanWireSchema.validate(o)

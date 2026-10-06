@@ -5,8 +5,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: { default: "Sunpride Operations", template: "%s · Sunpride" },
-  description:
-    "Integrated sales, inventory, workflow, and SAP operations for Sunpride.",
+  description: "Sales, inventory, field and approval operations for Sunpride.",
 };
 
 export default function RootLayout({

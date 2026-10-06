@@ -4,6 +4,7 @@ import androidx.compose.runtime.*
 import com.sunpride.van.AppEnvironment
 import com.sunpride.van.auth.*
 import com.sunpride.van.data.*
+import com.sunpride.van.pos.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
@@ -44,6 +45,14 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         private set
     var selectedCustomer by mutableStateOf<Customer?>(null)
         private set
+    /** VAN-011: the sale being built. In memory only; [SaleDraft.saleId] makes Complete sale safe to repeat. */
+    var sale by mutableStateOf<SaleDraft?>(null)
+        private set
+    /** True while Find product was opened from a sale: tapping a product adds it to the sale. */
+    var pickingForSale by mutableStateOf(false)
+        private set
+    var lastReceipt by mutableStateOf<SaleReceipt?>(null)
+        private set
     private var scope: CoroutineScope? = null
 
     suspend fun run(restore: Boolean = true): Unit = coroutineScope {
@@ -82,13 +91,23 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         }
     }
     fun open(next: Page) { page = next; message = null }
-    fun back() { open(if (page == Page.WALK_IN || page == Page.CUSTOMER) Page.CUSTOMERS else Page.HOME) }
+    fun back() {
+        val target = when (page) {
+            Page.WALK_IN, Page.CUSTOMER -> Page.CUSTOMERS
+            Page.CHECKOUT -> Page.SALE
+            Page.SALE -> Page.CUSTOMER
+            Page.PRODUCTS -> if (pickingForSale && sale != null) Page.SALE else Page.HOME
+            else -> Page.HOME
+        }
+        if (page == Page.PRODUCTS) pickingForSale = false
+        open(target)
+    }
     fun select(customer: Customer) { selectedCustomer = customer; open(Page.CUSTOMER) }
     fun signIn(email: String, password: String) = command {
         repository.signIn(email.trim(),password)
         if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow()
     }
-    fun signOut() = command { repository.signOut(); page = Page.HOME }
+    fun signOut() = command { repository.signOut(); page = Page.HOME; sale = null; pickingForSale = false; lastReceipt = null }
     fun checkAgain() = command { repository.refreshEnrollment(); if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow() }
     fun syncNow() = command("Sync finished. Check the waiting and review counts.") { repository.syncNow() }
     // Pending state is read from the store (VanRules.status), never from a stale one-off message.
@@ -106,7 +125,53 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
             message = "Damage saved — waiting for sync"; onSaved()
         }
     }
+    fun startSale(customer: Customer) {
+        if (!VanRules.canSell(trip)) { message = VanRules.checkoutMessage(CheckoutProblem.TRIP_NOT_SELLING,null); return }
+        if (sale?.customer?.outletId != customer.outletId) sale = SaleDraft(CheckoutRules.newSaleId(),customer,emptyList())
+        selectedCustomer = customer; open(Page.SALE)
+    }
+    fun continueSale() { sale?.let { selectedCustomer = it.customer; open(Page.SALE) } }
+    fun pickProduct() { pickingForSale = true; open(Page.PRODUCTS) }
+    /** Adds to the line for this product (one line per product); a quantity of zero removes the line. */
+    fun addToSale(productId: String, quantityBase: Long) {
+        val draft = sale ?: return
+        val current = draft.lines.firstOrNull { it.productId == productId }?.quantityBase ?: 0L
+        setSaleLine(productId,Math.addExact(current,quantityBase))
+        pickingForSale = false; open(Page.SALE)
+    }
+    fun setSaleLine(productId: String, quantityBase: Long) {
+        val draft = sale ?: return
+        val lines = if (quantityBase <= 0) draft.lines.filterNot { it.productId == productId }
+            else if (draft.lines.any { it.productId == productId }) draft.lines.map { if (it.productId == productId) it.copy(quantityBase = quantityBase) else it }
+            else draft.lines + CartLine(productId,quantityBase)
+        sale = draft.copy(lines = lines)
+    }
+    fun cancelSale() { sale = null; pickingForSale = false; open(Page.HOME) }
+    /** VAN-012 credit sold here / references used; refreshed when Checkout opens (the store re-checks while saving). */
+    var paymentFacts by mutableStateOf(com.sunpride.van.storage.PaymentFacts())
+        private set
+    suspend fun refreshPaymentFacts() { paymentFacts = runCatching { repository.paymentFacts() }.getOrDefault(com.sunpride.van.storage.PaymentFacts()) }
+    fun saleContext(now: Long = System.currentTimeMillis()): CheckoutContext =
+        CheckoutContext(VanRules.canSell(trip) && session.signedIn,customers,products,stock,prices,policy,now,trip?.serviceDate,
+            paymentFacts.creditUsedMinor,paymentFacts.usedReferences)
+    fun quote(payment: PaymentInput): CheckoutResult? = sale?.let { CheckoutRules.evaluate(CheckoutRequest(it.saleId,it.customer.outletId,it.lines,payment),saleContext()) }
+    /** Lines and total of the cart alone, before a payment is entered. */
+    fun cartQuote(): CheckoutQuote? = sale?.let { CheckoutRules.cartQuote(CheckoutRequest(it.saleId,it.customer.outletId,it.lines,PaymentInput(PaymentMethod.CASH.code)),saleContext()) }
+    /** Payment methods the office allows (cash only until the policy says otherwise). */
+    val paymentMethods: List<PaymentMethod> get() = policy?.paymentMethods ?: PaymentMethod.CASH_ONLY
+    /** The store validates again in the saving transaction; a refusal keeps the cart so the seller can fix it. */
+    fun completeSale(payment: PaymentInput, expectedTotalMinor: Long) = command {
+        val draft = checkNotNull(sale)
+        try {
+            lastReceipt = repository.completeSale(CheckoutRequest(draft.saleId,draft.customer.outletId,draft.lines,payment),expectedTotalMinor)
+            sale = null; page = Page.SALE_DONE
+        } catch (e: CheckoutRefused) {
+            message = e.issues.joinToString("\n") { issue -> VanRules.checkoutMessage(issue.problem,issue.productId?.let { id -> products.firstOrNull { it.productId == id }?.name }) }
+        }
+    }
     fun walkIn(name: String, reason: String) = command {
         repository.addWalkInCustomer(name.trim(),reason.trim()); page = Page.CUSTOMERS
     }
 }
+/** A sale being built for one customer (VAN-011). */
+data class SaleDraft(val saleId: String, val customer: Customer, val lines: List<CartLine>)
