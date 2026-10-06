@@ -76,11 +76,23 @@ object VanRules {
             com.sunpride.van.pos.CheckoutProblem.PRICE_NOT_EXACT -> "$p: this quantity doesn't give an exact price. Change the quantity."
             com.sunpride.van.pos.CheckoutProblem.MIXED_CURRENCY -> "Prices are in different currencies. Ask the office."
             com.sunpride.van.pos.CheckoutProblem.TOTAL_TOO_LARGE -> "The total is too large for one sale. Split the sale."
-            com.sunpride.van.pos.CheckoutProblem.CREDIT_TERMS_UNAVAILABLE -> "Credit sales need this customer's terms from the office. Take cash for now."
+            com.sunpride.van.pos.CheckoutProblem.CREDIT_TERMS_UNAVAILABLE -> "This customer has no credit terms from the office. Take cash or another payment."
             com.sunpride.van.pos.CheckoutProblem.CASH_MISSING -> "Enter the cash received."
             com.sunpride.van.pos.CheckoutProblem.CASH_SHORT -> "Cash received is less than the total."
             com.sunpride.van.pos.CheckoutProblem.PRICES_CHANGED -> "Prices or stock changed. Check the total and try again."
+            com.sunpride.van.pos.CheckoutProblem.UNKNOWN_PAYMENT_METHOD -> "Choose how the customer pays."
+            com.sunpride.van.pos.CheckoutProblem.REFERENCE_MISSING -> "Enter the reference number."
+            com.sunpride.van.pos.CheckoutProblem.REFERENCE_INVALID -> "The reference number can only have letters, numbers, spaces, - / and . (40 at most)."
+            com.sunpride.van.pos.CheckoutProblem.REFERENCE_ALREADY_USED -> "This reference number is already on another sale. Check the number."
+            com.sunpride.van.pos.CheckoutProblem.CREDIT_LIMIT_EXCEEDED -> "This sale is more than the customer's credit left. Take cash or another payment, or ask the office."
         }
+    }
+    /** Payment state in plain words (VAN-012); [dueDate] only for credit. */
+    fun paymentStateLabel(status: String, dueDate: String?): String = when (status) {
+        "paid" -> "Paid"
+        "awaiting_confirmation" -> "To be confirmed by the office"
+        "on_account" -> if (dueDate != null) "Charged to account · due $dueDate" else "Charged to account"
+        else -> "To be confirmed by the office"
     }
     fun sourceLabel(source: String): String = when (source) { "route" -> "Route"; "unplanned" -> "Not on route"; else -> "Walk-in" }
 }

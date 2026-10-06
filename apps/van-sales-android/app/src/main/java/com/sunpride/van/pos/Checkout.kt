@@ -1,6 +1,8 @@
 package com.sunpride.van.pos
 
 import com.sunpride.van.data.Customer
+import com.sunpride.van.data.PaymentKind
+import com.sunpride.van.data.PaymentMethod
 import com.sunpride.van.data.PriceLine
 import com.sunpride.van.data.Product
 import com.sunpride.van.data.TruckStock
@@ -18,13 +20,18 @@ import java.util.UUID
 data class CartLine(val productId: String, val quantityBase: Long)
 
 /**
- * Payment terms the seller picks. Only cash is supported today: credit/charge needs each customer's
- * terms and limit from the office, which the van bootstrap does not carry yet, so it is refused.
+ * VAN-012: the payment the seller records. [methodCode] is one of the office's configured methods
+ * (`VanPolicy.paymentMethods`); [tenderedMinor] is the cash handed over (cash only, centavos);
+ * [reference] is the check/e-wallet/bank number when the method needs one.
  */
-enum class PaymentTerms { CASH, CREDIT }
+data class PaymentInput(val methodCode: String, val tenderedMinor: Long? = null, val reference: String? = null)
 
-/** [tenderedMinor] is the cash the customer hands over, in minor units (centavos). */
-data class PaymentInput(val terms: PaymentTerms, val tenderedMinor: Long?)
+/** Payment state, kept apart from the sale's posting state: a sale can be saved while its payment is still to be confirmed. */
+enum class PaymentState(val wire: String) { PAID("paid"), AWAITING_CONFIRMATION("awaiting_confirmation"), ON_ACCOUNT("on_account") }
+
+/** The payment as it will be saved. [dueDate] (Manila date) only for credit. */
+data class QuotedPayment(val method: PaymentMethod, val amountMinor: Long, val tenderedMinor: Long?, val changeMinor: Long,
+    val reference: String?, val state: PaymentState, val dueDate: String?)
 
 /** What the seller is about to sell. [saleId] is a UUID-v4 made when the cart opens; it makes Complete sale safe to tap twice. */
 data class CheckoutRequest(val saleId: String, val customerId: String?, val lines: List<CartLine>, val payment: PaymentInput)
@@ -32,7 +39,8 @@ data class CheckoutRequest(val saleId: String, val customerId: String?, val line
 enum class CheckoutProblem {
     TRIP_NOT_SELLING, NO_CUSTOMER, UNKNOWN_CUSTOMER, EMPTY_CART, TOO_MANY_LINES, DUPLICATE_PRODUCT,
     UNKNOWN_PRODUCT, BAD_QUANTITY, INSUFFICIENT_STOCK, UNPRICED, PRICE_NOT_EXACT, MIXED_CURRENCY,
-    TOTAL_TOO_LARGE, CREDIT_TERMS_UNAVAILABLE, CASH_MISSING, CASH_SHORT, PRICES_CHANGED
+    TOTAL_TOO_LARGE, CREDIT_TERMS_UNAVAILABLE, CASH_MISSING, CASH_SHORT, PRICES_CHANGED,
+    UNKNOWN_PAYMENT_METHOD, REFERENCE_MISSING, REFERENCE_INVALID, REFERENCE_ALREADY_USED, CREDIT_LIMIT_EXCEEDED
 }
 
 /** A problem, optionally tied to a product line. */
@@ -41,17 +49,23 @@ data class CheckoutIssue(val problem: CheckoutProblem, val productId: String? = 
 data class QuotedLine(val lineNumber: Int, val product: Product, val quantityBase: Long, val unitPriceMinor: Long,
     val totalMinor: Long, val priceListIds: List<String>)
 
+/** [tenderedMinor]/[changeMinor] are the cash handed over and change (non-cash: the amount and zero). */
 data class CheckoutQuote(val lines: List<QuotedLine>, val currency: String, val totalMinor: Long,
-    val tenderedMinor: Long, val changeMinor: Long)
+    val tenderedMinor: Long, val changeMinor: Long, val payment: QuotedPayment)
 
 /** [quote] is non-null only when there are no [issues]. */
 data class CheckoutResult(val quote: CheckoutQuote?, val issues: List<CheckoutIssue>) {
     val ok: Boolean get() = quote != null && issues.isEmpty()
 }
 
-/** Everything checkout is validated against, read from the scoped encrypted store. */
+/**
+ * Everything checkout is validated against, read from the scoped encrypted store. [serviceDate] dates credit;
+ * [creditUsedMinor] is credit this phone sold per customer that the office has not acknowledged; [usedReferences]
+ * are `method|REFERENCE` keys already recorded on this phone.
+ */
 data class CheckoutContext(val tripSelling: Boolean, val customers: List<Customer>, val products: List<Product>,
-    val stock: List<TruckStock>, val prices: List<PriceLine>, val policy: VanPolicy?, val now: Long)
+    val stock: List<TruckStock>, val prices: List<PriceLine>, val policy: VanPolicy?, val now: Long,
+    val serviceDate: String? = null, val creditUsedMinor: Map<String,Long> = emptyMap(), val usedReferences: Set<String> = emptySet())
 
 class CheckoutRefused(val issues: List<CheckoutIssue>) : IllegalStateException("Checkout refused")
 
@@ -100,20 +114,59 @@ object CheckoutRules {
         val total = quoted.fold(0L) { sum, line -> Math.addExact(sum,line.totalMinor) }
         if (total > MAX_MINOR) issues += CheckoutIssue(CheckoutProblem.TOTAL_TOO_LARGE)
 
-        var tendered = 0L
-        when (request.payment.terms) {
-            PaymentTerms.CREDIT -> issues += CheckoutIssue(CheckoutProblem.CREDIT_TERMS_UNAVAILABLE)
-            PaymentTerms.CASH -> {
-                val cash = request.payment.tenderedMinor
+        val customer = context.customers.firstOrNull { it.outletId == request.customerId }
+        val payment = payment(request.payment,total,customer,context,issues)
+        if (issues.isNotEmpty() || payment == null) return CheckoutResult(null,issues.distinct())
+        return CheckoutResult(CheckoutQuote(quoted,currencies.single(),total,payment.tenderedMinor ?: total,payment.changeMinor,payment),emptyList())
+    }
+
+    /** VAN-012 payment rules; adds problems to [issues] and returns null when the payment cannot be recorded. */
+    private fun payment(input: PaymentInput, total: Long, customer: Customer?, context: CheckoutContext, issues: MutableList<CheckoutIssue>): QuotedPayment? {
+        val method = (context.policy?.paymentMethods ?: PaymentMethod.CASH_ONLY).firstOrNull { it.code == input.methodCode }
+            ?: return null.also { issues += CheckoutIssue(CheckoutProblem.UNKNOWN_PAYMENT_METHOD) }
+        return when (method.kind) {
+            PaymentKind.CASH -> {
+                val cash = input.tenderedMinor
                 when {
-                    cash == null || cash < 0 || cash > MAX_MINOR -> issues += CheckoutIssue(CheckoutProblem.CASH_MISSING)
-                    cash < total -> issues += CheckoutIssue(CheckoutProblem.CASH_SHORT)
-                    else -> tendered = cash
+                    cash == null || cash < 0 || cash > MAX_MINOR -> null.also { issues += CheckoutIssue(CheckoutProblem.CASH_MISSING) }
+                    cash < total -> null.also { issues += CheckoutIssue(CheckoutProblem.CASH_SHORT) }
+                    else -> QuotedPayment(method,total,cash,cash - total,null,PaymentState.PAID,null)
                 }
             }
+            // Check, e-wallet or bank: exactly the total (no change); the office confirms the reference later.
+            PaymentKind.OTHER -> {
+                val reference = if (!method.referenceRequired) null else {
+                    val normalized = PaymentReference.normalize(input.reference)
+                    when {
+                        input.reference.isNullOrBlank() -> return null.also { issues += CheckoutIssue(CheckoutProblem.REFERENCE_MISSING) }
+                        normalized == null -> return null.also { issues += CheckoutIssue(CheckoutProblem.REFERENCE_INVALID) }
+                        PaymentReference.key(method.code,normalized) in context.usedReferences ->
+                            return null.also { issues += CheckoutIssue(CheckoutProblem.REFERENCE_ALREADY_USED) }
+                        else -> normalized
+                    }
+                }
+                QuotedPayment(method,total,null,0,reference,PaymentState.AWAITING_CONFIRMATION,null)
+            }
+            // Credit: only for a customer with office terms, within the credit still available on this phone.
+            PaymentKind.CREDIT -> {
+                val credit = customer?.credit?.takeIf { !customer.localOnly }
+                    ?: return null.also { issues += CheckoutIssue(CheckoutProblem.CREDIT_TERMS_UNAVAILABLE) }
+                val used = context.creditUsedMinor[customer.outletId] ?: 0L
+                if (Math.addExact(used,total) > credit.availableMinor) return null.also { issues += CheckoutIssue(CheckoutProblem.CREDIT_LIMIT_EXCEEDED) }
+                val due = context.serviceDate?.let { runCatching { java.time.LocalDate.parse(it).plusDays(credit.termsDays.toLong()).toString() }.getOrNull() }
+                QuotedPayment(method,total,null,0,null,PaymentState.ON_ACCOUNT,due)
+            }
         }
-        if (issues.isNotEmpty()) return CheckoutResult(null,issues.distinct())
-        return CheckoutResult(CheckoutQuote(quoted,currencies.single(),total,tendered,tendered - total),emptyList())
+    }
+
+    /** The cart's lines and total alone, whatever payment the seller picks next (shown before the payment is entered). */
+    fun cartQuote(request: CheckoutRequest, context: CheckoutContext): CheckoutQuote? =
+        evaluate(request.copy(payment = PaymentInput(PaymentMethod.CASH.code,MAX_MINOR)),
+            context.copy(policy = context.policy?.copy(paymentMethods = PaymentMethod.CASH_ONLY))).quote
+
+    /** Credit the customer can still take on this phone (office-available minus unacknowledged credit sold here); null without terms. */
+    fun creditLeft(customer: Customer, context: CheckoutContext): Long? = customer.credit?.takeIf { !customer.localOnly }?.let {
+        maxOf(0L,it.availableMinor - (context.creditUsedMinor[customer.outletId] ?: 0L))
     }
 
     /**
@@ -125,4 +178,14 @@ object CheckoutRules {
         val (q, r) = BigInteger.valueOf(unitPriceMinor).multiply(BigInteger.valueOf(quantityBase)).divideAndRemainder(BigInteger.valueOf(quantityScale))
         return if (r.signum() != 0 || q.bitLength() > 62) null else q.toLong()
     }
+}
+
+/** VAN-012 reference numbers: trimmed, single-spaced, upper case; letters, digits, space, `-`, `/`, `.`; 1–40 characters. */
+object PaymentReference {
+    private val allowed = Regex("^[A-Z0-9][A-Z0-9 ./-]{0,39}$")
+    fun normalize(text: String?): String? {
+        val value = text?.trim()?.replace(Regex("\\s+")," ")?.uppercase() ?: return null
+        return value.takeIf { allowed.matches(it) }
+    }
+    fun key(methodCode: String, normalized: String) = "$methodCode|$normalized"
 }

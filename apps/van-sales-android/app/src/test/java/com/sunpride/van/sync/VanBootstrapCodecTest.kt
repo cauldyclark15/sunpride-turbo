@@ -1,6 +1,6 @@
 package com.sunpride.van.sync
 
-import com.sunpride.van.data.BarcodeUnit
+import com.sunpride.van.data.*
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
@@ -16,6 +16,16 @@ class VanBootstrapCodecTest {
         assertEquals(listOf(BarcodeUnit("4800000000017","PC",1),BarcodeUnit("14800000000016","CS",24)),b.products.first().barcodeUnits)
         assertTrue("barcodeUnits is optional",b.products.last().barcodeUnits.isEmpty())
         assertEquals(3,b.customers.size); assertEquals("unplanned",b.customers.last().source)
+        // VAN-012: office payment methods and per-customer credit terms.
+        assertEquals(listOf("cash","check","gcash","bank_transfer","credit"),b.policy.paymentMethods.map { it.code })
+        assertEquals(PaymentMethod("check","Check",PaymentKind.OTHER,true,"Check number"),b.policy.paymentMethods[1])
+        assertEquals(CustomerCredit(30,500_000),b.customers[0].credit); assertNull(b.customers[1].credit); assertNull(b.customers[2].credit)
+    }
+    @Test fun policyAndCustomersWithoutPaymentFieldsAllowCashOnly() {
+        val o = JSONObject(fixture()); o.getJSONObject("policy").remove("paymentMethods"); o.getJSONArray("customers").getJSONObject(0).remove("credit")
+        val b = VanBootstrapCodec.decode(o.toString())
+        assertEquals(PaymentMethod.CASH_ONLY,b.policy.paymentMethods); assertNull(b.customers[0].credit)
+        assertEquals(PaymentMethod.CASH_ONLY,VanBootstrapCodec.decode(fixture("bootstrap-no-trip-response.json")).policy.paymentMethods)
     }
     @Test fun debugFixtureIsExactlyTheFrozenFixtureReadInPlace() { assertEquals(JSONObject(fixture()).toString(),JSONObject(FakeVanBackend.FIXTURE).toString()) }
     @Test fun frozenNoTripIsValidEmptyState() {
@@ -35,7 +45,15 @@ class VanBootstrapCodecTest {
             { it.getJSONArray("products").getJSONObject(0).getJSONArray("barcodeUnits").getJSONObject(1).put("baseQuantity","2.5") },
             { it.getJSONObject("load").getJSONArray("lines").getJSONObject(0).remove("actualBase") },
             { it.getJSONObject("load").getJSONArray("lines").getJSONObject(0).put("expectedBase","9999999999999999999") },
-            { it.getJSONObject("trip").put("serviceDate","2026-10-08") }
+            { it.getJSONObject("trip").put("serviceDate","2026-10-08") },
+            // VAN-012: unknown kind, duplicate code, empty list, a reference on cash, bad terms or a float credit amount.
+            { it.getJSONObject("policy").getJSONArray("paymentMethods").getJSONObject(1).put("kind","voucher") },
+            { it.getJSONObject("policy").getJSONArray("paymentMethods").getJSONObject(1).put("code","cash") },
+            { it.getJSONObject("policy").put("paymentMethods",org.json.JSONArray()) },
+            { it.getJSONObject("policy").getJSONArray("paymentMethods").getJSONObject(0).put("referenceRequired",true) },
+            { it.getJSONArray("customers").getJSONObject(0).getJSONObject("credit").put("termsDays",0) },
+            { it.getJSONArray("customers").getJSONObject(0).getJSONObject("credit").put("termsDays",181) },
+            { it.getJSONArray("customers").getJSONObject(0).getJSONObject("credit").put("availableMinor","10.5") }
         )
         mutations.forEach { change -> val o = JSONObject(fixture()); change(o); assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(o.toString()) } }
     }

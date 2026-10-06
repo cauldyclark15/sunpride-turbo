@@ -1125,6 +1125,19 @@ export default defineSchema({
   })
     .index("by_profileId_and_clientRequestId", ["profileId", "clientRequestId"])
     .index("by_deviceId_and_serverAt", ["deviceId", "serverAt"]),
+  // VAN-012: office-set credit terms per outlet, effective-dated. No row = cash/other only.
+  outletCreditTerms: defineTable({
+    organizationId: v.string(),
+    outletId: v.id("outlets"),
+    termsDays: v.number(),
+    creditLimitMinor: v.int64(),
+    currency: v.string(),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    sourceRef: v.string(),
+    actorSubject: v.string(),
+    createdAt: v.number(),
+  }).index("by_outletId_and_effectiveFrom", ["outletId", "effectiveFrom"]),
   sapInventorySnapshots: defineTable({
     organizationId: v.string(),
     productCode: v.string(),

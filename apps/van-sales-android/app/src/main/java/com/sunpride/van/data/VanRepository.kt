@@ -127,6 +127,8 @@ class VanRepository private constructor(private val context: Context, private va
      */
     suspend fun completeSale(request: com.sunpride.van.pos.CheckoutRequest, expectedTotalMinor: Long): SaleReceipt =
         withContext(Dispatchers.IO) { store().commitSale(request,expectedTotalMinor) }
+    /** VAN-012: credit sold here per customer and references already used, so Checkout warns before the store refuses. */
+    suspend fun paymentFacts(): com.sunpride.van.storage.PaymentFacts = withContext(Dispatchers.IO) { store().paymentFacts() }
     /** DEBUG practice data only: the fixture store, so device tests can seed the (still empty) price list. */
     internal fun fixtureStore(): RoomVanStore { check(BuildConfig.DEBUG && stubMode != null); return store() }
     suspend fun syncNow(): Unit = authLock.withLock {
