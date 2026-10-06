@@ -24,6 +24,8 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         private set
     var customers by mutableStateOf(emptyList<Customer>())
         private set
+    var prices by mutableStateOf(emptyList<PriceLine>())
+        private set
     var stock by mutableStateOf(emptyList<TruckStock>())
         private set
     var policy by mutableStateOf<VanPolicy?>(null)
@@ -52,6 +54,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         launch { repository.load.collect { load = it } }
         launch { repository.products.collect { products = it } }
         launch { repository.customers.collect { customers = it } }
+        launch { repository.priceLines.collect { prices = it } }
         launch { repository.truckStock.collect { stock = it } }
         launch { repository.policy.collect { policy = it } }
         launch { repository.seller.collect { seller = it } }

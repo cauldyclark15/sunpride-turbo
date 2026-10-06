@@ -88,6 +88,8 @@ All 19 v1 tables are partitioned by `StoreScope(fullAuthSubject, deviceId)`. The
 
 Schema v1 is exported at `app/schemas/com.sunpride.van.storage.VanDatabase/1.json`. Snapshot tables are `trip`, `load_line`, `product`, `customer` and `truck_stock_baseline`. Work/evidence tables are `stock_movement`, append-only `movement_settlement`, `outbox`, `ack`, `sync_meta`, `sequence_counter`, and immutable `transaction_id`. Future financial workflow tables are `sale`, `sale_line`, `payment`, `customer_return`, `return_line`, `reconciliation` and `price_list_line`.
 
+`com.sunpride.van.pos.ProductSearch(products, stock, prices, now)` is the pure POS search index (VAN-008): `search(query, limit = 60)` returns ranked `PosProductHit(product, availableBase, price, match)` and `byBarcode(code)` is the exact scan lookup. `PriceResolver` returns a `PosPrice` only when exactly one effective, non-negative `price_list_line` row exists for the product's own UOM at `now`; conflicting lists, other UOMs, future/expired rows yield null (**Priced by the office**). `VanRepository.priceLines` exposes the scoped `price_list_line` table as `PriceLine` (a read-only DAO flow; no schema change).
+
 Sale/payment prices and totals are nullable, not zero: UI wording is **Priced by the office**. Payments currently model cash only. The price-list table remains empty until the governed feed exists. These are schema provisions, not a completed sale/payment/return/reconciliation submission workflow.
 
 ## Offline ledger and identifiers

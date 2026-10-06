@@ -40,6 +40,7 @@ class VanRepository private constructor(private val context: Context, private va
     val truckStock: Flow<List<TruckStock>> = current.flatMapLatest { it?.truckStock ?: flowOf(emptyList()) }
     val products: Flow<List<Product>> = current.flatMapLatest { it?.products ?: flowOf(emptyList()) }
     val customers: Flow<List<Customer>> = current.flatMapLatest { it?.customers ?: flowOf(emptyList()) }
+    val priceLines: Flow<List<PriceLine>> = current.flatMapLatest { it?.priceLines ?: flowOf(emptyList()) }
     val syncStatus: Flow<SyncStatus> = current.flatMapLatest { it?.syncStatus ?: flowOf(SyncStatus()) }
     private var database: VanDatabase? = null
     private var signer: DeviceSigner? = null

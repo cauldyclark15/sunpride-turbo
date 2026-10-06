@@ -85,7 +85,8 @@ import androidx.compose.ui.unit.dp
 }
 @Composable fun ScreenFrame(title: String, onBack: (() -> Unit)? = null, action: String? = null,
     onAction: () -> Unit = {}, enabled: Boolean = true, actionTag: String = "primary", footer: String? = null,
-    message: String? = null, scroll: Boolean = true, content: @Composable ColumnScope.() -> Unit) {
+    message: String? = null, scroll: Boolean = true, bottomContent: (@Composable ColumnScope.() -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit) {
     Scaffold(Modifier.fillMaxSize().imePadding(), containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets.systemBars,
         topBar = {
@@ -96,8 +97,10 @@ import androidx.compose.ui.unit.dp
                 }
             }
         }, bottomBar = {
-            if (action != null || footer != null) Surface(color = MaterialTheme.colorScheme.surface) {
+            if (action != null || footer != null || bottomContent != null) Surface(color = MaterialTheme.colorScheme.surface) {
                 Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp),verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Thumb-zone controls (e.g. POS search) sit just above the pinned primary and the navigation bar.
+                    bottomContent?.invoke(this)
                     footer?.let { Text(it,style = MaterialTheme.typography.bodyMedium,modifier = Modifier.testTag("sync-line")) }
                     action?.let { PrimaryBottomButton(it,onAction,enabled,actionTag) }
                 }

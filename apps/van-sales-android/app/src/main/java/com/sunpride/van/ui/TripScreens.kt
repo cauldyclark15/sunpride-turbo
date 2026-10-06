@@ -35,6 +35,7 @@ import java.time.format.DateTimeFormatter
                 Text(trip.route?.let { "Route · ${it.name}" } ?: "Route not assigned")
                 Text(listOfNotNull(c.seller?.name,trip.driverName?.let { "Driver: $it" },trip.helperName?.let { "Helper: $it" }).joinToString("\n"),style = MaterialTheme.typography.bodyMedium)
             }
+            ListRow("Find product","Search or scan · stock and price","open-products",onClick = { c.open(Page.PRODUCTS) })
             ListRow("Truck stock","Available and damaged","open-stock",onClick = { c.open(Page.STOCK) })
             ListRow("Customers","Your route and nearby stores","open-customers",onClick = { c.open(Page.CUSTOMERS) })
             ListRow("Printer & scanner","Test this phone","open-printer",onClick = { c.open(Page.PRINTER) })

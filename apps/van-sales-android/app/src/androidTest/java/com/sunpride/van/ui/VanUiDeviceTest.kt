@@ -151,6 +151,36 @@ class VanUiDeviceTest {
         rule.onNodeWithTag("customer-walk_in-0").assert(hasAnyDescendant(hasText("Walk-in")))
         assertTrue(runBlocking { c.repository.customers.first() }.single { it.name == "Corner Store" }.localOnly)
     }
+    @Test fun productSearchFindsByNameCodeAndBarcodeWithStockAndPrice() {
+        mount(); loadAndStart()
+        open(Page.HOME)
+        rule.onNodeWithTag("open-products").performScrollTo().performClick()
+        rule.onNodeWithTag("screen-title").assertTextEquals("Find product")
+        rule.onNodeWithTag("product-count").assertTextContains("2 products",substring = true)
+        // Products on the truck come first; no governed price feed yet, so no guessed price.
+        val juice = c.products.single { it.code == "SP-PJ-1L" }
+        rule.waitUntil(10_000) { c.stock.any { it.productId == juice.productId && it.availableBase > 0 } }
+        val onTruck = c.stock.single { it.productId == juice.productId }.availableBase
+        rule.onNodeWithTag("product-price-0",useUnmergedTree = true).assertTextEquals("Priced by the office")
+        captureVanScreenshot(rule,"24-find-product","product-search")
+        rule.onNodeWithTag("product-search").performTextInput("chunks")
+        rule.onNodeWithTag("product-count").assertTextEquals("1 match")
+        rule.onNodeWithTag("product-0").assertTextContains("Pineapple Chunks 432g",substring = true)
+        rule.onNodeWithTag("product-clear").performClick()
+        rule.onNodeWithTag("product-search").performTextInput("sppj1l")
+        rule.onNodeWithTag("product-0").assertTextContains("Pineapple Juice 1L",substring = true)
+        rule.onNodeWithTag("product-available-0",useUnmergedTree = true).assertTextEquals("${juice.displayQuantity(onTruck)} PC")
+        captureVanScreenshot(rule,"25-find-product-match","product-search")
+        // A hardware scan (vendor broadcast) replaces the query with the exact barcode match.
+        context.sendBroadcast(android.content.Intent(com.sunpride.van.scanning.SenraiseScanner.ACTION).putExtra(com.sunpride.van.scanning.SenraiseScanner.RESULT_EXTRA,"4800000000017").setPackage(context.packageName))
+        rule.waitUntil(5_000) { rule.onAllNodesWithTag("product-count").fetchSemanticsNodes().isNotEmpty() && runCatching { rule.onNodeWithTag("product-search").assertTextContains("4800000000017",substring = true) }.isSuccess }
+        rule.onNodeWithTag("product-count").assertTextEquals("1 match")
+        rule.onNodeWithTag("product-0").assertTextContains("Pineapple Juice 1L",substring = true)
+        context.sendBroadcast(android.content.Intent(com.sunpride.van.scanning.SenraiseScanner.ACTION).putExtra(com.sunpride.van.scanning.SenraiseScanner.RESULT_EXTRA,"0000000000000").setPackage(context.packageName))
+        rule.waitUntil(5_000) { rule.onAllNodesWithTag("scan-message").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("scan-message").assertTextEquals("No product has barcode 0000000000000.")
+        rule.onNodeWithTag("product-count").assertTextEquals("No matching products")
+    }
     @Test fun printerAndScannerScreenRendersRealServiceControls() {
         mount(); open(Page.PRINTER)
         rule.onNodeWithText("Printer & scanner").assertIsDisplayed()

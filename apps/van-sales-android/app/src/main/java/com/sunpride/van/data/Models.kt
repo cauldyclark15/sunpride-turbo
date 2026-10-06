@@ -26,6 +26,9 @@ data class Product(val productId: String, val code: String, val name: String, va
 data class Customer(val outletId: String, val code: String, val name: String, val address: String?,
     val sequence: Int?, val source: String, val reason: String? = null, val localOnly: Boolean = false)
 data class TruckStock(val productId: String, val availableBase: Long, val damagedBase: Long)
+/** A cached price-list line (minor currency units). Empty until the governed price feed exists (ADR-008). */
+data class PriceLine(val priceListId: String, val productId: String, val uomCode: String, val unitPriceMinor: Long,
+    val currency: String, val effectiveFrom: Long, val effectiveTo: Long?)
 data class VanBootstrap(val serverTime: Long, val serviceDate: String, val seller: Seller, val policy: VanPolicy,
     val trip: Trip?, val load: Load?, val truckStock: List<TruckStock>, val products: List<Product>, val customers: List<Customer>)
 data class LoadActual(val lineNumber: Int, val actualBase: Long, val reason: String? = null)

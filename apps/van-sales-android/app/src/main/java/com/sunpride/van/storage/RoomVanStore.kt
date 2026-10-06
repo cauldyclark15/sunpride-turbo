@@ -34,6 +34,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
     val policy: Flow<VanPolicy?> = dao.observeSyncMeta(s,d).let { flow -> flow.map { it.singleOrNull()?.policyJson?.let { json -> VanBootstrapCodec.policy(JSONObject(json)) } } }
     val seller: Flow<Seller?> = dao.observeSyncMeta(s,d).map { it.singleOrNull()?.sellerJson?.let { json -> JSONObject(json).let { o -> Seller(o.getString("profileId"),o.getString("name")) } } }
     val products: Flow<List<Product>> = dao.observeProduct(s,d).let { flow -> flow.map { rows -> rows.map { VanBootstrapCodec.product(JSONObject(it.json)) } } }
+    val priceLines: Flow<List<PriceLine>> = dao.observePriceListLine(s,d).map { rows -> rows.map { PriceLine(it.priceListId,it.productId,it.uomCode,it.unitPriceMinor,it.currency,it.effectiveFrom,it.effectiveTo) } }
     val customers: Flow<List<Customer>> = dao.observeCustomer(s,d).let { flow -> flow.map { rows -> rows.sortedWith(compareBy<CustomerRow> { it.sequence ?: Int.MAX_VALUE }.thenBy { it.name }).map { Customer(it.outletId,it.code,it.name,it.address,it.sequence,it.source,it.reason,it.localOnly) } } }
     val syncStatus: Flow<SyncStatus> = combine(dao.observeOutbox(s,d),dao.observeSyncMeta(s,d)) { ops, metas ->
         val m = metas.singleOrNull(); val held = m?.held == true

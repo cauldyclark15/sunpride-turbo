@@ -159,4 +159,14 @@ class EncryptedVanStoreTest {
         VanSync(store,uncertain).syncNow(); assertEquals(46L,store.stock().first { it.productId==product }.availableBase)
         assertEquals(2L,store.stock().first { it.productId==product }.damagedBase); assertTrue(store.pending().isEmpty()); Unit
     }
+    @Test fun posSearchReadsCachedPriceLinesOnlyFromOwnScope() = runBlocking {
+        store.replaceBootstrap(fixture())
+        assertTrue("no governed price feed yet: table starts empty",store.priceLines.first().isEmpty())
+        db.rows().insertPriceListLine(PriceListLineRow(scope.fullAuthSubject,scope.deviceId,"L1",product,"PC",4550,"PHP",at-1,null))
+        db.rows().insertPriceListLine(PriceListLineRow("https://test.invalid|other-subject",scope.deviceId,"L1",product,"PC",9999,"PHP",at-1,null))
+        val lines = store.priceLines.first()
+        assertEquals(listOf(PriceLine("L1",product,"PC",4550,"PHP",at-1,null)),lines)
+        val hit = com.sunpride.van.pos.ProductSearch(store.products.first(),store.stock(),lines,at+10).search("SP-PJ-1L").single()
+        assertEquals("₱45.50 / PC",hit.price?.label()); assertEquals(10L,hit.availableBase); Unit
+    }
 }
