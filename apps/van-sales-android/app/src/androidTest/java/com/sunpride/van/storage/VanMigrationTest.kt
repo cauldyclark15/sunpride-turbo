@@ -34,5 +34,13 @@ class VanMigrationTest {
                 database.query("PRAGMA table_info(`$table`)").use { cursor -> val columns=mutableListOf<String>(); while(cursor.moveToNext()) columns+=cursor.getString(1); assertTrue(columns.containsAll(listOf("fullAuthSubject","deviceId"))) }
             }
         }
+        // VAN-017: v2 → v3 adds only the empty, scoped receipt_print table; saved sales and operation bytes are untouched.
+        helper.runMigrationsAndValidate(name,3,true,VanDatabase.MIGRATION_2_3).use { database ->
+            database.query("SELECT COUNT(*) FROM receipt_print").use { assertTrue(it.moveToFirst()); assertEquals(0,it.getInt(0)) }
+            database.query("PRAGMA table_info(`receipt_print`)").use { cursor -> val columns=mutableListOf<String>(); while(cursor.moveToNext()) columns+=cursor.getString(1)
+                assertEquals(listOf("fullAuthSubject","deviceId","printId","saleId","kind","copyNumber","reason","outcome","startedAt","finishedAt"),columns) }
+            database.query("SELECT saleId,receiptNumber,status,totalMinor FROM sale").use { assertTrue(it.moveToFirst()); assertEquals("s1",it.getString(0)); assertEquals("R-1",it.getString(1)); assertEquals("saved",it.getString(2)); assertEquals(8500L,it.getLong(3)) }
+            database.query("SELECT operationJson,status FROM outbox").use { assertTrue(it.moveToFirst()); assertEquals("immutable bytes",it.getString(0)); assertEquals("pending",it.getString(1)) }
+        }
     }
 }

@@ -26,6 +26,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -60,6 +61,8 @@ fun PrinterTestScreen(
     scanner: SenraiseScanner,
     modifier: Modifier = Modifier,
     deviceModel: String = Build.MODEL,
+    /** VAN-017: the latest sale-receipt print result in this session, if any. */
+    lastPrint: String? = null,
 ) {
     val scope = rememberCoroutineScope()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -68,7 +71,13 @@ fun PrinterTestScreen(
     var result by remember { mutableStateOf<String?>(null) }
     var scan by remember { mutableStateOf<ScanEvent?>(null) }
     var camera by remember { mutableStateOf(false) }
-    LaunchedEffect(printer) { state = printer.connect() }
+    var paper by remember(printer) { mutableStateOf<PaperState?>(null) }
+    var checking by remember { mutableStateOf(false) }
+    suspend fun check() {
+        checking = true
+        try { val d = printer.diagnostics(); state = d.status; paper = d.paper } finally { checking = false }
+    }
+    LaunchedEffect(printer) { check() }
     LaunchedEffect(scanner) { scanner.scans.collect { scan = it } }
     DisposableEffect(scanner, lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
@@ -95,7 +104,17 @@ fun PrinterTestScreen(
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
                 Text("Printer & scanner", style = MaterialTheme.typography.headlineSmall)
-                Text("Printer: ${state.displayText()}")
+                Text("Printer check", style = MaterialTheme.typography.titleMedium)
+                Text("Connection: ${state.displayText()}", Modifier.testTag("printer-connection"))
+                Text("Paper: ${paper?.let(PrinterWords::paper) ?: "Checking…"}", Modifier.testTag("printer-paper"))
+                Text("Last receipt: ${lastPrint ?: "None printed yet"}", Modifier.testTag("printer-last"))
+                Text("${printer.capabilities.paperWidthMm} mm paper · ${printer.capabilities.charactersPerLine} characters a line" +
+                    if (printer.capabilities.cutter) "" else " · tear the paper by hand")
+                Button(
+                    onClick = { scope.launch { check() } },
+                    enabled = !busy && !checking,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("check-printer"),
+                ) { Text(if (checking) "Checking…" else "Check printer") }
                 Button(
                     onClick = {
                         scope.launch {
@@ -111,12 +130,12 @@ fun PrinterTestScreen(
                                     is PrintResult.Error -> "Print failed: ${outcome.status.displayText()}" +
                                         if (outcome.mayHavePrinted) " (may have partly printed; check paper)" else ""
                                 }
-                                state = printer.status()
+                                val d = printer.diagnostics(); state = d.status; paper = d.paper
                             } finally { busy = false }
                         }
                     },
-                    enabled = !busy,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+                    enabled = !busy && !checking,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("print-test"),
                 ) { Text(if (busy) "Printing…" else "Print test receipt") }
                 result?.let { Text(it) }
                 Text("Delivery receipt only. Not a BIR official receipt.")
@@ -133,10 +152,11 @@ fun PrinterTestScreen(
 }
 
 private fun PrinterStatus.displayText(): String = when (this) {
-    is PrinterStatus.Ready -> "Connected · service $serviceVersion (paper status unknown)"
+    is PrinterStatus.Ready -> "Connected · service $serviceVersion"
     PrinterStatus.Unavailable -> "No printer available"
     PrinterStatus.ServiceMissing -> "Senraise printer service missing"
     PrinterStatus.Disconnected -> "Disconnected"
     PrinterStatus.Timeout -> "Connection timed out"
+    PrinterStatus.PaperOut -> "Out of paper"
     is PrinterStatus.Failed -> message
 }

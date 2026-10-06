@@ -36,4 +36,28 @@ class SenraisePrinterDeviceTest {
             println("REAL_PRINTER_SERVICE_VERSION=$version REAL_TEST_RECEIPT_PRINT_RESULT=Success")
         } finally { printer.close() }
     }
+
+    /** VAN-017: the printer check and a REPRINT-marked sample sale receipt on the real H10P paper. */
+    @Test fun diagnosesRealPrinterAndPrintsReprintMarkedSaleReceipt() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        assumeTrue("Requires an attached Senraise printer", PrinterRegistry.hasSenraiseService(context))
+        val printer = SenraiseEmbeddedPrinter(context)
+        try {
+            val check = printer.diagnostics()
+            assertTrue("Real printer did not connect: ${check.status}", check.status is PrinterStatus.Ready)
+            // The vendor ABI has no paper query: the check must say "not reported", never "OK".
+            assertEquals(PaperState.NOT_REPORTED, check.paper)
+            val receipt = com.sunpride.van.data.SaleReceipt("device-test-sale", "TRIP-20261007-V014-1-DEVICE00-0001", "Aling Nena Store (SAMPLE)",
+                listOf(com.sunpride.van.data.SaleReceiptLine(1, "p1", "Pineapple Juice 1L", "PC", "2", 8_500, 17_000)),
+                "PHP", 17_000, 20_000, 3_000, System.currentTimeMillis())
+            val attempt = PrintAttempt("device-test", receipt.saleId, PrintKind.REPRINT, 1, "customer_copy", PrintOutcome.STARTED, System.currentTimeMillis())
+            val doc = SaleReceiptDocuments.build(receipt, ReceiptHeader("Juan Dela Cruz (SAMPLE)", "TRIP-20261007-V014-1", "V014 NBC 1234"), attempt, System.currentTimeMillis())
+            assertTrue(doc.isReprint)
+            val result = printer.print(doc)
+            assertEquals("Real reprint job failed: $result", PrintResult.Success, result)
+            delay(5_000)
+            Log.i("SunpridePrinterTest", "REAL_REPRINT_RECEIPT_PRINT_RESULT=Success; PAPER=${check.paper}; SCANNER_HINT=${check.scannerHint}")
+        } finally { printer.close() }
+        Unit
+    }
 }

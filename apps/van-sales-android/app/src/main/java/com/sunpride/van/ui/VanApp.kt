@@ -46,6 +46,7 @@ import kotlinx.coroutines.delay
                 Page.SALE -> SaleScreen(controller)
                 Page.CHECKOUT -> CheckoutScreen(controller)
                 Page.SALE_DONE -> SaleDoneScreen(controller)
+                Page.RECEIPTS -> ReceiptsScreen(controller)
             }
         }
     }
@@ -78,10 +79,12 @@ import kotlinx.coroutines.delay
 }
 @Composable private fun PrinterScreen(c: VanController) {
     val context = LocalContext.current
-    val printer = remember { PrinterRegistry.select(context) }
+    // VAN-017: the shared printer (also used for sale receipts); the Activity owns and closes it.
     val scanner = remember { SenraiseScanner(context) }
-    DisposableEffect(printer,scanner) { onDispose { scanner.close(); printer.close() } }
+    DisposableEffect(scanner) { onDispose { scanner.close() } }
     ScreenFrame("Settings",c::back,action = "Done",onAction = c::back,actionTag = "printer-done",scroll = false) {
-        PrinterTestScreen(printer,scanner,Modifier.fillMaxSize())
+        PrinterTestScreen(c.printer,scanner,Modifier.fillMaxSize(),lastPrint = c.lastPrint?.let { last ->
+            java.time.Instant.ofEpochMilli(last.at).atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("h:mm a")) + " · " + last.text
+        })
     }
 }
