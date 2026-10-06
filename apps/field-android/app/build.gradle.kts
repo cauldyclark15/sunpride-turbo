@@ -125,6 +125,8 @@ dependencies {
     implementation(libs.camera.camera2)
     implementation(libs.camera.lifecycle)
     implementation(libs.camera.view)
+    // SP-0128 fingerprint/face sign-in: BiometricPrompt (needs a FragmentActivity).
+    implementation(libs.biometric)
     kapt(libs.room.compiler)
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.test.manifest)

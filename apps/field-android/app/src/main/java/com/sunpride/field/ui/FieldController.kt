@@ -970,11 +970,13 @@ class FieldController(
         runCatching { withContext(io) { onKeyLoaded(info) } }
     }
 
-    fun signIn(email: String, password: String) = scope.launch(ui) {
+    /** [onSignedIn] runs on the UI context once the password sign-in succeeded (SP-0128 biometric offer). */
+    fun signIn(email: String, password: String, onSignedIn: () -> Unit = {}) = scope.launch(ui) {
         busy = true; error = null
         try {
             withContext(io) { backend.signIn(email, password) }
             state = EnrollmentState.Unregistered // signed in; device status not yet known
+            runCatching { onSignedIn() }
         } catch (e: Exception) {
             error = userMessage(e)
             busy = false

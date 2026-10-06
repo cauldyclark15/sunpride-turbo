@@ -18,6 +18,8 @@ interface SessionVault {
     var deviceId: String?
     /** Sign-out wipe: session and cached deviceId. The device key itself is kept (it is registered). */
     fun wipe()
+    /** Drops only the stored session (SP-0128: it moved under the biometric key); deviceId stays. */
+    fun clearSession()
 }
 
 /**
@@ -82,6 +84,10 @@ class KeystoreSessionVault(
         prefs.edit(commit = true) { remove(SESSION); remove(DEVICE_ID) }
     }
 
+    @Synchronized override fun clearSession() {
+        prefs.edit(commit = true) { remove(SESSION) }
+    }
+
     companion object {
         const val PREFS = "field_secure_session"
         const val KEY_ALIAS = "sunpride-field-session-aes-v1"
@@ -101,4 +107,5 @@ class InMemorySessionVault : SessionVault {
     override fun saveSession(token: String) { session = token }
     @Volatile override var deviceId: String? = null
     override fun wipe() { session = null; deviceId = null }
+    override fun clearSession() { session = null }
 }
