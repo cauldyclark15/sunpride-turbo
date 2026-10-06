@@ -19,6 +19,7 @@ import {
   validateFieldOrderLines,
 } from "../orders/field_order_validators";
 import { validateFieldOrder } from "../orders/field_order";
+import { priceFieldOrder } from "../pricing/model";
 import {
   accountFor,
   callSheetWeek,
@@ -512,6 +513,26 @@ export async function applyVisitOperation(
       deviceTime: p.deviceTime,
       serverTime: now,
     });
+    // SP-0088: the server prices the order and checks credit itself; never the phone's figures.
+    if (p.activity.kind === "order_intent" && p.activity.lines !== undefined) {
+      const pricing = await priceFieldOrder(
+        ctx,
+        visit,
+        p.activity.lines,
+        Math.min(p.deviceTime, now),
+      );
+      await ctx.db.insert("fieldOrderPricings", {
+        organizationId: SUNPRIDE_ORGANIZATION_ID,
+        orgUnitId: visit.orgUnitId,
+        visitId: visit._id,
+        activityId,
+        outletId: visit.outletId,
+        clientOrderId: p.activity.clientOrderId,
+        pricedAt: Math.min(p.deviceTime, now),
+        ...pricing,
+        serverTime: now,
+      });
+    }
     if (p.activity.kind === "call_sheet" && account) {
       const { localMonth, week } = callSheetWeek(visit.serviceDate);
       for (const line of p.activity.lines)

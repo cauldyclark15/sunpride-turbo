@@ -141,6 +141,8 @@ import type * as outlets_verification from "../outlets/verification.js";
 import type * as people_mutations from "../people/mutations.js";
 import type * as people_queries from "../people/queries.js";
 import type * as people_validation from "../people/validation.js";
+import type * as pricing_model from "../pricing/model.js";
+import type * as pricing_sample from "../pricing/sample.js";
 import type * as seed from "../seed.js";
 import type * as sfa_constants from "../sfa/constants.js";
 import type * as sfa_positions from "../sfa/positions.js";
@@ -329,6 +331,8 @@ declare const fullApi: ApiFromModules<{
   "people/mutations": typeof people_mutations;
   "people/queries": typeof people_queries;
   "people/validation": typeof people_validation;
+  "pricing/model": typeof pricing_model;
+  "pricing/sample": typeof pricing_sample;
   seed: typeof seed;
   "sfa/constants": typeof sfa_constants;
   "sfa/positions": typeof sfa_positions;

@@ -61,6 +61,8 @@ struct BootstrapResponse {
   let photoTypes: OptionalField<[BootstrapResponsePhotoTypesItem]>
   // schema-field: bootstrapResponse.accountSummaries
   let accountSummaries: OptionalField<[BootstrapResponseAccountSummariesItem]>
+  // schema-field: bootstrapResponse.orderTerms
+  let orderTerms: OptionalField<[BootstrapResponseOrderTermsItem]>
   // schema-field: bootstrapResponse.page
   let page: Int64
   // schema-field: bootstrapResponse.nextPageCursor
@@ -792,6 +794,38 @@ struct BootstrapResponsePhotoTypesItem {
   let code: String
   // schema-field: bootstrapResponse.photoTypes[].label
   let label: String
+}
+// Additive after v1 shipped: per-account prices and order units (SP-0088).
+// schema-object: bootstrapResponse.orderTerms[]
+struct BootstrapResponseOrderTermsItem {
+  // schema-field: bootstrapResponse.orderTerms[].outletId
+  let outletId: String
+  // schema-field: bootstrapResponse.orderTerms[].priceList
+  let priceList: BootstrapResponseOrderTermsItemPriceListVariant0?
+  // schema-field: bootstrapResponse.orderTerms[].lines
+  let lines: [BootstrapResponseOrderTermsItemLinesItem]
+}
+// schema-object: bootstrapResponse.orderTerms[].priceList#0
+struct BootstrapResponseOrderTermsItemPriceListVariant0 {
+  // schema-field: bootstrapResponse.orderTerms[].priceList#0.id
+  let id: String
+  // schema-field: bootstrapResponse.orderTerms[].priceList#0.code
+  let code: String
+  // schema-field: bootstrapResponse.orderTerms[].priceList#0.name
+  let name: String
+  // schema-field: bootstrapResponse.orderTerms[].priceList#0.currency
+  let currency: String
+  // schema-field: bootstrapResponse.orderTerms[].priceList#0.sample
+  let sample: Bool
+}
+// schema-object: bootstrapResponse.orderTerms[].lines[]
+struct BootstrapResponseOrderTermsItemLinesItem {
+  // schema-field: bootstrapResponse.orderTerms[].lines[].productId
+  let productId: String
+  // schema-field: bootstrapResponse.orderTerms[].lines[].uom
+  let uom: String
+  // schema-field: bootstrapResponse.orderTerms[].lines[].unitPriceMinor
+  let unitPriceMinor: Int64?
 }
 // Additive after v1 shipped: cached account figures for the outlet detail (IOS-011).
 // schema-object: bootstrapResponse.accountSummaries[]

@@ -3187,4 +3187,90 @@ export default defineSchema({
     "productId",
     "effectiveFrom",
   ]),
+  // PRICING-001 (SP-0088, ADR-008): governed price baseline before SAP pricing. A list applies
+  // to an outlet channel (`channelKey`, trimmed lower case) or is the default list; lines price
+  // one product in one selling unit. `source: "sample"` rows are made-up beta data
+  // (pricing/sample.ts) that real Sunpride lists replace.
+  priceLists: defineTable({
+    organizationId: v.string(),
+    code: v.string(),
+    name: v.string(),
+    channelKey: v.union(v.string(), v.null()),
+    currency: v.string(),
+    status: v.union(v.literal("active"), v.literal("inactive")),
+    source: v.union(v.literal("sample"), v.literal("office")),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_code", ["organizationId", "code"])
+    .index("by_organizationId_and_channelKey", [
+      "organizationId",
+      "channelKey",
+    ]),
+  priceListLines: defineTable({
+    organizationId: v.string(),
+    priceListId: v.id("priceLists"),
+    productId: v.id("products"),
+    uom: v.string(),
+    /** Whole centavos per one unit of `uom`. */
+    unitPriceMinor: v.number(),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_priceListId_and_productId", ["priceListId", "productId"]),
+  /** Server pricing and credit check of a submitted field order (`order_intent` activity). */
+  fieldOrderPricings: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    visitId: v.id("visitExecutions"),
+    activityId: v.id("visitActivities"),
+    outletId: v.id("outlets"),
+    customerId: v.union(v.id("customers"), v.null()),
+    clientOrderId: v.string(),
+    priceListId: v.union(v.id("priceLists"), v.null()),
+    priceListSource: v.union(
+      v.literal("sample"),
+      v.literal("office"),
+      v.null(),
+    ),
+    currency: v.string(),
+    pricedAt: v.number(),
+    lines: v.array(
+      v.object({
+        productId: v.id("products"),
+        uom: v.string(),
+        quantity: v.number(),
+        unitPriceMinor: v.union(v.number(), v.null()),
+        lineTotalMinor: v.union(v.number(), v.null()),
+      }),
+    ),
+    totalMinor: v.number(),
+    unpricedLines: v.number(),
+    credit: v.object({
+      status: v.union(
+        v.literal("within"),
+        v.literal("over"),
+        v.literal("no_limit"),
+        v.literal("unknown"),
+      ),
+      limitMinor: v.union(v.number(), v.null()),
+      openOrdersMinor: v.union(v.number(), v.null()),
+    }),
+    serverTime: v.number(),
+  })
+    .index("by_activityId", ["activityId"])
+    .index("by_visitId", ["visitId"]),
+  /** Beta sample-data marker: a value the sample seed changed, so reset can restore it. */
+  sampleDataChanges: defineTable({
+    organizationId: v.string(),
+    kind: v.literal("customer_credit_limit"),
+    customerId: v.id("customers"),
+    previousValue: v.number(),
+    sampleValue: v.number(),
+    createdAt: v.number(),
+  }).index("by_organizationId_and_customerId", [
+    "organizationId",
+    "customerId",
+  ]),
 });

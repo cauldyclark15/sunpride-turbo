@@ -19,6 +19,7 @@ import {
   type PhoneCallSheet,
 } from "../callSheets/model";
 import { phoneRules, rulesAt } from "../visits/activity_rules";
+import { orderTermsFor, type OrderTerms } from "../pricing/model";
 import {
   EVIDENCE_PHOTO_TYPES,
   EVIDENCE_PHOTO_TYPES_VERSION,
@@ -101,7 +102,33 @@ export const callSheetDTO = v.object({
     }),
   ),
 });
+/**
+ * SP-0088 phone wire: one outlet's order terms (price list and every orderable unit of its
+ * account-setup products, priced when the list has exactly one price). Optional in contract v1.
+ */
+export const orderTermsDTO = v.object({
+  outletId: v.string(),
+  priceList: v.union(
+    v.object({
+      id: v.string(),
+      code: v.string(),
+      name: v.string(),
+      currency: v.string(),
+      sample: v.boolean(),
+    }),
+    v.null(),
+  ),
+  lines: v.array(
+    v.object({
+      productId: v.string(),
+      uom: v.string(),
+      unitPriceMinor: v.union(v.number(), v.null()),
+    }),
+  ),
+});
 type CallSheetCache = {
+  /** SP-0088: one order-terms projection per outlet per snapshot. */
+  terms: Map<Id<"outlets">, { terms: OrderTerms; stamp: string } | null>;
   accounts: Map<
     Id<"outlets">,
     { sheet: PhoneCallSheet; stamp: string; membershipStamp: string } | null
@@ -125,6 +152,7 @@ export type Projected = {
   customer: typeof customerDTO.type | null;
   route: Exclude<typeof routeDTO.type, null> | null;
   callSheet: PhoneCallSheet | null;
+  orderTerms: OrderTerms | null;
   stamp: string;
 };
 
@@ -230,6 +258,20 @@ async function visitProjection(
       : null;
     cache.accounts.set(row.outletId, callSheet);
   }
+  // SP-0088: prices for the account-setup products, at the snapshot instant.
+  let terms = cache.terms.get(row.outletId);
+  if (terms === undefined) {
+    terms = callSheet
+      ? await orderTermsFor(
+          ctx,
+          row.outletId,
+          s.customerId ?? null,
+          callSheet.sheet.lines.map((line) => line.productId as Id<"products">),
+          now,
+        )
+      : null;
+    cache.terms.set(row.outletId, terms);
+  }
   // Navigation target: only an unambiguous current verified pin. Missing or conflicting
   // pins send no coordinates (the phone falls back to the address), never a guess.
   const pins = outletState.pins.filter(
@@ -270,7 +312,8 @@ async function visitProjection(
     route:
       s.routeId && s.routeCode ? { id: s.routeId, code: s.routeCode } : null,
     callSheet: callSheet?.sheet ?? null,
-    stamp: `${(reference ? callSheet?.membershipStamp : callSheet?.stamp) ?? ""}|${row._id}|${row.status}|${row._creationTime}|${row.generatedAt}|${JSON.stringify(s)}|${JSON.stringify(row.intents)}|${current.assignment?._id ?? ""}|${current.assignment?.routeId ?? ""}|${current.assignment?.sequence ?? ""}|${current.orgUnitId}|${current.outlet.status}|${customer?.code ?? ""}|${slot.sequence}|${address ?? ""}|${pin?._id ?? ""}|${pin?.latitude ?? ""}|${pin?.longitude ?? ""}`,
+    orderTerms: terms?.terms ?? null,
+    stamp: `${terms?.stamp ?? ""}|${(reference ? callSheet?.membershipStamp : callSheet?.stamp) ?? ""}|${row._id}|${row.status}|${row._creationTime}|${row.generatedAt}|${JSON.stringify(s)}|${JSON.stringify(row.intents)}|${current.assignment?._id ?? ""}|${current.assignment?.routeId ?? ""}|${current.assignment?.sequence ?? ""}|${current.orgUnitId}|${current.outlet.status}|${customer?.code ?? ""}|${slot.sequence}|${address ?? ""}|${pin?._id ?? ""}|${pin?.latitude ?? ""}|${pin?.longitude ?? ""}`,
   };
 }
 
@@ -306,6 +349,7 @@ export async function dayProjection(
     throw new ConvexError("rebootstrap_required");
   const visits: Projected[] = [];
   const cache: CallSheetCache = {
+    terms: new Map(),
     accounts: new Map(),
     products: new Map(),
     plans: new Map(),
@@ -330,9 +374,7 @@ export async function dayProjection(
   if (planned.length > MAX_WORKING_SET_VISITS)
     throw new ConvexError(WORKING_SET_TOO_LARGE);
   for (const row of planned) {
-    visits.push(
-      await visitProjection(ctx, row, actor, now, cache, reference),
-    );
+    visits.push(await visitProjection(ctx, row, actor, now, cache, reference));
     if (cache.products.size > MAX_WORKING_SET_PRODUCTS)
       throw new ConvexError(WORKING_SET_TOO_LARGE);
   }
