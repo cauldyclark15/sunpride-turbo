@@ -2,6 +2,8 @@
 
 Seller-facing guide with real screenshots: [`docs/guides/FIELD_SALES_USER_GUIDE.md`](../../docs/guides/FIELD_SALES_USER_GUIDE.md) (regenerate with `FieldSalesGuideScreenshotsTest` and `scripts/receive-screenshots.py`).
 
+Beta APK, the beta feature list (what is hidden and how to switch it back on) and the debug-gate decisions: [`docs/BETA_FEATURES.md`](docs/BETA_FEATURES.md); build with `bun run apk:field-beta`.
+
 Kotlin/Jetpack Compose native field app. Implemented: invited-employee sign-in, Keystore-encrypted Better Auth session, in-memory Convex JWT, a non-exportable Keystore P-256 device key, admin-registered device lookup and one-time bind, visit-only encrypted local store, signed bootstrap/pull/push and a DEV-only diagnostic visit queue. `device/RequestSigner.kt` signs each attempt.
 
 ## Auth and device binding (issues #44, #45)
@@ -80,6 +82,10 @@ URLs may instead come from `SUNPRIDE_DEV_CONVEX_SITE_URL` and `SUNPRIDE_DEV_CONV
 Palette follows `packages/ui/docs/DESIGN.md`: red `#EE1C25`, yellow `#FEF200`, success `#2E9D59`, danger `#C8102E`, ink `#18181B`, light canvas `#F5F5F5` and white surface. The shared CSS `index.css` has a slightly different `#FAFAFA` canvas; the design specification's light `#F5F5F5` is used. Dark canvas/surface are `#060606`/`#181818`. Brand red is retained as a swatch; light primary text/actions use a darker `#AB151C` for WCAG normal-text contrast. Status is labeled in text, not color alone. Spacing is multiples of 4 dp; radii are 8/12 dp. The web bundles Mulish Variable but no redistributable native font license was confirmed here, so Android system default is used with scalable sp type.
 
 `ContrastTest` calculates WCAG sRGB ratios and enforces at least 4.5:1 for every text/background pair in the shell and preview, including the disabled button label. Ratios (normal text): light shell 16.25, surface 17.72, status/disabled 4.63, primary 7.17, error 5.88; dark shell 19.75, surface 17.31, status/disabled 12.13, primary 6.39, error 6.26; yellow 15.11, success 5.13, danger 5.73. The saturated brand-red swatch has no overlaid text because neither dark nor light text reaches 4.5:1 there. Compose tests exercise light, dark and 2.0 font scale. The offline store exists, but no bootstrap/sync UI or financial workflow is connected yet.
+
+## Launcher icon and splash (SP-0126)
+
+Every flavor (dev, staging, prod, beta) uses the client's logo from `packages/ui/assets/sunpride-logo.jpg`, resized but never redrawn or recoloured. The adaptive icon (`mipmap-anydpi-v26`) has the logo as its background layer and an empty foreground. The logo fills the visible 72dp of the 108dp canvas: it is inset by one sixth per side on the logo's own red `#EE1C25`. A full 108dp fill would let the mask crop the "s", because the wordmark starts 6% from the left edge. Legacy square and round PNG mipmaps for mdpi to xxxhdpi and the 512px listing icon `app/src/main/ic_launcher-playstore.png` come from `swift apps/field-android/scripts/generate-icons.swift`, run from the repo root. The activity launches on `Theme.SunprideField.Starting`. On Android 12+ that theme sets the SplashScreen API to show the logo icon on the logo red, and on Android 10 and 11 it sets a red window background with the logo. `MainActivity` restores `Theme.SunprideField` before its first frame. The sign-in screen shows the same logo (`sign-in-logo`).
 
 ## Customer search and outlet detail (issue #52, AND-011)
 

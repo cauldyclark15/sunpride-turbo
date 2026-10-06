@@ -2,6 +2,7 @@ package com.sunpride.van.ui
 
 import androidx.compose.runtime.*
 import com.sunpride.van.AppEnvironment
+import com.sunpride.van.VanFeatures
 import com.sunpride.van.auth.*
 import com.sunpride.van.data.*
 import com.sunpride.van.pos.*
@@ -10,7 +11,10 @@ import kotlinx.coroutines.flow.*
 
 /** One UI lifetime; no Activity, password persistence, identity selection, or raw error text. */
 class VanController(val repository: VanRepository, val environment: AppEnvironment,
-    val fixtureMode: Boolean = false, private val fingerprintLoader: suspend () -> String = { "Unavailable" }) {
+    val fixtureMode: Boolean = false,
+    /** SP-0125: what this build shows (unfinished screens are hidden in release/beta). */
+    val features: VanFeatures = VanFeatures.ALL,
+    private val fingerprintLoader: suspend () -> String = { "Unavailable" }) {
     var page by mutableStateOf(Page.HOME)
         private set
     var session by mutableStateOf(SessionState())
@@ -147,9 +151,18 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         sale = draft.copy(lines = lines)
     }
     fun cancelSale() { sale = null; pickingForSale = false; open(Page.HOME) }
+    /** VAN-012 credit sold here / references used; refreshed when Checkout opens (the store re-checks while saving). */
+    var paymentFacts by mutableStateOf(com.sunpride.van.storage.PaymentFacts())
+        private set
+    suspend fun refreshPaymentFacts() { paymentFacts = runCatching { repository.paymentFacts() }.getOrDefault(com.sunpride.van.storage.PaymentFacts()) }
     fun saleContext(now: Long = System.currentTimeMillis()): CheckoutContext =
-        CheckoutContext(VanRules.canSell(trip) && session.signedIn,customers,products,stock,prices,policy,now)
+        CheckoutContext(VanRules.canSell(trip) && session.signedIn,customers,products,stock,prices,policy,now,trip?.serviceDate,
+            paymentFacts.creditUsedMinor,paymentFacts.usedReferences)
     fun quote(payment: PaymentInput): CheckoutResult? = sale?.let { CheckoutRules.evaluate(CheckoutRequest(it.saleId,it.customer.outletId,it.lines,payment),saleContext()) }
+    /** Lines and total of the cart alone, before a payment is entered. */
+    fun cartQuote(): CheckoutQuote? = sale?.let { CheckoutRules.cartQuote(CheckoutRequest(it.saleId,it.customer.outletId,it.lines,PaymentInput(PaymentMethod.CASH.code)),saleContext()) }
+    /** Payment methods the office allows (cash only until the policy says otherwise). */
+    val paymentMethods: List<PaymentMethod> get() = policy?.paymentMethods ?: PaymentMethod.CASH_ONLY
     /** The store validates again in the saving transaction; a refusal keeps the cart so the seller can fix it. */
     fun completeSale(payment: PaymentInput, expectedTotalMinor: Long) = command {
         val draft = checkNotNull(sale)

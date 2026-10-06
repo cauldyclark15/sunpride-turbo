@@ -12,21 +12,28 @@ class CheckoutRulesTest {
     /** Sold by the kilogram, stored in grams. */
     private val bulk = Product("p3","SP-BULK","Dried Pineapple","KG",1000,emptyList())
     private val route = Customer("o1","O-1001","Aling Nena Store",null,1,"route")
+    private val onTerms = Customer("o2","O-1002","JM Sari-Sari",null,2,"route",credit = CustomerCredit(30,50_000))
     private val walkIn = Customer("local:w1","","Corner Store",null,null,"walk_in","Not on list",true)
-    private val policy = VanPolicy(walkInAllowed = true)
+    private val check = PaymentMethod("check","Check",PaymentKind.OTHER,true,"Check number")
+    private val gcash = PaymentMethod("gcash","GCash",PaymentKind.OTHER,true,"GCash reference number")
+    private val voucher = PaymentMethod("voucher","Promo voucher",PaymentKind.OTHER,false,null)
+    private val creditMethod = PaymentMethod("credit","Credit (charge to account)",PaymentKind.CREDIT,false,null)
+    private val methods = listOf(PaymentMethod.CASH,check,gcash,voucher,creditMethod)
+    private val policy = VanPolicy(walkInAllowed = true,paymentMethods = methods)
     private val saleId = "6f1c1f3e-2b7a-4c55-9d1e-0c4b8f7a1a01"
     private fun price(product: String, minor: Long, uom: String = "PC", list: String = "L1", currency: String = "PHP", from: Long = now-1, to: Long? = null) =
         PriceLine(list,product,uom,minor,currency,from,to)
     private val prices = listOf(price("p1",8_500),price("p3",32_000,"KG"))
     private fun context(stock: List<TruckStock> = listOf(TruckStock("p1",10,2),TruckStock("p2",5,0),TruckStock("p3",2_000,0)),
-        prices: List<PriceLine> = this.prices, policy: VanPolicy? = this.policy, selling: Boolean = true) =
-        CheckoutContext(selling,listOf(route,walkIn),listOf(juice,chunks,bulk),stock,prices,policy,now)
-    private fun request(vararg lines: CartLine, customer: String? = "o1", payment: PaymentInput = PaymentInput(PaymentTerms.CASH,1_000_000)) =
+        prices: List<PriceLine> = this.prices, policy: VanPolicy? = this.policy, selling: Boolean = true,
+        creditUsed: Map<String,Long> = emptyMap(), usedReferences: Set<String> = emptySet()) =
+        CheckoutContext(selling,listOf(route,walkIn,onTerms),listOf(juice,chunks,bulk),stock,prices,policy,now,"2026-10-07",creditUsed,usedReferences)
+    private fun request(vararg lines: CartLine, customer: String? = "o1", payment: PaymentInput = PaymentInput("cash",1_000_000)) =
         CheckoutRequest(saleId,customer,lines.toList(),payment)
     private fun problems(result: CheckoutResult) = result.issues.map { it.problem }.toSet()
 
     @Test fun pricedCashSaleTotalsInCentavosAndGivesChange() {
-        val result = CheckoutRules.evaluate(request(CartLine("p1",3),CartLine("p3",1_500),payment = PaymentInput(PaymentTerms.CASH,80_000)),context())
+        val result = CheckoutRules.evaluate(request(CartLine("p1",3),CartLine("p3",1_500),payment = PaymentInput("cash",80_000)),context())
         assertTrue(result.issues.toString(),result.ok)
         val quote = result.quote!!
         assertEquals(listOf(25_500L,48_000L),quote.lines.map { it.totalMinor })
@@ -35,7 +42,7 @@ class CheckoutRulesTest {
         assertEquals(listOf("L1"),quote.lines.first().priceListIds)
     }
     @Test fun exactCashAndWalkInCustomerAreAccepted() {
-        val result = CheckoutRules.evaluate(request(CartLine("p1",2),customer = "local:w1",payment = PaymentInput(PaymentTerms.CASH,17_000)),context())
+        val result = CheckoutRules.evaluate(request(CartLine("p1",2),customer = "local:w1",payment = PaymentInput("cash",17_000)),context())
         assertTrue(result.ok); assertEquals(0L,result.quote!!.changeMinor)
     }
     @Test fun unpricedProductBlocksTheSaleInsteadOfGuessing() {
@@ -75,11 +82,10 @@ class CheckoutRulesTest {
         val many = (1..101).map { CartLine("p$it",1) }.toTypedArray()
         assertTrue(CheckoutProblem.TOO_MANY_LINES in problems(CheckoutRules.evaluate(request(*many),context())))
     }
-    @Test fun paymentTermsAndCashAreEnforced() {
-        assertEquals(setOf(CheckoutProblem.CREDIT_TERMS_UNAVAILABLE),problems(CheckoutRules.evaluate(request(CartLine("p1",1),payment = PaymentInput(PaymentTerms.CREDIT,null)),context())))
-        assertEquals(setOf(CheckoutProblem.CASH_MISSING),problems(CheckoutRules.evaluate(request(CartLine("p1",1),payment = PaymentInput(PaymentTerms.CASH,null)),context())))
-        assertEquals(setOf(CheckoutProblem.CASH_MISSING),problems(CheckoutRules.evaluate(request(CartLine("p1",1),payment = PaymentInput(PaymentTerms.CASH,-1)),context())))
-        assertEquals(setOf(CheckoutProblem.CASH_SHORT),problems(CheckoutRules.evaluate(request(CartLine("p1",1),payment = PaymentInput(PaymentTerms.CASH,8_499)),context())))
+    @Test fun cashIsEnforced() {
+        assertEquals(setOf(CheckoutProblem.CASH_MISSING),problems(CheckoutRules.evaluate(request(CartLine("p1",1),payment = PaymentInput("cash",null)),context())))
+        assertEquals(setOf(CheckoutProblem.CASH_MISSING),problems(CheckoutRules.evaluate(request(CartLine("p1",1),payment = PaymentInput("cash",-1)),context())))
+        assertEquals(setOf(CheckoutProblem.CASH_SHORT),problems(CheckoutRules.evaluate(request(CartLine("p1",1),payment = PaymentInput("cash",8_499)),context())))
     }
     @Test fun moneyIsNeverRoundedOrOverflowed() {
         // 1 gram of a ₱320.00/kg product is 32 centavos exactly; 1 gram at ₱320.01/kg is not a whole centavo.
@@ -93,7 +99,7 @@ class CheckoutRulesTest {
             context(prices = listOf(price("p1",8_500),price("p3",100,"KG",currency = "USD"))))))
     }
     @Test fun saleIdMustBeAUuidV4() {
-        assertTrue(runCatching { CheckoutRules.evaluate(CheckoutRequest("not-a-uuid","o1",listOf(CartLine("p1",1)),PaymentInput(PaymentTerms.CASH,10_000)),context()) }.isFailure)
+        assertTrue(runCatching { CheckoutRules.evaluate(CheckoutRequest("not-a-uuid","o1",listOf(CartLine("p1",1)),PaymentInput("cash",10_000)),context()) }.isFailure)
         assertEquals(4,java.util.UUID.fromString(CheckoutRules.newSaleId()).version())
     }
     @Test fun everyProblemHasPlainWordsAndCashParsesToCentavos() {
@@ -104,5 +110,56 @@ class CheckoutRulesTest {
         assertTrue(VanRules.canSell(Trip("t","T","active","2026-10-07",null,null,null,null,"l",null,null)))
         assertTrue(VanRules.canSell(Trip("t","T","loaded","2026-10-07",null,null,null,null,"l",null,null,startPending = true)))
         assertFalse(VanRules.canSell(Trip("t","T","loaded","2026-10-07",null,null,null,null,"l",null,null)))
+    }
+
+    // ── VAN-012 payment methods ──
+    @Test fun cashPaymentIsPaidWithChangeAndNoReference() {
+        val pay = CheckoutRules.evaluate(request(CartLine("p1",1),payment = PaymentInput("cash",10_000,"IGNORED")),context()).quote!!.payment
+        assertEquals(PaymentState.PAID,pay.state); assertEquals(1_500L,pay.changeMinor); assertEquals(10_000L,pay.tenderedMinor)
+        assertNull(pay.reference); assertNull(pay.dueDate); assertEquals(8_500L,pay.amountMinor)
+    }
+    @Test fun otherMethodsTakeTheExactTotalAndNeedAValidUnusedReference() {
+        val quote = CheckoutRules.evaluate(request(CartLine("p1",2),payment = PaymentInput("check",null,"  bdo  000123 ")),context()).quote!!
+        assertEquals("check",quote.payment.method.code); assertEquals(PaymentState.AWAITING_CONFIRMATION,quote.payment.state)
+        assertEquals("BDO 000123",quote.payment.reference); assertEquals(17_000L,quote.payment.amountMinor)
+        assertEquals(0L,quote.changeMinor); assertEquals(17_000L,quote.tenderedMinor); assertNull(quote.payment.tenderedMinor)
+        assertEquals(setOf(CheckoutProblem.REFERENCE_MISSING),problems(CheckoutRules.evaluate(request(CartLine("p1",1),payment = PaymentInput("gcash",null,"  ")),context())))
+        assertEquals(setOf(CheckoutProblem.REFERENCE_INVALID),problems(CheckoutRules.evaluate(request(CartLine("p1",1),payment = PaymentInput("gcash",null,"ref#1")),context())))
+        assertEquals(setOf(CheckoutProblem.REFERENCE_INVALID),problems(CheckoutRules.evaluate(request(CartLine("p1",1),payment = PaymentInput("gcash",null,"9".repeat(41))),context())))
+        // The same check number cannot pay twice; the same digits under another method are a different reference.
+        val used = setOf(PaymentReference.key("check","BDO 000123"))
+        assertEquals(setOf(CheckoutProblem.REFERENCE_ALREADY_USED),problems(CheckoutRules.evaluate(request(CartLine("p1",1),payment = PaymentInput("check",null,"bdo 000123")),context(usedReferences = used))))
+        assertTrue(CheckoutRules.evaluate(request(CartLine("p1",1),payment = PaymentInput("gcash",null,"BDO 000123")),context(usedReferences = used)).ok)
+        // A method without a reference ignores one.
+        assertNull(CheckoutRules.evaluate(request(CartLine("p1",1),payment = PaymentInput("voucher",null,"X1")),context()).quote!!.payment.reference)
+    }
+    @Test fun onlyConfiguredMethodsAreAccepted() {
+        assertEquals(setOf(CheckoutProblem.UNKNOWN_PAYMENT_METHOD),problems(CheckoutRules.evaluate(request(CartLine("p1",1),payment = PaymentInput("crypto",null,null)),context())))
+        // A policy without the list (older cache/server) allows cash only.
+        val legacy = policy.copy(paymentMethods = PaymentMethod.CASH_ONLY)
+        assertEquals(setOf(CheckoutProblem.UNKNOWN_PAYMENT_METHOD),problems(CheckoutRules.evaluate(request(CartLine("p1",1),payment = PaymentInput("check",null,"1")),context(policy = legacy))))
+        assertTrue(CheckoutRules.evaluate(request(CartLine("p1",1)),context(policy = legacy)).ok)
+        assertEquals(PaymentMethod.CASH_ONLY,VanPolicy().paymentMethods)
+    }
+    @Test fun creditNeedsOfficeTermsAndStaysWithinCreditLeft() {
+        val quote = CheckoutRules.evaluate(request(CartLine("p1",2),customer = "o2",payment = PaymentInput("credit")),context()).quote!!
+        assertEquals(PaymentState.ON_ACCOUNT,quote.payment.state); assertEquals("2026-11-06",quote.payment.dueDate)
+        assertEquals(17_000L,quote.payment.amountMinor); assertEquals(0L,quote.changeMinor)
+        assertEquals(setOf(CheckoutProblem.CREDIT_TERMS_UNAVAILABLE),problems(CheckoutRules.evaluate(request(CartLine("p1",1),payment = PaymentInput("credit")),context())))
+        assertEquals(setOf(CheckoutProblem.CREDIT_TERMS_UNAVAILABLE),problems(CheckoutRules.evaluate(request(CartLine("p1",1),customer = "local:w1",payment = PaymentInput("credit")),context())))
+        // ₱500.00 available, ₱400.00 already charged here: ₱85.00 fits, ₱170.00 does not.
+        val used = mapOf("o2" to 40_000L)
+        assertTrue(CheckoutRules.evaluate(request(CartLine("p1",1),customer = "o2",payment = PaymentInput("credit")),context(creditUsed = used)).ok)
+        assertEquals(setOf(CheckoutProblem.CREDIT_LIMIT_EXCEEDED),problems(CheckoutRules.evaluate(request(CartLine("p1",2),customer = "o2",payment = PaymentInput("credit")),context(creditUsed = used))))
+        assertEquals(10_000L,CheckoutRules.creditLeft(onTerms,context(creditUsed = used))); assertNull(CheckoutRules.creditLeft(route,context()))
+        // Credit configured off: the customer's terms alone do not allow it.
+        assertEquals(setOf(CheckoutProblem.UNKNOWN_PAYMENT_METHOD),problems(CheckoutRules.evaluate(request(CartLine("p1",1),customer = "o2",payment = PaymentInput("credit")),
+            context(policy = policy.copy(paymentMethods = methods - creditMethod)))))
+    }
+    @Test fun cartQuoteShowsTheTotalBeforeAnyPayment() {
+        val q = CheckoutRules.cartQuote(request(CartLine("p1",2),payment = PaymentInput("gcash")),context(policy = policy.copy(paymentMethods = listOf(gcash))))!!
+        assertEquals(17_000L,q.totalMinor)
+        assertEquals("Paid",VanRules.paymentStateLabel("paid",null)); assertEquals("Charged to account · due 2026-11-06",VanRules.paymentStateLabel("on_account","2026-11-06"))
+        assertEquals("To be confirmed by the office",VanRules.paymentStateLabel("awaiting_confirmation",null))
     }
 }

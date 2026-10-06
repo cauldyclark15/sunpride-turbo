@@ -18,7 +18,9 @@ data class LoadLineRow(val fullAuthSubject: String, val deviceId: String, val lo
 data class ProductRow(val fullAuthSubject: String, val deviceId: String, val productId: String, val code: String, val name: String, val uomCode: String, val quantityScale: Long, val barcodesJson: String, val json: String)
 
 @Entity(tableName = "customer", primaryKeys = ["fullAuthSubject", "deviceId", "outletId"])
-data class CustomerRow(val fullAuthSubject: String, val deviceId: String, val outletId: String, val code: String, val name: String, val address: String?, val sequence: Int?, val source: String, val reason: String? = null, val localOnly: Boolean = false)
+data class CustomerRow(val fullAuthSubject: String, val deviceId: String, val outletId: String, val code: String, val name: String, val address: String?, val sequence: Int?, val source: String, val reason: String? = null, val localOnly: Boolean = false,
+    /** VAN-012 office credit terms (v2); null = no credit for this customer. */
+    val creditTermsDays: Int? = null, val creditAvailableMinor: Long? = null)
 
 @Entity(tableName = "truck_stock_baseline", primaryKeys = ["fullAuthSubject", "deviceId", "tripId", "productId", "stockStatus"])
 data class BaselineRow(val fullAuthSubject: String, val deviceId: String, val tripId: String, val productId: String, val stockStatus: String, val quantityBase: Long, val baselineServerTime: Long)
@@ -45,13 +47,17 @@ data class SequenceCounterRow(val fullAuthSubject: String, val deviceId: String,
 data class TransactionIdRow(val fullAuthSubject: String, val deviceId: String, val idempotencyKey: String, val tripId: String, val receiptNumber: String, val sequence: Long)
 
 @Entity(tableName = "sale", primaryKeys = ["fullAuthSubject", "deviceId", "saleId"])
-data class SaleRow(val fullAuthSubject: String, val deviceId: String, val saleId: String, val tripId: String, val receiptNumber: String, val idempotencyKey: String, val customerId: String, val status: String, val totalMinor: Long? = null, val createdAt: Long)
+data class SaleRow(val fullAuthSubject: String, val deviceId: String, val saleId: String, val tripId: String, val receiptNumber: String, val idempotencyKey: String, val customerId: String, val status: String, val totalMinor: Long? = null, val createdAt: Long,
+    /** VAN-012 (v2): payment state, separate from [status] (the sale's posting state). Null on v1 rows = paid in cash. */
+    val paymentStatus: String? = null)
 
 @Entity(tableName = "sale_line", primaryKeys = ["fullAuthSubject", "deviceId", "saleId", "lineNumber"])
 data class SaleLineRow(val fullAuthSubject: String, val deviceId: String, val saleId: String, val lineNumber: Int, val productId: String, val quantityBase: Long, val unitPriceMinor: Long? = null, val totalMinor: Long? = null)
 
 @Entity(tableName = "payment", primaryKeys = ["fullAuthSubject", "deviceId", "paymentId"])
-data class PaymentRow(val fullAuthSubject: String, val deviceId: String, val paymentId: String, val saleId: String, val method: String = "cash", val amountMinor: Long? = null, val createdAt: Long)
+data class PaymentRow(val fullAuthSubject: String, val deviceId: String, val paymentId: String, val saleId: String, val method: String = "cash", val amountMinor: Long? = null, val createdAt: Long,
+    /** VAN-012 (v2): normalized reference (check/e-wallet/bank), payment state, cash handed over and credit due date. */
+    val reference: String? = null, val status: String? = null, val tenderedMinor: Long? = null, val dueDate: String? = null)
 
 @Entity(tableName = "customer_return", primaryKeys = ["fullAuthSubject", "deviceId", "returnId"])
 data class CustomerReturnRow(val fullAuthSubject: String, val deviceId: String, val returnId: String, val tripId: String, val receiptNumber: String, val idempotencyKey: String, val customerId: String, val status: String, val createdAt: Long)
@@ -134,5 +140,21 @@ interface VanDao {
     @Query("SELECT * FROM sequence_counter WHERE fullAuthSubject=:subject AND deviceId=:device AND tripId=:tripId") suspend fun counter(subject: String, device: String, tripId: String): SequenceCounterRow?
 }
 
-@Database(entities = [TripRow::class,LoadLineRow::class,ProductRow::class,CustomerRow::class,BaselineRow::class,MovementRow::class,SettlementRow::class,OutboxRow::class,AckRow::class,SyncMetaRow::class,SequenceCounterRow::class,TransactionIdRow::class,SaleRow::class,SaleLineRow::class,PaymentRow::class,CustomerReturnRow::class,ReturnLineRow::class,ReconciliationRow::class,PriceListLineRow::class], version = 1, exportSchema = true)
-abstract class VanDatabase : RoomDatabase() { abstract fun rows(): VanDao }
+@Database(entities = [TripRow::class,LoadLineRow::class,ProductRow::class,CustomerRow::class,BaselineRow::class,MovementRow::class,SettlementRow::class,OutboxRow::class,AckRow::class,SyncMetaRow::class,SequenceCounterRow::class,TransactionIdRow::class,SaleRow::class,SaleLineRow::class,PaymentRow::class,CustomerReturnRow::class,ReturnLineRow::class,ReconciliationRow::class,PriceListLineRow::class], version = 2, exportSchema = true)
+abstract class VanDatabase : RoomDatabase() {
+    abstract fun rows(): VanDao
+    companion object {
+        /** VAN-012: additive nullable columns only; no saved row, operation byte or movement changes. */
+        val MIGRATION_1_2 = object : androidx.room.migration.Migration(1,2) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE customer ADD COLUMN creditTermsDays INTEGER")
+                db.execSQL("ALTER TABLE customer ADD COLUMN creditAvailableMinor INTEGER")
+                db.execSQL("ALTER TABLE sale ADD COLUMN paymentStatus TEXT")
+                db.execSQL("ALTER TABLE payment ADD COLUMN reference TEXT")
+                db.execSQL("ALTER TABLE payment ADD COLUMN status TEXT")
+                db.execSQL("ALTER TABLE payment ADD COLUMN tenderedMinor INTEGER")
+                db.execSQL("ALTER TABLE payment ADD COLUMN dueDate TEXT")
+            }
+        }
+    }
+}

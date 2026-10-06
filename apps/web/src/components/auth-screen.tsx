@@ -80,6 +80,11 @@ export function AuthScreen({ mode, next }: { mode: AuthMode; next?: string }) {
         <h1 className="text-[26px] font-semibold tracking-tight text-foreground">
           {isLogin ? "Sign in" : "Create account"}
         </h1>
+        <p className="mt-2 text-[13px] leading-5 text-muted">
+          {isLogin
+            ? "First time here? Choose Create account and use the email address your invitation was sent to."
+            : "Use the email address your invitation was sent to, and choose a password of at least 8 characters."}
+        </p>
         <form onSubmit={submit} className="mt-6 grid gap-4">
           {!isLogin ? (
             <TextField className="grid gap-1.5">
@@ -136,6 +141,12 @@ export function AuthScreen({ mode, next }: { mode: AuthMode; next?: string }) {
           className="mt-5 block w-full text-center text-sm font-medium text-muted hover:text-foreground"
         >
           {isLogin ? "Create account" : "Sign in"}
+        </Link>
+        <Link
+          href="/help"
+          className="mt-3 block w-full text-center text-[13px] text-muted hover:text-foreground"
+        >
+          Help for testers
         </Link>
       </section>
     </main>

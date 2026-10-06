@@ -73,12 +73,18 @@ import com.sunpride.van.pos.*
 }
 
 @Composable fun CheckoutScreen(c: VanController) {
-    var terms by remember { mutableStateOf(PaymentTerms.CASH) }
+    val methods = c.paymentMethods
+    var methodCode by remember { mutableStateOf(methods.firstOrNull { it.kind == PaymentKind.CASH }?.code ?: methods.first().code) }
+    val method = methods.firstOrNull { it.code == methodCode } ?: methods.first()
     var cash by remember { mutableStateOf("") }
-    val payment = PaymentInput(terms,if (terms == PaymentTerms.CASH) VanRules.parseMoney(cash) else null)
-    val result = remember(c.sale,c.products,c.stock,c.prices,c.customers,c.policy,c.trip,payment) { c.quote(payment) }
-    // Totals come from the cart alone, so the seller sees the amount due before typing the cash.
-    val due = remember(c.sale,c.products,c.stock,c.prices,c.customers,c.policy,c.trip) { c.quote(PaymentInput(PaymentTerms.CASH,CheckoutRules.MAX_MINOR))?.quote }
+    var reference by remember { mutableStateOf("") }
+    // Credit sold here and references already used (VAN-012); the store re-checks both while saving.
+    LaunchedEffect(c.sale?.saleId) { c.refreshPaymentFacts() }
+    val payment = PaymentInput(method.code,if (method.kind == PaymentKind.CASH) VanRules.parseMoney(cash) else null,
+        reference.takeIf { method.referenceRequired })
+    val result = remember(c.sale,c.products,c.stock,c.prices,c.customers,c.policy,c.trip,c.paymentFacts,payment) { c.quote(payment) }
+    // Totals come from the cart alone, so the seller sees the amount due before entering the payment.
+    val due = remember(c.sale,c.products,c.stock,c.prices,c.customers,c.policy,c.trip) { c.cartQuote() }
     val quote = result?.quote
     ScreenFrame("Checkout",c::back,action = if (c.busy) "Saving…" else "Complete sale",actionTag = "complete-sale",
         enabled = !c.busy && result?.ok == true,onAction = { quote?.let { c.completeSale(payment,it.totalMinor) } },message = c.message,
@@ -109,11 +115,26 @@ import com.sunpride.van.pos.*
             }
         }
         SectionCard("Payment") {
-            ChoiceRow("Cash",terms == PaymentTerms.CASH,"pay-cash") { terms = PaymentTerms.CASH }
-            ChoiceRow("Credit (charge to the customer)",terms == PaymentTerms.CREDIT,"pay-credit") { terms = PaymentTerms.CREDIT }
-            if (terms == PaymentTerms.CASH) {
-                LabeledField("Cash received (₱)",cash,{ cash = it },"cash-received",numeric = true,maxLength = 18)
-                quote?.let { Text("Change ${PosMoney.format(it.changeMinor,it.currency)}",style = MaterialTheme.typography.titleLarge,modifier = Modifier.testTag("checkout-change")) }
+            methods.forEach { m -> ChoiceRow(m.label,m.code == method.code,"pay-${m.code}") { methodCode = m.code } }
+            when (method.kind) {
+                PaymentKind.CASH -> {
+                    LabeledField("Cash received (₱)",cash,{ cash = it },"cash-received",numeric = true,maxLength = 18)
+                    quote?.let { Text("Change ${PosMoney.format(it.changeMinor,it.currency)}",style = MaterialTheme.typography.titleLarge,modifier = Modifier.testTag("checkout-change")) }
+                }
+                PaymentKind.OTHER -> {
+                    if (method.referenceRequired) LabeledField(method.referenceLabel ?: "Reference number",reference,{ reference = it },"payment-reference",maxLength = 40)
+                    due?.let { Text("Amount ${PosMoney.format(it.totalMinor,it.currency)} — the full total, no change.",style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.testTag("payment-amount")) }
+                    Text("The office confirms this payment later. The sale is saved now.",style = MaterialTheme.typography.bodyMedium)
+                }
+                PaymentKind.CREDIT -> {
+                    val credit = draft.customer.credit?.takeIf { !draft.customer.localOnly }
+                    val left = CheckoutRules.creditLeft(draft.customer,c.saleContext())
+                    Text(if (credit == null || left == null) "No credit terms for this customer."
+                        else "Terms ${credit.termsDays} days · Credit left ${PosMoney.format(left,due?.currency ?: "PHP")}",
+                        style = MaterialTheme.typography.bodyLarge,modifier = Modifier.testTag("credit-terms"))
+                    quote?.payment?.dueDate?.let { Text("Due $it",style = MaterialTheme.typography.titleMedium,modifier = Modifier.testTag("credit-due")) }
+                }
             }
         }
         Text("The sale is saved on this phone first. It doesn't need signal.",style = MaterialTheme.typography.bodyMedium)
@@ -141,15 +162,23 @@ import com.sunpride.van.pos.*
                 Text("Total",Modifier.weight(1f),style = MaterialTheme.typography.titleLarge)
                 Text(PosMoney.format(receipt.totalMinor,receipt.currency),style = MaterialTheme.typography.titleLarge,modifier = Modifier.testTag("receipt-total"))
             }
-            Text("Cash ${PosMoney.format(receipt.tenderedMinor,receipt.currency)} · Change ${PosMoney.format(receipt.changeMinor,receipt.currency)}",
-                style = MaterialTheme.typography.bodyLarge,modifier = Modifier.testTag("receipt-change"))
+        }
+        // Payment state is shown apart from the sale: the sale is saved even when its payment is still to be confirmed.
+        SectionCard("Payment") {
+            Text(when (receipt.paymentKind) {
+                PaymentKind.CASH -> "Cash ${PosMoney.format(receipt.tenderedMinor,receipt.currency)} · Change ${PosMoney.format(receipt.changeMinor,receipt.currency)}"
+                else -> "${receipt.paymentLabel} ${PosMoney.format(receipt.totalMinor,receipt.currency)}"
+            },style = MaterialTheme.typography.bodyLarge,modifier = Modifier.testTag("receipt-change"))
+            receipt.reference?.let { Text("Reference $it",style = MaterialTheme.typography.bodyLarge,modifier = Modifier.testTag("receipt-reference")) }
+            Text(VanRules.paymentStateLabel(receipt.paymentStatus,receipt.dueDate),style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.testTag("receipt-payment-state"))
         }
         Text("Saved on this phone and taken off the truck stock. Sending sales to the office comes in a later update.",
             style = MaterialTheme.typography.bodyMedium,modifier = Modifier.testTag("sale-saved-note"))
     }
 }
 
-/** One of several exclusive choices (payment terms): a radio button, the whole 56dp row is the target. */
+/** One of several exclusive choices (payment method): a radio button, the whole 56dp row is the target. */
 @Composable private fun ChoiceRow(label: String, selected: Boolean, tag: String, onSelect: () -> Unit) {
     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).selectable(selected,onClick = onSelect,role = Role.RadioButton).testTag(tag),
         verticalAlignment = Alignment.CenterVertically) {

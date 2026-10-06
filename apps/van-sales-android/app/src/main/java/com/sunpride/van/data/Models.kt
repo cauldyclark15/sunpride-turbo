@@ -2,9 +2,23 @@ package com.sunpride.van.data
 
 import java.math.BigDecimal
 
+/** [paymentMethods]: VAN-012 methods the office allows; a cache or server without the list allows cash only. */
 data class VanPolicy(val allowNegativeStock: Boolean = false,
     val loadDiscrepancyRequiresApproval: Boolean = true, val walkInAllowed: Boolean = false,
-    val loadDiscrepancyReasons: List<String> = emptyList(), val damageReasons: List<String> = emptyList())
+    val loadDiscrepancyReasons: List<String> = emptyList(), val damageReasons: List<String> = emptyList(),
+    val paymentMethods: List<PaymentMethod> = PaymentMethod.CASH_ONLY)
+/** How a payment settles: [CASH] gives change, [OTHER] (check, e-wallet, bank) equals the total, [CREDIT] charges the account. */
+enum class PaymentKind(val wire: String) { CASH("cash"), CREDIT("credit"), OTHER("other");
+    companion object { fun of(wire: String) = entries.single { it.wire == wire } } }
+/** VAN-012: one office-configured payment method; [referenceLabel] names the number to type (e.g. "Check number"). */
+data class PaymentMethod(val code: String, val label: String, val kind: PaymentKind, val referenceRequired: Boolean, val referenceLabel: String?) {
+    companion object {
+        val CASH = PaymentMethod("cash","Cash",PaymentKind.CASH,false,null)
+        val CASH_ONLY = listOf(CASH)
+    }
+}
+/** VAN-012 office credit terms for one customer: days until due and credit available as of the bootstrap, in centavos. */
+data class CustomerCredit(val termsDays: Int, val availableMinor: Long)
 data class Seller(val profileId: String, val name: String)
 data class Vehicle(val vehicleId: String, val vehicleCode: String, val plateNumber: String, val name: String?)
 data class Route(val routeId: String, val code: String, val name: String)
@@ -30,7 +44,8 @@ data class Product(val productId: String, val code: String, val name: String, va
     fun displayQuantity(base: Long): String = BigDecimal.valueOf(base).divide(BigDecimal.valueOf(quantityScale),java.math.MathContext.DECIMAL128).stripTrailingZeros().toPlainString()
 }
 data class Customer(val outletId: String, val code: String, val name: String, val address: String?,
-    val sequence: Int?, val source: String, val reason: String? = null, val localOnly: Boolean = false)
+    val sequence: Int?, val source: String, val reason: String? = null, val localOnly: Boolean = false,
+    val credit: CustomerCredit? = null)
 data class TruckStock(val productId: String, val availableBase: Long, val damagedBase: Long)
 /** A cached price-list line (minor currency units). Empty until the governed price feed exists (ADR-008). */
 data class PriceLine(val priceListId: String, val productId: String, val uomCode: String, val unitPriceMinor: Long,
@@ -44,8 +59,15 @@ data class SyncStatus(val queued: Int = 0, val sending: Int = 0, val review: Int
 /** A completed van sale as saved on this phone (VAN-011). Money is in minor units of [currency]. */
 data class SaleReceiptLine(val lineNumber: Int, val productId: String, val name: String, val uomCode: String,
     val quantityLabel: String, val unitPriceMinor: Long, val totalMinor: Long)
+/**
+ * [paymentStatus] is separate from the sale's posting state: `paid` (cash), `awaiting_confirmation` (check, e-wallet,
+ * bank: the office confirms the reference) or `on_account` (credit, due on [dueDate]). The sale itself is saved on
+ * this phone whatever the payment state.
+ */
 data class SaleReceipt(val saleId: String, val receiptNumber: String, val customerName: String, val lines: List<SaleReceiptLine>,
-    val currency: String, val totalMinor: Long, val tenderedMinor: Long, val changeMinor: Long, val createdAt: Long, val replay: Boolean = false)
+    val currency: String, val totalMinor: Long, val tenderedMinor: Long, val changeMinor: Long, val createdAt: Long, val replay: Boolean = false,
+    val paymentMethod: String = "cash", val paymentLabel: String = "Cash", val paymentKind: PaymentKind = PaymentKind.CASH,
+    val paymentStatus: String = "paid", val reference: String? = null, val dueDate: String? = null)
 data class PushAck(val entityId: String, val movementId: String?, val serverTime: Long)
 data class PushResult(val kind: String, val clientRequestId: String, val status: String,
     val ack: PushAck? = null, val code: String? = null)

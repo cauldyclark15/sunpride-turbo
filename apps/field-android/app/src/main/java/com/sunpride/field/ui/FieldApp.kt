@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -35,6 +36,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -46,6 +48,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.core.net.toUri
 import com.sunpride.field.AppEnvironment
 import com.sunpride.field.BuildConfig
+import com.sunpride.field.FieldFeature
+import com.sunpride.field.FieldFeatures
 import com.sunpride.field.auth.EnrollmentState
 import com.sunpride.field.device.DeviceSigner
 import com.sunpride.field.ui.syncstatus.SyncDetails
@@ -73,10 +77,13 @@ enum class StatusPill(val label: String) {
 
 @Composable
 fun FieldApp(
-    environment: AppEnvironment, dark: Boolean, debug: Boolean, backend: FieldBackend? = null,
+    environment: AppEnvironment, dark: Boolean, debug: Boolean = false, backend: FieldBackend? = null,
     onKeyLoaded: (DeviceKeyInfo) -> Unit = {},
-    visitLocation: com.sunpride.field.ui.diagnosticvisit.VisitLocation? = null
+    visitLocation: com.sunpride.field.ui.diagnosticvisit.VisitLocation? = null,
+    // SP-0124: the build's feature list; `debug` alone keeps the old all-on / visits-off test shapes.
+    features: FieldFeatures = if (debug) FieldFeatures.ALL else FieldFeatures.READ_ONLY,
 ) {
+    val visits = FieldFeature.VISITS in features
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val location = remember(visitLocation) { visitLocation ?: com.sunpride.field.ui.diagnosticvisit.AndroidVisitLocation(context) }
@@ -162,32 +169,35 @@ fun FieldApp(
                 controller.state == EnrollmentState.SignedOut -> SignInScreen(environment, controller.busy, controller.error,
                     controller::signIn, modifier)
                 page == "account" -> AccountScreen(controller.key, controller::signOut,
-                    onBack = { page = "home" }, onSupport = { page = "support" }, modifier = modifier)
+                    onBack = { page = "home" }, onSupport = { page = "support" }, modifier = modifier,
+                    showKeyDetails = FieldFeature.PHONE_KEY_DETAILS in features,
+                    onReportIssue = features.reportIssueUrl?.let { url -> { openLink(context, url) } })
                 page == "support" -> SupportDetails(status, { page = "account" }, modifier)
                 ready && page == "sync" -> SyncDetails(status, onDismiss = { page = "home" },
                     onSync = controller::syncNow, busy = controller.busy, modifier = modifier)
-                controller.diagnostic != null && debug && ready && controller.photoCaptureOpen ->
+                controller.diagnostic != null && visits && ready && controller.photoCaptureOpen ->
                     com.sunpride.field.ui.diagnosticvisit.PhotoCaptureScreen(controller, modifier)
-                controller.diagnostic != null && debug && ready && controller.activityForm != null ->
+                controller.diagnostic != null && visits && ready && controller.activityForm != null ->
                     com.sunpride.field.ui.diagnosticvisit.ActivityFormScreen(controller.activityForm!!, controller, modifier)
-                controller.diagnostic != null && debug && ready && controller.orderOpen && controller.orderReview ->
+                controller.diagnostic != null && visits && ready && controller.orderOpen && controller.orderReview ->
                     com.sunpride.field.ui.orders.OrderReviewScreen(controller.diagnostic!!, controller, modifier)
-                controller.diagnostic != null && debug && ready && controller.orderOpen && controller.diagnosticCallSheet != null ->
+                controller.diagnostic != null && visits && ready && controller.orderOpen && controller.diagnosticCallSheet != null ->
                     com.sunpride.field.ui.orders.OrderDraftScreen(controller.diagnostic!!, controller.diagnosticCallSheet!!,
                         controller, modifier)
-                controller.diagnostic != null && debug && ready && controller.callSheetOpen && controller.diagnosticCallSheet != null ->
+                controller.diagnostic != null && visits && ready && controller.callSheetOpen && controller.diagnosticCallSheet != null ->
                     com.sunpride.field.ui.diagnosticvisit.CallSheetScreen(controller.diagnosticCallSheet!!, controller, modifier)
-                controller.diagnostic != null && debug && ready -> com.sunpride.field.ui.diagnosticvisit.DiagnosticVisitScreen(
+                controller.diagnostic != null && visits && ready -> com.sunpride.field.ui.diagnosticvisit.DiagnosticVisitScreen(
                     controller.diagnostic!!, controller, location, controller::closeDiagnostic, modifier)
                 ready && page == "route" -> com.sunpride.field.ui.route.RouteScreen(controller.today, location,
                     onNavigate = { uri -> openMaps(context, uri) }, modifier = modifier,
-                    onVisit = controller::openDiagnostic, visitEnabled = debug, offline = offline)
+                    onVisit = controller::openDiagnostic, visitEnabled = visits, offline = offline)
                 ready && page == "customers" -> com.sunpride.field.ui.customers.CustomerSearchScreen(controller.today,
                     onOpen = { id -> customerId = id; page = "customer" }, modifier = modifier, offline = offline, now = now)
                 ready && page == "customer" && customer != null -> com.sunpride.field.ui.customers.CustomerDetailScreen(
                     customer, controller.today, onNavigate = { uri -> openMaps(context, uri) },
                     onDial = { uri -> openDialer(context, uri) }, modifier = modifier,
-                    onVisit = controller::openDiagnostic, visitEnabled = debug, now = now)
+                    onVisit = controller::openDiagnostic, visitEnabled = visits, now = now,
+                    unplannedEnabled = FieldFeature.UNPLANNED_VISITS in features)
                 ready && page == "customer" -> com.sunpride.field.ui.customers.CustomerSearchScreen(controller.today,
                     onOpen = { id -> customerId = id; page = "customer" }, modifier = modifier, offline = offline, now = now)
                 ready && page == "team" -> com.sunpride.field.ui.team.TeamScreen(controller.team,
@@ -195,9 +205,10 @@ fun FieldApp(
                     onFilter = { controller.loadTeam(it) }, onRefresh = { controller.loadTeam() }, modifier = modifier)
                 ready -> TodayScreen(controller.today, controller.busy,
                     onSync = controller::syncNow, onSignOut = controller::signOut,
-                    onVisit = controller::openDiagnostic, diagnosticEnabled = debug, modifier = modifier, offline = offline,
+                    onVisit = controller::openDiagnostic, diagnosticEnabled = visits, modifier = modifier, offline = offline,
+                    unplannedEnabled = FieldFeature.UNPLANNED_VISITS in features,
                     onRoute = { page = "route" }, onCustomers = { page = "customers" },
-                    onTeam = { page = "team" })
+                    onTeam = if (FieldFeature.TEAM in features) ({ page = "team" }) else null)
                 else -> EnrollmentScreen(controller.state, controller.key, controller.busy, controller.error,
                     onCheck = { controller.checkAgain() }, onSignOut = { controller.signOut() }, modifier = modifier,
                     unsent = status.queued + status.sending + status.review + status.held)
@@ -205,6 +216,13 @@ fun FieldApp(
         }
     }
 }
+
+/** Opens a web page (the issue tracker) in the browser; false when nothing can open it. */
+private fun openLink(context: Context, url: String): Boolean = try {
+    context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, url.toUri())
+        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+    true
+} catch (_: android.content.ActivityNotFoundException) { false }
 
 /** Hands a `tel:` URI to the dialer (the user presses call; no CALL_PHONE permission). */
 private fun openDialer(context: Context, uri: String): Boolean = try {
@@ -231,6 +249,13 @@ private object UnconfiguredBackend : FieldBackend {
     override fun refreshEnrollment(signer: DeviceSigner) = EnrollmentState.SignedOut
 }
 
+/** SP-0126: the client's logo exactly as supplied (packages/ui/assets/sunpride-logo.jpg), never recoloured. */
+@Composable
+fun SunprideLogo(modifier: Modifier = Modifier) {
+    androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(com.sunpride.field.R.drawable.sunpride_logo),
+        contentDescription = "Sunpride", modifier = modifier.size(96.dp).clip(MaterialTheme.shapes.large))
+}
+
 @Composable
 private fun SignInScreen(environment: AppEnvironment, busy: Boolean, error: String?,
     onSignIn: (String, String) -> Unit, modifier: Modifier = Modifier) {
@@ -239,6 +264,7 @@ private fun SignInScreen(environment: AppEnvironment, busy: Boolean, error: Stri
     Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            SunprideLogo(Modifier.padding(top = 8.dp).testTag("sign-in-logo"))
             Text("Sign in", style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.testTag("shell-title"))
             if (!environment.isReady) SectionCard("Configuration required", Modifier.testTag("environment-error")) {
@@ -262,7 +288,7 @@ private fun SignInScreen(environment: AppEnvironment, busy: Boolean, error: Stri
 fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: () -> Unit,
     modifier: Modifier = Modifier, onVisit: (VisitDisplay) -> Unit = {}, diagnosticEnabled: Boolean = false,
     offline: Boolean = false, onRoute: (() -> Unit)? = null, onCustomers: (() -> Unit)? = null,
-    onTeam: (() -> Unit)? = null) {
+    onTeam: (() -> Unit)? = null, unplannedEnabled: Boolean = diagnosticEnabled) {
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())
         .padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Today", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.testTag("today-title"))
@@ -305,7 +331,7 @@ fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: (
             }
         }
         com.sunpride.field.ui.today.SalesCard(data.sales)
-        if (diagnosticEnabled && data.unplannedOutlets.isNotEmpty()) SectionCard("Unplanned visit") {
+        if (diagnosticEnabled && unplannedEnabled && data.unplannedOutlets.isNotEmpty()) SectionCard("Unplanned visit") {
             data.unplannedOutlets.forEach { outlet -> ListRow(outlet.outlet, "", "store",
                 Modifier.testTag("unplanned-open"), onClick = { onVisit(outlet) }) }
         }
@@ -366,7 +392,8 @@ fun EnrollmentScreen(state: EnrollmentState, key: DeviceKeyInfo?, busy: Boolean,
 
 @Composable
 fun AccountScreen(key: DeviceKeyInfo?, onSignOut: () -> Unit, onBack: () -> Unit,
-    onSupport: () -> Unit = {}, modifier: Modifier = Modifier) {
+    onSupport: () -> Unit = {}, modifier: Modifier = Modifier, showKeyDetails: Boolean = true,
+    onReportIssue: (() -> Unit)? = null) {
     Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -374,10 +401,14 @@ fun AccountScreen(key: DeviceKeyInfo?, onSignOut: () -> Unit, onBack: () -> Unit
                 ValueRow("Model", if (Build.MODEL.startsWith("sdk_")) "Android emulator" else Build.MODEL, Modifier.testTag("device-info"))
                 ValueRow("OS", "Android ${Build.VERSION.RELEASE}")
                 ValueRow("App version", BuildConfig.VERSION_NAME)
-                ValueRow("Key storage", key?.protection ?: "Unavailable")
-                ValueRow("Fingerprint", key?.fingerprint ?: "Unavailable")
+                if (showKeyDetails) ValueRow("Key storage", key?.protection ?: "Unavailable", Modifier.testTag("key-storage"))
+                if (showKeyDetails) ValueRow("Fingerprint", key?.fingerprint ?: "Unavailable")
             }
-            SectionCard("Support") { ListRow("Support info", "", "info", Modifier.testTag("support-info"), onClick = onSupport) }
+            SectionCard("Support") {
+                if (onReportIssue != null) ListRow("Report an issue", "Tell the Sunpride team what went wrong", "info",
+                    Modifier.testTag("report-issue"), onClick = onReportIssue)
+                ListRow("Support info", "", "info", Modifier.testTag("support-info"), onClick = onSupport)
+            }
         }
         androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp))
         SecondaryButton("Sign out", onSignOut, Modifier.fillMaxWidth().testTag("sign-out"), danger = true)

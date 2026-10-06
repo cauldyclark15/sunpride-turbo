@@ -45,6 +45,8 @@ import java.time.format.DateTimeFormatter
             if (c.sale != null) ListRow("Continue sale",c.sale!!.customer.name,"new-sale",enabled = !c.busy,onClick = c::continueSale)
             else ListRow("New sale",if (selling) "Choose the customer, then add products" else "Start the trip to sell","new-sale",enabled = selling && !c.busy,onClick = { c.open(Page.CUSTOMERS) })
         }
+        val context = LocalContext.current
+        c.features.reportIssueUrl?.let { url -> ListRow("Report an issue","Tell the Sunpride team what went wrong","report-issue",onClick = { openLink(context,url) }) }
         SecondaryButton("Sign out",c::signOut,Modifier.testTag("sign-out"),!c.busy)
     }
 }
