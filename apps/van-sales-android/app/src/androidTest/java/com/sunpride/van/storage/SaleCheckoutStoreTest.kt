@@ -4,6 +4,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.sunpride.van.pos.*
 import com.sunpride.van.sync.FakeVanBackend
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
@@ -135,5 +138,74 @@ class SaleCheckoutStoreTest {
         val customer = JSONObject(db.rows().outboxRows(s,d).single().operationJson).getJSONObject("payload").getJSONObject("customer")
         assertFalse("a local walk-in is never sent as an outlet ID",customer.has("outletId"))
         assertEquals("Corner Store",customer.getJSONObject("walkIn").getString("name")); Unit
+    }
+
+    // ---- VAN-018: truck stock is deducted in the sale's own transaction, never apart from it ----
+
+    private fun priceChunks() = runBlocking { db.rows().insertPriceListLine(PriceListLineRow(s,d,"PL-TEST",chunks,"PC",4_000,"PHP",at-1_000,null)) }
+
+    @Test fun multiLineSaleDeductsEveryLineWithTheSaleItself() = runBlocking {
+        ready(); priceChunks()
+        val request = CheckoutRequest(UUID.randomUUID().toString(),outlet,listOf(CartLine(juice,3),CartLine(chunks,2)),PaymentInput(PaymentTerms.CASH,40_000))
+        store.commitSale(request,33_500)
+        val row = db.rows().saleRows(s,d).single()
+        val movements = db.rows().stockmovementRows(s,d).sortedBy { it.productId }
+        assertEquals(listOf(juice to -3L,chunks to -2L),movements.map { it.productId to it.quantityBase })
+        assertTrue(movements.all { it.type == "SALE" && it.stockStatus == "available" && it.clientRequestId == row.idempotencyKey && it.createdAt == row.createdAt && it.tripId == row.tripId })
+        assertEquals(7L,store.stock().single { it.productId == juice }.availableBase); assertEquals(3L,store.stock().single { it.productId == chunks }.availableBase)
+        assertTrue(store.saleStockIssues().isEmpty()); Unit
+    }
+    @Test fun aFailedDeductionLeavesNeitherSaleNorStockChange() = runBlocking {
+        ready(); priceChunks()
+        // The second line's stock write fails after the first line, the sale, its lines and the payment were written.
+        db.openHelper.writableDatabase.execSQL("CREATE TRIGGER fail_deduct BEFORE INSERT ON stock_movement WHEN NEW.productId='$chunks' BEGIN SELECT RAISE(ABORT,'injected'); END")
+        val request = CheckoutRequest(UUID.randomUUID().toString(),outlet,listOf(CartLine(juice,3),CartLine(chunks,2)),PaymentInput(PaymentTerms.CASH,40_000))
+        assertTrue(runCatching { store.commitSale(request,33_500) }.isFailure)
+        nothingWritten(); assertEquals(5L,store.stock().single { it.productId == chunks }.availableBase)
+        db.openHelper.writableDatabase.execSQL("DROP TRIGGER fail_deduct")
+        // The same cart (same sale ID) completes cleanly afterwards: the failed attempt left nothing to replay.
+        assertFalse(store.commitSale(request,33_500).replay)
+        assertEquals(7L,store.stock().single { it.productId == juice }.availableBase); assertTrue(store.saleStockIssues().isEmpty()); Unit
+    }
+    @Test fun twoSalesRacingForTheLastStockSellItOnce() = runBlocking {
+        ready()
+        val results = (1..2).map { async(Dispatchers.IO) { runCatching { store.commitSale(sale(qty = 6,cash = 51_000),51_000) } } }.awaitAll()
+        assertEquals(1,results.count { it.isSuccess })
+        val refused = results.single { it.isFailure }.exceptionOrNull()
+        assertTrue("expected CheckoutRefused, got $refused",refused is CheckoutRefused)
+        assertEquals(setOf(CheckoutProblem.INSUFFICIENT_STOCK),(refused as CheckoutRefused).issues.map { it.problem }.toSet())
+        assertEquals(4L,store.stock().single { it.productId == juice }.availableBase)
+        assertEquals(1,db.rows().saleRows(s,d).size); assertEquals(1,db.rows().stockmovementRows(s,d).size); assertEquals(1,db.rows().transactionidRows(s,d).size)
+        assertTrue(store.saleStockIssues().isEmpty()); Unit
+    }
+    @Test fun saleAndDamageRacingForTheSameStockNeverGoNegative() = runBlocking {
+        ready()
+        val saleJob = async(Dispatchers.IO) { runCatching { store.commitSale(sale(qty = 6,cash = 51_000),51_000) } }
+        val damageJob = async(Dispatchers.IO) { runCatching { store.recordDamage(juice,6,"crushed",null) } }
+        val outcomes = listOf(saleJob.await().isSuccess,damageJob.await().isSuccess)
+        assertEquals(listOf(true,false).sorted(),outcomes.sorted())
+        assertEquals(4L,store.stock().single { it.productId == juice }.availableBase)
+        assertEquals(if (outcomes[0]) 1 else 0,db.rows().saleRows(s,d).size)
+        assertTrue(store.saleStockIssues().isEmpty()); Unit
+    }
+    @Test fun sellingDownToZeroThenRefuses() = runBlocking {
+        ready()
+        repeat(10) { store.commitSale(sale(qty = 1,cash = 8_500),8_500) }
+        assertEquals(0L,store.stock().single { it.productId == juice }.availableBase)
+        assertEquals(setOf(CheckoutProblem.INSUFFICIENT_STOCK),refused { store.commitSale(sale(qty = 1,cash = 8_500),8_500) })
+        assertEquals(10,db.rows().saleRows(s,d).size); assertEquals(10,db.rows().stockmovementRows(s,d).size)
+        assertTrue(store.saleStockIssues().isEmpty()); Unit
+    }
+    @Test fun stockCheckFindsASaleAndItsDeductionOutOfStep() = runBlocking {
+        ready()
+        store.commitSale(sale(),25_500)
+        val row = db.rows().saleRows(s,d).single(); val movement = db.rows().stockmovementRows(s,d).single()
+        val sql = db.openHelper.writableDatabase
+        sql.execSQL("DELETE FROM stock_movement WHERE movementId=?",arrayOf(movement.movementId))
+        assertEquals(listOf(SaleStockIssue(row.saleId,movement.movementId,"missing_deduction")),store.saleStockIssues())
+        db.rows().insertMovement(movement.copy(quantityBase = -2))
+        assertEquals(listOf("wrong_deduction"),store.saleStockIssues().map { it.code })
+        db.rows().insertMovement(movement.copy(movementId = "orphan",clientRequestId = UUID.randomUUID().toString()))
+        assertEquals(setOf("wrong_deduction","deduction_without_sale"),store.saleStockIssues().map { it.code }.toSet()); Unit
     }
 }
