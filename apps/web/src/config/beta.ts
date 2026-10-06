@@ -35,7 +35,7 @@ const HIDDEN_MODULES: Partial<Record<WebModuleSlug, BetaFeature>> = {
 };
 
 function enabledList(): string[] {
-  // Literal `process.env.NEXT_PUBLIC_…` so Next inlines it into the client bundle.
+  // Read with a literal public variable name so Next inlines it into the client bundle.
   return (process.env.NEXT_PUBLIC_BETA_ENABLE ?? "")
     .split(",")
     .map((key) => key.trim())
