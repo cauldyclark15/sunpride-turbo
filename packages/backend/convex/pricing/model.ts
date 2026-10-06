@@ -1,310 +1,372 @@
-import { ConvexError } from "convex/values";
+/**
+ * PRICING-001 (SP-0088, ADR-008): the governed price baseline for field orders.
+ *
+ * Which list prices an outlet: the single effective list for the outlet's channel (else its
+ * linked customer's channel); with no channel list, the single effective default list
+ * (`channelKey: null`). Two effective lists for the same key are ambiguous and price nothing:
+ * the order is then "Priced by the office", never a guess.
+ *
+ * Which line prices a product in a unit: the single effective line of that list for the
+ * product and unit code. Prices are whole centavos per one unit. The server prices every
+ * submitted field order itself (`priceFieldOrder`); the phone's figures are a preview.
+ *
+ * Credit check: the customer's credit limit against its open orders (submitted but not yet
+ * fulfilled; there is no receivables feed) plus this order. Over the limit never blocks the
+ * order: it is recorded as `over` for the office to approve.
+ */
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
-import type { PromotionRule } from "./validators";
+import { activeAt } from "../org/validation";
+import { toMinor } from "../dsr/model";
+import { OPEN_STATUSES } from "../mobile/account_summary";
 
 type Ctx = QueryCtx | MutationCtx;
 
-/**
- * SP-0129 / ADR-008 price resolution. Prices are resolved server-side from the governed
- * baseline: outlet channel -> exactly one active price list -> exactly one effective line for
- * the product and unit at the instant. Missing or ambiguous data fails closed (null), which
- * the apps show as "Priced by the office"; nothing is ever derived from `products.unitPrice`.
- */
-export const MAX_PRICE_LISTS = 50;
-/** Lines read per list; more fails closed instead of silently truncating a price list. */
-export const MAX_PRICE_LIST_LINES = 2_000;
-export const MAX_PROMOTIONS = 100;
-const MAX_LINE_HISTORY = 50;
+/** Lists read per channel key; more fail closed (ambiguous, unpriced). */
+export const MAX_LISTS_PER_CHANNEL = 20;
+/** Line history read per list and product. */
+export const MAX_LINES_PER_PRODUCT = 50;
+/** Newest orders read for a credit check; a busier account reports `unknown`. */
+export const MAX_CREDIT_ORDERS = 200;
+/** Units one product may be ordered in on the phone. */
+export const MAX_ORDER_UNITS = 6;
+/** Lines one list is read in a single range; a bigger list is read per product instead. */
+export const MAX_LIST_LINES = 4000;
 
 /**
- * Channel names as the field says them map to one key. Assumption until Sunpride confirms
- * pricing scope (SP-0033): price by channel only — Key Accounts, Route Sales (PMOT, RDS,
- * extruck; the call of 2 Oct 2026 groups them as the Route Salesman) and Public Market.
+ * Reads shared by every outlet of one bootstrap: a snapshot touches each list, unit and
+ * list/product pair once, inside the Convex per-transaction range budget.
  */
-const CHANNEL_ALIASES: Record<string, string> = {
-  KA: "KEY_ACCOUNTS",
-  KAS: "KEY_ACCOUNTS",
-  KEY_ACCOUNT: "KEY_ACCOUNTS",
-  MODERN_TRADE: "KEY_ACCOUNTS",
-  RS: "ROUTE_SALES",
-  PMOT: "ROUTE_SALES",
-  PMOT_EXTRUCK: "ROUTE_SALES",
-  RDS: "ROUTE_SALES",
-  GENERAL_TRADE: "ROUTE_SALES",
-  ROUTE_SALES_PMOT: "ROUTE_SALES",
-  PMS: "PUBLIC_MARKET",
-  PM_STALLS: "PUBLIC_MARKET",
-  PUBLIC_MARKET_STALLS: "PUBLIC_MARKET",
+export type PricingCache = {
+  lists: Map<string, { list: Doc<"priceLists"> | null; found: boolean }>;
+  listLines: Map<Id<"priceLists">, Doc<"priceListLines">[] | null>;
+  prices: Map<string, Map<string, number>>;
+  units: Map<Id<"unitsOfMeasure">, Doc<"unitsOfMeasure"> | null>;
 };
+export function pricingCache(): PricingCache {
+  return {
+    lists: new Map(),
+    listLines: new Map(),
+    prices: new Map(),
+    units: new Map(),
+  };
+}
+export const PRICE_CURRENCY = "PHP";
 
-export function channelKey(channel: string | undefined | null) {
-  const key = (channel ?? "")
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-  return CHANNEL_ALIASES[key] ?? key;
+export function channelKey(text: string | null | undefined) {
+  const key = text?.trim().toLowerCase() ?? "";
+  return key.length > 0 ? key : null;
 }
 
-export function effectiveAt(
+function effective(
   row: { effectiveFrom: number; effectiveTo?: number },
   at: number,
 ) {
-  return (
-    row.effectiveFrom <= at &&
-    (row.effectiveTo === undefined || at < row.effectiveTo)
-  );
+  return activeAt(row.effectiveFrom, row.effectiveTo, at);
 }
 
-export async function activePriceLists(ctx: Ctx) {
-  return ctx.db
+async function listFor(
+  ctx: Ctx,
+  key: string | null,
+  at: number,
+  cache?: PricingCache,
+) {
+  const cacheKey = key ?? "\u0000default";
+  const cached = cache?.lists.get(cacheKey);
+  if (cached) return cached;
+  const result = await readList(ctx, key, at);
+  cache?.lists.set(cacheKey, result);
+  return result;
+}
+
+async function readList(ctx: Ctx, key: string | null, at: number) {
+  const rows = await ctx.db
     .query("priceLists")
-    .withIndex("by_organizationId_and_status", (q) =>
-      q.eq("organizationId", SUNPRIDE_ORGANIZATION_ID).eq("status", "active"),
+    .withIndex("by_organizationId_and_channelKey", (q) =>
+      q.eq("organizationId", SUNPRIDE_ORGANIZATION_ID).eq("channelKey", key),
     )
-    .take(MAX_PRICE_LISTS);
-}
-
-/** The single active list for a channel, or null when none or more than one matches. */
-export async function priceListForChannel(
-  ctx: Ctx,
-  channel: string | undefined | null,
-  lists?: Doc<"priceLists">[],
-) {
-  const key = channelKey(channel);
-  if (!key) return null;
-  const matches = (lists ?? (await activePriceLists(ctx))).filter(
-    (list) => channelKey(list.channel) === key,
+    .take(MAX_LISTS_PER_CHANNEL + 1);
+  if (rows.length > MAX_LISTS_PER_CHANNEL) return { list: null, found: true };
+  const live = rows.filter(
+    (row) => row.status === "active" && effective(row, at),
   );
-  return matches.length === 1 ? matches[0]! : null;
+  if (live.length === 0) return { list: null, found: false };
+  return { list: live.length === 1 ? live[0]! : null, found: true };
 }
 
-export async function priceListForOutlet(
+/** The outlet's price list at `at`, or null (none, or ambiguous). */
+export async function priceListFor(
   ctx: Ctx,
-  outlet: Pick<Doc<"outlets">, "channel">,
-  lists?: Doc<"priceLists">[],
-) {
-  return priceListForChannel(ctx, outlet.channel, lists);
-}
-
-/** The single effective line for product+unit, or null (none, or conflicting rows). */
-export async function priceLineAt(
-  ctx: Ctx,
-  priceListId: Id<"priceLists">,
-  productId: Id<"products">,
-  uomId: Id<"unitsOfMeasure">,
+  outlet: Pick<Doc<"outlets">, "channel"> | null,
+  customer: Pick<Doc<"customers">, "channel"> | null,
   at: number,
+  cache?: PricingCache,
 ) {
-  const rows = await ctx.db
-    .query("priceListLines")
-    .withIndex("by_priceListId_and_productId_and_uomId", (q) =>
-      q
-        .eq("priceListId", priceListId)
-        .eq("productId", productId)
-        .eq("uomId", uomId),
-    )
-    .take(MAX_LINE_HISTORY + 1);
-  if (rows.length > MAX_LINE_HISTORY) return null;
-  const effective = rows.filter((row) => effectiveAt(row, at));
-  return effective.length === 1 ? effective[0]! : null;
-}
-
-/**
- * Every line of a list effective at `at`, one per product+unit. A product+unit with
- * overlapping effective rows is dropped (fail closed); an oversized list throws.
- */
-export async function effectiveLines(
-  ctx: Ctx,
-  priceListId: Id<"priceLists">,
-  at: number,
-) {
-  const rows = await ctx.db
-    .query("priceListLines")
-    .withIndex("by_priceListId_and_effectiveFrom", (q) =>
-      q.eq("priceListId", priceListId).lte("effectiveFrom", at),
-    )
-    .take(MAX_PRICE_LIST_LINES + 1);
-  if (rows.length > MAX_PRICE_LIST_LINES)
-    throw new ConvexError("reference_data_too_large");
-  const byKey = new Map<string, Doc<"priceListLines"> | null>();
-  for (const row of rows) {
-    if (!effectiveAt(row, at)) continue;
-    const key = `${row.productId}:${row.uomId}`;
-    byKey.set(key, byKey.has(key) ? null : row);
+  const key = channelKey(outlet?.channel) ?? channelKey(customer?.channel);
+  if (key !== null) {
+    const byChannel = await listFor(ctx, key, at, cache);
+    if (byChannel.found) return byChannel.list;
   }
-  return [...byKey.values()].filter(
-    (row): row is Doc<"priceListLines"> => row !== null,
-  );
+  return (await listFor(ctx, null, at, cache)).list;
 }
 
-/** Active promotions for a list (or every list) in force at `at`, in code order. */
-export async function promotionsAt(
+/** Unit code → price (centavos) for one product, only where exactly one line is effective. */
+export async function productPrices(
   ctx: Ctx,
-  priceListId: Id<"priceLists"> | null,
+  listId: Id<"priceLists">,
+  productId: Id<"products">,
   at: number,
+  cache?: PricingCache,
 ) {
-  const rows = await ctx.db
-    .query("promotions")
-    .withIndex("by_organizationId_and_status", (q) =>
-      q.eq("organizationId", SUNPRIDE_ORGANIZATION_ID).eq("status", "active"),
-    )
-    .take(MAX_PROMOTIONS);
-  return rows
-    .filter(
-      (row) =>
-        effectiveAt(row, at) &&
-        (row.priceListId === undefined || row.priceListId === priceListId),
-    )
-    .sort((a, b) => a.code.localeCompare(b.code));
+  const key = `${listId}|${productId}`;
+  const cached = cache?.prices.get(key);
+  if (cached) return cached;
+  const prices = pricesOf(await linesOf(ctx, listId, productId, cache), at);
+  cache?.prices.set(key, prices);
+  return prices;
 }
 
-export type PricedLineInput = {
-  productId: Id<"products">;
-  uomId: Id<"unitsOfMeasure">;
-  quantity: number;
-  unitPriceMinor: bigint | null;
-};
-export type PricedLine = PricedLineInput & {
-  grossMinor: bigint | null;
-  discountMinor: bigint;
-  freeQuantity: number;
-  promotionCode: string | null;
-};
-export type FreeGood = {
-  productId: Id<"products">;
-  uomId: Id<"unitsOfMeasure">;
-  quantity: number;
-  promotionCode: string;
-};
-type PromotionInput = { code: string; rule: PromotionRule };
-
-const sameUnit = (
-  line: PricedLineInput,
-  unit: { productId: Id<"products">; uomId: Id<"unitsOfMeasure"> },
-) => line.productId === unit.productId && line.uomId === unit.uomId;
-
-/**
- * Pure promotion evaluation (ADR-008). Promotions are applied in code order and never
- * combine: a line takes part in at most one promotion (assumption until Sunpride answers
- * whether promotions stack). Any rule that needs an unpriced line, a missing component or a
- * non-whole quantity is skipped, never approximated.
- */
-export function applyPromotions(
-  input: PricedLineInput[],
-  promotions: PromotionInput[],
+/** One list-wide read per snapshot when the list is small enough, else one per product. */
+async function linesOf(
+  ctx: Ctx,
+  listId: Id<"priceLists">,
+  productId: Id<"products">,
+  cache?: PricingCache,
 ) {
-  const lines: PricedLine[] = input.map((line) => ({
-    ...line,
-    grossMinor:
-      line.unitPriceMinor === null
-        ? null
-        : line.unitPriceMinor * BigInt(line.quantity),
-    discountMinor: 0n,
-    freeQuantity: 0,
-    promotionCode: null,
-  }));
-  const freeGoods: FreeGood[] = [];
-  const applied: string[] = [];
-  const valid = (n: number) => Number.isSafeInteger(n) && n > 0;
-  for (const promotion of promotions) {
-    const rule = promotion.rule;
-    if (rule.kind === "buy_x_get_y") {
-      if (!valid(rule.buy.quantity) || !valid(rule.free.quantity)) continue;
-      const line = lines.find(
-        (row) => row.promotionCode === null && sameUnit(row, rule.buy),
-      );
-      if (!line) continue;
-      const multiples = Math.floor(line.quantity / rule.buy.quantity);
-      if (multiples < 1) continue;
-      const quantity = multiples * rule.free.quantity;
-      line.promotionCode = promotion.code;
-      if (sameUnit(line, rule.free)) line.freeQuantity += quantity;
-      freeGoods.push({
-        productId: rule.free.productId,
-        uomId: rule.free.uomId,
-        quantity,
-        promotionCode: promotion.code,
-      });
-      applied.push(promotion.code);
-    } else if (rule.kind === "percent_off") {
-      const bp = rule.percentOffBasisPoints;
-      if (
-        !valid(rule.item.quantity) ||
-        !Number.isSafeInteger(bp) ||
-        bp < 1 ||
-        bp > 10_000
-      )
-        continue;
-      const line = lines.find(
-        (row) =>
-          row.promotionCode === null &&
-          sameUnit(row, rule.item) &&
-          row.quantity >= rule.item.quantity &&
-          row.grossMinor !== null,
-      );
-      if (!line || line.grossMinor === null) continue;
-      line.discountMinor = (line.grossMinor * BigInt(bp) + 5_000n) / 10_000n;
-      line.promotionCode = promotion.code;
-      applied.push(promotion.code);
-    } else {
-      if (
-        rule.components.length < 2 ||
-        rule.bundlePriceMinor < 0n ||
-        rule.components.some((c) => !valid(c.quantity))
-      )
-        continue;
-      const parts = rule.components.map((component) => ({
-        component,
-        line: lines.find(
-          (row) => row.promotionCode === null && sameUnit(row, component),
-        ),
-      }));
-      if (
-        parts.some(({ line }) => !line || line.unitPriceMinor === null) ||
-        new Set(parts.map(({ line }) => line)).size !== parts.length
-      )
-        continue;
-      const bundles = Math.min(
-        ...parts.map(({ component, line }) =>
-          Math.floor(line!.quantity / component.quantity),
-        ),
-      );
-      if (bundles < 1) continue;
-      const regular = parts.reduce(
-        (sum, { component, line }) =>
-          sum + line!.unitPriceMinor! * BigInt(component.quantity),
-        0n,
-      );
-      const perBundle = regular - rule.bundlePriceMinor;
-      if (perBundle <= 0n) continue;
-      const total = perBundle * BigInt(bundles);
-      // Split the bundle saving across its components by their regular value.
-      let left = total;
-      parts.forEach(({ component, line }, index) => {
-        const share =
-          index === parts.length - 1
-            ? left
-            : (total * line!.unitPriceMinor! * BigInt(component.quantity)) /
-              regular;
-        line!.discountMinor = share;
-        line!.promotionCode = promotion.code;
-        left -= share;
-      });
-      applied.push(promotion.code);
+  if (cache) {
+    let all = cache.listLines.get(listId);
+    if (all === undefined) {
+      const rows = await ctx.db
+        .query("priceListLines")
+        .withIndex("by_priceListId_and_productId", (q) =>
+          q.eq("priceListId", listId),
+        )
+        .take(MAX_LIST_LINES + 1);
+      all = rows.length > MAX_LIST_LINES ? null : rows;
+      cache.listLines.set(listId, all);
+    }
+    if (all) {
+      const rows = all.filter((row) => row.productId === productId);
+      return rows.length > MAX_LINES_PER_PRODUCT ? null : rows;
     }
   }
-  const priced = lines.every((line) => line.grossMinor !== null);
-  const grossMinor = lines.reduce((sum, l) => sum + (l.grossMinor ?? 0n), 0n);
-  const discountMinor = lines.reduce((sum, l) => sum + l.discountMinor, 0n);
+  const rows = await ctx.db
+    .query("priceListLines")
+    .withIndex("by_priceListId_and_productId", (q) =>
+      q.eq("priceListId", listId).eq("productId", productId),
+    )
+    .take(MAX_LINES_PER_PRODUCT + 1);
+  return rows.length > MAX_LINES_PER_PRODUCT ? null : rows;
+}
+
+function pricesOf(rows: Doc<"priceListLines">[] | null, at: number) {
+  const prices = new Map<string, number>();
+  if (!rows) return prices;
+  const byUnit = new Map<string, number[]>();
+  for (const row of rows) {
+    if (
+      row.organizationId !== SUNPRIDE_ORGANIZATION_ID ||
+      !effective(row, at) ||
+      !Number.isSafeInteger(row.unitPriceMinor) ||
+      row.unitPriceMinor < 0
+    )
+      continue;
+    byUnit.set(row.uom, [...(byUnit.get(row.uom) ?? []), row.unitPriceMinor]);
+  }
+  for (const [unit, values] of byUnit)
+    if (new Set(values).size === 1) prices.set(unit, values[0]!);
+  return prices;
+}
+
+/**
+ * Units a product may be ordered in: its own unit first, then its active selling units
+ * (product master `sellingUomIds`), at most MAX_ORDER_UNITS.
+ */
+export async function orderUnits(
+  ctx: Ctx,
+  product: Doc<"products">,
+  cache?: PricingCache,
+) {
+  const units = [product.uom];
+  for (const id of product.sellingUomIds ?? []) {
+    let row = cache?.units.get(id);
+    if (row === undefined) {
+      row = await ctx.db.get(id);
+      cache?.units.set(id, row);
+    }
+    if (
+      !row?.active ||
+      row.organizationId !== SUNPRIDE_ORGANIZATION_ID ||
+      units.includes(row.code)
+    )
+      continue;
+    units.push(row.code);
+    if (units.length >= MAX_ORDER_UNITS) break;
+  }
+  return units;
+}
+
+/** The customer an outlet was linked to at `at` (single active link), else null. */
+export async function customerAt(
+  ctx: Ctx,
+  outletId: Id<"outlets">,
+  at: number,
+) {
+  const rows = await ctx.db
+    .query("outletCustomerLinks")
+    .withIndex("by_outletId_and_effectiveFrom", (q) =>
+      q.eq("outletId", outletId).lte("effectiveFrom", at),
+    )
+    .order("desc")
+    .take(50);
+  const live = rows.filter((row) =>
+    activeAt(row.effectiveFrom, row.effectiveTo, at),
+  );
+  if (live.length !== 1) return null;
+  return await ctx.db.get(live[0]!.customerId);
+}
+
+export type CreditCheck = Doc<"fieldOrderPricings">["credit"];
+
+/** Credit limit in centavos, or null when none is set. */
+export function creditLimitMinor(
+  customer: Pick<Doc<"customers">, "creditLimit"> | null,
+) {
+  return customer &&
+    Number.isFinite(customer.creditLimit) &&
+    customer.creditLimit > 0
+    ? toMinor(customer.creditLimit)
+    : null;
+}
+
+export async function creditCheck(
+  ctx: Ctx,
+  customer: Doc<"customers"> | null,
+  orderMinor: number,
+  alsoPendingMinor: number,
+): Promise<CreditCheck> {
+  const limitMinor = creditLimitMinor(customer);
+  if (!customer || limitMinor === null)
+    return { status: "no_limit", limitMinor, openOrdersMinor: null };
+  const orders = await ctx.db
+    .query("orders")
+    .withIndex("by_customer", (q) => q.eq("customerCode", customer.code))
+    .order("desc")
+    .take(MAX_CREDIT_ORDERS + 1);
+  if (orders.length > MAX_CREDIT_ORDERS)
+    return { status: "unknown", limitMinor, openOrdersMinor: null };
+  let open = alsoPendingMinor;
+  for (const order of orders)
+    if (
+      (order.organizationId === undefined ||
+        order.organizationId === SUNPRIDE_ORGANIZATION_ID) &&
+      OPEN_STATUSES.has(order.status)
+    )
+      open += toMinor(order.total);
   return {
+    status: open + orderMinor <= limitMinor ? "within" : "over",
+    limitMinor,
+    openOrdersMinor: open,
+  };
+}
+
+export type OrderTerms = {
+  outletId: string;
+  priceList: {
+    id: string;
+    code: string;
+    name: string;
+    currency: string;
+    sample: boolean;
+  } | null;
+  lines: { productId: string; uom: string; unitPriceMinor: number | null }[];
+};
+
+/**
+ * The phone's order terms for one outlet: every orderable unit of each account-setup product,
+ * with its price when the outlet's list has exactly one for it. `stamp` changes with any
+ * figure, so a price edit forces a fresh snapshot.
+ */
+export async function orderTermsFor(
+  ctx: Ctx,
+  outlet: Doc<"outlets">,
+  customer: Doc<"customers"> | null,
+  products: Doc<"products">[],
+  at: number,
+  cache: PricingCache,
+): Promise<{ terms: OrderTerms; stamp: string }> {
+  const list = await priceListFor(ctx, outlet, customer, at, cache);
+  const lines: OrderTerms["lines"] = [];
+  for (const product of products) {
+    const prices = list
+      ? await productPrices(ctx, list._id, product._id, at, cache)
+      : new Map<string, number>();
+    for (const uom of await orderUnits(ctx, product, cache))
+      lines.push({
+        productId: product._id,
+        uom,
+        unitPriceMinor: prices.get(uom) ?? null,
+      });
+  }
+  const terms: OrderTerms = {
+    outletId: outlet._id,
+    priceList: list
+      ? {
+          id: list._id,
+          code: list.code,
+          name: list.name,
+          currency: list.currency,
+          sample: list.source === "sample",
+        }
+      : null,
     lines,
-    freeGoods,
-    applied,
-    priced,
-    grossMinor,
-    discountMinor,
-    totalMinor: grossMinor - discountMinor,
+  };
+  return { terms, stamp: JSON.stringify(terms) };
+}
+
+/**
+ * Server pricing of a submitted field order at `at` (the order's capture time). Lines with no
+ * single effective price stay unpriced (the office prices them) and are excluded from the total.
+ */
+export async function priceFieldOrder(
+  ctx: MutationCtx,
+  visit: Pick<Doc<"visitExecutions">, "_id" | "outletId">,
+  lines: { productId: Id<"products">; uom: string; quantity: number }[],
+  at: number,
+) {
+  const outlet = await ctx.db.get(visit.outletId);
+  const customer = await customerAt(ctx, visit.outletId, at);
+  const list = await priceListFor(ctx, outlet, customer, at);
+  const priced = [];
+  let totalMinor = 0;
+  let unpricedLines = 0;
+  for (const line of lines) {
+    const unitPriceMinor = list
+      ? ((await productPrices(ctx, list._id, line.productId, at)).get(
+          line.uom,
+        ) ?? null)
+      : null;
+    const lineTotalMinor =
+      unitPriceMinor === null ? null : unitPriceMinor * line.quantity;
+    if (lineTotalMinor === null) unpricedLines++;
+    else totalMinor += lineTotalMinor;
+    priced.push({ ...line, unitPriceMinor, lineTotalMinor });
+  }
+  // Earlier orders on the same call count against the limit too (they are not `orders` rows).
+  const earlier = await ctx.db
+    .query("fieldOrderPricings")
+    .withIndex("by_visitId", (q) => q.eq("visitId", visit._id))
+    .take(101);
+  const pending = earlier.reduce((sum, row) => sum + row.totalMinor, 0);
+  return {
+    customerId: customer?._id ?? null,
+    priceListId: list?._id ?? null,
+    priceListSource: list?.source ?? null,
+    currency: list?.currency ?? PRICE_CURRENCY,
+    lines: priced,
+    totalMinor,
+    unpricedLines,
+    credit: await creditCheck(ctx, customer, totalMinor, pending),
   };
 }

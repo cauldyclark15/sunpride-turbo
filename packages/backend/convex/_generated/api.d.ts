@@ -144,6 +144,8 @@ import type * as people_mutations from "../people/mutations.js";
 import type * as people_queries from "../people/queries.js";
 import type * as people_validation from "../people/validation.js";
 import type * as pricing_model from "../pricing/model.js";
+import type * as pricing_promotions from "../pricing/promotions.js";
+import type * as pricing_sample from "../pricing/sample.js";
 import type * as pricing_validators from "../pricing/validators.js";
 import type * as pricing_wire from "../pricing/wire.js";
 import type * as seed from "../seed.js";
@@ -338,6 +340,8 @@ declare const fullApi: ApiFromModules<{
   "people/queries": typeof people_queries;
   "people/validation": typeof people_validation;
   "pricing/model": typeof pricing_model;
+  "pricing/promotions": typeof pricing_promotions;
+  "pricing/sample": typeof pricing_sample;
   "pricing/validators": typeof pricing_validators;
   "pricing/wire": typeof pricing_wire;
   seed: typeof seed;

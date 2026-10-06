@@ -6,7 +6,8 @@ import schema from "../schema";
 import { modules } from "../test.setup";
 import { manilaDate } from "../coverage/validation";
 import type { AuthorizedDevice } from "../mobile/types";
-import { mobilePricing } from "../pricing/wire";
+import { postMovement } from "../inventory/posting";
+import { pricingCache, priceListFor, productPrices } from "../pricing/model";
 import {
   SAMPLE_BATCH,
   SAMPLE_PEOPLE,
@@ -136,7 +137,7 @@ describe("beta sample seed (SP-0129)", () => {
 
     await t.run(async (ctx) => {
       const lists = await ctx.db.query("priceLists").collect();
-      expect(lists.every((list) => list.source === "beta_sample")).toBe(true);
+      expect(lists.every((list) => list.source === "sample")).toBe(true);
       const outlets = await ctx.db.query("outlets").collect();
       expect(outlets.every((o) => o.code.startsWith("SMP-"))).toBe(true);
       // Every sample row is listed in the one marker table.
@@ -161,7 +162,7 @@ describe("beta sample seed (SP-0129)", () => {
         (
           await ctx.db
             .query("priceListLines")
-            .withIndex("by_priceListId_and_effectiveFrom", (q) =>
+            .withIndex("by_priceListId_and_productId", (q) =>
               q.eq("priceListId", list._id),
             )
             .collect()
@@ -179,7 +180,7 @@ describe("beta sample seed (SP-0129)", () => {
         await ctx.db
           .query("sampleDataRows")
           .withIndex("by_batch_and_key", (q) =>
-            q.eq("batch", SAMPLE_BATCH).eq("key", "pricelist:SMP-PL-RS"),
+            q.eq("batch", SAMPLE_BATCH).eq("key", "pricelist:SAMPLE-RS"),
           )
           .unique(),
       ).not.toBeNull();
@@ -210,49 +211,114 @@ describe("beta sample seed (SP-0129)", () => {
         (await ctx.db.query("inventoryLedgerEntries").collect()).length,
       ).toBe(40);
     });
-    // Each store's channel resolves exactly one list with every product priced per piece.
+    // Each store's channel resolves exactly one SP-0088 list with every product priced.
     const outlets = await t.run((ctx) => ctx.db.query("outlets").collect());
-    const pricing = await t.run((ctx) => mobilePricing(ctx, outlets, NOW));
-    expect(pricing.outletPriceLists).toHaveLength(30);
-    expect(pricing.priceLists.map((list) => list.code).sort()).toEqual([
-      "SMP-PL-KA",
-      "SMP-PL-PM",
-      "SMP-PL-RS",
-    ]);
-    const store = SAMPLE_STORES.find((row) => row.code === "SMP-O-0301")!;
-    const outlet = outlets.find((row) => row.code === store.code)!;
-    const listId = pricing.outletPriceLists.find(
-      (row) => row.outletId === outlet._id,
-    )!.priceListId;
-    const market = pricing.priceLists.find((l) => l.priceListId === listId)!;
-    expect(market.code).toBe("SMP-PL-PM");
-    expect(market.currency).toBe("PHP");
-    const pieceLines = market.lines.filter((line) => line.uomCode === "PC");
-    expect(pieceLines).toHaveLength(40);
-    const caseLines = market.lines.filter((line) => line.uomCode === "CASE");
-    expect(caseLines).toHaveLength(40);
-    const marketList = SAMPLE_PRICE_LISTS.find((l) => l.code === "SMP-PL-PM")!;
     const corned = await byCode(t, "products", "SMP-CB-150");
-    expect(
-      market.lines.find(
-        (l) => l.productId === corned._id && l.uomCode === "CASE",
-      )?.unitPriceMinor,
-    ).toBe(samplePrice(productNamed("SMP-CB-150"), marketList, "CASE"));
-    // Every-list promotions plus the Route Sales bundle (Route Sales stores are on the page).
-    expect(pricing.promotions.map((p) => p.code).sort()).toEqual([
-      "SMP-PROMO-CB150-CASE5",
-      "SMP-PROMO-MERIENDA",
-      "SMP-PROMO-PJ240-B10G1",
+    const resolved = await t.run(async (ctx) => {
+      const cache = pricingCache();
+      const out = [];
+      for (const outlet of outlets) {
+        const list = await priceListFor(ctx, outlet, null, NOW, cache);
+        out.push({
+          code: outlet.code,
+          list: list?.code ?? null,
+          sample: list?.source === "sample",
+          corned: list
+            ? Object.fromEntries(
+                await productPrices(ctx, list._id, corned._id, NOW, cache),
+              )
+            : {},
+        });
+      }
+      return out;
+    });
+    expect(resolved.every((row) => row.list !== null && row.sample)).toBe(true);
+    expect([...new Set(resolved.map((row) => row.list))].sort()).toEqual([
+      "SAMPLE-KA",
+      "SAMPLE-PM",
+      "SAMPLE-RS",
     ]);
-    const kaOnly = await t.run((ctx) =>
-      mobilePricing(
-        ctx,
-        outlets.filter((row) => row.code === "SMP-O-0001"),
-        NOW,
-      ),
+    const market = resolved.find((row) => row.code === "SMP-O-0301")!;
+    expect(market.list).toBe("SAMPLE-PM");
+    const marketList = SAMPLE_PRICE_LISTS.find((l) => l.code === "SAMPLE-PM")!;
+    expect(market.corned).toEqual({
+      PC: samplePrice(productNamed("SMP-CB-150"), marketList, "PC"),
+      CASE: samplePrice(productNamed("SMP-CB-150"), marketList, "CASE"),
+    });
+    expect(resolved.find((row) => row.code === "SMP-O-0001")!.list).toBe(
+      "SAMPLE-KA",
     );
-    expect(kaOnly.priceLists.map((list) => list.code)).toEqual(["SMP-PL-KA"]);
-    expect(kaOnly.promotions.map((p) => p.code).sort()).toEqual([
+  });
+
+  it("shares SP-0088's sample lists, so either seed order leaves one list per channel", async () => {
+    for (const pricingFirst of [false, true]) {
+      const t = await fresh();
+      const runPricingSeed = async () => {
+        let cursor: string | null = null;
+        for (;;) {
+          const page: { isDone: boolean; continueCursor: string } =
+            await t.mutation(internal.pricing.sample.seed, { cursor });
+          if (page.isDone) break;
+          cursor = page.continueCursor;
+        }
+      };
+      if (pricingFirst) await runPricingSeed();
+      await t.mutation(internal.beta.sample.seed, {});
+      if (!pricingFirst) await runPricingSeed();
+      const lists = await t.run((ctx) => ctx.db.query("priceLists").collect());
+      expect(lists.map((list) => list.code).sort()).toEqual([
+        "SAMPLE-KA",
+        "SAMPLE-PM",
+        "SAMPLE-RS",
+        "SAMPLE-STD",
+      ]);
+      const juice = await byCode(t, "products", "SMP-PJ-240");
+      const outlet = await byCode(t, "outlets", "SMP-O-0101");
+      const prices = await t.run(async (ctx) => {
+        const list = await priceListFor(ctx, outlet, null, NOW);
+        return list
+          ? Object.fromEntries(
+              await productPrices(ctx, list._id, juice._id, NOW),
+            )
+          : null;
+      });
+      // The beta seed's realistic prices win for its own products in either order.
+      expect(prices?.PC).toBe(
+        samplePrice(productNamed("SMP-PJ-240"), rs, "PC"),
+      );
+    }
+  });
+
+  it("never adds a competing sample list where an office list already prices the channel", async () => {
+    const t = await fresh();
+    await t.run((ctx) =>
+      ctx.db.insert("priceLists", {
+        organizationId: "sunpride",
+        code: "OFFICE-RS",
+        name: "Route Sales",
+        channelKey: "route sales",
+        currency: "PHP",
+        status: "active",
+        source: "office",
+        effectiveFrom: 0,
+        updatedAt: NOW,
+      }),
+    );
+    const result = await t.mutation(internal.beta.sample.seed, {});
+    expect(result.skipped).toEqual([
+      "price list SAMPLE-RS: channel already priced",
+    ]);
+    const lists = await t.run((ctx) => ctx.db.query("priceLists").collect());
+    expect(lists.map((list) => list.code).sort()).toEqual([
+      "OFFICE-RS",
+      "SAMPLE-KA",
+      "SAMPLE-PM",
+    ]);
+    // The Route Sales bundle belongs to the skipped list and is not created.
+    const promotions = await t.run((ctx) =>
+      ctx.db.query("promotions").collect(),
+    );
+    expect(promotions.map((p) => p.code).sort()).toEqual([
       "SMP-PROMO-CB150-CASE5",
       "SMP-PROMO-PJ240-B10G1",
     ]);
@@ -301,6 +367,45 @@ describe("beta sample seed (SP-0129)", () => {
     ).toHaveLength(0);
     const again = await t.mutation(internal.beta.sample.seed, {});
     expect(again.created.outlets).toBe(30);
+  });
+
+  it("reset refuses, removing nothing, once a tester has signed up or is assigned to a sample unit", async () => {
+    const t = await fresh();
+    await t.mutation(internal.beta.sample.seed, {});
+    await tester(t, "sales").mutation(api.domains.profiles.ensure, {});
+    await t.mutation(internal.beta.sample.seed, {});
+    const before = await counts(t);
+    await expect(
+      t.mutation(internal.beta.sample.reset, { confirm: "remove-beta-sample" }),
+    ).rejects.toThrow(/in use.*sales@sunpride\.test has signed up.*SMP-CEBU-N/);
+    expect(await counts(t)).toEqual(before);
+  });
+
+  it("reset refuses, removing nothing, when stock moved at a sample location after the opening balance", async () => {
+    const t = await fresh();
+    await t.mutation(internal.beta.sample.seed, {});
+    const juice = await byCode(t, "products", "SMP-PJ-240");
+    await t.run(async (ctx) => {
+      const depot = (await ctx.db.query("inventoryLocations").collect()).find(
+        (row) => row.code === "SMP-DEPOT-CEBU",
+      )!;
+      await postMovement(ctx, {
+        idempotencyKey: "beta-test-issue",
+        payloadHash: "beta-test-issue",
+        commandType: "test.issue",
+        movementType: "inventory_issue",
+        sourceType: "test",
+        actorSubject: "inventory-admin",
+        lines: [
+          { productId: juice._id, fromLocationId: depot._id, quantityBase: 1n },
+        ],
+      });
+    });
+    const before = await counts(t);
+    await expect(
+      t.mutation(internal.beta.sample.reset, { confirm: "remove-beta-sample" }),
+    ).rejects.toThrow(/stock has moved at SMP-DEPOT-CEBU/);
+    expect(await counts(t)).toEqual(before);
   });
 
   it("attaches invited testers on a re-run: unit, position, supervisor, territory and route", async () => {
@@ -440,42 +545,33 @@ describe("beta sample seed (SP-0129)", () => {
       },
     })) as { status: string };
     expect(order.status).toBe("accepted");
+    // SP-0088 prices the order on the server at capture time from the store's channel list.
     const priced = await t.run((ctx) =>
       ctx.db
-        .query("fieldOrderPrices")
+        .query("fieldOrderPricings")
         .withIndex("by_visitId", (q) =>
           q.eq("visitId", check.ack.entityId as Id<"visitExecutions">),
         )
         .unique(),
     );
-    const juicePrice = BigInt(
-      samplePrice(productNamed("SMP-PJ-240"), rs, "PC")!,
-    );
-    const beansPrice = BigInt(
-      samplePrice(productNamed("SMP-PB-230"), rs, "PC")!,
-    );
+    const juicePrice = samplePrice(productNamed("SMP-PJ-240"), rs, "PC")!;
+    const beansPrice = samplePrice(productNamed("SMP-PB-230"), rs, "PC")!;
+    const list = await t.run((ctx) => ctx.db.get(priced!.priceListId!));
+    expect(list?.code).toBe("SAMPLE-RS");
     expect(priced).toMatchObject({
-      status: "priced",
+      priceListSource: "sample",
       currency: "PHP",
       clientOrderId: uuid(90),
-      promotionCodes: ["SMP-PROMO-PJ240-B10G1"],
-      grossMinor: juicePrice * 12n + beansPrice * 3n,
-      discountMinor: 0n,
-      totalMinor: juicePrice * 12n + beansPrice * 3n,
+      unpricedLines: 0,
+      totalMinor: juicePrice * 12 + beansPrice * 3,
     });
-    expect(priced!.lines[0]).toMatchObject({
-      unitPriceMinor: juicePrice,
-      freeQuantity: 1,
-    });
-    const byActivity = await t.run((ctx) =>
-      ctx.db
-        .query("fieldOrderPrices")
-        .withIndex("by_activityId", (q) =>
-          q.eq("activityId", priced!.activityId),
-        )
-        .unique(),
-    );
-    expect(byActivity?._id).toBe(priced!._id);
+    expect(priced!.lines.map((line) => line.unitPriceMinor)).toEqual([
+      juicePrice,
+      beansPrice,
+    ]);
+    // The sample store carries a sample credit limit, so the order gets a real credit check.
+    expect(priced!.credit.limitMinor).toBeGreaterThan(0);
+    expect(priced!.credit.status).toBe("within");
   });
 
   it("end to end: the van bootstrap carries Route Sales prices and promotions for the loaded truck", async () => {
@@ -569,19 +665,15 @@ describe("beta sample seed (SP-0129)", () => {
         ],
       ].sort(),
     );
-    expect(boot.priceLines.every((l) => l.priceListCode === "SMP-PL-RS")).toBe(
+    expect(boot.priceLines.every((l) => l.priceListCode === "SAMPLE-RS")).toBe(
       true,
     );
     expect(boot.priceLines.every((l) => l.currency === "PHP")).toBe(true);
+    // The Merienda bundle needs Pancake Mix and 1L juice, which this truck does not carry.
     expect(boot.promotions.map((p) => p.code).sort()).toEqual([
       "SMP-PROMO-CB150-CASE5",
-      "SMP-PROMO-MERIENDA",
       "SMP-PROMO-PJ240-B10G1",
     ]);
-    expect(
-      boot.promotions.find((p) => p.rule.kind === "bundle")?.rule
-        .bundlePriceMinor,
-    ).toBe("15900");
   });
 
   it("plans the van tester's sample day (trip + load sheet) idempotently, priced on the handheld", async () => {
@@ -637,6 +729,10 @@ describe("beta sample seed (SP-0129)", () => {
       trip: { tripId: string; status: string } | null;
       load: { lines: { productCode: string; expectedBase: string }[] } | null;
       priceLines: unknown[];
+      promotions: {
+        code: string;
+        rule: { kind: string; bundlePriceMinor?: string };
+      }[];
     };
     expect(boot.trip).toMatchObject({
       tripId: planned!.tripId,
@@ -648,5 +744,15 @@ describe("beta sample seed (SP-0129)", () => {
         ?.expectedBase,
     ).toBe(String(24 * 5));
     expect(boot.priceLines).toHaveLength(10);
+    // The sample day's load carries every product of all three promotions.
+    expect(boot.promotions.map((p) => p.code).sort()).toEqual([
+      "SMP-PROMO-CB150-CASE5",
+      "SMP-PROMO-MERIENDA",
+      "SMP-PROMO-PJ240-B10G1",
+    ]);
+    expect(
+      boot.promotions.find((p) => p.rule.kind === "bundle")?.rule
+        .bundlePriceMinor,
+    ).toBe("15900");
   });
 });

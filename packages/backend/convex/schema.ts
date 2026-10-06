@@ -24,11 +24,7 @@ import {
   callSheetTemplateLineValidator,
 } from "./callSheets/validators";
 import { fieldOrderLineValidator } from "./orders/field_order_validators";
-import {
-  priceListStatusValidator,
-  pricingSourceValidator,
-  promotionRuleValidator,
-} from "./pricing/validators";
+import { promotionRuleValidator } from "./pricing/validators";
 import { productiveCallRuleValidator } from "./sfa/productive_call";
 import {
   contributionFields,
@@ -3205,42 +3201,95 @@ export default defineSchema({
     "productId",
     "effectiveFrom",
   ]),
-  // SP-0129 / ADR-008: governed price baseline (channel price lists, effective-dated lines,
-  // promotions) until SAP pricing is integrated. `source` marks beta sample rows.
+  // PRICING-001 (SP-0088, ADR-008): governed price baseline before SAP pricing. A list applies
+  // to an outlet channel (`channelKey`, trimmed lower case) or is the default list; lines price
+  // one product in one selling unit. `source: "sample"` rows are made-up beta data
+  // (pricing/sample.ts) that real Sunpride lists replace.
   priceLists: defineTable({
     organizationId: v.string(),
     code: v.string(),
     name: v.string(),
-    channel: v.string(),
+    channelKey: v.union(v.string(), v.null()),
     currency: v.string(),
-    vatInclusive: v.boolean(),
-    status: priceListStatusValidator,
-    source: pricingSourceValidator,
-    createdAt: v.number(),
+    status: v.union(v.literal("active"), v.literal("inactive")),
+    source: v.union(v.literal("sample"), v.literal("office")),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
     updatedAt: v.number(),
   })
     .index("by_organizationId_and_code", ["organizationId", "code"])
-    .index("by_organizationId_and_status", ["organizationId", "status"]),
+    .index("by_organizationId_and_channelKey", [
+      "organizationId",
+      "channelKey",
+    ]),
   priceListLines: defineTable({
     organizationId: v.string(),
     priceListId: v.id("priceLists"),
     productId: v.id("products"),
-    uomId: v.id("unitsOfMeasure"),
-    unitPriceMinor: v.int64(),
+    uom: v.string(),
+    /** Whole centavos per one unit of `uom`. */
+    unitPriceMinor: v.number(),
     effectiveFrom: v.number(),
     effectiveTo: v.optional(v.number()),
-    actorSubject: v.string(),
-    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_priceListId_and_productId", ["priceListId", "productId"]),
+  /** Server pricing and credit check of a submitted field order (`order_intent` activity). */
+  fieldOrderPricings: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    visitId: v.id("visitExecutions"),
+    activityId: v.id("visitActivities"),
+    outletId: v.id("outlets"),
+    customerId: v.union(v.id("customers"), v.null()),
+    clientOrderId: v.string(),
+    priceListId: v.union(v.id("priceLists"), v.null()),
+    priceListSource: v.union(
+      v.literal("sample"),
+      v.literal("office"),
+      v.null(),
+    ),
+    currency: v.string(),
+    pricedAt: v.number(),
+    lines: v.array(
+      v.object({
+        productId: v.id("products"),
+        uom: v.string(),
+        quantity: v.number(),
+        unitPriceMinor: v.union(v.number(), v.null()),
+        lineTotalMinor: v.union(v.number(), v.null()),
+      }),
+    ),
+    totalMinor: v.number(),
+    unpricedLines: v.number(),
+    credit: v.object({
+      status: v.union(
+        v.literal("within"),
+        v.literal("over"),
+        v.literal("no_limit"),
+        v.literal("unknown"),
+      ),
+      limitMinor: v.union(v.number(), v.null()),
+      openOrdersMinor: v.union(v.number(), v.null()),
+    }),
+    serverTime: v.number(),
   })
-    .index("by_priceListId_and_productId_and_uomId", [
-      "priceListId",
-      "productId",
-      "uomId",
-    ])
-    .index("by_priceListId_and_effectiveFrom", [
-      "priceListId",
-      "effectiveFrom",
-    ]),
+    .index("by_activityId", ["activityId"])
+    .index("by_visitId", ["visitId"]),
+  /** Beta sample-data marker: a value the sample seed changed, so reset can restore it. */
+  sampleDataChanges: defineTable({
+    organizationId: v.string(),
+    kind: v.literal("customer_credit_limit"),
+    customerId: v.id("customers"),
+    previousValue: v.number(),
+    sampleValue: v.number(),
+    createdAt: v.number(),
+  }).index("by_organizationId_and_customerId", [
+    "organizationId",
+    "customerId",
+  ]),
+  // SP-0129 (ADR-008): governed promotions on the SP-0088 price lists. Units are unit codes
+  // (as on priceListLines); `source` marks beta sample rows. Shipped to the van handheld;
+  // promotions never combine (pricing/promotions.ts).
   promotions: defineTable({
     organizationId: v.string(),
     code: v.string(),
@@ -3248,46 +3297,14 @@ export default defineSchema({
     // Absent = applies on every price list.
     priceListId: v.optional(v.id("priceLists")),
     rule: promotionRuleValidator,
-    status: priceListStatusValidator,
-    source: pricingSourceValidator,
+    status: v.union(v.literal("active"), v.literal("inactive")),
+    source: v.union(v.literal("sample"), v.literal("office")),
     effectiveFrom: v.number(),
     effectiveTo: v.optional(v.number()),
-    createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_organizationId_and_code", ["organizationId", "code"])
     .index("by_organizationId_and_status", ["organizationId", "status"]),
-  // SP-0129: the server-resolved price of a submitted field order (ADR-008: prices are
-  // resolved server-side at receipt, never taken from the phone).
-  fieldOrderPrices: defineTable({
-    organizationId: v.string(),
-    orgUnitId: v.id("orgUnits"),
-    activityId: v.id("visitActivities"),
-    visitId: v.id("visitExecutions"),
-    outletId: v.id("outlets"),
-    clientOrderId: v.string(),
-    priceListId: v.optional(v.id("priceLists")),
-    currency: v.string(),
-    status: v.union(v.literal("priced"), v.literal("needs_office_price")),
-    lines: v.array(
-      v.object({
-        productId: v.id("products"),
-        uom: v.string(),
-        quantity: v.number(),
-        unitPriceMinor: v.optional(v.int64()),
-        grossMinor: v.optional(v.int64()),
-        discountMinor: v.int64(),
-        freeQuantity: v.number(),
-      }),
-    ),
-    promotionCodes: v.array(v.string()),
-    grossMinor: v.int64(),
-    discountMinor: v.int64(),
-    totalMinor: v.int64(),
-    pricedAt: v.number(),
-  })
-    .index("by_activityId", ["activityId"])
-    .index("by_visitId", ["visitId"]),
   // SP-0129: every row the beta sample seed created (one table to find and remove them).
   sampleDataRows: defineTable({
     batch: v.string(),

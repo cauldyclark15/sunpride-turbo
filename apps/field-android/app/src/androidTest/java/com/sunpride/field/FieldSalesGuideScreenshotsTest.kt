@@ -324,6 +324,7 @@ class FieldSalesGuideScreenshotsTest {
         rule.onNodeWithTag("order-save").assertIsEnabled().performClick()
         rule.waitUntil(10_000) { backend.orderDrafts().size == 1 }
         waitTag("order-review")
+        rule.onNodeWithTag("order-products").performScrollToNode(hasTestTag("order-association"))
         rule.onNodeWithTag("order-association").assertTextContains("Customer CUST-20411", substring = true)
         rule.onNodeWithTag("order-products").performScrollToNode(hasTestTag("order-title"))
         shot("22-order-draft")

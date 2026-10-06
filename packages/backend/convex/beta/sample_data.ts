@@ -327,30 +327,39 @@ export const SAMPLE_PRODUCTS: SampleProduct[] = [
 
 export type SampleChannel = "KEY_ACCOUNTS" | "ROUTE_SALES" | "PUBLIC_MARKET";
 
-/** One price list per channel; prices are the Route Sales piece price times `factor`. */
+/**
+ * One price list per channel, shared with SP-0088's sample lists (`pricing/sample.ts`: same
+ * codes and channel keys), so the two sample seeds never create competing lists for a channel.
+ * Prices are the Route Sales piece price times `pieceFactorBp`.
+ */
 export const SAMPLE_PRICE_LISTS: {
   code: string;
   name: string;
   channel: SampleChannel;
+  /** SP-0088 `priceLists.channelKey` (the outlet channel, trimmed lower case). */
+  channelKey: string;
   /** Basis points of the Route Sales piece price (10000 = same). */
   pieceFactorBp: number;
 }[] = [
   {
-    code: "SMP-PL-KA",
+    code: "SAMPLE-KA",
     name: "Key Accounts (sample)",
     channel: "KEY_ACCOUNTS",
+    channelKey: "key accounts",
     pieceFactorBp: 9_600,
   },
   {
-    code: "SMP-PL-RS",
+    code: "SAMPLE-RS",
     name: "Route Sales / PMOT (sample)",
     channel: "ROUTE_SALES",
+    channelKey: "route sales",
     pieceFactorBp: 10_000,
   },
   {
-    code: "SMP-PL-PM",
+    code: "SAMPLE-PM",
     name: "Public Market (sample)",
     channel: "PUBLIC_MARKET",
+    channelKey: "public market",
     pieceFactorBp: 10_300,
   },
 ];
@@ -438,7 +447,7 @@ export const SAMPLE_PROMOTIONS: {
   {
     code: "SMP-PROMO-MERIENDA",
     name: "Merienda bundle: Pancake Mix 400g + Pineapple Juice 1L for P159",
-    priceListCode: "SMP-PL-RS",
+    priceListCode: "SAMPLE-RS",
     rule: {
       kind: "bundle",
       components: [

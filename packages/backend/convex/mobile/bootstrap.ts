@@ -29,17 +29,16 @@ import {
   type Cursor,
 } from "./cursor";
 import { REFERENCE_OVERLAP_MS } from "./reference";
-import { mobilePricing } from "../pricing/wire";
 import {
   assertDevice,
   availabilityDTO,
   callSheetDTO,
   customerDTO,
   dayProjection,
+  orderTermsDTO,
   outletDTO,
   phonePhotoTypes,
   photoTypeDTO,
-  pricingDTO,
   productDTO,
   routeDTO,
   taskDTO,
@@ -243,12 +242,13 @@ export const snapshot = internalQuery({
     activityRules: v.array(activityRuleDTO),
     photoTypes: v.array(photoTypeDTO),
     accountSummaries: v.array(accountSummaryDTO),
+    /** SP-0088: each account's order terms, shipped once with its call sheet. */
+    orderTerms: v.optional(v.array(orderTermsDTO)),
     page: v.number(),
     nextPageCursor: v.union(v.string(), v.null()),
     syncCursor: v.union(v.string(), v.null()),
     dayTarget: v.optional(dayTargetValidator),
     daySales: v.optional(daySalesValidator),
-    pricing: v.optional(pricingDTO),
   }),
   handler: async (
     ctx,
@@ -356,24 +356,17 @@ export const snapshot = internalQuery({
           jsonBytes(e.value.outlet) +
           (e.value.customer ? jsonBytes(e.value.customer) + 1 : 0) +
           (sheetAt.has(i) ? jsonBytes(e.value.callSheet) + 1 : 0) +
+          (sheetAt.has(i) && e.value.orderTerms
+            ? jsonBytes(e.value.orderTerms) + 1
+            : 0) +
           (summaryAt.has(i) ? ACCOUNT_SUMMARY_MAX_BYTES + 1 : 0) +
           2,
     );
-    // SP-0129 / ADR-008: governed prices for every outlet in the working set, the same on
-    // every page (like the activity rules), so its size is reserved before paging.
-    const pricingOutlets = [];
-    for (const outletId of planOutlets) {
-      const outlet = await ctx.db.get(outletId as Id<"outlets">);
-      if (outlet) pricingOutlets.push(outlet);
-    }
-    const pricing = await mobilePricing(ctx, pricingOutlets, now);
-    const hasPricing = pricing.outletPriceLists.length > 0;
     const budget =
       MAX_BOOTSTRAP_PAGE_BYTES -
       PAGE_ENVELOPE_RESERVE_BYTES -
       jsonBytes(activityRules) -
-      jsonBytes(phonePhotoTypes()) -
-      (hasPricing ? jsonBytes(pricing) + 12 : 0);
+      jsonBytes(phonePhotoTypes());
     const pageLimit = limit ?? 100;
     if (
       sizes.some((size) => size + 1 > budget) ||
@@ -454,6 +447,8 @@ export const snapshot = internalQuery({
         offlineLeaseExpiresAt: nextDayCloseAt(now),
         cacheExpiresAt: nextDayCloseAt(now),
         orderCaptureEnabled: false,
+        // Contract v1 keeps this literal (native clients require it); per-account prices
+        // travel in the additive `orderTerms` (SP-0088).
         priceAvailability: "unavailable" as const,
         promotionsAvailability: "unavailable" as const,
       },
@@ -472,6 +467,10 @@ export const snapshot = internalQuery({
       activityRules,
       // AND-016: visit photo types, the same small list on every page.
       photoTypes: phonePhotoTypes(),
+      // SP-0088: prices and order units, once per account like its call sheet.
+      orderTerms: visits.flatMap((e) =>
+        e.sheet && e.orderTerms ? [e.orderTerms] : [],
+      ),
       // IOS-011: account figures for this page's newly shipped outlets (as of serverTime).
       accountSummaries,
       page: base.page,
@@ -481,7 +480,6 @@ export const snapshot = internalQuery({
         : await signCursor({ ...base, kind: "pull", after: cursor.watermark }),
       ...(target ? { dayTarget: target } : {}),
       ...(sales ? { daySales: sales } : {}),
-      ...(hasPricing ? { pricing } : {}),
     };
   },
 });

@@ -2,13 +2,21 @@
 
 Made-up, realistic master data so beta testers can use the web dashboard, the field apps and the
 van POS before Sunpride sends its real data (SP-0033 products/prices/promotions, SP-0034 stores).
-**None of it is Sunpride's real data.** Every code starts with `SMP`, price lists and promotions
-carry `source: "beta_sample"`, and every row the seed writes is listed in the `sampleDataRows`
-table (batch `beta-sample-v1`) so it can be removed in one step when real data arrives.
+**None of it is Sunpride's real data.** Every product/store code starts with `SMP`, price lists
+and promotions carry `source: "sample"`, and every row the seed writes is listed in the
+`sampleDataRows` table (batch `beta-sample-v1`) so it can be removed in one step when real data
+arrives.
+
+Pricing is SP-0088's model (`priceLists` / `priceListLines`, `convex/pricing/model.ts`): this
+branch builds on `feat/sp-0088` and must be integrated after it. The beta seed shares SP-0088's
+sample lists (`SAMPLE-KA`, `SAMPLE-RS`, `SAMPLE-PM`, same codes and channel keys as
+`pricing/sample:seed`), so running both seeds in either order leaves exactly one list per
+channel; it never adds a sample list for a channel an office list already prices (reported in
+`skipped`).
 
 Code: `packages/backend/convex/beta/sample.ts` (seed/reset), data in `beta/sample_data.ts`,
-pricing in `convex/pricing/` (ADR-008 price baseline). Tests: `beta/sample.test.ts`,
-`pricing/model.test.ts`, `mobile/bootstrap.test.ts` (pricing case).
+promotions and van pricing in `convex/pricing/promotions.ts` / `wire.ts`. Tests:
+`beta/sample.test.ts`, `pricing/wire.test.ts` (plus SP-0088's pricing tests).
 
 ## What it creates
 
@@ -17,7 +25,7 @@ pricing in `convex/pricing/` (ADR-008 price baseline). Tests: `beta/sample.test.
 | Organization | existing national root > `SMP-VIS` Visayas > `SMP-CEBU` Cebu > `SMP-CEBU-N` Cebu North, `SMP-CEBU-S` Cebu South                                                                                                                                                 |
 | Units        | `PC` piece (base), `PACK`, `CASE` (reused if they already exist)                                                                                                                                                                                                |
 | Products     | 40 Sunpride-style items: canned fruit, juices, canned meat, sauces/mixes, frozen. Base unit piece; case conversion for all (12–100 pcs), pack for some; piece EAN-13 and case GTIN-14 barcodes (made-up `48099999` prefix, valid check digits); not lot-tracked |
-| Price lists  | `SMP-PL-KA` Key Accounts (−4%), `SMP-PL-RS` Route Sales / PMOT (base), `SMP-PL-PM` Public Market (+3%): PHP, VAT-inclusive, piece/pack/case prices (case 5% and pack 2% under the piece multiple)                                                               |
+| Price lists  | `SAMPLE-KA` Key Accounts (−4%), `SAMPLE-RS` Route Sales / PMOT (base), `SAMPLE-PM` Public Market (+3%): PHP, VAT-inclusive, piece/pack/case prices for the `SMP` products (case 5% and pack 2% under the piece multiple)                                        |
 | Promotions   | `SMP-PROMO-PJ240-B10G1` buy 10 Pineapple Juice 240ml get 1 free (all lists); `SMP-PROMO-CB150-CASE5` 5% off each case of Corned Beef 150g (all lists); `SMP-PROMO-MERIENDA` Pancake Mix 400g + Pineapple Juice 1L for ₱159 (Route Sales only)                   |
 | Coverage     | territories `SMP-T-CBN` (Mandaue–Consolacion), `SMP-T-CBS` (Talisay–Minglanilla), `SMP-T-CKA` (Metro Cebu key accounts); routes `SMP-R-CBN-1` Mon/Wed/Fri, `SMP-R-CBS-1` truck route Tue/Thu/Sat, `SMP-R-CKA-1` Mon–Fri                                         |
 | Stores       | 30 Cebu outlets (8 key accounts, 14 sari-sari/minimarts, 8 public-market stalls) with real street/barangay addresses, verified pins, contact, legacy customer link with a made-up credit limit, route sequence, and a call sheet (order catalog) per channel    |
@@ -38,17 +46,18 @@ pricing in `convex/pricing/` (ADR-008 price baseline). Tests: `beta/sample.test.
 
 ## How prices reach the apps
 
-- A store's **channel** picks its list (Key Accounts / Route Sales incl. PMOT, RDS, extruck /
-  Public Market). Exactly one active list and one effective line per product+unit, otherwise the
-  apps show "Priced by the office" (fail closed, ADR-008).
-- **Field apps**: the mobile bootstrap carries an optional `pricing` object (lists for the working
-  set's stores, store→list map, promotions) on every page. Phone display/order totals are SP-0088.
-- **Field orders**: when an order reaches the server it is priced there from the store's list
-  at receipt (promotions applied, never stacked) and kept in `fieldOrderPrices` (`priced` or
-  `needs_office_price`).
-- **Van POS**: the van bootstrap carries `priceLines` (Route Sales list, the truck's selling
-  unit) and `promotions`; the handheld stores the lines and Find product / checkout show them.
-  Offline promotion evaluation on the handheld is SP-0105.
+- A store's **channel** picks its list (SP-0088 `priceListFor`: Key Accounts / Route Sales /
+  Public Market, else the default list). Exactly one effective list and one effective line per
+  product+unit, otherwise the apps show "Priced by the office" (fail closed, ADR-008). Too many
+  lists for one channel to read in one bound also prices nothing, never a guess.
+- **Field apps and orders** (SP-0088): the mobile bootstrap's `orderTerms` (part of the signed
+  day manifest, so a price change forces a fresh snapshot) drive the phone order screens; the
+  server prices every received order itself and keeps it in `fieldOrderPricings` with a credit
+  check against the sample credit limits.
+- **Van POS**: the van bootstrap (one snapshot, no continuation) carries `priceLines` (Route
+  Sales list, the truck's selling unit) and the list's `promotions` whose products are all on
+  the truck; the handheld stores the lines and Find product / checkout show them. A promotion
+  read past its bound ships no promotions. Offline promotion evaluation is SP-0105.
 
 ## Running it on the beta backend (lead)
 
@@ -82,15 +91,18 @@ cd packages/backend
 bunx convex run beta/sample:reset '{"confirm":"remove-beta-sample"}'   # repeat until "isDone": true
 ```
 
-Reset deletes only rows listed in `sampleDataRows` (newest first, 400 per call). It never touches
-rows testers created by using the app (visits, orders, trips, their profiles and assignment
-history); those remain as history and may point at removed sample stores/products, so prefer a
-fresh production deployment for go-live and use reset on the beta deployment only. Testers keep
-their accounts but lose their sample unit; an admin reassigns them.
+Reset deletes only rows listed in `sampleDataRows` (newest first, 400 per call), and **only
+while the sample is unused**. It refuses and removes nothing when any of these exist: a tester
+has signed up with a sample invitation; anyone is or was assigned to a sample unit; stock moved
+at the sample depot or a truck after the opening balance; a sample truck has a trip; a sample
+store has visits or orders. Deleting those rows would leave profiles and assignment history
+pointing at removed units and break the stock ledger. A beta deployment testers have used is
+retired, not reset: go live on a fresh production deployment. A sample price list SP-0088's seed
+has also filled is kept (its own reset removes it).
 
 ## Assumptions to confirm with Sunpride
 
 - Pricing by channel only (not per customer group or per customer); price lists VAT-inclusive.
-- Promotions do not combine: a line takes part in at most one promotion (first by code).
+- Promotions do not combine: a line takes part in at most one promotion.
 - Van trucks sell at the Route Sales / PMOT list.
 - Credit limits, prices, products, stores, people and trucks are all invented.

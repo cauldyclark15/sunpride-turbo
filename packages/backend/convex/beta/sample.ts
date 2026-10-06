@@ -11,6 +11,11 @@ import { buildOpeningBalanceLine } from "../inventory/setup";
 import { manilaDate } from "../coverage/validation";
 import { audit } from "../org/validation";
 import { recordAssignment } from "../people/validation";
+import {
+  MAX_LINES_PER_PRODUCT,
+  MAX_LISTS_PER_CHANNEL,
+  PRICE_CURRENCY,
+} from "../pricing/model";
 import { productUnit } from "../van/loads";
 import { OPEN_TRIP_STATUSES, SERVICE_DATE } from "../van/model";
 import {
@@ -64,6 +69,7 @@ type Counts = Record<string, number>;
 
 class Seeder {
   readonly counts: Counts = {};
+  readonly skipped: string[] = [];
   readonly ctx: MutationCtx;
   readonly now: number;
   readonly from: number;
@@ -325,64 +331,78 @@ async function seedPricing(
   const { ctx, now, from } = s;
   const lists = new Map<string, Id<"priceLists">>();
   for (const list of SAMPLE_PRICE_LISTS) {
+    const byCode = async () =>
+      await ctx.db
+        .query("priceLists")
+        .withIndex("by_organizationId_and_code", (q) =>
+          q.eq("organizationId", org).eq("code", list.code),
+        )
+        .unique();
+    // A real (office) list already prices this channel: never add a competing sample list,
+    // which would make the channel ambiguous and price nothing (SP-0088 fails closed).
+    const sameChannel = await ctx.db
+      .query("priceLists")
+      .withIndex("by_organizationId_and_channelKey", (q) =>
+        q.eq("organizationId", org).eq("channelKey", list.channelKey),
+      )
+      .take(MAX_LISTS_PER_CHANNEL + 1);
+    const existing = await byCode();
+    if (
+      !existing &&
+      sameChannel.some(
+        (row) => row.source !== "sample" || row.code !== list.code,
+      )
+    ) {
+      s.skipped.push(`price list ${list.code}: channel already priced`);
+      continue;
+    }
+    if (existing && existing.source !== "sample") {
+      s.skipped.push(`price list ${list.code}: code used by an office list`);
+      continue;
+    }
     const listId = await s.ensure(
       "priceLists",
       `pricelist:${list.code}`,
-      async () =>
-        (
-          await ctx.db
-            .query("priceLists")
-            .withIndex("by_organizationId_and_code", (q) =>
-              q.eq("organizationId", org).eq("code", list.code),
-            )
-            .unique()
-        )?._id ?? null,
+      async () => (await byCode())?._id ?? null,
       () =>
         ctx.db.insert("priceLists", {
           organizationId: org,
           code: list.code,
           name: list.name,
-          channel: list.channel,
-          currency: "PHP",
-          vatInclusive: true,
+          channelKey: list.channelKey,
+          currency: PRICE_CURRENCY,
           status: "active",
-          source: "beta_sample",
-          createdAt: now,
+          source: "sample",
+          effectiveFrom: from,
           updatedAt: now,
         }),
     );
     lists.set(list.code, listId);
     for (const product of SAMPLE_PRODUCTS) {
       const productId = ref.products.get(product.code)!._id;
+      const existingLines = await ctx.db
+        .query("priceListLines")
+        .withIndex("by_priceListId_and_productId", (q) =>
+          q.eq("priceListId", listId).eq("productId", productId),
+        )
+        .take(MAX_LINES_PER_PRODUCT + 1);
       for (const unit of ["PC", "PACK", "CASE"] as const) {
         const price = samplePrice(product, list, unit);
         if (price === null) continue;
-        const uomId = ref.uoms.get(unit)!;
         await s.ensure(
           "priceListLines",
           `priceline:${list.code}:${product.code}:${unit}`,
           async () =>
-            (
-              await ctx.db
-                .query("priceListLines")
-                .withIndex("by_priceListId_and_productId_and_uomId", (q) =>
-                  q
-                    .eq("priceListId", listId)
-                    .eq("productId", productId)
-                    .eq("uomId", uomId),
-                )
-                .first()
-            )?._id ?? null,
+            existingLines.find((line) => line.uom === unit)?._id ?? null,
           () =>
             ctx.db.insert("priceListLines", {
               organizationId: org,
               priceListId: listId,
               productId,
-              uomId,
-              unitPriceMinor: BigInt(price),
+              uom: unit,
+              unitPriceMinor: price,
               effectiveFrom: from,
-              actorSubject: SAMPLE_ACTOR,
-              createdAt: now,
+              updatedAt: now,
             }),
         );
       }
@@ -390,11 +410,13 @@ async function seedPricing(
   }
   const unit = ([code, uom, quantity]: [string, SampleUnit, number]) => ({
     productId: ref.products.get(code)!._id,
-    uomId: ref.uoms.get(uom)!,
+    uom,
     quantity,
   });
   for (const promotion of SAMPLE_PROMOTIONS) {
     const r = promotion.rule;
+    if (promotion.priceListCode && !lists.has(promotion.priceListCode))
+      continue;
     const rule =
       r.kind === "buy_x_get_y"
         ? { kind: r.kind, buy: unit(r.buy), free: unit(r.free) }
@@ -407,7 +429,7 @@ async function seedPricing(
           : {
               kind: r.kind,
               components: r.components.map(unit),
-              bundlePriceMinor: BigInt(r.bundlePriceMinor),
+              bundlePriceMinor: r.bundlePriceMinor,
             };
     await s.ensure(
       "promotions",
@@ -431,9 +453,8 @@ async function seedPricing(
             : {}),
           rule,
           status: "active",
-          source: "beta_sample",
+          source: "sample",
           effectiveFrom: from,
-          createdAt: now,
           updatedAt: now,
         }),
     );
@@ -996,6 +1017,7 @@ const summary = v.object({
   created: v.record(v.string(), v.number()),
   testersPending: v.array(v.string()),
   testersAttached: v.array(v.string()),
+  skipped: v.array(v.string()),
 });
 
 export const seed = internalMutation({
@@ -1028,14 +1050,132 @@ export const seed = internalMutation({
       created,
       testersPending: people.pending,
       testersAttached: people.attached,
+      skipped: s.skipped,
     };
   },
 });
 
+/** A row this batch created under `key`, else null (never a row it merely found). */
+async function sampleRow<T extends TableNames>(
+  ctx: MutationCtx,
+  table: T,
+  key: string,
+) {
+  const row = await ctx.db
+    .query("sampleDataRows")
+    .withIndex("by_batch_and_key", (q) =>
+      q.eq("batch", SAMPLE_BATCH).eq("key", key),
+    )
+    .unique();
+  return row ? ctx.db.normalizeId(table, row.rowId) : null;
+}
+
+/**
+ * Why removing the sample now would break someone else's data (empty = safe). Reset refuses
+ * while testers or real work depend on sample rows: deleting them would leave profiles and
+ * assignment history pointing at removed units, and deleting a depot balance that a later
+ * movement changed would break the stock ledger (ADR-003/007). Each check is bounded.
+ */
+export async function resetBlockers(ctx: MutationCtx) {
+  const blockers: string[] = [];
+  for (const person of SAMPLE_PEOPLE) {
+    const id = await sampleRow(
+      ctx,
+      "accessInvitations",
+      `invitation:${person.email}`,
+    );
+    const invitation = id ? await ctx.db.get(id) : null;
+    if (invitation?.profileId)
+      blockers.push(`tester ${person.email} has signed up`);
+  }
+  for (const unit of SAMPLE_ORG_UNITS) {
+    const id = await sampleRow(ctx, "orgUnits", `org:${unit.code}`);
+    if (!id) continue;
+    const profile = await ctx.db
+      .query("profiles")
+      .withIndex("by_orgUnitId", (q) => q.eq("orgUnitId", id))
+      .first();
+    const history = await ctx.db
+      .query("employeeAssignments")
+      .withIndex("by_orgUnitId_and_effectiveFrom", (q) => q.eq("orgUnitId", id))
+      .first();
+    if (profile || history)
+      blockers.push(`people are or were assigned to ${unit.code}`);
+  }
+  const opening = await sampleRow(
+    ctx,
+    "inventoryMovements",
+    "movement:opening",
+  );
+  for (const code of [
+    SAMPLE_DEPOT.code,
+    ...SAMPLE_TRUCKS.map((truck) => truck.truckLocation),
+  ]) {
+    const id = await sampleRow(ctx, "inventoryLocations", `location:${code}`);
+    if (!id) continue;
+    const balances = await ctx.db
+      .query("inventoryBalances")
+      .withIndex("by_organizationId_and_locationId_and_productId", (q) =>
+        q.eq("organizationId", org).eq("locationId", id),
+      )
+      .take(SAMPLE_PRODUCTS.length + 1);
+    let moved = balances.length > SAMPLE_PRODUCTS.length;
+    for (const balance of balances) {
+      if (moved) break;
+      moved =
+        balance.lastMovementId === undefined ||
+        balance.lastMovementId !== opening ||
+        (await sampleRow(
+          ctx,
+          "inventoryBalances",
+          `stock:inventoryBalances:${balance._id}`,
+        )) === null;
+    }
+    if (moved) blockers.push(`stock has moved at ${code}`);
+  }
+  for (const truck of SAMPLE_TRUCKS) {
+    const id = await sampleRow(ctx, "vehicles", `vehicle:${truck.vehicleCode}`);
+    if (!id) continue;
+    const trip = await ctx.db
+      .query("vanTrips")
+      .withIndex("by_vehicleId_and_serviceDate", (q) => q.eq("vehicleId", id))
+      .first();
+    if (trip) blockers.push(`truck ${truck.vehicleCode} has trips`);
+  }
+  for (const store of SAMPLE_STORES) {
+    const outletId = await sampleRow(ctx, "outlets", `outlet:${store.code}`);
+    const visit = outletId
+      ? await ctx.db
+          .query("visitExecutions")
+          .withIndex("by_outletId_and_serviceDate", (q) =>
+            q.eq("outletId", outletId),
+          )
+          .first()
+      : null;
+    const customerCode = store.code.replace("SMP-O-", "SMP-C-");
+    const customerId = await sampleRow(
+      ctx,
+      "customers",
+      `customer:${customerCode}`,
+    );
+    const order = customerId
+      ? await ctx.db
+          .query("orders")
+          .withIndex("by_customer", (q) => q.eq("customerCode", customerCode))
+          .first()
+      : null;
+    if (visit || order)
+      blockers.push(`store ${store.code} has visits or orders`);
+  }
+  return blockers;
+}
+
 /**
  * Removes every row the sample seed created, newest first (children before parents), in
- * bounded batches: repeat until `isDone`. Rows written by testers' own work (visits,
- * orders, trips, their profiles and assignment history) are never touched.
+ * bounded batches: repeat until `isDone`. Only for an unused sample (a fresh deployment, or
+ * before testers sign up): while testers or their work depend on sample rows it refuses and
+ * removes nothing (see `resetBlockers`); retire a used beta backend instead of resetting it.
+ * A sample price list another seed has since added lines to is kept (its lines would orphan).
  */
 export const reset = internalMutation({
   args: {
@@ -1044,6 +1184,11 @@ export const reset = internalMutation({
   },
   returns: v.object({ deleted: v.number(), isDone: v.boolean() }),
   handler: async (ctx, args) => {
+    const blockers = await resetBlockers(ctx);
+    if (blockers.length > 0)
+      throw new ConvexError(
+        `The beta sample is in use and was not removed: ${blockers.slice(0, 10).join("; ")}`,
+      );
     const limit = Math.max(1, Math.min(args.limit ?? 400, 1_000));
     const rows = await ctx.db
       .query("sampleDataRows")
@@ -1053,7 +1198,17 @@ export const reset = internalMutation({
     let deleted = 0;
     for (const row of rows.slice(0, limit)) {
       const id = ctx.db.normalizeId(row.tableName as TableNames, row.rowId);
-      if (id && (await ctx.db.get(id))) {
+      const doc = id ? await ctx.db.get(id) : null;
+      const shared =
+        row.tableName === "priceLists" &&
+        doc !== null &&
+        (await ctx.db
+          .query("priceListLines")
+          .withIndex("by_priceListId_and_productId", (q) =>
+            q.eq("priceListId", doc._id as Id<"priceLists">),
+          )
+          .first()) !== null;
+      if (id && doc && !shared) {
         await ctx.db.delete(id);
         deleted += 1;
       }

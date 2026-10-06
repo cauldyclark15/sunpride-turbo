@@ -58,6 +58,22 @@ export type ActivityRuleV1 = {
  * centavos; `withheld` carries no figures (account shared outside the person's plan).
  * `openOrders` are submitted orders not yet fulfilled/posted, never a receivables balance.
  */
+/** SP-0088: one account's price list and every orderable unit (whole centavos, null = office prices it). */
+export type OrderTermsV1 = {
+  outletId: string;
+  priceList: {
+    id: string;
+    code: string;
+    name: string;
+    currency: string;
+    sample: boolean;
+  } | null;
+  lines: Array<{
+    productId: string;
+    uom: string;
+    unitPriceMinor: number | null;
+  }>;
+};
 export type AccountSummaryV1 = {
   outletId: string;
   asOfDate: string;
@@ -75,60 +91,6 @@ export type AccountSummaryV1 = {
     lastOrderAmountMinor: number | null;
   } | null;
   openOrders: { count: number; amountMinor: number } | null;
-};
-/** One whole product/unit quantity used by a governed promotion. */
-export type PromotionUnitV1 = {
-  productId: string;
-  uomCode: string;
-  quantity: number;
-};
-/** Governed unit price in currency minor units (PHP centavos), effective at epoch milliseconds. */
-export type PriceListLineV1 = {
-  productId: string;
-  uomCode: string;
-  unitPriceMinor: number;
-  effectiveFrom: number;
-  effectiveTo: number | null;
-};
-export type PriceListV1 = {
-  priceListId: string;
-  code: string;
-  name: string;
-  channel: string;
-  currency: string;
-  vatInclusive: boolean;
-  lines: Array<PriceListLineV1>;
-};
-export type PromotionRuleV1 =
-  | { kind: "buy_x_get_y"; buy: PromotionUnitV1; free: PromotionUnitV1 }
-  | {
-      kind: "percent_off";
-      item: PromotionUnitV1;
-      percentOffBasisPoints: number;
-    }
-  | {
-      kind: "bundle";
-      components: Array<PromotionUnitV1>;
-      bundlePriceMinor: number;
-    };
-export type PromotionV1 = {
-  promotionId: string;
-  code: string;
-  name: string;
-  priceListId: string | null;
-  effectiveFrom: number;
-  effectiveTo: number | null;
-  rule: PromotionRuleV1;
-};
-/**
- * Added 2026-10 (SP-0129); older servers omit it. Governed pricing for the working set,
- * repeated on every page. Its presence supersedes appConfig.priceAvailability and
- * appConfig.promotionsAvailability for the outlets it maps.
- */
-export type PricingV1 = {
-  priceLists: Array<PriceListV1>;
-  outletPriceLists: Array<{ outletId: string; priceListId: string }>;
-  promotions: Array<PromotionV1>;
 };
 /** AND-016: one visit photo type (code is an open string; label is display text). */
 export type PhotoTypeV1 = { code: string; label: string };
@@ -221,8 +183,8 @@ export type BootstrapResponse = {
   photoTypes?: Array<PhotoTypeV1>;
   /** IOS-011 account summaries. Optional: added after v1 shipped. */
   accountSummaries?: Array<AccountSummaryV1>;
-  /** Governed pricing (SP-0129); presence supersedes the legacy availability flags for mapped outlets. */
-  pricing?: PricingV1;
+  /** SP-0088 per-account prices and order units. Optional: added after v1 shipped. */
+  orderTerms?: Array<OrderTermsV1>;
   page: number;
   nextPageCursor: string | null;
   syncCursor: string | null;
@@ -332,7 +294,7 @@ export type PushRequest = {
                 kind: "order_intent";
                 clientOrderId: string;
                 note?: string;
-                /** SP-0060 submitted field order lines; quantities only, never prices. */
+                /** SP-0060 submitted field order lines; quantities only, never prices (the server prices them, SP-0088). */
                 lines?: Array<FieldOrderLineV1>;
               }
             | { kind: "note"; text: string }

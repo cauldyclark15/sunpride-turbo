@@ -194,6 +194,11 @@ export const OFFLINE_AUTHORITY_MATRIX: readonly OfflineAuthorityRule[] = [
     "Cached account figures as of the page's serverTime.",
   ),
   fieldSnapshot(
+    "orderTerms",
+    "server_read_only",
+    "Account price list and order units (SP-0088); a preview only: the server prices every order on receipt.",
+  ),
+  fieldSnapshot(
     "dayTarget",
     "server_read_only",
     "Day target from approved standards.",
@@ -427,6 +432,16 @@ export const OFFLINE_AUTHORITY_MATRIX: readonly OfflineAuthorityRule[] = [
     "customers",
     "server_read_only",
     "Route and unplanned customers.",
+  ),
+  vanSnapshot(
+    "priceLines",
+    "server_read_only",
+    "Governed Route Sales prices as of serverTime (SP-0129); replaced by the next bootstrap.",
+  ),
+  vanSnapshot(
+    "promotions",
+    "server_read_only",
+    "Governed promotions for the truck's list (SP-0129); never combined.",
   ),
 
   // ── Van push. ──

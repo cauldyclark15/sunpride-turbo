@@ -20,6 +20,12 @@ import {
 } from "../callSheets/model";
 import { phoneRules, rulesAt } from "../visits/activity_rules";
 import {
+  orderTermsFor,
+  pricingCache,
+  type OrderTerms,
+  type PricingCache,
+} from "../pricing/model";
+import {
   EVIDENCE_PHOTO_TYPES,
   EVIDENCE_PHOTO_TYPES_VERSION,
 } from "../visits/policy";
@@ -64,66 +70,6 @@ export const outletDTO = v.object({
   territoryCode: v.optional(v.string()),
 });
 export const customerDTO = v.object({ id: v.string(), code: v.string() });
-const promotionUnitDTO = v.object({
-  productId: v.string(),
-  uomCode: v.string(),
-  quantity: v.number(),
-});
-/**
- * SP-0129 / ADR-008: governed prices for this page's outlets (optional in contract v1).
- * Each outlet maps to its channel list; lines are VAT-inclusive centavos per product+unit.
- */
-export const pricingDTO = v.object({
-  priceLists: v.array(
-    v.object({
-      priceListId: v.string(),
-      code: v.string(),
-      name: v.string(),
-      channel: v.string(),
-      currency: v.string(),
-      vatInclusive: v.boolean(),
-      lines: v.array(
-        v.object({
-          productId: v.string(),
-          uomCode: v.string(),
-          unitPriceMinor: v.number(),
-          effectiveFrom: v.number(),
-          effectiveTo: v.union(v.number(), v.null()),
-        }),
-      ),
-    }),
-  ),
-  outletPriceLists: v.array(
-    v.object({ outletId: v.string(), priceListId: v.string() }),
-  ),
-  promotions: v.array(
-    v.object({
-      promotionId: v.string(),
-      code: v.string(),
-      name: v.string(),
-      priceListId: v.union(v.string(), v.null()),
-      effectiveFrom: v.number(),
-      effectiveTo: v.union(v.number(), v.null()),
-      rule: v.union(
-        v.object({
-          kind: v.literal("buy_x_get_y"),
-          buy: promotionUnitDTO,
-          free: promotionUnitDTO,
-        }),
-        v.object({
-          kind: v.literal("percent_off"),
-          item: promotionUnitDTO,
-          percentOffBasisPoints: v.number(),
-        }),
-        v.object({
-          kind: v.literal("bundle"),
-          components: v.array(promotionUnitDTO),
-          bundlePriceMinor: v.number(),
-        }),
-      ),
-    }),
-  ),
-});
 export const routeDTO = v.union(
   v.object({ id: v.string(), code: v.string() }),
   v.null(),
@@ -161,7 +107,34 @@ export const callSheetDTO = v.object({
     }),
   ),
 });
+/**
+ * SP-0088 phone wire: one outlet's order terms (price list and every orderable unit of its
+ * account-setup products, priced when the list has exactly one price). Optional in contract v1.
+ */
+export const orderTermsDTO = v.object({
+  outletId: v.string(),
+  priceList: v.union(
+    v.object({
+      id: v.string(),
+      code: v.string(),
+      name: v.string(),
+      currency: v.string(),
+      sample: v.boolean(),
+    }),
+    v.null(),
+  ),
+  lines: v.array(
+    v.object({
+      productId: v.string(),
+      uom: v.string(),
+      unitPriceMinor: v.union(v.number(), v.null()),
+    }),
+  ),
+});
 type CallSheetCache = {
+  /** SP-0088: one order-terms projection per outlet per snapshot. */
+  terms: Map<Id<"outlets">, { terms: OrderTerms; stamp: string } | null>;
+  pricing: PricingCache;
   accounts: Map<
     Id<"outlets">,
     { sheet: PhoneCallSheet; stamp: string; membershipStamp: string } | null
@@ -185,6 +158,7 @@ export type Projected = {
   customer: typeof customerDTO.type | null;
   route: Exclude<typeof routeDTO.type, null> | null;
   callSheet: PhoneCallSheet | null;
+  orderTerms: OrderTerms | null;
   stamp: string;
 };
 
@@ -290,6 +264,27 @@ async function visitProjection(
       : null;
     cache.accounts.set(row.outletId, callSheet);
   }
+  // SP-0088: prices for the account-setup products, at the snapshot instant.
+  let terms = cache.terms.get(row.outletId);
+  if (terms === undefined) {
+    // Product rows come from the call sheet's own reads, the outlet from scope resolution.
+    terms = callSheet
+      ? await orderTermsFor(
+          ctx,
+          current.outlet,
+          customer,
+          callSheet.sheet.lines.flatMap((line) => {
+            const product = cache.products.get(
+              line.productId as Id<"products">,
+            )?.product;
+            return product ? [product] : [];
+          }),
+          now,
+          cache.pricing,
+        )
+      : null;
+    cache.terms.set(row.outletId, terms);
+  }
   // Navigation target: only an unambiguous current verified pin. Missing or conflicting
   // pins send no coordinates (the phone falls back to the address), never a guess.
   const pins = outletState.pins.filter(
@@ -330,7 +325,8 @@ async function visitProjection(
     route:
       s.routeId && s.routeCode ? { id: s.routeId, code: s.routeCode } : null,
     callSheet: callSheet?.sheet ?? null,
-    stamp: `${(reference ? callSheet?.membershipStamp : callSheet?.stamp) ?? ""}|${row._id}|${row.status}|${row._creationTime}|${row.generatedAt}|${JSON.stringify(s)}|${JSON.stringify(row.intents)}|${current.assignment?._id ?? ""}|${current.assignment?.routeId ?? ""}|${current.assignment?.sequence ?? ""}|${current.orgUnitId}|${current.outlet.status}|${customer?.code ?? ""}|${slot.sequence}|${address ?? ""}|${pin?._id ?? ""}|${pin?.latitude ?? ""}|${pin?.longitude ?? ""}`,
+    orderTerms: terms?.terms ?? null,
+    stamp: `${terms?.stamp ?? ""}|${(reference ? callSheet?.membershipStamp : callSheet?.stamp) ?? ""}|${row._id}|${row.status}|${row._creationTime}|${row.generatedAt}|${JSON.stringify(s)}|${JSON.stringify(row.intents)}|${current.assignment?._id ?? ""}|${current.assignment?.routeId ?? ""}|${current.assignment?.sequence ?? ""}|${current.orgUnitId}|${current.outlet.status}|${customer?.code ?? ""}|${slot.sequence}|${address ?? ""}|${pin?._id ?? ""}|${pin?.latitude ?? ""}|${pin?.longitude ?? ""}`,
   };
 }
 
@@ -366,6 +362,8 @@ export async function dayProjection(
     throw new ConvexError("rebootstrap_required");
   const visits: Projected[] = [];
   const cache: CallSheetCache = {
+    terms: new Map(),
+    pricing: pricingCache(),
     accounts: new Map(),
     products: new Map(),
     plans: new Map(),

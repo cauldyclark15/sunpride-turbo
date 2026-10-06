@@ -65,6 +65,8 @@ targets:
         buildPhase: resources
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/bootstrap-account-summary-response.json
         buildPhase: resources
+      - path: ../../packages/domain-contracts/fixtures/mobile-v1/bootstrap-order-terms-response.json
+        buildPhase: resources
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/push-call-sheet-request.json
         buildPhase: resources
       - path: ../../packages/domain-contracts/fixtures/suggested-order/for-outlet.json

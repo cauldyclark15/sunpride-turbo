@@ -711,106 +711,113 @@ describe("mobile day bootstrap", () => {
       }),
     ).rejects.toThrow("rebootstrap_required");
   });
-  it("SP-0129: ships the outlet's channel price list and promotions on every page", async () => {
+  it("ships each account's order terms once with its call sheet; a price edit forces a fresh snapshot (SP-0088)", async () => {
     const f = await fixture();
-    const productId = await f.t.run(async (ctx) => {
-      await ctx.db.patch(f.ids.outlet, { channel: "Route Sales" });
+    const ids = await f.t.run(async (ctx) => {
+      const unit = (code: string) =>
+        ctx.db.insert("unitsOfMeasure", {
+          organizationId: "sunpride",
+          code,
+          name: code,
+          dimension: "count",
+          decimalPlaces: 0,
+          active: true,
+          createdAt: f.now,
+          updatedAt: f.now,
+        });
+      const can = await unit("CAN");
+      const cs = await unit("CS");
+      const product = await ctx.db.insert("products", {
+        code: "SUNP-001",
+        name: "Product SUNP-001",
+        category: "canned",
+        uom: "CAN",
+        unitPrice: 0,
+        active: true,
+        baseUomId: can,
+        sellingUomIds: [can, cs],
+        updatedAt: f.now,
+      });
       await ctx.db.insert("plannedVisits", {
-        generationKey: "second-stop-priced",
+        generationKey: "tomorrow",
         planId: f.ids.plan,
         planVersion: 1,
         planSlotId: f.ids.slot,
         assigneeProfileId: f.ids.person,
         outletId: f.ids.outlet,
-        serviceDate: f.day,
+        serviceDate: manilaDate(f.now + 86_400_000),
         status: "planned",
         approvedSnapshot: f.ids.snapshot,
         requiredObjectives: [],
-        intents: [],
-        expectedDurationMinutes: 15,
+        intents: ["sell"],
+        expectedDurationMinutes: 30,
         generatedAt: f.now,
       });
-      const uom = await ctx.db.insert("unitsOfMeasure", {
+      await ctx.db.insert("callSheetAccounts", {
         organizationId: "sunpride",
-        code: "PC",
-        name: "Piece",
-        dimension: "count",
-        decimalPlaces: 0,
-        active: true,
-        createdAt: f.now,
+        outletId: f.ids.outlet,
+        revision: 1,
+        header: { accountName: "Signed outlet" },
+        lines: [{ productId: product }],
         updatedAt: f.now,
-      });
-      const product = await ctx.db.insert("products", {
-        code: "PRICED",
-        name: "Priced",
-        category: "C",
-        uom: "PC",
-        unitPrice: 0,
-        active: true,
-        updatedAt: f.now,
+        updatedBy: "fixture",
       });
       const list = await ctx.db.insert("priceLists", {
         organizationId: "sunpride",
-        code: "PL-RS",
-        name: "Route Sales",
-        channel: "ROUTE_SALES",
+        code: "SAMPLE-STD",
+        name: "Standard (sample)",
+        channelKey: null,
         currency: "PHP",
-        vatInclusive: true,
         status: "active",
-        source: "office",
-        createdAt: f.now,
+        source: "sample",
+        effectiveFrom: 0,
         updatedAt: f.now,
       });
-      await ctx.db.insert("priceListLines", {
+      const line = await ctx.db.insert("priceListLines", {
         organizationId: "sunpride",
         priceListId: list,
         productId: product,
-        uomId: uom,
-        unitPriceMinor: 4_650n,
-        effectiveFrom: f.now - 1_000,
-        actorSubject: "office",
-        createdAt: f.now,
-      });
-      await ctx.db.insert("promotions", {
-        organizationId: "sunpride",
-        code: "B10G1",
-        name: "Buy 10 get 1",
-        rule: {
-          kind: "buy_x_get_y",
-          buy: { productId: product, uomId: uom, quantity: 10 },
-          free: { productId: product, uomId: uom, quantity: 1 },
-        },
-        status: "active",
-        source: "office",
-        effectiveFrom: f.now - 1_000,
-        createdAt: f.now,
+        uom: "CAN",
+        unitPriceMinor: 4_525,
+        effectiveFrom: 0,
         updatedAt: f.now,
       });
-      return product;
+      return { product, list, line };
     });
     const first = await f.caller.query(internal.mobile.bootstrap.snapshot, {
       actor: f.actor,
       limit: 1,
     });
-    expect(first.nextPageCursor).toBeTruthy();
-    expect(first.pricing).toMatchObject({
-      priceLists: [
-        {
-          code: "PL-RS",
+    expect(first.orderTerms).toEqual([
+      {
+        outletId: f.ids.outlet,
+        priceList: {
+          id: ids.list,
+          code: "SAMPLE-STD",
+          name: "Standard (sample)",
           currency: "PHP",
-          vatInclusive: true,
-          lines: [{ productId, uomCode: "PC", unitPriceMinor: 4650 }],
+          sample: true,
         },
-      ],
-      outletPriceLists: [{ outletId: f.ids.outlet }],
-      promotions: [{ code: "B10G1", rule: { kind: "buy_x_get_y" } }],
-    });
-    const second = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+        lines: [
+          { productId: ids.product, uom: "CAN", unitPriceMinor: 4_525 },
+          // A selling unit without a price line: the office prices it.
+          { productId: ids.product, uom: "CS", unitPriceMinor: null },
+        ],
+      },
+    ]);
+    const all = await f.caller.query(internal.mobile.bootstrap.snapshot, {
       actor: f.actor,
-      pageCursor: first.nextPageCursor!,
-      limit: 1,
     });
-    expect(second.pricing).toEqual(first.pricing);
+    expect(all.plannedVisits).toHaveLength(2);
+    expect(all.orderTerms).toHaveLength(1);
+    await f.t.run((ctx) => ctx.db.patch(ids.line, { unitPriceMinor: 4_600 }));
+    await expect(
+      f.caller.query(internal.mobile.bootstrap.snapshot, {
+        actor: f.actor,
+        pageCursor: first.nextPageCursor!,
+        limit: 1,
+      }),
+    ).rejects.toThrow("rebootstrap_required");
   });
   it("ships the activity-form rules on every page; an office rule change restarts a download", async () => {
     const f = await fixture();

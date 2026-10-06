@@ -61,8 +61,8 @@ struct BootstrapResponse {
   let photoTypes: OptionalField<[BootstrapResponsePhotoTypesItem]>
   // schema-field: bootstrapResponse.accountSummaries
   let accountSummaries: OptionalField<[BootstrapResponseAccountSummariesItem]>
-  // schema-field: bootstrapResponse.pricing
-  let pricing: OptionalField<BootstrapResponsePricing>
+  // schema-field: bootstrapResponse.orderTerms
+  let orderTerms: OptionalField<[BootstrapResponseOrderTermsItem]>
   // schema-field: bootstrapResponse.page
   let page: Int64
   // schema-field: bootstrapResponse.nextPageCursor
@@ -94,141 +94,6 @@ struct BootstrapResponseDaySales {
   // schema-field: bootstrapResponse.daySales.targetMinor
   let targetMinor: OptionalField<Int64>
 }
-// Added 2026-10 (SP-0129); older servers omit pricing. Presence supersedes the legacy
-// appConfig availability flags for mapped outlets. Money is minor units (PHP centavos).
-// Rule variants retain OpenEnum kinds; an unknown kind stays raw and disables promotion use.
-// schema-object: bootstrapResponse.pricing
-struct BootstrapResponsePricing {
-  // schema-field: bootstrapResponse.pricing.priceLists
-  let priceLists: [BootstrapResponsePricingPriceListsItem]
-  // schema-field: bootstrapResponse.pricing.outletPriceLists
-  let outletPriceLists: [BootstrapResponsePricingOutletPriceListsItem]
-  // schema-field: bootstrapResponse.pricing.promotions
-  let promotions: [BootstrapResponsePricingPromotionsItem]
-}
-// schema-object: bootstrapResponse.pricing.promotions[]
-struct BootstrapResponsePricingPromotionsItem {
-  // schema-field: bootstrapResponse.pricing.promotions[].promotionId
-  let promotionId: String
-  // schema-field: bootstrapResponse.pricing.promotions[].code
-  let code: String
-  // schema-field: bootstrapResponse.pricing.promotions[].name
-  let name: String
-  // schema-field: bootstrapResponse.pricing.promotions[].priceListId
-  let priceListId: String?
-  // schema-field: bootstrapResponse.pricing.promotions[].effectiveFrom
-  let effectiveFrom: Int64
-  // schema-field: bootstrapResponse.pricing.promotions[].effectiveTo
-  let effectiveTo: Int64?
-  // schema-field: bootstrapResponse.pricing.promotions[].rule
-  let rule: JSONValue
-}
-// schema-object: bootstrapResponse.pricing.promotions[].rule#2
-struct BootstrapResponsePricingPromotionsItemRuleVariant2 {
-  // schema-field: bootstrapResponse.pricing.promotions[].rule#2.kind
-  let kind: OpenEnum
-  // schema-field: bootstrapResponse.pricing.promotions[].rule#2.components
-  let components: [BootstrapResponsePricingPromotionsItemRuleVariant2ComponentsItem]
-  // schema-field: bootstrapResponse.pricing.promotions[].rule#2.bundlePriceMinor
-  let bundlePriceMinor: Int64
-}
-// schema-object: bootstrapResponse.pricing.promotions[].rule#2.components[]
-struct BootstrapResponsePricingPromotionsItemRuleVariant2ComponentsItem {
-  // schema-field: bootstrapResponse.pricing.promotions[].rule#2.components[].productId
-  let productId: String
-  // schema-field: bootstrapResponse.pricing.promotions[].rule#2.components[].uomCode
-  let uomCode: String
-  // schema-field: bootstrapResponse.pricing.promotions[].rule#2.components[].quantity
-  let quantity: Int64
-}
-// schema-object: bootstrapResponse.pricing.promotions[].rule#1
-struct BootstrapResponsePricingPromotionsItemRuleVariant1 {
-  // schema-field: bootstrapResponse.pricing.promotions[].rule#1.kind
-  let kind: OpenEnum
-  // schema-field: bootstrapResponse.pricing.promotions[].rule#1.item
-  let item: BootstrapResponsePricingPromotionsItemRuleVariant1Item
-  // schema-field: bootstrapResponse.pricing.promotions[].rule#1.percentOffBasisPoints
-  let percentOffBasisPoints: Int64
-}
-// schema-object: bootstrapResponse.pricing.promotions[].rule#1.item
-struct BootstrapResponsePricingPromotionsItemRuleVariant1Item {
-  // schema-field: bootstrapResponse.pricing.promotions[].rule#1.item.productId
-  let productId: String
-  // schema-field: bootstrapResponse.pricing.promotions[].rule#1.item.uomCode
-  let uomCode: String
-  // schema-field: bootstrapResponse.pricing.promotions[].rule#1.item.quantity
-  let quantity: Int64
-}
-// schema-object: bootstrapResponse.pricing.promotions[].rule#0
-struct BootstrapResponsePricingPromotionsItemRuleVariant0 {
-  // schema-field: bootstrapResponse.pricing.promotions[].rule#0.kind
-  let kind: OpenEnum
-  // schema-field: bootstrapResponse.pricing.promotions[].rule#0.buy
-  let buy: BootstrapResponsePricingPromotionsItemRuleVariant0Buy
-  // schema-field: bootstrapResponse.pricing.promotions[].rule#0.free
-  let free: BootstrapResponsePricingPromotionsItemRuleVariant0Free
-}
-// schema-object: bootstrapResponse.pricing.promotions[].rule#0.free
-struct BootstrapResponsePricingPromotionsItemRuleVariant0Free {
-  // schema-field: bootstrapResponse.pricing.promotions[].rule#0.free.productId
-  let productId: String
-  // schema-field: bootstrapResponse.pricing.promotions[].rule#0.free.uomCode
-  let uomCode: String
-  // schema-field: bootstrapResponse.pricing.promotions[].rule#0.free.quantity
-  let quantity: Int64
-}
-// schema-object: bootstrapResponse.pricing.promotions[].rule#0.buy
-struct BootstrapResponsePricingPromotionsItemRuleVariant0Buy {
-  // schema-field: bootstrapResponse.pricing.promotions[].rule#0.buy.productId
-  let productId: String
-  // schema-field: bootstrapResponse.pricing.promotions[].rule#0.buy.uomCode
-  let uomCode: String
-  // schema-field: bootstrapResponse.pricing.promotions[].rule#0.buy.quantity
-  let quantity: Int64
-}
-// schema-object: bootstrapResponse.pricing.outletPriceLists[]
-struct BootstrapResponsePricingOutletPriceListsItem {
-  // schema-field: bootstrapResponse.pricing.outletPriceLists[].outletId
-  let outletId: String
-  // schema-field: bootstrapResponse.pricing.outletPriceLists[].priceListId
-  let priceListId: String
-}
-// schema-object: bootstrapResponse.pricing.priceLists[]
-struct BootstrapResponsePricingPriceListsItem {
-  // schema-field: bootstrapResponse.pricing.priceLists[].priceListId
-  let priceListId: String
-  // schema-field: bootstrapResponse.pricing.priceLists[].code
-  let code: String
-  // schema-field: bootstrapResponse.pricing.priceLists[].name
-  let name: String
-  // schema-field: bootstrapResponse.pricing.priceLists[].channel
-  let channel: String
-  // schema-field: bootstrapResponse.pricing.priceLists[].currency
-  let currency: String
-  // schema-field: bootstrapResponse.pricing.priceLists[].vatInclusive
-  let vatInclusive: Bool
-  // schema-field: bootstrapResponse.pricing.priceLists[].lines
-  let lines: [BootstrapResponsePricingPriceListsItemLinesItem]
-}
-// schema-object: bootstrapResponse.pricing.priceLists[].lines[]
-struct BootstrapResponsePricingPriceListsItemLinesItem {
-  // schema-field: bootstrapResponse.pricing.priceLists[].lines[].productId
-  let productId: String
-  // schema-field: bootstrapResponse.pricing.priceLists[].lines[].uomCode
-  let uomCode: String
-  // schema-field: bootstrapResponse.pricing.priceLists[].lines[].unitPriceMinor
-  let unitPriceMinor: Int64
-  // schema-field: bootstrapResponse.pricing.priceLists[].lines[].effectiveFrom
-  let effectiveFrom: Int64
-  // schema-field: bootstrapResponse.pricing.priceLists[].lines[].effectiveTo
-  let effectiveTo: Int64?
-}
-// schema-enum: bootstrapResponse.pricing.promotions[].rule#0.kind
-// schema-enum-value: bootstrapResponse.pricing.promotions[].rule#0.kind = buy_x_get_y
-// schema-enum: bootstrapResponse.pricing.promotions[].rule#1.kind
-// schema-enum-value: bootstrapResponse.pricing.promotions[].rule#1.kind = percent_off
-// schema-enum: bootstrapResponse.pricing.promotions[].rule#2.kind
-// schema-enum-value: bootstrapResponse.pricing.promotions[].rule#2.kind = bundle
 // schema-object: bootstrapResponse.employee
 struct BootstrapResponseEmployee {
   // schema-field: bootstrapResponse.employee.id
@@ -929,6 +794,38 @@ struct BootstrapResponsePhotoTypesItem {
   let code: String
   // schema-field: bootstrapResponse.photoTypes[].label
   let label: String
+}
+// Additive after v1 shipped: per-account prices and order units (SP-0088).
+// schema-object: bootstrapResponse.orderTerms[]
+struct BootstrapResponseOrderTermsItem {
+  // schema-field: bootstrapResponse.orderTerms[].outletId
+  let outletId: String
+  // schema-field: bootstrapResponse.orderTerms[].priceList
+  let priceList: BootstrapResponseOrderTermsItemPriceListVariant0?
+  // schema-field: bootstrapResponse.orderTerms[].lines
+  let lines: [BootstrapResponseOrderTermsItemLinesItem]
+}
+// schema-object: bootstrapResponse.orderTerms[].priceList#0
+struct BootstrapResponseOrderTermsItemPriceListVariant0 {
+  // schema-field: bootstrapResponse.orderTerms[].priceList#0.id
+  let id: String
+  // schema-field: bootstrapResponse.orderTerms[].priceList#0.code
+  let code: String
+  // schema-field: bootstrapResponse.orderTerms[].priceList#0.name
+  let name: String
+  // schema-field: bootstrapResponse.orderTerms[].priceList#0.currency
+  let currency: String
+  // schema-field: bootstrapResponse.orderTerms[].priceList#0.sample
+  let sample: Bool
+}
+// schema-object: bootstrapResponse.orderTerms[].lines[]
+struct BootstrapResponseOrderTermsItemLinesItem {
+  // schema-field: bootstrapResponse.orderTerms[].lines[].productId
+  let productId: String
+  // schema-field: bootstrapResponse.orderTerms[].lines[].uom
+  let uom: String
+  // schema-field: bootstrapResponse.orderTerms[].lines[].unitPriceMinor
+  let unitPriceMinor: Int64?
 }
 // Additive after v1 shipped: cached account figures for the outlet detail (IOS-011).
 // schema-object: bootstrapResponse.accountSummaries[]

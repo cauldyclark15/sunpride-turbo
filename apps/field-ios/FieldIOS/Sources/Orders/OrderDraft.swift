@@ -6,9 +6,8 @@ import Foundation
 /// bootstrap (call-sheet lines). The nationwide product master is never offered on the phone
 /// (`productCatalog` stays empty in contract v1).
 ///
-/// Price rules: v1 bootstrap sends `priceAvailability: "unavailable"` (no governed price list yet,
-/// ADR-008), so a draft carries whole quantities in the setup UOM only — never a price, amount or
-/// total. The account's free-text pricing note is shown as a reference, never computed.
+/// SP-0088 terms carry selling units and whole-centavo price snapshots. Older servers omit them,
+/// retaining setup-UOM quantities without prices. Free-text pricing notes are never computed.
 ///
 /// Drafts are local (SQLCipher `order_drafts`) until reviewed and sent: IOS-015 (`OrderSubmission`)
 /// queues the draft's own `order_intent` and freezes the draft in the same transaction.
@@ -16,11 +15,16 @@ enum OrderCatalog {
     struct Item: Equatable, Sendable {
         let productId: String; let code: String; let name: String; let uom: String
         let barcode: String?; let priceNote: String?
+        var units: [OrderTerms.Line] = []
+        func unit(_ uom: String) -> OrderTerms.Line? { units.first { $0.uom == uom } }
     }
 
-    static func items(_ sheet: CallSheet?) -> [Item] {
-        (sheet?.lines ?? []).map {
-            Item(productId: $0.productId, code: $0.code, name: $0.name, uom: $0.uom, barcode: $0.barcode, priceNote: $0.pricing)
+    static func items(_ sheet: CallSheet?, terms: OrderTerms? = nil) -> [Item] {
+        (sheet?.lines ?? []).map { line in
+            let units = terms.map { $0.lines.filter { $0.productId == line.productId } } ??
+                [.init(productId: line.productId, uom: line.uom, unitPriceMinor: nil)]
+            return Item(productId: line.productId, code: line.code, name: line.name, uom: units.first?.uom ?? line.uom,
+                        barcode: line.barcode, priceNote: line.pricing, units: units)
         }
     }
 
@@ -52,6 +56,7 @@ enum OrderCatalog {
 struct OrderDraft: Codable, Equatable, Sendable {
     struct Line: Codable, Equatable, Sendable {
         let productId: String; let code: String; let name: String; let uom: String; let quantity: Int
+        var unitPriceMinor: Int64? = nil
     }
     let draftId: String
     let clientVisitId: String
@@ -69,19 +74,21 @@ struct OrderDraft: Codable, Equatable, Sendable {
     let createdAt: Int64
     let updatedAt: Int64
     var priceAvailability: String = OrderDraftRules.priceUnavailable
+    var priceList: OrderTerms.PriceList? = nil
     /// IOS-015: the queued order request once submitted; the draft is read-only after that.
     var submittedRequestId: String? = nil
     var submittedAt: Int64? = nil
 }
 
 enum OrderDraftFailure: Error, Equatable {
-    case callNotOpen, callEnded, noCatalog, catalogChanged, empty, invalidQuantity, held, submitted, offlineExpired, unknownDraft
+    case callNotOpen, callEnded, noCatalog, catalogChanged, pricesChanged, empty, invalidQuantity, held, submitted, offlineExpired, unknownDraft
     var message: String {
         switch self {
         case .callNotOpen: "Start the call before taking an order."
         case .callEnded: "This call has ended. The saved draft can no longer be changed."
         case .noCatalog: "No products set up for this account yet. Ask your office."
         case .catalogChanged: "The office changed this account's products. Check the lines and save again."
+        case .pricesChanged: "Prices or units changed for this account. Check the lines and save again."
         case .empty: "Add at least one product."
         case .invalidQuantity: "Use whole numbers from 1 to 99,999."
         case .held: "This phone's work is held for review. Sync and ask your administrator."
@@ -99,13 +106,14 @@ struct OrderCallContext {
     let callSheets: [CallSheet]
     let outlets: [StoreSnapshot.Outlet]
     let customers: [StoreSnapshot.Customer]
+    var orderTerms: [OrderTerms] = []
 
     @MainActor static func read(store: any FieldLocalStore, partition: StorePartition) throws -> OrderCallContext {
         let snapshot = try store.snapshot(for: partition)
         return OrderCallContext(intents: try store.intents(for: partition),
                                 rejected: Set(try store.reviewOutbox(for: partition).map { $0.intent.requestId }),
                                 callSheets: snapshot?.callSheets ?? [], outlets: snapshot?.outlets ?? [],
-                                customers: snapshot?.customers ?? [])
+                                customers: snapshot?.customers ?? [], orderTerms: snapshot?.orderTerms ?? [])
     }
 }
 
@@ -144,7 +152,7 @@ enum OrderDraftRules {
     /// A new draft (or the next version of `existing`) for the open call, associated from the stored
     /// check-in and cached snapshot — never from user input. `quantities` = productId → whole number.
     static func build(_ context: OrderCallContext, existing: OrderDraft?, checkIn: VisitIntent,
-                      quantities: [(productId: String, quantity: Int)], now: Date, newId: () -> UUID = UUID.init) throws -> OrderDraft {
+                      quantities: [(productId: String, quantity: Int)], units: [String: String] = [:], now: Date, newId: () -> UUID = UUID.init) throws -> OrderDraft {
         let clientVisitId = checkIn.payload?["clientVisitId"] as? String ?? ""
         let checkInId = checkIn.requestId.uuidString.lowercased()
         let payload = try openCheckIn(context, clientVisitId: clientVisitId, checkInRequestId: checkInId)
@@ -152,10 +160,15 @@ enum OrderDraftRules {
             throw OrderDraftFailure.callNotOpen
         }
         guard let sheet = context.callSheets.first(where: { $0.outletId == outletId }) else { throw OrderDraftFailure.noCatalog }
-        let catalog = Dictionary(OrderCatalog.items(sheet).map { ($0.productId, $0) }, uniquingKeysWith: { a, _ in a })
+        let terms = context.orderTerms.first { $0.outletId == outletId }
+        let catalog = Dictionary(OrderCatalog.items(sheet, terms: terms).map { ($0.productId, $0) }, uniquingKeysWith: { a, _ in a })
         let lines = try quantities.map { entry -> OrderDraft.Line in
             guard let item = catalog[entry.productId] else { throw OrderDraftFailure.catalogChanged }
-            return .init(productId: item.productId, code: item.code, name: item.name, uom: item.uom, quantity: entry.quantity)
+            let savedUnit = terms == nil ? nil : existing?.lines.first { $0.productId == entry.productId }?.uom
+            let chosen = units[entry.productId] ?? savedUnit ?? item.uom
+            guard let unit = item.unit(chosen) else { throw OrderDraftFailure.pricesChanged }
+            return .init(productId: item.productId, code: item.code, name: item.name, uom: unit.uom,
+                         quantity: entry.quantity, unitPriceMinor: unit.unitPriceMinor)
         }
         let outlet = context.outlets.first { $0.id == outletId }
         let customerCode = outlet?.customerId.flatMap { id in context.customers.first { $0.id == id }?.code }
@@ -168,7 +181,7 @@ enum OrderDraftRules {
             serviceDate: serviceDate, customerId: outlet?.customerId, customerCode: customerCode,
             territoryId: outlet?.territoryId, territoryCode: outlet?.territoryCode, routeId: outlet?.routeId,
             catalogRevision: sheet.revision, lines: lines, createdAt: existing?.createdAt ?? stamp,
-            updatedAt: max(stamp, existing?.updatedAt ?? stamp))
+            updatedAt: max(stamp, existing?.updatedAt ?? stamp), priceList: terms?.priceList)
         try validate(context, draft: draft, existing: existing)
         return draft
     }
@@ -189,7 +202,16 @@ enum OrderDraftRules {
         guard payload["outletId"] as? String == draft.outletId, payload["serviceDate"] as? String == draft.serviceDate,
               text(payload["plannedVisitId"]) == draft.plannedVisitId else { throw StoreError.invalidInput }
         guard let sheet = context.callSheets.first(where: { $0.outletId == draft.outletId }) else { throw OrderDraftFailure.noCatalog }
-        if sheet.revision != draft.catalogRevision || !staleLines(draft, sheet: sheet).isEmpty { throw OrderDraftFailure.catalogChanged }
+        let terms = context.orderTerms.first { $0.outletId == draft.outletId }
+        let products = Dictionary(sheet.lines.map { ($0.productId, $0) }, uniquingKeysWith: { a, _ in a })
+        if sheet.revision != draft.catalogRevision || draft.lines.contains(where: { line in
+            guard let product = products[line.productId] else { return true }
+            return product.code != line.code || product.name != line.name
+        }) { throw OrderDraftFailure.catalogChanged }
+        if draft.priceList != terms?.priceList || !staleLines(draft, sheet: sheet, terms: terms).isEmpty {
+            throw terms != nil || draft.priceList != nil || draft.lines.contains(where: { $0.unitPriceMinor != nil })
+                ? OrderDraftFailure.pricesChanged : OrderDraftFailure.catalogChanged
+        }
         let outlet = context.outlets.first { $0.id == draft.outletId }
         let customerCode = outlet?.customerId.flatMap { id in context.customers.first { $0.id == id }?.code }
         guard outlet?.customerId == draft.customerId, customerCode == draft.customerCode,
@@ -203,11 +225,12 @@ enum OrderDraftRules {
     }
 
     /// Lines whose product left the account setup or changed code/name/UOM since the draft was saved.
-    static func staleLines(_ draft: OrderDraft, sheet: CallSheet?) -> [OrderDraft.Line] {
-        let catalog = Dictionary(OrderCatalog.items(sheet).map { ($0.productId, $0) }, uniquingKeysWith: { a, _ in a })
+    static func staleLines(_ draft: OrderDraft, sheet: CallSheet?, terms: OrderTerms? = nil) -> [OrderDraft.Line] {
+        let catalog = Dictionary(OrderCatalog.items(sheet, terms: terms).map { ($0.productId, $0) }, uniquingKeysWith: { a, _ in a })
         return draft.lines.filter { line in
             guard let item = catalog[line.productId] else { return true }
-            return item.code != line.code || item.name != line.name || item.uom != line.uom
+            guard let unit = item.unit(line.uom) else { return true }
+            return item.code != line.code || item.name != line.name || unit.unitPriceMinor != line.unitPriceMinor
         }
     }
 }

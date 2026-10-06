@@ -36,7 +36,7 @@ export const MAX_ACCOUNT_LINKS = 20;
 export const ACCOUNT_SUMMARY_MAX_BYTES = 640;
 
 /** Submitted but not yet fulfilled/posted: the field's outstanding orders. */
-const OPEN_STATUSES = new Set<Doc<"orders">["status"]>([
+export const OPEN_STATUSES = new Set<Doc<"orders">["status"]>([
   "submitted",
   "pending_approval",
   "approved",
