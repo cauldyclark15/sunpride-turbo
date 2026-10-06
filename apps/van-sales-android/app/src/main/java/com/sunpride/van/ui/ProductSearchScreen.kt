@@ -1,5 +1,6 @@
 package com.sunpride.van.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -46,6 +47,8 @@ private val barcodeLike = Regex("^[0-9]{8,14}$")
     var query by rememberSaveable { mutableStateOf("") }
     var scan by remember { mutableStateOf<ScanOutcome?>(null) }
     var camera by rememberSaveable { mutableStateOf(false) }
+    // VAN-011: opened from a sale, a tapped (or scanned) product opens the quantity dialog for the sale.
+    var adding by remember { mutableStateOf<Pair<com.sunpride.van.data.Product,Long?>?>(null) }
     // Price effectivity is evaluated when the snapshot changes and at most once a minute while open.
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(60_000); now = System.currentTimeMillis() } }
@@ -87,7 +90,7 @@ private val barcodeLike = Regex("^[0-9]{8,14}$")
         return
     }
 
-    ScreenFrame("Find product",c::back,scroll = false,message = c.message,bottomContent = {
+    ScreenFrame(if (c.pickingForSale) "Add product" else "Find product",c::back,scroll = false,message = c.message,bottomContent = {
         Text(when {
             c.products.isEmpty() -> "No products on this phone yet. Sync first."
             outcome != null && outcome.hits.isEmpty() -> "No product with this barcode"
@@ -115,12 +118,16 @@ private val barcodeLike = Regex("^[0-9]{8,14}$")
             else BottomRowButton("Clear","product-clear") { query = ""; scan = null }
         }
     }) {
-        outcome?.let { ScanResultCard(it,onSearchByName = { query = ""; scan = null; field.requestFocus() },onCamera = { camera = true }) }
+        outcome?.let { ScanResultCard(it,onSearchByName = { query = ""; scan = null; field.requestFocus() },onCamera = { camera = true },
+            onAdd = if (c.pickingForSale) { hit -> adding = hit.candidate.product to hit.candidate.unit.baseQuantity?.takeIf { hit.candidate.unit.quantityKnown } } else null) }
         if (c.sync.queued+c.sync.sending > 0) Text("Stock includes changes waiting for sync",style = MaterialTheme.typography.bodyMedium)
         LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("product-results"),state = listState,verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            itemsIndexed(rows,key = { _,hit -> hit.product.productId }) { index,hit -> ProductHitRow(hit,index) }
+            itemsIndexed(rows,key = { _,hit -> hit.product.productId }) { index,hit ->
+                ProductHitRow(hit,index,if (c.pickingForSale) { { adding = hit.product to null } } else null)
+            }
         }
     }
+    adding?.let { (product,base) -> QuantityDialog(product,base,onSave = { c.addToSale(product.productId,it); adding = null },onClose = { adding = null }) }
 }
 
 @Composable private fun BottomRowButton(label: String, tag: String, onClick: () -> Unit) {
@@ -130,7 +137,7 @@ private val barcodeLike = Regex("^[0-9]{8,14}$")
 }
 
 /** The scan result: one product with its scanned unit, several (a data problem), or a clear "not found". */
-@Composable private fun ScanResultCard(outcome: ScanOutcome, onSearchByName: () -> Unit, onCamera: () -> Unit) {
+@Composable private fun ScanResultCard(outcome: ScanOutcome, onSearchByName: () -> Unit, onCamera: () -> Unit, onAdd: ((ScanHit) -> Unit)? = null) {
     when (outcome.hits.size) {
         0 -> SectionCard("Barcode not found") {
             Column(Modifier.semantics(mergeDescendants = true) {}.testTag("scan-not-found"),verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -154,6 +161,7 @@ private val barcodeLike = Regex("^[0-9]{8,14}$")
                     if (candidate.match == ScanMatch.PRODUCT_CODE)
                         Text("Matched by product code ${candidate.product.code}",style = MaterialTheme.typography.bodyMedium,color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                onAdd?.let { add -> SecondaryButton("Add to sale",{ add(outcome.hits.single()) },Modifier.fillMaxWidth().testTag("scan-add-to-sale")) }
             }
         }
         else -> SectionCard("Check the product") {
@@ -163,8 +171,8 @@ private val barcodeLike = Regex("^[0-9]{8,14}$")
     }
 }
 
-@Composable private fun ProductHitRow(hit: PosProductHit, index: Int) {
-    Surface(Modifier.fillMaxWidth().semantics(mergeDescendants = true) {}.testTag("product-$index"),color = MaterialTheme.colorScheme.surface,
+@Composable private fun ProductHitRow(hit: PosProductHit, index: Int, onClick: (() -> Unit)? = null) {
+    Surface(Modifier.fillMaxWidth().semantics(mergeDescendants = true) {}.then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier).testTag("product-$index"),color = MaterialTheme.colorScheme.surface,
         shape = SunprideTokens.shapes.small) {
         Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(horizontal = 16.dp,vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,horizontalArrangement = Arrangement.spacedBy(12.dp)) {
