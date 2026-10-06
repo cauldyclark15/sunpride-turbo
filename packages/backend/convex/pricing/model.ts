@@ -31,6 +31,27 @@ export const MAX_LINES_PER_PRODUCT = 50;
 export const MAX_CREDIT_ORDERS = 200;
 /** Units one product may be ordered in on the phone. */
 export const MAX_ORDER_UNITS = 6;
+/** Lines one list is read in a single range; a bigger list is read per product instead. */
+export const MAX_LIST_LINES = 4000;
+
+/**
+ * Reads shared by every outlet of one bootstrap: a snapshot touches each list, unit and
+ * list/product pair once, inside the Convex per-transaction range budget.
+ */
+export type PricingCache = {
+  lists: Map<string, { list: Doc<"priceLists"> | null; found: boolean }>;
+  listLines: Map<Id<"priceLists">, Doc<"priceListLines">[] | null>;
+  prices: Map<string, Map<string, number>>;
+  units: Map<Id<"unitsOfMeasure">, Doc<"unitsOfMeasure"> | null>;
+};
+export function pricingCache(): PricingCache {
+  return {
+    lists: new Map(),
+    listLines: new Map(),
+    prices: new Map(),
+    units: new Map(),
+  };
+}
 export const PRICE_CURRENCY = "PHP";
 
 export function channelKey(text: string | null | undefined) {
@@ -45,7 +66,21 @@ function effective(
   return activeAt(row.effectiveFrom, row.effectiveTo, at);
 }
 
-async function listFor(ctx: Ctx, key: string | null, at: number) {
+async function listFor(
+  ctx: Ctx,
+  key: string | null,
+  at: number,
+  cache?: PricingCache,
+) {
+  const cacheKey = key ?? "\u0000default";
+  const cached = cache?.lists.get(cacheKey);
+  if (cached) return cached;
+  const result = await readList(ctx, key, at);
+  cache?.lists.set(cacheKey, result);
+  return result;
+}
+
+async function readList(ctx: Ctx, key: string | null, at: number) {
   const rows = await ctx.db
     .query("priceLists")
     .withIndex("by_organizationId_and_channelKey", (q) =>
@@ -66,13 +101,14 @@ export async function priceListFor(
   outlet: Pick<Doc<"outlets">, "channel"> | null,
   customer: Pick<Doc<"customers">, "channel"> | null,
   at: number,
+  cache?: PricingCache,
 ) {
   const key = channelKey(outlet?.channel) ?? channelKey(customer?.channel);
   if (key !== null) {
-    const byChannel = await listFor(ctx, key, at);
+    const byChannel = await listFor(ctx, key, at, cache);
     if (byChannel.found) return byChannel.list;
   }
-  return (await listFor(ctx, null, at)).list;
+  return (await listFor(ctx, null, at, cache)).list;
 }
 
 /** Unit code → price (centavos) for one product, only where exactly one line is effective. */
@@ -81,15 +117,52 @@ export async function productPrices(
   listId: Id<"priceLists">,
   productId: Id<"products">,
   at: number,
+  cache?: PricingCache,
 ) {
+  const key = `${listId}|${productId}`;
+  const cached = cache?.prices.get(key);
+  if (cached) return cached;
+  const prices = pricesOf(await linesOf(ctx, listId, productId, cache), at);
+  cache?.prices.set(key, prices);
+  return prices;
+}
+
+/** One list-wide read per snapshot when the list is small enough, else one per product. */
+async function linesOf(
+  ctx: Ctx,
+  listId: Id<"priceLists">,
+  productId: Id<"products">,
+  cache?: PricingCache,
+) {
+  if (cache) {
+    let all = cache.listLines.get(listId);
+    if (all === undefined) {
+      const rows = await ctx.db
+        .query("priceListLines")
+        .withIndex("by_priceListId_and_productId", (q) =>
+          q.eq("priceListId", listId),
+        )
+        .take(MAX_LIST_LINES + 1);
+      all = rows.length > MAX_LIST_LINES ? null : rows;
+      cache.listLines.set(listId, all);
+    }
+    if (all) {
+      const rows = all.filter((row) => row.productId === productId);
+      return rows.length > MAX_LINES_PER_PRODUCT ? null : rows;
+    }
+  }
   const rows = await ctx.db
     .query("priceListLines")
     .withIndex("by_priceListId_and_productId", (q) =>
       q.eq("priceListId", listId).eq("productId", productId),
     )
     .take(MAX_LINES_PER_PRODUCT + 1);
+  return rows.length > MAX_LINES_PER_PRODUCT ? null : rows;
+}
+
+function pricesOf(rows: Doc<"priceListLines">[] | null, at: number) {
   const prices = new Map<string, number>();
-  if (rows.length > MAX_LINES_PER_PRODUCT) return prices;
+  if (!rows) return prices;
   const byUnit = new Map<string, number[]>();
   for (const row of rows) {
     if (
@@ -110,10 +183,18 @@ export async function productPrices(
  * Units a product may be ordered in: its own unit first, then its active selling units
  * (product master `sellingUomIds`), at most MAX_ORDER_UNITS.
  */
-export async function orderUnits(ctx: Ctx, product: Doc<"products">) {
+export async function orderUnits(
+  ctx: Ctx,
+  product: Doc<"products">,
+  cache?: PricingCache,
+) {
   const units = [product.uom];
   for (const id of product.sellingUomIds ?? []) {
-    const row = await ctx.db.get(id);
+    let row = cache?.units.get(id);
+    if (row === undefined) {
+      row = await ctx.db.get(id);
+      cache?.units.set(id, row);
+    }
     if (
       !row?.active ||
       row.organizationId !== SUNPRIDE_ORGANIZATION_ID ||
@@ -209,26 +290,27 @@ export type OrderTerms = {
  */
 export async function orderTermsFor(
   ctx: Ctx,
-  outletId: Id<"outlets">,
-  customerId: Id<"customers"> | null,
-  productIds: Id<"products">[],
+  outlet: Doc<"outlets">,
+  customer: Doc<"customers"> | null,
+  products: Doc<"products">[],
   at: number,
+  cache: PricingCache,
 ): Promise<{ terms: OrderTerms; stamp: string }> {
-  const outlet = await ctx.db.get(outletId);
-  const customer = customerId ? await ctx.db.get(customerId) : null;
-  const list = await priceListFor(ctx, outlet, customer, at);
+  const list = await priceListFor(ctx, outlet, customer, at, cache);
   const lines: OrderTerms["lines"] = [];
-  for (const productId of productIds) {
-    const product = await ctx.db.get(productId);
-    if (!product) continue;
+  for (const product of products) {
     const prices = list
-      ? await productPrices(ctx, list._id, product._id, at)
+      ? await productPrices(ctx, list._id, product._id, at, cache)
       : new Map<string, number>();
-    for (const uom of await orderUnits(ctx, product))
-      lines.push({ productId, uom, unitPriceMinor: prices.get(uom) ?? null });
+    for (const uom of await orderUnits(ctx, product, cache))
+      lines.push({
+        productId: product._id,
+        uom,
+        unitPriceMinor: prices.get(uom) ?? null,
+      });
   }
   const terms: OrderTerms = {
-    outletId,
+    outletId: outlet._id,
     priceList: list
       ? {
           id: list._id,

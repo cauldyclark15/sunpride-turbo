@@ -19,7 +19,12 @@ import {
   type PhoneCallSheet,
 } from "../callSheets/model";
 import { phoneRules, rulesAt } from "../visits/activity_rules";
-import { orderTermsFor, type OrderTerms } from "../pricing/model";
+import {
+  orderTermsFor,
+  pricingCache,
+  type OrderTerms,
+  type PricingCache,
+} from "../pricing/model";
 import {
   EVIDENCE_PHOTO_TYPES,
   EVIDENCE_PHOTO_TYPES_VERSION,
@@ -129,6 +134,7 @@ export const orderTermsDTO = v.object({
 type CallSheetCache = {
   /** SP-0088: one order-terms projection per outlet per snapshot. */
   terms: Map<Id<"outlets">, { terms: OrderTerms; stamp: string } | null>;
+  pricing: PricingCache;
   accounts: Map<
     Id<"outlets">,
     { sheet: PhoneCallSheet; stamp: string; membershipStamp: string } | null
@@ -261,13 +267,20 @@ async function visitProjection(
   // SP-0088: prices for the account-setup products, at the snapshot instant.
   let terms = cache.terms.get(row.outletId);
   if (terms === undefined) {
+    // Product rows come from the call sheet's own reads, the outlet from scope resolution.
     terms = callSheet
       ? await orderTermsFor(
           ctx,
-          row.outletId,
-          s.customerId ?? null,
-          callSheet.sheet.lines.map((line) => line.productId as Id<"products">),
+          current.outlet,
+          customer,
+          callSheet.sheet.lines.flatMap((line) => {
+            const product = cache.products.get(
+              line.productId as Id<"products">,
+            )?.product;
+            return product ? [product] : [];
+          }),
           now,
+          cache.pricing,
         )
       : null;
     cache.terms.set(row.outletId, terms);
@@ -350,6 +363,7 @@ export async function dayProjection(
   const visits: Projected[] = [];
   const cache: CallSheetCache = {
     terms: new Map(),
+    pricing: pricingCache(),
     accounts: new Map(),
     products: new Map(),
     plans: new Map(),
