@@ -47,14 +47,18 @@ name, never by profile ID.
 
 ## Who can do what
 
-| Capability      | Roles                                                      | Grants                                           |
-| --------------- | ---------------------------------------------------------- | ------------------------------------------------ |
-| `issues.read`   | super_admin, admin, operations, manager, approver, analyst | See the board, list and issue pages              |
-| `issues.write`  | super_admin, admin, operations, manager, approver          | Create, edit, move, comment, attach              |
-| `issues.manage` | super_admin, admin                                         | Archive/restore, remove anyone's comment or file |
+| Capability      | Roles                                             | Grants                                           |
+| --------------- | ------------------------------------------------- | ------------------------------------------------ |
+| `issues.read`   | every signed-in role                              | See the board, list and issue pages              |
+| `issues.write`  | every signed-in role                              | File an issue, comment, attach screenshots       |
+| `issues.triage` | super_admin, admin, operations, manager, approver | Change status, move on the board, assign, edit   |
+| `issues.manage` | super_admin, admin                                | Archive/restore, remove anyone's comment or file |
 
-Field `sales` and `viewer` never see the tracker. `analyst` is cross-scope and therefore
-read-only. Only a comment's author may edit it. An assignee must hold `issues.read`.
+Beta release (SP-0123): every tester, including field `sales`, `analyst` and `viewer`, can
+open Issues, file an issue, comment and attach. Issues are unscoped tester feedback, so this
+is the one listed write for the otherwise read-only `analyst`/`viewer` roles
+(`TESTER_FEEDBACK_CAPABILITIES`). Only a comment's author may edit it. An assignee must hold
+`issues.triage`; a tester cannot assign when filing.
 
 ## Agent access (no browser)
 

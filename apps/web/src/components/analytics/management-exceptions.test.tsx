@@ -229,7 +229,10 @@ describe("management exception dashboard", () => {
     vi.useFakeTimers();
     vi.setSystemTime(now);
     calls.length = 0;
+    // SAP and cash cards are on the beta hidden list; switch them on for this check.
+    vi.stubEnv("NEXT_PUBLIC_BETA_ENABLE", "sap-status,cash-variances");
     const html = renderToStaticMarkup(createElement(ManagementExceptions));
+    vi.unstubAllEnvs();
     vi.useRealTimers();
     for (const label of [
       "Exceptions to manage",
@@ -267,6 +270,21 @@ describe("management exception dashboard", () => {
     expect(html).toContain("Region A 4");
     expect(html).toContain("My team only");
     expect(html).toContain("provisional until Sunpride confirms");
+  });
+
+  it("hides SAP and cash for the beta, keeping trips and stock counts", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    vi.stubEnv("NEXT_PUBLIC_BETA_ENABLE", "");
+    const html = renderToStaticMarkup(createElement(ManagementExceptions));
+    vi.unstubAllEnvs();
+    vi.useRealTimers();
+    expect(html).not.toMatch(/SAP/);
+    expect(html).not.toContain("Cash variances");
+    expect(html).not.toContain("Cash remittance is not recorded.");
+    expect(html).toContain("Unclosed trips");
+    expect(html).toContain("Stock variances");
+    expect(html).toContain("Out-of-stock hotspots");
   });
 
   it("never claims a clean state on a partial read, and says when a list is cut", () => {

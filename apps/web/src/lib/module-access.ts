@@ -49,16 +49,9 @@ const orderApprovers = [
   "manager",
   "approver",
 ] as const satisfies readonly AppRole[];
-// issues.read — internal staff; field `sales` and `viewer` never see the tracker.
-const issueReaders = [
-  "super_admin",
-  "admin",
-  "operations",
-  "manager",
-  "approver",
-  "analyst",
-] as const satisfies readonly AppRole[];
-const issueWriters = [
+// issues.read / issues.write — beta release: every signed-in role files and comments.
+// issues.triage — the staff who work issues (status, board moves, assignee, edits).
+const issueTriagers = [
   "super_admin",
   "admin",
   "operations",
@@ -123,8 +116,9 @@ export function salesForcePanels(capabilities: readonly string[]) {
 }
 
 export const ISSUE_PANEL_ROLES = {
-  "issues.read": issueReaders,
-  "issues.write": issueWriters,
+  "issues.read": allReaders,
+  "issues.write": allReaders,
+  "issues.triage": issueTriagers,
   "issues.manage": administrators,
 } as const satisfies Record<string, readonly AppRole[]>;
 

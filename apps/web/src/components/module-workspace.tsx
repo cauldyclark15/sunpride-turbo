@@ -15,6 +15,7 @@ import {
 import { useMutation, useQuery } from "convex/react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { isBetaFeatureOn } from "../config/beta";
 import { getWebModuleTabs, type WebModuleSlug } from "../config/navigation";
 import { canAccessWebModule } from "../lib/module-access";
 import { AdminWorkspace } from "./admin-workspace";
@@ -484,7 +485,8 @@ function ModuleContent({
                 : undefined
           }
           actions={
-            module === "orders" ? (
+            // Beta: the sample-order button is hidden (see config/beta.ts).
+            module === "orders" && isBetaFeatureOn("sample-order") ? (
               <Button
                 variant="primary"
                 isPending={busy}

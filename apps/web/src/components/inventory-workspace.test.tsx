@@ -161,11 +161,38 @@ describe("Inventory calm stock view", () => {
   });
   it("offers setup only when stock is not configured", () => {
     data.ready = false;
+    vi.stubEnv("NEXT_PUBLIC_BETA_ENABLE", "inventory-setup");
     const html = renderToStaticMarkup(
       createElement(InventoryWorkspace, { setupMessage: "Connected" }),
     );
+    vi.unstubAllEnvs();
     expect(html).toContain(
       "<aside>Set up inventory to continue<button>Set up</button></aside>",
     );
+    data.ready = true;
+  });
+  it("hides the setup button and the Production tab for the beta", () => {
+    vi.stubEnv("NEXT_PUBLIC_BETA_ENABLE", "");
+    data.ready = false;
+    const notReady = renderToStaticMarkup(
+      createElement(InventoryWorkspace, { setupMessage: "Connected" }),
+    );
+    expect(notReady).toContain(
+      "<aside>Inventory is not set up yet. Ask your administrator.</aside>",
+    );
+    expect(notReady).not.toContain("<button>Set up</button>");
+    data.ready = true;
+    const html = renderToStaticMarkup(
+      createElement(InventoryWorkspace, { setupMessage: "Connected" }),
+    );
+    expect(html).not.toContain("Production</button>");
+    expect(html).toContain("Stock counts</button>");
+    vi.stubEnv("NEXT_PUBLIC_BETA_ENABLE", "production");
+    expect(
+      renderToStaticMarkup(
+        createElement(InventoryWorkspace, { setupMessage: "Connected" }),
+      ),
+    ).toContain("Production</button>");
+    vi.unstubAllEnvs();
   });
 });

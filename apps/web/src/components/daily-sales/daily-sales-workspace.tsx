@@ -17,6 +17,7 @@ import {
   remarksText,
   type DsrReport,
 } from "../../lib/daily-sales";
+import { isBetaFeatureOn } from "../../config/beta";
 import { PanelErrorBoundary } from "../panel-error-boundary";
 import "./daily-sales-print.css";
 
@@ -173,6 +174,7 @@ function Figure({
 /** The Annex B sheet itself; also the print view. */
 export function DailySalesView({ report }: { report: DsrReport }) {
   const { totals, targets, calls } = report;
+  const showNewProducts = isBetaFeatureOn("dsr-new-products");
   return (
     <section
       className="daily-sales-print-view grid gap-4"
@@ -302,7 +304,9 @@ export function DailySalesView({ report }: { report: DsrReport }) {
         )}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div
+        className={`grid gap-4 ${showNewProducts ? "lg:grid-cols-3" : "lg:grid-cols-2"}`}
+      >
         <div className="grid content-start gap-2">
           <h3 className="text-sm font-semibold">Categories</h3>
           <table className="min-w-full text-[13px] tabular-nums">
@@ -334,13 +338,16 @@ export function DailySalesView({ report }: { report: DsrReport }) {
             </tbody>
           </table>
         </div>
-        <div className="grid content-start gap-2">
-          <h3 className="text-sm font-semibold">New products</h3>
-          <p className="text-sm text-muted">
-            Waiting for Sunpride&apos;s list of new products and the original
-            report template.
-          </p>
-        </div>
+        {/* Beta: an empty placeholder until Sunpride's list arrives (config/beta.ts). */}
+        {showNewProducts ? (
+          <div className="grid content-start gap-2">
+            <h3 className="text-sm font-semibold">New products</h3>
+            <p className="text-sm text-muted">
+              Waiting for Sunpride&apos;s list of new products and the original
+              report template.
+            </p>
+          </div>
+        ) : null}
         <div className="grid content-start gap-2">
           <h3 className="text-sm font-semibold">Programs</h3>
           {report.programs.length === 0 ? (
