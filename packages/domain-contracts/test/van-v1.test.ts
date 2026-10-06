@@ -115,4 +115,33 @@ describe("van v1 contract fixtures", () => {
       false,
     );
   });
+
+  test("payment methods and customer credit are optional and bounded (VAN-012)", async () => {
+    const boot = await read("bootstrap-response.json");
+    const policy = boot.policy as Record<string, unknown>;
+    const methods = policy.paymentMethods as Record<string, unknown>[];
+    const customers = boot.customers as Record<string, unknown>[];
+    const withMethods = (paymentMethods: unknown) =>
+      validate({ ...boot, policy: { ...policy, paymentMethods } });
+    const withCredit = (credit: unknown) =>
+      validate({ ...boot, customers: [{ ...customers[0]!, credit }] });
+    const legacyPolicy = { ...policy };
+    delete legacyPolicy.paymentMethods;
+    const legacyCustomer = { ...customers[0]! };
+    delete legacyCustomer.credit;
+    expect(
+      validate({ ...boot, policy: legacyPolicy, customers: [legacyCustomer] }),
+    ).toBe(true);
+    expect(withMethods([])).toBe(false);
+    expect(withMethods([{ ...methods[0]!, kind: "voucher" }])).toBe(false);
+    expect(withMethods([{ ...methods[0]!, code: "Cash!" }])).toBe(false);
+    expect(withMethods([{ ...methods[1]!, referenceLabel: "" }])).toBe(false);
+    expect(withMethods([{ ...methods[0]!, extra: true }])).toBe(false);
+    expect(withCredit(null)).toBe(true);
+    expect(withCredit({ termsDays: 30, availableMinor: "0" })).toBe(true);
+    expect(withCredit({ termsDays: 0, availableMinor: "1" })).toBe(false);
+    expect(withCredit({ termsDays: 181, availableMinor: "1" })).toBe(false);
+    expect(withCredit({ termsDays: 30, availableMinor: "12.50" })).toBe(false);
+    expect(withCredit({ termsDays: 30 })).toBe(false);
+  });
 });

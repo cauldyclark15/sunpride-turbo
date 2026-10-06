@@ -86,7 +86,9 @@ import com.sunpride.van.data.*
 }
 @Composable fun CustomerDetailScreen(c: VanController) {
     val customer = c.selectedCustomer
-    ScreenFrame("Customer",c::back,action = "Back to customers",onAction = c::back) {
+    val continuing = customer != null && c.sale?.customer?.outletId == customer.outletId
+    ScreenFrame("Customer",c::back,action = if (continuing) "Continue sale" else "Start sale",actionTag = "start-sale",
+        enabled = !c.busy && customer != null && VanRules.canSell(c.trip),onAction = { customer?.let(c::startSale) },message = c.message) {
         customer?.let {
             SectionCard(VanRules.sourceLabel(it.source)) {
                 Text(it.name,style = MaterialTheme.typography.titleLarge)
@@ -95,7 +97,7 @@ import com.sunpride.van.data.*
                 it.reason?.let { reason -> Text("Reason: $reason") }
             }
         }
-        if (com.sunpride.van.VanFeature.SELLING_PREVIEW in c.features)
-            Text("Selling comes in the next update",style = MaterialTheme.typography.titleMedium,modifier = Modifier.testTag("selling-preview"))
+        if (!VanRules.canSell(c.trip)) Text("Start the trip before selling.",style = MaterialTheme.typography.titleMedium)
+        else if (c.sale != null && !continuing) Text("Starting a sale here replaces the unfinished sale for ${c.sale!!.customer.name}.",style = MaterialTheme.typography.bodyMedium)
     }
 }

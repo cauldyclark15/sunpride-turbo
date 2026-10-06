@@ -21,7 +21,8 @@ import java.time.format.DateTimeFormatter
     val next = VanRules.nextAction(c.trip,c.load)
     val last = c.sync.lastSyncTime?.let { Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("MMM d, h:mm a")) } ?: "Not yet"
     val pending = c.sync.queued + c.sync.sending
-    val status = "$pending waiting · ${c.sync.review} to review" + (if (c.sync.held > 0) " · ${c.sync.held} paused" else "") + "\nLast sync: $last"
+    val status = "$pending waiting · ${c.sync.review} to review" + (if (c.sync.held > 0) " · ${c.sync.held} paused" else "") +
+        (if (c.sync.savedSales > 0) "\n${c.sync.savedSales} ${if (c.sync.savedSales == 1) "sale" else "sales"} saved on this phone" else "") + "\nLast sync: $last"
     ScreenFrame("Today",action = if (c.trip == null) "Sync now" else next.label,actionTag = "home-primary",
         enabled = !c.busy,onAction = { if (c.trip == null) c.syncNow() else c.open(next.page) },footer = status,message = c.message) {
         val trip = c.trip
@@ -40,8 +41,9 @@ import java.time.format.DateTimeFormatter
             ListRow("Customers","Your route and nearby stores","open-customers",onClick = { c.open(Page.CUSTOMERS) })
             ListRow("Printer & scanner","Test this phone","open-printer",onClick = { c.open(Page.PRINTER) })
             ListRow("Sync now","Send saved work and check for changes","sync-now",onClick = c::syncNow,enabled = !c.busy)
-            if (com.sunpride.van.VanFeature.SELLING_PREVIEW in c.features)
-                ListRow("New sale","Selling comes in the next update","new-sale",enabled = false,onClick = {})
+            val selling = VanRules.canSell(trip)
+            if (c.sale != null) ListRow("Continue sale",c.sale!!.customer.name,"new-sale",enabled = !c.busy,onClick = c::continueSale)
+            else ListRow("New sale",if (selling) "Choose the customer, then add products" else "Start the trip to sell","new-sale",enabled = selling && !c.busy,onClick = { c.open(Page.CUSTOMERS) })
         }
         val context = LocalContext.current
         c.features.reportIssueUrl?.let { url -> ListRow("Report an issue","Tell the Sunpride team what went wrong","report-issue",onClick = { openLink(context,url) }) }

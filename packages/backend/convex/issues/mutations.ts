@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation } from "../_generated/server";
 import * as service from "./service";
 import {
@@ -30,6 +30,9 @@ export const create = mutation({
   }),
   handler: async (ctx, args) => {
     const actor = await service.requireIssueActor(ctx, "issues.write");
+    // Testers file and describe; assigning is triage work.
+    if (args.assigneeId && !actor.canTriage)
+      throw new ConvexError("Only issue triagers can assign an issue");
     return service.createIssue(ctx, args, actor);
   },
 });
@@ -50,7 +53,7 @@ export const update = mutation({
   },
   returns: v.object({ changed: v.boolean() }),
   handler: async (ctx, { issueId, ...input }) => {
-    const actor = await service.requireIssueActor(ctx, "issues.write");
+    const actor = await service.requireIssueActor(ctx, "issues.triage");
     return service.updateIssue(ctx, issueId, input, actor);
   },
 });
@@ -65,7 +68,7 @@ export const move = mutation({
   },
   returns: v.object({ changed: v.boolean() }),
   handler: async (ctx, args) => {
-    const actor = await service.requireIssueActor(ctx, "issues.write");
+    const actor = await service.requireIssueActor(ctx, "issues.triage");
     return service.moveIssue(ctx, args, actor);
   },
 });

@@ -10,7 +10,7 @@ Sunpride testers get the van app as a hand-delivered Android APK (iOS is not par
 | Find product, scanning, Truck stock and damage, Customers  | On                                                                          | On                                                    |
 | Printer & scanner test                                     | On (also from Sign in and Register phone, so a new handheld can be checked) | On                                                    |
 | Password eye on Sign in                                    | On                                                                          | On                                                    |
-| "New sale" row and "Selling comes in the next update"      | Hidden (`VanFeature.SELLING_PREVIEW`)                                       | Shown                                                 |
+| New sale, cart, checkout and payment (VAN-011/012)         | On (sales stay on the phone until sale upload ships)                        | On                                                    |
 | Practice data (`VAN_STUB_BACKEND` intent extra)            | Impossible: debug-only (`VanFeature.DEVELOPER_TOOLS` + `BuildConfig.DEBUG`) | adb only                                              |
 | Report an issue (Sign in and Today)                        | Shown when `SUNPRIDE_BETA_WEB_URL` is set; opens `<url>/issues/new`         | Shown when the flavor's `SUNPRIDE_DEV_WEB_URL` is set |
 
@@ -20,7 +20,7 @@ Cleanup checked for the beta:
 
 - **SAP wording:** the app shows none (only internal docs mention SAP).
 - **Bluetooth printer settings:** none exist (VAN-015 not built); the H10P uses its built-in printer, so nothing to hide.
-- **Unfinished screens:** selling placeholders hidden as above. Developer tools (practice data, debug logging in `SafeDiagnostics`) are debug-only.
+- **Unfinished screens:** the old selling placeholders are gone now that selling shipped on main; nothing else unfinished is reachable. Developer tools (practice data, debug logging in `SafeDiagnostics`) are debug-only.
 
 ### Password eye
 

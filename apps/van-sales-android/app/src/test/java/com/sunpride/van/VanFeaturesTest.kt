@@ -4,9 +4,8 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class VanFeaturesTest {
-    @Test fun releaseBuildsHideSellingPreviewAndDeveloperTools() {
+    @Test fun releaseBuildsHideDeveloperTools() {
         val beta = VanFeatures.forBuild(debug = false, webUrl = "")
-        assertFalse(VanFeature.SELLING_PREVIEW in beta)
         assertFalse(VanFeature.DEVELOPER_TOOLS in beta)
         assertNull(beta.reportIssueUrl)
     }

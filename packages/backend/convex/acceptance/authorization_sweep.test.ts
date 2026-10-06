@@ -450,9 +450,10 @@ const ALLOWED_MUTATIONS: Partial<Record<CallerName, string[]>> = {
   southOperations: [...SELF_SERVICE, ...ISSUE_WRITERS],
   southManager: [...SELF_SERVICE, ...ISSUE_WRITERS, ...FIELD_RECORDERS],
   southApprover: [...SELF_SERVICE, ...ISSUE_WRITERS],
-  southSales: [...SELF_SERVICE, ...FIELD_RECORDERS],
-  southViewer: SELF_SERVICE,
-  analyst: SELF_SERVICE,
+  // Beta (SP-0123): every role files tester feedback in the organization-wide tracker.
+  southSales: [...SELF_SERVICE, ...ISSUE_WRITERS, ...FIELD_RECORDERS],
+  southViewer: [...SELF_SERVICE, ...ISSUE_WRITERS],
+  analyst: [...SELF_SERVICE, ...ISSUE_WRITERS],
 };
 
 const OUTSIDERS = [

@@ -7,9 +7,6 @@ import java.net.URI
  * its code, screens and tests stay, and a DEV debug build still shows it. See `docs/beta.md`.
  */
 enum class VanFeature {
-    /** Disabled "New sale" row and "Selling comes in the next update" placeholders. */
-    SELLING_PREVIEW,
-
     /** Practice (fixture) data launched by an adb intent extra. Never part of a release build. */
     DEVELOPER_TOOLS,
 }
@@ -19,7 +16,7 @@ data class VanFeatures(val enabled: Set<VanFeature>, val reportIssueUrl: String?
 
     companion object {
         /** Switched off in every release build (beta included). */
-        val HIDDEN_IN_RELEASE: Set<VanFeature> = setOf(VanFeature.SELLING_PREVIEW, VanFeature.DEVELOPER_TOOLS)
+        val HIDDEN_IN_RELEASE: Set<VanFeature> = setOf(VanFeature.DEVELOPER_TOOLS)
 
         /** Everything on: DEV debug builds and UI tests. */
         val ALL = VanFeatures(VanFeature.entries.toSet())

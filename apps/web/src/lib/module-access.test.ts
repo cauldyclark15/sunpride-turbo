@@ -218,7 +218,7 @@ describe("web module access", () => {
     }
   });
 
-  it("mirrors the issue tracker capabilities and keeps field sales out", () => {
+  it("mirrors the issue tracker capabilities and opens it to every tester", () => {
     for (const [key, granted] of Object.entries(ISSUE_PANEL_ROLES))
       expect(new Set(granted)).toEqual(
         new Set(CAPABILITIES[key as keyof typeof CAPABILITIES]),
@@ -227,8 +227,9 @@ describe("web module access", () => {
       expect(canAccessWebModule("issues", role)).toBe(
         (CAPABILITIES["issues.read"] as readonly string[]).includes(role),
       );
-    expect(canAccessWebModule("issues", "sales")).toBe(false);
-    expect(canAccessWebModule("issues", "viewer")).toBe(false);
+    for (const role of roles)
+      expect(canAccessWebModule("issues", role), role).toBe(true);
+    expect(ISSUE_PANEL_ROLES["issues.triage"]).not.toContain("sales");
     expect(canAccessWebModule("issues", null)).toBe(false);
   });
 
