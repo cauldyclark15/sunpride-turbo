@@ -1,13 +1,15 @@
 import { convexTest, type TestConvex } from "convex-test";
-import type { FunctionArgs } from "convex/server";
+import { getFunctionName, type FunctionArgs } from "convex/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
+import type { ActionCtx } from "../_generated/server";
 import { manilaDate } from "../coverage/validation";
 import type { AppRole } from "../lib/roles";
 import type { AuthorizedDevice } from "../mobile/types";
 import schema from "../schema";
 import { modules } from "../test.setup";
+import { handleVan } from "./http_handlers";
 
 // UTC is still October 5 here, but the service day in Manila is October 6.
 const NOW = Date.parse("2026-10-05T16:30:00Z");
@@ -1339,16 +1341,17 @@ describe("van signed operations, POS and reconciliation", () => {
         other.actor,
       ),
     ).rejects.toThrow(/out_of_scope/);
+    // An actor snapshot that no longer matches the persisted role/scope is refused outright.
     await expect(
       f.apply("trip.start", { tripId }, { ...f.seller.actor, role: "viewer" }),
-    ).rejects.toThrow(/out_of_scope/);
+    ).rejects.toThrow(/unauthorized/);
     await expect(
       f.apply(
         "trip.start",
         { tripId },
         { ...f.seller.actor, orgUnitId: f.west },
       ),
-    ).rejects.toThrow(/out_of_scope/);
+    ).rejects.toThrow(/unauthorized/);
     // Cached acknowledgements must not bypass a revoked capability or a changed scope.
     await expect(
       f.apply(
@@ -1357,7 +1360,7 @@ describe("van signed operations, POS and reconciliation", () => {
         { ...f.seller.actor, role: "viewer" },
         requestId,
       ),
-    ).rejects.toThrow(/out_of_scope/);
+    ).rejects.toThrow(/unauthorized/);
     await expect(
       f.apply(
         "load.confirm",
@@ -1365,7 +1368,212 @@ describe("van signed operations, POS and reconciliation", () => {
         { ...f.seller.actor, orgUnitId: f.west },
         requestId,
       ),
-    ).rejects.toThrow(/out_of_scope/);
+    ).rejects.toThrow(/unauthorized/);
+  });
+});
+
+describe("van actor withdrawn after device proof verification", () => {
+  type Fixture = Awaited<ReturnType<typeof fixture>>;
+  const snapshot = (f: Fixture) =>
+    f.t.run(async (ctx) => ({
+      trips: await ctx.db.query("vanTrips").collect(),
+      loads: await ctx.db.query("vanTripLoads").collect(),
+      lines: await ctx.db.query("vanTripLoadLines").collect(),
+      operations: await ctx.db.query("vanOperations").collect(),
+      sessions: await ctx.db.query("truckRouteSessions").collect(),
+      movements: await ctx.db.query("inventoryMovements").collect(),
+      balances: await ctx.db.query("inventoryBalances").collect(),
+      audit: await ctx.db.query("auditLogs").collect(),
+    }));
+  const withdrawals: [string, (f: Fixture) => Promise<void>][] = [
+    [
+      "device suspended",
+      (f) =>
+        f.t.run(async (ctx) => {
+          await ctx.db.patch(f.seller.actor.deviceId, { status: "suspended" });
+        }),
+    ],
+    [
+      "device revoked",
+      (f) =>
+        f.t.run(async (ctx) => {
+          await ctx.db.patch(f.seller.actor.deviceId, { status: "revoked" });
+        }),
+    ],
+    [
+      "profile deactivated",
+      (f) =>
+        f.t.run(async (ctx) => {
+          await ctx.db.patch(f.seller.profileId, { status: "disabled" });
+        }),
+    ],
+    [
+      "profile scope withdrawn",
+      (f) =>
+        f.t.run(async (ctx) => {
+          await ctx.db.patch(f.seller.profileId, { orgUnitId: f.west });
+        }),
+    ],
+    [
+      "role changed",
+      (f) =>
+        f.t.run(async (ctx) => {
+          await ctx.db.patch(f.seller.profileId, { role: "viewer" });
+        }),
+    ],
+    [
+      "effective assignment moved",
+      (f) =>
+        f.t.run(async (ctx) => {
+          const rows = await ctx.db
+            .query("employeeAssignments")
+            .withIndex("by_profileId_and_effectiveFrom", (q) =>
+              q.eq("profileId", f.seller.profileId),
+            )
+            .collect();
+          for (const row of rows)
+            await ctx.db.patch(row._id, { effectiveTo: NOW - 1 });
+          await ctx.db.insert("employeeAssignments", {
+            profileId: f.seller.profileId,
+            orgUnitId: f.west,
+            role: "sales",
+            effectiveFrom: NOW - 1,
+            actorSubject: "fixture",
+            reason: "fixture",
+            createdAt: NOW,
+          });
+        }),
+    ],
+  ];
+
+  it.each(withdrawals)(
+    "%s: a new operation and a replay are refused with zero writes; bootstrap is refused",
+    async (_name, withdraw) => {
+      const f = await fixture();
+      const { tripId, loadId } = await f.loaded();
+      const confirmPayload = {
+        tripId,
+        loadId,
+        lines: [{ lineNumber: 1, actualBase: String(LOADED) }],
+      };
+      // The load confirmation was accepted earlier under uuid(1).
+      await withdraw(f);
+      const before = await snapshot(f);
+      await expect(
+        f.apply(
+          "trip.start",
+          { tripId, vehicleConfirmed: true, routeConfirmed: true },
+          f.seller.actor,
+          uuid(900),
+        ),
+      ).rejects.toThrow(/unauthorized/);
+      await expect(
+        f.apply("load.confirm", confirmPayload, f.seller.actor, uuid(1)),
+      ).rejects.toThrow(/unauthorized/);
+      await expect(f.damage(tripId)).rejects.toThrow(/unauthorized/);
+      await expect(
+        f.t.query(internal.van.device.bootstrap, {
+          actor: f.seller.actor,
+          now: NOW,
+        }),
+      ).rejects.toThrow(/unauthorized/);
+      expect(await snapshot(f)).toEqual(before);
+      expect((await f.detail(tripId)).trip.status).toBe("loaded");
+    },
+  );
+
+  it("refuses an identity that is not the device's bound subject", async () => {
+    const f = await fixture();
+    const { tripId } = await f.loaded();
+    const before = await snapshot(f);
+    await expect(
+      f.t
+        .withIdentity({ subject: "someone-else" })
+        .mutation(internal.van.device.applyOne, {
+          actor: f.seller.actor,
+          operation: {
+            kind: "trip.start",
+            clientRequestId: uuid(901),
+            payload: { tripId, vehicleConfirmed: true, routeConfirmed: true },
+          },
+        }),
+    ).rejects.toThrow(/unauthorized/);
+    expect(await snapshot(f)).toEqual(before);
+  });
+
+  it("the production HTTP push refuses a suspension committed after proof verification", async () => {
+    const f = await fixture();
+    const { tripId } = await f.loaded();
+    const text = JSON.stringify({
+      type: "van.push.request",
+      contractVersion: 1,
+      deviceId: f.seller.actor.deviceId,
+      operations: [
+        {
+          kind: "trip.start",
+          clientRequestId: uuid(902),
+          payload: { tripId, vehicleConfirmed: true, routeConfirmed: true },
+        },
+      ],
+    });
+    const digest = Array.from(
+      new Uint8Array(
+        await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)),
+      ),
+      (byte) => byte.toString(16).padStart(2, "0"),
+    ).join("");
+    const request = new Request("https://example.convex.site/van/v1/push", {
+      method: "POST",
+      body: text,
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer jwt",
+        "x-mobile-contract-version": "1",
+        "x-mobile-device-id": f.seller.actor.deviceId,
+        "x-mobile-app": "VAN_ANDROID",
+        "x-mobile-nonce": uuid(903),
+        "x-mobile-timestamp": String(NOW),
+        "x-mobile-signature": "signed",
+        "x-mobile-body-digest": digest,
+      },
+    });
+    const caller = f.t.withIdentity({
+      tokenIdentifier: f.seller.actor.subject,
+    });
+    type Call = (fn: unknown, args: unknown) => Promise<unknown>;
+    const mutate = caller.mutation as unknown as Call,
+      read = caller.query as unknown as Call;
+    const before = await snapshot(f);
+    // Only the proof boundary is replaced: it verifies, then the device is suspended in a
+    // separately committed transaction before the operation runs.
+    const ctx = {
+      auth: {
+        getUserIdentity: async () => ({
+          tokenIdentifier: f.seller.actor.subject,
+        }),
+      },
+      runMutation: async (fn: never, args: unknown) => {
+        const name = getFunctionName(fn);
+        if (name.startsWith("mobile/rate_limits:")) return 0;
+        if (name === "mobile/device_auth:authorize") {
+          await f.t.run(async (c) => {
+            await c.db.patch(f.seller.actor.deviceId, { status: "suspended" });
+          });
+          return f.seller.actor;
+        }
+        return mutate(fn, args);
+      },
+      runQuery: async (fn: unknown, args: unknown) => read(fn, args),
+    } as unknown as ActionCtx;
+    const response = await handleVan(ctx, request, "push");
+    expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({ code: "unauthorized" });
+    const after = await snapshot(f);
+    expect(after.trips).toEqual(before.trips);
+    expect(after.operations).toEqual(before.operations);
+    expect(after.movements).toEqual(before.movements);
+    expect(after.sessions).toEqual(before.sessions);
+    expect((await f.detail(tripId)).trip.status).toBe("loaded");
   });
 });
 

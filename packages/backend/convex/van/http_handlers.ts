@@ -1,3 +1,4 @@
+import { ConvexError } from "convex/values";
 import { httpAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
@@ -51,6 +52,13 @@ const failure = (code: string, status: number): Response =>
     },
     status,
   );
+/** The per-transaction recheck (van/access.requireCurrentDeviceActor) refused the actor. */
+function unauthorized(error: unknown): boolean {
+  if (error instanceof ConvexError && error.data === "unauthorized")
+    return true;
+  const text = error instanceof Error ? error.message : "";
+  return /(?:^|[:\s])unauthorized(?:$|[\s\n])/.test(text);
+}
 function coded(error: unknown): string | null {
   const text = error instanceof Error ? error.message : "";
   for (const code of businessCodes)
@@ -242,7 +250,10 @@ async function serve(
       serverTime: Date.now(),
       results,
     });
-  } catch {
+  } catch (error) {
+    // Suspended, revoked, deactivated or re-scoped after the proof was verified: the whole
+    // request is refused so the phone holds its outbox (VanSync) instead of retrying.
+    if (unauthorized(error)) return failure("unauthorized", 401);
     return failure("temporarily_unavailable", 500);
   }
 }

@@ -10,7 +10,12 @@ import { activeAt } from "../org/validation";
 import { resolveOutletScopeAt } from "../outlets/validation";
 import { type Caches, toBase, uom as cachedUom } from "../mobile/reference";
 import type { AuthorizedDevice } from "../mobile/types";
-import { loadLines, requireDeviceTrip, tripLoad } from "./access";
+import {
+  loadLines,
+  requireCurrentDeviceActor,
+  requireDeviceTrip,
+  tripLoad,
+} from "./access";
 import { postTruckDamage, truckBalances } from "./ledger";
 import { finishLoad } from "./loads";
 import {
@@ -244,6 +249,7 @@ export const bootstrap = internalQuery({
   args: { actor: actorValidator, now: v.number() },
   returns: v.any(),
   handler: async (ctx, { actor, now }) => {
+    await requireCurrentDeviceActor(ctx, actor);
     const serviceDate = manilaDate(now);
     const profile = await ctx.db.get(actor.profileId);
     const candidates = await ctx.db
@@ -418,7 +424,9 @@ export const applyOne = internalMutation({
     }),
   }),
   handler: async (ctx, { actor, operation }): Promise<Result> => {
-    // A replay still requires current ownership, capability and organizational scope.
+    // A replay still requires the current device/profile/assignment, ownership,
+    // capability and organizational scope, all re-read inside this transaction.
+    await requireCurrentDeviceActor(ctx, actor);
     if (!isRecord(operation.payload)) throw new ConvexError("invalid_request");
     const p = operation.payload;
     if (typeof p.tripId !== "string") throw new ConvexError("invalid_request");
