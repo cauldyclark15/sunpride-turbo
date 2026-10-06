@@ -48,12 +48,12 @@ class OrderSubmissionTest {
             ?: error("Expected an order failure")).code
     private suspend fun rows(store: FakeFieldStore) = store.history().map { it.first to it.second.state }
 
-    @Test fun totalsSumUnitsPerUomAndNeverAnAmount() = runBlocking {
+    @Test fun legacyTotalsSumUnitsAndLeaveAllLinesForTheOffice() = runBlocking {
         val store = ready(); val check = checkIn(store)
         val draft = saveOrderDraftIn(store, null, check.clientVisitId, check.requestId,
             listOf("product-1" to 1200, "product-2" to 12), 500)
         val totals = OrderSubmission.totals(draft)
-        assertEquals(OrderTotals(2, listOf("PC" to 1200, "CAN" to 12)), totals)
+        assertEquals(OrderTotals(2, listOf("PC" to 1200, "CAN" to 12), 0L, 2), totals)
         assertEquals("2 products · 1,200 PC · 12 CAN", totals.text)
         assertEquals("1 product · 3 PC", OrderSubmission.totals(draft.copy(lines = listOf(draft.lines.first().copy(quantity = 3)))).text)
         val activity = OrderSubmission.activity(draft)
