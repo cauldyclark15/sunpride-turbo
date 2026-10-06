@@ -88,4 +88,31 @@ describe("van v1 contract fixtures", () => {
       }),
     ).toBe(false);
   });
+
+  test("barcode units are optional, and a scan quantity is an integer base string or null (VAN-009)", async () => {
+    const boot = await read("bootstrap-response.json");
+    const products = boot.products as Record<string, unknown>[];
+    const first = products[0]!;
+    const withUnits = (barcodeUnits: unknown) =>
+      validate({ ...boot, products: [{ ...first, barcodeUnits }] });
+    const legacy = { ...first };
+    delete legacy.barcodeUnits;
+    expect(validate({ ...boot, products: [legacy] })).toBe(true);
+    expect(
+      withUnits([
+        { barcode: "4800000000017", uomCode: "PC", baseQuantity: null },
+      ]),
+    ).toBe(true);
+    expect(
+      withUnits([
+        { barcode: "4800000000017", uomCode: "PC", baseQuantity: "1.5" },
+      ]),
+    ).toBe(false);
+    expect(withUnits([{ barcode: "", uomCode: "PC", baseQuantity: "1" }])).toBe(
+      false,
+    );
+    expect(withUnits([{ barcode: "4800000000017", uomCode: "PC" }])).toBe(
+      false,
+    );
+  });
 });

@@ -7,7 +7,8 @@ import android.content.IntentFilter
 import android.os.Build
 import com.sunpride.van.printing.SenraiseEmbeddedPrinter
 
-/** No scan-trigger API is assumed: the H10P's physical button is owned by the vendor service.
+/** Hardware scan broadcasts: the H10P's `android.scanner.scan` and the other [ScanIntentProfiles].
+ * No scan-trigger API is assumed: the H10P's physical button is owned by the vendor service.
  * Register only while the scan/sale screen is visible. Broadcasts are untrusted product input,
  * never authorization or a sale command. The vendor broadcast has no signature permission.
  */
@@ -17,16 +18,17 @@ class SenraiseScanner(context: Context, val inputs: BarcodeInputs = BarcodeInput
     private var registered = false
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action == ACTION) {
-                runCatching { intent.getStringExtra(RESULT_EXTRA) }.getOrNull()
-                    ?.let { inputs.submit(it, ScanSource.BROADCAST) }
-            }
+            val extras = runCatching { intent.extras }.getOrNull() ?: return
+            @Suppress("DEPRECATION")
+            ScanIntentProfiles.extract(intent.action) { key -> extras.get(key) }
+                ?.let { inputs.submit(it, ScanSource.BROADCAST) }
         }
     }
     @Suppress("UnspecifiedRegisterReceiverFlag")
     @Synchronized fun start() {
         if (registered) return
-        val filter = IntentFilter(ACTION)
+        // The H10P action plus the other supported vendor scan intents (VAN-009).
+        val filter = IntentFilter().apply { ScanIntentProfiles.actions.forEach(::addAction) }
         if (Build.VERSION.SDK_INT >= 33) {
             context.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
         } else {

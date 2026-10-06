@@ -8,6 +8,7 @@ import { hashPayload } from "../inventory/posting";
 import { collectScopeUnitIds } from "../lib/scope";
 import { activeAt } from "../org/validation";
 import { resolveOutletScopeAt } from "../outlets/validation";
+import { type Caches, toBase, uom as cachedUom } from "../mobile/reference";
 import type { AuthorizedDevice } from "../mobile/types";
 import { loadLines, requireDeviceTrip, tripLoad } from "./access";
 import { postTruckDamage, truckBalances } from "./ledger";
@@ -55,7 +56,51 @@ const TRIP_PRIORITY: Record<string, number> = {
   review_required: 6,
 };
 
-async function productView(ctx: QueryCtx, productId: Id<"products">) {
+/** Barcode history read per product; overflow fails instead of silently dropping rows. */
+const MAX_BARCODE_HISTORY = 50;
+/** Active barcodes per product; the van-v1 contract caps `barcodes` at 20. */
+const MAX_BARCODES = 20;
+
+/**
+ * VAN-009: the unit a scanned barcode stands for, and how many base units one scan is.
+ * `baseQuantity` is null when no exact in-force conversion to the van's selling unit exists:
+ * the handheld then names the unit but never guesses a quantity.
+ */
+async function barcodeUnit(
+  ctx: QueryCtx,
+  caches: Caches,
+  product: Doc<"products">,
+  row: Doc<"productBarcodes">,
+  vanUomId: Id<"unitsOfMeasure"> | undefined,
+  quantityScale: bigint,
+  now: number,
+) {
+  const unit = await cachedUom(ctx, caches, row.uomId);
+  // A barcode for a retired or unknown unit must not scan into that unit.
+  if (!unit?.active) return null;
+  let baseQuantity: string | null = null;
+  if (row.uomId === vanUomId) baseQuantity = quantityScale.toString();
+  else if (vanUomId && vanUomId === product.baseUomId) {
+    const { conversion } = await toBase(ctx, caches, product, row.uomId, now);
+    if (
+      conversion &&
+      conversion.numerator > 0n &&
+      conversion.denominator > 0n
+    ) {
+      const scaled = quantityScale * conversion.numerator;
+      if (scaled % conversion.denominator === 0n)
+        baseQuantity = (scaled / conversion.denominator).toString();
+    }
+  }
+  return { barcode: row.barcode, uomCode: unit.code, baseQuantity };
+}
+
+async function productView(
+  ctx: QueryCtx,
+  caches: Caches,
+  productId: Id<"products">,
+  now: number,
+) {
   const product = await ctx.db.get(productId);
   if (!product) return null;
   const policy = await ctx.db
@@ -68,21 +113,44 @@ async function productView(ctx: QueryCtx, productId: Id<"products">) {
     .unique();
   const uomId = policy?.baseUomId ?? product.baseUomId;
   const uom = uomId ? await ctx.db.get(uomId) : null;
-  const barcodes = await ctx.db
+  const quantityScale = policy?.quantityScale ?? product.quantityScale ?? 1n;
+  // The whole barcode history is read, so an active row after retired ones is never
+  // dropped; more rows than the bound fail loudly instead of truncating.
+  const rows = await ctx.db
     .query("productBarcodes")
     .withIndex("by_organizationId_and_productId", (q) =>
       q
         .eq("organizationId", SUNPRIDE_ORGANIZATION_ID)
         .eq("productId", product._id),
     )
-    .take(20);
+    .take(MAX_BARCODE_HISTORY + 1);
+  if (rows.length > MAX_BARCODE_HISTORY)
+    throw new ConvexError("reference_data_too_large");
+  const barcodeUnits = [];
+  for (const row of rows) {
+    if (!row.active || row.barcode.length === 0 || row.barcode.length > 64)
+      continue;
+    const unit = await barcodeUnit(
+      ctx,
+      caches,
+      product,
+      row,
+      uomId,
+      quantityScale,
+      now,
+    );
+    if (unit) barcodeUnits.push(unit);
+  }
+  if (barcodeUnits.length > MAX_BARCODES)
+    throw new ConvexError("reference_data_too_large");
   return {
     productId: product._id,
     code: product.code,
     name: product.name,
     uomCode: uom?.code ?? product.uom,
-    quantityScale: String(policy?.quantityScale ?? product.quantityScale ?? 1n),
-    barcodes: barcodes.filter((row) => row.active).map((row) => row.barcode),
+    quantityScale: String(quantityScale),
+    barcodes: barcodeUnits.map((row) => row.barcode),
+    barcodeUnits,
   };
 }
 
@@ -226,8 +294,9 @@ export const bootstrap = internalQuery({
       ...balances.map((balance) => balance.productId),
     ]);
     const products = [];
+    const caches: Caches = { uoms: new Map(), global: new Map() };
     for (const productId of productIds) {
-      const view = await productView(ctx, productId);
+      const view = await productView(ctx, caches, productId, now);
       if (view) products.push(view);
     }
     const names = new Map(products.map((p) => [p.productId, p]));

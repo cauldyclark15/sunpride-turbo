@@ -1,5 +1,6 @@
 package com.sunpride.van.sync
 
+import com.sunpride.van.data.BarcodeUnit
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
@@ -11,7 +12,9 @@ class VanBootstrapCodecTest {
         assertEquals("2026-10-07",b.serviceDate); assertEquals("loading",b.trip!!.status)
         assertEquals(48L,b.load!!.lines.first().expectedBase); assertNull(b.load.lines.first().actualBase)
         assertFalse(b.policy.allowNegativeStock); assertTrue(b.policy.walkInAllowed)
-        assertEquals(listOf("4800000000017"),b.products.first().barcodes)
+        assertEquals(listOf("4800000000017","14800000000016"),b.products.first().barcodes)
+        assertEquals(listOf(BarcodeUnit("4800000000017","PC",1),BarcodeUnit("14800000000016","CS",24)),b.products.first().barcodeUnits)
+        assertTrue("barcodeUnits is optional",b.products.last().barcodeUnits.isEmpty())
         assertEquals(3,b.customers.size); assertEquals("unplanned",b.customers.last().source)
     }
     @Test fun debugFixtureIsExactlyTheFrozenFixtureReadInPlace() { assertEquals(JSONObject(fixture()).toString(),JSONObject(FakeVanBackend.FIXTURE).toString()) }
@@ -25,6 +28,11 @@ class VanBootstrapCodecTest {
             { it.getJSONObject("policy").put("allowNegativeStock","false") },
             { it.getJSONArray("products").getJSONObject(0).put("quantityScale",1) },
             { it.getJSONArray("products").getJSONObject(0).put("quantityScale","0") },
+            // VAN-009: a unit for a barcode the product does not carry, a duplicate, or a zero/float scan quantity.
+            { it.getJSONArray("products").getJSONObject(0).getJSONArray("barcodeUnits").getJSONObject(1).put("barcode","999") },
+            { it.getJSONArray("products").getJSONObject(0).getJSONArray("barcodeUnits").getJSONObject(1).put("barcode","4800000000017") },
+            { it.getJSONArray("products").getJSONObject(0).getJSONArray("barcodeUnits").getJSONObject(1).put("baseQuantity","0") },
+            { it.getJSONArray("products").getJSONObject(0).getJSONArray("barcodeUnits").getJSONObject(1).put("baseQuantity","2.5") },
             { it.getJSONObject("load").getJSONArray("lines").getJSONObject(0).remove("actualBase") },
             { it.getJSONObject("load").getJSONArray("lines").getJSONObject(0).put("expectedBase","9999999999999999999") },
             { it.getJSONObject("trip").put("serviceDate","2026-10-08") }

@@ -70,14 +70,24 @@ private data class LoadDraft(val quantity: String, val reason: String?)
     LaunchedEffect(scanner,editable,lines,c.products) {
         scanner.scans.collect { scan ->
             if (editable) {
-                val product = c.products.firstOrNull { scan.code in it.barcodes }
-                val line = lines.firstOrNull { it.productId == product?.productId }
-                if (line == null) scanMessage = "No load item matches that barcode."
-                else {
-                    val draft = drafts[line.lineNumber]!!
-                    val old = VanRules.parseQuantity(draft.quantity,line.quantityScale) ?: line.expectedBase
-                    if (old <= VanRules.MAX_BASE-line.quantityScale) drafts[line.lineNumber] = draft.copy(quantity = VanRules.quantity(old+line.quantityScale,line.quantityScale))
-                    scanMessage = "Added 1 ${line.uomCode}: ${line.productName}. Check the reason below."
+                // VAN-009: resolve the barcode to product AND unit; a case barcode adds a case, never one piece.
+                val matches = com.sunpride.van.pos.BarcodeLookup(c.products).resolve(scan.code)
+                    .filter { candidate -> lines.any { it.productId == candidate.product.productId } }
+                val candidate = matches.singleOrNull()
+                val line = candidate?.let { found -> lines.firstOrNull { it.productId == found.product.productId } }
+                val step = candidate?.unit?.baseQuantity?.takeIf { candidate.unit.quantityKnown && line?.quantityScale == candidate.product.quantityScale }
+                scanMessage = when {
+                    matches.size > 1 -> "Barcode ${scan.code} is on more than one load item. Count it by hand and tell the office."
+                    line == null -> "No load item has barcode ${scan.code}. Count it by hand or search the product."
+                    step == null -> "${candidate!!.unitLabel()}: ${line.productName}. Count it by hand."
+                    else -> {
+                        val draft = drafts[line.lineNumber]!!
+                        val old = VanRules.parseQuantity(draft.quantity,line.quantityScale) ?: line.expectedBase
+                        if (old <= VanRules.MAX_BASE-step) {
+                            drafts[line.lineNumber] = draft.copy(quantity = VanRules.quantity(old+step,line.quantityScale))
+                            "Added ${VanRules.quantity(step,line.quantityScale)} ${line.uomCode} (1 ${candidate!!.unit.uomCode}): ${line.productName}. Check the reason below."
+                        } else "Count too large for ${line.productName}."
+                    }
                 }
             }
         }

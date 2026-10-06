@@ -162,7 +162,12 @@ class FakeVanBackend(fixtureJson: String = FIXTURE, context: Context? = null) : 
       "uomCode": "PC",
       "quantityScale": "1",
       "barcodes": [
-        "4800000000017"
+        "4800000000017",
+        "14800000000016"
+      ],
+      "barcodeUnits": [
+        { "barcode": "4800000000017", "uomCode": "PC", "baseQuantity": "1" },
+        { "barcode": "14800000000016", "uomCode": "CS", "baseQuantity": "24" }
       ]
     },
     {

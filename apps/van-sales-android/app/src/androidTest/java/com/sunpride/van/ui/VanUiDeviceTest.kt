@@ -176,10 +176,48 @@ class VanUiDeviceTest {
         rule.waitUntil(5_000) { rule.onAllNodesWithTag("product-count").fetchSemanticsNodes().isNotEmpty() && runCatching { rule.onNodeWithTag("product-search").assertTextContains("4800000000017",substring = true) }.isSuccess }
         rule.onNodeWithTag("product-count").assertTextEquals("1 match")
         rule.onNodeWithTag("product-0").assertTextContains("Pineapple Juice 1L",substring = true)
+        rule.onNodeWithTag("scan-unit",useUnmergedTree = true).assertTextEquals("PC")
         context.sendBroadcast(android.content.Intent(com.sunpride.van.scanning.SenraiseScanner.ACTION).putExtra(com.sunpride.van.scanning.SenraiseScanner.RESULT_EXTRA,"0000000000000").setPackage(context.packageName))
-        rule.waitUntil(5_000) { rule.onAllNodesWithTag("scan-message").fetchSemanticsNodes().isNotEmpty() }
-        rule.onNodeWithTag("scan-message").assertTextEquals("No product has barcode 0000000000000.")
-        rule.onNodeWithTag("product-count").assertTextEquals("No matching products")
+        rule.waitUntil(5_000) { rule.onAllNodesWithTag("scan-message",useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("scan-message",useUnmergedTree = true).assertTextEquals("No product on this phone has barcode 0000000000000.")
+        rule.onNodeWithTag("product-count").assertTextEquals("No product with this barcode")
+        rule.onAllNodesWithTag("product-0").assertCountEquals(0)
+    }
+    @Test fun scanningResolvesUnitsFromVendorIntentsAndHandlesNotFoundAndCamera() {
+        mount(); loadAndStart()
+        open(Page.PRODUCTS)
+        rule.onNodeWithTag("screen-title").assertTextEquals("Find product")
+        fun broadcast(action: String, extra: String, code: String) =
+            context.sendBroadcast(android.content.Intent(action).putExtra(extra,code).setPackage(context.packageName))
+        // A case barcode (another vendor's documented intent) resolves to the product AND the case unit.
+        broadcast("com.sunmi.scanner.ACTION_DATA_CODE_RECEIVED","data","14800000000016")
+        rule.waitUntil(5_000) { rule.onAllNodesWithTag("scan-found").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("scan-unit",useUnmergedTree = true).assertTextEquals("CS · 24 PC")
+        rule.onNodeWithTag("product-0").assertTextContains("Pineapple Juice 1L",substring = true)
+        captureVanScreenshot(rule,"26-scan-case","product-search")
+        // The configurable action (Zebra DataWedge / Honeywell) and its default extra.
+        broadcast(com.sunpride.van.scanning.ScanIntentProfiles.SUNPRIDE_ACTION,"com.symbol.datawedge.data_string","04800000000017")
+        rule.waitUntil(5_000) { runCatching { rule.onNodeWithTag("scan-unit",useUnmergedTree = true).assertTextEquals("PC") }.isSuccess }
+        // Not found: clear message and two ways forward.
+        broadcast(com.sunpride.van.scanning.SenraiseScanner.ACTION,com.sunpride.van.scanning.SenraiseScanner.RESULT_EXTRA,"9999999999994")
+        rule.waitUntil(5_000) { rule.onAllNodesWithTag("scan-not-found").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("scan-search-name").assertIsDisplayed()
+        rule.onNodeWithTag("scan-camera").assertIsDisplayed()
+        captureVanScreenshot(rule,"27-scan-not-found","product-search")
+        rule.onNodeWithTag("scan-search-name").performClick()
+        rule.onAllNodesWithTag("scan-not-found").assertCountEquals(0)
+        rule.onNodeWithTag("product-count").assertTextContains("2 products",substring = true)
+        hideKeyboard()
+        // Camera: permission granted through UiAutomation (no system dialog), page opens and Back returns.
+        InstrumentationRegistry.getInstrumentation().uiAutomation.grantRuntimePermission(context.packageName,android.Manifest.permission.CAMERA)
+        rule.onNodeWithTag("product-camera").performClick()
+        rule.waitUntil(5_000) { rule.onAllNodesWithTag("camera-title").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("camera-close").assertTextEquals("Back to Find product")
+        assertPrimaryClearance(rule,"camera-close")
+        captureVanScreenshot(rule,"28-scan-camera","camera-close")
+        rule.onNodeWithTag("camera-close").performClick()
+        rule.onNodeWithTag("screen-title").assertTextEquals("Find product")
+        assertPrimaryClearance(rule,"product-camera")
     }
     @Test fun printerAndScannerScreenRendersRealServiceControls() {
         mount(); open(Page.PRINTER)

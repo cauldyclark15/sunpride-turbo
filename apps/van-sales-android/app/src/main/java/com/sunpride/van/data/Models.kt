@@ -19,8 +19,14 @@ data class LoadLine(val lineNumber: Int, val productId: String, val productCode:
     val expectedBase: Long, val actualBase: Long?, val discrepancyReason: String?,
     val pendingActualBase: Long? = null, val pendingReason: String? = null)
 data class Load(val loadId: String, val status: String, val lines: List<LoadLine>, val confirmPending: Boolean = false)
+/**
+ * VAN-009: the unit one barcode scans into. [baseQuantity] is the base quantity of ONE scan
+ * (e.g. a 24-piece case = 24 × quantityScale); null when the office has no exact conversion, so
+ * the handheld names the unit but never guesses a quantity.
+ */
+data class BarcodeUnit(val barcode: String, val uomCode: String, val baseQuantity: Long?)
 data class Product(val productId: String, val code: String, val name: String, val uomCode: String,
-    val quantityScale: Long, val barcodes: List<String>) {
+    val quantityScale: Long, val barcodes: List<String>, val barcodeUnits: List<BarcodeUnit> = emptyList()) {
     fun displayQuantity(base: Long): String = BigDecimal.valueOf(base).divide(BigDecimal.valueOf(quantityScale),java.math.MathContext.DECIMAL128).stripTrailingZeros().toPlainString()
 }
 data class Customer(val outletId: String, val code: String, val name: String, val address: String?,

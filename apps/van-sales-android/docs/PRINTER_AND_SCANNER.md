@@ -135,6 +135,35 @@ all scan strings as untrusted product lookup input, not authentication or author
 `queryScannerStatus(printer)` optionally reads transaction 21 after printer connect;
 null means the query was unavailable, not that scanning is disabled.
 
+### Supported hardware scanner intents (VAN-009)
+
+`SenraiseScanner` registers every action in `ScanIntentProfiles.SUPPORTED` while a scan screen is
+visible; `ScanIntentProfiles.extract` reads the code from String extras, or from a byte[] extra
+honouring a declared length (a bogus length falls back to the array, trailing NULs removed).
+Unknown actions, wrong extra types and unreadable parcels yield nothing.
+
+| Device / mode                                      | Action                                        | Extra(s)                                                | Status                     |
+| -------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------- | -------------------------- |
+| Senraise H10P                                      | `android.scanner.scan`                        | `result`                                                | verified on the H10P       |
+| Senraise / Urovo legacy firmware                   | `scan.rcv.message`                            | `barocode` (byte[]) + `length`, or `barcode_string`     | vendor default, unverified |
+| Urovo                                              | `android.intent.ACTION_DECODE_DATA`           | `barcode_string`, or `barocode` + `length`              | vendor default, unverified |
+| Sunmi                                              | `com.sunmi.scanner.ACTION_DATA_CODE_RECEIVED` | `data`                                                  | vendor default, unverified |
+| Newland                                            | `nlscan.action.SCANNER_RESULT`                | `SCAN_BARCODE1`                                         | vendor default, unverified |
+| iData / Kaicom                                     | `android.intent.action.SCANRESULT`            | `value`                                                 | vendor default, unverified |
+| Configurable (Zebra DataWedge, Honeywell, generic) | `com.sunpride.van.SCAN`                       | `barcode`, `com.symbol.datawedge.data_string` or `data` | configure the device       |
+
+For a configurable scanner set its output to **Intent / Broadcast**, action
+`com.sunpride.van.SCAN`, and the barcode in extra `barcode` (DataWedge's default
+`com.symbol.datawedge.data_string` also works). Keyboard-wedge mode needs no setup: on
+Find product the search field accepts the typed code and Enter treats it as a scan.
+
+Resolution (`pos/BarcodeLookup`): exact barcode, then the same GTIN in another length, then a
+GS1 AI (01) element string with a valid check digit, then an exact product code. Each match
+carries the barcode's unit from the bootstrap `barcodeUnits` (backend `productBarcodes.uomId` and
+the in-force `uomConversions`), so a case barcode is never counted as one piece. Unknown codes
+show **Barcode not found** with Search by name / Use camera; a barcode on several products lists
+them all. UPC-E is matched only as sent: set scanners to transmit UPC-E expanded to UPC-A.
+
 ### Keyboard wedge and vendor settings
 
 The APK resource table and `Scan.postScanResult` confirm independent broadcast/keyboard

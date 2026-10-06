@@ -1507,6 +1507,128 @@ describe("van bootstrap projection", () => {
     expect(() => JSON.stringify(after)).not.toThrow();
   });
 
+  it("tells the handheld which unit each barcode scans into and how many base units one scan is (VAN-009)", async () => {
+    const f = await fixture();
+    const { tripId } = await f.plan();
+    await f.sheet(tripId);
+    await f.t.run(async (ctx) => {
+      const policy = (await ctx.db
+        .query("productInventoryPolicies")
+        .withIndex("by_organizationId_and_productId", (q) =>
+          q.eq("organizationId", "sunpride").eq("productId", f.product._id),
+        )
+        .unique())!;
+      // The van sells in the product's base unit, so conversions apply.
+      await ctx.db.patch(f.product._id, { baseUomId: policy.baseUomId });
+      const unit = (code: string, active = true) =>
+        ctx.db.insert("unitsOfMeasure", {
+          organizationId: "sunpride",
+          code,
+          name: code,
+          dimension: "count",
+          decimalPlaces: 0,
+          active,
+          createdAt: NOW,
+          updatedAt: NOW,
+        });
+      const box = await unit("BOX12");
+      const tray = await unit("TRAY");
+      const retired = await unit("OLD", false);
+      await ctx.db.insert("uomConversions", {
+        organizationId: "sunpride",
+        productId: f.product._id,
+        fromUomId: box,
+        toUomId: policy.baseUomId,
+        numerator: 12n,
+        denominator: 1n,
+        roundingMode: "exact",
+        effectiveFrom: 0,
+        active: true,
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+      // History first: an inactive row must not crowd out later active ones.
+      for (let i = 0; i < 25; i++)
+        await ctx.db.insert("productBarcodes", {
+          organizationId: "sunpride",
+          productId: f.product._id,
+          barcode: `RETIRED-${i}`,
+          active: false,
+          uomId: policy.baseUomId,
+          source: "fixture",
+          createdAt: NOW,
+          updatedAt: NOW,
+        });
+      for (const [barcode, uomId] of [
+        ["4800000000017", policy.baseUomId],
+        ["14800000000016", box],
+        ["4800000000031", tray],
+        ["4800000000048", retired],
+      ] as const)
+        await ctx.db.insert("productBarcodes", {
+          organizationId: "sunpride",
+          productId: f.product._id,
+          barcode,
+          active: true,
+          uomId,
+          source: "fixture",
+          createdAt: NOW,
+          updatedAt: NOW,
+        });
+    });
+    const boot = await f.t.query(internal.van.device.bootstrap, {
+      actor: f.seller.actor,
+      now: NOW,
+    });
+    const product = boot.products[0];
+    expect(product.barcodes).toEqual([
+      "4800000000017",
+      "14800000000016",
+      "4800000000031",
+    ]);
+    expect(product.barcodeUnits).toEqual([
+      {
+        barcode: "4800000000017",
+        uomCode: product.uomCode,
+        baseQuantity: "1000",
+      },
+      { barcode: "14800000000016", uomCode: "BOX12", baseQuantity: "12000" },
+      // No conversion: the unit is named but no quantity is guessed.
+      { barcode: "4800000000031", uomCode: "TRAY", baseQuantity: null },
+    ]);
+  });
+
+  it("fails the bootstrap loudly instead of truncating an oversized barcode history", async () => {
+    const f = await fixture();
+    const { tripId } = await f.plan();
+    await f.sheet(tripId);
+    await f.t.run(async (ctx) => {
+      const policy = (await ctx.db
+        .query("productInventoryPolicies")
+        .withIndex("by_organizationId_and_productId", (q) =>
+          q.eq("organizationId", "sunpride").eq("productId", f.product._id),
+        )
+        .unique())!;
+      for (let i = 0; i < 51; i++)
+        await ctx.db.insert("productBarcodes", {
+          organizationId: "sunpride",
+          productId: f.product._id,
+          barcode: `B-${i}`,
+          active: i === 50,
+          uomId: policy.baseUomId,
+          source: "fixture",
+          createdAt: NOW,
+          updatedAt: NOW,
+        });
+    });
+    await expect(
+      f.t.query(internal.van.device.bootstrap, {
+        actor: f.seller.actor,
+        now: NOW,
+      }),
+    ).rejects.toThrow(/reference_data_too_large/);
+  });
+
   it("orders current route customers by sequence, adds covered unplanned customers, excludes expired/inactive/foreign outlets", async () => {
     const f = await fixture();
     const territory = await f.territory("COVERED"),

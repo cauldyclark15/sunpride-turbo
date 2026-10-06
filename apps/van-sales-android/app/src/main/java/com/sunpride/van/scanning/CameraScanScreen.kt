@@ -31,6 +31,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -40,7 +41,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /** Runtime CAMERA permission + lifecycle-bound CameraX/ZXing fallback; no network/Play services. */
 @Composable
-fun CameraScanScreen(onCode: (String) -> Unit, onClose: () -> Unit, modifier: Modifier = Modifier) {
+fun CameraScanScreen(onCode: (String) -> Unit, onClose: () -> Unit, modifier: Modifier = Modifier,
+    closeLabel: String = "Back to printer & scanner") {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val latestCode by rememberUpdatedState(onCode)
@@ -102,13 +104,13 @@ fun CameraScanScreen(onCode: (String) -> Unit, onClose: () -> Unit, modifier: Mo
             Modifier.fillMaxSize().padding(padding).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text("Scan with camera")
+            Text("Scan with camera", modifier = Modifier.testTag("camera-title"))
             Text(message)
             if (permitted) AndroidView(factory = { previewView }, modifier = Modifier.fillMaxWidth().weight(1f))
             else Button(onClick = { permission.launch(Manifest.permission.CAMERA) }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
                 Text("Allow camera")
             }
-            Button(onClick = onClose, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Back to printer & scanner") }
+            Button(onClick = onClose, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("camera-close")) { Text(closeLabel) }
         }
     }
 }

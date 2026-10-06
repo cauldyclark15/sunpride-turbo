@@ -20,8 +20,17 @@ object VanBootstrapCodec {
     fun line(o: JSONObject): LoadLine = LoadLine(o.getInt("lineNumber"), o.getString("productId"), o.getString("productCode"),
         o.getString("productName"), o.getString("uomCode"), base(o,"quantityScale"), nullable(o,"lotNumber"), base(o,"expectedBase"),
         if (o.isNull("actualBase")) null else base(o,"actualBase"), nullable(o,"discrepancyReason"))
-    fun product(o: JSONObject) = Product(o.getString("productId"), o.getString("code"), o.getString("name"), o.getString("uomCode"),
-        base(o,"quantityScale"), strings(o.getJSONArray("barcodes")))
+    fun product(o: JSONObject): Product {
+        val barcodes = strings(o.getJSONArray("barcodes"))
+        // Optional (VAN-009); a cache written before it simply has no unit per barcode.
+        val units = o.optJSONArray("barcodeUnits")?.let(::objects)?.map {
+            BarcodeUnit(it.getString("barcode"), it.getString("uomCode"), if (it.isNull("baseQuantity")) null else base(it,"baseQuantity"))
+        } ?: emptyList()
+        require(units.all { it.barcode in barcodes && (it.baseQuantity == null || it.baseQuantity > 0) })
+        require(units.map { it.barcode }.distinct().size == units.size)
+        return Product(o.getString("productId"), o.getString("code"), o.getString("name"), o.getString("uomCode"),
+            base(o,"quantityScale"), barcodes, units)
+    }
     fun customer(o: JSONObject) = Customer(o.getString("outletId"), o.getString("code"), o.getString("name"), nullable(o,"address"),
         if (o.isNull("sequence")) null else o.getInt("sequence"), o.getString("source"))
     fun decode(text: String): VanBootstrap = try {

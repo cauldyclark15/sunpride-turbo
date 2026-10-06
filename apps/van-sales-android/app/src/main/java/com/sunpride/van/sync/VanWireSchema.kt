@@ -199,6 +199,23 @@ internal object VanWireSchema {
                 "type": "array",
                 "maxItems": 20,
                 "items": { "type": "string" }
+              },
+              "barcodeUnits": {
+                "description": "VAN-009: the unit each barcode scans into; baseQuantity is the base quantity of one scan, null when no exact conversion exists.",
+                "type": "array",
+                "maxItems": 20,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["barcode", "uomCode", "baseQuantity"],
+                  "properties": {
+                    "barcode": { "type": "string", "minLength": 1, "maxLength": 64 },
+                    "uomCode": { "type": "string" },
+                    "baseQuantity": {
+                      "oneOf": [{ "${'$'}ref": "#/${'$'}defs/base" }, { "type": "null" }]
+                    }
+                  }
+                }
               }
             }
           }
