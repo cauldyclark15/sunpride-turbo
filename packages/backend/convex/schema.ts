@@ -79,6 +79,13 @@ import {
   trackingModeValidator,
   transferStatusValidator,
 } from "./inventory/validators";
+import {
+  loadDiscrepancyReasonValidator,
+  loadStatusValidator,
+  tripStatusValidator,
+  vanOperationKindValidator,
+  vehicleStatusValidator,
+} from "./van/model";
 
 const role = roleValidator;
 const orderStatus = v.union(
@@ -1010,6 +1017,114 @@ export default defineSchema({
     "organizationId",
     "checkpointId",
   ]),
+  // CVX-027 van sales: vehicle master. The truck itself is an `inventoryLocations` row of
+  // type "truck"; stock never lives here (ADR-003/007).
+  vehicles: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    vehicleCode: v.string(),
+    plateNumber: v.string(),
+    name: v.optional(v.string()),
+    truckLocationId: v.id("inventoryLocations"),
+    homeLocationId: v.id("inventoryLocations"),
+    capacityNote: v.optional(v.string()),
+    status: vehicleStatusValidator,
+    createdBy: v.string(), // full identity.tokenIdentifier
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_vehicleCode", [
+      "organizationId",
+      "vehicleCode",
+    ])
+    .index("by_truckLocationId", ["truckLocationId"])
+    .index("by_orgUnitId_and_status", ["orgUnitId", "status"]),
+  // CVX-027: one truck's selling day. `routeSessionId` links the existing POS sale path.
+  vanTrips: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    tripNumber: v.string(),
+    vehicleId: v.id("vehicles"),
+    truckLocationId: v.id("inventoryLocations"),
+    sourceLocationId: v.id("inventoryLocations"),
+    routeId: v.optional(v.id("routes")),
+    serviceDate: v.string(), // Manila YYYY-MM-DD
+    salespersonProfileId: v.id("profiles"),
+    salespersonSubject: v.string(), // full identity.tokenIdentifier
+    driverName: v.optional(v.string()),
+    helperName: v.optional(v.string()),
+    status: tripStatusValidator,
+    startedAt: v.optional(v.number()),
+    startedDeviceId: v.optional(v.id("registeredDevices")),
+    startOdometerKm: v.optional(v.number()),
+    startNote: v.optional(v.string()),
+    routeSessionId: v.optional(v.id("truckRouteSessions")),
+    closedAt: v.optional(v.number()),
+    cancelledAt: v.optional(v.number()),
+    cancelReason: v.optional(v.string()),
+    createdBy: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_tripNumber", ["organizationId", "tripNumber"])
+    .index("by_salespersonProfileId_and_serviceDate", [
+      "salespersonProfileId",
+      "serviceDate",
+    ])
+    .index("by_vehicleId_and_serviceDate", ["vehicleId", "serviceDate"])
+    .index("by_orgUnitId_and_serviceDate", ["orgUnitId", "serviceDate"]),
+  // CVX-028: a trip's load sheet (expected by the office, actual from the salesman).
+  vanTripLoads: defineTable({
+    organizationId: v.string(),
+    tripId: v.id("vanTrips"),
+    loadNumber: v.number(),
+    status: loadStatusValidator,
+    createdBy: v.string(),
+    confirmedBy: v.optional(v.string()),
+    confirmedAt: v.optional(v.number()),
+    confirmedDeviceId: v.optional(v.id("registeredDevices")),
+    confirmRequestId: v.optional(v.string()),
+    approvedBy: v.optional(v.string()),
+    approvedAt: v.optional(v.number()),
+    approvalNote: v.optional(v.string()),
+    // References to the inventory authority: the posting command and its movement.
+    commandKey: v.optional(v.string()),
+    movementId: v.optional(v.id("inventoryMovements")),
+    stockTransferId: v.optional(v.id("stockTransfers")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_tripId_and_loadNumber", ["tripId", "loadNumber"]),
+  vanTripLoadLines: defineTable({
+    organizationId: v.string(),
+    loadId: v.id("vanTripLoads"),
+    tripId: v.id("vanTrips"),
+    lineNumber: v.number(),
+    productId: v.id("products"),
+    productCode: v.string(),
+    uomCode: v.string(), // base UOM of the product's inventory policy
+    quantityScale: v.int64(),
+    lotId: v.optional(v.id("inventoryLots")),
+    lotNumber: v.optional(v.string()),
+    expectedBase: v.int64(),
+    actualBase: v.optional(v.int64()),
+    discrepancyReason: v.optional(loadDiscrepancyReasonValidator),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_loadId_and_lineNumber", ["loadId", "lineNumber"]),
+  // VAN-003 / VAN-013: idempotent replay of signed van-device operations.
+  vanOperations: defineTable({
+    organizationId: v.string(),
+    deviceId: v.id("registeredDevices"),
+    profileId: v.id("profiles"),
+    kind: vanOperationKindValidator,
+    clientRequestId: v.string(),
+    payloadHash: v.string(),
+    entityId: v.string(),
+    movementId: v.optional(v.id("inventoryMovements")),
+    serverAt: v.number(),
+  })
+    .index("by_profileId_and_clientRequestId", ["profileId", "clientRequestId"])
+    .index("by_deviceId_and_serverAt", ["deviceId", "serverAt"]),
   sapInventorySnapshots: defineTable({
     organizationId: v.string(),
     productCode: v.string(),

@@ -27,7 +27,6 @@ const appValidator = v.union(
   v.literal("ANDROID"),
   v.literal("VAN_ANDROID"),
 );
-const fieldAppValidator = v.union(v.literal("IOS"), v.literal("ANDROID"));
 const bounded = (value: string, max: number): string => {
   const text = value.trim();
   if (
@@ -75,11 +74,9 @@ export const register = mutation({
       "admin.manage",
       assignment.orgUnitId,
     );
-    if (args.allowedApp === "VAN_ANDROID")
-      throw new ConvexError("Van POS device enrollment is not supported here");
     if (
       (args.allowedApp === "IOS" && args.platform !== "iOS") ||
-      (args.allowedApp === "ANDROID" && args.platform !== "Android")
+      (args.allowedApp !== "IOS" && args.platform !== "Android")
     )
       throw new ConvexError("App and platform mismatch");
     const inventoryTag = normalizeCode(args.inventoryTag);
@@ -142,14 +139,14 @@ export const register = mutation({
 
 /** Employee-only key lookup; never disclose another profile's device. */
 export const mine = query({
-  args: { publicKey: v.string(), app: fieldAppValidator },
+  args: { publicKey: v.string(), app: appValidator },
   returns: v.union(
     v.null(),
     v.object({
       deviceId: v.id("registeredDevices"),
       status: v.string(),
       bound: v.boolean(),
-      allowedApp: fieldAppValidator,
+      allowedApp: appValidator,
     }),
   ),
   handler: async (ctx, { publicKey, app }) => {

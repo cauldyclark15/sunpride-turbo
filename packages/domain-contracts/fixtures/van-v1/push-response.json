@@ -1,0 +1,29 @@
+{
+  "type": "van.push.response",
+  "contractVersion": 1,
+  "serverTime": 1791345001000,
+  "results": [
+    {
+      "kind": "load.confirm",
+      "clientRequestId": "0b6f5e1a-3c2d-4e8f-9a1b-2c3d4e5f6a70",
+      "status": "accepted",
+      "ack": {
+        "entityId": "k57load0000000000000000000000001",
+        "movementId": null,
+        "serverTime": 1791345000500
+      }
+    },
+    {
+      "kind": "trip.start",
+      "clientRequestId": "0b6f5e1a-3c2d-4e8f-9a1b-2c3d4e5f6a71",
+      "status": "rejected",
+      "code": "load_not_posted"
+    },
+    {
+      "kind": "truck.damage",
+      "clientRequestId": "0b6f5e1a-3c2d-4e8f-9a1b-2c3d4e5f6a72",
+      "status": "conflict",
+      "code": "conflict"
+    }
+  ]
+}
