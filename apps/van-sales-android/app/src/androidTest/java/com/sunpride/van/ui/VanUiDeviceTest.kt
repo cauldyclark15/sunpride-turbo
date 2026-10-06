@@ -292,6 +292,46 @@ class VanUiDeviceTest {
         rule.onNodeWithTag("sale-done").performClick()
         rule.onNodeWithTag("sync-line").assertTextContains("1 sale saved on this phone",substring = true)
     }
+    @Test fun customerReturnCapturesUnitBatchReasonAndDispositionAndHoldsStockForApproval() {
+        mount(); loadAndStart()
+        val juice = c.products.single { it.code == "SP-PJ-1L" }
+        rule.waitUntil(10_000) { c.stock.any { it.productId == juice.productId } }
+        val damagedBefore = c.stock.single { it.productId == juice.productId }.damagedBase
+        val availableBefore = c.stock.single { it.productId == juice.productId }.availableBase
+        open(Page.CUSTOMERS)
+        rule.onNodeWithTag("customer-route-0").performClick()
+        rule.onNodeWithTag("start-return").assertIsEnabled().performClick()
+        rule.waitUntil(5_000) { c.page == Page.RETURN && c.returnFacts != null }
+        rule.onNodeWithTag("save-return").assertIsNotEnabled()
+        rule.onNodeWithTag("return-add-product").performScrollTo().performClick()
+        // The case barcode picks the product counted in cases.
+        rule.onNodeWithTag("return-product-search").performTextInput("14800000000016"); hideKeyboard()
+        rule.onNodeWithTag("return-pick-0").performClick()
+        rule.onNodeWithTag("return-unit-CS").assertIsSelected()
+        rule.onNodeWithTag("return-quantity").performTextInput("1"); hideKeyboard()
+        rule.onNodeWithTag("return-reason-expired").performScrollTo().performClick()
+        rule.onNodeWithTag("return-line-add").assertIsNotEnabled()
+        rule.onNodeWithTag("return-disposition-bad_stock").performScrollTo().performClick()
+        rule.onNodeWithText("${juice.name}: enter the batch or lot number printed on the pack.").assertExists()
+        rule.onNodeWithTag("return-lot").performScrollTo().performTextInput("lot-2026-09"); hideKeyboard()
+        rule.onNodeWithTag("return-expiry").performScrollTo().performTextInput("2026-09-30"); hideKeyboard()
+        captureVanScreenshot(rule,"40-return-line","return-line-add")
+        rule.onNodeWithTag("return-line-add").assertIsEnabled().performClick()
+        rule.onNodeWithTag("return-effect-0",useUnmergedTree = true).assertTextEquals("Held on the truck with damaged stock until approved")
+        rule.onNodeWithTag("return-approval").performScrollTo().assertTextContains("Not bought on a receipt from this phone",substring = true)
+        captureVanScreenshot(rule,"41-return","save-return")
+        rule.onNodeWithTag("save-return").assertIsEnabled().performClick()
+        rule.waitUntil(10_000) { c.page == Page.RETURN_DONE && !c.busy }
+        rule.onNodeWithTag("return-number",useUnmergedTree = true).assertTextContains("TRIP-20261007-V014-1-",substring = true)
+        rule.onNodeWithTag("return-status").assertTextContains("Not bought on a receipt from this phone",substring = true)
+        captureVanScreenshot(rule,"42-return-saved","return-done")
+        // One case = 24 PC into damaged stock (held), none into sellable stock; parked, not queued.
+        rule.waitUntil(10_000) { c.sync.savedReturns == 1 && c.stock.single { it.productId == juice.productId }.damagedBase == damagedBefore+24 }
+        assertEquals(availableBefore,c.stock.single { it.productId == juice.productId }.availableBase)
+        assertEquals(0,c.sync.queued); assertNull(c.returnDraft)
+        rule.onNodeWithTag("return-done").performClick()
+        rule.onNodeWithTag("sync-line").assertTextContains("1 return saved on this phone",substring = true)
+    }
     @Test fun checkPaymentKeepsItsReferenceAndAwaitsTheOfficeWhileTheSaleIsSaved() {
         mount(); loadAndStart()
         val juice = c.products.single { it.code == "SP-PJ-1L" }

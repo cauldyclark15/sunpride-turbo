@@ -28,7 +28,7 @@ From `_handoffs/sunpride-van-sales-questions.md`, "What we plan today":
 
 ## What is stubbed or not built yet
 
-- **Selling, payments, returns, voids, end-of-day cash/stock count**: tables exist in the encrypted DB (VAN-002); screens and sync operations are the next lane. The home screen shows "Selling comes in the next update".
+- **Selling, payments and customer returns** are captured on the phone (VAN-011/012/019, see `ARCHITECTURE.md`) but not uploaded yet: the van gateway has no sale/return operation. Voids and end-of-day cash/stock count are later lanes.
 - **Prices**: no price lists from Sunpride yet; `price_list_line` is empty and totals stay "Priced by the office".
 - **Live backend**: the van functions are not deployed to the shared DEV deployment (the lead deploys after merge). Device tests and screenshots use the DEBUG-only practice backend (`VAN_STUB_BACKEND`) serving `fixtures/van-v1`; no live sign-in → bootstrap → push run has been made.
 - **Office screens**: no web UI for vehicles/trips/load sheets/approval; use the Convex functions `van/vehicles:create`, `van/trips:plan`, `van/loads:plan`, `van/loads:approve`, `van/trips:returnLeftover`, `van/trips:close`.

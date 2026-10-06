@@ -4,7 +4,7 @@ import com.sunpride.van.data.*
 import java.math.BigDecimal
 import java.math.MathContext
 
-enum class Page { HOME, LOAD, START, STOCK, CUSTOMERS, WALK_IN, CUSTOMER, PRINTER, PRODUCTS, SALE, CHECKOUT, SALE_DONE }
+enum class Page { HOME, LOAD, START, STOCK, CUSTOMERS, WALK_IN, CUSTOMER, PRINTER, PRODUCTS, SALE, CHECKOUT, SALE_DONE, RETURN, RETURN_DONE }
 data class NextAction(val page: Page, val label: String)
 
 /** Display/validation only. The repository repeats every business check transactionally. */
@@ -93,6 +93,45 @@ object VanRules {
         "awaiting_confirmation" -> "To be confirmed by the office"
         "on_account" -> if (dueDate != null) "Charged to account · due $dueDate" else "Charged to account"
         else -> "To be confirmed by the office"
+    }
+    /** Plain words for each return refusal (VAN-019); [product] names the line when the problem is about one product. */
+    fun returnMessage(problem: com.sunpride.van.pos.ReturnProblem, product: String?): String {
+        val p = product ?: "A product"
+        return when (problem) {
+            com.sunpride.van.pos.ReturnProblem.TRIP_NOT_OPEN -> "Start the trip before taking returns."
+            com.sunpride.van.pos.ReturnProblem.NO_CUSTOMER -> "Choose a customer."
+            com.sunpride.van.pos.ReturnProblem.UNKNOWN_CUSTOMER -> "This customer is no longer on this phone. Choose the customer again."
+            com.sunpride.van.pos.ReturnProblem.EMPTY -> "Add at least one returned product."
+            com.sunpride.van.pos.ReturnProblem.TOO_MANY_LINES -> "Too many lines for one return (50 at most). Split the return."
+            com.sunpride.van.pos.ReturnProblem.DUPLICATE_LINE -> "$p is in the return twice with the same batch and reason. Remove one."
+            com.sunpride.van.pos.ReturnProblem.UNKNOWN_PRODUCT -> "A product is no longer on this phone. Remove it."
+            com.sunpride.van.pos.ReturnProblem.UNKNOWN_UNIT -> "$p: choose the unit you counted in."
+            com.sunpride.van.pos.ReturnProblem.BAD_QUANTITY -> "$p: enter a whole quantity above zero."
+            com.sunpride.van.pos.ReturnProblem.NO_REASON -> "$p: choose why it is returned."
+            com.sunpride.van.pos.ReturnProblem.NO_DISPOSITION -> "$p: choose what happens to the goods."
+            com.sunpride.van.pos.ReturnProblem.DISPOSITION_NOT_ALLOWED -> "$p: this choice is not allowed for that reason."
+            com.sunpride.van.pos.ReturnProblem.BATCH_MISSING -> "$p: enter the batch or lot number printed on the pack."
+            com.sunpride.van.pos.ReturnProblem.BATCH_INVALID -> "$p: the batch number can only have letters, numbers, spaces, - / and . (40 at most)."
+            com.sunpride.van.pos.ReturnProblem.EXPIRY_INVALID -> "$p: enter the expiry date as year-month-day, e.g. 2026-10-31."
+            com.sunpride.van.pos.ReturnProblem.UNKNOWN_SALE -> "That receipt is no longer on this phone. Choose another or none."
+            com.sunpride.van.pos.ReturnProblem.SALE_OTHER_CUSTOMER -> "That receipt is for another customer."
+            com.sunpride.van.pos.ReturnProblem.NOT_ON_SALE -> "$p is not on that receipt."
+            com.sunpride.van.pos.ReturnProblem.MORE_THAN_SOLD -> "$p: more than was sold on that receipt (earlier returns count)."
+            com.sunpride.van.pos.ReturnProblem.NOTE_INVALID -> "The note is too long (300 characters at most)."
+        }
+    }
+    /** Why the office must approve a return, in plain words. */
+    fun approvalLabel(reason: com.sunpride.van.pos.ReturnApprovalReason): String = when (reason) {
+        com.sunpride.van.pos.ReturnApprovalReason.DISPOSED_AT_OUTLET -> "Goods thrown away at the store"
+        com.sunpride.van.pos.ReturnApprovalReason.POLICY -> "This reason always needs approval"
+        com.sunpride.van.pos.ReturnApprovalReason.NOT_LINKED_TO_SALE -> "Not bought on a receipt from this phone"
+        com.sunpride.van.pos.ReturnApprovalReason.WALK_IN -> "Walk-in customer"
+    }
+    /** What a return line does to the truck stock. */
+    fun stockEffectLabel(effect: com.sunpride.van.pos.ReturnStockEffect, approvalRequired: Boolean): String = when (effect) {
+        com.sunpride.van.pos.ReturnStockEffect.AVAILABLE -> "Back in truck stock — can be sold"
+        com.sunpride.van.pos.ReturnStockEffect.DAMAGED -> if (approvalRequired) "Held on the truck with damaged stock until approved" else "On the truck with damaged stock"
+        com.sunpride.van.pos.ReturnStockEffect.NONE -> "Not on the truck"
     }
     fun sourceLabel(source: String): String = when (source) { "route" -> "Route"; "unplanned" -> "Not on route"; else -> "Walk-in" }
 }

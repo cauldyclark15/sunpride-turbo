@@ -96,6 +96,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
             Page.WALK_IN, Page.CUSTOMER -> Page.CUSTOMERS
             Page.CHECKOUT -> Page.SALE
             Page.SALE -> Page.CUSTOMER
+            Page.RETURN -> Page.CUSTOMER
             Page.PRODUCTS -> if (pickingForSale && sale != null) Page.SALE else Page.HOME
             else -> Page.HOME
         }
@@ -107,7 +108,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         repository.signIn(email.trim(),password)
         if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow()
     }
-    fun signOut() = command { repository.signOut(); page = Page.HOME; sale = null; pickingForSale = false; lastReceipt = null }
+    fun signOut() = command { repository.signOut(); page = Page.HOME; sale = null; pickingForSale = false; lastReceipt = null; returnDraft = null; lastReturn = null }
     fun checkAgain() = command { repository.refreshEnrollment(); if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow() }
     fun syncNow() = command("Sync finished. Check the waiting and review counts.") { repository.syncNow() }
     // Pending state is read from the store (VanRules.status), never from a stale one-off message.
@@ -169,9 +170,42 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
             message = e.issues.joinToString("\n") { issue -> VanRules.checkoutMessage(issue.problem,issue.productId?.let { id -> products.firstOrNull { it.productId == id }?.name }) }
         }
     }
+    /** VAN-019: the return being captured. In memory only; [ReturnDraft.returnId] makes Save return safe to repeat. */
+    var returnDraft by mutableStateOf<ReturnDraft?>(null)
+        private set
+    var lastReturn by mutableStateOf<ReturnReceipt?>(null)
+        private set
+    /** Sales saved here and quantities already returned against them; refreshed when a return opens. */
+    var returnFacts by mutableStateOf<ReturnContext?>(null)
+        private set
+    fun startReturn(customer: Customer) {
+        if (!VanRules.canSell(trip)) { message = VanRules.returnMessage(ReturnProblem.TRIP_NOT_OPEN,null); return }
+        if (returnDraft?.customer?.outletId != customer.outletId) returnDraft = ReturnDraft(ReturnRules.newReturnId(),customer,null,emptyList())
+        selectedCustomer = customer; open(Page.RETURN)
+        scope?.launch { returnFacts = runCatching { repository.returnContext() }.getOrNull() }
+    }
+    fun addReturnLine(line: ReturnLineInput) { returnDraft = returnDraft?.let { it.copy(lines = it.lines + line) } }
+    fun removeReturnLine(index: Int) { returnDraft = returnDraft?.let { d -> d.copy(lines = d.lines.filterIndexed { i,_ -> i != index }) } }
+    fun linkReturnSale(saleId: String?) { returnDraft = returnDraft?.copy(originalSaleId = saleId) }
+    fun cancelReturn() { returnDraft = null; open(Page.CUSTOMER) }
+    fun returnContext(): ReturnContext = ReturnContext(VanRules.canSell(trip) && session.signedIn,customers,products,
+        returnFacts?.sales ?: emptyList(),returnFacts?.returnedBase ?: emptyMap())
+    fun returnResult(note: String): ReturnResult? = returnDraft?.let { ReturnRules.evaluate(ReturnRequest(it.returnId,it.customer.outletId,it.originalSaleId,it.lines,note),returnContext()) }
+    /** The store validates again in the saving transaction; a refusal keeps the draft so the seller can fix it. */
+    fun saveReturn(note: String) = command {
+        val draft = checkNotNull(returnDraft)
+        try {
+            lastReturn = repository.recordReturn(ReturnRequest(draft.returnId,draft.customer.outletId,draft.originalSaleId,draft.lines,note.takeIf { it.isNotBlank() }))
+            returnDraft = null; page = Page.RETURN_DONE
+        } catch (e: ReturnRefused) {
+            message = e.issues.joinToString("\n") { issue -> VanRules.returnMessage(issue.problem,issue.productId?.let { id -> products.firstOrNull { it.productId == id }?.name }) }
+        }
+    }
     fun walkIn(name: String, reason: String) = command {
         repository.addWalkInCustomer(name.trim(),reason.trim()); page = Page.CUSTOMERS
     }
 }
+/** A return being captured for one customer (VAN-019); [originalSaleId] links it to a sale saved on this phone. */
+data class ReturnDraft(val returnId: String, val customer: Customer, val originalSaleId: String?, val lines: List<ReturnLineInput>)
 /** A sale being built for one customer (VAN-011). */
 data class SaleDraft(val saleId: String, val customer: Customer, val lines: List<CartLine>)

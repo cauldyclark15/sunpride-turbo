@@ -22,7 +22,8 @@ import java.time.format.DateTimeFormatter
     val last = c.sync.lastSyncTime?.let { Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("MMM d, h:mm a")) } ?: "Not yet"
     val pending = c.sync.queued + c.sync.sending
     val status = "$pending waiting · ${c.sync.review} to review" + (if (c.sync.held > 0) " · ${c.sync.held} paused" else "") +
-        (if (c.sync.savedSales > 0) "\n${c.sync.savedSales} ${if (c.sync.savedSales == 1) "sale" else "sales"} saved on this phone" else "") + "\nLast sync: $last"
+        (if (c.sync.savedSales > 0) "\n${c.sync.savedSales} ${if (c.sync.savedSales == 1) "sale" else "sales"} saved on this phone" else "") +
+        (if (c.sync.savedReturns > 0) "\n${c.sync.savedReturns} ${if (c.sync.savedReturns == 1) "return" else "returns"} saved on this phone" else "") + "\nLast sync: $last"
     ScreenFrame("Today",action = if (c.trip == null) "Sync now" else next.label,actionTag = "home-primary",
         enabled = !c.busy,onAction = { if (c.trip == null) c.syncNow() else c.open(next.page) },footer = status,message = c.message) {
         val trip = c.trip

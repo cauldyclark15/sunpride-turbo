@@ -129,6 +129,14 @@ class VanRepository private constructor(private val context: Context, private va
         withContext(Dispatchers.IO) { store().commitSale(request,expectedTotalMinor) }
     /** VAN-012: credit sold here per customer and references already used, so Checkout warns before the store refuses. */
     suspend fun paymentFacts(): com.sunpride.van.storage.PaymentFacts = withContext(Dispatchers.IO) { store().paymentFacts() }
+    /**
+     * VAN-019: validate and save a customer return on this phone in one encrypted transaction (see `ReturnStore.commit`).
+     * Throws [com.sunpride.van.pos.ReturnRefused] with typed reasons; never needs the network. Parked like a sale.
+     */
+    suspend fun recordReturn(request: com.sunpride.van.pos.ReturnRequest): com.sunpride.van.pos.ReturnReceipt =
+        withContext(Dispatchers.IO) { ReturnStore(store()).commit(request) }
+    /** VAN-019: sales saved here (to link a return to its receipt) and what was already returned against each. */
+    suspend fun returnContext(): com.sunpride.van.pos.ReturnContext = withContext(Dispatchers.IO) { ReturnStore(store()).context() }
     /** DEBUG practice data only: the fixture store, so device tests can seed the (still empty) price list. */
     internal fun fixtureStore(): RoomVanStore { check(BuildConfig.DEBUG && stubMode != null); return store() }
     suspend fun syncNow(): Unit = authLock.withLock {

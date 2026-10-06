@@ -11,7 +11,8 @@
 - **Sign in:** Email/password, plain setup warning and disabled action if endpoints are missing. No endpoint, token or arbitrary exception text is displayed.
 - **Enrollment:** Not registered and removed states display the actual SHA-256 public-key fingerprint as a grouped phone code, manual Check again, and 15-second foreground polling. Removed state explains that saved work is preserved. Ready transitions to Today after bootstrap.
 - **Sale (VAN-011):** Customer → Start sale → cart for that customer. Add product opens Find product in add mode (tap a row or Add to sale on a scan → quantity dialog). Each line shows quantity × price and line total, or “Priced by the office”; tapping a line changes its quantity (0 removes). Footer shows the total. Checkout lists every problem in plain words (unpriced product, not enough stock, cash short, missing or already-used reference, no credit terms, credit left too small) and enables Complete sale only when the cart passes. Payment lists the office's methods (VAN-012) as radio rows: Cash shows Cash received and the change; Check/GCash/Bank transfer show the reference field named by the office and “Amount ₱X — the full total, no change”; Credit shows “Terms N days · Credit left ₱X” and the due date. Sale saved shows the receipt number, items and total, then a separate Payment card: cash and change or the method and amount, the reference, and the payment state (Paid / To be confirmed by the office / Charged to account · due date), and says the sale is on this phone and off the truck stock.
-- **Today:** Trip number, truck code/plate, route name, seller/driver/helper, plain status and next action. Loading/planned load → Check the load; server loaded and not already starting → Start trip; otherwise Customers. Pinned sync counts include waiting/review/paused work and last success. Truck stock, Customers, Printer & scanner and Sync now are large secondary rows. New sale (enabled once the trip is on route) opens Customers; an unfinished sale shows as Continue sale. The footer adds “N sales saved on this phone” for sales not yet uploadable. No assigned trip shows the supervisor instruction and Sync now.
+- **Customer return (VAN-019):** Customer → Record return (enabled once the trip is on route). **Bought on** links the return to one of this customer's sales saved on this phone, or "Not from a receipt on this phone". Add returned product opens a dialog: search or scan (a case barcode picks the case unit), then **Counted in** (the product's UOM or a case with an office conversion, e.g. `CS (24 PC)`), quantity, **Why is it returned?** (damaged, expired, spoiled, near expiry, quality complaint, wrong item, not selling/overstock), **What happens to the goods?** (only the choices that reason allows; "needs approval" is marked), batch/lot number (required for expired, spoiled, near expiry and quality complaint) and optional expiry date. Each line card shows quantity in both units, reason, disposition, batch/expiry and what it does to truck stock. An **Office approval needed** card lists why. Save return is enabled only when every rule passes; Return saved shows the return number, approval state and items.
+- **Today:** Trip number, truck code/plate, route name, seller/driver/helper, plain status and next action. Loading/planned load → Check the load; server loaded and not already starting → Start trip; otherwise Customers. Pinned sync counts include waiting/review/paused work and last success. Truck stock, Customers, Printer & scanner and Sync now are large secondary rows. New sale (enabled once the trip is on route) opens Customers; an unfinished sale shows as Continue sale. The footer adds “N sales saved on this phone” and “N returns saved on this phone” for work not yet uploadable. No assigned trip shows the supervisor instruction and Sync now.
 - **Check the load:** Every line shows name/code/lot, expected scaled quantity and an actual numeric field plus 56dp minus/plus targets. Exact decimal input is multiplied by quantityScale and rejected rather than rounded if it cannot represent an integral base quantity. Differences require a policy-allowed reason. Confirm writes the full sheet through the repository. Pending, discrepancy and posted states say Sent — waiting for sync, Waiting for supervisor approval and Loaded. Hardware broadcast and explicitly focused wedge scans resolve through `BarcodeLookup` (VAN-009) to the product and the barcode's unit: a selling-unit barcode adds one unit, a case barcode adds the case's base quantity (e.g. 24 PC), and a unit without an office conversion, an unconfirmed unit, an ambiguous barcode or an unknown barcode changes nothing and says to count by hand; nonmatches do not mutate counts. Receiver ownership follows screen visibility and lifecycle.
 - **Start trip:** Both truck and route confirmation rows are required, along with a server-loaded trip and assigned truck/route. Driver/helper, optional numeric odometer and optional note are bounded. Pending start cannot be submitted twice. A not-loaded trip says Confirm the load first.
 - **Truck stock/damage:** Available/damaged projections use product UOM/scale. A pending work marker says Waiting for sync. Damage needs positive valid quantity and a policy-allowed reason; note is optional. The controller calls canRemove before recording, and the repository repeats its atomic check. Excess quantity says Not enough stock on the truck. Damage actions require an active or locally starting trip.
@@ -30,30 +31,33 @@ Each image is a full-display 720 × 1440 PNG captured on the attached H10P at 32
 
 Local directory: `/Users/jc/.hermes/cache/scratch/sp-lanes/van-pos-shots/van-pos-shots/`.
 
-| File                              | State inspected                                                       | Clearance verdict |
-| --------------------------------- | --------------------------------------------------------------------- | ----------------- |
-| `01-sign-in.png`                  | Sign-in and missing-configuration warning                             | PASS              |
-| `02-enrollment-unregistered.png`  | Real stub-key fingerprint and Check again                             | PASS              |
-| `03-enrollment-removed.png`       | Removed-phone state                                                   | PASS              |
-| `04-home-loading.png`             | Loading home; scrollable content above footer                         | PASS              |
-| `05-home-actions.png`             | Scrolled home; secondary actions reachable                            | PASS              |
-| `06-check-load.png`               | Expected/actual count sheet                                           | PASS              |
-| `07-load-reason-required.png`     | Changed count with mandatory reason                                   | PASS              |
-| `08-load-waiting-sync.png`        | Saved confirmation awaiting sync; disabled quantities remain readable | PASS              |
-| `09-load-loaded.png`              | Authoritatively posted load                                           | PASS              |
-| `10-home-loaded.png`              | Loaded home with Start trip primary                                   | PASS              |
-| `11-start-trip-unconfirmed.png`   | Start disabled until both confirmations                               | PASS              |
-| `12-start-trip-confirmed.png`     | Start enabled with both confirmations                                 | PASS              |
-| `13-home-on-route.png`            | Real stub-acknowledged active trip                                    | PASS              |
-| `14-truck-stock.png`              | Projection and Record damage actions                                  | PASS              |
-| `15-record-damage.png`            | Damage dialog and fully clear action buttons                          | PASS              |
-| `16-damage-refused.png`           | Beyond-stock refusal                                                  | PASS              |
-| `17-customers.png`                | Numbered route, other stores and walk-in sections                     | PASS              |
-| `18-add-walk-in.png`              | Required name/reason form                                             | PASS              |
-| `19-customers-walk-in.png`        | Durably saved customer with Walk-in label                             | PASS              |
-| `20-customer-detail.png`          | Customer detail; selling explicitly unavailable                       | PASS              |
-| `21-printer-scanner.png`          | Printer settings upper viewport with pinned Done                      | PASS              |
-| `22-no-trip.png`                  | No-trip empty state and Sync now                                      | PASS              |
-| `23-printer-scanner-controls.png` | Scrolled settings; wedge/camera controls fully reachable              | PASS              |
+| File                              | State inspected                                                        | Clearance verdict |
+| --------------------------------- | ---------------------------------------------------------------------- | ----------------- |
+| `01-sign-in.png`                  | Sign-in and missing-configuration warning                              | PASS              |
+| `02-enrollment-unregistered.png`  | Real stub-key fingerprint and Check again                              | PASS              |
+| `03-enrollment-removed.png`       | Removed-phone state                                                    | PASS              |
+| `04-home-loading.png`             | Loading home; scrollable content above footer                          | PASS              |
+| `05-home-actions.png`             | Scrolled home; secondary actions reachable                             | PASS              |
+| `06-check-load.png`               | Expected/actual count sheet                                            | PASS              |
+| `07-load-reason-required.png`     | Changed count with mandatory reason                                    | PASS              |
+| `08-load-waiting-sync.png`        | Saved confirmation awaiting sync; disabled quantities remain readable  | PASS              |
+| `09-load-loaded.png`              | Authoritatively posted load                                            | PASS              |
+| `10-home-loaded.png`              | Loaded home with Start trip primary                                    | PASS              |
+| `11-start-trip-unconfirmed.png`   | Start disabled until both confirmations                                | PASS              |
+| `12-start-trip-confirmed.png`     | Start enabled with both confirmations                                  | PASS              |
+| `13-home-on-route.png`            | Real stub-acknowledged active trip                                     | PASS              |
+| `14-truck-stock.png`              | Projection and Record damage actions                                   | PASS              |
+| `15-record-damage.png`            | Damage dialog and fully clear action buttons                           | PASS              |
+| `16-damage-refused.png`           | Beyond-stock refusal                                                   | PASS              |
+| `17-customers.png`                | Numbered route, other stores and walk-in sections                      | PASS              |
+| `18-add-walk-in.png`              | Required name/reason form                                              | PASS              |
+| `19-customers-walk-in.png`        | Durably saved customer with Walk-in label                              | PASS              |
+| `20-customer-detail.png`          | Customer detail; selling explicitly unavailable                        | PASS              |
+| `21-printer-scanner.png`          | Printer settings upper viewport with pinned Done                       | PASS              |
+| `22-no-trip.png`                  | No-trip empty state and Sync now                                       | PASS              |
+| `23-printer-scanner-controls.png` | Scrolled settings; wedge/camera controls fully reachable               | PASS              |
+| `40-return-line.png`              | VAN-019 returned-product dialog: case unit, reason, disposition, batch | PASS              |
+| `41-return.png`                   | VAN-019 return with held line and Office approval needed               | PASS              |
+| `42-return-saved.png`             | VAN-019 return saved: number, approval state, items                    | PASS              |
 
 Every final file above was individually vision-inspected after the final passing device run. No remaining clipping or system-bar overlap was found. This evidence covers default device font/display scale; it is not a claim about every accessibility font scale or different hardware. No live office/server integration, real sale, physical optical scan, or paper-completion acknowledgement is claimed.
