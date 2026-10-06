@@ -1,0 +1,56 @@
+# Van-sales screens and verification
+
+## Structure
+
+`MainActivity` creates the real `VanRepository`, gates DEBUG practice selection by the explicit intent extra, applies edge-to-edge system bars, and owns repository cleanup. `VanApp` collects through `VanController` and selects one state-driven page without a navigation dependency. Passwords are ephemeral Compose state and are cleared on submit. All mutations use repository commands; local enqueue messages are never presented as supervisor approval or server stock posting.
+
+`SunprideTokens` and `SystemBars` are exact field-app ports (only the package changes). Calm cards/rows use the same palette/shapes and 16dp margins; primary buttons use the existing monochrome secondary ink/snow tokens, not a new brand color. Minimum button height is 56dp; navigation/list rows are at least 64dp. Read-only quantity fields retain high-contrast text. Content scrolls within Scaffold inner padding, consumed system insets, and IME padding. The primary footer includes navigation-bar padding and remains outside the scroll viewport.
+
+## Behaviors
+
+- **Sign in:** Email/password, plain setup warning and disabled action if endpoints are missing. No endpoint, token or arbitrary exception text is displayed.
+- **Enrollment:** Not registered and removed states display the actual SHA-256 public-key fingerprint as a grouped phone code, manual Check again, and 15-second foreground polling. Removed state explains that saved work is preserved. Ready transitions to Today after bootstrap.
+- **Today:** Trip number, truck code/plate, route name, seller/driver/helper, plain status and next action. Loading/planned load → Check the load; server loaded and not already starting → Start trip; otherwise Customers. Pinned sync counts include waiting/review/paused work and last success. Truck stock, Customers, Printer & scanner and Sync now are large secondary rows. New sale is disabled with “Selling comes in the next update.” No assigned trip shows the supervisor instruction and Sync now.
+- **Check the load:** Every line shows name/code/lot, expected scaled quantity and an actual numeric field plus 56dp minus/plus targets. Exact decimal input is multiplied by quantityScale and rejected rather than rounded if it cannot represent an integral base quantity. Differences require a policy-allowed reason. Confirm writes the full sheet through the repository. Pending, discrepancy and posted states say Sent — waiting for sync, Waiting for supervisor approval and Loaded. Hardware broadcast and explicitly focused wedge scans match product barcodes and add one displayed unit to that line; nonmatches do not mutate counts. Receiver ownership follows screen visibility and lifecycle.
+- **Start trip:** Both truck and route confirmation rows are required, along with a server-loaded trip and assigned truck/route. Driver/helper, optional numeric odometer and optional note are bounded. Pending start cannot be submitted twice. A not-loaded trip says Confirm the load first.
+- **Truck stock/damage:** Available/damaged projections use product UOM/scale. A pending work marker says Waiting for sync. Damage needs positive valid quantity and a policy-allowed reason; note is optional. The controller calls canRemove before recording, and the repository repeats its atomic check. Excess quantity says Not enough stock on the truck. Damage actions require an active or locally starting trip.
+- **Customers:** Search by name/code; route rows are ordered/numbered by sequence, with separate other-area and walk-in sections. Each row labels Route, Not on route or Walk-in. Walk-in creation requires name/reason and permission; the new row is read back from the repository flow. Detail explicitly says selling comes later.
+- **Printer & scanner:** Existing dependency-injected PrinterTestScreen, real PrinterRegistry selection and SenraiseScanner. Both are closed on leaving. Existing print/test/wedge/camera behavior is unchanged; the shell provides Back and a pinned Done action. Longer settings content scrolls, with a separate lower-viewport screenshot proving the camera/wedge controls are reachable.
+
+## Automated evidence
+
+JVM: four rules tests; full suite **104 passed**. Device: **34 passed**, including nine UI/launcher tests: actual MainActivity fixture-intent launch; practice sign-in; fixture home and primary bounds; changed load requiring a reason and durable enqueue/discrepancy ack; start readiness/confirmation gating and active ack; damage excess refusal and valid projection/ack; walk-in required reason and saved source label; printer settings rendering; full-screen tour. Existing core/printer/scanner suites remain included.
+
+## Screenshot clearance review
+
+Each image is a full-display 720 × 1440 PNG captured on the attached H10P at 320dpi (360dp wide). **PASS** means: no content overlaps the status/navigation bars; the pinned primary is wholly above three-button navigation; visible text is readable with no horizontal clipping; the layout fits 360dp. Some scrollable cards intentionally cross the viewport boundary, not the system bars: the scrolled home/settings captures and UI performScrollTo assertions demonstrate their reachability. Both pending/posted read-only load fields were re-captured after raising their text contrast.
+
+Local directory: `/Users/jc/.hermes/cache/scratch/sp-lanes/van-pos-shots/van-pos-shots/`.
+
+| File                              | State inspected                                                       | Clearance verdict |
+| --------------------------------- | --------------------------------------------------------------------- | ----------------- |
+| `01-sign-in.png`                  | Sign-in and missing-configuration warning                             | PASS              |
+| `02-enrollment-unregistered.png`  | Real stub-key fingerprint and Check again                             | PASS              |
+| `03-enrollment-removed.png`       | Removed-phone state                                                   | PASS              |
+| `04-home-loading.png`             | Loading home; scrollable content above footer                         | PASS              |
+| `05-home-actions.png`             | Scrolled home; secondary actions reachable                            | PASS              |
+| `06-check-load.png`               | Expected/actual count sheet                                           | PASS              |
+| `07-load-reason-required.png`     | Changed count with mandatory reason                                   | PASS              |
+| `08-load-waiting-sync.png`        | Saved confirmation awaiting sync; disabled quantities remain readable | PASS              |
+| `09-load-loaded.png`              | Authoritatively posted load                                           | PASS              |
+| `10-home-loaded.png`              | Loaded home with Start trip primary                                   | PASS              |
+| `11-start-trip-unconfirmed.png`   | Start disabled until both confirmations                               | PASS              |
+| `12-start-trip-confirmed.png`     | Start enabled with both confirmations                                 | PASS              |
+| `13-home-on-route.png`            | Real stub-acknowledged active trip                                    | PASS              |
+| `14-truck-stock.png`              | Projection and Record damage actions                                  | PASS              |
+| `15-record-damage.png`            | Damage dialog and fully clear action buttons                          | PASS              |
+| `16-damage-refused.png`           | Beyond-stock refusal                                                  | PASS              |
+| `17-customers.png`                | Numbered route, other stores and walk-in sections                     | PASS              |
+| `18-add-walk-in.png`              | Required name/reason form                                             | PASS              |
+| `19-customers-walk-in.png`        | Durably saved customer with Walk-in label                             | PASS              |
+| `20-customer-detail.png`          | Customer detail; selling explicitly unavailable                       | PASS              |
+| `21-printer-scanner.png`          | Printer settings upper viewport with pinned Done                      | PASS              |
+| `22-no-trip.png`                  | No-trip empty state and Sync now                                      | PASS              |
+| `23-printer-scanner-controls.png` | Scrolled settings; wedge/camera controls fully reachable              | PASS              |
+
+Every final file above was individually vision-inspected after the final passing device run. No remaining clipping or system-bar overlap was found. This evidence covers default device font/display scale; it is not a claim about every accessibility font scale or different hardware. No live office/server integration, real sale, physical optical scan, or paper-completion acknowledgement is claimed.
