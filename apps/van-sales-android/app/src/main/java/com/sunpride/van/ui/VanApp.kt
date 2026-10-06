@@ -43,6 +43,9 @@ import kotlinx.coroutines.delay
                 Page.CUSTOMER -> CustomerDetailScreen(controller)
                 Page.PRINTER -> PrinterScreen(controller)
                 Page.PRODUCTS -> ProductSearchScreen(controller)
+                Page.SALE -> SaleScreen(controller)
+                Page.CHECKOUT -> CheckoutScreen(controller)
+                Page.SALE_DONE -> SaleDoneScreen(controller)
             }
         }
     }

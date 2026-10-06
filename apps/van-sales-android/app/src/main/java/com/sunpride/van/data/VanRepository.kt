@@ -120,6 +120,17 @@ class VanRepository private constructor(private val context: Context, private va
         val st = store(); val trip = checkNotNull(st.db.rows().trip(st.scope.fullAuthSubject,st.scope.deviceId))
         return com.sunpride.van.ids.TransactionIds(st.db,st.scope).issue(trip.tripId,trip.tripNumber)
     }
+    /**
+     * VAN-011: validate and save a sale on this phone in one encrypted transaction (see `RoomVanStore.commitSale`).
+     * Throws [com.sunpride.van.pos.CheckoutRefused] with typed reasons; never needs the network. No upload is
+     * scheduled: the van gateway has no sale operation yet, so the sale's outbox row stays parked.
+     */
+    suspend fun completeSale(request: com.sunpride.van.pos.CheckoutRequest, expectedTotalMinor: Long): SaleReceipt =
+        withContext(Dispatchers.IO) { store().commitSale(request,expectedTotalMinor) }
+    /** VAN-012: credit sold here per customer and references already used, so Checkout warns before the store refuses. */
+    suspend fun paymentFacts(): com.sunpride.van.storage.PaymentFacts = withContext(Dispatchers.IO) { store().paymentFacts() }
+    /** DEBUG practice data only: the fixture store, so device tests can seed the (still empty) price list. */
+    internal fun fixtureStore(): RoomVanStore { check(BuildConfig.DEBUG && stubMode != null); return store() }
     suspend fun syncNow(): Unit = authLock.withLock {
         val st = store()
         try { VanSync(st,checkNotNull(gateway)).syncNow(); session.value = SessionState(true) }

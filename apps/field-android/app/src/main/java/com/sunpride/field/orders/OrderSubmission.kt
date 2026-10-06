@@ -33,8 +33,9 @@ enum class OrderStatus(val label: String) {
     DRAFT("Draft · not sent"),
     QUEUED("Waiting to send"),
     SENDING("Sending"),
-    // The office has the order; it is not yet a priced, posted sales order (no price list yet).
-    RECEIVED("Received by office · not yet posted"),
+    // The office has the order; it is not yet a priced sales order (no price list yet). SP-0124: no
+    // "posted" wording; that implies the accounting system, which is out of scope for the beta.
+    RECEIVED("Received by office"),
     NEEDS_REVIEW("Not accepted · needs review"),
     NOT_SENT("Not sent · call ended"),
 }

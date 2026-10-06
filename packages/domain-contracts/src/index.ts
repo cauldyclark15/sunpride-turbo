@@ -432,3 +432,5 @@ export function decodeResponseEnum<const T extends readonly string[]>(
 ): T[number] | { readonly unknown: string } {
   return known.includes(raw) ? (raw as T[number]) : { unknown: raw };
 }
+
+export * from "./offline-authority";

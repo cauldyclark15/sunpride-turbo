@@ -86,7 +86,7 @@ private fun resultMeta(record: CustomerRecord, now: Long): String = listOfNotNul
 @Composable
 fun CustomerDetailScreen(record: CustomerRecord, data: TodayData, onNavigate: (String) -> Boolean,
     onDial: (String) -> Boolean, modifier: Modifier = Modifier, onVisit: (VisitDisplay) -> Unit = {},
-    visitEnabled: Boolean = false, now: Long = System.currentTimeMillis()) {
+    visitEnabled: Boolean = false, now: Long = System.currentTimeMillis(), unplannedEnabled: Boolean = visitEnabled) {
     var actionError by remember { mutableStateOf<String?>(null) }
     val navigation = DailyRoutes.navigationUri(record.asVisit())
     val dial = CustomerDirectory.dialUri(record.account?.contactNumber)
@@ -109,7 +109,8 @@ fun CustomerDetailScreen(record: CustomerRecord, data: TodayData, onNavigate: (S
                 dial?.let { actionError = if (onDial(it)) null else "No phone app on this device" }
             }, Modifier.weight(1f).testTag("customer-call"), enabled = dial != null)
         }
-        if (visitEnabled) {
+        // SP-0124: an outlet that is not on today's plan offers a visit only when unplanned visits are on.
+        if (visitEnabled && (record.today != null || unplannedEnabled)) {
             val today = record.today
             SecondaryButton(when {
                 today == null -> "Unplanned visit"

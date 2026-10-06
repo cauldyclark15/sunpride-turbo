@@ -226,6 +226,107 @@ class VanUiDeviceTest {
         rule.onNodeWithText("Scan with camera").assertExists()
         // The existing printer device suite, not this UI smoke test, prints the real receipt.
     }
+    @Test fun checkoutValidatesPricesAndCashThenSavesTheSaleOnThisPhone() {
+        mount(); loadAndStart()
+        val juice = c.products.single { it.code == "SP-PJ-1L" }
+        rule.waitUntil(10_000) { c.stock.any { it.productId == juice.productId && it.availableBase > 2 } }
+        val before = c.stock.single { it.productId == juice.productId }.availableBase
+        // Practice-data price only (the governed price feed is not delivered yet): ₱85.00 per PC for the juice.
+        runBlocking { c.repository.fixtureStore().let { st -> st.db.rows().insertPriceListLine(com.sunpride.van.storage.PriceListLineRow(
+            st.scope.fullAuthSubject,st.scope.deviceId,"PL-PRACTICE",juice.productId,"PC",8_500,"PHP",System.currentTimeMillis()-60_000,null)) } }
+        rule.waitUntil(10_000) { c.prices.isNotEmpty() }
+        open(Page.HOME)
+        rule.onNodeWithTag("new-sale").performScrollTo().performClick()
+        rule.onNodeWithTag("customer-route-0").performClick()
+        rule.onNodeWithTag("start-sale").assertIsEnabled().performClick()
+        rule.onNodeWithTag("sale-customer").assertTextEquals("Aling Nena Store")
+        rule.onNodeWithTag("checkout").assertIsNotEnabled()
+        fun add(query: String, quantity: String) {
+            rule.onNodeWithTag("sale-add-product").performScrollTo().performClick()
+            rule.onNodeWithTag("screen-title").assertTextEquals("Add product")
+            rule.onNodeWithTag("product-search").performTextInput(query); hideKeyboard()
+            rule.onNodeWithTag("product-0").performClick()
+            rule.onNodeWithTag("sale-quantity").performTextInput(quantity); hideKeyboard()
+            rule.onNodeWithTag("save-quantity").performClick()
+            rule.waitUntil(5_000) { c.page == Page.SALE }
+        }
+        add("sppj1l","2"); add("chunks","1")
+        rule.onNodeWithTag("sale-line-total-0",useUnmergedTree = true).assertTextEquals("₱170.00")
+        rule.onNodeWithTag("sale-line-total-1",useUnmergedTree = true).assertTextEquals("Priced by the office")
+        captureVanScreenshot(rule,"29-sale-cart","checkout")
+        // An unpriced product blocks the sale: no guessed price, Complete stays off.
+        rule.onNodeWithTag("checkout").performClick()
+        rule.onNodeWithTag("checkout-issue-0").assertTextContains("priced by the office",substring = true)
+        rule.onNodeWithTag("complete-sale").assertIsNotEnabled()
+        captureVanScreenshot(rule,"30-checkout-unpriced","complete-sale")
+        rule.onNodeWithTag("back").performClick()
+        rule.onNodeWithTag("sale-line-1").performClick()
+        rule.onNodeWithTag("sale-quantity").performTextClearance(); rule.onNodeWithTag("sale-quantity").performTextInput("0"); hideKeyboard()
+        rule.onNodeWithTag("save-quantity").assertTextEquals("Remove").performClick()
+        rule.onNodeWithTag("checkout").performClick()
+        rule.onNodeWithTag("checkout-total",useUnmergedTree = true).assertTextEquals("₱170.00")
+        rule.onNodeWithTag("cash-received").performTextInput("150"); hideKeyboard()
+        rule.onNodeWithText("Cash received is less than the total.").assertExists()
+        rule.onNodeWithTag("complete-sale").assertIsNotEnabled()
+        // VAN-012: a reference method needs its number; credit shows the office terms and the due date.
+        rule.onNodeWithTag("pay-gcash").performScrollTo().performClick()
+        rule.onNodeWithText("Enter the reference number.").assertExists()
+        rule.onNodeWithTag("complete-sale").assertIsNotEnabled()
+        rule.onNodeWithTag("pay-credit").performScrollTo().performClick()
+        rule.onNodeWithTag("credit-terms",useUnmergedTree = true).assertTextEquals("Terms 30 days · Credit left ₱5,000.00")
+        rule.onNodeWithTag("credit-due",useUnmergedTree = true).assertTextEquals("Due 2026-11-06")
+        captureVanScreenshot(rule,"31a-checkout-credit","complete-sale")
+        rule.onNodeWithTag("pay-cash").performScrollTo().performClick()
+        rule.onNodeWithTag("cash-received").performTextClearance(); rule.onNodeWithTag("cash-received").performTextInput("200"); hideKeyboard()
+        rule.onNodeWithTag("checkout-change",useUnmergedTree = true).assertTextEquals("Change ₱30.00")
+        captureVanScreenshot(rule,"31-checkout-cash","complete-sale")
+        rule.onNodeWithTag("complete-sale").assertIsEnabled().performClick()
+        rule.waitUntil(10_000) { c.page == Page.SALE_DONE && !c.busy }
+        rule.onNodeWithTag("receipt-number",useUnmergedTree = true).assertTextContains("TRIP-20261007-V014-1-",substring = true)
+        rule.onNodeWithTag("receipt-total",useUnmergedTree = true).assertTextEquals("₱170.00")
+        rule.onNodeWithTag("receipt-payment-state",useUnmergedTree = true).assertTextEquals("Paid")
+        captureVanScreenshot(rule,"32-sale-saved","sale-done")
+        // Saved and deducted on the phone without any network call; parked, not queued for the gateway.
+        rule.waitUntil(10_000) { c.sync.savedSales == 1 && c.stock.single { it.productId == juice.productId }.availableBase == before-2 }
+        assertEquals(0,c.sync.queued); assertNull(c.sale)
+        rule.onNodeWithTag("sale-done").performClick()
+        rule.onNodeWithTag("sync-line").assertTextContains("1 sale saved on this phone",substring = true)
+    }
+    @Test fun checkPaymentKeepsItsReferenceAndAwaitsTheOfficeWhileTheSaleIsSaved() {
+        mount(); loadAndStart()
+        val juice = c.products.single { it.code == "SP-PJ-1L" }
+        rule.waitUntil(10_000) { c.stock.any { it.productId == juice.productId && it.availableBase > 2 } }
+        runBlocking { c.repository.fixtureStore().let { st -> st.db.rows().insertPriceListLine(com.sunpride.van.storage.PriceListLineRow(
+            st.scope.fullAuthSubject,st.scope.deviceId,"PL-PRACTICE",juice.productId,"PC",8_500,"PHP",System.currentTimeMillis()-60_000,null)) } }
+        rule.waitUntil(10_000) { c.prices.isNotEmpty() }
+        open(Page.HOME)
+        rule.onNodeWithTag("new-sale").performScrollTo().performClick()
+        rule.onNodeWithTag("customer-route-1").performClick()
+        rule.onNodeWithTag("start-sale").assertIsEnabled().performClick()
+        rule.onNodeWithTag("sale-add-product").performScrollTo().performClick()
+        rule.onNodeWithTag("product-search").performTextInput("sppj1l"); hideKeyboard()
+        rule.onNodeWithTag("product-0").performClick()
+        rule.onNodeWithTag("sale-quantity").performTextInput("1"); hideKeyboard()
+        rule.onNodeWithTag("save-quantity").performClick()
+        rule.waitUntil(5_000) { c.page == Page.SALE }
+        rule.onNodeWithTag("checkout").performClick()
+        // JM Sari-Sari has no credit terms from the office.
+        rule.onNodeWithTag("pay-credit").performScrollTo().performClick()
+        rule.onNodeWithText("This customer has no credit terms from the office. Take cash or another payment.").assertExists()
+        rule.onNodeWithTag("complete-sale").assertIsNotEnabled()
+        rule.onNodeWithTag("pay-check").performScrollTo().performClick()
+        rule.onNodeWithTag("payment-reference").performScrollTo().performTextInput("bdo 000123"); hideKeyboard()
+        rule.onNodeWithTag("payment-amount",useUnmergedTree = true).assertTextContains("₱85.00",substring = true)
+        captureVanScreenshot(rule,"31b-checkout-check","complete-sale")
+        rule.onNodeWithTag("complete-sale").assertIsEnabled().performClick()
+        rule.waitUntil(10_000) { c.page == Page.SALE_DONE && !c.busy }
+        rule.onNodeWithTag("receipt-change",useUnmergedTree = true).assertTextEquals("Check ₱85.00")
+        rule.onNodeWithTag("receipt-reference",useUnmergedTree = true).assertTextEquals("Reference BDO 000123")
+        rule.onNodeWithTag("receipt-payment-state",useUnmergedTree = true).assertTextEquals("To be confirmed by the office")
+        captureVanScreenshot(rule,"32b-sale-saved-check","sale-done")
+        assertEquals("awaiting_confirmation",c.lastReceipt!!.paymentStatus)
+        rule.waitUntil(10_000) { c.sync.savedSales == 1 }
+    }
     @Test fun fullScreenScreenshotTour() {
         mount(restore = false,fixtureMode = false)
         rule.onNodeWithTag("configuration-warning").assertExists()
@@ -275,7 +376,7 @@ class VanUiDeviceTest {
         rule.waitUntil(10_000) { c.page == Page.CUSTOMERS && !c.busy && c.customers.any { it.source == "walk_in" } }
         rule.onNodeWithTag("customer-walk_in-0").performScrollTo()
         captureVanScreenshot(rule,"19-customers-walk-in","add-walk-in")
-        rule.onNodeWithTag("customer-walk_in-0").performClick(); captureVanScreenshot(rule,"20-customer-detail","primary")
+        rule.onNodeWithTag("customer-walk_in-0").performClick(); captureVanScreenshot(rule,"20-customer-detail","start-sale")
         open(Page.PRINTER); captureVanScreenshot(rule,"21-printer-scanner","printer-done")
         rule.onNodeWithText("Scan with camera").performScrollTo()
         captureVanScreenshot(rule,"23-printer-scanner-controls","printer-done")
