@@ -40,8 +40,11 @@ import java.time.format.DateTimeFormatter
             ListRow("Customers","Your route and nearby stores","open-customers",onClick = { c.open(Page.CUSTOMERS) })
             ListRow("Printer & scanner","Test this phone","open-printer",onClick = { c.open(Page.PRINTER) })
             ListRow("Sync now","Send saved work and check for changes","sync-now",onClick = c::syncNow,enabled = !c.busy)
-            ListRow("New sale","Selling comes in the next update","new-sale",enabled = false,onClick = {})
+            if (com.sunpride.van.VanFeature.SELLING_PREVIEW in c.features)
+                ListRow("New sale","Selling comes in the next update","new-sale",enabled = false,onClick = {})
         }
+        val context = LocalContext.current
+        c.features.reportIssueUrl?.let { url -> ListRow("Report an issue","Tell the Sunpride team what went wrong","report-issue",onClick = { openLink(context,url) }) }
         SecondaryButton("Sign out",c::signOut,Modifier.testTag("sign-out"),!c.busy)
     }
 }

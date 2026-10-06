@@ -2,6 +2,7 @@ package com.sunpride.van.ui
 
 import androidx.compose.runtime.*
 import com.sunpride.van.AppEnvironment
+import com.sunpride.van.VanFeatures
 import com.sunpride.van.auth.*
 import com.sunpride.van.data.*
 import kotlinx.coroutines.*
@@ -9,7 +10,10 @@ import kotlinx.coroutines.flow.*
 
 /** One UI lifetime; no Activity, password persistence, identity selection, or raw error text. */
 class VanController(val repository: VanRepository, val environment: AppEnvironment,
-    val fixtureMode: Boolean = false, private val fingerprintLoader: suspend () -> String = { "Unavailable" }) {
+    val fixtureMode: Boolean = false,
+    /** SP-0125: what this build shows (unfinished screens are hidden in release/beta). */
+    val features: VanFeatures = VanFeatures.ALL,
+    private val fingerprintLoader: suspend () -> String = { "Unavailable" }) {
     var page by mutableStateOf(Page.HOME)
         private set
     var session by mutableStateOf(SessionState())

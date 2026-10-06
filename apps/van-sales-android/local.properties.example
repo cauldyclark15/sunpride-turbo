@@ -1,0 +1,16 @@
+# Copy to local.properties and set non-secret deployment endpoints.
+# Never put passwords, session tokens, JWTs, or signing material here.
+SUNPRIDE_DEV_CONVEX_SITE_URL=https://your-dev.convex.site
+SUNPRIDE_DEV_CONVEX_URL=https://your-dev.convex.cloud
+SUNPRIDE_STAGING_CONVEX_SITE_URL=https://your-staging.convex.site
+SUNPRIDE_STAGING_CONVEX_URL=https://your-staging.convex.cloud
+SUNPRIDE_PROD_CONVEX_SITE_URL=https://your-prod.convex.site
+SUNPRIDE_PROD_CONVEX_URL=https://your-prod.convex.cloud
+# SP-0125 van beta build (docs/beta.md). Endpoints fall back to DEV (with a build warning) when empty.
+SUNPRIDE_BETA_CONVEX_SITE_URL=
+SUNPRIDE_BETA_CONVEX_URL=
+# Web app for "Report an issue" (opens <url>/issues/new); hidden when empty.
+SUNPRIDE_BETA_WEB_URL=
+SUNPRIDE_BETA_BUILD=1
+# Signing key lives outside the repo; created by scripts/create-beta-keystore.sh.
+# SUNPRIDE_VAN_BETA_SIGNING_PROPERTIES=~/.sunpride-keys/van-beta.properties

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The logo's own background red (sampled from packages/ui/assets/sunpride-logo.jpg). -->
+    <color name="sunpride_logo_red">#ED1D25</color>
+
+    <!-- Android 10/11: no system splash; the window starts logo red so there is no white flash.
+         MainActivity swaps in the app background once Compose is set. -->
+    <style name="Theme.SunprideVan" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/sunpride_logo_red</item>
+    </style>
+</resources>

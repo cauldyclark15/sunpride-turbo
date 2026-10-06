@@ -95,6 +95,7 @@ import com.sunpride.van.data.*
                 it.reason?.let { reason -> Text("Reason: $reason") }
             }
         }
-        Text("Selling comes in the next update",style = MaterialTheme.typography.titleMedium)
+        if (com.sunpride.van.VanFeature.SELLING_PREVIEW in c.features)
+            Text("Selling comes in the next update",style = MaterialTheme.typography.titleMedium,modifier = Modifier.testTag("selling-preview"))
     }
 }

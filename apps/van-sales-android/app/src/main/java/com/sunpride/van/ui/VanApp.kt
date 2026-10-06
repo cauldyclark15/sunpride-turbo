@@ -1,16 +1,25 @@
 package com.sunpride.van.ui
 
 import androidx.activity.compose.BackHandler
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.sunpride.van.R
 import com.sunpride.van.auth.EnrollmentState
 import com.sunpride.van.printing.*
 import com.sunpride.van.scanning.SenraiseScanner
@@ -31,6 +40,9 @@ import kotlinx.coroutines.delay
         BackHandler(controller.page != Page.HOME) { controller.back() }
         when {
             !controller.initialized -> ScreenFrame("Sunpride Van") { Text("Getting your day ready…") }
+            // SP-0125: the printer test needs no account, so a new handheld can be checked before setup.
+            controller.page == Page.PRINTER && (!controller.session.signedIn || controller.enrollment !is EnrollmentState.Ready) ->
+                PrinterScreen(controller)
             !controller.session.signedIn -> SignInScreen(controller)
             controller.enrollment !is EnrollmentState.Ready -> EnrollmentScreen(controller)
             else -> when (controller.page) {
@@ -51,15 +63,29 @@ import kotlinx.coroutines.delay
     var email by remember { mutableStateOf("") }
     // Never save the password to SavedState or a persistent draft.
     var password by remember { mutableStateOf("") }
+    // SP-0125 password eye: hidden by default, never saved, hidden again when the app is left or the form is sent.
+    var showPassword by remember { mutableStateOf(false) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _,event -> if (event == Lifecycle.Event.ON_STOP) showPassword = false }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    val context = LocalContext.current
     ScreenFrame("Sign in",action = if (c.busy) "Signing in…" else "Sign in",actionTag = "sign-in",
         enabled = !c.busy && (c.environment.isReady || c.fixtureMode) && email.isNotBlank() && password.isNotEmpty(),
-        onAction = { val secret = password; password = ""; c.signIn(email,secret) },message = c.message) {
+        onAction = { val secret = password; password = ""; showPassword = false; c.signIn(email,secret) },message = c.message) {
+        Image(painterResource(R.drawable.sunpride_logo),contentDescription = "Sunpride",
+            modifier = Modifier.size(96.dp).clip(SunprideTokens.shapes.large).testTag("sign-in-logo"))
         Text("Sunpride Van",style = MaterialTheme.typography.headlineMedium)
         Text("Your trip, load and customers on this phone.")
         if (!c.environment.isReady && !c.fixtureMode) SectionCard("Setup needed") { Text("This phone is not connected to the office yet. Ask your supervisor to finish setup.",Modifier.testTag("configuration-warning")) }
         if (c.fixtureMode) Text("Practice data · not connected to the office",style = MaterialTheme.typography.bodyMedium)
         LabeledField("Email",email,{ email = it },"email",enabled = !c.busy,maxLength = 254)
-        LabeledField("Password",password,{ password = it },"password",password = true,enabled = !c.busy,maxLength = 1024)
+        LabeledField("Password",password,{ password = it },"password",password = true,enabled = !c.busy,maxLength = 1024,
+            revealed = showPassword,onToggleReveal = { showPassword = !showPassword })
+        ListRow("Test printer & scanner","Check this handheld before signing in","sign-in-printer",onClick = { c.open(Page.PRINTER) })
+        c.features.reportIssueUrl?.let { url -> ListRow("Report an issue","Tell the Sunpride team what went wrong","report-issue",onClick = { openLink(context,url) }) }
     }
 }
 @Composable private fun EnrollmentScreen(c: VanController) {
@@ -70,6 +96,7 @@ import kotlinx.coroutines.delay
             else "This phone is not registered yet. Send this phone code to your supervisor.")
         SectionCard("Phone code") { Text(c.fingerprint, style = MaterialTheme.typography.titleMedium, fontFamily = FontFamily.Monospace, modifier = Modifier.testTag("fingerprint")) }
         Text("We will check again automatically.",style = MaterialTheme.typography.bodyMedium)
+        ListRow("Test printer & scanner","Check this handheld while you wait","enrollment-printer",onClick = { c.open(Page.PRINTER) })
         SecondaryButton("Sign out",c::signOut,enabled = !c.busy)
     }
 }
@@ -82,3 +109,9 @@ import kotlinx.coroutines.delay
         PrinterTestScreen(printer,scanner,Modifier.fillMaxSize())
     }
 }
+
+/** Opens a web page (the beta issue form) in the browser; false when nothing can open it. */
+internal fun openLink(context: Context, url: String): Boolean = try {
+    context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    true
+} catch (_: ActivityNotFoundException) { false }
