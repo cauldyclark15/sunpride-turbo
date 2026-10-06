@@ -3,7 +3,11 @@ import { describe, expect, it } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
-import { CAPABILITIES, isReadOnlyCapability } from "./capabilities";
+import {
+  CAPABILITIES,
+  isReadOnlyCapability,
+  TESTER_FEEDBACK_CAPABILITIES,
+} from "./capabilities";
 import type { AssignableRole } from "./roles";
 import schema from "../schema";
 import { modules } from "../test.setup";
@@ -209,7 +213,13 @@ describe("capability table", () => {
   it("keeps cross-scope analyst access read-only", () => {
     const analystCapabilities = Object.entries(CAPABILITIES)
       .filter(([, roles]) => (roles as readonly string[]).includes("analyst"))
-      .map(([capability]) => capability);
+      .map(([capability]) => capability)
+      .filter(
+        (capability) =>
+          !TESTER_FEEDBACK_CAPABILITIES.includes(
+            capability as keyof typeof CAPABILITIES,
+          ),
+      );
     expect(analystCapabilities.length).toBeGreaterThan(0);
     for (const capability of analystCapabilities)
       expect(
@@ -217,16 +227,20 @@ describe("capability table", () => {
       ).toBe(true);
   });
 
-  it("grants the issue tracker to internal staff only", () => {
-    expect(CAPABILITIES["issues.read"]).toEqual([
+  it("opens the issue tracker to every beta tester but keeps triage with staff", () => {
+    const everyone = [
       "super_admin",
       "admin",
       "operations",
       "manager",
       "approver",
+      "sales",
       "analyst",
-    ]);
-    expect(CAPABILITIES["issues.write"]).toEqual([
+      "viewer",
+    ];
+    expect(CAPABILITIES["issues.read"]).toEqual(everyone);
+    expect(CAPABILITIES["issues.write"]).toEqual(everyone);
+    expect(CAPABILITIES["issues.triage"]).toEqual([
       "super_admin",
       "admin",
       "operations",
@@ -234,13 +248,11 @@ describe("capability table", () => {
       "approver",
     ]);
     expect(CAPABILITIES["issues.manage"]).toEqual(["super_admin", "admin"]);
-    for (const capability of [
-      "issues.read",
-      "issues.write",
-      "issues.manage",
-    ] as const) {
+    expect(TESTER_FEEDBACK_CAPABILITIES).toEqual(["issues.write"]);
+    for (const capability of ["issues.triage", "issues.manage"] as const) {
       expect(CAPABILITIES[capability]).not.toContain("sales");
       expect(CAPABILITIES[capability]).not.toContain("viewer");
+      expect(CAPABILITIES[capability]).not.toContain("analyst");
     }
   });
 
