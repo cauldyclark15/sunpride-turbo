@@ -33,6 +33,15 @@ class BiometricGate(private val vault: LockableSessionVault, private val crypto:
     /** Bumps on every successful unlock so the app (re)starts with the opened session. */
     var unlocks by mutableIntStateOf(0); private set
 
+    /**
+     * Generation of the prompt in flight. A callback whose generation is no longer current (password
+     * sign-in, sign-out, turning it off, a newer prompt) is ignored; the vault also refuses it when the
+     * stored session changed since the prompt started ([LockableSessionVault.epoch]).
+     */
+    private var request = 0L
+
+    private fun retirePending() { request += 1; busy = false }
+
     fun availability(): BiometricAvailability = runCatching { crypto.availability() }.getOrDefault(BiometricAvailability.UNAVAILABLE)
 
     /** The password screen may offer the prompt again while the sealed session still exists. */
@@ -44,14 +53,24 @@ class BiometricGate(private val vault: LockableSessionVault, private val crypto:
         val sealed = vault.sealedToken()
         if (sealed == null) { enabled = false; step = Step.OPEN; return }
         busy = true
+        val id = ++request
+        val startedAt = vault.epoch
         crypto.decrypt(sealed) { outcome ->
+            // usePassword() keeps the generation: a late success for the SAME session may still open it.
+            if (id != request || vault.epoch != startedAt) {
+                (outcome as? CryptoOutcome.Done)?.bytes?.fill(0)
+                return@decrypt
+            }
             busy = false
             when (outcome) {
                 is CryptoOutcome.Done -> {
-                    val opened = runCatching { vault.unlock(String(outcome.bytes, Charsets.UTF_8)) }.isSuccess
+                    val opened = runCatching { vault.unlock(String(outcome.bytes, Charsets.UTF_8), startedAt) }
                     outcome.bytes.fill(0)
-                    if (opened) { message = null; step = Step.OPEN; unlocks += 1 }
-                    else invalidated()
+                    when (opened.getOrNull()) {
+                        true -> { message = null; step = Step.OPEN; unlocks += 1 }
+                        false -> Unit // session changed while the prompt was up: stale, ignore
+                        null -> invalidated()
+                    }
                 }
                 CryptoOutcome.Cancelled -> { message = null; step = Step.PASSWORD }
                 CryptoOutcome.Invalidated -> invalidated()
@@ -62,7 +81,7 @@ class BiometricGate(private val vault: LockableSessionVault, private val crypto:
     }
 
     private fun invalidated() {
-        vault.dropBiometric()
+        runCatching { vault.dropBiometric() }
         runCatching { crypto.deleteKey() }
         enabled = false
         message = INVALIDATED
@@ -77,6 +96,7 @@ class BiometricGate(private val vault: LockableSessionVault, private val crypto:
 
     /** A password sign-in succeeded (the vault already dropped any old sealed session). */
     fun passwordSignedIn() {
+        retirePending()
         enabled = vault.biometricOn
         message = null
         step = Step.OPEN
@@ -89,14 +109,20 @@ class BiometricGate(private val vault: LockableSessionVault, private val crypto:
         offer = false
         val token = vault.readSession() ?: return
         busy = true
+        val id = ++request
+        val startedAt = vault.epoch
         val bytes = token.toByteArray(Charsets.UTF_8)
         crypto.encrypt(bytes) { outcome ->
-            busy = false
             bytes.fill(0)
+            // Stale: the session changed (other account, sign-out) since the prompt opened. Never seal it,
+            // and never delete the key: it may already belong to the newer session.
+            if (id != request || vault.epoch != startedAt) return@encrypt
+            busy = false
             when (outcome) {
-                is CryptoOutcome.Done -> {
-                    if (runCatching { vault.seal(outcome.bytes) }.isSuccess) { enabled = true; message = null }
-                    else { runCatching { crypto.deleteKey() }; message = ENABLE_FAILED }
+                is CryptoOutcome.Done -> when (runCatching { vault.seal(outcome.bytes, token, startedAt) }.getOrNull()) {
+                    true -> { enabled = true; message = null }
+                    false -> Unit
+                    null -> { runCatching { crypto.deleteKey() }; enabled = vault.biometricOn; message = ENABLE_FAILED }
                 }
                 CryptoOutcome.Cancelled -> message = null
                 else -> { runCatching { crypto.deleteKey() }; message = ENABLE_FAILED }
@@ -109,7 +135,8 @@ class BiometricGate(private val vault: LockableSessionVault, private val crypto:
     /** Account toggle off: the session returns to the ordinary Keystore copy; the biometric key is deleted. */
     fun disable() {
         if (busy) return
-        vault.unseal()
+        retirePending()
+        if (runCatching { vault.unseal() }.isFailure) { enabled = vault.biometricOn; message = DISABLE_FAILED; return }
         runCatching { crypto.deleteKey() }
         enabled = false
         message = null
@@ -117,6 +144,7 @@ class BiometricGate(private val vault: LockableSessionVault, private val crypto:
 
     /** Sign-out (the vault wipe already removed the sealed session and key) or session expiry. */
     fun signedOut() {
+        retirePending()
         offer = false
         message = null
         enabled = vault.biometricOn
@@ -129,5 +157,6 @@ class BiometricGate(private val vault: LockableSessionVault, private val crypto:
         const val LOCKED_OUT = "Too many tries. Sign in with your password."
         const val FAILED = "Couldn't use fingerprint or face. Sign in with your password."
         const val ENABLE_FAILED = "Couldn't turn on fingerprint sign-in. Try again from Account."
+        const val DISABLE_FAILED = "Couldn't turn off fingerprint sign-in. Try again."
     }
 }

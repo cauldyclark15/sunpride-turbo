@@ -256,6 +256,133 @@ class BiometricSignInTest {
         assertEquals(BiometricGate.Step.OPEN, gate.step)
     }
 
+    // ---- Release-check counterexamples: stale prompt callbacks and failed durable removal ----
+
+    @Test fun aLateUnlockCannotReplaceANewPasswordSession() {
+        signedInWithBiometrics()
+        val gate = relaunch()
+        crypto.hold = true
+        gate.unlock()
+        gate.usePassword()
+        vault().saveSession("fake-session-B")
+        gate.passwordSignedIn()
+        crypto.held!!.invoke() // account A's prompt finally succeeds
+        assertEquals("fake-session-B", vault().readSession())
+        assertEquals(0, gate.unlocks)
+        assertFalse(gate.busy)
+        assertEquals(BiometricGate.Step.OPEN, gate.step)
+    }
+
+    @Test fun aLateUnlockCannotUndoSignOut() {
+        signedInWithBiometrics()
+        val gate = relaunch()
+        crypto.hold = true
+        gate.unlock()
+        gate.usePassword()
+        vault().wipe()
+        gate.signedOut()
+        crypto.held!!.invoke()
+        assertNull(vault().readSession())
+        assertNull(memory.token)
+        assertFalse(vault().biometricOn)
+        assertEquals(0, gate.unlocks)
+        assertEquals(BiometricGate.Step.OPEN, relaunch().step)
+    }
+
+    @Test fun aLateUnlockFromAWorkerSignOutIsRefusedEvenWithoutTheGateBeingTold() {
+        signedInWithBiometrics()
+        val gate = relaunch()
+        crypto.hold = true
+        gate.unlock()
+        vault().wipe() // e.g. AuthClient got 401 on a background thread
+        crypto.held!!.invoke()
+        assertNull(vault().readSession())
+        assertEquals(0, gate.unlocks)
+    }
+
+    @Test fun aLateEnableCannotSealThePreviousAccountAfterAnotherSignIn() {
+        val vault = vault()
+        vault.saveSession("fake-session-A")
+        val gate = BiometricGate(vault, crypto)
+        gate.passwordSignedIn()
+        crypto.hold = true
+        gate.enable()
+        vault.saveSession("fake-session-B")
+        gate.passwordSignedIn()
+        val deletes = crypto.deletes
+        crypto.held!!.invoke() // A's enable prompt completes late
+        assertFalse(vault.biometricOn)
+        assertFalse(gate.enabled)
+        assertEquals("stale enable never deletes the newer session's key", deletes, crypto.deletes)
+        crypto.hold = false
+        val cold = relaunch()
+        assertEquals(BiometricGate.Step.OPEN, cold.step)
+        assertEquals("fake-session-B", vault().readSession())
+    }
+
+    @Test fun aLateEnableCannotSealAfterSignOut() {
+        val vault = vault()
+        vault.saveSession("fake-session-A")
+        val gate = BiometricGate(vault, crypto)
+        crypto.hold = true
+        gate.enable()
+        vault.wipe()
+        gate.signedOut()
+        crypto.held!!.invoke()
+        assertNull(sealed.read())
+        assertNull(vault().readSession())
+    }
+
+    /** SharedPreferences.commit() returning false silently kept the ordinary copy on disk. */
+    private class StickyPlain : SessionVault {
+        var token: String? = null
+        override var deviceId: String? = "dev1"
+        override fun readSession() = token
+        override fun saveSession(token: String) { this.token = token }
+        override fun wipe() { token = null }
+        override fun clearSession() = Unit // removal fails without throwing
+    }
+
+    @Test fun aRetainedOrdinaryCopyNeverBypassesEnabledBiometricsOnColdStart() {
+        val disk = StickyPlain()
+        val vault = LockableSessionVault(disk, sealed, memory)
+        vault.saveSession("fake-session-A")
+        BiometricGate(vault, crypto).enable()
+        assertEquals("fake-session-A", disk.token) // the removal really failed
+        memory = SessionMemory()
+        val cold = LockableSessionVault(disk, sealed, memory)
+        assertTrue(cold.isLocked)
+        assertNull("the ordinary copy is ignored while a sealed session exists", cold.readSession())
+        assertEquals(BiometricGate.Step.LOCKED, BiometricGate(cold, crypto).step)
+    }
+
+    @Test fun aSealedSessionThatCannotBeRemovedFailsThePasswordSignInInsteadOfHidingIt() {
+        val stuck = object : SealedTokenStore {
+            var blob: ByteArray? = byteArrayOf(1, 2, 3)
+            override fun read() = blob
+            override fun write(blob: ByteArray) { this.blob = blob }
+            override fun clear() = Unit // removal fails without throwing
+        }
+        val vault = LockableSessionVault(plain, stuck, memory)
+        assertTrue(runCatching { vault.saveSession("fake-session-B") }.exceptionOrNull() is SessionStorageFailure)
+        assertNull(vault.readSession())
+    }
+
+    @Test fun aFailedSealWriteKeepsTheOrdinarySession() {
+        val broken = object : SealedTokenStore {
+            override fun read(): ByteArray? = null
+            override fun write(blob: ByteArray) = Unit // not persisted
+            override fun clear() = Unit
+        }
+        val vault = LockableSessionVault(plain, broken, memory) { keyDeletes++ }
+        vault.saveSession("fake-session-1")
+        val gate = BiometricGate(vault, crypto)
+        gate.enable()
+        assertFalse(gate.enabled)
+        assertEquals(BiometricGate.ENABLE_FAILED, gate.message)
+        assertEquals("fake-session-1", plain.readSession())
+    }
+
     @Test fun backgroundWorkersInALockedProcessSeeNoSessionAndCannotWipeIt() {
         signedInWithBiometrics()
         memory = SessionMemory()

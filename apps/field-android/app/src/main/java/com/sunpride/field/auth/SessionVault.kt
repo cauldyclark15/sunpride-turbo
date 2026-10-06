@@ -55,7 +55,12 @@ class KeystoreSessionVault(
         cipher.init(Cipher.ENCRYPT_MODE, key()) // Keystore generates the random 12-byte IV
         cipher.updateAAD(AAD)
         val sealed = cipher.iv + cipher.doFinal(token.toByteArray(Charsets.UTF_8))
-        prefs.edit(commit = true) { putString(SESSION, Base64.getEncoder().encodeToString(sealed)) }
+        commitOrThrow { putString(SESSION, Base64.getEncoder().encodeToString(sealed)) }
+    }
+
+    /** SP-0128: a refused SharedPreferences commit must not pass silently (a kept session could reopen). */
+    private fun commitOrThrow(change: android.content.SharedPreferences.Editor.() -> Unit) {
+        if (!prefs.edit().apply(change).commit()) throw SessionStorageFailure()
     }
 
     @Synchronized override fun readSession(): String? {
@@ -68,7 +73,7 @@ class KeystoreSessionVault(
             cipher.updateAAD(AAD)
             String(cipher.doFinal(sealed, IV_BYTES, sealed.size - IV_BYTES), Charsets.UTF_8)
         } catch (_: Exception) {
-            wipe()
+            runCatching { wipe() }
             null
         }
     }
@@ -81,11 +86,11 @@ class KeystoreSessionVault(
         set(value) { prefs.edit(commit = true) { if (value == null) remove(DEVICE_ID) else putString(DEVICE_ID, value) } }
 
     @Synchronized override fun wipe() {
-        prefs.edit(commit = true) { remove(SESSION); remove(DEVICE_ID) }
+        commitOrThrow { remove(SESSION); remove(DEVICE_ID) }
     }
 
     @Synchronized override fun clearSession() {
-        prefs.edit(commit = true) { remove(SESSION) }
+        commitOrThrow { remove(SESSION) }
     }
 
     companion object {

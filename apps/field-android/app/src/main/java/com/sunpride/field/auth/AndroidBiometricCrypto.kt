@@ -9,7 +9,6 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
-import androidx.core.content.edit
 import androidx.fragment.app.FragmentActivity
 import java.security.KeyStore
 import java.util.Base64
@@ -25,9 +24,9 @@ class PrefsSealedTokenStore(context: Context, prefsName: String = PREFS) : Seale
         runCatching { Base64.getDecoder().decode(it) }.getOrNull()
     }
     override fun write(blob: ByteArray) {
-        prefs.edit(commit = true) { putString(SEALED, Base64.getEncoder().encodeToString(blob)) }
+        if (!prefs.edit().putString(SEALED, Base64.getEncoder().encodeToString(blob)).commit()) throw SessionStorageFailure()
     }
-    override fun clear() { prefs.edit(commit = true) { remove(SEALED) } }
+    override fun clear() { if (!prefs.edit().remove(SEALED).commit()) throw SessionStorageFailure() }
 
     companion object {
         const val PREFS = "field_biometric_session"

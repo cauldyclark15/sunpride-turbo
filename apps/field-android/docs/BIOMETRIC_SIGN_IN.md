@@ -44,6 +44,21 @@ The password is never stored. With the feature on, the Better Auth session token
 under the biometric key; after the prompt it lives in this process's memory and is exchanged for the
 short-lived Convex JWT exactly as before.
 
+Late prompts and storage failures (release check):
+
+- Every change to the stored session (password sign-in, sign-out, a dead session wiped by a background
+  worker, turning the feature on or off) bumps a process-wide session epoch. A prompt that started before
+  the change cannot unlock or seal anything when it finishes: a late unlock never restores the old account
+  after sign-out or over a new password sign-in, and a late "turn on" never seals the previous account
+  (nor deletes the newer session's key). The gate also retires its pending prompt on sign-in, sign-out and
+  turning the feature off.
+- While a sealed session exists, the ordinary copy is never read, even if removing it failed: a leftover
+  copy cannot reopen the app without the prompt after a restart.
+- Session and sealed-copy writes/removals check the storage commit and fail loudly instead of passing
+  silently. Turning on writes and verifies the sealed copy before removing the ordinary one; turning off
+  saves the ordinary copy before removing the sealed one; a password sign-in fails with a clear message if
+  an old sealed copy cannot be removed (it would otherwise hide the new session).
+
 Unchanged on purpose: device registration, held-outbox and purge rules, the local encrypted database (its own
 key), and the server. Background sync workers share the same in-process vault, so they keep sending while
 the app is unlocked; after Android kills the app they see no session and do nothing (they never wipe or hold
@@ -51,7 +66,9 @@ data for it) until the person opens the app again, which schedules them.
 
 ## Tests
 
-- JVM: `app/src/test/.../auth/BiometricSignInTest.kt` (state machine and vault) and `BiometricKeyConfigTest`
+- JVM: `app/src/test/.../auth/BiometricSignInTest.kt` (state machine and vault, including late
+  unlock/enable after sign-in, sign-out and a worker wipe, and failed storage removals),
+  `BiometricReviewCounterexamples` (the release check's four probes, verbatim) and `BiometricKeyConfigTest`
   (key and prompt accept strong biometric only, never the screen lock).
 - Phone (`~/.hermes/scripts/sunpride-android-phone-test.sh <worktree>`):
   `BiometricSignInUiTest` (the real `FieldApp` with the prompt seam: eye toggle and re-hide on leaving,
