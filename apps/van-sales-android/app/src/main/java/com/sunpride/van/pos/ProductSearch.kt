@@ -41,12 +41,13 @@ object PosMoney {
  * "Priced by the office". A price is never derived from stock or product master data.
  */
 object PriceResolver {
+    /** The effective lines for the product's own UOM at [now] (VAN-011 records their list IDs as the price source). */
+    fun matching(product: Product, lines: List<PriceLine>, now: Long): List<PriceLine> = lines.filter {
+        it.productId == product.productId && it.uomCode == product.uomCode && it.unitPriceMinor >= 0 &&
+            it.effectiveFrom <= now && (it.effectiveTo == null || now < it.effectiveTo)
+    }
     fun resolve(product: Product, lines: List<PriceLine>, now: Long): PosPrice? {
-        val effective = lines.filter {
-            it.productId == product.productId && it.uomCode == product.uomCode && it.unitPriceMinor >= 0 &&
-                it.effectiveFrom <= now && (it.effectiveTo == null || now < it.effectiveTo)
-        }
-        val distinct = effective.map { it.unitPriceMinor to it.currency }.distinct()
+        val distinct = matching(product, lines, now).map { it.unitPriceMinor to it.currency }.distinct()
         return distinct.singleOrNull()?.let { (minor, currency) -> PosPrice(minor, currency, product.uomCode) }
     }
 }

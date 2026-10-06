@@ -1,0 +1,108 @@
+package com.sunpride.van.pos
+
+import com.sunpride.van.data.*
+import com.sunpride.van.ui.VanRules
+import org.junit.Assert.*
+import org.junit.Test
+
+class CheckoutRulesTest {
+    private val now = 1_791_338_400_000L
+    private val juice = Product("p1","SP-PJ-1L","Pineapple Juice 1L","PC",1,emptyList())
+    private val chunks = Product("p2","SP-PC-432","Pineapple Chunks 432g","PC",1,emptyList())
+    /** Sold by the kilogram, stored in grams. */
+    private val bulk = Product("p3","SP-BULK","Dried Pineapple","KG",1000,emptyList())
+    private val route = Customer("o1","O-1001","Aling Nena Store",null,1,"route")
+    private val walkIn = Customer("local:w1","","Corner Store",null,null,"walk_in","Not on list",true)
+    private val policy = VanPolicy(walkInAllowed = true)
+    private val saleId = "6f1c1f3e-2b7a-4c55-9d1e-0c4b8f7a1a01"
+    private fun price(product: String, minor: Long, uom: String = "PC", list: String = "L1", currency: String = "PHP", from: Long = now-1, to: Long? = null) =
+        PriceLine(list,product,uom,minor,currency,from,to)
+    private val prices = listOf(price("p1",8_500),price("p3",32_000,"KG"))
+    private fun context(stock: List<TruckStock> = listOf(TruckStock("p1",10,2),TruckStock("p2",5,0),TruckStock("p3",2_000,0)),
+        prices: List<PriceLine> = this.prices, policy: VanPolicy? = this.policy, selling: Boolean = true) =
+        CheckoutContext(selling,listOf(route,walkIn),listOf(juice,chunks,bulk),stock,prices,policy,now)
+    private fun request(vararg lines: CartLine, customer: String? = "o1", payment: PaymentInput = PaymentInput(PaymentTerms.CASH,1_000_000)) =
+        CheckoutRequest(saleId,customer,lines.toList(),payment)
+    private fun problems(result: CheckoutResult) = result.issues.map { it.problem }.toSet()
+
+    @Test fun pricedCashSaleTotalsInCentavosAndGivesChange() {
+        val result = CheckoutRules.evaluate(request(CartLine("p1",3),CartLine("p3",1_500),payment = PaymentInput(PaymentTerms.CASH,80_000)),context())
+        assertTrue(result.issues.toString(),result.ok)
+        val quote = result.quote!!
+        assertEquals(listOf(25_500L,48_000L),quote.lines.map { it.totalMinor })
+        assertEquals(listOf(1,2),quote.lines.map { it.lineNumber })
+        assertEquals(73_500L,quote.totalMinor); assertEquals(6_500L,quote.changeMinor); assertEquals("PHP",quote.currency)
+        assertEquals(listOf("L1"),quote.lines.first().priceListIds)
+    }
+    @Test fun exactCashAndWalkInCustomerAreAccepted() {
+        val result = CheckoutRules.evaluate(request(CartLine("p1",2),customer = "local:w1",payment = PaymentInput(PaymentTerms.CASH,17_000)),context())
+        assertTrue(result.ok); assertEquals(0L,result.quote!!.changeMinor)
+    }
+    @Test fun unpricedProductBlocksTheSaleInsteadOfGuessing() {
+        val result = CheckoutRules.evaluate(request(CartLine("p1",1),CartLine("p2",1)),context())
+        assertNull(result.quote)
+        assertEquals(listOf(CheckoutIssue(CheckoutProblem.UNPRICED,"p2")),result.issues)
+        // Two lists disagreeing on a price is not a price either; a future or expired line never prices.
+        val conflicting = prices + price("p1",9_000,list = "L2")
+        assertTrue(CheckoutProblem.UNPRICED in problems(CheckoutRules.evaluate(request(CartLine("p1",1)),context(prices = conflicting))))
+        assertTrue(CheckoutProblem.UNPRICED in problems(CheckoutRules.evaluate(request(CartLine("p1",1)),context(prices = listOf(price("p1",8_500,from = now+1))))))
+        assertTrue(CheckoutProblem.UNPRICED in problems(CheckoutRules.evaluate(request(CartLine("p1",1)),context(prices = listOf(price("p1",8_500,to = now))))))
+        // Agreeing lists price the line and are all recorded as the source.
+        val agreeing = CheckoutRules.evaluate(request(CartLine("p1",1)),context(prices = prices + price("p1",8_500,list = "L0")))
+        assertEquals(listOf("L0","L1"),agreeing.quote!!.lines.single().priceListIds)
+    }
+    @Test fun stockIsCheckedAgainstAvailableNeverDamaged() {
+        val result = CheckoutRules.evaluate(request(CartLine("p1",11)),context())
+        assertEquals(listOf(CheckoutIssue(CheckoutProblem.INSUFFICIENT_STOCK,"p1")),result.issues)
+        assertTrue(CheckoutRules.evaluate(request(CartLine("p1",10)),context()).ok)
+        assertTrue("office policy may allow negative stock",CheckoutRules.evaluate(request(CartLine("p1",11)),context(policy = policy.copy(allowNegativeStock = true))).ok)
+        assertTrue(CheckoutProblem.INSUFFICIENT_STOCK in problems(CheckoutRules.evaluate(request(CartLine("p1",1)),context(stock = emptyList()))))
+    }
+    @Test fun customerMustBeChosenAndOnThisPhone() {
+        assertEquals(setOf(CheckoutProblem.NO_CUSTOMER),problems(CheckoutRules.evaluate(request(CartLine("p1",1),customer = null),context())))
+        assertEquals(setOf(CheckoutProblem.UNKNOWN_CUSTOMER),problems(CheckoutRules.evaluate(request(CartLine("p1",1),customer = "o-gone"),context())))
+    }
+    @Test fun tripMustBeSellingAndPolicyBootstrapped() {
+        assertEquals(setOf(CheckoutProblem.TRIP_NOT_SELLING),problems(CheckoutRules.evaluate(request(CartLine("p1",1)),context(selling = false))))
+        assertTrue(CheckoutProblem.TRIP_NOT_SELLING in problems(CheckoutRules.evaluate(request(CartLine("p1",1)),context(policy = null))))
+    }
+    @Test fun cartShapeIsValidated() {
+        assertEquals(setOf(CheckoutProblem.EMPTY_CART),problems(CheckoutRules.evaluate(request(),context())))
+        assertTrue(CheckoutProblem.DUPLICATE_PRODUCT in problems(CheckoutRules.evaluate(request(CartLine("p1",1),CartLine("p1",2)),context())))
+        assertEquals(setOf(CheckoutProblem.BAD_QUANTITY),problems(CheckoutRules.evaluate(request(CartLine("p1",0)),context())))
+        assertEquals(setOf(CheckoutProblem.BAD_QUANTITY),problems(CheckoutRules.evaluate(request(CartLine("p1",-2)),context())))
+        assertEquals(setOf(CheckoutProblem.UNKNOWN_PRODUCT),problems(CheckoutRules.evaluate(request(CartLine("p9",1)),context())))
+        val many = (1..101).map { CartLine("p$it",1) }.toTypedArray()
+        assertTrue(CheckoutProblem.TOO_MANY_LINES in problems(CheckoutRules.evaluate(request(*many),context())))
+    }
+    @Test fun paymentTermsAndCashAreEnforced() {
+        assertEquals(setOf(CheckoutProblem.CREDIT_TERMS_UNAVAILABLE),problems(CheckoutRules.evaluate(request(CartLine("p1",1),payment = PaymentInput(PaymentTerms.CREDIT,null)),context())))
+        assertEquals(setOf(CheckoutProblem.CASH_MISSING),problems(CheckoutRules.evaluate(request(CartLine("p1",1),payment = PaymentInput(PaymentTerms.CASH,null)),context())))
+        assertEquals(setOf(CheckoutProblem.CASH_MISSING),problems(CheckoutRules.evaluate(request(CartLine("p1",1),payment = PaymentInput(PaymentTerms.CASH,-1)),context())))
+        assertEquals(setOf(CheckoutProblem.CASH_SHORT),problems(CheckoutRules.evaluate(request(CartLine("p1",1),payment = PaymentInput(PaymentTerms.CASH,8_499)),context())))
+    }
+    @Test fun moneyIsNeverRoundedOrOverflowed() {
+        // 1 gram of a ₱320.00/kg product is 32 centavos exactly; 1 gram at ₱320.01/kg is not a whole centavo.
+        assertEquals(32L,CheckoutRules.lineTotal(32_000,1,1000))
+        assertNull(CheckoutRules.lineTotal(32_001,1,1000))
+        assertNull(CheckoutRules.lineTotal(Long.MAX_VALUE,Long.MAX_VALUE,1))
+        assertEquals(setOf(CheckoutProblem.PRICE_NOT_EXACT),problems(CheckoutRules.evaluate(request(CartLine("p3",1)),context(prices = listOf(price("p3",32_001,"KG"))))))
+        assertTrue(CheckoutProblem.TOTAL_TOO_LARGE in problems(CheckoutRules.evaluate(request(CartLine("p1",10)),
+            context(prices = listOf(price("p1",CheckoutRules.MAX_MINOR)),policy = policy.copy(allowNegativeStock = true)))))
+        assertEquals(setOf(CheckoutProblem.MIXED_CURRENCY),problems(CheckoutRules.evaluate(request(CartLine("p1",1),CartLine("p3",1_000)),
+            context(prices = listOf(price("p1",8_500),price("p3",100,"KG",currency = "USD"))))))
+    }
+    @Test fun saleIdMustBeAUuidV4() {
+        assertTrue(runCatching { CheckoutRules.evaluate(CheckoutRequest("not-a-uuid","o1",listOf(CartLine("p1",1)),PaymentInput(PaymentTerms.CASH,10_000)),context()) }.isFailure)
+        assertEquals(4,java.util.UUID.fromString(CheckoutRules.newSaleId()).version())
+    }
+    @Test fun everyProblemHasPlainWordsAndCashParsesToCentavos() {
+        CheckoutProblem.entries.forEach { assertTrue(VanRules.checkoutMessage(it,"Juice").isNotBlank()) }
+        assertFalse(VanRules.checkoutMessage(CheckoutProblem.UNPRICED,"Juice").contains("UNPRICED"))
+        assertEquals(25_050L,VanRules.parseMoney("250.50")); assertEquals(100_000L,VanRules.parseMoney("₱1,000"))
+        assertNull(VanRules.parseMoney("1.005")); assertNull(VanRules.parseMoney("-1")); assertNull(VanRules.parseMoney("abc")); assertNull(VanRules.parseMoney(""))
+        assertTrue(VanRules.canSell(Trip("t","T","active","2026-10-07",null,null,null,null,"l",null,null)))
+        assertTrue(VanRules.canSell(Trip("t","T","loaded","2026-10-07",null,null,null,null,"l",null,null,startPending = true)))
+        assertFalse(VanRules.canSell(Trip("t","T","loaded","2026-10-07",null,null,null,null,"l",null,null)))
+    }
+}

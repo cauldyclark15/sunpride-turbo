@@ -3,6 +3,7 @@ package com.sunpride.van.storage
 import androidx.room.withTransaction
 import com.sunpride.van.data.*
 import com.sunpride.van.ledger.StockProjection
+import com.sunpride.van.pos.*
 import com.sunpride.van.sync.VanBootstrapCodec
 import com.sunpride.van.sync.VanWireFailure
 import kotlinx.coroutines.flow.Flow
@@ -11,6 +12,10 @@ import kotlinx.coroutines.flow.map
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
+
+/** VAN-011 sale operation kind and the outbox status of a sale saved on this phone that is never sent (no gateway operation yet). */
+const val SALE_KIND = "sale.record"
+const val SALE_PARKED = "parked"
 
 /** No mutation of operation bytes or movement facts, no DELETE of work/evidence. */
 class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private val clock: () -> Long = System::currentTimeMillis) : com.sunpride.van.sync.VanSyncStore {
@@ -39,7 +44,8 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
     val syncStatus: Flow<SyncStatus> = combine(dao.observeOutbox(s,d),dao.observeSyncMeta(s,d)) { ops, metas ->
         val m = metas.singleOrNull(); val held = m?.held == true
         SyncStatus(if (held) 0 else ops.count { it.status == "pending" },if (held) 0 else ops.count { it.status == "sending" },
-            ops.count { it.status in setOf("rejected","conflict") },if (held) ops.count { it.status in setOf("pending","sending") } else 0,m?.lastSyncTime,m?.health ?: "never_synced")
+            ops.count { it.status in setOf("rejected","conflict") },if (held) ops.count { it.status in setOf("pending","sending") } else 0,m?.lastSyncTime,m?.health ?: "never_synced",
+            ops.count { it.status == SALE_PARKED })
     }
     val truckStock: Flow<List<TruckStock>> = combine(dao.observeBaseline(s,d),dao.observeMovement(s,d),dao.observeSettlement(s,d),dao.observeTrip(s,d)) { b,m,settled,t ->
         val trip = t.singleOrNull()?.tripId
@@ -133,6 +139,75 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         dao.insertCustomer(row)
         Customer(row.outletId,row.code,n,null,null,row.source,r,true)
     }
+    /** Same rule as damage: the trip is on route, or its start is saved on this phone. */
+    private suspend fun selling(t: TripRow): Boolean = t.status == "active" ||
+        dao.outboxRows(s,d).any { it.tripId == t.tripId && it.kind == "trip.start" && it.status in setOf("pending","sending","done") }
+
+    /** Checkout context read from this scoped partition; inside [commitSale] it is read in the sale's transaction. */
+    suspend fun checkoutContext(): CheckoutContext {
+        val t = dao.trip(s,d); val meta = dao.meta(s,d)
+        return CheckoutContext(t != null && meta?.held == false && selling(t),
+            dao.customerRows(s,d).map { Customer(it.outletId,it.code,it.name,it.address,it.sequence,it.source,it.reason,it.localOnly) },
+            dao.productRows(s,d).map { VanBootstrapCodec.product(JSONObject(it.json)) }, stock(),
+            dao.pricelistlineRows(s,d).map { PriceLine(it.priceListId,it.productId,it.uomCode,it.unitPriceMinor,it.currency,it.effectiveFrom,it.effectiveTo) },
+            meta?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)) }, clock())
+    }
+
+    /**
+     * VAN-011 checkout. ONE Room transaction re-validates the cart against the stored trip, customer, truck stock
+     * and price list, refuses if the total differs from [expectedTotalMinor] (what the seller agreed with the
+     * customer), then writes the receipt number, sale, lines, cash payment, SALE stock movements and the sale's
+     * outbox operation. Any failure leaves nothing behind. The sale is complete on this phone before any upload.
+     *
+     * The van gateway has no sale operation yet, so the outbox row is [SALE_PARKED]: it keeps the frozen
+     * operation bytes, is never sent, and its stock stays deducted. Tapping Complete again with the same
+     * [CheckoutRequest.saleId] returns the saved sale instead of selling twice.
+     */
+    suspend fun commitSale(request: CheckoutRequest, expectedTotalMinor: Long): SaleReceipt = db.withTransaction {
+        dao.saleRows(s,d).singleOrNull { it.saleId == request.saleId }?.let { return@withTransaction savedReceipt(it,request) }
+        val context = checkoutContext()
+        val result = CheckoutRules.evaluate(request,context)
+        if (!result.ok) throw CheckoutRefused(result.issues)
+        val quote = checkNotNull(result.quote)
+        if (quote.totalMinor != expectedTotalMinor) throw CheckoutRefused(listOf(CheckoutIssue(CheckoutProblem.PRICES_CHANGED)))
+        val t = writable()
+        val customer = context.customers.single { it.outletId == request.customerId }
+        val id = com.sunpride.van.ids.TransactionIds(db,scope).issue(t.tripId,t.tripNumber)
+        val at = maxOf(context.now,Math.addExact(dao.latestCreatedAt(s,d) ?: 0L,1L))
+        dao.insertSale(SaleRow(s,d,request.saleId,t.tripId,id.receiptNumber,id.idempotencyKey,customer.outletId,"saved",quote.totalMinor,at))
+        quote.lines.forEach { dao.insertSaleLine(SaleLineRow(s,d,request.saleId,it.lineNumber,it.product.productId,it.quantityBase,it.unitPriceMinor,it.totalMinor)) }
+        dao.insertPayment(PaymentRow(s,d,UUID.randomUUID().toString(),request.saleId,"cash",quote.totalMinor,at))
+        // Stock check repeated by the ledger hook in this same transaction; deterministic movement IDs per line.
+        quote.lines.forEach { recordLocalMovement(com.sunpride.van.ledger.MovementType.SALE,it.product.productId,com.sunpride.van.ledger.StockStatus.available,
+            Math.negateExact(it.quantityBase),null,id.idempotencyKey) }
+        val customerJson = if (customer.localOnly) JSONObject().put("walkIn",JSONObject().put("name",customer.name).put("reason",customer.reason))
+            else JSONObject().put("outletId",customer.outletId)
+        val payload = JSONObject().put("tripId",t.tripId).put("saleId",request.saleId).put("receiptNumber",id.receiptNumber)
+            .put("customer",customerJson).put("currency",quote.currency).put("totalMinor",quote.totalMinor.toString())
+            .put("lines",JSONArray(quote.lines.map { JSONObject().put("lineNumber",it.lineNumber).put("productId",it.product.productId)
+                .put("quantityBase",it.quantityBase.toString()).put("unitPriceMinor",it.unitPriceMinor.toString()).put("totalMinor",it.totalMinor.toString())
+                .put("priceListIds",JSONArray(it.priceListIds)) }))
+            .put("payment",JSONObject().put("terms","cash").put("amountMinor",quote.totalMinor.toString())
+                .put("tenderedMinor",quote.tenderedMinor.toString()).put("changeMinor",quote.changeMinor.toString()))
+            .put("deviceTime",context.now)
+        val op = JSONObject().put("kind",SALE_KIND).put("clientRequestId",id.idempotencyKey).put("payload",payload).toString()
+        dao.insertOutbox(OutboxRow(s,d,id.idempotencyKey,t.tripId,SALE_KIND,op,at,null,SALE_PARKED))
+        SaleReceipt(request.saleId,id.receiptNumber,customer.name,quote.lines.map { receiptLine(it.lineNumber,it.product,it.quantityBase,it.unitPriceMinor,it.totalMinor) },
+            quote.currency,quote.totalMinor,quote.tenderedMinor,quote.changeMinor,at)
+    }
+    private suspend fun savedReceipt(sale: SaleRow, request: CheckoutRequest): SaleReceipt {
+        val lines = dao.salelineRows(s,d).filter { it.saleId == sale.saleId }.sortedBy { it.lineNumber }
+        check(sale.customerId == request.customerId && lines.map { it.productId to it.quantityBase } == request.lines.map { it.productId to it.quantityBase }) { "Sale replay conflict" }
+        val op = JSONObject(checkNotNull(dao.outbox(s,d,sale.idempotencyKey)).operationJson).getJSONObject("payload")
+        val payment = op.getJSONObject("payment")
+        val products = dao.productRows(s,d).associate { it.productId to VanBootstrapCodec.product(JSONObject(it.json)) }
+        val customer = dao.customerRows(s,d).singleOrNull { it.outletId == sale.customerId }?.name ?: ""
+        return SaleReceipt(sale.saleId,sale.receiptNumber,customer,lines.map { receiptLine(it.lineNumber,checkNotNull(products[it.productId]),it.quantityBase,it.unitPriceMinor!!,it.totalMinor!!) },
+            op.getString("currency"),sale.totalMinor!!,payment.getString("tenderedMinor").toLong(),payment.getString("changeMinor").toLong(),sale.createdAt,replay = true)
+    }
+    private fun receiptLine(n: Int, p: Product, quantityBase: Long, unit: Long, total: Long) =
+        SaleReceiptLine(n,p.productId,p.name,p.uomCode,p.displayQuantity(quantityBase),unit,total)
+
     override suspend fun pending(): List<OutboxRow> = if (dao.meta(s,d)?.held == true) emptyList() else dao.pending(s,d)
     override suspend fun resetSending() = dao.resetSending(s,d)
     override suspend fun markSending(ids: List<String>) = dao.markSending(s,d,ids)
