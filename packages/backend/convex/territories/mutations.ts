@@ -4,6 +4,12 @@ import { internalMutation, mutation } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { requireCapability } from "../lib/capabilities";
+import {
+  assertEffectiveStart,
+  authorizeWrite,
+  USER_ACTOR,
+  type WriteActor,
+} from "../lib/write_actor";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
 import {
   activeAt,
@@ -28,13 +34,14 @@ async function activeTerritory(
   ctx: MutationCtx,
   territoryId: Id<"territories">,
   from: number,
+  actor: WriteActor = USER_ACTOR,
 ) {
-  prospective(from);
-  const access = await requireTerritoryCapability(
-    ctx,
-    "territory.manage",
-    territoryId,
-  );
+  assertEffectiveStart(actor, from);
+  const access =
+    actor.kind === "system"
+      ? await systemTerritory(ctx, territoryId, actor.subject)
+      : await requireTerritoryCapability(ctx, "territory.manage", territoryId);
+  const actorSubject = access.identity.tokenIdentifier;
   if (
     access.territory.status !== "active" ||
     !activeAt(
@@ -44,7 +51,18 @@ async function activeTerritory(
     )
   )
     throw new ConvexError("Territory not active at effective time");
-  return access;
+  return { ...access, actorSubject };
+}
+
+async function systemTerritory(
+  ctx: MutationCtx,
+  territoryId: Id<"territories">,
+  subject: string,
+) {
+  const territory = await ctx.db.get(territoryId);
+  if (!territory || territory.organizationId !== SUNPRIDE_ORGANIZATION_ID)
+    throw new ConvexError("Territory not found");
+  return { territory, identity: { tokenIdentifier: subject } };
 }
 
 async function assignments(ctx: MutationCtx, territoryId: Id<"territories">) {
@@ -88,11 +106,12 @@ async function assertPersonWithin(
   ownerUnitId: Id<"orgUnits">,
   from: number,
   to?: number,
+  actor: WriteActor = USER_ACTOR,
 ) {
   const { person, unitId } = await personUnitAt(ctx, profileId, from);
   if (!unitId)
     throw new ConvexError("Salesperson has no unit at effective time");
-  await requireCapability(ctx, "territory.manage", person.orgUnitId!);
+  await authorizeWrite(ctx, actor, "territory.manage", person.orgUnitId!);
   await assertActiveUnit(ctx, unitId, from, to);
   const tree = await topology(ctx, from);
   const parent = new Map(tree.map((row) => [row._id, row.parentId]));
@@ -125,74 +144,92 @@ export const create = mutation({
     reason: v.string(),
   },
   returns: v.id("territories"),
-  handler: async (ctx, args) => {
-    prospective(args.effectiveFrom);
-    interval(args.effectiveFrom, args.effectiveTo);
-    const { identity } = await requireCapability(
-      ctx,
-      "territory.manage",
-      args.orgUnitId,
-    );
-    await assertActiveUnit(
-      ctx,
-      args.orgUnitId,
-      args.effectiveFrom,
-      args.effectiveTo,
-    );
-    const code = normalizeCode(args.code);
-    if (
-      await ctx.db
-        .query("territories")
-        .withIndex("by_organizationId_and_code", (q) =>
-          q.eq("organizationId", SUNPRIDE_ORGANIZATION_ID).eq("code", code),
-        )
-        .first()
-    )
-      throw new ConvexError("Duplicate territory code");
-    const name = required(args.name, "Name");
-    const reason = required(args.reason, "Reason");
-    assertBoundary(args.boundaryGeoJson);
-    const now = Date.now();
-    const id = await ctx.db.insert("territories", {
-      organizationId: SUNPRIDE_ORGANIZATION_ID,
-      code,
-      name,
-      channel: args.channel?.trim(),
-      boundaryGeoJson: args.boundaryGeoJson,
-      status: "active",
-      effectiveFrom: args.effectiveFrom,
-      effectiveTo: args.effectiveTo,
-      createdBy: identity.tokenIdentifier,
-      createdAt: now,
-      updatedAt: now,
-    });
-    await ctx.db.insert("territoryOwnerships", {
-      territoryId: id,
-      orgUnitId: args.orgUnitId,
-      effectiveFrom: args.effectiveFrom,
-      effectiveTo: args.effectiveTo,
-      actorSubject: identity.tokenIdentifier,
-      reason,
-      createdAt: now,
-    });
-    if (args.effectiveTo !== undefined)
-      await ctx.scheduler.runAt(
-        args.effectiveTo,
-        internal.territories.mutations.applyProjection,
-        { territoryId: id },
-      );
-    await audit(
-      ctx,
-      identity.tokenIdentifier,
-      "territory.created",
-      "territory",
-      id,
-      reason,
-      now,
-    );
-    return id;
-  },
+  handler: async (ctx, args) =>
+    (await createTerritory(ctx, args, USER_ACTOR)).territoryId,
 });
+
+/** The territory writer: identity row, its first ownership row, projection and audit. */
+export async function createTerritory(
+  ctx: MutationCtx,
+  args: {
+    code: string;
+    name: string;
+    orgUnitId: Id<"orgUnits">;
+    channel?: string;
+    boundaryGeoJson?: string;
+    effectiveFrom: number;
+    effectiveTo?: number;
+    reason: string;
+  },
+  actor: WriteActor,
+) {
+  assertEffectiveStart(actor, args.effectiveFrom);
+  interval(args.effectiveFrom, args.effectiveTo);
+  const actorSubject = await authorizeWrite(
+    ctx,
+    actor,
+    "territory.manage",
+    args.orgUnitId,
+  );
+  await assertActiveUnit(
+    ctx,
+    args.orgUnitId,
+    args.effectiveFrom,
+    args.effectiveTo,
+  );
+  const code = normalizeCode(args.code);
+  if (
+    await ctx.db
+      .query("territories")
+      .withIndex("by_organizationId_and_code", (q) =>
+        q.eq("organizationId", SUNPRIDE_ORGANIZATION_ID).eq("code", code),
+      )
+      .first()
+  )
+    throw new ConvexError("Duplicate territory code");
+  const name = required(args.name, "Name");
+  const reason = required(args.reason, "Reason");
+  assertBoundary(args.boundaryGeoJson);
+  const now = Date.now();
+  const territoryId = await ctx.db.insert("territories", {
+    organizationId: SUNPRIDE_ORGANIZATION_ID,
+    code,
+    name,
+    channel: args.channel?.trim(),
+    boundaryGeoJson: args.boundaryGeoJson,
+    status: "active",
+    effectiveFrom: args.effectiveFrom,
+    effectiveTo: args.effectiveTo,
+    createdBy: actorSubject,
+    createdAt: now,
+    updatedAt: now,
+  });
+  const ownershipId = await ctx.db.insert("territoryOwnerships", {
+    territoryId,
+    orgUnitId: args.orgUnitId,
+    effectiveFrom: args.effectiveFrom,
+    effectiveTo: args.effectiveTo,
+    actorSubject,
+    reason,
+    createdAt: now,
+  });
+  if (args.effectiveTo !== undefined)
+    await ctx.scheduler.runAt(
+      args.effectiveTo,
+      internal.territories.mutations.applyProjection,
+      { territoryId },
+    );
+  await audit(
+    ctx,
+    actorSubject,
+    "territory.created",
+    "territory",
+    territoryId,
+    reason,
+    now,
+  );
+  return { territoryId, ownershipId };
+}
 
 export const edit = mutation({
   args: {
@@ -314,73 +351,88 @@ export const assignSalesperson = mutation({
     reason: v.string(),
   },
   returns: v.id("territorySalespeople"),
-  handler: async (ctx, args) => {
-    const { territory, identity } = await activeTerritory(
-      ctx,
-      args.territoryId,
-      args.effectiveFrom,
-    );
-    interval(args.effectiveFrom, args.effectiveTo);
-    if (
-      territory.effectiveTo !== undefined &&
-      (args.effectiveTo === undefined ||
-        args.effectiveTo > territory.effectiveTo)
-    )
-      throw new ConvexError("Assignment exceeds territory interval");
-    const owner = await resolveTerritoryOwnerAt(
-      ctx,
-      territory._id,
-      args.effectiveFrom,
-    );
-    if (
-      !owner ||
-      (owner.effectiveTo !== undefined &&
-        (args.effectiveTo === undefined ||
-          args.effectiveTo > owner.effectiveTo))
-    )
-      throw new ConvexError("Assignment crosses owner transition");
-    await requireCapability(ctx, "territory.manage", owner.orgUnitId);
-    await assertPersonWithin(
-      ctx,
-      args.profileId,
-      owner.orgUnitId,
-      args.effectiveFrom,
-      args.effectiveTo,
-    );
-    const kind = args.kind ?? "primary";
-    if (
-      (await assignments(ctx, territory._id)).some(
-        (row) =>
-          row.profileId === args.profileId &&
-          (row.kind ?? "primary") === kind &&
-          overlaps(row, args.effectiveFrom, args.effectiveTo),
-      )
-    )
-      throw new ConvexError("Overlapping salesperson assignment");
-    const reason = required(args.reason, "Reason");
-    const now = Date.now();
-    const id = await ctx.db.insert("territorySalespeople", {
-      territoryId: territory._id,
-      profileId: args.profileId,
-      kind,
-      effectiveFrom: args.effectiveFrom,
-      effectiveTo: args.effectiveTo,
-      actorSubject: identity.tokenIdentifier,
-      reason,
-      createdAt: now,
-    });
-    await audit(
-      ctx,
-      identity.tokenIdentifier,
-      "territory.salesperson_assigned",
-      "territorySalesperson",
-      id,
-      reason,
-      now,
-    );
-    return id;
-  },
+  handler: async (ctx, args) =>
+    assignTerritorySalesperson(ctx, args, USER_ACTOR),
 });
+
+/** The territory salesperson writer (overlap, owner window and person hierarchy checked). */
+export async function assignTerritorySalesperson(
+  ctx: MutationCtx,
+  args: {
+    territoryId: Id<"territories">;
+    profileId: Id<"profiles">;
+    kind?: "primary" | "secondary";
+    effectiveFrom: number;
+    effectiveTo?: number;
+    reason: string;
+  },
+  actor: WriteActor,
+) {
+  const { territory, actorSubject } = await activeTerritory(
+    ctx,
+    args.territoryId,
+    args.effectiveFrom,
+    actor,
+  );
+  interval(args.effectiveFrom, args.effectiveTo);
+  if (
+    territory.effectiveTo !== undefined &&
+    (args.effectiveTo === undefined || args.effectiveTo > territory.effectiveTo)
+  )
+    throw new ConvexError("Assignment exceeds territory interval");
+  const owner = await resolveTerritoryOwnerAt(
+    ctx,
+    territory._id,
+    args.effectiveFrom,
+  );
+  if (
+    !owner ||
+    (owner.effectiveTo !== undefined &&
+      (args.effectiveTo === undefined || args.effectiveTo > owner.effectiveTo))
+  )
+    throw new ConvexError("Assignment crosses owner transition");
+  await authorizeWrite(ctx, actor, "territory.manage", owner.orgUnitId);
+  await assertPersonWithin(
+    ctx,
+    args.profileId,
+    owner.orgUnitId,
+    args.effectiveFrom,
+    args.effectiveTo,
+    actor,
+  );
+  const kind = args.kind ?? "primary";
+  if (
+    (await assignments(ctx, territory._id)).some(
+      (row) =>
+        row.profileId === args.profileId &&
+        (row.kind ?? "primary") === kind &&
+        overlaps(row, args.effectiveFrom, args.effectiveTo),
+    )
+  )
+    throw new ConvexError("Overlapping salesperson assignment");
+  const reason = required(args.reason, "Reason");
+  const now = Date.now();
+  const id = await ctx.db.insert("territorySalespeople", {
+    territoryId: territory._id,
+    profileId: args.profileId,
+    kind,
+    effectiveFrom: args.effectiveFrom,
+    effectiveTo: args.effectiveTo,
+    actorSubject,
+    reason,
+    createdAt: now,
+  });
+  await audit(
+    ctx,
+    actorSubject,
+    "territory.salesperson_assigned",
+    "territorySalesperson",
+    id,
+    reason,
+    now,
+  );
+  return id;
+}
 
 export const endSalespersonAssignment = mutation({
   args: {

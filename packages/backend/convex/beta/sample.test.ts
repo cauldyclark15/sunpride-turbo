@@ -8,7 +8,9 @@ import { manilaDate } from "../coverage/validation";
 import type { AuthorizedDevice } from "../mobile/types";
 import { postMovement } from "../inventory/posting";
 import { pricingCache, priceListFor, productPrices } from "../pricing/model";
+import { topology } from "../org/validation";
 import {
+  SAMPLE_ACTOR,
   SAMPLE_BATCH,
   SAMPLE_PEOPLE,
   SAMPLE_PRICE_LISTS,
@@ -184,6 +186,60 @@ describe("beta sample seed (SP-0129)", () => {
           .unique(),
       ).not.toBeNull();
     });
+  });
+
+  it("writes effective-dated master data through the domain writers, as an audited system actor", async () => {
+    const t = await fresh();
+    await t.mutation(internal.beta.sample.seed, {});
+    await t.run(async (ctx) => {
+      const audits = await ctx.db.query("auditLogs").collect();
+      const by = (action: string, subject = SAMPLE_ACTOR) =>
+        audits.filter((row) => row.action === action && row.subject === subject)
+          .length;
+      expect(by("org.created")).toBe(4);
+      expect(by("territory.created")).toBe(3);
+      expect(by("route.created")).toBe(3);
+      expect(by("outlet.created")).toBe(30);
+      expect(by("outlet.customer_link_changed")).toBe(30);
+      expect(by("outlet.pin_proposed")).toBe(30);
+      expect(by("outlet.assignment_changed")).toBe(30);
+      expect(by("inventory.uom_conversion.created")).toBeGreaterThanOrEqual(40);
+      // The pin writer still demands an independent reviewer.
+      expect(by("outlet.pin_verified", `${SAMPLE_ACTOR}:verifier`)).toBe(30);
+      const pins = await ctx.db.query("outletPins").collect();
+      expect(
+        pins.every(
+          (pin) =>
+            pin.status === "verified" &&
+            pin.proposedBy === SAMPLE_ACTOR &&
+            pin.verifiedBy === `${SAMPLE_ACTOR}:verifier`,
+        ),
+      ).toBe(true);
+      // Units, territories, routes and assignments are in force now, in a valid tree.
+      const tree = await topology(ctx, Date.now());
+      for (const code of ["SMP-VIS", "SMP-CEBU", "SMP-CEBU-N", "SMP-CEBU-S"])
+        expect(tree.some((unit) => unit.code === code)).toBe(true);
+      const root = tree.find((unit) => !unit.parentId)!;
+      for (const row of [
+        ...(await ctx.db.query("orgUnits").collect()),
+        ...(await ctx.db.query("territories").collect()),
+        ...(await ctx.db.query("routes").collect()),
+        ...(await ctx.db.query("outletAssignments").collect()),
+      ]) {
+        expect(row.effectiveFrom).toBeGreaterThanOrEqual(root.effectiveFrom);
+        expect(row.effectiveFrom).toBeLessThanOrEqual(Date.now());
+      }
+    });
+    // The office writers themselves still accept only future-effective changes.
+    await expect(
+      t.mutation(api.territories.mutations.create, {
+        code: "SMP-T-PAST",
+        name: "Backdated",
+        orgUnitId: (await byCode(t, "orgUnits", "SMP-CEBU"))._id,
+        effectiveFrom: NOW - 1,
+        reason: "should fail",
+      }),
+    ).rejects.toThrow(/future-effective/);
   });
 
   it("posts opening depot stock through postMovement and prices every product per channel", async () => {
@@ -464,6 +520,17 @@ describe("beta sample seed (SP-0129)", () => {
           )
           .collect(),
       ).toHaveLength(1);
+      // Both links went through the territory/route salesperson writers (audited).
+      const audits = await ctx.db.query("auditLogs").collect();
+      for (const action of [
+        "territory.salesperson_assigned",
+        "route.salesperson_assigned",
+      ])
+        expect(
+          audits.filter(
+            (row) => row.action === action && row.subject === SAMPLE_ACTOR,
+          ),
+        ).toHaveLength(1);
     });
   });
 

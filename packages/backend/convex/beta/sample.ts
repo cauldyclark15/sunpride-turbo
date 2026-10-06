@@ -9,14 +9,25 @@ import {
 import { hashPayload, postMovement } from "../inventory/posting";
 import { buildOpeningBalanceLine } from "../inventory/setup";
 import { manilaDate } from "../coverage/validation";
-import { audit } from "../org/validation";
+import { insertUomConversion } from "../inventory/policies";
+import type { WriteActor } from "../lib/write_actor";
+import { createOrgUnit } from "../org/mutations";
+import { assignOutlet } from "../outlets/assignments";
+import { changeOutletCustomerLink, createOutlet } from "../outlets/mutations";
+import { decideOutletPin, proposeOutletPin } from "../outlets/verification";
 import { recordAssignment } from "../people/validation";
+import {
+  createTerritory,
+  assignTerritorySalesperson,
+} from "../territories/mutations";
+import { assignRouteSalesperson, createRoute } from "../territories/routes";
 import {
   MAX_LINES_PER_PRODUCT,
   MAX_LISTS_PER_CHANNEL,
   PRICE_CURRENCY,
 } from "../pricing/model";
-import { productUnit } from "../van/loads";
+import { planLoad, productUnit } from "../van/loads";
+import { planTrip } from "../van/trips";
 import { OPEN_TRIP_STATUSES, SERVICE_DATE } from "../van/model";
 import {
   SAMPLE_ACTOR,
@@ -51,13 +62,27 @@ import {
  * Every row the seed writes is listed in `sampleDataRows` (batch `beta-sample-v1`), so reset
  * removes exactly those rows. Stock goes through `postMovement` (opening balance), tester
  * persona changes through the people assignment-history writer (`recordAssignment`).
- * Effective-dated master data (org units, territories, routes, outlets) is written as the
- * office writers would leave it — identity row plus its history/ownership/edge row — but
- * already in force from the sample epoch, because the public writers only accept
- * future-effective changes and a fresh beta backend must be usable immediately.
+ * Effective-dated master data goes through the same domain writers the office mutations use
+ * (`createOrgUnit`, `createTerritory`, `createRoute`, `createOutlet`,
+ * `changeOutletCustomerLink`, `proposeOutletPin`/`decideOutletPin`, `assignOutlet`,
+ * `assignTerritorySalesperson`, `assignRouteSalesperson`, `insertUomConversion`; van days via
+ * `planTrip`/`planLoad`) as the trusted `system` actor: every integrity rule runs, only the
+ * per-person capability gate is skipped and records may already be in force (a fresh beta
+ * backend must be usable at once, while the office writers accept only future changes).
+ * Price lists, lines and promotions have no office writer yet; they are written here and by
+ * SP-0088's `pricing/sample` only, as marked `source: "sample"` rows.
  * People are invitations only (no passwords): a tester signs up with the invited email, then
  * the next seed run gives them their unit, position, supervisor, territory and route.
  */
+
+/** The seed writes through the domain writers as a trusted system actor (see lib/write_actor). */
+const SYSTEM: WriteActor = { kind: "system", subject: SAMPLE_ACTOR };
+/** A second system subject: the pin writer demands a reviewer other than the proposer. */
+const SYSTEM_VERIFIER: WriteActor = {
+  kind: "system",
+  subject: `${SAMPLE_ACTOR}:verifier`,
+};
+const SAMPLE_REASON = "beta sample data";
 
 const CHANNEL_LABEL: Record<SampleChannel, string> = {
   KEY_ACCOUNTS: "Key Accounts",
@@ -183,27 +208,20 @@ async function seedReference(s: Seeder) {
               .unique()
           )?._id ?? null,
         async () => {
-          const id = await ctx.db.insert("orgUnits", {
-            organizationId: org,
-            code: unit.code,
-            name: unit.name,
-            typeCode: unit.typeCode,
-            parentId,
-            status: "active",
-            effectiveFrom: from,
-            createdAt: now,
-            updatedAt: now,
-          });
-          const edge = await ctx.db.insert("orgUnitParentEdges", {
-            unitId: id,
-            parentId,
-            effectiveFrom: from,
-            actorSubject: SAMPLE_ACTOR,
-            reason: "beta sample data",
-            createdAt: now,
-          });
-          await s.track("orgUnitParentEdges", edge, `edge:${unit.code}`);
-          return id;
+          const { unitId, edgeId } = await createOrgUnit(
+            ctx,
+            {
+              code: unit.code,
+              name: unit.name,
+              typeCode: unit.typeCode,
+              parentId,
+              effectiveFrom: from,
+              reason: SAMPLE_REASON,
+            },
+            SYSTEM,
+          );
+          await s.track("orgUnitParentEdges", edgeId, `edge:${unit.code}`);
+          return unitId;
         },
       ),
     );
@@ -273,19 +291,19 @@ async function seedReference(s: Seeder) {
         const conversions: [SampleUnit, number][] = [["CASE", product.caseQty]];
         if (product.packQty) conversions.push(["PACK", product.packQty]);
         for (const [unit, quantity] of conversions) {
-          const conversion = await ctx.db.insert("uomConversions", {
-            organizationId: org,
-            productId,
-            fromUomId: uoms.get(unit)!,
-            toUomId: pc,
-            numerator: BigInt(quantity),
-            denominator: 1n,
-            roundingMode: "exact",
-            effectiveFrom: from,
-            active: true,
-            createdAt: now,
-            updatedAt: now,
-          });
+          const conversion = await insertUomConversion(
+            ctx,
+            {
+              productId,
+              fromUomId: uoms.get(unit)!,
+              toUomId: pc,
+              numerator: BigInt(quantity),
+              denominator: 1n,
+              roundingMode: "exact",
+              effectiveFrom: from,
+            },
+            SAMPLE_ACTOR,
+          );
           await s.track(
             "uomConversions",
             conversion,
@@ -483,31 +501,24 @@ async function seedCoverage(
               .unique()
           )?._id ?? null,
         async () => {
-          const id = await ctx.db.insert("territories", {
-            organizationId: org,
-            code: territory.code,
-            name: territory.name,
-            channel: territory.channel,
-            status: "active",
-            effectiveFrom: from,
-            createdAt: now,
-            updatedAt: now,
-            createdBy: SAMPLE_ACTOR,
-          });
-          const owner = await ctx.db.insert("territoryOwnerships", {
-            territoryId: id,
-            orgUnitId: ref.units.get(territory.orgUnit)!,
-            effectiveFrom: from,
-            actorSubject: SAMPLE_ACTOR,
-            reason: "beta sample data",
-            createdAt: now,
-          });
+          const { territoryId, ownershipId } = await createTerritory(
+            ctx,
+            {
+              code: territory.code,
+              name: territory.name,
+              orgUnitId: ref.units.get(territory.orgUnit)!,
+              channel: territory.channel,
+              effectiveFrom: from,
+              reason: SAMPLE_REASON,
+            },
+            SYSTEM,
+          );
           await s.track(
             "territoryOwnerships",
-            owner,
+            ownershipId,
             `owner:${territory.code}`,
           );
-          return id;
+          return territoryId;
         },
       ),
     );
@@ -528,31 +539,24 @@ async function seedCoverage(
               .unique()
           )?._id ?? null,
         async () => {
-          const id = await ctx.db.insert("routes", {
-            organizationId: org,
-            code: route.code,
-            name: route.name,
-            status: "active",
-            effectiveFrom: from,
-            weekdayTemplate: [...route.weekdays],
-            createdAt: now,
-            updatedAt: now,
-            createdBy: SAMPLE_ACTOR,
-          });
-          const link = await ctx.db.insert("routeTerritories", {
-            routeId: id,
-            territoryId: territories.get(route.territory)!,
-            effectiveFrom: from,
-            actorSubject: SAMPLE_ACTOR,
-            reason: "beta sample data",
-            createdAt: now,
-          });
+          const { routeId, associationId } = await createRoute(
+            ctx,
+            {
+              territoryId: territories.get(route.territory)!,
+              code: route.code,
+              name: route.name,
+              effectiveFrom: from,
+              weekdayTemplate: [...route.weekdays],
+              reason: SAMPLE_REASON,
+            },
+            SYSTEM,
+          );
           await s.track(
             "routeTerritories",
-            link,
+            associationId,
             `routeterritory:${route.code}`,
           );
-          return id;
+          return routeId;
         },
       ),
     );
@@ -600,62 +604,72 @@ async function seedCoverage(
             .unique()
         )?._id ?? null,
       async () => {
-        const outletId = await ctx.db.insert("outlets", {
-          organizationId: org,
-          code: store.code,
-          name: store.name,
-          status: "active",
-          custodianOrgUnitId: ref.units.get(territory.orgUnit)!,
-          channel: CHANNEL_LABEL[store.channel],
-          classification: store.classification,
-          address: store.address,
-          contacts: [{ name: store.contact, phone: store.phone }],
-          preferredWeekday: route.weekdays[0],
-          visitFrequencyDays: 7,
-          createdAt: now,
-          updatedAt: now,
-          createdBy: SAMPLE_ACTOR,
-        });
-        const link = await ctx.db.insert("outletCustomerLinks", {
-          outletId,
-          customerId,
-          source: "beta_sample",
-          effectiveFrom: from,
-          actorSubject: SAMPLE_ACTOR,
-          reason: "beta sample data",
-          createdAt: now,
-        });
-        await s.track(
-          "outletCustomerLinks",
-          link,
-          `customerlink:${store.code}`,
+        const outletId = await createOutlet(
+          ctx,
+          {
+            code: store.code,
+            name: store.name,
+            status: "active",
+            custodianOrgUnitId: ref.units.get(territory.orgUnit)!,
+            channel: CHANNEL_LABEL[store.channel],
+            classification: store.classification,
+            address: store.address,
+            contacts: [{ name: store.contact, phone: store.phone }],
+            preferredWeekday: route.weekdays[0],
+            visitFrequencyDays: 7,
+            reason: SAMPLE_REASON,
+          },
+          SYSTEM,
         );
-        const pin = await ctx.db.insert("outletPins", {
-          outletId,
-          latitude: store.lat,
-          longitude: store.lng,
-          radiusMeters: 75,
-          source: "beta_sample",
-          status: "verified",
-          effectiveFrom: from,
-          proposedBy: SAMPLE_ACTOR,
-          proposedAt: now,
-          verifiedBy: SAMPLE_ACTOR,
-          verifiedAt: now,
-          createdAt: now,
-        });
+        const link = await changeOutletCustomerLink(
+          ctx,
+          {
+            outletId,
+            customerId,
+            source: "beta_sample",
+            effectiveFrom: from,
+            reason: SAMPLE_REASON,
+          },
+          SYSTEM,
+        );
+        if (link)
+          await s.track(
+            "outletCustomerLinks",
+            link,
+            `customerlink:${store.code}`,
+          );
+        // Proposed by the seed and verified by a second system subject: the writer still
+        // demands an independent reviewer, and only verified pins reach the coverage map.
+        const pin = await proposeOutletPin(
+          ctx,
+          {
+            outletId,
+            latitude: store.lat,
+            longitude: store.lng,
+            radiusMeters: 75,
+            source: "beta_sample",
+            reason: SAMPLE_REASON,
+          },
+          SYSTEM,
+        );
+        await decideOutletPin(
+          ctx,
+          { pinId: pin, decision: "verified", reason: SAMPLE_REASON },
+          SYSTEM_VERIFIER,
+        );
         await s.track("outletPins", pin, `pin:${store.code}`);
-        const assignment = await ctx.db.insert("outletAssignments", {
-          outletId,
-          territoryId: territories.get(territory.code)!,
-          routeId: routes.get(route.code)!,
-          sequence: position,
-          preferredWeekday: route.weekdays[0],
-          effectiveFrom: from,
-          actorSubject: SAMPLE_ACTOR,
-          reason: "beta sample data",
-          createdAt: now,
-        });
+        const assignment = await assignOutlet(
+          ctx,
+          {
+            outletId,
+            territoryId: territories.get(territory.code)!,
+            routeId: routes.get(route.code)!,
+            sequence: position,
+            effectiveFrom: from,
+            reason: SAMPLE_REASON,
+          },
+          SYSTEM,
+        );
         await s.track(
           "outletAssignments",
           assignment,
@@ -860,6 +874,22 @@ async function seedInventory(
   s.counts.openingStockLines = lines.length;
 }
 
+/** A tester's territory/route link starts with their latest unit assignment (never before it). */
+async function linkStart(
+  ctx: MutationCtx,
+  profileId: Id<"profiles">,
+  now: number,
+) {
+  const latest = await ctx.db
+    .query("employeeAssignments")
+    .withIndex("by_profileId_and_effectiveFrom", (q) =>
+      q.eq("profileId", profileId),
+    )
+    .order("desc")
+    .first();
+  return Math.max(now, latest?.effectiveFrom ?? now);
+}
+
 async function positionId(ctx: MutationCtx, code: string | undefined) {
   if (!code) return undefined;
   const position = await ctx.db
@@ -966,16 +996,18 @@ async function seedPeople(
             )?._id ?? null
           );
         },
-        () =>
-          ctx.db.insert("territorySalespeople", {
-            territoryId,
-            profileId: profile._id,
-            kind: "primary",
-            effectiveFrom: profile.effectiveFrom ?? now,
-            actorSubject: SAMPLE_ACTOR,
-            reason: "beta sample tester setup",
-            createdAt: now,
-          }),
+        async () =>
+          assignTerritorySalesperson(
+            ctx,
+            {
+              territoryId,
+              profileId: profile._id,
+              kind: "primary",
+              effectiveFrom: await linkStart(ctx, profile._id, now),
+              reason: "beta sample tester setup",
+            },
+            SYSTEM,
+          ),
       );
     }
     if (person.route) {
@@ -996,16 +1028,18 @@ async function seedPeople(
             )?._id ?? null
           );
         },
-        () =>
-          ctx.db.insert("routeSalespeople", {
-            routeId,
-            profileId: profile._id,
-            primary: true,
-            effectiveFrom: profile.effectiveFrom ?? now,
-            actorSubject: SAMPLE_ACTOR,
-            reason: "beta sample tester setup",
-            createdAt: now,
-          }),
+        async () =>
+          assignRouteSalesperson(
+            ctx,
+            {
+              routeId,
+              profileId: profile._id,
+              primary: true,
+              effectiveFrom: await linkStart(ctx, profile._id, now),
+              reason: "beta sample tester setup",
+            },
+            SYSTEM,
+          ),
       );
     }
   }
@@ -1029,7 +1063,20 @@ export const seed = internalMutation({
     // 2 Oct 2026 call (both idempotent, real configuration: never removed by reset).
     await ctx.runMutation(internal.migrations.seedOrganizationFoundation, {});
     await ctx.runMutation(internal.sfa.setup.foundation, {});
-    const s = new Seeder(ctx, now, Math.min(SAMPLE_EPOCH, now));
+    const root = await ctx.db
+      .query("orgUnits")
+      .withIndex("by_organizationId_and_code", (q) =>
+        q.eq("organizationId", org).eq("code", ORG_ROOT_UNIT_CODE),
+      )
+      .unique();
+    if (!root) throw new ConvexError("Organization root is missing");
+    // Sample records start at the sample epoch, but never before the organization root
+    // exists (the writers reject a child that predates its parent) nor in the future.
+    const s = new Seeder(
+      ctx,
+      now,
+      Math.min(now, Math.max(SAMPLE_EPOCH, root.effectiveFrom)),
+    );
     const ref = await seedReference(s);
     await seedPricing(s, ref);
     const coverage = await seedCoverage(s, ref);
@@ -1285,52 +1332,20 @@ export const planVanDay = internalMutation({
       OPEN_TRIP_STATUSES.includes(trip.status),
     );
     if (open) return { tripId: open._id, tripNumber: open.tripNumber };
-    const sameVehicle = await ctx.db
-      .query("vanTrips")
-      .withIndex("by_vehicleId_and_serviceDate", (q) =>
-        q.eq("vehicleId", vehicle._id).eq("serviceDate", serviceDate),
-      )
-      .take(50);
-    if (sameVehicle.some((trip) => OPEN_TRIP_STATUSES.includes(trip.status)))
-      throw new ConvexError("This truck already has a trip that day");
-    const tripNumber = `TRIP-${serviceDate.replaceAll("-", "")}-${vehicle.vehicleCode}-${sameVehicle.length + 1}`;
-    const tripId = await ctx.db.insert("vanTrips", {
-      organizationId: org,
-      orgUnitId: vehicle.orgUnitId,
-      tripNumber,
-      vehicleId: vehicle._id,
-      truckLocationId: vehicle.truckLocationId,
-      sourceLocationId: vehicle.homeLocationId,
-      routeId: route._id,
-      serviceDate,
-      salespersonProfileId: seller._id,
-      salespersonSubject: seller.authSubject,
-      driverName: "Nonoy Pepito",
-      helperName: "Bong Alcantara",
-      status: "loading",
-      createdBy: SAMPLE_ACTOR,
-      createdAt: now,
-      updatedAt: now,
-    });
-    await audit(
+    const { tripId, tripNumber } = await planTrip(
       ctx,
-      SAMPLE_ACTOR,
-      "van.trip.planned",
-      "vanTrip",
-      tripId,
-      tripNumber,
-      now,
+      {
+        vehicleId: vehicle._id,
+        serviceDate,
+        salespersonProfileId: seller._id,
+        routeId: route._id,
+        driverName: "Nonoy Pepito",
+        helperName: "Bong Alcantara",
+      },
+      SYSTEM,
     );
-    const loadId = await ctx.db.insert("vanTripLoads", {
-      organizationId: org,
-      tripId,
-      loadNumber: 1,
-      status: "planned",
-      createdBy: SAMPLE_ACTOR,
-      createdAt: now,
-      updatedAt: now,
-    });
-    for (const [index, [code, cases]] of SAMPLE_VAN_LOAD.entries()) {
+    const lines = [];
+    for (const [code, cases] of SAMPLE_VAN_LOAD) {
       const sample = SAMPLE_PRODUCTS.find((row) => row.code === code)!;
       const product = await ctx.db
         .query("products")
@@ -1338,29 +1353,12 @@ export const planVanDay = internalMutation({
         .unique();
       if (!product?.active) throw new ConvexError("Run beta/sample:seed first");
       const unit = await productUnit(ctx, product);
-      await ctx.db.insert("vanTripLoadLines", {
-        organizationId: org,
-        loadId,
-        tripId,
-        lineNumber: index + 1,
+      lines.push({
         productId: product._id,
-        productCode: product.code,
-        uomCode: unit.uomCode,
-        quantityScale: unit.quantityScale,
         expectedBase: BigInt(sample.caseQty * cases) * unit.quantityScale,
-        createdAt: now,
-        updatedAt: now,
       });
     }
-    await audit(
-      ctx,
-      SAMPLE_ACTOR,
-      "van.load.planned",
-      "vanTripLoad",
-      loadId,
-      `${SAMPLE_VAN_LOAD.length} lines`,
-      now,
-    );
+    await planLoad(ctx, { tripId, lines }, SYSTEM);
     return { tripId, tripNumber };
   },
 });
