@@ -92,35 +92,76 @@ describe("issue tracker constants", () => {
 });
 
 describe("issues access", () => {
-  it("grants internal roles and refuses field sales and viewers", async () => {
+  it("lets every beta tester file, comment and attach, but only staff triage", async () => {
     const { root, person } = await setup();
     const sales = await person("seller@sunpride.local", "sales");
     const viewer = await person("viewer@sunpride.local", "viewer");
     const analyst = await person("analyst@sunpride.local", "analyst");
     const ops = await person("ops@sunpride.local", "operations");
 
-    for (const denied of [sales, viewer]) {
-      await expect(
-        denied.actor.query(api.issues.queries.board, { archived: false }),
-      ).rejects.toThrow(/Insufficient permission/);
-      await expect(
-        denied.actor.mutation(api.issues.mutations.create, { title: "Nope" }),
-      ).rejects.toThrow(/Insufficient permission/);
-    }
     expect(await sales.actor.query(api.issues.queries.access, {})).toEqual({
-      canRead: false,
-      canWrite: false,
+      canRead: true,
+      canWrite: true,
+      canTriage: false,
       canManage: false,
       maxVideoBytes: 75 * 1024 * 1024,
     });
+    for (const tester of [sales, viewer, analyst]) {
+      await tester.actor.query(api.issues.queries.board, { archived: false });
+      const filed = await tester.actor.mutation(api.issues.mutations.create, {
+        title: "Page /orders: total looks wrong",
+        description: "Page: /orders",
+      });
+      const uploadUrl = await tester.actor.mutation(
+        api.issues.mutations.generateUploadUrl,
+        {},
+      );
+      expect(typeof uploadUrl).toBe("string");
+      await tester.actor.mutation(api.issues.mutations.addComment, {
+        issueId: filed.issueId,
+        body: "Still happens after reload.",
+      });
+      // Status, board moves, edits and assignment are triage work.
+      await expect(
+        tester.actor.mutation(api.issues.mutations.move, {
+          issueId: filed.issueId,
+          status: "completed",
+        }),
+      ).rejects.toThrow(/Insufficient permission/);
+      await expect(
+        tester.actor.mutation(api.issues.mutations.update, {
+          issueId: filed.issueId,
+          title: "Renamed",
+        }),
+      ).rejects.toThrow(/Insufficient permission/);
+      await expect(
+        tester.actor.mutation(api.issues.mutations.create, {
+          title: "Assign it",
+          assigneeId: ops.id,
+        }),
+      ).rejects.toThrow(/Only issue triagers can assign/);
+      await expect(
+        tester.actor.mutation(api.issues.mutations.archive, {
+          issueId: filed.issueId,
+        }),
+      ).rejects.toThrow(/Insufficient permission/);
+      const detail = await root.query(api.issues.queries.detail, {
+        number: filed.number,
+      });
+      expect(detail?.issue.status).toBe("draft");
+      expect(detail?.comments.map((comment) => comment.body)).toEqual([
+        "Still happens after reload.",
+      ]);
+    }
 
-    // Analyst reads cross-scope but never writes.
-    await analyst.actor.query(api.issues.queries.board, { archived: false });
-    await expect(
-      analyst.actor.mutation(api.issues.mutations.create, { title: "Nope" }),
-    ).rejects.toThrow(/Insufficient permission/);
+    // Testers cannot be assigned; triage staff can.
+    const assignees = await sales.actor.query(api.issues.queries.assignees, {});
+    expect(assignees.map((person) => person.role).sort()).toEqual([
+      "operations",
+      "super_admin",
+    ]);
 
-    // Operations writes but cannot archive.
+    // Operations triages but cannot archive.
     const created = await ops.actor.mutation(api.issues.mutations.create, {
       title: "Stock card off by one",
     });

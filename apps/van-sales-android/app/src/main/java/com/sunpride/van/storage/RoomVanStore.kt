@@ -17,6 +17,11 @@ import java.util.UUID
 const val SALE_KIND = "sale.record"
 const val SALE_PARKED = "parked"
 
+/** VAN-012 credit sold here per customer (not yet acknowledged by the office) and `method|REFERENCE` keys already used. */
+data class PaymentFacts(val creditUsedMinor: Map<String,Long> = emptyMap(), val usedReferences: Set<String> = emptySet())
+private fun CustomerRow.toCustomer() = Customer(outletId,code,name,address,sequence,source,reason,localOnly,
+    if (creditTermsDays != null && creditAvailableMinor != null) CustomerCredit(creditTermsDays,creditAvailableMinor) else null)
+
 /** No mutation of operation bytes or movement facts, no DELETE of work/evidence. */
 class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private val clock: () -> Long = System::currentTimeMillis) : com.sunpride.van.sync.VanSyncStore {
     private val dao = db.rows()
@@ -40,7 +45,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
     val seller: Flow<Seller?> = dao.observeSyncMeta(s,d).map { it.singleOrNull()?.sellerJson?.let { json -> JSONObject(json).let { o -> Seller(o.getString("profileId"),o.getString("name")) } } }
     val products: Flow<List<Product>> = dao.observeProduct(s,d).let { flow -> flow.map { rows -> rows.map { VanBootstrapCodec.product(JSONObject(it.json)) } } }
     val priceLines: Flow<List<PriceLine>> = dao.observePriceListLine(s,d).map { rows -> rows.map { PriceLine(it.priceListId,it.productId,it.uomCode,it.unitPriceMinor,it.currency,it.effectiveFrom,it.effectiveTo) } }
-    val customers: Flow<List<Customer>> = dao.observeCustomer(s,d).let { flow -> flow.map { rows -> rows.sortedWith(compareBy<CustomerRow> { it.sequence ?: Int.MAX_VALUE }.thenBy { it.name }).map { Customer(it.outletId,it.code,it.name,it.address,it.sequence,it.source,it.reason,it.localOnly) } } }
+    val customers: Flow<List<Customer>> = dao.observeCustomer(s,d).let { flow -> flow.map { rows -> rows.sortedWith(compareBy<CustomerRow> { it.sequence ?: Int.MAX_VALUE }.thenBy { it.name }).map { it.toCustomer() } } }
     val syncStatus: Flow<SyncStatus> = combine(dao.observeOutbox(s,d),dao.observeSyncMeta(s,d)) { ops, metas ->
         val m = metas.singleOrNull(); val held = m?.held == true
         SyncStatus(if (held) 0 else ops.count { it.status == "pending" },if (held) 0 else ops.count { it.status == "sending" },
@@ -145,12 +150,30 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
 
     /** Checkout context read from this scoped partition; inside [commitSale] it is read in the sale's transaction. */
     suspend fun checkoutContext(): CheckoutContext {
-        val t = dao.trip(s,d); val meta = dao.meta(s,d)
+        val t = dao.trip(s,d); val meta = dao.meta(s,d); val facts = paymentFacts()
         return CheckoutContext(t != null && meta?.held == false && selling(t),
-            dao.customerRows(s,d).map { Customer(it.outletId,it.code,it.name,it.address,it.sequence,it.source,it.reason,it.localOnly) },
+            dao.customerRows(s,d).map { it.toCustomer() },
             dao.productRows(s,d).map { VanBootstrapCodec.product(JSONObject(it.json)) }, stock(),
             dao.pricelistlineRows(s,d).map { PriceLine(it.priceListId,it.productId,it.uomCode,it.unitPriceMinor,it.currency,it.effectiveFrom,it.effectiveTo) },
-            meta?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)) }, clock())
+            meta?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)) }, clock(), t?.serviceDate,
+            facts.creditUsedMinor, facts.usedReferences)
+    }
+
+    /**
+     * VAN-012 payment facts from this partition's saved payments: credit sold per customer whose sale the office has
+     * not acknowledged (it still counts against the bootstrap's available credit), and every recorded reference.
+     */
+    suspend fun paymentFacts(): PaymentFacts {
+        val acked = dao.outboxRows(s,d).filter { it.status == "done" }.map { it.clientRequestId }.toSet()
+        val sales = dao.saleRows(s,d).associateBy { it.saleId }
+        val credit = mutableMapOf<String,Long>(); val references = mutableSetOf<String>()
+        dao.paymentRows(s,d).forEach { p ->
+            p.reference?.let { references += PaymentReference.key(p.method,it) }
+            val sale = sales[p.saleId] ?: return@forEach
+            if (p.status == PaymentState.ON_ACCOUNT.wire && sale.idempotencyKey !in acked)
+                credit[sale.customerId] = Math.addExact(credit[sale.customerId] ?: 0L,p.amountMinor ?: 0L)
+        }
+        return PaymentFacts(credit,references)
     }
 
     /**
@@ -174,9 +197,12 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         val customer = context.customers.single { it.outletId == request.customerId }
         val id = com.sunpride.van.ids.TransactionIds(db,scope).issue(t.tripId,t.tripNumber)
         val at = maxOf(context.now,Math.addExact(dao.latestCreatedAt(s,d) ?: 0L,1L))
-        dao.insertSale(SaleRow(s,d,request.saleId,t.tripId,id.receiptNumber,id.idempotencyKey,customer.outletId,"saved",quote.totalMinor,at))
+        val pay = quote.payment
+        // Posting state ("saved" on this phone) and payment state are separate columns (VAN-012).
+        dao.insertSale(SaleRow(s,d,request.saleId,t.tripId,id.receiptNumber,id.idempotencyKey,customer.outletId,"saved",quote.totalMinor,at,pay.state.wire))
         quote.lines.forEach { dao.insertSaleLine(SaleLineRow(s,d,request.saleId,it.lineNumber,it.product.productId,it.quantityBase,it.unitPriceMinor,it.totalMinor)) }
-        dao.insertPayment(PaymentRow(s,d,UUID.randomUUID().toString(),request.saleId,"cash",quote.totalMinor,at))
+        dao.insertPayment(PaymentRow(s,d,UUID.randomUUID().toString(),request.saleId,pay.method.code,pay.amountMinor,at,
+            pay.reference,pay.state.wire,pay.tenderedMinor,pay.dueDate))
         // Stock check repeated by the ledger hook in this same transaction; deterministic movement IDs per line.
         quote.lines.forEach { recordLocalMovement(com.sunpride.van.ledger.MovementType.SALE,it.product.productId,com.sunpride.van.ledger.StockStatus.available,
             Math.negateExact(it.quantityBase),null,id.idempotencyKey) }
@@ -187,23 +213,35 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
             .put("lines",JSONArray(quote.lines.map { JSONObject().put("lineNumber",it.lineNumber).put("productId",it.product.productId)
                 .put("quantityBase",it.quantityBase.toString()).put("unitPriceMinor",it.unitPriceMinor.toString()).put("totalMinor",it.totalMinor.toString())
                 .put("priceListIds",JSONArray(it.priceListIds)) }))
-            .put("payment",JSONObject().put("terms","cash").put("amountMinor",quote.totalMinor.toString())
-                .put("tenderedMinor",quote.tenderedMinor.toString()).put("changeMinor",quote.changeMinor.toString()))
+            .put("payment",JSONObject().put("method",pay.method.code).put("kind",pay.method.kind.wire).put("status",pay.state.wire)
+                .put("amountMinor",pay.amountMinor.toString())
+                .apply { pay.tenderedMinor?.let { put("tenderedMinor",it.toString()).put("changeMinor",pay.changeMinor.toString()) } }
+                .apply { pay.reference?.let { put("reference",it) } }
+                .apply { pay.dueDate?.let { put("dueDate",it) } })
             .put("deviceTime",context.now)
         val op = JSONObject().put("kind",SALE_KIND).put("clientRequestId",id.idempotencyKey).put("payload",payload).toString()
         dao.insertOutbox(OutboxRow(s,d,id.idempotencyKey,t.tripId,SALE_KIND,op,at,null,SALE_PARKED))
         SaleReceipt(request.saleId,id.receiptNumber,customer.name,quote.lines.map { receiptLine(it.lineNumber,it.product,it.quantityBase,it.unitPriceMinor,it.totalMinor) },
-            quote.currency,quote.totalMinor,quote.tenderedMinor,quote.changeMinor,at)
+            quote.currency,quote.totalMinor,quote.tenderedMinor,quote.changeMinor,at,false,pay.method.code,pay.method.label,pay.method.kind,
+            pay.state.wire,pay.reference,pay.dueDate)
     }
     private suspend fun savedReceipt(sale: SaleRow, request: CheckoutRequest): SaleReceipt {
         val lines = dao.salelineRows(s,d).filter { it.saleId == sale.saleId }.sortedBy { it.lineNumber }
         check(sale.customerId == request.customerId && lines.map { it.productId to it.quantityBase } == request.lines.map { it.productId to it.quantityBase }) { "Sale replay conflict" }
         val op = JSONObject(checkNotNull(dao.outbox(s,d,sale.idempotencyKey)).operationJson).getJSONObject("payload")
         val payment = op.getJSONObject("payment")
+        // A sale saved before VAN-012 has {"terms":"cash"}; the method, kind and state then are cash/paid.
+        val code = payment.optString("method","cash")
+        val method = (dao.meta(s,d)?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)).paymentMethods } ?: emptyList())
+            .firstOrNull { it.code == code } ?: PaymentMethod.CASH.takeIf { code == "cash" } ?: PaymentMethod(code,code,PaymentKind.of(payment.optString("kind","other")),false,null)
+        val total = sale.totalMinor!!
+        val tendered = if (payment.has("tenderedMinor")) payment.getString("tenderedMinor").toLong() else total
+        val change = if (payment.has("changeMinor")) payment.getString("changeMinor").toLong() else 0L
         val products = dao.productRows(s,d).associate { it.productId to VanBootstrapCodec.product(JSONObject(it.json)) }
         val customer = dao.customerRows(s,d).singleOrNull { it.outletId == sale.customerId }?.name ?: ""
         return SaleReceipt(sale.saleId,sale.receiptNumber,customer,lines.map { receiptLine(it.lineNumber,checkNotNull(products[it.productId]),it.quantityBase,it.unitPriceMinor!!,it.totalMinor!!) },
-            op.getString("currency"),sale.totalMinor!!,payment.getString("tenderedMinor").toLong(),payment.getString("changeMinor").toLong(),sale.createdAt,replay = true)
+            op.getString("currency"),total,tendered,change,sale.createdAt,true,code,method.label,method.kind,
+            sale.paymentStatus ?: payment.optString("status",PaymentState.PAID.wire),payment.optString("reference").ifEmpty { null },payment.optString("dueDate").ifEmpty { null })
     }
     private fun receiptLine(n: Int, p: Product, quantityBase: Long, unit: Long, total: Long) =
         SaleReceiptLine(n,p.productId,p.name,p.uomCode,p.displayQuantity(quantityBase),unit,total)
@@ -271,7 +309,8 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         } }
         VanBootstrapCodec.objects(o.getJSONArray("products")).forEach { product -> val p = VanBootstrapCodec.product(product)
             dao.insertProduct(ProductRow(s,d,p.productId,p.code,p.name,p.uomCode,p.quantityScale,product.getJSONArray("barcodes").toString(),product.toString())) }
-        b.customers.forEach { dao.insertCustomer(CustomerRow(s,d,it.outletId,it.code,it.name,it.address,it.sequence,it.source)) }
+        b.customers.forEach { dao.insertCustomer(CustomerRow(s,d,it.outletId,it.code,it.name,it.address,it.sequence,it.source,
+            creditTermsDays = it.credit?.termsDays,creditAvailableMinor = it.credit?.availableMinor)) }
         b.trip?.let { t -> b.truckStock.forEach { stock ->
             dao.insertBaseline(BaselineRow(s,d,t.tripId,stock.productId,"available",stock.availableBase,b.serverTime))
             dao.insertBaseline(BaselineRow(s,d,t.tripId,stock.productId,"damaged",stock.damagedBase,b.serverTime))

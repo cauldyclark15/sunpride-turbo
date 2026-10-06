@@ -26,6 +26,7 @@ class SaleCheckoutStoreTest {
     private val juice = "k57prod0000000000000000000000001"
     private val chunks = "k57prod0000000000000000000000002"
     private val outlet = "k57out00000000000000000000000001"
+    private val noTerms = "k57out00000000000000000000000002"
     private val s = scope.fullAuthSubject; private val d = scope.deviceId
     @Before fun setup() {
         name = "van-checkout-test-${UUID.randomUUID()}.db"
@@ -51,7 +52,7 @@ class SaleCheckoutStoreTest {
         db.rows().insertPriceListLine(PriceListLineRow(s,d,"PL-TEST",juice,"PC",8_500,"PHP",at-1_000,null))
     }
     private fun sale(qty: Long = 3, customer: String = outlet, cash: Long = 30_000, id: String = UUID.randomUUID().toString(), product: String = juice) =
-        CheckoutRequest(id,customer,listOf(CartLine(product,qty)),PaymentInput(PaymentTerms.CASH,cash))
+        CheckoutRequest(id,customer,listOf(CartLine(product,qty)),PaymentInput("cash",cash))
     private suspend fun nothingWritten() {
         assertTrue(db.rows().saleRows(s,d).isEmpty()); assertTrue(db.rows().salelineRows(s,d).isEmpty())
         assertTrue(db.rows().paymentRows(s,d).isEmpty()); assertTrue(db.rows().stockmovementRows(s,d).isEmpty())
@@ -74,6 +75,8 @@ class SaleCheckoutStoreTest {
         assertEquals("saved",row.status); assertEquals(outlet,row.customerId); assertEquals(25_500L,row.totalMinor)
         assertEquals(listOf(Triple(juice,3L,25_500L)),db.rows().salelineRows(s,d).map { Triple(it.productId,it.quantityBase,it.totalMinor) })
         assertEquals(listOf("cash" to 25_500L),db.rows().paymentRows(s,d).map { it.method to it.amountMinor })
+        assertEquals("paid",row.paymentStatus); assertEquals("paid",db.rows().paymentRows(s,d).single().status)
+        assertEquals(30_000L,db.rows().paymentRows(s,d).single().tenderedMinor)
         val movement = db.rows().stockmovementRows(s,d).single()
         assertEquals("SALE",movement.type); assertEquals(-3L,movement.quantityBase); assertEquals(row.idempotencyKey,movement.clientRequestId)
         assertEquals(7L,store.stock().single { it.productId == juice }.availableBase)
@@ -107,7 +110,9 @@ class SaleCheckoutStoreTest {
         assertEquals(setOf(CheckoutProblem.UNPRICED),refused { store.commitSale(sale(product = chunks,qty = 1),0) })
         assertEquals(setOf(CheckoutProblem.CASH_SHORT),refused { store.commitSale(sale(cash = 25_499),25_500) })
         assertEquals(setOf(CheckoutProblem.UNKNOWN_CUSTOMER),refused { store.commitSale(sale(customer = "k57out-unknown"),25_500) })
-        assertEquals(setOf(CheckoutProblem.CREDIT_TERMS_UNAVAILABLE),refused { store.commitSale(sale().copy(payment = PaymentInput(PaymentTerms.CREDIT,null)),25_500) })
+        // The second route customer has no office credit terms in the frozen fixture.
+        assertEquals(setOf(CheckoutProblem.CREDIT_TERMS_UNAVAILABLE),refused { store.commitSale(sale(customer = noTerms).copy(payment = PaymentInput("credit")),25_500) })
+        assertEquals(setOf(CheckoutProblem.REFERENCE_MISSING),refused { store.commitSale(sale().copy(payment = PaymentInput("gcash")),25_500) })
         // The seller agreed ₱255.00; a price that changed underneath refuses instead of charging something else.
         assertEquals(setOf(CheckoutProblem.PRICES_CHANGED),refused { store.commitSale(sale(),25_000) })
         runBlocking { nothingWritten() }
@@ -135,5 +140,48 @@ class SaleCheckoutStoreTest {
         val customer = JSONObject(db.rows().outboxRows(s,d).single().operationJson).getJSONObject("payload").getJSONObject("customer")
         assertFalse("a local walk-in is never sent as an outlet ID",customer.has("outletId"))
         assertEquals("Corner Store",customer.getJSONObject("walkIn").getString("name")); Unit
+    }
+
+    // ── VAN-012 payment methods ──
+    private suspend fun payload() = JSONObject(db.rows().outboxRows(s,d).single().operationJson).getJSONObject("payload").getJSONObject("payment")
+    @Test fun checkSaleRecordsItsReferenceAndAwaitsOfficeConfirmationApartFromPosting() = runBlocking {
+        ready()
+        val receipt = store.commitSale(sale().copy(payment = PaymentInput("check",null," bdo 000123 ")),25_500)
+        assertEquals("BDO 000123",receipt.reference); assertEquals("awaiting_confirmation",receipt.paymentStatus); assertEquals("Check",receipt.paymentLabel)
+        val row = db.rows().saleRows(s,d).single()
+        assertEquals("saved",row.status); assertEquals("awaiting_confirmation",row.paymentStatus)
+        val p = db.rows().paymentRows(s,d).single()
+        assertEquals(listOf("check","BDO 000123","awaiting_confirmation"),listOf(p.method,p.reference,p.status)); assertEquals(25_500L,p.amountMinor); assertNull(p.tenderedMinor)
+        val wire = payload()
+        assertEquals("check",wire.getString("method")); assertEquals("other",wire.getString("kind")); assertEquals("BDO 000123",wire.getString("reference"))
+        assertEquals("awaiting_confirmation",wire.getString("status")); assertFalse(wire.has("tenderedMinor")); assertFalse(wire.has("terms"))
+        // The same check number cannot pay a second sale; the refusal writes nothing more.
+        assertEquals(setOf(CheckoutProblem.REFERENCE_ALREADY_USED),refused { store.commitSale(sale(qty = 1).copy(payment = PaymentInput("check",null,"BDO 000123")),8_500) })
+        assertEquals(1,db.rows().saleRows(s,d).size)
+        // Replay returns the saved payment, not a fresh one.
+        val again = store.commitSale(sale().copy(saleId = receipt.saleId,payment = PaymentInput("check",null,"BDO 000123")),25_500)
+        assertTrue(again.replay); assertEquals("BDO 000123",again.reference); assertEquals("awaiting_confirmation",again.paymentStatus); Unit
+    }
+    @Test fun creditSaleIsChargedToTheAccountWithADueDateWithinCreditLeft() = runBlocking {
+        ready()
+        // Fixture: Aling Nena has 30-day terms and ₱5,000.00 available.
+        val receipt = store.commitSale(sale(qty = 3).copy(payment = PaymentInput("credit")),25_500)
+        assertEquals("on_account",receipt.paymentStatus); assertEquals("2026-11-06",receipt.dueDate); assertEquals(com.sunpride.van.data.PaymentKind.CREDIT,receipt.paymentKind)
+        assertEquals("on_account",db.rows().saleRows(s,d).single().paymentStatus)
+        assertEquals("2026-11-06",payload().getString("dueDate"))
+        assertEquals(mapOf(outlet to 25_500L),store.paymentFacts().creditUsedMinor)
+        // ₱4,745.00 left: a ₱5,100.00 credit sale is refused (cash is unaffected) — counted even after a newer bootstrap.
+        db.rows().insertPriceListLine(PriceListLineRow(s,d,"PL-TEST",chunks,"PC",170_000,"PHP",at-1_000,null))
+        store.replaceBootstrap(fixture(serverTime = at+50))
+        assertEquals(setOf(CheckoutProblem.CREDIT_LIMIT_EXCEEDED),refused { store.commitSale(sale(product = chunks,qty = 3).copy(payment = PaymentInput("credit")),510_000) })
+        assertEquals(1,db.rows().saleRows(s,d).size)
+        assertTrue(store.commitSale(sale(product = chunks,qty = 2).copy(payment = PaymentInput("credit")),340_000).paymentStatus == "on_account")
+        assertEquals(mapOf(outlet to 365_500L),store.paymentFacts().creditUsedMinor); Unit
+    }
+    @Test fun walkInCustomerCannotBuyOnCredit() {
+        ready()
+        val walkIn = runBlocking { store.addWalkInCustomer("Corner Store","Not on the route list") }
+        assertEquals(setOf(CheckoutProblem.CREDIT_TERMS_UNAVAILABLE),refused { store.commitSale(sale(customer = walkIn.outletId).copy(payment = PaymentInput("credit")),25_500) })
+        runBlocking { nothingWritten() }
     }
 }

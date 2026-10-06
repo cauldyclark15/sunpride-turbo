@@ -10,6 +10,7 @@ import type { AuthorizedDevice } from "../mobile/types";
 import schema from "../schema";
 import { modules } from "../test.setup";
 import { handleVan } from "./http_handlers";
+import { VAN_PAYMENT_METHODS } from "./model";
 
 // UTC is still October 5 here, but the service day in Manila is October 6.
 const NOW = Date.parse("2026-10-05T16:30:00Z");
@@ -1932,5 +1933,118 @@ describe("van bootstrap projection", () => {
       ["MOVED", "unplanned", null],
       ["UNPLANNED", "unplanned", null],
     ]);
+  });
+
+  it("sends the office payment methods and each customer's current credit terms (VAN-012)", async () => {
+    const f = await fixture();
+    const territory = await f.territory("CREDIT");
+    const route = await f.route("CREDIT-ROUTE", territory);
+    await f.plan(await f.create(), f.seller.profileId, TODAY, route);
+    const outlets = await f.t.run(async (ctx) => {
+      const make = async (code: string, sequence: number) => {
+        const id = await ctx.db.insert("outlets", {
+          organizationId: "sunpride",
+          code,
+          name: code,
+          status: "active",
+          custodianOrgUnitId: f.east,
+          createdBy: "fixture",
+          createdAt: NOW,
+          updatedAt: NOW,
+        });
+        await ctx.db.insert("outletAssignments", {
+          outletId: id,
+          territoryId: territory,
+          routeId: route,
+          sequence,
+          effectiveFrom: NOW - 10_000,
+          actorSubject: "fixture",
+          reason: "fixture",
+          createdAt: NOW,
+        });
+        return id;
+      };
+      return {
+        terms: await make("TERMS", 1),
+        ended: await make("ENDED", 2),
+        cash: await make("CASH", 3),
+      };
+    });
+    const set = (
+      outletId: Id<"outlets">,
+      terms: { termsDays: number; creditLimitMinor: bigint } | null,
+      effectiveFrom: number,
+    ) =>
+      f.t.mutation(internal.van.credit.setOutletCreditTerms, {
+        outletId,
+        terms,
+        effectiveFrom,
+        sourceRef: "fixture credit memo",
+        actorSubject: "fixture",
+      });
+    await set(
+      outlets.terms,
+      { termsDays: 30, creditLimitMinor: 500_000n },
+      NOW - 5_000,
+    );
+    // A future change is not visible yet; the current terms stay.
+    await set(
+      outlets.terms,
+      { termsDays: 7, creditLimitMinor: 1_000n },
+      NOW + 5_000,
+    );
+    await set(
+      outlets.ended,
+      { termsDays: 15, creditLimitMinor: 200_000n },
+      NOW - 5_000,
+    );
+    await set(outlets.ended, null, NOW - 1_000);
+    await expect(
+      set(outlets.cash, { termsDays: 0, creditLimitMinor: 1n }, NOW),
+    ).rejects.toThrow(/invalid_terms_days/);
+    await expect(
+      set(outlets.cash, { termsDays: 181, creditLimitMinor: 1n }, NOW),
+    ).rejects.toThrow(/invalid_terms_days/);
+    await expect(
+      set(outlets.cash, { termsDays: 30, creditLimitMinor: 0n }, NOW),
+    ).rejects.toThrow(/invalid_credit_limit/);
+    await expect(
+      set(outlets.terms, { termsDays: 30, creditLimitMinor: 1n }, NOW - 5_000),
+    ).rejects.toThrow(/terms_already_scheduled/);
+
+    const view = await f.t.query(internal.van.device.bootstrap, {
+      actor: f.seller.actor,
+      now: NOW,
+    });
+    expect(view.policy.paymentMethods).toEqual(
+      VAN_PAYMENT_METHODS.map((method) => ({ ...method })),
+    );
+    expect(
+      view.customers.map((c: { code: string; credit: unknown }) => [
+        c.code,
+        c.credit,
+      ]),
+    ).toEqual([
+      ["TERMS", { termsDays: 30, availableMinor: "500000" }],
+      ["ENDED", null],
+      ["CASH", null],
+    ]);
+    const later = await f.t.query(internal.van.device.bootstrap, {
+      actor: f.seller.actor,
+      now: NOW + 6_000,
+    });
+    expect(
+      later.customers.find((c: { code: string }) => c.code === "TERMS")!.credit,
+    ).toEqual({ termsDays: 7, availableMinor: "1000" });
+    // The empty (no trip) bootstrap still tells the phone which methods exist.
+    const other = await f.person();
+    expect(
+      (
+        await f.t.query(internal.van.device.bootstrap, {
+          actor: other.actor,
+          now: NOW,
+        })
+      ).policy.paymentMethods.map((m: { code: string }) => m.code),
+    ).toEqual(["cash", "check", "gcash", "bank_transfer", "credit"]);
   });
 });

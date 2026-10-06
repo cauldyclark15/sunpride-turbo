@@ -31,6 +31,52 @@ export const vehicleStatusValidator = v.union(
 );
 
 /**
+ * VAN-012: payment methods the van may take, sent to the handheld in the bootstrap policy.
+ * `cash` gives change; `other` must equal the sale total and carries the reference the office
+ * confirms later; `credit` charges the customer's account and needs `outletCreditTerms`.
+ * Assumed defaults until Sunpride confirms its list (cash, check, GCash, bank transfer, credit).
+ */
+export const VAN_PAYMENT_METHODS = [
+  {
+    code: "cash",
+    label: "Cash",
+    kind: "cash",
+    referenceRequired: false,
+    referenceLabel: null,
+  },
+  {
+    code: "check",
+    label: "Check",
+    kind: "other",
+    referenceRequired: true,
+    referenceLabel: "Check number",
+  },
+  {
+    code: "gcash",
+    label: "GCash",
+    kind: "other",
+    referenceRequired: true,
+    referenceLabel: "GCash reference number",
+  },
+  {
+    code: "bank_transfer",
+    label: "Bank transfer",
+    kind: "other",
+    referenceRequired: true,
+    referenceLabel: "Bank reference number",
+  },
+  {
+    code: "credit",
+    label: "Credit (charge to account)",
+    kind: "credit",
+    referenceRequired: false,
+    referenceLabel: null,
+  },
+] as const;
+/** Longest credit terms the office may set (days). */
+export const VAN_MAX_CREDIT_TERMS_DAYS = 180;
+
+/**
  * Trip lifecycle: planned → loading (load sheet issued) → loaded (load posted) → active
  * (started on the device) → closing → reconciling → closed. `cancelled` before departure,
  * `review_required` when reconciliation needs a supervisor.

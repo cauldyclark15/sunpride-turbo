@@ -16,9 +16,10 @@ import {
 } from "@sunpride/ui";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { useMemo, useState } from "react";
+import { isBetaFeatureOn } from "../config/beta";
 import { NegativeStockPanel } from "./negative-stock-panel";
 
-const tabs = [
+const allTabs = [
   ["stock", "Stock control"],
   ["receiving", "Receiving"],
   ["transfers", "Transfers"],
@@ -126,7 +127,12 @@ function OperationPanel({
 
 export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
   void setupMessage;
-  const [tab, setTab] = useState<(typeof tabs)[number][0]>("stock");
+  const [tab, setTab] = useState<(typeof allTabs)[number][0]>("stock");
+  // Beta: hidden features stay in the code; see config/beta.ts.
+  const showProduction = isBetaFeatureOn("production");
+  const showSetup = isBetaFeatureOn("inventory-setup");
+  const showDifferences = isBetaFeatureOn("stock-differences");
+  const tabs = allTabs.filter(([id]) => id !== "production" || showProduction);
   const [notice, setNotice] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -164,12 +170,16 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
       ? { sessionId: countSessionId as Id<"stockCountSessions"> }
       : "skip",
   );
-  const production = useQuery(api.inventory.manufacturing.list, { limit: 25 });
+  const production = useQuery(
+    api.inventory.manufacturing.list,
+    showProduction ? { limit: 25 } : "skip",
+  );
   const adjustments = useQuery(api.inventory.adjustments.list, { limit: 25 });
   const replenishment = useQuery(api.inventory.replenishment.suggestions, {});
-  const reconciliationRuns = useQuery(api.inventory.reconciliation.runs, {
-    limit: 10,
-  });
+  const reconciliationRuns = useQuery(
+    api.inventory.reconciliation.runs,
+    showDifferences ? { limit: 10 } : "skip",
+  );
   const movements = usePaginatedQuery(
     api.inventory.queries.movements,
     {},
@@ -199,7 +209,9 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
   const displayedNotice =
     notice ??
     (!inventoryReady && locations && products
-      ? "Set up inventory to continue"
+      ? showSetup
+        ? "Set up inventory to continue"
+        : "Inventory is not set up yet. Ask your administrator."
       : null);
 
   const inTransit = locations?.find(
@@ -273,7 +285,7 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
           title={displayedNotice}
           tone={notice ? "danger" : "warning"}
           meta={
-            !inventoryReady ? (
+            !inventoryReady && showSetup ? (
               <Button
                 variant="outline"
                 className="mt-2 h-8 min-h-8"
@@ -856,7 +868,7 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
         </OperationPanel>
       ) : null}
 
-      {tab === "production" ? (
+      {tab === "production" && showProduction ? (
         <OperationPanel title="Production orders">
           <DocumentList
             itemLabel="Production order"
@@ -909,46 +921,48 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
               }))}
             />
           </OperationPanel>
-          <OperationPanel title="Differences">
-            <Button
-              variant="primary"
-              isPending={busy}
-              onPress={() =>
-                void execute(
-                  () => runReconciliation({ sapCutoff: Date.now() }),
-                  "Check differences",
-                )
-              }
-            >
-              Check differences
-            </Button>
-            <div className="mt-4 grid gap-2">
-              {(reconciliationRuns ?? []).map((row) => (
-                <div
-                  key={row._id}
-                  className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-separator px-4 last:border-b-0"
-                >
-                  <div>
-                    <strong className="text-sm font-medium">
-                      {displayLabel(row.scope)}
-                    </strong>
-                    <small className="block text-[13px] text-muted">
-                      {row.comparedCount} compared · {row.differenceCount}{" "}
-                      differences
-                    </small>
-                  </div>
-                  <StatusPill
-                    tone={row.differenceCount === 0 ? "success" : "warning"}
+          {showDifferences ? (
+            <OperationPanel title="Differences">
+              <Button
+                variant="primary"
+                isPending={busy}
+                onPress={() =>
+                  void execute(
+                    () => runReconciliation({ sapCutoff: Date.now() }),
+                    "Check differences",
+                  )
+                }
+              >
+                Check differences
+              </Button>
+              <div className="mt-4 grid gap-2">
+                {(reconciliationRuns ?? []).map((row) => (
+                  <div
+                    key={row._id}
+                    className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-separator px-4 last:border-b-0"
                   >
-                    {displayLabel(row.status)}
-                  </StatusPill>
-                </div>
-              ))}
-              {reconciliationRuns?.length === 0 ? (
-                <p className="p-4 text-[13px] text-muted">No checks yet</p>
-              ) : null}
-            </div>
-          </OperationPanel>
+                    <div>
+                      <strong className="text-sm font-medium">
+                        {displayLabel(row.scope)}
+                      </strong>
+                      <small className="block text-[13px] text-muted">
+                        {row.comparedCount} compared · {row.differenceCount}{" "}
+                        differences
+                      </small>
+                    </div>
+                    <StatusPill
+                      tone={row.differenceCount === 0 ? "success" : "warning"}
+                    >
+                      {displayLabel(row.status)}
+                    </StatusPill>
+                  </div>
+                ))}
+                {reconciliationRuns?.length === 0 ? (
+                  <p className="p-4 text-[13px] text-muted">No checks yet</p>
+                ) : null}
+              </div>
+            </OperationPanel>
+          ) : null}
           <div className="xl:col-span-3">
             <NegativeStockPanel locations={locations} />
           </div>
