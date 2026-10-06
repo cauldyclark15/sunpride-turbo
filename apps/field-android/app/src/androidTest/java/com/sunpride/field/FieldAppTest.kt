@@ -14,6 +14,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.unit.Density
 import com.sunpride.field.auth.AuthFailure
@@ -41,11 +42,12 @@ class FieldAppTest {
         var syncs = 0
         var visits: List<VisitDisplay> = emptyList()
         var customers: List<com.sunpride.field.ui.customers.CustomerRecord> = emptyList()
+        var unplanned: List<VisitDisplay> = emptyList()
         override val isSignedIn get() = signedIn
         override fun today(deviceId: String, signer: DeviceSigner, sync: Boolean): TodayData {
             if (sync) syncs++
             return TodayData(visits, lastSynced = if (sync) 150L else null, stale = !sync, customers = customers,
-                supervisor = supervisor)
+                supervisor = supervisor, unplannedOutlets = unplanned)
         }
         override fun loadSigner(): DeviceSigner = KeystoreDeviceKey.loadOrCreate(rule.activity, alias)
         override fun signIn(email: String, password: String) { signInError?.let { throw it }; signedIn = true }
@@ -158,11 +160,59 @@ class FieldAppTest {
         rule.onNodeWithTag("customer-result").assertTextContains("Second Store", substring = true).performClick()
         rule.onNodeWithTag("customer-title").assertTextContains("Outlet")
         rule.onNodeWithTag("customer-header").assertTextContains("Second Store", substring = true)
-        rule.onNodeWithTag("customer-visit").assertDoesNotExist() // visit recording is debug-only
+        rule.onNodeWithTag("customer-visit").assertDoesNotExist() // visits switched off in this feature set
         rule.onNodeWithTag("customer-back").performClick()
         rule.onNodeWithTag("customers-title").assertIsDisplayed()
         rule.onNodeWithTag("customers-back").performClick()
         rule.onNodeWithTag("today-title").assertIsDisplayed()
+    }
+
+    // SP-0124: the beta build records visits (no longer DEV-only) and hides the beta list.
+    private val beta = FieldFeatures.forBuild("beta", debug = false, webUrl = "https://sfa.example.ph")
+
+    @Test fun betaBuildRecordsPlannedVisitsAndHidesUnplannedVisits() {
+        val backend = ScriptedBackend(EnrollmentState.Ready("dev1")).apply {
+            signedIn = true
+            visits = listOf(VisitDisplay("First Store", "Planned", "Scheduled", "o1", "p1", sequence = 1))
+            unplanned = listOf(VisitDisplay("Walk-in Store", "Unplanned", "Reason required", "o9"))
+            customers = listOf(com.sunpride.field.ui.customers.CustomerRecord("o1", "First Store", "OUT-1",
+                today = visits.first()), com.sunpride.field.ui.customers.CustomerRecord("o9", "Walk-in Store", "OUT-9"))
+        }
+        rule.setContent { FieldApp(configured, dark = false, backend = backend, features = beta) }
+        rule.waitUntil(10_000) { rule.onAllNodesWithTagExists("today-title") }
+        rule.onNodeWithTag("diagnostic-open").performScrollTo().assertTextContains("First Store", substring = true)
+        rule.onNodeWithTag("unplanned-open").assertDoesNotExist()
+        rule.onNodeWithTag("customers-open").performScrollTo().performClick()
+        rule.onNodeWithTag("customer-search").performTextInput("walk-in")
+        rule.onNodeWithTag("customer-result").performClick()
+        rule.onNodeWithTag("customer-visit").assertDoesNotExist() // not on today's plan
+        rule.onNodeWithTag("customer-back").performClick()
+        rule.onNodeWithTag("customer-search").performTextClearance()
+        rule.onNodeWithTag("customer-search").performTextInput("first")
+        rule.onNodeWithTag("customer-result").performClick()
+        rule.onNodeWithTag("customer-visit").assertTextContains("Open visit").performClick()
+        rule.onNodeWithTag("visit-back").assertIsDisplayed()
+    }
+
+    @Test fun betaAccountOffersReportAnIssueAndHidesPhoneKeyDetails() {
+        val backend = ScriptedBackend(EnrollmentState.Ready("dev1")).apply { signedIn = true }
+        rule.setContent { FieldApp(configured, dark = false, backend = backend, features = beta) }
+        rule.waitUntil(10_000) { rule.onAllNodesWithTagExists("today-title") }
+        rule.onNodeWithTag("account-open").performClick()
+        rule.onNodeWithTag("device-info").assertExists()
+        rule.onNodeWithTag("key-storage").assertDoesNotExist()
+        rule.onNodeWithText("Fingerprint").assertDoesNotExist()
+        rule.onNodeWithTag("report-issue").assertTextContains("Report an issue", substring = true)
+    }
+
+    @Test fun reportAnIssueIsHiddenWithoutAWebAddressAndKeyDetailsShowInDev() {
+        val backend = ScriptedBackend(EnrollmentState.Ready("dev1")).apply { signedIn = true }
+        rule.setContent { FieldApp(configured, dark = false, backend = backend,
+            features = FieldFeatures.forBuild("dev", debug = true, webUrl = "")) }
+        rule.waitUntil(10_000) { rule.onAllNodesWithTagExists("today-title") }
+        rule.onNodeWithTag("account-open").performClick()
+        rule.onNodeWithTag("report-issue").assertDoesNotExist()
+        rule.onNodeWithTag("key-storage").assertExists()
     }
 
     @Test fun supervisorOpensTeamFromTodayAndFieldSalesDoesNotSeeIt() {
