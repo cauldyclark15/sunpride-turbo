@@ -2,6 +2,8 @@
 
 Seller-facing guide with real screenshots: [`docs/guides/FIELD_SALES_USER_GUIDE.md`](../../docs/guides/FIELD_SALES_USER_GUIDE.md) (regenerate with `FieldSalesGuideScreenshotsTest` and `scripts/receive-screenshots.py`).
 
+Beta APK, the beta feature list (what is hidden and how to switch it back on) and the debug-gate decisions: [`docs/BETA_FEATURES.md`](docs/BETA_FEATURES.md); build with `bun run apk:field-beta`.
+
 Kotlin/Jetpack Compose native field app. Implemented: invited-employee sign-in, Keystore-encrypted Better Auth session, in-memory Convex JWT, a non-exportable Keystore P-256 device key, admin-registered device lookup and one-time bind, visit-only encrypted local store, signed bootstrap/pull/push and a DEV-only diagnostic visit queue. `device/RequestSigner.kt` signs each attempt.
 
 ## Auth and device binding (issues #44, #45)
