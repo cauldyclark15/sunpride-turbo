@@ -179,6 +179,22 @@ export const CAPABILITIES = {
     "approver",
   ],
   "issues.manage": ["super_admin", "admin"],
+  // CVX-027..029 van sales (ADR-010). The office plans vehicles, trips and load sheets; the
+  // truck salesman operates the trip from the van app; a supervisor (never the confirmer)
+  // approves a load that differs from its sheet.
+  "van.read": [
+    "super_admin",
+    "admin",
+    "operations",
+    "manager",
+    "approver",
+    "sales",
+    "analyst",
+    "viewer",
+  ],
+  "van.manage": ["super_admin", "admin", "operations"],
+  "van.operate": ["super_admin", "manager", "sales"],
+  "van.load.approve": ["super_admin", "manager", "approver"],
 } as const satisfies Record<string, readonly AppRole[]>;
 
 export type Capability = keyof typeof CAPABILITIES;

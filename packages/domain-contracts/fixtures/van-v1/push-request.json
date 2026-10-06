@@ -1,0 +1,51 @@
+{
+  "type": "van.push.request",
+  "contractVersion": 1,
+  "deviceId": "k57dev00000000000000000000000001",
+  "operations": [
+    {
+      "kind": "load.confirm",
+      "clientRequestId": "0b6f5e1a-3c2d-4e8f-9a1b-2c3d4e5f6a70",
+      "payload": {
+        "tripId": "k57trip0000000000000000000000001",
+        "loadId": "k57load0000000000000000000000001",
+        "deviceTime": 1791338460000,
+        "lines": [
+          {
+            "lineNumber": 1,
+            "actualBase": "48"
+          },
+          {
+            "lineNumber": 2,
+            "actualBase": "20",
+            "reason": "short_loaded"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "trip.start",
+      "clientRequestId": "0b6f5e1a-3c2d-4e8f-9a1b-2c3d4e5f6a71",
+      "payload": {
+        "tripId": "k57trip0000000000000000000000001",
+        "vehicleConfirmed": true,
+        "routeConfirmed": true,
+        "driverName": "Pedro",
+        "odometerKm": 48210.5,
+        "deviceTime": 1791339000000
+      }
+    },
+    {
+      "kind": "truck.damage",
+      "clientRequestId": "0b6f5e1a-3c2d-4e8f-9a1b-2c3d4e5f6a72",
+      "payload": {
+        "tripId": "k57trip0000000000000000000000001",
+        "productId": "k57prod0000000000000000000000001",
+        "quantityBase": "2",
+        "reason": "leaking",
+        "note": "Cap cracked",
+        "deviceTime": 1791345000000
+      }
+    }
+  ]
+}

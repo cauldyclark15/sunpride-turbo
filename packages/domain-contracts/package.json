@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./schemas/mobile-v1.schema.json": "./schemas/mobile-v1.schema.json"
+    "./schemas/mobile-v1.schema.json": "./schemas/mobile-v1.schema.json",
+    "./schemas/van-v1.schema.json": "./schemas/van-v1.schema.json"
   },
   "scripts": {
     "lint": "eslint src test --max-warnings 0",

@@ -77,6 +77,10 @@ const EXPECTED: Record<Capability, string> = {
   "issues.write": "xxxxxxxx",
   "issues.triage": "xxxxx---",
   "issues.manage": "xx------",
+  "van.read": "xxxxxxxx",
+  "van.manage": "xxx-----",
+  "van.operate": "x--x-x--",
+  "van.load.approve": "x--xx---",
 };
 
 const granted = (capability: Capability, role: AppRole) =>

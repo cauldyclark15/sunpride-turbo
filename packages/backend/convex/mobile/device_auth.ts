@@ -127,8 +127,7 @@ export async function devicePerson(
     device.organizationId !== SUNPRIDE_ORGANIZATION_ID ||
     device.status !== "active" ||
     !device.profileId ||
-    !device.orgUnitId ||
-    device.allowedApp === "VAN_ANDROID"
+    !device.orgUnitId
   )
     throw new ConvexError("Device unavailable");
   const profile = await ctx.db.get(device.profileId);
@@ -161,7 +160,11 @@ export async function devicePerson(
 export const authorize = internalMutation({
   args: {
     deviceId: v.id("registeredDevices"),
-    app: v.union(v.literal("IOS"), v.literal("ANDROID")),
+    app: v.union(
+      v.literal("IOS"),
+      v.literal("ANDROID"),
+      v.literal("VAN_ANDROID"),
+    ),
     proof: v.string(),
     method: v.string(),
     path: v.string(),
@@ -202,7 +205,12 @@ export const authorize = internalMutation({
     assertProofTime(args.timestamp, now);
     if (
       args.method !== "POST" ||
-      !/^\/mobile\/v1\/(bootstrap|pull|push)$/.test(args.path) ||
+      // Field apps sign only field sync paths; the van POS signs only van paths (ADR-010).
+      !(
+        args.app === "VAN_ANDROID"
+          ? /^\/van\/v1\/(bootstrap|push)$/
+          : /^\/mobile\/v1\/(bootstrap|pull|push)$/
+      ).test(args.path) ||
       !/^[0-9a-f]{64}$/.test(args.bodyDigest)
     )
       throw new ConvexError("Invalid mobile request proof fields");

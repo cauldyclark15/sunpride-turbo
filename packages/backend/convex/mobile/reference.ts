@@ -92,7 +92,7 @@ function safe(value: bigint | undefined) {
   return n;
 }
 
-type Caches = {
+export type Caches = {
   uoms: Map<Id<"unitsOfMeasure">, Doc<"unitsOfMeasure"> | null>;
   global: Map<string, Doc<"uomConversions">[]>;
 };
@@ -120,7 +120,11 @@ async function conversionHistory(
   return rows;
 }
 
-async function uom(ctx: QueryCtx, caches: Caches, id: Id<"unitsOfMeasure">) {
+export async function uom(
+  ctx: QueryCtx,
+  caches: Caches,
+  id: Id<"unitsOfMeasure">,
+) {
   let row = caches.uoms.get(id);
   if (row === undefined) {
     row = await ctx.db.get(id);
@@ -131,7 +135,7 @@ async function uom(ctx: QueryCtx, caches: Caches, id: Id<"unitsOfMeasure">) {
 }
 
 /** The in-force conversion plus every timestamp that can change which one is in force. */
-async function toBase(
+export async function toBase(
   ctx: QueryCtx,
   caches: Caches,
   product: Doc<"products">,
