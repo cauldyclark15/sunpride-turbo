@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SP-0126: logo as the background layer, empty foreground; the launcher's circle/squircle mask keeps the
+     wordmark centred (see drawable/sunpride_logo_layer.xml). -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/sunpride_logo_layer" />
+    <foreground android:drawable="@android:color/transparent" />
+</adaptive-icon>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.SunprideField" parent="@android:style/Theme.Material.Light.NoActionBar" />
+
+    <!-- SP-0126: Android 12+ SplashScreen API — logo icon on the logo's red, no white flash. -->
+    <style name="Theme.SunprideField.Starting">
+        <item name="android:windowBackground">@drawable/splash_background</item>
+        <item name="android:statusBarColor">@color/sunpride_red</item>
+        <item name="android:navigationBarColor">@color/sunpride_red</item>
+        <item name="android:windowSplashScreenBackground">@color/sunpride_red</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/sunpride_logo_layer</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/sunpride_red</item>
+    </style>
+</resources>
