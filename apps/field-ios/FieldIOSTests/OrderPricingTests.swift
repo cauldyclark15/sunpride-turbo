@@ -209,6 +209,21 @@ final class OrderPricingTests: XCTestCase {
                                                 otherOrders: [other, other, saved, unsent, otherOutlet, otherDay])
         XCTAssertEqual(check.note, "Over the store's credit limit by ₱0.75. You can still send it; the office must approve.")
     }
+    func testOfficePricedLinesNeverReportWithinCreditButKnownPartCanWarnOver() throws {
+        let incompleteNote = "Some lines are priced by the office, so the office checks credit when the order arrives."
+        let unpriced = OrderSubmission.creditCheck(try draft(price: nil), summary: summary(limit: 100000))
+        XCTAssertEqual(unpriced.label, "Credit"); XCTAssertEqual(unpriced.note, incompleteNote)
+        XCTAssertFalse(unpriced.warning); XCTAssertFalse(unpriced.blocking)
+        let (context, start) = try context(terms())
+        let partial = try OrderDraftRules.build(context, existing: nil, checkIn: start, quantities: [("p", 2), ("unpriced", 4)], now: now)
+        XCTAssertEqual(OrderSubmission.creditCheck(partial, summary: summary(limit: 100000)).note, incompleteNote)
+        let over = OrderSubmission.creditCheck(partial, summary: summary(limit: 10000, open: 1000))
+        XCTAssertEqual(over.note, "Over the store's credit limit by at least ₱0.50. You can still send it; the office must approve.")
+        XCTAssertTrue(over.warning); XCTAssertFalse(over.blocking)
+        var otherUnpriced = try draft(price: nil); otherUnpriced.submittedRequestId = UUID().uuidString.lowercased()
+        XCTAssertEqual(OrderSubmission.creditCheck(try draft(), summary: summary(limit: 100000), otherOrders: [otherUnpriced]).note,
+                       incompleteNote)
+    }
     func testOverflowFallsBackToOfficeInsteadOfTrapping() throws {
         let saved = try draft(price: Int64.max)
         XCTAssertNil(OrderSubmission.lineAmount(saved.lines[0])); XCTAssertNil(OrderSubmission.totals(saved).totalMinor)

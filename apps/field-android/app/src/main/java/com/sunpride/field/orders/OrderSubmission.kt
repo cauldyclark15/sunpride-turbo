@@ -86,21 +86,31 @@ object OrderSubmission {
         if (summary == null || summary.outletId != draft.outletId || summary.availability != "available") return unknown()
         val limit = summary.creditLimitMinor ?: return OrderCheck("Credit", null, blocking = false,
             note = "No credit limit set for this store")
-        val amount = totals(draft).totalMinor ?: return unknown()
+        val own = totals(draft)
+        val amount = own.totalMinor ?: return unknown()
+        // An office-priced line has no known amount: the known part can prove "over", never "within".
+        var incomplete = own.unpricedLines > 0
         var open = summary.openOrders?.amountMinor ?: 0
         val seen = mutableSetOf<String>()
         for (other in otherOrders) {
             if (other.draftId == draft.draftId || other.outletId != draft.outletId || other.serviceDate != draft.serviceDate ||
                 other.submittedRequestId == null || !seen.add(other.draftId)) continue
-            val total = totals(other).totalMinor ?: return unknown()
+            val otherTotals = totals(other)
+            val total = otherTotals.totalMinor ?: return unknown()
+            if (otherTotals.unpricedLines > 0) incomplete = true
             open = runCatching { Math.addExact(open, total) }.getOrNull() ?: return unknown()
         }
         val left = runCatching { Math.subtractExact(Math.subtractExact(limit, open), amount) }.getOrNull() ?: return unknown()
         if (left == Long.MIN_VALUE) return unknown()
-        return if (left >= 0) OrderCheck("Within the store's credit limit", null, blocking = false,
-            note = "${money(left)} left after this order")
-        else OrderCheck("Credit", null, blocking = false,
-            note = "Over the store's credit limit by ${money(-left)}. You can still send it; the office must approve.", warning = true)
+        return when {
+            left < 0 -> OrderCheck("Credit", null, blocking = false,
+                note = "Over the store's credit limit by ${if (incomplete) "at least " else ""}${money(-left)}. You can still send it; the office must approve.",
+                warning = true)
+            incomplete -> OrderCheck("Credit", null, blocking = false,
+                note = "Some lines are priced by the office, so the office checks credit when the order arrives.")
+            else -> OrderCheck("Within the store's credit limit", null, blocking = false,
+                note = "${money(left)} left after this order")
+        }
     }
 
     /** The exact v1 activity for [draft]: clientOrderId is the draft ID, so one order is one submission. */

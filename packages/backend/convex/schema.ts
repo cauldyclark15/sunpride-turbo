@@ -3274,7 +3274,8 @@ export default defineSchema({
     serverTime: v.number(),
   })
     .index("by_activityId", ["activityId"])
-    .index("by_visitId", ["visitId"]),
+    .index("by_visitId", ["visitId"])
+    .index("by_customerId_and_serverTime", ["customerId", "serverTime"]),
   /** Beta sample-data marker: a value the sample seed changed, so reset can restore it. */
   sampleDataChanges: defineTable({
     organizationId: v.string(),

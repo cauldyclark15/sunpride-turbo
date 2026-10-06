@@ -11,8 +11,10 @@
  * submitted field order itself (`priceFieldOrder`); the phone's figures are a preview.
  *
  * Credit check: the customer's credit limit against its open orders (submitted but not yet
- * fulfilled; there is no receivables feed) plus this order. Over the limit never blocks the
- * order: it is recorded as `over` for the office to approve.
+ * fulfilled; there is no receivables feed), every field order sent for the customer in the
+ * pending window (any call, any salesperson), plus this order. Over the limit never blocks the
+ * order: it is recorded as `over` for the office to approve. A line without a price has no
+ * known amount, so an incomplete total can prove `over` but never `within` (it is `unknown`).
  */
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
@@ -29,6 +31,14 @@ export const MAX_LISTS_PER_CHANNEL = 20;
 export const MAX_LINES_PER_PRODUCT = 50;
 /** Newest orders read for a credit check; a busier account reports `unknown`. */
 export const MAX_CREDIT_ORDERS = 200;
+/** Field orders sent for one customer that a credit check reads; more report `unknown`. */
+export const MAX_PENDING_FIELD_ORDERS = 200;
+/**
+ * Days a sent field order counts as pending exposure. Field orders do not become `orders`
+ * rows yet (the office keys them), so this sample default stands in for "not yet invoiced".
+ */
+export const FIELD_ORDER_PENDING_DAYS = 30;
+const DAY_MS = 86_400_000;
 /** Units one product may be ordered in on the phone. */
 export const MAX_ORDER_UNITS = 6;
 /** Lines one list is read in a single range; a bigger list is read per product instead. */
@@ -240,15 +250,22 @@ export function creditLimitMinor(
     : null;
 }
 
+/**
+ * `orderMinor` and `pending.minor` are the KNOWN amounts; `incomplete` says some of the order
+ * or the pending exposure has no price. Known amounts over the limit are `over`; otherwise an
+ * incomplete figure is `unknown`, never `within`.
+ */
 export async function creditCheck(
   ctx: Ctx,
   customer: Doc<"customers"> | null,
   orderMinor: number,
-  alsoPendingMinor: number,
+  pending: { minor: number; incomplete: boolean; overflow?: boolean },
 ): Promise<CreditCheck> {
   const limitMinor = creditLimitMinor(customer);
   if (!customer || limitMinor === null)
     return { status: "no_limit", limitMinor, openOrdersMinor: null };
+  if (pending.overflow)
+    return { status: "unknown", limitMinor, openOrdersMinor: null };
   const orders = await ctx.db
     .query("orders")
     .withIndex("by_customer", (q) => q.eq("customerCode", customer.code))
@@ -256,7 +273,7 @@ export async function creditCheck(
     .take(MAX_CREDIT_ORDERS + 1);
   if (orders.length > MAX_CREDIT_ORDERS)
     return { status: "unknown", limitMinor, openOrdersMinor: null };
-  let open = alsoPendingMinor;
+  let open = pending.minor;
   for (const order of orders)
     if (
       (order.organizationId === undefined ||
@@ -265,7 +282,12 @@ export async function creditCheck(
     )
       open += toMinor(order.total);
   return {
-    status: open + orderMinor <= limitMinor ? "within" : "over",
+    status:
+      open + orderMinor > limitMinor
+        ? "over"
+        : pending.incomplete
+          ? "unknown"
+          : "within",
     limitMinor,
     openOrdersMinor: open,
   };
@@ -326,14 +348,16 @@ export async function orderTermsFor(
 }
 
 /**
- * Server pricing of a submitted field order at `at` (the order's capture time). Lines with no
- * single effective price stay unpriced (the office prices them) and are excluded from the total.
+ * Server pricing of a submitted field order at `at` (the order's capture time, never before the
+ * call's check-in). Lines with no single effective price stay unpriced (the office prices them)
+ * and are excluded from the known total; the credit check then cannot say `within`.
  */
 export async function priceFieldOrder(
   ctx: MutationCtx,
   visit: Pick<Doc<"visitExecutions">, "_id" | "outletId">,
   lines: { productId: Id<"products">; uom: string; quantity: number }[],
   at: number,
+  now: number,
 ) {
   const outlet = await ctx.db.get(visit.outletId);
   const customer = await customerAt(ctx, visit.outletId, at);
@@ -353,12 +377,11 @@ export async function priceFieldOrder(
     else totalMinor += lineTotalMinor;
     priced.push({ ...line, unitPriceMinor, lineTotalMinor });
   }
-  // Earlier orders on the same call count against the limit too (they are not `orders` rows).
-  const earlier = await ctx.db
-    .query("fieldOrderPricings")
-    .withIndex("by_visitId", (q) => q.eq("visitId", visit._id))
-    .take(101);
-  const pending = earlier.reduce((sum, row) => sum + row.totalMinor, 0);
+  // Field orders already sent for this customer (this call, earlier calls, other salespeople)
+  // are not `orders` rows yet, so they count against the limit here.
+  const pending = customer
+    ? await pendingFieldOrders(ctx, customer._id, now)
+    : { minor: 0, incomplete: false };
   return {
     customerId: customer?._id ?? null,
     priceListId: list?._id ?? null,
@@ -367,6 +390,35 @@ export async function priceFieldOrder(
     lines: priced,
     totalMinor,
     unpricedLines,
-    credit: await creditCheck(ctx, customer, totalMinor, pending),
+    credit: await creditCheck(ctx, customer, totalMinor, {
+      ...pending,
+      incomplete: pending.incomplete || unpricedLines > 0,
+    }),
   };
+}
+
+/** Known amount of the customer's field orders sent in the pending window. */
+export async function pendingFieldOrders(
+  ctx: Ctx,
+  customerId: Id<"customers">,
+  now: number,
+) {
+  const rows = await ctx.db
+    .query("fieldOrderPricings")
+    .withIndex("by_customerId_and_serverTime", (q) =>
+      q
+        .eq("customerId", customerId)
+        .gte("serverTime", now - FIELD_ORDER_PENDING_DAYS * DAY_MS),
+    )
+    .take(MAX_PENDING_FIELD_ORDERS + 1);
+  if (rows.length > MAX_PENDING_FIELD_ORDERS)
+    return { minor: 0, incomplete: true, overflow: true };
+  let minor = 0;
+  let incomplete = false;
+  for (const row of rows) {
+    if (row.organizationId !== SUNPRIDE_ORGANIZATION_ID) continue;
+    minor += row.totalMinor;
+    if (row.unpricedLines > 0) incomplete = true;
+  }
+  return { minor, incomplete };
 }

@@ -196,7 +196,7 @@ export const OFFLINE_AUTHORITY_MATRIX: readonly OfflineAuthorityRule[] = [
   fieldSnapshot(
     "orderTerms",
     "server_read_only",
-    "Account price list and order units (SP-0088); a preview only: the server prices every order on receipt.",
+    "Price list and unit prices per account as of serverTime; a preview, the server re-prices every order.",
   ),
   fieldSnapshot(
     "dayTarget",

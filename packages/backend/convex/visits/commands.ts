@@ -443,6 +443,16 @@ export async function applyVisitOperation(
     const p = operation.payload;
     if (visit.state !== "checked-in" && visit.state !== "in-progress")
       throw new ConvexError("invalid_transition");
+    // An order is priced at its capture time, so it must come after its call's check-in on the
+    // same phone clock: an earlier stamp is inconsistent with the call and would pick a retired
+    // price. Other activities keep device time as evidence only (ADR-022).
+    if (
+      p.activity.kind === "order_intent" &&
+      p.activity.lines !== undefined &&
+      visit.startedAt !== undefined &&
+      p.deviceTime < visit.startedAt
+    )
+      throw new ConvexError("invalid_request");
     safeActivity(p.activity);
     if (p.activity.kind === "order_intent") {
       // A re-sent intent (e.g. re-queued under a fresh request key) never records a second
@@ -520,6 +530,7 @@ export async function applyVisitOperation(
         visit,
         p.activity.lines,
         Math.min(p.deviceTime, now),
+        now,
       );
       await ctx.db.insert("fieldOrderPricings", {
         organizationId: SUNPRIDE_ORGANIZATION_ID,
