@@ -383,6 +383,105 @@ class BiometricSignInTest {
         assertEquals("fake-session-1", plain.readSession())
     }
 
+    /** Ordinary storage that refuses every write (commit() false -> throws) while old data stays readable. */
+    private class RefusingPlain : SessionVault {
+        var token: String? = null
+        var refuse = false
+        override var deviceId: String? = "dev1"
+        override fun readSession() = token
+        override fun saveSession(token: String) { if (refuse) throw SessionStorageFailure(); this.token = token }
+        override fun wipe() { if (refuse) throw SessionStorageFailure(); token = null; deviceId = null }
+        override fun clearSession() { if (refuse) throw SessionStorageFailure(); token = null }
+    }
+
+    private fun enabledWithStuckOrdinaryCopy(disk: RefusingPlain): LockableSessionVault {
+        val vault = LockableSessionVault(disk, sealed, memory) { keyDeletes++ }
+        vault.saveSession("fake-session-A")
+        disk.refuse = true
+        BiometricGate(vault, crypto).enable()
+        assertEquals("fake-session-A", disk.token) // removal really failed
+        memory = SessionMemory()
+        return LockableSessionVault(disk, sealed, memory) { keyDeletes++ }
+    }
+
+    @Test fun invalidationNeverReopensAnOrdinaryCopyWhoseRemovalFailed() {
+        val disk = RefusingPlain()
+        val cold = enabledWithStuckOrdinaryCopy(disk)
+        val gate = BiometricGate(cold, crypto)
+        assertEquals(BiometricGate.Step.LOCKED, gate.step)
+        crypto.next = CryptoOutcome.Invalidated
+        gate.unlock()
+        assertEquals(BiometricGate.Step.PASSWORD, gate.step)
+        assertEquals(BiometricGate.INVALIDATED, gate.message)
+        assertNull(cold.readSession())
+        memory = SessionMemory()
+        val reopened = LockableSessionVault(disk, sealed, memory)
+        assertNull("the kept ordinary copy stays hidden after a cold start", reopened.readSession())
+        assertFalse(reopened.biometricOn)
+        assertFalse(reopened.isLocked) // marker only: the sign-in screen, no prompt for a dead key
+        assertEquals("fake-session-A", disk.token)
+    }
+
+    @Test fun signOutNeverReopensAnOrdinaryCopyWhoseRemovalFailed() {
+        val disk = RefusingPlain()
+        val cold = enabledWithStuckOrdinaryCopy(disk)
+        val auth = AuthClient(com.sunpride.field.AppEnvironment("", ""), cold)
+        assertTrue(runCatching { auth.signOut() }.exceptionOrNull() is SessionStorageFailure)
+        assertNull(cold.readSession())
+        memory = SessionMemory()
+        val reopened = LockableSessionVault(disk, sealed, memory)
+        assertNull("sign-out must not reopen the kept ordinary copy", reopened.readSession())
+        assertEquals(BiometricGate.Step.OPEN, BiometricGate(reopened, crypto).step)
+        assertFalse(AuthClient(com.sunpride.field.AppEnvironment("", ""), reopened).isSignedIn)
+    }
+
+    @Test fun signOutWithoutBiometricsStillFailsClosedWhenTheOrdinaryCopyStays() {
+        val disk = RefusingPlain()
+        val vault = LockableSessionVault(disk, sealed, memory)
+        vault.saveSession("fake-session-A")
+        disk.refuse = true
+        assertTrue(runCatching { vault.wipe() }.exceptionOrNull() is SessionStorageFailure)
+        memory = SessionMemory()
+        assertNull(LockableSessionVault(disk, sealed, memory).readSession())
+    }
+
+    @Test fun aPasswordSignInClearsTheSignedOutMarkerOnceStorageWorks() {
+        val disk = RefusingPlain()
+        val cold = enabledWithStuckOrdinaryCopy(disk)
+        runCatching { cold.wipe() }
+        assertTrue(runCatching { cold.saveSession("fake-session-B") }.exceptionOrNull() is SessionStorageFailure)
+        assertNull("a failed password save leaves the marker hiding the old copy", cold.readSession())
+        disk.refuse = false
+        cold.saveSession("fake-session-B")
+        assertEquals("fake-session-B", cold.readSession())
+        assertNull(sealed.read())
+        memory = SessionMemory()
+        assertEquals("fake-session-B", LockableSessionVault(disk, sealed, memory).readSession())
+    }
+
+    @Test fun aSealedClearFailureRollsBackTheNewOrdinaryCopy() {
+        val stuck = object : SealedTokenStore {
+            var blob: ByteArray? = byteArrayOf(1, 2, 3)
+            override fun read() = blob
+            override fun write(blob: ByteArray) { this.blob = blob }
+            override fun clear() = throw SessionStorageFailure()
+        }
+        val vault = LockableSessionVault(plain, stuck, memory)
+        assertTrue(runCatching { vault.saveSession("fake-session-B") }.exceptionOrNull() is SessionStorageFailure)
+        assertNull(plain.readSession())
+        assertTrue(vault.isLocked)
+    }
+
+    @Test fun turningOffWhileLockedSignsOutAndNeverReopensAKeptOrdinaryCopy() {
+        val disk = RefusingPlain()
+        val locked = enabledWithStuckOrdinaryCopy(disk)
+        assertTrue(runCatching { locked.unseal() }.exceptionOrNull() is SessionStorageFailure)
+        assertFalse(locked.biometricOn)
+        assertNull(locked.readSession())
+        memory = SessionMemory()
+        assertNull(LockableSessionVault(disk, sealed, memory).readSession())
+    }
+
     @Test fun backgroundWorkersInALockedProcessSeeNoSessionAndCannotWipeIt() {
         signedInWithBiometrics()
         memory = SessionMemory()

@@ -56,8 +56,13 @@ Late prompts and storage failures (release check):
   copy cannot reopen the app without the prompt after a restart.
 - Session and sealed-copy writes/removals check the storage commit and fail loudly instead of passing
   silently. Turning on writes and verifies the sealed copy before removing the ordinary one; turning off
-  saves the ordinary copy before removing the sealed one; a password sign-in fails with a clear message if
-  an old sealed copy cannot be removed (it would otherwise hide the new session).
+  saves and verifies the ordinary copy before removing the sealed one.
+- The sealed store is only emptied after the ordinary copy is verifiably gone. On sign-out, a changed-
+  fingerprints fallback, or turning the feature off while still locked, the ordinary copy is removed first;
+  if that removal fails, a durable "signed out" marker is written in the sealed store instead, so the kept
+  copy is never read again (the app opens on the sign-in screen, never the old account, even after a
+  restart). A password sign-in saves the new session first and only then removes the old sealed session or
+  marker; if that removal fails, the new copy is rolled back and the sign-in fails with a clear message.
 
 Unchanged on purpose: device registration, held-outbox and purge rules, the local encrypted database (its own
 key), and the server. Background sync workers share the same in-process vault, so they keep sending while
@@ -68,7 +73,10 @@ data for it) until the person opens the app again, which schedules them.
 
 - JVM: `app/src/test/.../auth/BiometricSignInTest.kt` (state machine and vault, including late
   unlock/enable after sign-in, sign-out and a worker wipe, and failed storage removals),
-  `BiometricReviewCounterexamples` (the release check's four probes, verbatim) and `BiometricKeyConfigTest`
+  `BiometricReviewCounterexamples` (the release check's four probes, verbatim),
+  `independent/review/IndependentBiometricPersistenceTest` (the second release check's 12 probes, verbatim:
+  production vault/gate/AuthClient over preference files that refuse writes while old data stays readable)
+  and `BiometricKeyConfigTest`
   (key and prompt accept strong biometric only, never the screen lock).
 - Phone (`~/.hermes/scripts/sunpride-android-phone-test.sh <worktree>`):
   `BiometricSignInUiTest` (the real `FieldApp` with the prompt seam: eye toggle and re-hide on leaving,

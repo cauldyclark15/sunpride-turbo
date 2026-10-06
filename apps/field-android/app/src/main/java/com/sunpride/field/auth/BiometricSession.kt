@@ -64,10 +64,12 @@ class SessionMemory {
 
 /**
  * The app's [SessionVault]: reads the unlocked in-memory session first, else the ordinary Keystore copy
- * (biometric sign-in off). While a sealed session exists the ordinary copy is NEVER used, even if its
- * removal failed: that copy cannot bypass the prompt. Background workers in a process where the person
- * has not unlocked see no session and do nothing (they never wipe or hold data for it); the next
- * unlocked launch schedules them.
+ * (biometric sign-in off). While anything sits in the sealed store — a sealed session or the signed-out
+ * marker — the ordinary copy is NEVER used, even if its removal failed: that copy cannot bypass the prompt
+ * or come back after sign-out. The sealed store is only emptied once the ordinary copy is verifiably gone
+ * (or freshly replaced by a password sign-in). Background workers in a process where the person has not
+ * unlocked see no session and do nothing (they never wipe or hold data for it); the next unlocked launch
+ * schedules them.
  */
 class LockableSessionVault(
     private val plain: SessionVault,
@@ -80,17 +82,39 @@ class LockableSessionVault(
     /** Changes whenever the stored session changes; see [SessionMemory.epoch]. */
     val epoch: Long get() = memory.epoch
 
+    /** The sealed store holds a real biometric-sealed session (not the signed-out marker). */
+    private fun sealedSession(): ByteArray? = sealed.read()?.takeUnless { it.contentEquals(SIGNED_OUT) }
+
     /**
-     * A password sign-in replaces any session; biometric sign-in stays off until offered again. The old
-     * sealed session must be gone first, or it would keep hiding the new ordinary copy.
+     * Removes the ordinary copy, then empties the sealed store. If the ordinary copy can't be removed, the
+     * sealed store keeps (or gets) the signed-out marker so that copy is never read again; the failure is
+     * rethrown. Callers hold the lock.
+     */
+    private fun forgetStored(clearPlain: () -> Unit) {
+        val plainGone = runCatching { clearPlain(); if (plain.readSession() != null) throw SessionStorageFailure() }
+        if (plainGone.isSuccess) {
+            sealed.clear()
+            if (sealed.read() != null) throw SessionStorageFailure()
+            return
+        }
+        // Fail closed: the marker hides the kept ordinary copy on every later read, including cold starts.
+        runCatching { sealed.write(SIGNED_OUT) }
+        plainGone.getOrThrow()
+    }
+
+    /**
+     * A password sign-in replaces any session; biometric sign-in stays off until offered again. The new
+     * ordinary copy is saved first, then the sealed store (old sealed session or signed-out marker) is
+     * emptied. If either step fails nothing old can reopen: a failed save leaves the sealed store hiding
+     * every ordinary copy, and a failed clear rolls the new ordinary copy back.
      */
     override fun saveSession(token: String) = synchronized(memory) {
         memory.bump()
         memory.token = null
-        sealed.clear()
-        if (sealed.read() != null) throw SessionStorageFailure()
         runCatching { deleteKey() }
         plain.saveSession(token)
+        val sealedGone = runCatching { sealed.clear(); if (sealed.read() != null) throw SessionStorageFailure() }
+        if (sealedGone.isFailure) { runCatching { plain.clearSession() }; sealedGone.getOrThrow() }
     }
 
     override var deviceId: String?
@@ -98,32 +122,28 @@ class LockableSessionVault(
         set(value) { plain.deviceId = value }
 
     /**
-     * Sign-out / dead session: unlocked token, sealed token, biometric key and the ordinary copy. Every
-     * step runs even if an earlier one fails; the first storage failure is rethrown afterwards.
+     * Sign-out / dead session: unlocked token, biometric key, the ordinary copy and then the sealed store.
+     * If the ordinary copy can't be removed, the signed-out marker keeps it from ever reopening.
      */
     override fun wipe() = synchronized(memory) {
         memory.bump()
         memory.token = null
-        val sealedCleared = runCatching { sealed.clear() }
         runCatching { deleteKey() }
-        val plainWiped = runCatching { plain.wipe() }
-        sealedCleared.getOrThrow(); plainWiped.getOrThrow()
+        forgetStored { plain.wipe() }
     }
 
     override fun clearSession() = synchronized(memory) {
         memory.bump()
         memory.token = null
-        val sealedCleared = runCatching { sealed.clear() }
-        plain.clearSession()
-        sealedCleared.getOrThrow()
+        forgetStored { plain.clearSession() }
     }
 
-    val biometricOn: Boolean get() = sealed.read() != null
+    val biometricOn: Boolean get() = sealedSession() != null
 
     /** A sealed session exists and nothing has unlocked it in this process. The ordinary copy never counts. */
-    val isLocked: Boolean get() = memory.token == null && sealed.read() != null
+    val isLocked: Boolean get() = memory.token == null && sealedSession() != null
 
-    fun sealedToken(): ByteArray? = sealed.read()
+    fun sealedToken(): ByteArray? = sealedSession()
 
     /**
      * The prompt opened the sealed session: keep it in memory only. Refused (false) when the session changed
@@ -131,7 +151,7 @@ class LockableSessionVault(
      */
     fun unlock(token: String, startedAt: Long): Boolean = synchronized(memory) {
         require(token.isNotBlank() && token.length <= AuthClient.MAX_SESSION_TOKEN_LENGTH)
-        if (memory.epoch != startedAt || sealed.read() == null) return false
+        if (memory.epoch != startedAt || sealedSession() == null) return false
         memory.token = token
         true
     }
@@ -153,20 +173,37 @@ class LockableSessionVault(
 
     /**
      * Biometric sign-in off: the session goes back to the ordinary Keystore copy (no prompt needed). The
-     * ordinary copy is saved before the sealed one is removed, so a failure leaves the person signed in.
+     * ordinary copy is saved and verified before the sealed one is removed, so a failure leaves the person
+     * signed in behind the prompt. Turned off while still locked, the sealed session is simply forgotten
+     * (signed out, never an older ordinary copy).
      */
     fun unseal() = synchronized(memory) {
         val token = readSession()
-        if (token != null) plain.saveSession(token)
+        if (token == null) {
+            memory.bump()
+            forgetStored { plain.clearSession() }
+            return@synchronized
+        }
+        plain.saveSession(token)
+        if (plain.readSession() != token) throw SessionStorageFailure()
         sealed.clear()
+        if (sealed.read() != null) throw SessionStorageFailure()
         memory.bump()
         memory.token = null
     }
 
-    /** Sealed session can no longer be opened (key invalidated): forget it; sign in with the password. */
+    /**
+     * Sealed session can no longer be opened (key invalidated): forget it; sign in with the password. Any
+     * leftover ordinary copy goes too; if it can't be removed, the signed-out marker hides it.
+     */
     fun dropBiometric() = synchronized(memory) {
         memory.bump()
         memory.token = null
-        sealed.clear()
+        forgetStored { plain.clearSession() }
+    }
+
+    companion object {
+        /** Sealed-store marker: signed out, but an ordinary copy could not be removed. Never a valid sealed blob. */
+        internal val SIGNED_OUT = "signed-out".toByteArray(Charsets.UTF_8)
     }
 }
