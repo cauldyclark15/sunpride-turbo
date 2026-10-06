@@ -361,12 +361,13 @@ describe("registered device lifecycle", () => {
     ).toBe("revoked");
   });
 
-  it("rejects POS app and inconsistent field platform before registering", async () => {
+  it("rejects inconsistent van/field platforms and registers Android van devices", async () => {
     const f = await fixture();
     await expect(
       f.admin.mutation(api.mobile.devices.register, {
         ...f.registration,
         allowedApp: "VAN_ANDROID",
+        platform: "iOS",
       }),
     ).rejects.toThrow();
     await expect(
@@ -378,6 +379,24 @@ describe("registered device lifecycle", () => {
     expect(
       await f.t.run((ctx) => ctx.db.query("registeredDevices").collect()),
     ).toEqual([]);
+    const registered = await f.admin.mutation(api.mobile.devices.register, {
+      ...f.registration,
+      allowedApp: "VAN_ANDROID",
+      platform: "Android",
+    });
+    expect(
+      await f.t.run((ctx) => ctx.db.get(registered.deviceId)),
+    ).toMatchObject({
+      allowedApp: "VAN_ANDROID",
+      platform: "Android",
+      status: "active",
+    });
+    expect(
+      await f.sales.actor.query(api.mobile.devices.mine, {
+        publicKey: f.registration.publicKey,
+        app: "VAN_ANDROID",
+      }),
+    ).toMatchObject({ deviceId: registered.deviceId });
   });
 });
 
