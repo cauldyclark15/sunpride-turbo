@@ -1,6 +1,13 @@
 package com.sunpride.field.auth
 
 import android.graphics.Bitmap
+import android.os.Build
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyInfo
+import android.security.keystore.KeyProperties
+import java.security.KeyStore
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKeyFactory
 import androidx.biometric.BiometricManager
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -8,6 +15,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.sunpride.field.MainActivity
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -42,6 +50,38 @@ class BiometricKeystoreTest {
                 .doFinal("fake-session".toByteArray())
         }
         assertTrue("authentication-bound key must refuse without a prompt", refused.isFailure)
+    }
+
+    /** The real key's configuration: biometric-only, so Android honours enrollment invalidation. */
+    @Test fun realKeyIsBiometricOnlyAndEnrollmentBound() {
+        assumeTrue("needs a fingerprint/face enrolled on the phone", strongBiometricEnrolled())
+        val key = BiometricKeystore.create(alias)
+        val info = SecretKeyFactory.getInstance(key.algorithm, "AndroidKeyStore")
+            .getKeySpec(key, KeyInfo::class.java) as KeyInfo
+        assertTrue("auth required", info.isUserAuthenticationRequired)
+        assertTrue("invalidated by new enrollment", info.isInvalidatedByBiometricEnrollment)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            assertEquals("strong biometric only, no screen lock", KeyProperties.AUTH_BIOMETRIC_STRONG,
+                info.userAuthenticationType)
+            assertEquals("auth for every use", 0, info.userAuthenticationValidityDurationSeconds)
+        }
+    }
+
+    @Test fun creatingTheKeyRemovesTheRetiredScreenLockKey() {
+        assumeTrue("needs a fingerprint/face enrolled on the phone", strongBiometricEnrolled())
+        val retired = BiometricKeystore.RETIRED_ALIASES.single()
+        val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        val hadRetired = keyStore.containsAlias(retired)
+        try {
+            if (!hadRetired) KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").run {
+                init(KeyGenParameterSpec.Builder(retired, KeyProperties.PURPOSE_ENCRYPT)
+                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
+                generateKey()
+            }
+            BiometricKeystore.create(alias)
+            assertFalse("retired v1 key deleted", keyStore.apply { load(null) }.containsAlias(retired))
+        } finally { BiometricKeystore.delete(retired) }
     }
 
     @Test fun missingKeyOrDamagedBlobIsReportedAsInvalidated() {

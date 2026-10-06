@@ -7,7 +7,6 @@ import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG
-import androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
@@ -41,13 +40,24 @@ object SessionVaults {
     fun app(context: Context): LockableSessionVault {
         val app = context.applicationContext
         return LockableSessionVault(KeystoreSessionVault(app), PrefsSealedTokenStore(app), SessionMemory.process,
-            deleteKey = { BiometricKeystore.delete(BiometricKeystore.ALIAS) })
+            deleteKey = { BiometricKeystore.deleteAll() })
     }
 }
 
-/** AES-256-GCM key that needs a strong biometric (Android 11+: or the screen lock) for every use. */
+/**
+ * AES-256-GCM key that needs a strong biometric (fingerprint/face, never the screen lock) for every use.
+ *
+ * Biometric-only on purpose: Android exempts keys that also accept AUTH_DEVICE_CREDENTIAL from
+ * setInvalidatedByBiometricEnrollment, so a screen-lock fallback would keep the key alive after a new
+ * fingerprint is added. The fallback is the password screen instead.
+ */
 object BiometricKeystore {
-    const val ALIAS = "sunpride-field-session-bio-v1"
+    /** v2 = biometric-only. v1 (biometric or screen lock) keys are deleted and their sealed copy fails closed. */
+    const val ALIAS = "sunpride-field-session-bio-v2"
+    val RETIRED_ALIASES = listOf("sunpride-field-session-bio-v1")
+    /** The only authenticator the key and the prompt accept. */
+    const val KEY_AUTH_TYPES = KeyProperties.AUTH_BIOMETRIC_STRONG
+    const val PROMPT_AUTHENTICATORS = BiometricManager.Authenticators.BIOMETRIC_STRONG
     const val TRANSFORMATION = "AES/GCM/NoPadding"
     const val IV_BYTES = 12
     const val TAG_BYTES = 16
@@ -64,15 +74,16 @@ object BiometricKeystore {
             .setUserAuthenticationRequired(true)
             // New fingerprints/faces enrolled (or all removed) permanently invalidate the key.
             .setInvalidatedByBiometricEnrollment(true)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            spec.setUserAuthenticationParameters(0,
-                KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL)
-        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) spec.setUserAuthenticationParameters(0, KEY_AUTH_TYPES)
+        RETIRED_ALIASES.forEach(::delete)
         init(spec.build())
         generateKey()
     }
 
     fun delete(alias: String) { runCatching { keyStore().deleteEntry(alias) } }
+
+    /** Sign-out / turn off: the current key and any retired one. */
+    fun deleteAll() { (RETIRED_ALIASES + ALIAS).forEach(::delete) }
 }
 
 /**
@@ -150,16 +161,18 @@ class AndroidBiometricCrypto(
             info("Sign in to Sunpride Field", "Use your fingerprint or face"), done)
     }
 
-    override fun deleteKey() = BiometricKeystore.delete(alias)
+    override fun deleteKey() {
+        BiometricKeystore.delete(alias)
+        if (alias == BiometricKeystore.ALIAS) BiometricKeystore.deleteAll()
+    }
 
     /** Test/screenshot seam: dismiss a showing prompt (reported as Cancelled). */
     fun cancel() = prompt.cancelAuthentication()
 
     private fun info(title: String, subtitle: String) = BiometricPrompt.PromptInfo.Builder()
         .setTitle(title).setSubtitle(subtitle).setConfirmationRequired(false).apply {
-            // Crypto with the screen-lock fallback is only supported from Android 11.
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) setAllowedAuthenticators(BIOMETRIC_STRONG or DEVICE_CREDENTIAL)
-            else setAllowedAuthenticators(BIOMETRIC_STRONG).setNegativeButtonText("Use password")
+            // Biometric only (see BiometricKeystore): the way out is the password screen.
+            setAllowedAuthenticators(BiometricKeystore.PROMPT_AUTHENTICATORS).setNegativeButtonText("Use password")
         }.build()
 
     private fun start(cipher: Cipher, data: ByteArray, encrypt: Boolean, info: BiometricPrompt.PromptInfo,
