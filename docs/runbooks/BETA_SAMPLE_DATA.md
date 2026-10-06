@@ -44,6 +44,34 @@ promotions and van pricing in `convex/pricing/promotions.ts` / `wire.ts`. Tests:
 | admin@sunpride.test      | admin              | —            | National   | —                       |
 | analyst@sunpride.test    | analyst            | —            | National   | —                       |
 
+## How it writes (no parallel writers)
+
+The seed uses the same domain writers as the office screens, so every integrity rule applies
+and every change is audited:
+
+| Data                              | Writer                                                                                 |
+| --------------------------------- | -------------------------------------------------------------------------------------- |
+| Org units + parent edges          | `createOrgUnit` (`org/mutations`)                                                      |
+| Territories + ownership           | `createTerritory` (`territories/mutations`)                                            |
+| Routes + territory link           | `createRoute` (`territories/routes`)                                                   |
+| Stores, customer links            | `createOutlet`, `changeOutletCustomerLink` (`outlets/mutations`)                       |
+| Store pins                        | `proposeOutletPin` then `decideOutletPin` by a second subject (`outlets/verification`) |
+| Store → territory/route/sequence  | `assignOutlet` (`outlets/assignments`)                                                 |
+| Tester territory / route          | `assignTerritorySalesperson`, `assignRouteSalesperson`                                 |
+| Tester unit, position, supervisor | `recordAssignment` (people assignment history)                                         |
+| Unit conversions                  | `insertUomConversion` (`inventory/policies`)                                           |
+| Opening stock                     | `postMovement` (opening balance)                                                       |
+| Van day trip + load sheet         | `planTrip` (`van/trips`), `planLoad` (`van/loads`)                                     |
+
+It writes as a trusted **system actor** (`system:beta-sample`, pins verified by
+`system:beta-sample:verifier`; `lib/write_actor.ts`). Compared with a signed-in office user,
+the only differences are: no per-person capability check, and records may already be in force
+(start = the sample epoch, never before the organization root, never in the future). The
+office mutations themselves still accept only future-effective changes. Price lists, price
+lines and promotions have no office writer yet; they are written only by this seed and
+SP-0088's `pricing/sample`, marked `source: "sample"`. Audit entries the writers leave stay
+after a reset (audit history is never deleted).
+
 ## How prices reach the apps
 
 - A store's **channel** picks its list (SP-0088 `priceListFor`: Key Accounts / Route Sales /

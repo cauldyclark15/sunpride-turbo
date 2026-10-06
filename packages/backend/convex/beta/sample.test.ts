@@ -103,7 +103,9 @@ const rs = SAMPLE_PRICE_LISTS.find((list) => list.channel === "ROUTE_SALES")!;
 const productNamed = (code: string) =>
   SAMPLE_PRODUCTS.find((product) => product.code === code)!;
 
-describe("beta sample seed (SP-0129)", () => {
+// Each test seeds a whole deployment (~1,000 rows through the domain writers): slower than
+// the 5 s default when the full suite runs in parallel.
+describe("beta sample seed (SP-0129)", { timeout: 30_000 }, () => {
   it("fills a fresh deployment, is idempotent, and every row is marked as sample", async () => {
     const t = await fresh();
     const before = await counts(t);

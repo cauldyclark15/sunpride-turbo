@@ -110,6 +110,7 @@ import type * as lib_capabilities from "../lib/capabilities.js";
 import type * as lib_metrics from "../lib/metrics.js";
 import type * as lib_roles from "../lib/roles.js";
 import type * as lib_scope from "../lib/scope.js";
+import type * as lib_write_actor from "../lib/write_actor.js";
 import type * as merchandising_assortments from "../merchandising/assortments.js";
 import type * as merchandising_audits from "../merchandising/audits.js";
 import type * as merchandising_validators from "../merchandising/validators.js";
@@ -306,6 +307,7 @@ declare const fullApi: ApiFromModules<{
   "lib/metrics": typeof lib_metrics;
   "lib/roles": typeof lib_roles;
   "lib/scope": typeof lib_scope;
+  "lib/write_actor": typeof lib_write_actor;
   "merchandising/assortments": typeof merchandising_assortments;
   "merchandising/audits": typeof merchandising_audits;
   "merchandising/validators": typeof merchandising_validators;
