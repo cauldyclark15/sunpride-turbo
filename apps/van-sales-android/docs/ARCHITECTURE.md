@@ -92,6 +92,21 @@ Schema v1 is exported at `app/schemas/com.sunpride.van.storage.VanDatabase/1.jso
 
 Sale/payment prices and totals are nullable, not zero: UI wording is **Priced by the office**. Payments currently model cash only. The price-list table remains empty until the governed feed exists. These are schema provisions, not a completed sale/payment/return/reconciliation submission workflow.
 
+## Checkout (VAN-011)
+
+`com.sunpride.van.pos.CheckoutRules.evaluate(CheckoutRequest, CheckoutContext)` is the pure checkout check shared by the screens and the store. It returns a `CheckoutQuote` (lines, currency, integer total, tendered, change) or typed `CheckoutIssue`s; nothing is rounded:
+
+- **Trip:** selling needs the trip on route or its start saved on this phone, a bootstrapped policy and an unheld partition.
+- **Customer:** the customer must exist in this partition (route, unplanned, or a local walk-in).
+- **Cart:** 1–100 lines, one line per product, positive integral base quantities, known products.
+- **Stock:** each line needs that much **available** truck stock (damaged stock never sells) unless the office policy allows negative stock.
+- **Price:** each line needs exactly one effective price for the product's own UOM (`PriceResolver`); otherwise the line is **Priced by the office** and the sale cannot complete (ADR-008: the handheld never defines a price). Line total = unit price × base ÷ quantity scale and must be a whole number of centavos; mixed currencies and totals above ₱10 billion refuse. Each line records the agreeing price-list IDs as its price source.
+- **Payment terms:** cash only, cash received ≥ total. Credit/charge is refused because the bootstrap carries no customer terms or limits yet (VAN-012 / office data).
+
+`RoomVanStore.commitSale(request, expectedTotalMinor)` (repository `completeSale`) runs the same rules again inside **one** Room transaction against the stored trip, customers, stock projection and price list, refuses `PRICES_CHANGED` if the total differs from what the seller showed the customer, then writes: the receipt number/idempotency pair (`TransactionIds`), `sale` (`saved`), `sale_line`s, one cash `payment`, a SALE movement per line through the ledger hook (stock re-checked), and the `sale.record` outbox operation. Any failure rolls everything back, including the receipt number. The cart's UUID-v4 `saleId` makes a repeated Complete return the saved sale (`replay = true`) instead of selling twice.
+
+The van gateway (`/van/v1/push`) has no sale operation yet and the server has no governed price list to re-price a sale, so the outbox row is written with status `parked` (`SALE_PARKED`): it holds the frozen operation bytes, is never selected by the sync engine, is counted as `SyncStatus.savedSales`, and its stock stays deducted across later bootstraps (an unacknowledged movement never settles). A later gateway lane adds `sale.record` to the van-v1 contract and promotes parked rows to `pending`; parked bytes have not been sent, so that lane may still adjust the payload shape. Receipt printing of the sale, credit terms and server posting are separate issues.
+
 ## Offline ledger and identifiers
 
 `TruckStockLedger(store, afterEnqueue)` exposes `projection()`, `canRemove(productId, qty)` and `recordDamage(productId, qty, reason, note = null)`. Damage transfers a positive quantity from available to damaged and inserts both immutable movements and the unchanged `truck.damage` outbox JSON in **one** Room transaction. Negative-stock policy defaults off; a sale/damage removal is checked again inside the transaction. A damaged-stock sale is not allowed.
@@ -137,7 +152,7 @@ Pass `Intent().putExtra(VanRepository.STUB_EXTRA, "ready")` to `create`, or pass
 
 The fake serves the frozen bootstrap fixture (asserted equal to the source fixture by a JVM test), posts matching loads, keeps discrepancies awaiting approval, starts loaded trips, transfers damage balances, and replays exact original acks by request ID/payload digest. It uses fixture-only private preferences for simulated server state/replies, **separate encrypted stub database/session keys and a separate device key alias**, and survives relaunch. It never signs in to or changes the shared DEV deployment. Fake credentials/enrollment are not a real auth proof; fake posting is not office/SAP inventory integration.
 
-Live van gateway functions are not deployed on shared DEV yet, so no live sign-in/device/bootstrap/push integration claim is made. Sale/payment/return/reconciliation command workflows, governed prices, office discrepancy approval UI, supervisor review/recovery and SAP handoff are later lanes. Printing/scanning and UI are separately owned.
+Live van gateway functions are not deployed on shared DEV yet, so no live sign-in/device/bootstrap/push integration claim is made. Sale upload, payment methods beyond cash, return/reconciliation command workflows, governed prices, office discrepancy approval UI, supervisor review/recovery and SAP handoff are later lanes. Printing/scanning and UI are separately owned.
 
 ## Verification
 

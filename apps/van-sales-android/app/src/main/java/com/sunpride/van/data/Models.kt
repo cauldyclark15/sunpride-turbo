@@ -38,8 +38,14 @@ data class PriceLine(val priceListId: String, val productId: String, val uomCode
 data class VanBootstrap(val serverTime: Long, val serviceDate: String, val seller: Seller, val policy: VanPolicy,
     val trip: Trip?, val load: Load?, val truckStock: List<TruckStock>, val products: List<Product>, val customers: List<Customer>)
 data class LoadActual(val lineNumber: Int, val actualBase: Long, val reason: String? = null)
+/** [savedSales]: VAN-011 sales committed on this phone whose office upload is not available yet (parked, never sent). */
 data class SyncStatus(val queued: Int = 0, val sending: Int = 0, val review: Int = 0,
-    val held: Int = 0, val lastSyncTime: Long? = null, val health: String = "never_synced")
+    val held: Int = 0, val lastSyncTime: Long? = null, val health: String = "never_synced", val savedSales: Int = 0)
+/** A completed van sale as saved on this phone (VAN-011). Money is in minor units of [currency]. */
+data class SaleReceiptLine(val lineNumber: Int, val productId: String, val name: String, val uomCode: String,
+    val quantityLabel: String, val unitPriceMinor: Long, val totalMinor: Long)
+data class SaleReceipt(val saleId: String, val receiptNumber: String, val customerName: String, val lines: List<SaleReceiptLine>,
+    val currency: String, val totalMinor: Long, val tenderedMinor: Long, val changeMinor: Long, val createdAt: Long, val replay: Boolean = false)
 data class PushAck(val entityId: String, val movementId: String?, val serverTime: Long)
 data class PushResult(val kind: String, val clientRequestId: String, val status: String,
     val ack: PushAck? = null, val code: String? = null)
