@@ -160,6 +160,19 @@ class OrderPricingTest {
         assertFalse(credit.blocking)
         assertNotNull(submitOrderDraftIn(s, scope, current.draftId, sent.submittedRequestId!!, 500).submittedRequestId)
     }
+    @Test fun officePricedLinesNeverReportWithinCreditButKnownPartCanWarnOver() = runBlocking {
+        val incompleteNote = "Some lines are priced by the office, so the office checks credit when the order arrives."
+        val unpriced = OrderSubmission.creditCheck(draft(null), summary(100000))
+        assertEquals("Credit", unpriced.label); assertEquals(incompleteNote, unpriced.note)
+        assertFalse(unpriced.warning); assertFalse(unpriced.blocking)
+        val partial = draft().let { it.copy(lines = it.lines + OrderDraftLine("office", "U", "Office line", "CAN", 4)) }
+        assertEquals(incompleteNote, OrderSubmission.creditCheck(partial, summary(100000)).note)
+        val over = OrderSubmission.creditCheck(partial, summary(10000, 1000))
+        assertEquals("Over the store's credit limit by at least ₱0.50. You can still send it; the office must approve.", over.note)
+        assertTrue(over.warning); assertFalse(over.blocking)
+        val otherUnpriced = draft(null).copy(submittedRequestId = "sent")
+        assertEquals(incompleteNote, OrderSubmission.creditCheck(draft(), summary(100000), listOf(otherUnpriced)).note)
+    }
     @Test fun overflowAlwaysFallsBackWithoutTrappingOrBlocking() = runBlocking {
         val d = draft(Long.MAX_VALUE)
         assertNull(OrderSubmission.lineAmount(d.lines.single())); assertNull(OrderSubmission.totals(d).totalMinor)

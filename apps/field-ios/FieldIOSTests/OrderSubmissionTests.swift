@@ -232,7 +232,9 @@ final class OrderSubmissionTests: XCTestCase {
             sales: .init(from: "2026-09-03", to: day, complete: true, orders: 1, amountMinor: 1, recentOrders: 0,
                          recentAmountMinor: 0, lastOrderDate: nil, lastOrderAmountMinor: nil),
             openOrders: .init(count: 1, amountMinor: 410_000))
-        XCTAssertEqual(OrderSubmission.creditCheck(draft, summary: summary).note, "₱45,900.00 left after this order")
+        // No price for this draft's line: the amount is unknown, so the phone never claims "within".
+        XCTAssertEqual(OrderSubmission.creditCheck(draft, summary: summary).note,
+                       "Some lines are priced by the office, so the office checks credit when the order arrives.")
         let withheld = AccountSummary(outletId: "first", asOfDate: day, availability: "withheld", creditLimitMinor: nil, sales: nil, openOrders: nil)
         XCTAssertEqual(OrderSubmission.creditCheck(draft, summary: withheld).note, "Credit is checked by the office when the order arrives.")
     }

@@ -195,12 +195,17 @@ enum OrderSubmission {
         guard let limit = summary.creditLimitMinor else {
             return Check(label: "Credit", problem: nil, blocking: false, note: "No credit limit set for this store")
         }
-        guard let amount = totals(draft).totalMinor else { return unknown() }
+        let own = totals(draft)
+        guard let amount = own.totalMinor else { return unknown() }
+        // An office-priced line has no known amount: the known part can prove "over", never "within".
+        var incomplete = own.unpricedLines > 0
         var open = summary.openOrders?.amountMinor ?? 0
         var seen = Set<String>()
         for other in otherOrders where other.draftId != draft.draftId && other.outletId == draft.outletId &&
             other.serviceDate == draft.serviceDate && other.submittedRequestId != nil && seen.insert(other.draftId).inserted {
-            guard let total = totals(other).totalMinor else { return unknown() }
+            let otherTotals = totals(other)
+            guard let total = otherTotals.totalMinor else { return unknown() }
+            if otherTotals.unpricedLines > 0 { incomplete = true }
             let (next, overflow) = open.addingReportingOverflow(total)
             guard !overflow else { return unknown() }
             open = next
@@ -208,12 +213,16 @@ enum OrderSubmission {
         let (headroom, overflow) = limit.subtractingReportingOverflow(open)
         let (left, leftOverflow) = headroom.subtractingReportingOverflow(amount)
         guard !overflow, !leftOverflow, left != Int64.min else { return unknown() }
-        if left >= 0 {
-            return Check(label: "Within the store's credit limit", problem: nil, blocking: false,
-                         note: "\(money(left)) left after this order")
+        if left < 0 {
+            return Check(label: "Credit", problem: nil, blocking: false,
+                         note: "Over the store's credit limit by \(incomplete ? "at least " : "")\(money(-left)). You can still send it; the office must approve.", warning: true)
         }
-        return Check(label: "Credit", problem: nil, blocking: false,
-                     note: "Over the store's credit limit by \(money(-left)). You can still send it; the office must approve.", warning: true)
+        if incomplete {
+            return Check(label: "Credit", problem: nil, blocking: false,
+                         note: "Some lines are priced by the office, so the office checks credit when the order arrives.")
+        }
+        return Check(label: "Within the store's credit limit", problem: nil, blocking: false,
+                     note: "\(money(left)) left after this order")
     }
 
     /// The draft's outbox state → what the person sees. `requestState` is the stored state of

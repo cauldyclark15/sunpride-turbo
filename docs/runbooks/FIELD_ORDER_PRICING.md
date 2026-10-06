@@ -21,18 +21,27 @@ pricing scope (SP-0033) replace the sample rows later without code changes.
 5. **Server pricing.** On every submitted `order_intent` with lines, `visits/commands.ts` prices
    the order itself at the capture time (`min(deviceTime, serverTime)`) and stores the result in
    `fieldOrderPricings` (lines, total, unpriced count, list and its source). The phone's figures
-   are never trusted.
+   are never trusted. An order stamped before its call's check-in (`visit.startedAt`, same phone
+   clock) is refused `invalid_request`, so a backdated order can never pick a retired price. Other
+   activities keep device time as evidence only (ADR-022).
 
 ## Credit check
 
 - Limit: `customers.creditLimit` (pesos; 0 or less = no limit set).
 - Server: open orders of the customer (submitted / pending approval / approved / sent to SAP /
-  review required; there is no receivables feed yet) + earlier priced orders on the same call +
-  this order, against the limit. Recorded as `within`, `over`, `no_limit` or `unknown` (more than
-  200 recent orders to read). **Over the limit never blocks the order**: the office approves it.
+  review required; there is no receivables feed yet) + every field order sent for the same
+  customer in the last 30 days (`FIELD_ORDER_PENDING_DAYS`, a sample default: field orders do not
+  become `orders` rows yet), on any call by anyone + this order, against the limit. Recorded as
+  `within`, `over`, `no_limit` or `unknown`. A line without a price has no known amount: known
+  amounts over the limit are still `over`, otherwise an order or pending exposure with an
+  office-priced line is `unknown`, never `within`. More than 200 recent orders or 200 pending
+  field orders to read is also `unknown`. **Over the limit never blocks the order**: the office
+  approves it.
 - Phone (advisory, offline): the cached account summary's limit and open orders plus this phone's
-  other sent orders for the store that day. Over the limit shows a warning; Send stays enabled.
-  When the summary is withheld (shared account) the phone says the office checks credit.
+  other sent orders for the store that day. Over the limit shows a warning ("by at least" when
+  some lines are office-priced); Send stays enabled. With office-priced lines and no proven
+  overrun the phone says the office checks credit. When the summary is withheld (shared account)
+  the phone says the office checks credit.
 
 ## Beta sample data (made up, clearly marked)
 
