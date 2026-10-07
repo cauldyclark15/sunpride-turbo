@@ -2,13 +2,14 @@
 
 Separate native app for truck sellers (PMOT, PMOT Extruck, RDS) per ADR-010 and ADR-004: Kotlin + Jetpack Compose, Android only, built for the Senraise H10P handheld (Android 14, 720×1440, built-in 58 mm printer and scanner, 3-button navigation bar). It shares wire contracts with the backend (`packages/domain-contracts/schemas/van-v1.schema.json`), never screens or state with the field apps.
 
-| Doc                                              | What it covers                                                                                     |
-| ------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
-| [SETUP.md](SETUP.md)                             | Build, endpoints, practice (stub) mode, handheld test runner, screenshots                          |
-| [ARCHITECTURE.md](ARCHITECTURE.md)               | Packages, `VanRepository` API, encrypted Room DB, truck-stock ledger, transaction ids, sync engine |
-| [PRINTER_AND_SCANNER.md](PRINTER_AND_SCANNER.md) | Recovered Senraise printer AIDL, printer abstraction, scanner modes, camera fallback               |
-| [SCREENS.md](SCREENS.md)                         | Screens and screenshot verdicts                                                                    |
-| [beta.md](beta.md)                               | Beta APK: hidden features, signing key, `bun run apk:van-beta`, logo/splash, install and proof     |
+| Doc                                                    | What it covers                                                                                     |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| [SETUP.md](SETUP.md)                                   | Build, endpoints, practice (stub) mode, handheld test runner, screenshots                          |
+| [ARCHITECTURE.md](ARCHITECTURE.md)                     | Packages, `VanRepository` API, encrypted Room DB, truck-stock ledger, transaction ids, sync engine |
+| [PRINTER_AND_SCANNER.md](PRINTER_AND_SCANNER.md)       | Recovered Senraise printer AIDL, printer abstraction, scanner modes, camera fallback               |
+| [SCREENS.md](SCREENS.md)                               | Screens and screenshot verdicts                                                                    |
+| [beta.md](beta.md)                                     | Beta APK: hidden features, signing key, `bun run apk:van-beta`, logo/splash, install and proof     |
+| [Van UAT](../../../docs/qa/VAN_SALES_UAT_SCENARIOS.md) | Van-sales UAT scenarios and sign-off sheet for the Cebu van pilot (QSR-002)                        |
 
 Root check: `bun run native:van` (assemble, JVM tests and lint, then device tests on the H10P through the lock-guarded runner; skips the device step when the handheld is absent).
 
