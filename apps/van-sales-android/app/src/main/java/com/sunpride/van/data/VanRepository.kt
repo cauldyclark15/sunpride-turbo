@@ -94,7 +94,14 @@ class VanRepository private constructor(private val context: Context, private va
     suspend fun signIn(email: String, password: String): Unit = authLock.withLock {
         withContext(Dispatchers.IO) {
             current.value?.hold(); current.value = null; gateway = null
-            if (stubMode == null) auth.signIn(email,password) else vault.saveSession("debug-fixture-session")
+            if (stubMode == null) auth.signIn(email,password) else {
+                // Debug fixture only: reproduce the server's sign-in refusals without a network.
+                when (password) {
+                    STUB_WRONG_PASSWORD -> throw AuthFailure(AuthFailure.Kind.INVALID_CREDENTIALS)
+                    STUB_OFFLINE_PASSWORD -> throw AuthFailure(AuthFailure.Kind.OFFLINE)
+                }
+                vault.saveSession("debug-fixture-session")
+            }
             session.value = SessionState(true,true); enroll(); Unit
         }
     }
@@ -160,6 +167,8 @@ class VanRepository private constructor(private val context: Context, private va
     fun close() { lifetime.cancel(); current.value = null; database?.close(); database = null }
     companion object {
         const val STUB_EXTRA = "VAN_STUB_BACKEND"
+        internal const val STUB_WRONG_PASSWORD = "fixture-wrong-password"
+        internal const val STUB_OFFLINE_PASSWORD = "fixture-offline"
         internal fun forWorker(context: Context, stub: Boolean): VanRepository = VanRepository(context.applicationContext,
             AppEnvironment(BuildConfig.CONVEX_SITE_URL,BuildConfig.CONVEX_URL),if (stub && BuildConfig.DEBUG) "ready" else null,scheduleWork=false)
         fun create(context: Context, intent: Intent? = null, stubMode: String? = null,
