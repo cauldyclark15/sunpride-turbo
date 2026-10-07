@@ -33,13 +33,16 @@ import {
 const KEY_LABEL = "sunpride/van-void-approval/v1|";
 const enc = new TextEncoder();
 
-const b64url = (bytes: Uint8Array) =>
+export const b64url = (bytes: Uint8Array) =>
   btoa(Array.from(bytes, (b) => String.fromCharCode(b)).join(""))
     .replaceAll("+", "-")
     .replaceAll("/", "_")
     .replace(/=+$/, "");
 
-async function hmac(key: Uint8Array, message: string): Promise<Uint8Array> {
+export async function hmac(
+  key: Uint8Array,
+  message: string,
+): Promise<Uint8Array> {
   const imported = await crypto.subtle.importKey(
     "raw",
     key as BufferSource,
@@ -52,14 +55,15 @@ async function hmac(key: Uint8Array, message: string): Promise<Uint8Array> {
   );
 }
 
-function secret(): string | null {
+/** The runtime-only mobile secret, or null when absent/short (approval keys are then not issued). */
+export function approvalSecret(): string | null {
   const value = process.env.MOBILE_CURSOR_SECRET;
   return value && value.length >= 32 ? value : null;
 }
 
 /** The trip's void key (base64url, 43 chars), or null when the secret is not configured. */
 export async function voidApprovalKey(tripId: string): Promise<string | null> {
-  const configured = secret();
+  const configured = approvalSecret();
   if (!configured) return null;
   return b64url(await hmac(enc.encode(configured), KEY_LABEL + tripId));
 }
@@ -74,15 +78,23 @@ export async function voidApprovalCode(
     reasonCode: string;
   },
 ): Promise<string> {
+  return approvalCodeFor(
+    key,
+    `VOID|v1|${args.tripId}|${args.receiptNumber}|${args.totalMinor.toString()}|${args.reasonCode}`,
+  );
+}
+
+/** RFC 4226 dynamic truncation of HMAC-SHA256(base64url trip key, message) mod 10^8, zero padded. */
+export async function approvalCodeFor(
+  key: string,
+  message: string,
+): Promise<string> {
   const raw = key.replaceAll("-", "+").replaceAll("_", "/");
   const keyBytes = Uint8Array.from(
     atob(raw.padEnd(Math.ceil(raw.length / 4) * 4, "=")),
     (c) => c.charCodeAt(0),
   );
-  const mac = await hmac(
-    keyBytes,
-    `VOID|v1|${args.tripId}|${args.receiptNumber}|${args.totalMinor.toString()}|${args.reasonCode}`,
-  );
+  const mac = await hmac(keyBytes, message);
   const offset = mac[31]! & 0x0f;
   const binary =
     ((mac[offset]! & 0x7f) << 24) |

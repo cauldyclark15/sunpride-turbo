@@ -10,7 +10,12 @@ import type { AuthorizedDevice } from "../mobile/types";
 import schema from "../schema";
 import { modules } from "../test.setup";
 import { handleVan } from "./http_handlers";
-import { VAN_PAYMENT_METHODS, VOID_REASONS } from "./model";
+import { cashApprovalCode, cashApprovalKey } from "./cash";
+import {
+  CASH_VARIANCE_REASONS,
+  VAN_PAYMENT_METHODS,
+  VOID_REASONS,
+} from "./model";
 import { voidApprovalCode, voidApprovalKey } from "./voids";
 
 // UTC is still October 5 here, but the service day in Manila is October 6.
@@ -2237,6 +2242,198 @@ describe("van sale void approval (VAN-021)", () => {
     await expect(
       issue(sellerManager, { receiptNumber: receipt(own.tripNumber) }),
     ).rejects.toThrow(/your own sale/);
+    delete process.env[SECRET_ENV];
+    await expect(issue(manager)).rejects.toThrow(/not configured/);
+  });
+});
+
+// VAN-022: one vector from packages/domain-contracts/fixtures/van-v1/cash-approval.json
+// (TEST-ONLY secret); the contracts and Android suites check every vector in that file.
+const CASH_VECTOR = {
+  secret: "test-only-van-void-secret-0123456789abcdef",
+  tripId: "k57trip0000000000000000000000001",
+  key: "PnoIS45xGmCnubWwLVAmPBjjgF-prN3ykOOEvfv5zsY",
+  expectedMinor: 1234550n,
+  declaredMinor: 1234500n,
+  reasonCode: "counting_error",
+  code: "93406719",
+};
+
+describe("van end-of-trip cash reconciliation approval (VAN-022)", () => {
+  const previous = process.env[SECRET_ENV];
+  afterEach(() => {
+    if (previous === undefined) delete process.env[SECRET_ENV];
+    else process.env[SECRET_ENV] = previous;
+  });
+  const configure = () => {
+    process.env[SECRET_ENV] = CASH_VECTOR.secret;
+  };
+
+  it("derives the shared cross-language key and code, separate from the void key", async () => {
+    configure();
+    expect(await cashApprovalKey(CASH_VECTOR.tripId)).toBe(CASH_VECTOR.key);
+    expect(await cashApprovalKey(CASH_VECTOR.tripId)).not.toBe(
+      await voidApprovalKey(CASH_VECTOR.tripId),
+    );
+    expect(await cashApprovalCode(CASH_VECTOR.key, CASH_VECTOR)).toBe(
+      CASH_VECTOR.code,
+    );
+    for (const changed of [
+      { ...CASH_VECTOR, expectedMinor: 1234551n },
+      { ...CASH_VECTOR, declaredMinor: 1234501n },
+      { ...CASH_VECTOR, reasonCode: "other" },
+      { ...CASH_VECTOR, tripId: "k57trip0000000000000000000000002" },
+    ])
+      expect(await cashApprovalCode(CASH_VECTOR.key, changed)).not.toBe(
+        CASH_VECTOR.code,
+      );
+    delete process.env[SECRET_ENV];
+    expect(await cashApprovalKey(CASH_VECTOR.tripId)).toBeNull();
+  });
+
+  it("sends the variance reasons, tolerance and trip key in the bootstrap; no key without a trip or secret", async () => {
+    configure();
+    const f = await fixture();
+    const empty = await f.t.query(internal.van.device.bootstrap, {
+      actor: f.seller.actor,
+      now: NOW,
+    });
+    expect(empty.policy.cashReconciliation).toEqual({
+      approvalRequired: true,
+      toleranceMinor: "5000",
+      reasons: [...CASH_VARIANCE_REASONS],
+      key: null,
+    });
+    const { tripId } = await f.loaded();
+    const view = await f.t.query(internal.van.device.bootstrap, {
+      actor: f.seller.actor,
+      now: NOW,
+    });
+    expect(view.policy.cashReconciliation.key).toBe(
+      await cashApprovalKey(tripId),
+    );
+    expect(view.policy.cashReconciliation.key).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    delete process.env[SECRET_ENV];
+    const unconfigured = await f.t.query(internal.van.device.bootstrap, {
+      actor: f.seller.actor,
+      now: NOW,
+    });
+    expect(unconfigured.policy.cashReconciliation.key).toBeNull();
+  });
+
+  it("issues the code a supervisor in scope reads to the seller, audited without the code", async () => {
+    configure();
+    const f = await fixture();
+    const { tripId, tripNumber } = await f.loaded();
+    await f.start(tripId);
+    const manager = await f.person("manager");
+    const issued = await manager.identity.mutation(
+      api.van.cash.issueApprovalCode,
+      {
+        tripNumber: ` ${tripNumber.toLowerCase()} `,
+        expectedMinor: "1234550",
+        declaredMinor: "1220000",
+        reasonCode: "lost_or_stolen",
+      },
+    );
+    const key = (await cashApprovalKey(tripId))!;
+    expect(issued).toEqual({
+      code: await cashApprovalCode(key, {
+        tripId,
+        expectedMinor: 1234550n,
+        declaredMinor: 1220000n,
+        reasonCode: "lost_or_stolen",
+      }),
+      tripNumber,
+      expectedMinor: "1234550",
+      declaredMinor: "1220000",
+      varianceMinor: "-14550",
+      reasonCode: "lost_or_stolen",
+    });
+    const audits = await f.t.run((ctx) =>
+      ctx.db
+        .query("auditLogs")
+        .withIndex("by_entity", (q) =>
+          q.eq("entityType", "vanTrip").eq("entityId", tripId),
+        )
+        .collect(),
+    );
+    const approval = audits.find(
+      (row) => row.action === "van.cash.approval_issued",
+    )!;
+    expect(approval.details).toBe("1234550|1220000|-14550|lost_or_stolen");
+    expect(JSON.stringify(audits)).not.toContain(issued.code);
+    // An approver also qualifies, and an over-count is approved the same way.
+    const approver = await f.person("approver");
+    await expect(
+      approver.identity.mutation(api.van.cash.issueApprovalCode, {
+        tripNumber,
+        expectedMinor: "0",
+        declaredMinor: "6000",
+        reasonCode: "customer_overpaid",
+      }),
+    ).resolves.toMatchObject({ varianceMinor: "6000" });
+  });
+
+  it("refuses the seller, roles without the capability, other regions, bad input, trips not on the road and a missing secret", async () => {
+    configure();
+    const f = await fixture();
+    const sellerManager = await f.person("manager");
+    const { tripId, tripNumber } = await f.loaded();
+    const valid = {
+      tripNumber,
+      expectedMinor: "500000",
+      declaredMinor: "490000",
+      reasonCode: "counting_error",
+    };
+    const issue = (
+      who: { identity: typeof f.seller.identity },
+      args: Partial<typeof valid> = {},
+    ) =>
+      who.identity.mutation(api.van.cash.issueApprovalCode, {
+        ...valid,
+        ...args,
+      });
+    const manager = await f.person("manager");
+    // Loaded but not started: no cash to count yet.
+    await expect(issue(manager)).rejects.toThrow(/not on the road/);
+    await f.start(tripId);
+    await expect(issue(f.seller)).rejects.toThrow(/Insufficient permission/);
+    await expect(issue(await f.person("operations"))).rejects.toThrow(
+      /Insufficient permission/,
+    );
+    await expect(issue(await f.person("manager", f.west))).rejects.toThrow(
+      /outside your organizational scope/,
+    );
+    await expect(issue(manager, { tripNumber: " " })).rejects.toThrow(
+      /trip number/,
+    );
+    await expect(issue(manager, { tripNumber: "TRIP-NOPE" })).rejects.toThrow(
+      /No trip matches/,
+    );
+    await expect(issue(manager, { expectedMinor: "-1" })).rejects.toThrow(
+      /expected cash/,
+    );
+    await expect(issue(manager, { declaredMinor: "12.50" })).rejects.toThrow(
+      /counted cash/,
+    );
+    await expect(
+      issue(manager, { declaredMinor: valid.expectedMinor }),
+    ).rejects.toThrow(/no approval is needed/);
+    await expect(issue(manager, { reasonCode: "because" })).rejects.toThrow(
+      /difference reason/,
+    );
+    // A manager who is the trip's seller cannot approve their own count.
+    const own = await f.plan(
+      await f.anotherVehicle("VAN-009"),
+      sellerManager.profileId,
+    );
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch(own.tripId, { status: "active" });
+    });
+    await expect(
+      issue(sellerManager, { tripNumber: own.tripNumber }),
+    ).rejects.toThrow(/your own cash count/);
     delete process.env[SECRET_ENV];
     await expect(issue(manager)).rejects.toThrow(/not configured/);
   });

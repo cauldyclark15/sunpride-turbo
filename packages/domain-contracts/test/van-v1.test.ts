@@ -17,12 +17,14 @@ const read = async (name: string): Promise<Record<string, unknown>> =>
   Bun.file(new URL(name, fixtureDir)).json();
 /** Wire envelopes; `void-approval.json` holds VAN-021 code vectors, not an envelope. */
 const VOID_VECTORS = "void-approval.json";
+/** VAN-022 cash approval code vectors, not an envelope. */
+const CASH_VECTORS = "cash-approval.json";
 const names = (
   await Array.fromAsync(
     new Bun.Glob("*.json").scan({ cwd: fixtureDir.pathname }),
   )
 )
-  .filter((name) => name !== VOID_VECTORS)
+  .filter((name) => name !== VOID_VECTORS && name !== CASH_VECTORS)
   .sort();
 
 describe("van v1 contract fixtures", () => {
@@ -200,6 +202,63 @@ describe("van v1 contract fixtures", () => {
       const mac = createHmac("sha256", key)
         .update(
           `VOID|v1|${vectors.tripId}|${vector.receiptNumber}|${vector.totalMinor}|${vector.reasonCode}`,
+        )
+        .digest();
+      const offset = mac[31]! & 0x0f;
+      const binary = mac.readUInt32BE(offset) & 0x7fffffff;
+      expect(String(binary % 100_000_000).padStart(8, "0")).toBe(vector.code);
+    }
+  });
+  test("the cash reconciliation rule is optional and bounded (VAN-022)", async () => {
+    const boot = await read("bootstrap-response.json");
+    const policy = boot.policy as Record<string, unknown>;
+    const cash = policy.cashReconciliation as Record<string, unknown>;
+    const withCash = (extra: Record<string, unknown>) =>
+      validate({ ...boot, policy: { ...policy, cashReconciliation: extra } });
+    const legacy = { ...policy };
+    delete legacy.cashReconciliation;
+    expect(validate({ ...boot, policy: legacy })).toBe(true);
+    expect(withCash({ ...cash, key: null })).toBe(true);
+    expect(withCash({ ...cash, reasons: [] })).toBe(false);
+    expect(withCash({ ...cash, reasons: ["shrug"] })).toBe(false);
+    expect(withCash({ ...cash, key: "short" })).toBe(false);
+    expect(withCash({ ...cash, toleranceMinor: 5000 })).toBe(false);
+    expect(withCash({ ...cash, toleranceMinor: "-1" })).toBe(false);
+    const { approvalRequired: _required, ...partial } = cash;
+    void _required;
+    expect(withCash(partial)).toBe(false);
+    expect(withCash({ ...cash, extra: 1 })).toBe(false);
+  });
+
+  test("cash approval vectors match an independent HMAC implementation and differ from void keys (VAN-022)", async () => {
+    const vectors = (await read(CASH_VECTORS)) as {
+      secret: string;
+      tripId: string;
+      key: string;
+      cases: {
+        expectedMinor: string;
+        declaredMinor: string;
+        reasonCode: string;
+        code: string;
+      }[];
+    };
+    const key = createHmac("sha256", vectors.secret)
+      .update(`sunpride/van-cash-approval/v1|${vectors.tripId}`)
+      .digest();
+    expect(key.toString("base64url")).toBe(vectors.key);
+    const boot = await read("bootstrap-response.json");
+    const policy = boot.policy as {
+      cashReconciliation: { key: string };
+      voidApproval: { key: string };
+    };
+    expect(policy.cashReconciliation.key).toBe(vectors.key);
+    // Domain-separated: a void key (and so a void code) never approves cash.
+    expect(policy.cashReconciliation.key).not.toBe(policy.voidApproval.key);
+    expect(vectors.cases.length).toBeGreaterThanOrEqual(3);
+    for (const vector of vectors.cases) {
+      const mac = createHmac("sha256", key)
+        .update(
+          `CASH|v1|${vectors.tripId}|${vector.expectedMinor}|${vector.declaredMinor}|${vector.reasonCode}`,
         )
         .digest();
       const offset = mac[31]! & 0x0f;
