@@ -608,6 +608,56 @@ describe("suggested order for a store", () => {
     ).rejects.toThrow(/outside your organizational scope/);
   });
 
+  // ANA-010: the iOS/Android call sheet sends exactly these args and decodes these fields
+  // (packages/domain-contracts/fixtures/suggested-order/for-outlet.json is the shared sample).
+  it("serves the field apps' call-sheet contract and writes nothing", async () => {
+    const { t, ids, as } = await fixture();
+    const counts = () =>
+      t.run(async (ctx) => ({
+        orders: (await ctx.db.query("orders").collect()).length,
+        orderLines: (await ctx.db.query("orderLines").collect()).length,
+        visitActivities: (await ctx.db.query("visitActivities").collect())
+          .length,
+        mobileChanges: (await ctx.db.query("mobileChanges").collect()).length,
+      }));
+    const before = await counts();
+    const result = await as("Ana").query(
+      api.analytics.suggested_orders.forOutlet,
+      { outletId: ids.outlet, asOfDate: AS_OF },
+    );
+    expect(await counts()).toEqual(before);
+    expect(result.outlet.outletId).toBe(ids.outlet);
+    expect(result.asOfDate).toBe(AS_OF);
+    for (const whole of [
+      result.coverDays,
+      result.leadTimeDays,
+      result.nextVisit.days,
+    ])
+      expect(Number.isInteger(whole)).toBe(true);
+    expect(typeof result.leadTimeProvisional).toBe("boolean");
+    // The field apps explain partial_scope / shared_account / no_customer history.
+    expect(result.historyStatus).toBe("complete");
+    for (const row of result.lines) {
+      expect(Object.keys(row)).toEqual(
+        expect.arrayContaining([
+          "productId",
+          "code",
+          "name",
+          "unit",
+          "status",
+          "suggestedQuantity",
+          "reasons",
+        ]),
+      );
+      expect(Number.isInteger(row.suggestedQuantity)).toBe(true);
+      expect(row.reasons.length).toBeGreaterThan(0);
+    }
+    // Lines are keyed by the same product _id the call sheet carries.
+    expect(result.lines.find((row) => row.code === "P1")?.productId).toBe(
+      ids.p.P1,
+    );
+  });
+
   it("refuses callers outside the store's scope or assignment", async () => {
     const { ids, as } = await fixture();
     const args = { outletId: ids.outlet, asOfDate: AS_OF };

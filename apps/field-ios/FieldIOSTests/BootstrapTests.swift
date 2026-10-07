@@ -82,6 +82,41 @@ final class BootstrapTests: XCTestCase {
         }
     }
 
+    func testOrderTermsRepeatedAcrossPagesAgreeAndPersistAtomically() async throws {
+        let first = try altered("bootstrap-order-terms-response") {
+            $0["nextPageCursor"] = "page-2"; $0["syncCursor"] = NSNull()
+        }
+        let second = try altered("bootstrap-order-terms-response") { object in
+            object["page"] = 2
+            var visits = object["plannedVisits"] as! [[String: Any]]
+            visits[0]["id"] = "planned-2"; object["plannedVisits"] = visits
+        }
+        protocolStub(first, next: second)
+        let partition = try await client().run(deviceId: device, subject: subject, store: store)
+        XCTAssertEqual(try store.snapshot(for: partition)?.orderTerms.count, 1)
+        XCTAssertEqual(try store.snapshot(for: partition)?.orderTerms[0].lines[0].unitPriceMinor, 4525)
+        store.close()
+        store = try EncryptedFieldStore(url: directory.appending(path: "field.sqlite"), secrets: secrets, keyAccount: "db")
+        XCTAssertEqual(try store.snapshot(for: partition)?.orderTerms[0].priceList?.sample, true)
+        let conflict = try altered("bootstrap-order-terms-response") { object in
+            object["page"] = 2
+            var visits = object["plannedVisits"] as! [[String: Any]]
+            visits[0]["id"] = "planned-2"; object["plannedVisits"] = visits
+            var terms = object["orderTerms"] as! [[String: Any]]
+            var lines = terms[0]["lines"] as! [[String: Any]]
+            lines[0]["unitPriceMinor"] = 9999; terms[0]["lines"] = lines; object["orderTerms"] = terms
+        }
+        protocolStub(first, next: conflict)
+        do { _ = try await client().run(deviceId: device, subject: subject, store: store); XCTFail("Conflicting terms must refuse promotion") }
+        catch { XCTAssertEqual(error as? BootstrapClient.Failure, .invalidResponse) }
+        XCTAssertEqual(try store.snapshot(for: partition)?.orderTerms[0].lines[0].unitPriceMinor, 4525)
+        XCTAssertEqual(try store.cursor(for: partition), "opaque-start")
+        let other = try StorePartition(subject: "other", deviceId: device, scope: partition.scope)
+        XCTAssertNil(try store.snapshot(for: other))
+        try store.purgeCacheForReview(partition)
+        XCTAssertNil(try store.snapshot(for: partition))
+    }
+
     func testSharedFixturesRoundTripAndStrictNulls() throws {
         let request = try JSONDecoder().decode(BootstrapV1.Request.self, from: fixture("bootstrap-request"))
         XCTAssertEqual(request.deviceId, "device-1")
@@ -345,6 +380,37 @@ final class BootstrapTests: XCTestCase {
         XCTAssertEqual(try store.todayVisits("2026-09-26", for: p).count, 1)
     }
 
+    /// QSR-009: a 429 back-off and a refused challenge are retry-later, not "unexpected response",
+    /// and leave the previous snapshot/cursor untouched.
+    func testRateLimitedBootstrapIsRetryLaterAndKeepsSnapshot() async throws {
+        let p = try StorePartition(subject: subject, deviceId: device, scope: "scope-v1")
+        let page = try JSONDecoder().decode(BootstrapV1.Page.self, from: fixture("bootstrap-response"))
+        try store.saveSnapshot(StoreSnapshot(employee: page.employee, visits: page.plannedVisits,
+            outlets: page.outlets, customers: [], route: nil, tasks: []), cursor: "prior",
+            leaseExpiresAt: page.appConfig.offlineLeaseExpiresAt, cacheExpiresAt: page.appConfig.cacheExpiresAt, for: p)
+        let throttled = try JSONSerialization.data(withJSONObject: ["type": "error.response", "contractVersion": 1,
+            "serverTime": 1_790_380_800_000, "code": "temporarily_unavailable", "message": "temporarily_unavailable",
+            "retryable": true])
+        protocolStub(throttled, firstStatus: 429)
+        do { _ = try await client().run(deviceId: device, subject: subject, store: store, previous: p); XCTFail("must back off") }
+        catch { XCTAssertEqual(error as? BootstrapClient.Failure, .throttled) }
+        XCTAssertEqual(StubURLProtocol.requests(to: "/mobile/v1/bootstrap").count, 1, "no immediate hammering")
+        let jwt = StubHTTP.jwt(exp: Date().timeIntervalSince1970 + 900)
+        StubURLProtocol.install { request in
+            if request.path == "/api/auth/convex/token" { return .reply(.json(200, ["token": jwt])) }
+            if request.path == "/api/mutation" {
+                return .reply(.json(200, ["status": "error", "errorMessage": "Uncaught ConvexError: rate_limited",
+                                          "errorData": "rate_limited"]))
+            }
+            return .fail(.badURL)
+        }
+        do { _ = try await client().run(deviceId: device, subject: subject, store: store, previous: p); XCTFail("must back off") }
+        catch { XCTAssertEqual(error as? BootstrapClient.Failure, .throttled) }
+        XCTAssertTrue(StubURLProtocol.requests(to: "/mobile/v1/bootstrap").isEmpty)
+        XCTAssertEqual(try store.cursor(for: p), "prior")
+        XCTAssertEqual(try store.todayVisits("2026-09-26", for: p).count, 1)
+    }
+
     func testAccountSummariesDecodeValidateAndPromoteWithTheSnapshot() async throws {
         let name = "bootstrap-account-summary-response"
         let page = try JSONDecoder().decode(BootstrapV1.Page.self, from: fixture(name))
@@ -447,6 +513,65 @@ final class BootstrapTests: XCTestCase {
         XCTAssertEqual(try store.snapshot(for: p)?.callSheets.first?.revision, 2)
         XCTAssertEqual(try store.outlets(for: p).count, 1)
         XCTAssertEqual(try store.cursor(for: p), "opaque-start")
+    }
+
+    func testReferenceDataPagesPersistTogetherAndFlagOnlyFirstRequest() async throws {
+        let product = ReferenceDataFixture.product(), stock = ReferenceDataFixture.stock()
+        let productJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(product))
+        let stockJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(stock))
+        let first = try altered("bootstrap-next-page") { $0["productCatalog"] = [productJSON] }
+        let second = try altered("bootstrap-response") {
+            $0["page"] = 2; $0["plannedVisits"] = []; $0["outlets"] = []
+            $0["productCatalog"] = []; $0["inventoryAvailability"] = [stockJSON]
+        }
+        protocolStub(first, next: second)
+        let p = try await client().run(deviceId: device, subject: subject, store: store)
+        let requests = StubURLProtocol.requests(to: "/mobile/v1/bootstrap")
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertEqual(try json(requests[0].body)["referenceData"] as? Bool, true)
+        XCTAssertNil(try json(requests[0].body)["pageCursor"])
+        XCTAssertNil(try json(requests[1].body)["referenceData"], "Omit the key, not false or null")
+        XCTAssertNotNil(try json(requests[1].body)["pageCursor"])
+        XCTAssertEqual(try store.catalog(for: p), [product])
+        XCTAssertEqual(try store.availability(productId: product.id, for: p), [stock])
+        store.close()
+        store = try EncryptedFieldStore(url: directory.appending(path: "field.sqlite"), secrets: secrets, keyAccount: "db")
+        XCTAssertEqual(try store.snapshot(for: p)?.productCatalog, [product])
+        XCTAssertEqual(try store.snapshot(for: p)?.inventoryAvailability, [stock])
+        XCTAssertEqual(try store.cursor(for: p), "opaque-start")
+    }
+
+    func testReferenceDataPageFailureRetainsPreviousCatalogInventoryAndCursor() async throws {
+        protocolStub(try fixture("bootstrap-response"))
+        let p = try await client().run(deviceId: device, subject: subject, store: store)
+        let initial = ReferenceDataFixture.snapshot()
+        try store.saveSnapshot(initial, cursor: "saved-reference", leaseExpiresAt: 1_900_000_000_000,
+                               cacheExpiresAt: 1_900_000_000_000, for: p)
+        let productJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(ReferenceDataFixture.product(name: "Replacement")))
+        let first = try altered("bootstrap-next-page") { $0["productCatalog"] = [productJSON] }
+        protocolStub(first, next: Data("invalid".utf8))
+        do { _ = try await client().run(deviceId: device, subject: subject, store: store); XCTFail("Incomplete snapshot") }
+        catch { XCTAssertEqual(error as? BootstrapClient.Failure, .invalidResponse) }
+        XCTAssertEqual(try store.catalog(for: p), initial.productCatalog)
+        XCTAssertEqual(try store.availability(productId: "product-1", for: p), initial.inventoryAvailability)
+        XCTAssertEqual(try store.cursor(for: p), "saved-reference")
+    }
+
+    func testReferenceDataRequestRoundTripAndConflictingProductsFailClosed() async throws {
+        let request = BootstrapV1.Request(deviceId: device, referenceData: true)
+        XCTAssertEqual(try JSONDecoder().decode(BootstrapV1.Request.self, from: JSONEncoder().encode(request)), request)
+        let firstProduct = try JSONSerialization.jsonObject(with: JSONEncoder().encode(ReferenceDataFixture.product()))
+        let conflictingProduct = try JSONSerialization.jsonObject(with: JSONEncoder().encode(ReferenceDataFixture.product(name: "Conflict")))
+        let first = try altered("bootstrap-next-page") { $0["productCatalog"] = [firstProduct] }
+        let second = try altered("bootstrap-response") {
+            $0["page"] = 2; $0["plannedVisits"] = []; $0["outlets"] = []
+            $0["productCatalog"] = [conflictingProduct]
+        }
+        protocolStub(first, next: second)
+        do { _ = try await client().run(deviceId: device, subject: subject, store: store); XCTFail("Conflicting reference rows") }
+        catch { XCTAssertEqual(error as? BootstrapClient.Failure, .invalidResponse) }
+        let p = try StorePartition(subject: subject, deviceId: device, scope: "scope-v1")
+        XCTAssertNil(try store.snapshot(for: p)); XCTAssertNil(try store.cursor(for: p))
     }
 
     func testManilaBoundaryAndExpiredLease() throws {

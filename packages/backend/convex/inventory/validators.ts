@@ -67,6 +67,9 @@ export const movementTypeValidator = v.union(
   v.literal("production_output"),
   v.literal("production_scrap"),
   v.literal("reversal"),
+  // CVX-029 van sales: depot → truck load and truck → depot leftover return.
+  v.literal("van_load"),
+  v.literal("van_unload"),
 );
 
 export type MovementType =
@@ -85,7 +88,25 @@ export type MovementType =
   | "production_issue"
   | "production_output"
   | "production_scrap"
-  | "reversal";
+  | "reversal"
+  | "van_load"
+  | "van_unload";
+
+/** Outbound movement types a distributor negative-stock allowance may cover (SP-0085). */
+export const NEGATIVE_STOCK_MOVEMENT_TYPES = [
+  "pos_sale",
+  "inventory_issue",
+  "transfer_ship",
+] as const;
+
+export type NegativeStockMovementType =
+  (typeof NEGATIVE_STOCK_MOVEMENT_TYPES)[number];
+
+export const negativeStockMovementTypeValidator = v.union(
+  v.literal("pos_sale"),
+  v.literal("inventory_issue"),
+  v.literal("transfer_ship"),
+);
 
 export const enteredQuantityValidator = v.object({
   quantity: v.string(),

@@ -2,28 +2,41 @@ package com.sunpride.field
 
 import android.content.res.Configuration
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.core.view.WindowCompat
-import com.sunpride.field.auth.KeystoreSessionVault
+import androidx.fragment.app.FragmentActivity
+import com.sunpride.field.auth.AndroidBiometricCrypto
+import com.sunpride.field.auth.SessionVaults
+import com.sunpride.field.ui.BiometricGate
 import com.sunpride.field.device.KeystoreDeviceKey
 import com.sunpride.field.ui.DeviceKeyInfo
 import com.sunpride.field.ui.FieldApp
 import com.sunpride.field.ui.LiveFieldBackend
+import com.sunpride.field.ui.applySystemBars
 import java.io.File
 
-class MainActivity : ComponentActivity() {
+// FragmentActivity (a ComponentActivity) because BiometricPrompt needs one (SP-0128).
+class MainActivity : FragmentActivity() {
+    // SP-0124: visits, orders, call sheet and photos are product features in every build (beta included);
+    // only DEV debug builds add the developer tools. See docs/BETA_FEATURES.md.
+    private val features = FieldFeatures.forBuild(BuildConfig.FLAVOR, BuildConfig.DEBUG, BuildConfig.WEB_URL)
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        // SP-0126: the manifest launches on the red logo splash theme; swap to the app theme before the
+        // first frame so the splash ends when content draws.
+        setTheme(R.style.Theme_SunprideField)
         super.onCreate(savedInstanceState)
         com.sunpride.field.diagnostics.CrashBreadcrumbs.install(applicationContext)
         val environment = AppEnvironment(BuildConfig.CONVEX_SITE_URL, BuildConfig.CONVEX_URL)
         val dark = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
-        WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = !dark
+        applySystemBars(dark)
         val app = applicationContext
-        val backend = LiveFieldBackend(environment, KeystoreSessionVault(app), app) { KeystoreDeviceKey.loadOrCreate(app) }
+        val vault = SessionVaults.app(app)
+        // SP-0128: the prompt object is created here so it is bound to this activity instance.
+        val biometrics = BiometricGate(vault, AndroidBiometricCrypto(this))
+        val backend = LiveFieldBackend(environment, vault, app) { KeystoreDeviceKey.loadOrCreate(app) }
         setContent {
-            FieldApp(environment, dark = dark, debug = BuildConfig.DEBUG && BuildConfig.FLAVOR == "dev", backend = backend,
-                onKeyLoaded = { exportPublicKeyForDev(it) })
+            FieldApp(environment, dark = dark, backend = backend, features = features,
+                onKeyLoaded = { exportPublicKeyForDev(it) }, biometrics = biometrics)
         }
     }
 
@@ -32,7 +45,7 @@ class MainActivity : ComponentActivity() {
      * `/sdcard/Android/data/com.sunpride.field.dev/files/device-public-key.txt` for `adb pull`.
      */
     private fun exportPublicKeyForDev(key: DeviceKeyInfo) {
-        if (!(BuildConfig.DEBUG && BuildConfig.FLAVOR == "dev")) return
+        if (FieldFeature.DEVELOPER_TOOLS !in features) return
         val dir = getExternalFilesDir(null) ?: return
         File(dir, PUBLIC_KEY_FILE).writeText(key.publicKey + "\n")
     }

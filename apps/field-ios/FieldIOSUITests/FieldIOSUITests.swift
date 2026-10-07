@@ -52,6 +52,7 @@ final class FieldIOSUITests: XCTestCase {
     /// its activity checklist, so cards below it can start off screen).
     private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
         for _ in 0..<5 {
+            if !element.exists { app.swipeUp(); continue }
             let frame = element.frame, window = app.windows.firstMatch.frame
             if element.isHittable && frame.minY > window.minY + 100 && frame.maxY < window.maxY - 140 { return }
             if frame.midY > window.midY { app.swipeUp() } else { app.swipeDown() }
@@ -191,6 +192,7 @@ final class FieldIOSUITests: XCTestCase {
         XCTAssertTrue(app.buttons["nextOutlet"].exists)
         XCTAssertTrue(app.buttons["nextOutlet"].label.contains("Stub Outlet"))
         XCTAssertTrue(app.buttons["visit-planned-stub-2"].exists)
+        XCTAssertFalse(app.buttons["openTeam"].exists, "IOS-020: a field seller has no Team page")
         app.terminate()
         let offline = launchStub("offline")
         XCTAssertTrue(offline.staticTexts["Stub Outlet"].waitForExistence(timeout: 15))
@@ -199,6 +201,53 @@ final class FieldIOSUITests: XCTestCase {
                       "saved sales shown offline")
         XCTAssertFalse(offline.buttons["outboxStatus"].exists)
         XCTAssertFalse(offline.staticTexts["Ready"].exists)
+    }
+
+    @MainActor
+    func testSuggestedOrderAcceptEditNeverQueuesUntilSave() {
+        let app = launchStub("registers")
+        signIn(app, password: "correct-horse")
+        XCTAssertTrue(app.buttons["visit-planned-stub-1"].waitForExistence(timeout: 20))
+        app.buttons["visit-planned-stub-1"].tap()
+        app.buttons["diagnosticCheckIn"].tap()
+        XCTAssertTrue(app.buttons["openCallSheet"].waitForExistence(timeout: 10))
+        app.buttons["openCallSheet"].tap()
+        // A physical phone can take longer than a simulator to push the sheet and load the stub answer.
+        XCTAssertTrue(app.otherElements["suggestedOrder"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["useAllSuggestions"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Suggestions only. Nothing is ordered until you save the call sheet."].exists)
+        let use = app.buttons["useSuggestion-product-stub-1"]
+        // SwiftUI can report a clipped button as hittable beneath the sticky Save footer.
+        for _ in 0..<4 where !use.isHittable || use.frame.maxY >= app.buttons["saveCallSheet"].frame.minY { app.swipeUp() }
+        XCTAssertTrue(use.isHittable)
+        XCTAssertEqual(use.label, "Use 8")
+        XCTAssertEqual(app.staticTexts["suggestion-product-stub-1"].label, "Suggested: 8 PC")
+        XCTAssertFalse(app.otherElements["callSheetStatus"].exists || app.staticTexts["callSheetStatus"].exists)
+        use.tap()
+        let order = app.textFields["callSheet-product-stub-1-order"]
+        for _ in 0..<4 where !order.isHittable || order.frame.maxY >= app.buttons["saveCallSheet"].frame.minY { app.swipeUp() }
+        XCTAssertEqual(order.value as? String, "8")
+        XCTAssertFalse(app.otherElements["callSheetStatus"].exists || app.staticTexts["callSheetStatus"].exists)
+        order.tap(); order.typeText("2")
+        XCTAssertEqual(order.value as? String, "82", "accepted quantity is an ordinary editable field")
+        XCTAssertFalse(app.otherElements["callSheetStatus"].exists || app.staticTexts["callSheetStatus"].exists)
+        // On a physical phone a Save tap made while the number pad is still settling can land on a key
+        // ("82" became "820"). Let the keyboard settle, then tap the centre of the button's current frame.
+        let save = app.buttons["saveCallSheet"]
+        let keyboard = app.keyboards.firstMatch
+        var settled = save.frame
+        for _ in 0..<20 {
+            Thread.sleep(forTimeInterval: 0.15)
+            let now = save.frame
+            if now == settled, !keyboard.exists || now.maxY <= keyboard.frame.minY { break }
+            settled = now
+        }
+        XCTAssertTrue(!keyboard.exists || save.frame.maxY <= keyboard.frame.minY,
+                      "save \(save.frame) keyboard \(keyboard.frame)")
+        save.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(app.otherElements["callSheetStatus"].waitForExistence(timeout: 5) || app.staticTexts["callSheetStatus"].exists,
+                      "order \(String(describing: order.value)) save \(save.frame) keyboard \(keyboard.frame)")
+        capture(app, "suggested-order-accepted-and-edited")
     }
 
     func testCallSheetOfflineCaptureQueuesAndSurvivesRelaunchThenSends() {
@@ -217,8 +266,12 @@ final class FieldIOSUITests: XCTestCase {
         offline.buttons["saveCallSheet"].tap()
         XCTAssertTrue(offline.staticTexts["Enter at least one number before saving."].waitForExistence(timeout: 5))
         let order = offline.textFields["callSheet-product-stub-1-order"]
-        if !order.isHittable { offline.swipeUp() }
         XCTAssertTrue(order.waitForExistence(timeout: 5))
+        // The Suggested order card sits above the products, so the row can start beneath the sticky Save
+        // footer (and its validation message) while SwiftUI still reports it hittable.
+        for _ in 0..<4 where !order.isHittable || order.frame.maxY > offline.frame.height / 2 {
+            offline.swipeUp()
+        }
         order.tap(); order.typeText("24")
         let beginning = offline.textFields["callSheet-product-stub-1-beginningInventory"]
         beginning.tap(); beginning.typeText("0")
@@ -226,7 +279,9 @@ final class FieldIOSUITests: XCTestCase {
         XCTAssertTrue(offline.otherElements["callSheetStatus"].waitForExistence(timeout: 5) || offline.staticTexts["callSheetStatus"].exists)
         XCTAssertTrue(offline.staticTexts["Call sheet · Queued"].exists)
         // A second save is a new durable activity, not an edit of previously queued bytes.
-        if !order.isHittable { offline.swipeUp() }
+        for _ in 0..<4 where !order.isHittable || order.frame.maxY > offline.frame.height / 2 {
+            offline.swipeUp()
+        }
         order.tap(); order.typeText("25")
         offline.buttons["saveCallSheet"].tap()
         XCTAssertTrue(offline.staticTexts["Call sheet · Queued"].exists)
@@ -301,13 +356,27 @@ final class FieldIOSUITests: XCTestCase {
         newOrder.tap()
         let quantity = offline.textFields["orderQty-product-stub-1"]
         XCTAssertTrue(quantity.waitForExistence(timeout: 5))
-        quantity.tap(); quantity.typeText("12")
+        XCTAssertEqual(offline.staticTexts["orderPrice-product-stub-1"].label, "₱189.00 / PC")
+        offline.buttons["orderUnit-product-stub-1"].tap()
+        offline.buttons["CS"].tap()
+        XCTAssertEqual(offline.staticTexts["orderPrice-product-stub-1"].label, "₱1,053.25 / CS")
+        quantity.tap(); quantity.typeText("60")
         offline.buttons["reviewOrder"].tap()
         XCTAssertTrue(offline.staticTexts["orderReviewTitle"].waitForExistence(timeout: 5))
         XCTAssertEqual(offline.staticTexts["orderStatus"].label, "Draft · not sent")
-        XCTAssertTrue(offline.staticTexts["Priced by the office"].exists)
+        XCTAssertTrue(offline.staticTexts["₱63,195.00"].exists)
+        XCTAssertTrue(offline.staticTexts["Sample prices"].exists)
+        capture(offline, "order-priced-total-offline")
+        let credit = offline.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@", "Over the store's credit limit by ₱17,295.00")).firstMatch
+        reveal(credit, in: offline)
+        XCTAssertTrue(credit.exists)
+        XCTAssertTrue(credit.label.contains("You can still send it; the office must approve."))
+        XCTAssertTrue(offline.buttons["orderSubmit"].isEnabled)
         XCTAssertFalse(offline.otherElements["orderCheckProblem"].exists || offline.staticTexts["orderCheckProblem"].exists)
         capture(offline, "order-review-offline")
+        XCTAssertTrue(offline.buttons["orderSubmit"].isEnabled, "Credit warnings never block sending")
+        capture(offline, "order-credit-warning-offline")
         offline.buttons["orderSubmit"].tap()
         let confirm = offline.buttons["Send now"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 5))
@@ -491,6 +560,63 @@ final class FieldIOSUITests: XCTestCase {
         XCTAssertTrue(online.buttons["outboxStatus"].label.contains("Synced"))
     }
 
+    /// IOS-016: an offline photo is sealed on the phone, never blocks End, and uploads after reconnecting.
+    func testVisitPhotoSavedOfflineDoesNotBlockEndAndUploadsAfterSync() {
+        let app = launchStub("registers")
+        signIn(app, password: "correct-horse")
+        XCTAssertTrue(app.staticTexts["Stub Outlet"].waitForExistence(timeout: 20))
+        app.terminate()
+        let offline = launchStub("offline")
+        let row = offline.buttons["visit-planned-stub-1"]
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
+        row.tap()
+        offline.buttons["diagnosticCheckIn"].tap()
+        let photos = offline.buttons["openPhotos"]
+        XCTAssertTrue(photos.waitForExistence(timeout: 10))
+        reveal(photos, in: offline)
+        photos.tap()
+        let take = offline.buttons["photoTake"]
+        XCTAssertTrue(take.waitForExistence(timeout: 5))
+        XCTAssertFalse(take.isEnabled, "choose a photo type first")
+        // The bootstrap's configured list, not the phone's defaults.
+        XCTAssertTrue(offline.buttons["photoType-shelf_display"].exists)
+        XCTAssertFalse(offline.buttons["photoType-price_tag"].exists)
+        offline.buttons["photoType-storefront"].tap()
+        take.tap()
+        let saved = offline.descendants(matching: .any)["photo-storefront"]
+        XCTAssertTrue(saved.waitForExistence(timeout: 5))
+        XCTAssertTrue(saved.label.contains("Saved on phone"), saved.label)
+        capture(offline, "visit-photo-saved-offline")
+        offline.buttons["photoBack"].tap()
+        XCTAssertTrue(offline.buttons["openPhotos"].label.contains("1 waiting to upload"))
+        reveal(offline.buttons["diagnosticOutcome"], in: offline)
+        offline.buttons["diagnosticOutcome"].tap()
+        offline.buttons["Completed"].tap()
+        offline.buttons["diagnosticCheckOut"].tap()
+        // IOS-017 End review: a waiting photo never blocks Confirm end.
+        XCTAssertTrue(offline.buttons["diagnosticConfirmEnd"].waitForExistence(timeout: 5))
+        offline.buttons["diagnosticConfirmEnd"].tap()
+        XCTAssertTrue(offline.staticTexts["callTimeSpent"].waitForExistence(timeout: 10))
+        let done = offline.descendants(matching: .any)["donePhotos"]
+        XCTAssertTrue(done.waitForExistence(timeout: 5))
+        XCTAssertTrue(done.label.contains("1 waiting to upload"), done.label)
+        offline.terminate()
+        let online = launchStub("online")
+        XCTAssertTrue(online.buttons["visit-planned-stub-1"].waitForExistence(timeout: 15))
+        XCTAssertTrue(online.buttons["outboxStatus"].waitForExistence(timeout: 15))
+        let status = online.buttons["outboxStatus"]
+        let deadline = Date().addingTimeInterval(20)
+        while Date() < deadline && !(status.label.contains("Synced") && !status.label.contains("photos")) {
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        XCTAssertTrue(status.label.contains("Synced") && !status.label.contains("photos"), status.label)
+        online.buttons["visit-planned-stub-1"].tap()
+        let uploaded = online.descendants(matching: .any)["donePhotos"]
+        XCTAssertTrue(uploaded.waitForExistence(timeout: 10))
+        XCTAssertEqual(uploaded.label.contains("waiting"), false, uploaded.label)
+        XCTAssertTrue(uploaded.label.contains("1 photo"), uploaded.label)
+    }
+
     func testDailyRouteListsStopsInOrderWithDistanceCustomerAndDirections() {
         let app = launchStub("registers")
         signIn(app, password: "correct-horse")
@@ -520,6 +646,100 @@ final class FieldIOSUITests: XCTestCase {
         app.buttons["routeOpenVisit"].tap()
         XCTAssertTrue(app.buttons["diagnosticCheckIn"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["diagnosticCheckIn"].isEnabled)
+    }
+
+    /// IOS-020: a supervisor (manager role) opens Team, sees direct reports' coverage and exceptions,
+    /// switches to the whole area, and offline sees today's saved copy with its saved time.
+    func testSupervisorTeamShowsDirectReportsWholeAreaAndSavedCopyOffline() {
+        let app = launchStub("supervisor")
+        signIn(app, password: "correct-horse")
+        let open = app.buttons["openTeam"]
+        XCTAssertTrue(open.waitForExistence(timeout: 20))
+        open.tap()
+        XCTAssertTrue(app.staticTexts["teamTitle"].waitForExistence(timeout: 5))
+        let ana = app.descendants(matching: .any)["teamPerson-profile-ana"]
+        XCTAssertTrue(ana.waitForExistence(timeout: 10))
+        XCTAssertTrue(ana.label.contains("In a call"), ana.label)
+        XCTAssertTrue(ana.label.contains("3 of 6 planned"), ana.label)
+        XCTAssertTrue(app.descendants(matching: .any)["teamPerson-profile-ben"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["teamPerson-profile-cara"].exists, "direct reports only by default")
+        let summary = app.staticTexts["teamSummary"]
+        XCTAssertTrue(summary.label.hasPrefix("2 people · 3 of 11 planned calls done · 1 to review"), summary.label)
+        let location = app.descendants(matching: .any)["teamExceptionOpen-location:ex-1"]
+        reveal(location, in: app)
+        XCTAssertTrue(location.label.contains("Outside the store radius"), location.label)
+        XCTAssertTrue(location.label.contains("412 m away"), location.label)
+        XCTAssertTrue(app.descendants(matching: .any)["teamException-sequence:ex-2"].exists)
+        capture(app, "team-direct")
+        app.swipeDown(); app.swipeDown()
+        app.buttons["teamAll"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["teamPerson-profile-cara"].waitForExistence(timeout: 10))
+        app.buttons["teamDirect"].tap()
+        XCTAssertTrue(ana.waitForExistence(timeout: 10))
+        let deadline = Date().addingTimeInterval(5)
+        while app.descendants(matching: .any)["teamPerson-profile-cara"].exists && Date() < deadline { usleep(200_000) }
+        XCTAssertFalse(app.descendants(matching: .any)["teamPerson-profile-cara"].exists)
+        app.terminate()
+
+        let offline = launchStub("offline")
+        let reopen = offline.buttons["openTeam"]
+        XCTAssertTrue(reopen.waitForExistence(timeout: 15), "role hint survives from the saved snapshot")
+        reopen.tap()
+        let message = offline.staticTexts["teamMessage"]
+        XCTAssertTrue(message.waitForExistence(timeout: 15))
+        XCTAssertTrue(message.label.contains("showing team saved at"), message.label)
+        XCTAssertTrue(offline.descendants(matching: .any)["teamPerson-profile-ana"].exists)
+        XCTAssertTrue(offline.staticTexts["teamSummary"].label.hasSuffix("Saved on this phone"))
+        capture(offline, "team-saved-offline")
+    }
+
+    /// IOS-020 release counterexample: both filters are saved, then the server refuses. Neither saved copy
+    /// may come back in-session, after an offline relaunch, or on switching filters.
+    func testSupervisorTeamRefusalErasesBothSavedFilters() {
+        assertTeamRefusalWithdrawsBothSavedFilters(eraseFails: false)
+    }
+
+    /// Release counterexample: erasing the saved team fails while it stays readable; the refusal must still
+    /// withdraw both filters in session and after an offline relaunch.
+    func testSupervisorTeamRefusalWithdrawsSavedFiltersEvenWhenEraseFails() {
+        assertTeamRefusalWithdrawsBothSavedFilters(eraseFails: true)
+    }
+
+    private func assertTeamRefusalWithdrawsBothSavedFilters(eraseFails: Bool) {
+        let erase = eraseFails ? ["FIELD_STUB_TEAM_ERASE_FAILS": "1"] : [:]
+        let app = launchStub("supervisor", environment: erase.merging(["FIELD_STUB_TEAM_REFUSE_AFTER": "2"]) { a, _ in a })
+        signIn(app, password: "correct-horse")
+        let open = app.buttons["openTeam"]
+        XCTAssertTrue(open.waitForExistence(timeout: 20))
+        open.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["teamPerson-profile-ana"].waitForExistence(timeout: 10))
+        app.buttons["teamAll"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["teamPerson-profile-cara"].waitForExistence(timeout: 10))
+        app.buttons["teamDirect"].tap() // third read: refused
+        let message = app.staticTexts["teamMessage"]
+        XCTAssertTrue(message.waitForExistence(timeout: 10))
+        XCTAssertEqual(message.label, "Team view isn't available for your account.")
+        XCTAssertFalse(app.descendants(matching: .any)["teamPerson-profile-ana"].exists)
+        app.buttons["teamAll"].tap()
+        XCTAssertTrue(message.waitForExistence(timeout: 10))
+        XCTAssertEqual(message.label, "Team view isn't available for your account.")
+        XCTAssertFalse(app.descendants(matching: .any)["teamPerson-profile-cara"].exists)
+        app.terminate()
+
+        let offline = launchStub("offline", environment: erase)
+        let reopen = offline.buttons["openTeam"]
+        XCTAssertTrue(reopen.waitForExistence(timeout: 15))
+        reopen.tap()
+        for filter in ["teamDirect", "teamAll", "teamDirect"] {
+            offline.buttons[filter].tap()
+            let text = offline.staticTexts["teamMessage"]
+            XCTAssertTrue(text.waitForExistence(timeout: 10))
+            // "Offline" or "Phone not verified yet" depending on launch timing; either way, nothing saved.
+            XCTAssertTrue(text.label.hasSuffix(". Connect and try again."), "\(filter): \(text.label)")
+            XCTAssertFalse(offline.staticTexts["teamSummary"].exists, filter)
+            XCTAssertFalse(offline.descendants(matching: .any)["teamPerson-profile-ana"].exists, filter)
+            XCTAssertFalse(offline.descendants(matching: .any)["teamPerson-profile-cara"].exists, filter)
+        }
     }
 
     /// IOS-018: with several navigation apps installed, Directions asks which one to hand the pin to.

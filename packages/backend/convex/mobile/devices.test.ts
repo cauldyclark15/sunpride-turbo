@@ -252,20 +252,35 @@ describe("registered device lifecycle", () => {
       attestation: { format: "none" },
       proof: badProof,
     };
-    await expect(
-      f.sales.actor.mutation(api.mobile.devices.bind, args),
-    ).rejects.toThrow();
+    // A bad proof is refused without throwing so its spent budget and burned challenge persist.
+    expect(await f.sales.actor.mutation(api.mobile.devices.bind, args)).toEqual(
+      { bindingStatus: "rejected" },
+    );
     await expect(
       f.other.actor.mutation(api.mobile.devices.bind, args),
     ).rejects.toThrow();
-    const proof = await f.sign(
+    // The rejected attempt consumed its one-time challenge: even a valid proof needs a new one.
+    const stale = await f.sign(
       `BIND|${deviceId}|${credentialId}|${nonce}|${timestamp}`,
     );
     expect(
-      await f.sales.actor.mutation(api.mobile.devices.bind, { ...args, proof }),
+      await f.sales.actor.mutation(api.mobile.devices.bind, {
+        ...args,
+        proof: stale,
+      }),
+    ).toEqual({ bindingStatus: "rejected" });
+    const fresh = await f.sales.actor.mutation(api.mobile.devices.challenge, {
+      deviceId,
+    });
+    const proof = await f.sign(
+      `BIND|${deviceId}|${credentialId}|${fresh.nonce}|${timestamp}`,
+    );
+    const valid = { ...args, nonce: fresh.nonce, proof };
+    expect(
+      await f.sales.actor.mutation(api.mobile.devices.bind, valid),
     ).toEqual({ bindingStatus: "bound" });
     await expect(
-      f.sales.actor.mutation(api.mobile.devices.bind, { ...args, proof }),
+      f.sales.actor.mutation(api.mobile.devices.bind, valid),
     ).rejects.toThrow();
     const row = await f.t.run((ctx) => ctx.db.get(deviceId));
     expect(row?.boundSubject).toBe(f.sales.subject);
@@ -346,12 +361,13 @@ describe("registered device lifecycle", () => {
     ).toBe("revoked");
   });
 
-  it("rejects POS app and inconsistent field platform before registering", async () => {
+  it("rejects inconsistent van/field platforms and registers Android van devices", async () => {
     const f = await fixture();
     await expect(
       f.admin.mutation(api.mobile.devices.register, {
         ...f.registration,
         allowedApp: "VAN_ANDROID",
+        platform: "iOS",
       }),
     ).rejects.toThrow();
     await expect(
@@ -363,6 +379,24 @@ describe("registered device lifecycle", () => {
     expect(
       await f.t.run((ctx) => ctx.db.query("registeredDevices").collect()),
     ).toEqual([]);
+    const registered = await f.admin.mutation(api.mobile.devices.register, {
+      ...f.registration,
+      allowedApp: "VAN_ANDROID",
+      platform: "Android",
+    });
+    expect(
+      await f.t.run((ctx) => ctx.db.get(registered.deviceId)),
+    ).toMatchObject({
+      allowedApp: "VAN_ANDROID",
+      platform: "Android",
+      status: "active",
+    });
+    expect(
+      await f.sales.actor.query(api.mobile.devices.mine, {
+        publicKey: f.registration.publicKey,
+        app: "VAN_ANDROID",
+      }),
+    ).toMatchObject({ deviceId: registered.deviceId });
   });
 });
 

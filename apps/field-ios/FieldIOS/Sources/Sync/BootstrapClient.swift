@@ -6,6 +6,8 @@ import Foundation
 final class BootstrapClient {
     enum Failure: Error, Equatable {
         case phoneRemoved, updateRequired, unauthorized, retryable, invalidResponse, restartRequired
+        /// QSR-009 back-off (HTTP 429 or a refused challenge): retry on a later sync, not immediately.
+        case throttled
     }
     private let site: URL
     private let auth: AuthClient
@@ -42,6 +44,9 @@ final class BootstrapClient {
         var visits: [StoreSnapshot.Visit] = []
         var outlets: [StoreSnapshot.Outlet] = []
         var callSheets: [CallSheet] = []
+        var orderTerms: [OrderTerms] = []
+        var products: [BootstrapV1.Product] = []
+        var inventory: [BootstrapV1.InventoryAvailability] = []
         var summaries: [AccountSummary] = []
         var customers: [StoreSnapshot.Customer] = []
         var tasks: [StoreSnapshot.Task] = []
@@ -49,6 +54,7 @@ final class BootstrapClient {
         var dayTarget: StoreSnapshot.DayTarget?
         var daySales: StoreSnapshot.DaySales?
         var activityRules: [ActivityRule]?
+        var photoTypes: [PhotoType]?
         var next: String?
         var seen = Set<String>()
         var lease = Int64.max, cache = Int64.max
@@ -69,6 +75,9 @@ final class BootstrapClient {
             visits += page.plannedVisits
             outlets += page.outlets
             callSheets += page.callSheets
+            orderTerms += page.orderTerms
+            products += page.productCatalog
+            inventory += page.inventoryAvailability
             summaries += page.accountSummaries
             customers += page.localCustomers
             tasks += page.tasks
@@ -88,6 +97,11 @@ final class BootstrapClient {
                 if let previousRules = activityRules, previousRules != rules { throw Failure.restartRequired }
                 activityRules = rules
             }
+            if let types = page.photoTypes {
+                // Same rule as activityRules: one download, one list; a change restarts.
+                if let previousTypes = photoTypes, previousTypes != types { throw Failure.restartRequired }
+                photoTypes = types
+            }
             if let r = page.route {
                 if let previousRoute = route,
                    (previousRoute.id != r.id || previousRoute.code != r.code) { throw Failure.invalidResponse }
@@ -106,15 +120,19 @@ final class BootstrapClient {
             let uniqueOutlets = try Self.unique(outlets, id: { $0.id }, equivalent: { $0.name == $1.name && $0.routeId == $1.routeId })
             let uniqueCustomers = try Self.unique(customers, id: { $0.id }, equivalent: { $0.code == $1.code })
             let uniqueCallSheets = try Self.unique(callSheets, id: { $0.outletId }, equivalent: { $0 == $1 })
+            let uniqueTerms = try Self.unique(orderTerms, id: { $0.outletId }, equivalent: { $0 == $1 })
+            let uniqueProducts = try Self.unique(products, id: { $0.id }, equivalent: { $0 == $1 })
+            let uniqueInventory = try Self.unique(inventory, id: { $0.id }, equivalent: { $0 == $1 })
             // The server ships each outlet's figures once per snapshot; a repeat must be identical.
             let uniqueSummaries = try Self.unique(summaries, id: { $0.outletId }, equivalent: { $0 == $1 })
             guard Set(visits.map(\.id)).count == visits.count,
                   Set(tasks.map(\.id)).count == tasks.count,
                   visits.allSatisfy({ visit in uniqueOutlets.contains(where: { $0.id == visit.outletId }) }) else { throw Failure.invalidResponse }
             let snapshot = StoreSnapshot(employee: initial.employee, visits: visits, outlets: uniqueOutlets,
-                                         customers: uniqueCustomers, route: route, tasks: tasks, callSheets: uniqueCallSheets,
+                                         customers: uniqueCustomers, route: route, tasks: tasks, callSheets: uniqueCallSheets, orderTerms: uniqueTerms,
+                                         productCatalog: uniqueProducts, inventoryAvailability: uniqueInventory,
                                          accountSummaries: uniqueSummaries, dayTarget: dayTarget, daySales: daySales,
-                                         activityRules: activityRules ?? [])
+                                         activityRules: activityRules ?? [], photoTypes: photoTypes ?? [])
             try store.saveSnapshot(snapshot, cursor: cursor, leaseExpiresAt: lease, cacheExpiresAt: cache, for: partition)
             try store.setSyncHealth(SyncHealth(lastSuccessfulSyncAt: page.serverTime, lastErrorCode: nil), for: partition)
             return partition
@@ -137,10 +155,13 @@ final class BootstrapClient {
 
     private func fetch(deviceId: String, cursor: String?, previous: StorePartition?,
                        store: any FieldLocalStore) async throws -> BootstrapV1.Page {
-        let body = try JSONEncoder().encode(BootstrapV1.Request(deviceId: deviceId, pageCursor: cursor))
+        let body = try JSONEncoder().encode(BootstrapV1.Request(deviceId: deviceId, pageCursor: cursor,
+                                                               referenceData: cursor == nil ? true : nil))
         for attempt in 0..<2 {
             let jwt = try await auth.convexToken(forceRefresh: attempt > 0)
-            let challenge = try await registry.challenge(deviceId: deviceId)
+            let challenge: ChallengeResult
+            do { challenge = try await registry.challenge(deviceId: deviceId) }
+            catch MobileError.rateLimited { throw Failure.throttled }
             // Challenge returns only expiresAt, not issuedAt; backend issues it at now + 60_000.
             // Midpoint is within ±30 s of server time throughout its lifetime, regardless of phone clock.
             guard challenge.expiresAt.isFinite, challenge.expiresAt > 30_000,
@@ -163,6 +184,7 @@ final class BootstrapClient {
                 // "unauthorized" for proof failures; never infer revocation from 401 alone.
                 throw Failure.unauthorized
             }
+            if response.statusCode == 429 { throw Failure.throttled }
             if let error = try? BootstrapV1.decodeFailure(data) {
                 switch error.error.code.rawValue {
                 case "device_revoked":

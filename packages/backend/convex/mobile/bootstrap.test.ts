@@ -15,23 +15,33 @@ import type { AuthorizedDevice } from "./types";
 
 const SECRET = "test-only-mobile-cursor-secret-32-bytes-long";
 process.env.MOBILE_CURSOR_SECRET = SECRET;
-export async function fixture() {
-  const t: TestConvex<typeof schema> = convexTest(schema, modules);
+export async function fixture(
+  t: TestConvex<typeof schema> = convexTest(schema, modules),
+) {
   const now = Date.now();
   const day = manilaDate(now);
   const subject = "https://auth.fixture|sales";
   const ids = await t.run(async (ctx) => {
-    // A valid tree (one national root) so scope subtrees resolve.
-    const national = await ctx.db.insert("orgUnits", {
-      organizationId: "sunpride",
-      code: "SUNPRIDE",
-      name: "National",
-      typeCode: "NATIONAL",
-      status: "active",
-      effectiveFrom: now - 100000,
-      createdAt: now - 100000,
-      updatedAt: now,
-    });
+    // A valid tree (one national root) so scope subtrees resolve. A caller-supplied
+    // instance may already hold the seeded root (e.g. after provisionAdmin); reuse it.
+    const seededRoot = await ctx.db
+      .query("orgUnits")
+      .withIndex("by_organizationId_and_code", (q) =>
+        q.eq("organizationId", "sunpride").eq("code", "SUNPRIDE"),
+      )
+      .unique();
+    const national =
+      seededRoot?._id ??
+      (await ctx.db.insert("orgUnits", {
+        organizationId: "sunpride",
+        code: "SUNPRIDE",
+        name: "National",
+        typeCode: "NATIONAL",
+        status: "active",
+        effectiveFrom: now - 100000,
+        createdAt: now - 100000,
+        updatedAt: now,
+      }));
     const unit = await ctx.db.insert("orgUnits", {
       organizationId: "sunpride",
       parentId: national,
@@ -693,6 +703,114 @@ describe("mobile day bootstrap", () => {
         updatedAt: f.now + 1,
       }),
     );
+    await expect(
+      f.caller.query(internal.mobile.bootstrap.snapshot, {
+        actor: f.actor,
+        pageCursor: first.nextPageCursor!,
+        limit: 1,
+      }),
+    ).rejects.toThrow("rebootstrap_required");
+  });
+  it("ships each account's order terms once with its call sheet; a price edit forces a fresh snapshot (SP-0088)", async () => {
+    const f = await fixture();
+    const ids = await f.t.run(async (ctx) => {
+      const unit = (code: string) =>
+        ctx.db.insert("unitsOfMeasure", {
+          organizationId: "sunpride",
+          code,
+          name: code,
+          dimension: "count",
+          decimalPlaces: 0,
+          active: true,
+          createdAt: f.now,
+          updatedAt: f.now,
+        });
+      const can = await unit("CAN");
+      const cs = await unit("CS");
+      const product = await ctx.db.insert("products", {
+        code: "SUNP-001",
+        name: "Product SUNP-001",
+        category: "canned",
+        uom: "CAN",
+        unitPrice: 0,
+        active: true,
+        baseUomId: can,
+        sellingUomIds: [can, cs],
+        updatedAt: f.now,
+      });
+      await ctx.db.insert("plannedVisits", {
+        generationKey: "tomorrow",
+        planId: f.ids.plan,
+        planVersion: 1,
+        planSlotId: f.ids.slot,
+        assigneeProfileId: f.ids.person,
+        outletId: f.ids.outlet,
+        serviceDate: manilaDate(f.now + 86_400_000),
+        status: "planned",
+        approvedSnapshot: f.ids.snapshot,
+        requiredObjectives: [],
+        intents: ["sell"],
+        expectedDurationMinutes: 30,
+        generatedAt: f.now,
+      });
+      await ctx.db.insert("callSheetAccounts", {
+        organizationId: "sunpride",
+        outletId: f.ids.outlet,
+        revision: 1,
+        header: { accountName: "Signed outlet" },
+        lines: [{ productId: product }],
+        updatedAt: f.now,
+        updatedBy: "fixture",
+      });
+      const list = await ctx.db.insert("priceLists", {
+        organizationId: "sunpride",
+        code: "SAMPLE-STD",
+        name: "Standard (sample)",
+        channelKey: null,
+        currency: "PHP",
+        status: "active",
+        source: "sample",
+        effectiveFrom: 0,
+        updatedAt: f.now,
+      });
+      const line = await ctx.db.insert("priceListLines", {
+        organizationId: "sunpride",
+        priceListId: list,
+        productId: product,
+        uom: "CAN",
+        unitPriceMinor: 4_525,
+        effectiveFrom: 0,
+        updatedAt: f.now,
+      });
+      return { product, list, line };
+    });
+    const first = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+      limit: 1,
+    });
+    expect(first.orderTerms).toEqual([
+      {
+        outletId: f.ids.outlet,
+        priceList: {
+          id: ids.list,
+          code: "SAMPLE-STD",
+          name: "Standard (sample)",
+          currency: "PHP",
+          sample: true,
+        },
+        lines: [
+          { productId: ids.product, uom: "CAN", unitPriceMinor: 4_525 },
+          // A selling unit without a price line: the office prices it.
+          { productId: ids.product, uom: "CS", unitPriceMinor: null },
+        ],
+      },
+    ]);
+    const all = await f.caller.query(internal.mobile.bootstrap.snapshot, {
+      actor: f.actor,
+    });
+    expect(all.plannedVisits).toHaveLength(2);
+    expect(all.orderTerms).toHaveLength(1);
+    await f.t.run((ctx) => ctx.db.patch(ids.line, { unitPriceMinor: 4_600 }));
     await expect(
       f.caller.query(internal.mobile.bootstrap.snapshot, {
         actor: f.actor,

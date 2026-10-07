@@ -6,10 +6,11 @@ import type { Infer } from "convex/values";
  *
  * A salesperson's order travels as the visit's `order_intent` activity with its lines, so
  * the call is productive (purchase order) and the order shares the visit's idempotent,
- * ordered mobile outbox. Lines are quantities in the product's unit only: there is no
- * governed price list yet (ADR-008, bootstrap `priceAvailability: "unavailable"`), so the
- * office prices and encodes the order. The client said key accounts enter the PO in the
- * app now; a later phase turns it straight into the sales order (call of 2 Oct 2026, Q18).
+ * ordered mobile outbox. Lines carry a product, one of its order units and a whole quantity,
+ * never a price: the server prices them from the governed price list (pricing/model.ts,
+ * SP-0088) and records the result with a credit check in `fieldOrderPricings`. The client
+ * said key accounts enter the PO in the app now; a later phase turns it straight into the
+ * sales order (call of 2 Oct 2026, Q18).
  */
 export const MAX_FIELD_ORDER_LINES = 100;
 export const MAX_FIELD_ORDER_QUANTITY = 99_999;

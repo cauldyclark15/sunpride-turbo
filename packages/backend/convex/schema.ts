@@ -71,6 +71,7 @@ import {
   costingMethodValidator,
   locationTypeValidator,
   movementTypeValidator,
+  negativeStockMovementTypeValidator,
   productionStatusValidator,
   receiptStatusValidator,
   reservationStatusValidator,
@@ -78,6 +79,13 @@ import {
   trackingModeValidator,
   transferStatusValidator,
 } from "./inventory/validators";
+import {
+  loadDiscrepancyReasonValidator,
+  loadStatusValidator,
+  tripStatusValidator,
+  vanOperationKindValidator,
+  vehicleStatusValidator,
+} from "./van/model";
 
 const role = roleValidator;
 const orderStatus = v.union(
@@ -1009,6 +1017,127 @@ export default defineSchema({
     "organizationId",
     "checkpointId",
   ]),
+  // CVX-027 van sales: vehicle master. The truck itself is an `inventoryLocations` row of
+  // type "truck"; stock never lives here (ADR-003/007).
+  vehicles: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    vehicleCode: v.string(),
+    plateNumber: v.string(),
+    name: v.optional(v.string()),
+    truckLocationId: v.id("inventoryLocations"),
+    homeLocationId: v.id("inventoryLocations"),
+    capacityNote: v.optional(v.string()),
+    status: vehicleStatusValidator,
+    createdBy: v.string(), // full identity.tokenIdentifier
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_vehicleCode", [
+      "organizationId",
+      "vehicleCode",
+    ])
+    .index("by_truckLocationId", ["truckLocationId"])
+    .index("by_orgUnitId_and_status", ["orgUnitId", "status"]),
+  // CVX-027: one truck's selling day. `routeSessionId` links the existing POS sale path.
+  vanTrips: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    tripNumber: v.string(),
+    vehicleId: v.id("vehicles"),
+    truckLocationId: v.id("inventoryLocations"),
+    sourceLocationId: v.id("inventoryLocations"),
+    routeId: v.optional(v.id("routes")),
+    serviceDate: v.string(), // Manila YYYY-MM-DD
+    salespersonProfileId: v.id("profiles"),
+    salespersonSubject: v.string(), // full identity.tokenIdentifier
+    driverName: v.optional(v.string()),
+    helperName: v.optional(v.string()),
+    status: tripStatusValidator,
+    startedAt: v.optional(v.number()),
+    startedDeviceId: v.optional(v.id("registeredDevices")),
+    startOdometerKm: v.optional(v.number()),
+    startNote: v.optional(v.string()),
+    routeSessionId: v.optional(v.id("truckRouteSessions")),
+    closedAt: v.optional(v.number()),
+    cancelledAt: v.optional(v.number()),
+    cancelReason: v.optional(v.string()),
+    createdBy: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_tripNumber", ["organizationId", "tripNumber"])
+    .index("by_salespersonProfileId_and_serviceDate", [
+      "salespersonProfileId",
+      "serviceDate",
+    ])
+    .index("by_vehicleId_and_serviceDate", ["vehicleId", "serviceDate"])
+    .index("by_orgUnitId_and_serviceDate", ["orgUnitId", "serviceDate"]),
+  // CVX-028: a trip's load sheet (expected by the office, actual from the salesman).
+  vanTripLoads: defineTable({
+    organizationId: v.string(),
+    tripId: v.id("vanTrips"),
+    loadNumber: v.number(),
+    status: loadStatusValidator,
+    createdBy: v.string(),
+    confirmedBy: v.optional(v.string()),
+    confirmedAt: v.optional(v.number()),
+    confirmedDeviceId: v.optional(v.id("registeredDevices")),
+    confirmRequestId: v.optional(v.string()),
+    approvedBy: v.optional(v.string()),
+    approvedAt: v.optional(v.number()),
+    approvalNote: v.optional(v.string()),
+    // References to the inventory authority: the posting command and its movement.
+    commandKey: v.optional(v.string()),
+    movementId: v.optional(v.id("inventoryMovements")),
+    stockTransferId: v.optional(v.id("stockTransfers")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_tripId_and_loadNumber", ["tripId", "loadNumber"]),
+  vanTripLoadLines: defineTable({
+    organizationId: v.string(),
+    loadId: v.id("vanTripLoads"),
+    tripId: v.id("vanTrips"),
+    lineNumber: v.number(),
+    productId: v.id("products"),
+    productCode: v.string(),
+    uomCode: v.string(), // base UOM of the product's inventory policy
+    quantityScale: v.int64(),
+    lotId: v.optional(v.id("inventoryLots")),
+    lotNumber: v.optional(v.string()),
+    expectedBase: v.int64(),
+    actualBase: v.optional(v.int64()),
+    discrepancyReason: v.optional(loadDiscrepancyReasonValidator),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_loadId_and_lineNumber", ["loadId", "lineNumber"]),
+  // VAN-003 / VAN-013: idempotent replay of signed van-device operations.
+  vanOperations: defineTable({
+    organizationId: v.string(),
+    deviceId: v.id("registeredDevices"),
+    profileId: v.id("profiles"),
+    kind: vanOperationKindValidator,
+    clientRequestId: v.string(),
+    payloadHash: v.string(),
+    entityId: v.string(),
+    movementId: v.optional(v.id("inventoryMovements")),
+    serverAt: v.number(),
+  })
+    .index("by_profileId_and_clientRequestId", ["profileId", "clientRequestId"])
+    .index("by_deviceId_and_serverAt", ["deviceId", "serverAt"]),
+  // VAN-012: office-set credit terms per outlet, effective-dated. No row = cash/other only.
+  outletCreditTerms: defineTable({
+    organizationId: v.string(),
+    outletId: v.id("outlets"),
+    termsDays: v.number(),
+    creditLimitMinor: v.int64(),
+    currency: v.string(),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    sourceRef: v.string(),
+    actorSubject: v.string(),
+    createdAt: v.number(),
+  }).index("by_outletId_and_effectiveFrom", ["outletId", "effectiveFrom"]),
   sapInventorySnapshots: defineTable({
     organizationId: v.string(),
     productCode: v.string(),
@@ -1044,6 +1173,53 @@ export default defineSchema({
       "organizationId",
       "resolutionStatus",
       "asOf",
+    ]),
+  // SP-0085 / ADR-007: the explicit, location-scoped exception that lets
+  // distributor operations sell or issue below zero. Absent or inactive means
+  // the default non-negative rule applies.
+  negativeStockAllowances: defineTable({
+    organizationId: v.string(),
+    locationId: v.id("inventoryLocations"),
+    operation: v.literal("distributor"),
+    movementTypes: v.array(negativeStockMovementTypeValidator),
+    limitBase: v.optional(v.int64()),
+    active: v.boolean(),
+    sourceRef: v.string(),
+    version: v.number(),
+    updatedBy: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_organizationId_and_locationId", [
+    "organizationId",
+    "locationId",
+  ]),
+  // Every posting that leaves (or deepens) a negative balance is flagged here
+  // for reconciliation; a flag closes only once the balance is back at zero or above.
+  negativeStockFlags: defineTable({
+    organizationId: v.string(),
+    allowanceId: v.id("negativeStockAllowances"),
+    movementId: v.id("inventoryMovements"),
+    movementType: negativeStockMovementTypeValidator,
+    productId: v.id("products"),
+    locationId: v.id("inventoryLocations"),
+    quantityBase: v.int64(),
+    balanceAfterBase: v.int64(),
+    shortfallBase: v.int64(),
+    status: v.union(v.literal("open"), v.literal("resolved")),
+    postedBy: v.string(),
+    createdAt: v.number(),
+    resolvedBy: v.optional(v.string()),
+    resolvedAt: v.optional(v.number()),
+    resolutionNote: v.optional(v.string()),
+  })
+    .index("by_organizationId_and_status_and_createdAt", [
+      "organizationId",
+      "status",
+      "createdAt",
+    ])
+    .index("by_organizationId_and_movementId", [
+      "organizationId",
+      "movementId",
     ]),
   inventoryReconciliationRuns: defineTable({
     organizationId: v.string(),
@@ -2024,6 +2200,34 @@ export default defineSchema({
     ])
     .index("by_orgUnitId_and_serviceDate", ["orgUnitId", "serviceDate"]),
   /**
+   * SOP-004 per-diem validation decisions: a supervisor validates or returns one person's
+   * claim period against the approved MCP. Append-only; the latest row per period wins.
+   * Counts and dates are frozen as decided; no amount (the rate lives outside the system).
+   */
+  perDiemValidations: defineTable({
+    organizationId: v.string(),
+    profileId: v.id("profiles"),
+    orgUnitId: v.id("orgUnits"),
+    localMonth: v.string(), // YYYY-MM
+    periodFrom: v.string(), // YYYY-MM-DD, Manila
+    periodTo: v.string(),
+    decision: v.union(v.literal("validated"), v.literal("returned")),
+    note: v.optional(v.string()),
+    contentHash: v.string(),
+    ruleVersion: v.string(),
+    plannedStops: v.number(),
+    validCalls: v.number(),
+    invalidCalls: v.number(),
+    notVisited: v.number(),
+    validDays: v.number(),
+    validDates: v.array(v.string()), // at most 31
+    decidedBy: v.string(),
+    deciderProfileId: v.id("profiles"),
+    decidedAt: v.number(),
+  })
+    .index("by_profileId_and_localMonth", ["profileId", "localMonth"])
+    .index("by_orgUnitId_and_localMonth", ["orgUnitId", "localMonth"]),
+  /**
    * SOP-011 Talk Sheet (memo Annex E): one meeting between an SFI sales representative
    * (`ownerProfileId`, "Discussed by") and an Area Distribution Partner. Sheets of the same
    * `orgUnitId` + `partnerKey` form a chain; a new sheet copies the previous final sheet's
@@ -2336,6 +2540,12 @@ export default defineSchema({
   })
     .index("by_deviceId_and_nonce", ["deviceId", "nonce"])
     .index("by_expiresAt", ["expiresAt"]),
+  // QSR-009 token buckets (`mobile/rate_limits.ts`): `challenge:<deviceId>` / `failure:<subject>`.
+  mobileRateLimits: defineTable({
+    key: v.string(),
+    tokens: v.number(),
+    updatedAt: v.number(),
+  }).index("by_key", ["key"]),
   visitExecutions: defineTable({
     organizationId: v.string(),
     clientVisitId: v.string(),
@@ -2989,5 +3199,92 @@ export default defineSchema({
     "organizationId",
     "productId",
     "effectiveFrom",
+  ]),
+  // PRICING-001 (SP-0088, ADR-008): governed price baseline before SAP pricing. A list applies
+  // to an outlet channel (`channelKey`, trimmed lower case) or is the default list; lines price
+  // one product in one selling unit. `source: "sample"` rows are made-up beta data
+  // (pricing/sample.ts) that real Sunpride lists replace.
+  priceLists: defineTable({
+    organizationId: v.string(),
+    code: v.string(),
+    name: v.string(),
+    channelKey: v.union(v.string(), v.null()),
+    currency: v.string(),
+    status: v.union(v.literal("active"), v.literal("inactive")),
+    source: v.union(v.literal("sample"), v.literal("office")),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_code", ["organizationId", "code"])
+    .index("by_organizationId_and_channelKey", [
+      "organizationId",
+      "channelKey",
+    ]),
+  priceListLines: defineTable({
+    organizationId: v.string(),
+    priceListId: v.id("priceLists"),
+    productId: v.id("products"),
+    uom: v.string(),
+    /** Whole centavos per one unit of `uom`. */
+    unitPriceMinor: v.number(),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_priceListId_and_productId", ["priceListId", "productId"]),
+  /** Server pricing and credit check of a submitted field order (`order_intent` activity). */
+  fieldOrderPricings: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    visitId: v.id("visitExecutions"),
+    activityId: v.id("visitActivities"),
+    outletId: v.id("outlets"),
+    customerId: v.union(v.id("customers"), v.null()),
+    clientOrderId: v.string(),
+    priceListId: v.union(v.id("priceLists"), v.null()),
+    priceListSource: v.union(
+      v.literal("sample"),
+      v.literal("office"),
+      v.null(),
+    ),
+    currency: v.string(),
+    pricedAt: v.number(),
+    lines: v.array(
+      v.object({
+        productId: v.id("products"),
+        uom: v.string(),
+        quantity: v.number(),
+        unitPriceMinor: v.union(v.number(), v.null()),
+        lineTotalMinor: v.union(v.number(), v.null()),
+      }),
+    ),
+    totalMinor: v.number(),
+    unpricedLines: v.number(),
+    credit: v.object({
+      status: v.union(
+        v.literal("within"),
+        v.literal("over"),
+        v.literal("no_limit"),
+        v.literal("unknown"),
+      ),
+      limitMinor: v.union(v.number(), v.null()),
+      openOrdersMinor: v.union(v.number(), v.null()),
+    }),
+    serverTime: v.number(),
+  })
+    .index("by_activityId", ["activityId"])
+    .index("by_visitId", ["visitId"])
+    .index("by_customerId_and_serverTime", ["customerId", "serverTime"]),
+  /** Beta sample-data marker: a value the sample seed changed, so reset can restore it. */
+  sampleDataChanges: defineTable({
+    organizationId: v.string(),
+    kind: v.literal("customer_credit_limit"),
+    customerId: v.id("customers"),
+    previousValue: v.number(),
+    sampleValue: v.number(),
+    createdAt: v.number(),
+  }).index("by_organizationId_and_customerId", [
+    "organizationId",
+    "customerId",
   ]),
 });

@@ -10,6 +10,42 @@ export type BootstrapRequest = {
   dayFrom?: string;
   pageCursor?: string;
   limit?: number;
+  /** Opt in to products/stock (SP-0051). First page only. Optional: added after v1 shipped. */
+  referenceData?: boolean;
+};
+export type MobileUomV1 = { code: string; name: string; decimalPlaces: number };
+/** Catalog product; the optional fields arrive only with `referenceData` (SP-0051). */
+export type ProductCatalogItemV1 = {
+  id: string;
+  code: string;
+  name: string;
+  uom: string;
+  revision?: number;
+  quantityScale?: number;
+  baseUom?: MobileUomV1 | null;
+  sellingUoms?: Array<
+    MobileUomV1 & {
+      toBase: {
+        numerator: number;
+        denominator: number;
+        roundingMode: string;
+      } | null;
+    }
+  >;
+  barcodes?: Array<{ barcode: string; uom: string | null }>;
+};
+/** Stock row; quantities are integers in base units x product quantityScale. */
+export type InventoryAvailabilityV1 = {
+  id: string;
+  productId: string;
+  locationId: string;
+  locationCode: string;
+  locationName: string;
+  availableBase: number;
+  physicalBase: number;
+  reservedBase: number;
+  revision: number;
+  asOf: number;
 };
 /** One visit intent's required/optional activity forms (kind is an open string). */
 export type ActivityRuleV1 = {
@@ -22,6 +58,22 @@ export type ActivityRuleV1 = {
  * centavos; `withheld` carries no figures (account shared outside the person's plan).
  * `openOrders` are submitted orders not yet fulfilled/posted, never a receivables balance.
  */
+/** SP-0088: one account's price list and every orderable unit (whole centavos, null = office prices it). */
+export type OrderTermsV1 = {
+  outletId: string;
+  priceList: {
+    id: string;
+    code: string;
+    name: string;
+    currency: string;
+    sample: boolean;
+  } | null;
+  lines: Array<{
+    productId: string;
+    uom: string;
+    unitPriceMinor: number | null;
+  }>;
+};
 export type AccountSummaryV1 = {
   outletId: string;
   asOfDate: string;
@@ -120,20 +172,19 @@ export type BootstrapResponse = {
   localCustomers: Array<{ id: string; code: string }>;
   route: { id: string; code: string } | null;
   tasks: Array<{ id: string; kind: string; required: boolean }>;
-  productCatalog: Array<{
-    id: string;
-    code: string;
-    name: string;
-    uom: string;
-  }>;
+  productCatalog: Array<ProductCatalogItemV1>;
   /** Annex C call sheets for this page's accounts. Optional: added after v1 shipped. */
   callSheets?: Array<CallSheetV1>;
+  /** Stock for catalog products (referenceData only). Optional: added after v1 shipped. */
+  inventoryAvailability?: Array<InventoryAvailabilityV1>;
   /** AND-013 activity-form rules per visit intent. Optional: added after v1 shipped. */
   activityRules?: Array<ActivityRuleV1>;
   /** AND-016 visit photo types. Optional: added after v1 shipped. */
   photoTypes?: Array<PhotoTypeV1>;
   /** IOS-011 account summaries. Optional: added after v1 shipped. */
   accountSummaries?: Array<AccountSummaryV1>;
+  /** SP-0088 per-account prices and order units. Optional: added after v1 shipped. */
+  orderTerms?: Array<OrderTermsV1>;
   page: number;
   nextPageCursor: string | null;
   syncCursor: string | null;
@@ -243,7 +294,7 @@ export type PushRequest = {
                 kind: "order_intent";
                 clientOrderId: string;
                 note?: string;
-                /** SP-0060 submitted field order lines; quantities only, never prices. */
+                /** SP-0060 submitted field order lines; quantities only, never prices (the server prices them, SP-0088). */
                 lines?: Array<FieldOrderLineV1>;
               }
             | { kind: "note"; text: string }
@@ -381,3 +432,5 @@ export function decodeResponseEnum<const T extends readonly string[]>(
 ): T[number] | { readonly unknown: string } {
   return known.includes(raw) ? (raw as T[number]) : { unknown: raw };
 }
+
+export * from "./offline-authority";

@@ -61,6 +61,16 @@ data class OrderDraftRow(val account: String, val deviceId: String, val scope: S
     val clientVisitId: String, val outletId: String, val serviceDate: String, val json: String,
     val createdAt: Long, val updatedAt: Long)
 
+@Entity(tableName = "catalog_products", primaryKeys = ["account", "deviceId", "scope", "generation", "id"])
+data class CatalogProductRow(val account: String, val deviceId: String, val scope: String,
+    val generation: String, val id: String, val code: String, val revision: Long, val json: String)
+
+@Entity(tableName = "inventory_availability", primaryKeys = ["account", "deviceId", "scope", "generation", "id"],
+    indices = [Index(value = ["account", "deviceId", "scope", "generation", "productId"])])
+data class InventoryAvailabilityRow(val account: String, val deviceId: String, val scope: String,
+    val generation: String, val id: String, val productId: String, val locationCode: String,
+    val revision: Long, val json: String)
+
 /**
  * AND-016 visit photo: metadata only. The JPEG lives encrypted in no-backup app storage under
  * [localId]; [checkInRequestId] resolves the server visit from the check-in's durable ack.
@@ -98,6 +108,25 @@ interface StoreDao {
     suspend fun orderDraft(account: String, device: String, scope: String, draftId: String): OrderDraftRow?
     @Query("DELETE FROM order_drafts WHERE account=:account AND deviceId=:device AND scope=:scope AND draftId=:draftId")
     suspend fun deleteOrderDraft(account: String, device: String, scope: String, draftId: String): Int
+    @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertProduct(row: CatalogProductRow)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putProduct(row: CatalogProductRow)
+    @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertAvailability(row: InventoryAvailabilityRow)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putAvailability(row: InventoryAvailabilityRow)
+    @Query("SELECT * FROM catalog_products WHERE account=:account AND deviceId=:device AND scope=:scope AND generation=:generation ORDER BY code,id")
+    suspend fun catalog(account: String, device: String, scope: String, generation: String): List<CatalogProductRow>
+    @Query("SELECT * FROM catalog_products WHERE account=:account AND deviceId=:device AND scope=:scope AND generation=:generation AND id=:id")
+    suspend fun product(account: String, device: String, scope: String, generation: String, id: String): CatalogProductRow?
+    @Query("SELECT * FROM inventory_availability WHERE account=:account AND deviceId=:device AND scope=:scope AND generation=:generation AND productId=:productId ORDER BY locationCode,id")
+    suspend fun availability(account: String, device: String, scope: String, generation: String, productId: String): List<InventoryAvailabilityRow>
+    @Query("SELECT * FROM inventory_availability WHERE account=:account AND deviceId=:device AND scope=:scope AND generation=:generation AND id=:id")
+    suspend fun inventory(account: String, device: String, scope: String, generation: String, id: String): InventoryAvailabilityRow?
+    @Query("DELETE FROM catalog_products WHERE account=:account AND deviceId=:device AND scope=:scope AND generation!=:generation")
+    suspend fun discardOldProducts(account: String, device: String, scope: String, generation: String)
+    @Query("DELETE FROM inventory_availability WHERE account=:account AND deviceId=:device AND scope=:scope AND generation!=:generation")
+    suspend fun discardOldAvailability(account: String, device: String, scope: String, generation: String)
+    @Query("UPDATE call_sheet_lines SET code=:code,name=:name,uom=:uom,barcode=:barcode WHERE account=:account AND deviceId=:device AND scope=:scope AND productId=:productId")
+    suspend fun refreshCallSheetProduct(account: String, device: String, scope: String, productId: String,
+        code: String, name: String, uom: String, barcode: String?)
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertCallSheet(row: CallSheetRow)
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertCallSheetLine(row: CallSheetLineRow)
     @Query("SELECT * FROM call_sheets WHERE account=:account AND deviceId=:device AND scope=:scope AND generation=:generation AND outletId=:outlet")
@@ -111,6 +140,8 @@ interface StoreDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putDelta(row: DeltaRow)
     @Query("DELETE FROM deltas WHERE account=:account AND deviceId=:device AND scope=:scope AND entity=:entity AND substr(entityId, 1, length(:keepPrefix)) != :keepPrefix")
     suspend fun deleteLocalDeltas(account: String, device: String, scope: String, entity: String, keepPrefix: String)
+    @Query("DELETE FROM deltas WHERE account=:account AND deviceId=:device AND scope=:scope AND entity=:entity AND entityId=:id")
+    suspend fun deleteDelta(account: String, device: String, scope: String, entity: String, id: String)
     @Query("SELECT * FROM deltas WHERE account=:account AND deviceId=:device AND scope=:scope AND entity=:entity AND entityId=:id")
     suspend fun delta(account: String, device: String, scope: String, entity: String, id: String): DeltaRow?
     @Query("SELECT MAX(createdAt) FROM outbox WHERE account=:account AND deviceId=:device AND scope=:scope")
@@ -164,6 +195,10 @@ interface StoreDao {
     suspend fun purgeCallSheets(account: String?, device: String?, scope: String?)
     @Query("DELETE FROM call_sheet_lines WHERE (:account IS NULL OR (account=:account AND deviceId=:device AND scope=:scope))")
     suspend fun purgeCallSheetLines(account: String?, device: String?, scope: String?)
+    @Query("DELETE FROM catalog_products WHERE (:account IS NULL OR (account=:account AND deviceId=:device AND scope=:scope))")
+    suspend fun purgeProducts(account: String?, device: String?, scope: String?)
+    @Query("DELETE FROM inventory_availability WHERE (:account IS NULL OR (account=:account AND deviceId=:device AND scope=:scope))")
+    suspend fun purgeAvailability(account: String?, device: String?, scope: String?)
     @Query("DELETE FROM deltas WHERE (:account IS NULL OR (account=:account AND deviceId=:device AND scope=:scope))")
     suspend fun purgeDeltas(account: String?, device: String?, scope: String?)
     @Query("UPDATE partitions SET held=1, cursor=NULL, syncHealth='held_for_review', activeGeneration=NULL, employeeJson=NULL, routeJson=NULL, leaseExpiresAt=NULL, cacheExpiresAt=NULL WHERE (:account IS NULL OR (account=:account AND deviceId=:device AND scope=:scope))")
@@ -172,8 +207,8 @@ interface StoreDao {
     suspend fun ack(account: String, device: String, scope: String, requestId: String): AckRow?
 }
 
-@Database(entities = [SnapshotRow::class, PartitionRow::class, IntentRow::class, OutboxRow::class, AckRow::class, DeltaRow::class, CallSheetRow::class, CallSheetLineRow::class, EvidencePhotoRow::class, OrderDraftRow::class],
-    version = 7, exportSchema = true)
+@Database(entities = [SnapshotRow::class, PartitionRow::class, IntentRow::class, OutboxRow::class, AckRow::class, DeltaRow::class, CallSheetRow::class, CallSheetLineRow::class, EvidencePhotoRow::class, OrderDraftRow::class, CatalogProductRow::class, InventoryAvailabilityRow::class],
+    version = 8, exportSchema = true)
 abstract class StoreDatabase : RoomDatabase() {
     abstract fun rows(): StoreDao
 }

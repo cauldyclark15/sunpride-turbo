@@ -140,6 +140,38 @@ describe("mobile v1 canonical contract", () => {
     expect(validate(balance)).toBe(false);
   });
 
+  test("bootstrap stays valid with or without the additive orderTerms field (SP-0088)", async () => {
+    const withTerms = await Bun.file(
+      new URL(
+        "../fixtures/mobile-v1/bootstrap-order-terms-response.json",
+        import.meta.url,
+      ),
+    ).json();
+    expect(validate(withTerms), JSON.stringify(validate.errors)).toBe(true);
+    const withoutTerms = { ...withTerms };
+    delete withoutTerms.orderTerms;
+    expect(validate(withoutTerms)).toBe(true);
+    // No list applies: priceList is an explicit null and every line unpriced.
+    const unpriced = structuredClone(withTerms);
+    unpriced.orderTerms[0].priceList = null;
+    for (const line of unpriced.orderTerms[0].lines) line.unitPriceMinor = null;
+    expect(validate(unpriced), JSON.stringify(validate.errors)).toBe(true);
+    const omitted = structuredClone(withTerms);
+    delete omitted.orderTerms[0].lines[0].unitPriceMinor;
+    expect(validate(omitted)).toBe(false);
+    for (const price of [12.5, -1, "4525"]) {
+      const bad = structuredClone(withTerms);
+      bad.orderTerms[0].lines[0].unitPriceMinor = price;
+      expect(validate(bad)).toBe(false);
+    }
+    const currency = structuredClone(withTerms);
+    currency.orderTerms[0].priceList.currency = "peso";
+    expect(validate(currency)).toBe(false);
+    const extra = structuredClone(withTerms);
+    extra.orderTerms[0].lines[0].discountMinor = 10;
+    expect(validate(extra)).toBe(false);
+  });
+
   test("field order lines are bounded whole quantities in a unit, never prices", async () => {
     const original = await Bun.file(
       new URL("../fixtures/mobile-v1/push-order-request.json", import.meta.url),

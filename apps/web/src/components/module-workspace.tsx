@@ -15,6 +15,7 @@ import {
 import { useMutation, useQuery } from "convex/react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { isBetaFeatureOn } from "../config/beta";
 import { getWebModuleTabs, type WebModuleSlug } from "../config/navigation";
 import { canAccessWebModule } from "../lib/module-access";
 import { AdminWorkspace } from "./admin-workspace";
@@ -31,6 +32,7 @@ import { AdminReports } from "./analytics/admin-reports";
 import { CoverageCompliance } from "./analytics/coverage-compliance";
 import { CustomerExecution } from "./analytics/customer-execution";
 import { ExecutionDashboard } from "./analytics/execution-dashboard";
+import { ManagementExceptions } from "./analytics/management-exceptions";
 import { SkuDistribution } from "./analytics/sku-distribution";
 import { TerritoryPerformance } from "./analytics/territory-performance";
 
@@ -247,6 +249,10 @@ function ModuleContent({
         {/* ANA-008: MCP plan vs executed visits and persistent under-coverage. */}
         {module === "analytics" && canAccessWebModule("supervision", role) ? (
           <CoverageCompliance />
+        ) : null}
+        {/* ANA-007: the same readers get the management exception dashboard. */}
+        {module === "analytics" && canAccessWebModule("supervision", role) ? (
+          <ManagementExceptions />
         ) : null}
         {/* ANA-006: buying stores, gaps and shelf signals by SKU. */}
         {module === "analytics" && canAccessWebModule("supervision", role) ? (
@@ -484,7 +490,8 @@ function ModuleContent({
                 : undefined
           }
           actions={
-            module === "orders" ? (
+            // Beta: the sample-order button is hidden (see config/beta.ts).
+            module === "orders" && isBetaFeatureOn("sample-order") ? (
               <Button
                 variant="primary"
                 isPending={busy}

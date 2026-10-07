@@ -28,11 +28,14 @@ import {
   signCursor,
   type Cursor,
 } from "./cursor";
+import { REFERENCE_OVERLAP_MS } from "./reference";
 import {
   assertDevice,
+  availabilityDTO,
   callSheetDTO,
   customerDTO,
   dayProjection,
+  orderTermsDTO,
   outletDTO,
   phonePhotoTypes,
   photoTypeDTO,
@@ -205,6 +208,7 @@ export const snapshot = internalQuery({
     dayFrom: v.optional(v.string()),
     pageCursor: v.optional(v.string()),
     limit: v.optional(v.number()),
+    referenceData: v.optional(v.boolean()),
   },
   returns: v.object({
     type: v.literal("bootstrap.response"),
@@ -233,17 +237,23 @@ export const snapshot = internalQuery({
     route: routeDTO,
     tasks: v.array(taskDTO),
     productCatalog: v.array(productDTO),
+    inventoryAvailability: v.optional(v.array(availabilityDTO)),
     callSheets: v.array(callSheetDTO),
     activityRules: v.array(activityRuleDTO),
     photoTypes: v.array(photoTypeDTO),
     accountSummaries: v.array(accountSummaryDTO),
+    /** SP-0088: each account's order terms, shipped once with its call sheet. */
+    orderTerms: v.optional(v.array(orderTermsDTO)),
     page: v.number(),
     nextPageCursor: v.union(v.string(), v.null()),
     syncCursor: v.union(v.string(), v.null()),
     dayTarget: v.optional(dayTargetValidator),
     daySales: v.optional(daySalesValidator),
   }),
-  handler: async (ctx, { actor, dayFrom, pageCursor, limit }) => {
+  handler: async (
+    ctx,
+    { actor, dayFrom, pageCursor, limit, referenceData },
+  ) => {
     const now = Date.now();
     await assertDevice(ctx, actor, now);
     if (
@@ -254,15 +264,23 @@ export const snapshot = internalQuery({
     const day = manilaDate(now);
     if (dayFrom !== undefined && dayFrom !== day)
       throw new ConvexError("invalid_request");
+    const prior = pageCursor
+      ? await readCursor(pageCursor, "bootstrap", actor, now)
+      : null;
+    // Continuation pages keep the first page's mode; a different request is malformed.
+    const reference = prior ? !!prior.reference : referenceData === true;
+    if (prior && referenceData !== undefined && referenceData !== reference)
+      throw new ConvexError("invalid_request");
     const { entries, manifest, activityRules } = await dayProjection(
       ctx,
       actor,
       day,
       now,
+      reference,
     );
     let cursor: Cursor;
-    if (pageCursor) {
-      cursor = await readCursor(pageCursor, "bootstrap", actor, now);
+    if (prior) {
+      cursor = prior;
       if (
         cursor.day !== day ||
         cursor.manifest !== manifest ||
@@ -290,6 +308,16 @@ export const snapshot = internalQuery({
         day,
         manifest,
         page: 0,
+        // Rows changed after this first page are re-sent by the first pull.
+        ...(reference
+          ? {
+              reference: {
+                low: Math.max(0, now - REFERENCE_OVERLAP_MS),
+                high: Math.max(0, now - REFERENCE_OVERLAP_MS),
+                pos: null,
+              },
+            }
+          : {}),
       };
     }
     // QSR-013: each account's Annex C sheet ships once per snapshot, with the first visit
@@ -322,12 +350,15 @@ export const snapshot = internalQuery({
     // Pages are cut by entry count AND by uncompressed bytes, so a page stays below
     // MAX_BOOTSTRAP_PAGE_BYTES however large the call sheets are.
     const sizes = entries.map((e, i) =>
-      e.kind === "task"
-        ? jsonBytes(e.value)
+      e.kind !== "visit"
+        ? jsonBytes(e.value) + 1
         : jsonBytes(e.value.visit) +
           jsonBytes(e.value.outlet) +
           (e.value.customer ? jsonBytes(e.value.customer) + 1 : 0) +
           (sheetAt.has(i) ? jsonBytes(e.value.callSheet) + 1 : 0) +
+          (sheetAt.has(i) && e.value.orderTerms
+            ? jsonBytes(e.value.orderTerms) + 1
+            : 0) +
           (summaryAt.has(i) ? ACCOUNT_SUMMARY_MAX_BYTES + 1 : 0) +
           2,
     );
@@ -378,6 +409,12 @@ export const snapshot = internalQuery({
     const tasks = pageEntries.flatMap((e) =>
       e.kind === "task" ? [e.value] : [],
     );
+    const products = pageEntries.flatMap((e) =>
+      e.kind === "product" ? [e.value] : [],
+    );
+    const availability = pageEntries.flatMap((e) =>
+      e.kind === "inventory" ? [e.value] : [],
+    );
     const next = cursor.after + pageEntries.length;
     const hasMore = next < entries.length;
     const base = { ...cursor, after: next, page: cursor.page + 1 };
@@ -410,6 +447,8 @@ export const snapshot = internalQuery({
         offlineLeaseExpiresAt: nextDayCloseAt(now),
         cacheExpiresAt: nextDayCloseAt(now),
         orderCaptureEnabled: false,
+        // Contract v1 keeps this literal (native clients require it); per-account prices
+        // travel in the additive `orderTerms` (SP-0088).
         priceAvailability: "unavailable" as const,
         promotionsAvailability: "unavailable" as const,
       },
@@ -418,7 +457,8 @@ export const snapshot = internalQuery({
       localCustomers: visits.flatMap((e) => (e.customer ? [e.customer] : [])),
       route: visits.find((e) => e.route)?.route ?? null,
       tasks,
-      productCatalog: [],
+      productCatalog: products,
+      ...(reference ? { inventoryAvailability: availability } : {}),
       // One Annex C sheet per account per snapshot (outlets repeat across horizon days).
       callSheets: visits.flatMap((e) =>
         e.sheet && e.callSheet ? [e.callSheet] : [],
@@ -427,6 +467,10 @@ export const snapshot = internalQuery({
       activityRules,
       // AND-016: visit photo types, the same small list on every page.
       photoTypes: phonePhotoTypes(),
+      // SP-0088: prices and order units, once per account like its call sheet.
+      orderTerms: visits.flatMap((e) =>
+        e.sheet && e.orderTerms ? [e.orderTerms] : [],
+      ),
       // IOS-011: account figures for this page's newly shipped outlets (as of serverTime).
       accountSummaries,
       page: base.page,

@@ -8,11 +8,23 @@ import { outletRows, resolveOutletScopeAt } from "../outlets/validation";
 import { activeAt } from "../org/validation";
 import type { AuthorizedDevice } from "./types";
 import {
+  referenceProjection,
+  type Availability,
+  type CatalogItem,
+  type ReferenceProjection,
+} from "./reference";
+import {
   accountFor,
   phoneCallSheet,
   type PhoneCallSheet,
 } from "../callSheets/model";
 import { phoneRules, rulesAt } from "../visits/activity_rules";
+import {
+  orderTermsFor,
+  pricingCache,
+  type OrderTerms,
+  type PricingCache,
+} from "../pricing/model";
 import {
   EVIDENCE_PHOTO_TYPES,
   EVIDENCE_PHOTO_TYPES_VERSION,
@@ -67,12 +79,7 @@ export const taskDTO = v.object({
   kind: v.string(),
   required: v.boolean(),
 });
-export const productDTO = v.object({
-  id: v.string(),
-  code: v.string(),
-  name: v.string(),
-  uom: v.string(),
-});
+export { availabilityDTO, catalogItemDTO as productDTO } from "./reference";
 const nullableText = v.union(v.string(), v.null());
 export const callSheetDTO = v.object({
   outletId: v.string(),
@@ -100,8 +107,38 @@ export const callSheetDTO = v.object({
     }),
   ),
 });
+/**
+ * SP-0088 phone wire: one outlet's order terms (price list and every orderable unit of its
+ * account-setup products, priced when the list has exactly one price). Optional in contract v1.
+ */
+export const orderTermsDTO = v.object({
+  outletId: v.string(),
+  priceList: v.union(
+    v.object({
+      id: v.string(),
+      code: v.string(),
+      name: v.string(),
+      currency: v.string(),
+      sample: v.boolean(),
+    }),
+    v.null(),
+  ),
+  lines: v.array(
+    v.object({
+      productId: v.string(),
+      uom: v.string(),
+      unitPriceMinor: v.union(v.number(), v.null()),
+    }),
+  ),
+});
 type CallSheetCache = {
-  accounts: Map<Id<"outlets">, { sheet: PhoneCallSheet; stamp: string } | null>;
+  /** SP-0088: one order-terms projection per outlet per snapshot. */
+  terms: Map<Id<"outlets">, { terms: OrderTerms; stamp: string } | null>;
+  pricing: PricingCache;
+  accounts: Map<
+    Id<"outlets">,
+    { sheet: PhoneCallSheet; stamp: string; membershipStamp: string } | null
+  >;
   products: Parameters<typeof phoneCallSheet>[2];
   /** QSR-013: one read per plan/outlet per snapshot keeps the transaction within its range budget. */
   plans: Map<Id<"coveragePlans">, Doc<"coveragePlans"> | null>;
@@ -121,6 +158,7 @@ export type Projected = {
   customer: typeof customerDTO.type | null;
   route: Exclude<typeof routeDTO.type, null> | null;
   callSheet: PhoneCallSheet | null;
+  orderTerms: OrderTerms | null;
   stamp: string;
 };
 
@@ -178,6 +216,7 @@ async function visitProjection(
   actor: AuthorizedDevice,
   now: number,
   cache: CallSheetCache,
+  reference: boolean,
 ): Promise<Projected> {
   let plan = cache.plans.get(row.planId);
   if (plan === undefined) {
@@ -225,6 +264,27 @@ async function visitProjection(
       : null;
     cache.accounts.set(row.outletId, callSheet);
   }
+  // SP-0088: prices for the account-setup products, at the snapshot instant.
+  let terms = cache.terms.get(row.outletId);
+  if (terms === undefined) {
+    // Product rows come from the call sheet's own reads, the outlet from scope resolution.
+    terms = callSheet
+      ? await orderTermsFor(
+          ctx,
+          current.outlet,
+          customer,
+          callSheet.sheet.lines.flatMap((line) => {
+            const product = cache.products.get(
+              line.productId as Id<"products">,
+            )?.product;
+            return product ? [product] : [];
+          }),
+          now,
+          cache.pricing,
+        )
+      : null;
+    cache.terms.set(row.outletId, terms);
+  }
   // Navigation target: only an unambiguous current verified pin. Missing or conflicting
   // pins send no coordinates (the phone falls back to the address), never a guess.
   const pins = outletState.pins.filter(
@@ -265,17 +325,34 @@ async function visitProjection(
     route:
       s.routeId && s.routeCode ? { id: s.routeId, code: s.routeCode } : null,
     callSheet: callSheet?.sheet ?? null,
-    stamp: `${callSheet?.stamp ?? ""}|${row._id}|${row.status}|${row._creationTime}|${row.generatedAt}|${JSON.stringify(s)}|${JSON.stringify(row.intents)}|${current.assignment?._id ?? ""}|${current.assignment?.routeId ?? ""}|${current.assignment?.sequence ?? ""}|${current.orgUnitId}|${current.outlet.status}|${customer?.code ?? ""}|${slot.sequence}|${address ?? ""}|${pin?._id ?? ""}|${pin?.latitude ?? ""}|${pin?.longitude ?? ""}`,
+    orderTerms: terms?.terms ?? null,
+    stamp: `${terms?.stamp ?? ""}|${(reference ? callSheet?.membershipStamp : callSheet?.stamp) ?? ""}|${row._id}|${row.status}|${row._creationTime}|${row.generatedAt}|${JSON.stringify(s)}|${JSON.stringify(row.intents)}|${current.assignment?._id ?? ""}|${current.assignment?.routeId ?? ""}|${current.assignment?.sequence ?? ""}|${current.orgUnitId}|${current.outlet.status}|${customer?.code ?? ""}|${slot.sequence}|${address ?? ""}|${pin?._id ?? ""}|${pin?.latitude ?? ""}|${pin?.longitude ?? ""}`,
   };
 }
 
-/** Bounded, indexed per-person day scan. Reject oversized days rather than truncate. */
+export type DayEntry =
+  | { kind: "visit"; value: Projected }
+  | { kind: "task"; value: Task }
+  | { kind: "product"; value: CatalogItem }
+  | { kind: "inventory"; value: Availability };
+
+/**
+ * Bounded, indexed per-person day scan. Reject oversized days rather than truncate.
+ * With `reference` (SP-0051 opt-in) the entries also carry the phone's products and stock, and
+ * product content leaves the manifest: it travels as revisioned pull changes instead.
+ */
 export async function dayProjection(
   ctx: QueryCtx,
   actor: AuthorizedDevice,
   day: string,
   now: number,
-) {
+  reference = false,
+): Promise<{
+  entries: DayEntry[];
+  manifest: string;
+  activityRules: ReturnType<typeof phoneRules>;
+  reference: ReferenceProjection | null;
+}> {
   const start = Date.parse(`${day}T00:00:00Z`);
   if (
     !Number.isFinite(start) ||
@@ -285,6 +362,8 @@ export async function dayProjection(
     throw new ConvexError("rebootstrap_required");
   const visits: Projected[] = [];
   const cache: CallSheetCache = {
+    terms: new Map(),
+    pricing: pricingCache(),
     accounts: new Map(),
     products: new Map(),
     plans: new Map(),
@@ -309,7 +388,7 @@ export async function dayProjection(
   if (planned.length > MAX_WORKING_SET_VISITS)
     throw new ConvexError(WORKING_SET_TOO_LARGE);
   for (const row of planned) {
-    visits.push(await visitProjection(ctx, row, actor, now, cache));
+    visits.push(await visitProjection(ctx, row, actor, now, cache, reference));
     if (cache.products.size > MAX_WORKING_SET_PRODUCTS)
       throw new ConvexError(WORKING_SET_TOO_LARGE);
   }
@@ -334,9 +413,31 @@ export async function dayProjection(
     kind: t.kind,
     required: t.required,
   }));
-  const entries = [
+  const referenceData = reference
+    ? await referenceProjection(
+        ctx,
+        actor,
+        [...cache.accounts.values()].flatMap((account) =>
+          account
+            ? account.sheet.lines.map(
+                (line) => line.productId as Id<"products">,
+              )
+            : [],
+        ),
+        now,
+      )
+    : null;
+  const entries: DayEntry[] = [
     ...visits.map((v) => ({ kind: "visit" as const, value: v })),
     ...projectedTasks.map((t) => ({ kind: "task" as const, value: t })),
+    ...(referenceData?.products ?? []).map((p) => ({
+      kind: "product" as const,
+      value: p,
+    })),
+    ...(referenceData?.availability ?? []).map((a) => ({
+      kind: "inventory" as const,
+      value: a,
+    })),
   ];
   // Effective route/territory membership has no mobileChanges hook yet. Fold its
   // current projection into the signed manifest and force a fresh snapshot on change.
@@ -371,7 +472,7 @@ export async function dayProjection(
   ];
   // AND-013: activity-form rules in effect now; a rule change forces a fresh snapshot.
   const activityRules = phoneRules(await rulesAt(ctx, now));
-  // No unit/route-authorized product-selling catalog exists in v1. Do not expose nationwide products.
+  // Never a nationwide catalog: only the reference opt-in's call-sheet products (SP-0051).
   const manifestInput = JSON.stringify({
     day,
     memberships,
@@ -388,6 +489,7 @@ export async function dayProjection(
       t.kind,
       t.required,
     ]),
+    ...(referenceData ? { reference: referenceData.membership } : {}),
   });
   const digest = await crypto.subtle.digest(
     "SHA-256",
@@ -396,5 +498,5 @@ export async function dayProjection(
   const manifest = Array.from(new Uint8Array(digest), (b) =>
     b.toString(16).padStart(2, "0"),
   ).join("");
-  return { entries, manifest, activityRules };
+  return { entries, manifest, activityRules, reference: referenceData };
 }

@@ -132,7 +132,7 @@ struct SignInShell: View {
     }
     private var compactSyncLabel: String {
         guard let status = model.syncStatus else { return "Offline" }
-        if status.needsReview + status.held > 0 || status.otherHeldWork {
+        if status.needsReview + status.held + status.photosHeld + status.photosForReview > 0 || status.otherHeldWork {
             return status.label
         }
         if status.queued + status.sending > 0 { return status.label }
@@ -140,6 +140,7 @@ struct SignInShell: View {
         if status.sending > 0 || model.syncing { return "Syncing" }
         if status.queued > 0 { return "\(status.queued) waiting" }
         if status.lastErrorCode != nil || status.cacheStale || model.stale { return "Offline" }
+        if status.photosWaiting > 0 { return "Synced · photos uploading" }
         return "Synced"
     }
     private var canSubmit: Bool {

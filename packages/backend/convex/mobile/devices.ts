@@ -20,13 +20,13 @@ import {
   importDeviceKey,
   verifyDeviceSignature,
 } from "./device_auth";
+import { refundAttempt, reserveAttempt, takeChallenge } from "./rate_limits";
 
 const appValidator = v.union(
   v.literal("IOS"),
   v.literal("ANDROID"),
   v.literal("VAN_ANDROID"),
 );
-const fieldAppValidator = v.union(v.literal("IOS"), v.literal("ANDROID"));
 const bounded = (value: string, max: number): string => {
   const text = value.trim();
   if (
@@ -74,11 +74,9 @@ export const register = mutation({
       "admin.manage",
       assignment.orgUnitId,
     );
-    if (args.allowedApp === "VAN_ANDROID")
-      throw new ConvexError("Van POS device enrollment is not supported here");
     if (
       (args.allowedApp === "IOS" && args.platform !== "iOS") ||
-      (args.allowedApp === "ANDROID" && args.platform !== "Android")
+      (args.allowedApp !== "IOS" && args.platform !== "Android")
     )
       throw new ConvexError("App and platform mismatch");
     const inventoryTag = normalizeCode(args.inventoryTag);
@@ -141,14 +139,14 @@ export const register = mutation({
 
 /** Employee-only key lookup; never disclose another profile's device. */
 export const mine = query({
-  args: { publicKey: v.string(), app: fieldAppValidator },
+  args: { publicKey: v.string(), app: appValidator },
   returns: v.union(
     v.null(),
     v.object({
       deviceId: v.id("registeredDevices"),
       status: v.string(),
       bound: v.boolean(),
-      allowedApp: fieldAppValidator,
+      allowedApp: appValidator,
     }),
   ),
   handler: async (ctx, { publicKey, app }) => {
@@ -193,9 +191,11 @@ export const challenge = mutation({
   args: { deviceId: v.id("registeredDevices") },
   returns: v.object({ nonce: v.string(), expiresAt: v.number() }),
   handler: async (ctx, { deviceId }) => {
-    const { device } = await devicePerson(ctx, deviceId);
+    const { device, subject } = await devicePerson(ctx, deviceId);
     if (!device.publicKey) throw new ConvexError("Missing enrolled key");
     const now = Date.now();
+    // QSR-009: bounds every signed sync request and bind attempt for this device.
+    await takeChallenge(ctx, deviceId, subject, now);
     const nonce = crypto.randomUUID();
     const expiresAt = now + CHALLENGE_TTL_MS;
     await ctx.db.insert("deviceChallenges", {
@@ -222,7 +222,9 @@ export const bind = mutation({
     timestamp: v.number(),
     proof: v.string(),
   },
-  returns: v.object({ bindingStatus: v.literal("bound") }),
+  returns: v.object({
+    bindingStatus: v.union(v.literal("bound"), v.literal("rejected")),
+  }),
   handler: async (ctx, args) => {
     const { device, subject } = await devicePerson(ctx, args.deviceId);
     if (!device.publicKey || device.boundSubject || device.credentialId)
@@ -240,13 +242,26 @@ export const bind = mutation({
         : bounded(args.attestation.keyId, 128);
     // Attestation is recorded as unverified metadata; this is possession proof, not MDM attestation.
     const now = Date.now();
-    assertProofTime(args.timestamp, now);
-    await verifyDeviceSignature(
-      device.publicKey,
-      args.proof,
-      `BIND|${device._id}|${credentialId}|${args.nonce}|${args.timestamp}`,
-    );
-    await consumeChallenge(ctx, device, args.nonce, now);
+    // QSR-009: reserve the caller's invalid-attempt budget before signature work. A rejected
+    // proof must NOT throw (that would roll back the reservation and the burned challenge),
+    // so it returns `rejected` with the unit spent and the one-time challenge consumed.
+    if ((await reserveAttempt(ctx, subject, now)) > 0)
+      throw new ConvexError("rate_limited");
+    try {
+      assertProofTime(args.timestamp, now);
+      // Burn the nonce first: one signature verification per issued challenge.
+      await consumeChallenge(ctx, device, args.nonce, now);
+      await verifyDeviceSignature(
+        device.publicKey,
+        args.proof,
+        `BIND|${device._id}|${credentialId}|${args.nonce}|${args.timestamp}`,
+      );
+    } catch (error) {
+      if (error instanceof ConvexError)
+        return { bindingStatus: "rejected" as const };
+      throw error;
+    }
+    await refundAttempt(ctx, subject, now);
     await ctx.db.patch(device._id, {
       boundSubject: subject,
       credentialId,

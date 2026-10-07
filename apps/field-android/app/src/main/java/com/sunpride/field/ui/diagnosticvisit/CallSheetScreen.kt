@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import com.sunpride.field.storage.CallSheet
 import com.sunpride.field.ui.FieldController
 import com.sunpride.field.ui.PrimaryBottomButton
+import com.sunpride.field.ui.SecondaryButton
 import com.sunpride.field.ui.SectionCard
 import com.sunpride.field.ui.SunprideTokens
 import org.json.JSONObject
@@ -41,6 +42,10 @@ fun CallSheetScreen(sheet: CallSheet, controller: FieldController, modifier: Mod
         val v = values.subList(i * 6, i * 6 + 6)
         CallSheetDraftLine(product.productId, v[0], v[1], v[2], v[3], v[4], v[5])
     }
+    fun setDrafts(next: List<CallSheetDraftLine>) { values = next.flatMap { it.values() } }
+    // ANA-010: suggestions only fill local Order text; Save below is still the only way to queue anything.
+    val suggestion = controller.suggestedOrder
+    val order = suggestion.order?.takeIf { it.outletId == sheet.outletId }
     val valid = runCatching { CallSheetPayload.activity(sheet, drafts) }.isSuccess
     val invalid = values.any { runCatching { CallSheetPayload.quantity(it) }.isFailure }
     val saved = controller.diagnostic?.let { controller.relatedVisitRows(it) }.orEmpty().filter { (intent, _) ->
@@ -81,6 +86,34 @@ fun CallSheetScreen(sheet: CallSheet, controller: FieldController, modifier: Mod
                     }
                 }
             }
+            item {
+                SectionCard("Suggested order", Modifier.testTag("suggested-order")) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        suggestion.message?.let {
+                            Text(it, style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.testTag("suggested-order-message"))
+                        }
+                        if (order != null) {
+                            Text(SuggestedOrderRules.summary(order), style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.testTag("suggested-order-summary"))
+                        }
+                        Text(SuggestedOrderRules.NOTE, style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (order != null && SuggestedOrderRules.hasApplicable(order, sheet))
+                            SecondaryButton("Use all suggestions", { setDrafts(SuggestedOrderRules.useAll(order, sheet, drafts)) },
+                                Modifier.fillMaxWidth().testTag("suggested-order-use-all"), !controller.busy)
+                        val extra = order?.let { SuggestedOrderRules.notOnSheet(it, sheet) }.orEmpty()
+                        if (extra.isNotEmpty()) {
+                            Text("Not on this call sheet", style = MaterialTheme.typography.labelMedium)
+                            extra.forEach { line ->
+                                Text("${line.code} ${line.name} — ${line.quantityText} ${line.unit}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            }
             if (sheet.lines.isEmpty()) item { Text("No products set up for this account yet. Ask your office.") }
             itemsIndexed(sheet.lines, key = { _, product -> product.productId }) { index, product ->
                 SectionCard(product.code) {
@@ -88,6 +121,17 @@ fun CallSheetScreen(sheet: CallSheet, controller: FieldController, modifier: Mod
                         Text(product.name, style = MaterialTheme.typography.titleSmall)
                         Text(listOfNotNull(product.uom, product.pricing).joinToString(" · "),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        order?.let { SuggestedOrderRules.suggestion(it, product.productId) }?.let { line ->
+                            Text(SuggestedOrderRules.statusText(line), style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier.testTag("suggestion-${product.productId}"))
+                            line.reasons.forEach { reason ->
+                                Text(reason, style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            if (line.canUse) SecondaryButton("Use ${line.quantityText}", {
+                                setDrafts(SuggestedOrderRules.use(order, drafts, product.productId))
+                            }, Modifier.testTag("suggestion-use-${product.productId}"), !controller.busy)
+                        }
                         repeat(3) { row ->
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 repeat(2) { column ->

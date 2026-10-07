@@ -1,0 +1,8 @@
+{
+  "type": "error.response",
+  "contractVersion": 1,
+  "serverTime": 1791338400000,
+  "code": "unauthorized",
+  "message": "unauthorized",
+  "retryable": false
+}

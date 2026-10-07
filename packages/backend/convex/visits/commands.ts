@@ -19,6 +19,7 @@ import {
   validateFieldOrderLines,
 } from "../orders/field_order_validators";
 import { validateFieldOrder } from "../orders/field_order";
+import { priceFieldOrder } from "../pricing/model";
 import {
   accountFor,
   callSheetWeek,
@@ -50,7 +51,7 @@ export const CLOSED_CALL_STATES = new Set([
   "missed",
 ]);
 const MAX_DAY_CALLS = 200;
-const MAX_VISIT_ACTIVITIES = 500;
+export const MAX_VISIT_ACTIVITIES = 500;
 
 /**
  * MCP order (client call 2 Oct 2026): a salesperson cannot start another store while a
@@ -442,6 +443,16 @@ export async function applyVisitOperation(
     const p = operation.payload;
     if (visit.state !== "checked-in" && visit.state !== "in-progress")
       throw new ConvexError("invalid_transition");
+    // An order is priced at its capture time, so it must come after its call's check-in on the
+    // same phone clock: an earlier stamp is inconsistent with the call and would pick a retired
+    // price. Other activities keep device time as evidence only (ADR-022).
+    if (
+      p.activity.kind === "order_intent" &&
+      p.activity.lines !== undefined &&
+      visit.startedAt !== undefined &&
+      p.deviceTime < visit.startedAt
+    )
+      throw new ConvexError("invalid_request");
     safeActivity(p.activity);
     if (p.activity.kind === "order_intent") {
       // A re-sent intent (e.g. re-queued under a fresh request key) never records a second
@@ -512,6 +523,27 @@ export async function applyVisitOperation(
       deviceTime: p.deviceTime,
       serverTime: now,
     });
+    // SP-0088: the server prices the order and checks credit itself; never the phone's figures.
+    if (p.activity.kind === "order_intent" && p.activity.lines !== undefined) {
+      const pricing = await priceFieldOrder(
+        ctx,
+        visit,
+        p.activity.lines,
+        Math.min(p.deviceTime, now),
+        now,
+      );
+      await ctx.db.insert("fieldOrderPricings", {
+        organizationId: SUNPRIDE_ORGANIZATION_ID,
+        orgUnitId: visit.orgUnitId,
+        visitId: visit._id,
+        activityId,
+        outletId: visit.outletId,
+        clientOrderId: p.activity.clientOrderId,
+        pricedAt: Math.min(p.deviceTime, now),
+        ...pricing,
+        serverTime: now,
+      });
+    }
     if (p.activity.kind === "call_sheet" && account) {
       const { localMonth, week } = callSheetWeek(visit.serviceDate);
       for (const line of p.activity.lines)

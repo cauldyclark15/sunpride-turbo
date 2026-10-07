@@ -22,7 +22,9 @@ data class ScopedSnapshot(val employeeJson: String, val routeJson: String?,
     /** AND-013 activity-form rules per visit intent; empty from servers that predate them. */
     val activityRules: List<ActivityRule> = emptyList(),
     /** AND-016 visit photo types; empty from servers that predate them (defaults apply). */
-    val photoTypes: List<PhotoType> = emptyList())
+    val photoTypes: List<PhotoType> = emptyList(),
+    val productCatalog: List<CatalogProduct> = emptyList(),
+    val inventoryAvailability: List<InventoryAvailability> = emptyList())
 data class SnapshotItem(val id: String, val json: String, val serviceDate: String? = null, val listPosition: Int? = null)
 
 interface FieldStore {
@@ -34,6 +36,8 @@ interface FieldStore {
     suspend fun todaysVisits(day: String): List<SnapshotItem>
     suspend fun outlets(): List<SnapshotItem>
     suspend fun callSheet(outletId: String): CallSheet? = null
+    suspend fun catalog(): List<CatalogProduct> = emptyList()
+    suspend fun availability(productId: String): List<InventoryAvailability> = emptyList()
     suspend fun activityRules(): List<ActivityRule> = emptyList()
     /** AND-016: downloaded photo types (may be empty; see [EvidencePhotos.offered]). */
     suspend fun photoTypes(): List<PhotoType> = emptyList()
@@ -108,6 +112,12 @@ interface FieldStore {
     suspend fun localCache(entity: String, key: String): DeltaRow? = null
     /** Save one summary and drop this entity's rows whose key does not start with [keepPrefix]. */
     suspend fun putLocalCache(entity: String, key: String, json: String, at: Long, keepPrefix: String) {}
+    /**
+     * Durably replace one saved summary with a refusal marker (tombstone row whose json is [reason]), so a
+     * refused answer can never come back offline or after relaunch. The saved row is removed even when the
+     * partition is held.
+     */
+    suspend fun blockLocalCache(entity: String, key: String, reason: String, at: Long) {}
     fun close() {}
 }
 
@@ -150,12 +160,20 @@ object EncryptedFieldDatabase {
             db.execSQL("CREATE TABLE IF NOT EXISTS `order_drafts` (`account` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `scope` TEXT NOT NULL, `draftId` TEXT NOT NULL, `clientVisitId` TEXT NOT NULL, `outletId` TEXT NOT NULL, `serviceDate` TEXT NOT NULL, `json` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`account`, `deviceId`, `scope`, `draftId`))")
         }
     }
+    /** SP-0051 scoped product catalog and inventory availability, layered on main's v7 order drafts. */
+    val MIGRATION_7_8 = object : Migration(7, 8) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `catalog_products` (`account` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `scope` TEXT NOT NULL, `generation` TEXT NOT NULL, `id` TEXT NOT NULL, `code` TEXT NOT NULL, `revision` INTEGER NOT NULL, `json` TEXT NOT NULL, PRIMARY KEY(`account`, `deviceId`, `scope`, `generation`, `id`))")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `inventory_availability` (`account` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `scope` TEXT NOT NULL, `generation` TEXT NOT NULL, `id` TEXT NOT NULL, `productId` TEXT NOT NULL, `locationCode` TEXT NOT NULL, `revision` INTEGER NOT NULL, `json` TEXT NOT NULL, PRIMARY KEY(`account`, `deviceId`, `scope`, `generation`, `id`))")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_inventory_availability_account_deviceId_scope_generation_productId` ON `inventory_availability` (`account`, `deviceId`, `scope`, `generation`, `productId`)")
+        }
+    }
     fun open(context: Context): StoreDatabase {
         System.loadLibrary("sqlcipher")
         val passphrase = PassphraseVault(context).passphrase()
         return Room.databaseBuilder(context.applicationContext, StoreDatabase::class.java, PassphraseVault.DB_NAME)
             .openHelperFactory(SupportOpenHelperFactory(passphrase))
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
             .build()
     }
 
@@ -186,6 +204,8 @@ object EncryptedFieldDatabase {
             dao.purgeSnapshots(a, d, s)
             dao.purgeCallSheets(a, d, s)
             dao.purgeCallSheetLines(a, d, s)
+            dao.purgeProducts(a, d, s)
+            dao.purgeAvailability(a, d, s)
             dao.purgeDeltas(a, d, s)
             dao.purgePartitionMetadata(a, d, s)
         }
@@ -225,6 +245,17 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
                         p.productId, index, p.code, p.name, p.uom, p.barcode, p.pricing))
                 }
             }
+            for (p in snapshot.productCatalog) {
+                val json = ReferenceDataCodec.encode(p)
+                ReferenceDataCodec.product(json)
+                dao.insertProduct(CatalogProductRow(a, d, s, generation, p.id, p.code, p.revision, json.toString()))
+            }
+            for (i in snapshot.inventoryAvailability) {
+                val json = ReferenceDataCodec.encode(i)
+                ReferenceDataCodec.availability(json)
+                dao.insertAvailability(InventoryAvailabilityRow(a, d, s, generation, i.id, i.productId,
+                    i.locationCode, i.revision, json.toString()))
+            }
             // Stage metadata is deliberately not active. Empty snapshots are valid; marker row carries metadata.
             dao.insertSnapshot(SnapshotRow(a, d, s, generation, "meta", "bootstrap",
                 JSONObject().put("employee", snapshot.employeeJson)
@@ -250,6 +281,8 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             dao.discardOldSnapshots(a, d, s, generation)
             dao.discardOldCallSheets(a, d, s, generation)
             dao.discardOldCallSheetLines(a, d, s, generation)
+            dao.discardOldProducts(a, d, s, generation)
+            dao.discardOldAvailability(a, d, s, generation)
             // No intent, ack, or outbox table is touched by promotion or cursor reset.
         }
     }
@@ -268,6 +301,14 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             dao.callSheetLines(a, d, s, generation, outletId).map {
                 CallSheetProduct(it.productId, it.code, it.name, it.uom, it.barcode, it.pricing)
             })
+    }
+    override suspend fun catalog(): List<CatalogProduct> = db.withTransaction {
+        val generation = metadata().activeGeneration ?: return@withTransaction emptyList()
+        dao.catalog(a, d, s, generation).map { ReferenceDataCodec.product(JSONObject(it.json)) }
+    }
+    override suspend fun availability(productId: String): List<InventoryAvailability> = db.withTransaction {
+        val generation = metadata().activeGeneration ?: return@withTransaction emptyList()
+        dao.availability(a, d, s, generation, productId).map { ReferenceDataCodec.availability(JSONObject(it.json)) }
     }
     override suspend fun activityRules(): List<ActivityRule> =
         read("activity_rule").map { ActivityRules.decode(JSONObject(it.json)) }
@@ -394,7 +435,15 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
     override suspend fun history(): List<Pair<IntentRow, OutboxRow>> = dao.allOutbox(a, d, s)
         .map { row -> (dao.intent(a, d, s, row.requestId) ?: error("Orphaned outbox")) to row }
     override suspend fun intent(requestId: String): IntentRow? = dao.intent(a, d, s, requestId)
-    override suspend fun delta(entity: String, id: String): DeltaRow? = dao.delta(a, d, s, entity, id)
+    override suspend fun delta(entity: String, id: String): DeltaRow? = db.withTransaction {
+        if (entity !in setOf("product", "inventory")) return@withTransaction dao.delta(a, d, s, entity, id)
+        val generation = metadata().activeGeneration ?: return@withTransaction null
+        if (entity == "product") dao.product(a, d, s, generation, id)?.let {
+            DeltaRow(a, d, s, entity, id, it.revision, it.json, false)
+        } else dao.inventory(a, d, s, generation, id)?.let {
+            DeltaRow(a, d, s, entity, id, it.revision, it.json, false)
+        }
+    }
     override suspend fun applyDelta(changes: List<DeltaRow>, nextCursor: String) {
         require(nextCursor.isNotBlank())
         db.withTransaction {
@@ -404,9 +453,31 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             // never gets overwritten by an upsert or tombstone. UI can overlay it explicitly.
             for (change in changes) {
                 require(change.account == a && change.deviceId == d && change.scope == s &&
-                    change.entity in setOf("visit", "activity") && change.revision > 0)
-                val prior = dao.delta(a, d, s, change.entity, change.entityId)
-                if (prior == null || change.revision > prior.revision) dao.putDelta(change)
+                    change.entity in setOf("visit", "activity", "product", "inventory") && change.revision > 0)
+                val generation = old.activeGeneration
+                when (change.entity) {
+                    "product" -> {
+                        val p = ReferenceDataCodec.productChange(change)
+                        val prior = dao.product(a, d, s, generation, p.id)
+                        if (prior == null || p.revision >= prior.revision) {
+                            dao.putProduct(CatalogProductRow(a, d, s, generation, p.id, p.code, p.revision,
+                                ReferenceDataCodec.encode(p).toString()))
+                            dao.refreshCallSheetProduct(a, d, s, p.id, p.code, p.name, p.uom,
+                                p.barcodes.firstOrNull()?.barcode)
+                        }
+                    }
+                    "inventory" -> {
+                        val i = ReferenceDataCodec.inventoryChange(change)
+                        val prior = dao.inventory(a, d, s, generation, i.id)
+                        if (prior == null || i.revision >= prior.revision)
+                            dao.putAvailability(InventoryAvailabilityRow(a, d, s, generation, i.id,
+                                i.productId, i.locationCode, i.revision, ReferenceDataCodec.encode(i).toString()))
+                    }
+                    else -> {
+                        val prior = dao.delta(a, d, s, change.entity, change.entityId)
+                        if (prior == null || change.revision > prior.revision) dao.putDelta(change)
+                    }
+                }
             }
             dao.putPartition(old.copy(cursor = nextCursor))
         }
@@ -470,6 +541,15 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             if (old.held || old.activeGeneration == null) return@withTransaction
             dao.deleteLocalDeltas(a, d, s, entity, keepPrefix)
             dao.putDelta(DeltaRow(a, d, s, entity, key, at, json, false))
+        }
+    }
+    override suspend fun blockLocalCache(entity: String, key: String, reason: String, at: Long) {
+        require(entity.startsWith("local.") && reason.isNotBlank() && at > 0)
+        db.withTransaction {
+            dao.deleteDelta(a, d, s, entity, key)
+            val old = metadata()
+            if (old.held || old.activeGeneration == null) return@withTransaction
+            dao.putDelta(DeltaRow(a, d, s, entity, key, at, reason, true))
         }
     }
     override suspend fun holdForReview() {

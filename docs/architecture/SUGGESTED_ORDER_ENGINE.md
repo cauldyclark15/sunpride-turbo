@@ -68,6 +68,46 @@ One store per call; reads at most 400 of the customer's orders, 150 orders' line
 and 200 SKUs. `truncated` reports anything cut short. Quantities are in each SKU's selling unit
 (`products.uom`) as written on order lines; no unit conversion in v1.
 
+## Field apps (ANA-010 · SP-0067)
+
+The iOS and Android call sheets show the suggestion for the store being visited. Code:
+`apps/field-ios/FieldIOS/Sources/Contracts/SuggestedOrder.swift` + `App/SuggestedOrderLoader.swift`,
+`apps/field-android/.../ui/diagnosticvisit/SuggestedOrder.kt`; shared sample response
+`packages/domain-contracts/fixtures/suggested-order/for-outlet.json`.
+
+- When the call sheet opens, the app calls `forOutlet` online with only `{outletId, asOfDate}` (today, Manila).
+  The server's access rules apply unchanged; no selling location is sent, so availability is not capped.
+- A "Suggested order" card shows the summary (products suggested, cover days, provisional lead time), the fixed
+  note "Suggestions only. Nothing is ordered until you save the call sheet." and suggested products that are not
+  on this call sheet (read-only). Each call-sheet product shows its status and the engine's reasons.
+- History scope: when `historyStatus` is `partial_scope`, `shared_account` or `no_customer`, the summary adds one
+  plain sentence saying why less order history was used (out-of-area orders not counted, shared account history
+  not used, no linked account). Unknown statuses add nothing; the apps never fill in the missing history.
+- Accept: "Use N" writes N into that product's Order field; "Use all suggestions" fills only empty Order fields.
+  The field stays editable. Nothing is queued or sent until the salesperson taps "Save call sheet", and the saved
+  call-sheet payload is unchanged (no suggestion data goes on the wire; the mobile v1 contract is untouched).
+- Offline: Android keeps today's answer per store in the encrypted local cache, iOS in memory for the session;
+  either shows "Offline — showing suggestions loaded at h:mm". A refusal, ended session or unreadable answer
+  deletes the saved answer and never shows saved data; Android replaces it with a durable refusal marker, so a
+  later offline open or app relaunch still shows the refusal until a fresh live answer arrives. Android also
+  latches the refusal in memory first, so if the marker write fails while old rows stay readable, that app
+  session still never shows them; each blocked offline open retries the marker write.
+  Overlapping requests (store A, then B, then A again): every request gets a generation; only the newest
+  request for a store and day may clear a refusal or overwrite the saved answer, and only the newest request
+  on the screen may publish its result (closing the sheet or signing out also retires in-flight requests).
+  An older success that lands after a newer refusal is discarded, on screen and on the phone (iOS does the
+  same with per-request IDs). Android also ties every request to an authorization lifetime (epoch) that ends
+  when the verified scope changes (including A → B → A), the partition is held, the session ends, the phone
+  is removed, or the user signs out: an answer from an ended lifetime is never saved, never clears a refusal
+  and never shows, and suggestions already on screen are cleared at that boundary. Closing the call sheet
+  also stops an in-flight answer from being saved. Sign-out ends the lifetime before purging the phone's data,
+  so a failed purge cannot let a pre-sign-out answer be saved after the same account signs back in; refusals
+  stay latched until the purge succeeds. Residual gap: if every refusal-marker write fails and the app process dies
+  before one succeeds, the in-memory refusal is lost and the old answer can reappear offline after relaunch.
+  Without a connection or a saved answer the card says to enter the order as usual.
+- Not recorded in v1: whether the salesperson accepted or changed a suggestion (would need a mobile contract
+  change).
+
 ## Open questions (for Sunpride)
 
 1. The standard ICO form / Excel (promised on the 2 Oct call): confirms rounding, columns, and
@@ -75,4 +115,6 @@ and 200 SKUs. `truncated` reports anything cut short. Quantities are in each SKU
 2. Delivery lead time per channel / depot (v1 uses 1 day).
 3. Promotion master (ARCH-006 / SP-0033 samples): v1 keeps a per-SKU national uplift until real
    promotions exist; it will read from the promotion master once it lands.
-4. Which depot or truck sells to each store; v1 defaults to the store's last order source.
+4. Which depot or truck sells to each store; v1 defaults to the store's last order source (the field apps do
+   not yet pass a selling location, so they cannot cap by availability).
+5. Whether Sunpride wants to measure how often salespeople accept or change the suggestion.

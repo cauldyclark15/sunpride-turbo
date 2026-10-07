@@ -277,6 +277,10 @@ vi.mock("./analytics/execution-dashboard", () => ({
 vi.mock("./analytics/admin-reports", () => ({
   AdminReports: () => createElement("p", null, "Mounted admin reports"),
 }));
+vi.mock("./analytics/management-exceptions", () => ({
+  ManagementExceptions: () =>
+    createElement("p", null, "Mounted management exceptions"),
+}));
 vi.mock("./route-admin", () => ({ RouteAdmin: () => null }));
 vi.mock("./outlet-admin", () => ({ OutletAdmin: () => null }));
 vi.mock("./outlet-assignments", () => ({ OutletAssignments: () => null }));
@@ -358,6 +362,7 @@ describe("calm generic modules", () => {
   it("mounts the daily execution dashboard on Reports for supervision readers only", () => {
     state.pathname = "/analytics";
     expect(render("analytics")).toContain("Mounted execution dashboard");
+    expect(render("analytics")).toContain("Mounted management exceptions");
     expect(render("analytics")).toContain("Mounted customer execution");
     expect(render("analytics")).toContain("Mounted coverage compliance");
     expect(render("analytics")).toContain("Mounted SKU distribution");
@@ -366,12 +371,14 @@ describe("calm generic modules", () => {
     expect(render("dashboard")).not.toContain("Mounted execution dashboard");
     expect(render("dashboard")).not.toContain("Mounted customer execution");
     expect(render("dashboard")).not.toContain("Mounted admin reports");
+    expect(render("dashboard")).not.toContain("Mounted management exceptions");
     for (const role of ["operations", "approver", "sales"]) {
       state.profile = { ...state.profile, role };
       state.pathname = "/analytics";
       const html = render("analytics");
       expect(html).toContain("<h1>Reports</h1>");
       expect(html).not.toContain("Mounted execution dashboard");
+      expect(html).not.toContain("Mounted management exceptions");
       expect(html).not.toContain("Mounted customer execution");
       expect(html).not.toContain("Mounted coverage compliance");
       expect(html).not.toContain("Mounted SKU distribution");
@@ -381,6 +388,8 @@ describe("calm generic modules", () => {
 
   it("puts one Commercial header above tabs on every commercial page", () => {
     state.profile.role = "super_admin";
+    // The sample-order button is on the beta hidden list; switch it on to check placement.
+    vi.stubEnv("NEXT_PUBLIC_BETA_ENABLE", "sample-order");
     for (const slug of ["orders", "master-data", "imports"] as const) {
       state.pathname = `/${slug}`;
       const html = render(slug);
@@ -401,6 +410,17 @@ describe("calm generic modules", () => {
     expect(html).toContain('data-label="Products"');
     expect(html).toContain('data-label="Customers"');
     expect(html).not.toContain("idempotent");
+    vi.unstubAllEnvs();
+  });
+
+  it("hides the sample-order button for the beta", () => {
+    state.profile.role = "super_admin";
+    vi.stubEnv("NEXT_PUBLIC_BETA_ENABLE", "");
+    state.pathname = "/orders";
+    const html = render("orders");
+    expect(html).toContain("0 orders");
+    expect(html).not.toContain("New order");
+    vi.unstubAllEnvs();
   });
 
   it("shows names above codes for products, customers, and orders", () => {

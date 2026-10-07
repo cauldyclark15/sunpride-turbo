@@ -1,0 +1,163 @@
+{
+  "type": "van.bootstrap.response",
+  "contractVersion": 1,
+  "serverTime": 1791338400000,
+  "serviceDate": "2026-10-07",
+  "seller": {
+    "profileId": "k57prof0000000000000000000000001",
+    "name": "Juan Dela Cruz"
+  },
+  "policy": {
+    "allowNegativeStock": false,
+    "loadDiscrepancyRequiresApproval": true,
+    "walkInAllowed": true,
+    "loadDiscrepancyReasons": [
+      "short_loaded",
+      "over_loaded",
+      "damaged_at_loading",
+      "wrong_item",
+      "other"
+    ],
+    "damageReasons": ["crushed", "leaking", "expired", "spoiled", "other"],
+    "paymentMethods": [
+      {
+        "code": "cash",
+        "label": "Cash",
+        "kind": "cash",
+        "referenceRequired": false,
+        "referenceLabel": null
+      },
+      {
+        "code": "check",
+        "label": "Check",
+        "kind": "other",
+        "referenceRequired": true,
+        "referenceLabel": "Check number"
+      },
+      {
+        "code": "gcash",
+        "label": "GCash",
+        "kind": "other",
+        "referenceRequired": true,
+        "referenceLabel": "GCash reference number"
+      },
+      {
+        "code": "bank_transfer",
+        "label": "Bank transfer",
+        "kind": "other",
+        "referenceRequired": true,
+        "referenceLabel": "Bank reference number"
+      },
+      {
+        "code": "credit",
+        "label": "Credit (charge to account)",
+        "kind": "credit",
+        "referenceRequired": false,
+        "referenceLabel": null
+      }
+    ]
+  },
+  "trip": {
+    "tripId": "k57trip0000000000000000000000001",
+    "tripNumber": "TRIP-20261007-V014-1",
+    "status": "loading",
+    "serviceDate": "2026-10-07",
+    "vehicle": {
+      "vehicleId": "k57veh00000000000000000000000001",
+      "vehicleCode": "V014",
+      "plateNumber": "NBC 1234",
+      "name": "Isuzu Elf"
+    },
+    "route": {
+      "routeId": "k57route000000000000000000000001",
+      "code": "CEB-MAN-N",
+      "name": "Mandaue North"
+    },
+    "driverName": "Pedro",
+    "helperName": null,
+    "truckLocationId": "k57loc00000000000000000000000001",
+    "routeSessionId": null,
+    "startedAt": null
+  },
+  "load": {
+    "loadId": "k57load0000000000000000000000001",
+    "status": "planned",
+    "lines": [
+      {
+        "lineNumber": 1,
+        "productId": "k57prod0000000000000000000000001",
+        "productCode": "SP-PJ-1L",
+        "productName": "Pineapple Juice 1L",
+        "uomCode": "PC",
+        "quantityScale": "1",
+        "lotNumber": null,
+        "expectedBase": "48",
+        "actualBase": null,
+        "discrepancyReason": null
+      },
+      {
+        "lineNumber": 2,
+        "productId": "k57prod0000000000000000000000002",
+        "productCode": "SP-PC-432",
+        "productName": "Pineapple Chunks 432g",
+        "uomCode": "PC",
+        "quantityScale": "1",
+        "lotNumber": "LOT-2026-0002",
+        "expectedBase": "24",
+        "actualBase": null,
+        "discrepancyReason": null
+      }
+    ]
+  },
+  "truckStock": [],
+  "products": [
+    {
+      "productId": "k57prod0000000000000000000000001",
+      "code": "SP-PJ-1L",
+      "name": "Pineapple Juice 1L",
+      "uomCode": "PC",
+      "quantityScale": "1",
+      "barcodes": ["4800000000017", "14800000000016"],
+      "barcodeUnits": [
+        { "barcode": "4800000000017", "uomCode": "PC", "baseQuantity": "1" },
+        { "barcode": "14800000000016", "uomCode": "CS", "baseQuantity": "24" }
+      ]
+    },
+    {
+      "productId": "k57prod0000000000000000000000002",
+      "code": "SP-PC-432",
+      "name": "Pineapple Chunks 432g",
+      "uomCode": "PC",
+      "quantityScale": "1",
+      "barcodes": []
+    }
+  ],
+  "customers": [
+    {
+      "outletId": "k57out00000000000000000000000001",
+      "code": "O-1001",
+      "name": "Aling Nena Store",
+      "address": "A. Soriano Ave, Mandaue",
+      "sequence": 1,
+      "source": "route",
+      "credit": { "termsDays": 30, "availableMinor": "500000" }
+    },
+    {
+      "outletId": "k57out00000000000000000000000002",
+      "code": "O-1002",
+      "name": "JM Sari-Sari",
+      "address": null,
+      "sequence": 2,
+      "source": "route",
+      "credit": null
+    },
+    {
+      "outletId": "k57out00000000000000000000000003",
+      "code": "O-2001",
+      "name": "Lapu Market Stall 4",
+      "address": null,
+      "sequence": null,
+      "source": "unplanned"
+    }
+  ]
+}

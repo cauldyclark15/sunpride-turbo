@@ -290,6 +290,44 @@ class EncryptedFieldStoreTest {
         assertEquals("{\"a\":1}", store().localCache(entity, "2026-09-28|all")!!.json)
     }
 
+    /** ANA-010: success -> explicit refusal -> offline reopen/relaunch never restores saved suggestions. */
+    @Test fun suggestedOrderRefusalDurablyBlocksSavedSuggestionsAcrossRelaunch() = runBlocking {
+        val repo = com.sunpride.field.ui.diagnosticvisit.SuggestedOrderRepository
+        val day = "2026-09-29"
+        val live = org.json.JSONObject().put("version", "v1").put("asOfDate", day)
+            .put("outlet", org.json.JSONObject().put("outletId", "outlet-1")).put("coverDays", 8)
+            .put("nextVisit", org.json.JSONObject().put("days", 7)).put("leadTimeDays", 1)
+            .put("leadTimeProvisional", true).put("lines", org.json.JSONArray().put(org.json.JSONObject()
+                .put("productId", "product-1").put("code", "SKU").put("name", "Product").put("unit", "PC")
+                .put("status", "suggest").put("suggestedQuantity", 8).put("reasons", org.json.JSONArray())))
+            .toString()
+        val offline: () -> String = { throw com.sunpride.field.auth.AuthFailure(com.sunpride.field.auth.AuthFailure.Kind.OFFLINE) }
+        fun cache() = com.sunpride.field.ui.diagnosticvisit.StoreSuggestedOrderCache(store(), day)
+        ready(store())
+        repo.forgetSessionDenials()
+        assertNotNull(repo.load("outlet-1", day, cache(), 10) { live }.order)
+        assertNotNull(repo.load("outlet-1", day, cache(), 11, offline).order)
+        val refused = repo.load("outlet-1", day, cache(), 12) {
+            throw com.sunpride.field.auth.ConvexFunctionError("Forbidden") }
+        assertNull(refused.order); assertEquals(repo.NOT_ALLOWED, refused.message)
+        val row = store().localCache("local.suggestedOrder", repo.key(day, "outlet-1"))!!
+        assertTrue(row.tombstone); assertFalse(row.json!!.contains("product-1"))
+        assertEquals(repo.NOT_ALLOWED, repo.load("outlet-1", day, cache(), 13, offline).also { assertNull(it.order) }.message)
+        db.close(); db = EncryptedFieldDatabase.open(context) // app relaunch
+        repo.forgetSessionDenials() // a new process has no in-memory refusal; the phone's marker must hold
+        val relaunched = repo.load("outlet-1", day, cache(), 14, offline)
+        assertNull(relaunched.order); assertEquals(repo.NOT_ALLOWED, relaunched.message)
+        // A fresh live answer clears the marker; a refusal while the partition is held still removes the data.
+        assertNotNull(repo.load("outlet-1", day, cache(), 15) { live }.order)
+        store().holdForReview()
+        repo.load("outlet-1", day, cache(), 16) {
+            throw com.sunpride.field.auth.AuthFailure(com.sunpride.field.auth.AuthFailure.Kind.SESSION_EXPIRED) }
+        assertNull(store().localCache("local.suggestedOrder", repo.key(day, "outlet-1")))
+        db.close(); db = EncryptedFieldDatabase.open(context)
+        repo.forgetSessionDenials()
+        assertNull(repo.load("outlet-1", day, cache(), 17, offline).order)
+    }
+
     @Test fun signOutHookHoldsEveryPartitionWithoutDeletingUnsentWork() = runBlocking {
         ready(store())
         val i = intent()

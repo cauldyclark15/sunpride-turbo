@@ -35,8 +35,13 @@ final class AppModel {
     /// Day-level tasks from the same saved snapshot.
     private(set) var dayTasks: [StoreSnapshot.Task] = []
     private(set) var callSheets: [CallSheet] = []
+    private(set) var orderTerms: [OrderTerms] = []
     /// IOS-013 activity-form rules per visit intent from the active snapshot.
     private(set) var activityRules: [ActivityRule] = []
+    /// IOS-016 photo types from the active snapshot (empty = provisional defaults are offered).
+    private(set) var photoTypes: [PhotoType] = []
+    /// IOS-016 photos on this phone per call, keyed by the call's Start request ID.
+    private(set) var visitPhotos: [UUID: [VisitPhoto]] = [:]
     /// SP-0044 order drafts in the verified partition; IOS-015 marks a sent one with its queued request.
     private(set) var orderDrafts: [OrderDraft] = []
     private(set) var lastSyncedAt: Date?
@@ -44,8 +49,22 @@ final class AppModel {
     private(set) var isOffline = false
     private(set) var dayTarget: StoreSnapshot.DayTarget?
     let enrollment: Enrollment
+    let suggestedOrders: SuggestedOrderLoader
     /// Today's summary (date, target, calls, completion, next outlet, ordered route), store-derived.
     private(set) var daySales: StoreSnapshot.DaySales?
+    /// IOS-020: offer the Team page (role hint from the verified snapshot; the server decides access).
+    private(set) var supervisor = false
+    /// IOS-020 Team page: the summary (live or saved), its direct-reports filter and an in-flight flag.
+    private(set) var team = TeamView()
+    private(set) var teamDirectOnly = true
+    private(set) var teamLoading = false
+    /// IOS-020: in-session withdrawal per filter (a refusal blocks every saved copy until that filter gets a
+    /// new live answer), plus durable per-filter grants that a refusal revokes even if erasing rows fails.
+    @ObservationIgnored private var teamLatch = TeamSessionLatch()
+    /// IOS-020 authorization epoch for publishing a Team answer: moves on sign-in/out, scope change and
+    /// phone removal. A Team request publishes only if it is unchanged when the answer arrives.
+    @ObservationIgnored private var teamEpoch: UInt64 = 0
+    @ObservationIgnored var teamGrantDefaults: UserDefaults = .standard
     var dashboard: TodayDashboard {
         TodayDashboard.make(visits: visits, target: dayTarget, sales: daySales, now: now(),
                             canStart: { [weak self] in self?.startFailure(for: $0) == nil })
@@ -72,6 +91,7 @@ final class AppModel {
     }
     enum CallFailure: Error, Equatable {
         case callOpen, mcpOrder, alreadyStarted, notStarted, alreadyClosed, intentRequired, activitiesRequired
+        case photoLimit, photoInvalid
         case outcomeRequired, reasonRequired
         var message: String {
             switch self {
@@ -82,6 +102,8 @@ final class AppModel {
             case .alreadyClosed: "Call already ended"
             case .intentRequired: "Choose at least one visit purpose"
             case .activitiesRequired: "Record the required activities, or end as not productive"
+            case .photoLimit: "This call already has \(EvidencePhotos.maxPerVisit) photos"
+            case .photoInvalid: "Couldn't keep that photo. Take it again."
             case .outcomeRequired: "Choose how the call ended"
             case .reasonRequired: "Give a reason (up to 200 characters)"
             }
@@ -105,11 +127,17 @@ final class AppModel {
     @ObservationIgnored private let loadKey: () throws -> any DeviceSigningKey
     @ObservationIgnored private var fieldStore: EncryptedFieldStore?
     @ObservationIgnored private let now: () -> Date
-    @ObservationIgnored private var activeStoragePartition: StorePartition?
+    @ObservationIgnored private var activeStoragePartition: StorePartition? {
+        // IOS-020: a scope change (or sign-out) makes every in-flight Team answer stale and withdraws the
+        // one on screen; it belonged to the previous authorization.
+        didSet { if oldValue != activeStoragePartition { invalidateTeam() } }
+    }
     @ObservationIgnored private var bootstrapping = false
     @ObservationIgnored private let networkMonitor = NWPathMonitor()
     @ObservationIgnored private var monitoring = false
     @ObservationIgnored private var breadcrumbs: DiagnosticBreadcrumbs?
+    @ObservationIgnored private var photoFiles: PhotoFiles?
+    @ObservationIgnored private let evidenceAPI: EvidenceAPI?
     var hasRetryableWork: Bool {
         guard signedIn, let partition = activeStoragePartition, let store = fieldStore else { return false }
         return BackgroundRetry.hasRetryableWork(store: store, partition: partition)
@@ -145,6 +173,7 @@ final class AppModel {
         if fieldStore == nil { _ = try storageForBootstrap() }
         if let previous = activeStoragePartition, previous != partition {
             try fieldStore?.holdForReview(previous)
+            suggestedOrders.clear()
         }
         activeStoragePartition = partition
         return fieldStore!
@@ -153,6 +182,7 @@ final class AppModel {
     init(auth: AuthClient, registry: DeviceRegistry, store: SecretStore,
          pollInterval: Duration = .seconds(10), site: URL? = nil, functions: ConvexFunctions? = nil,
          http: HTTPClient? = nil, localStore: EncryptedFieldStore? = nil,
+         photoFiles: PhotoFiles? = nil, evidenceAPI: EvidenceAPI? = nil,
          now: @escaping () -> Date = { Date() }, loadKey: @escaping () throws -> any DeviceSigningKey) {
         self.auth = auth
         self.registry = registry
@@ -162,7 +192,13 @@ final class AppModel {
         self.http = http
         self.loadKey = loadKey
         self.fieldStore = localStore
+        self.photoFiles = photoFiles
+        self.evidenceAPI = evidenceAPI
         self.now = now
+        suggestedOrders = SuggestedOrderLoader(now: now) { request in
+            guard let functions else { throw MobileError.offline }
+            return try await functions.query("analytics/suggested_orders:forOutlet", request, as: SuggestedOrder.self)
+        }
         enrollment = Enrollment(registry: registry, store: store, pollInterval: pollInterval)
         enrollment.onSessionEnded = { [weak self] in
             Task { @MainActor in await self?.sessionEnded() }
@@ -211,6 +247,7 @@ final class AppModel {
             try? secrets.delete(Self.partitionAccount)
             activeStoragePartition = nil
             clearToday()
+            suggestedOrders.clear()
             freshThisLaunch = false
             try await auth.signIn(email: email, password: password)
             signInError = nil
@@ -233,19 +270,45 @@ final class AppModel {
         refreshToday()
     }
 
-    private func clearToday() {
-        visits = []; callSheets = []; activityRules = []; orderDrafts = []; outletDetails = [:]; customerDetails = [:]; routeCode = nil
+    /// `newSession` starts the in-session Team refusal over; a phone removal keeps it in force.
+    private func clearToday(newSession: Bool = true) {
+        visits = []; callSheets = []; orderTerms = []; activityRules = []; photoTypes = []; visitPhotos = [:]; orderDrafts = []
+        outletDetails = [:]; customerDetails = [:]; routeCode = nil
         customers = []; dayTasks = []; dayTarget = nil; daySales = nil
+        supervisor = false; team = TeamView(); teamDirectOnly = true
+        teamEpoch &+= 1
+        if newSession { teamLatch.reset() } else { teamLatch.invalidate() }
+    }
+
+    /// Scope or phone state changed: drop the Team on screen and make in-flight answers stale, keeping
+    /// any in-session refusal in force.
+    private func invalidateTeam() {
+        team = TeamView()
+        teamEpoch &+= 1
+        teamLatch.invalidate()
+    }
+
+    /// Phone removed/suspended or signing out: withdraw every saved Team copy of this account BEFORE any
+    /// fallible storage purge. The in-session refusal is latched and the durable grants (kept outside the
+    /// encrypted store) are revoked, so a purge that fails while the old rows stay readable can never bring
+    /// them back, in this session or after an offline relaunch. Only a new live answer grants again.
+    private func withdrawTeam() {
+        teamLatch.deny()
+        if let partition = activeStoragePartition {
+            DefaultsTeamGrants(defaults: teamGrantDefaults, partition: partition).revokeAll()
+        }
     }
 
     /// Confirmed revocation/suspension (QSR-010): hold unsent work and drop this partition's cached
     /// plan, outlets, customers and prices from storage and memory.
     private func holdActive() {
+        withdrawTeam()
         if let partition = activeStoragePartition {
             do { try fieldStore?.purgeCacheForReview(partition) }
             catch { try? fieldStore?.holdForReview(partition) }
         }
-        clearToday()
+        clearToday(newSession: false)
+        suggestedOrders.clear()
         freshThisLaunch = false
     }
 
@@ -269,7 +332,9 @@ final class AppModel {
         guard let partition = activeStoragePartition, let store = try? storage(for: partition) else { return }
         do {
             callSheets = try store.snapshot(for: partition)?.callSheets ?? []
+            orderTerms = try store.snapshot(for: partition)?.orderTerms ?? []
             activityRules = try store.snapshot(for: partition)?.activityRules ?? []
+            photoTypes = try store.snapshot(for: partition)?.photoTypes ?? []
             orderDrafts = try store.orderDrafts(for: partition)
             let day = BootstrapClient.manilaDay(now())
             let outlets = Dictionary(uniqueKeysWithValues: try store.outlets(for: partition).map { ($0.id, $0.name) })
@@ -289,6 +354,9 @@ final class AppModel {
                     serviceDate: day, intents: [], planned: false, status: "Unplanned", pin: outlet.pin)
             }
             let intents = try store.intents(for: partition)
+            visitPhotos = try Dictionary(uniqueKeysWithValues: intents.filter { $0.kind == "visit.checkIn" }.map { start in
+                (start.requestId, try store.photos(forCheckIn: start.requestId, in: partition).map(EvidencePhotos.view))
+            })
             let queued = Set(try store.pendingOutbox(for: partition).map { $0.intent.requestId } +
                              (try store.deferredOutbox(for: partition).map { $0.intent.requestId }) +
                              (try store.heldOutbox(for: partition).map { $0.intent.requestId }))
@@ -305,7 +373,9 @@ final class AppModel {
                 ]
                 return "\(item.intent.kind) · \(reasons[item.code] ?? "Unknown outcome — ask supervisor")"
             }
-            if try store.isHeld(partition), !intents.isEmpty { review.append("Unsent work held — verify account and scope") }
+            if try store.isHeld(partition), try !intents.isEmpty || !store.pendingPhotos(for: partition).isEmpty {
+                review.append("Unsent work held — verify account and scope")
+            }
             if try store.hasOtherHeldWork(for: partition) { review.append("Prior scope has unsent work held for supervised review") }
             let calls = localCalls(intents: intents, rejected: Set(rejected.map { $0.intent.requestId }))
             visits = rows.map { visit in
@@ -344,6 +414,7 @@ final class AppModel {
             dayTasks = saved?.tasks ?? []
             dayTarget = saved?.dayTarget
             daySales = saved?.daySales
+            supervisor = TeamRepository.offered(role: saved?.employee.role)
             lastSyncedAt = try store.syncHealth(for: partition).flatMap { $0.lastSuccessfulSyncAt }
                 .map { Date(timeIntervalSince1970: Double($0) / 1000) }
             refreshStatus()
@@ -529,7 +600,10 @@ final class AppModel {
         didQueueWork()
     }
     /// SP-0044: the account's authorized products for this visit (Annex C setup), in setup order.
-    func orderCatalog(for visit: TodayVisit) -> [OrderCatalog.Item] { OrderCatalog.items(callSheet(for: visit)) }
+    func orderTerms(for visit: TodayVisit) -> OrderTerms? { orderTerms.first { $0.outletId == visit.outletId } }
+    func orderCatalog(for visit: TodayVisit) -> [OrderCatalog.Item] {
+        OrderCatalog.items(callSheet(for: visit), terms: orderTerms(for: visit))
+    }
     /// Drafts taken during this visit's call on this phone.
     func orderDrafts(for visit: TodayVisit) -> [OrderDraft] {
         _ = visits // Observe durable refreshes.
@@ -540,7 +614,7 @@ final class AppModel {
     /// Save a new draft (`draftId` nil) or the next version of one for the open call. The association
     /// is built from the stored check-in and cached snapshot; the store re-validates in its transaction.
     @discardableResult
-    func saveOrderDraft(draftId: String?, quantities: [(productId: String, quantity: Int)], for visit: TodayVisit) throws -> OrderDraft {
+    func saveOrderDraft(draftId: String?, quantities: [(productId: String, quantity: Int)], units: [String: String] = [:], for visit: TodayVisit) throws -> OrderDraft {
         guard let partition = activeStoragePartition else { throw StoreError.invalidInput }
         let store = try storage(for: partition)
         guard let initial = try store.intents(for: partition).first(where: { $0.matches(visit) }) else { throw OrderDraftFailure.callNotOpen }
@@ -550,7 +624,7 @@ final class AppModel {
         }
         let timestamp = now()
         let draft = try OrderDraftRules.build(OrderCallContext.read(store: store, partition: partition), existing: existing,
-                                              checkIn: initial, quantities: quantities, now: timestamp)
+                                              checkIn: initial, quantities: quantities, units: units, now: timestamp)
         try store.saveOrderDraft(draft, for: partition, now: timestamp)
         refreshToday()
         return draft
@@ -570,7 +644,8 @@ final class AppModel {
         let summary = (try? store.snapshot(for: partition))?.accountSummaries.first { $0.outletId == draft.outletId }
         return OrderSubmission.checks(context, draft: draft,
                                       phoneCanRecord: (try? store.isLeaseValid(now: now(), for: partition)) == true,
-                                      held: (try? store.isHeld(partition)) ?? true, summary: summary)
+                                      held: (try? store.isHeld(partition)) ?? true, summary: summary,
+                                      otherOrders: (try? store.orderDrafts(for: partition)) ?? [])
     }
     /// IOS-015: where this order is on its way to the office, from the durable outbox.
     func orderStatus(_ draft: OrderDraft) -> OrderSubmission.Status {
@@ -614,6 +689,95 @@ final class AppModel {
         else { try store.enqueue(intent, for: partition, now: timestamp) }
         didQueueWork()
     }
+    /// IOS-020: today's team summary from the server (people.read + visit.read in the caller's current
+    /// subtree), saved encrypted in this partition for offline display. Never shown when signed out.
+    func loadTeam(directOnly: Bool? = nil) async {
+        let directOnly = directOnly ?? teamDirectOnly
+        guard !teamLoading, signedIn, let partition = activeStoragePartition,
+              let store = try? storage(for: partition) else { return }
+        if directOnly != teamDirectOnly { team = TeamView() }
+        teamDirectOnly = directOnly
+        teamLoading = true
+        defer { teamLoading = false }
+        let day = BootstrapClient.manilaDay(now())
+        let rows = FieldStoreTeamRows(store: store, partition: partition, keepPrefix: TeamRepository.keepPrefix(serviceDate: day))
+        #if DEBUG
+        // UI tests: an erase that fails while saved rows stay readable (release counterexample).
+        rows.eraseFails = ProcessInfo.processInfo.environment["FIELD_STUB_TEAM_ERASE_FAILS"] == "1"
+        #endif
+        let cache = GuardedTeamCache(rows: rows, grants: DefaultsTeamGrants(defaults: teamGrantDefaults, partition: partition),
+                                     latch: teamLatch, keepPrefix: TeamRepository.keepPrefix(serviceDate: day))
+        let functions = functions
+        // The authorization this request belongs to; the cache below is bound to the latch generation too.
+        let epoch = teamEpoch
+        // Without a network or a verified phone, only today's saved copy can be shown.
+        let unavailable: String? = isOffline ? "Offline" : (enrollment.state.isReady ? nil : "Phone not verified yet")
+        let view = await TeamRepository.load(serviceDate: day, directOnly: directOnly, unavailable: unavailable,
+                                             cache: cache, now: now()) {
+            guard let functions else { throw MobileError.offline }
+            return try await functions.query(TeamRepository.path,
+                                             TeamRepository.Args(serviceDate: day, directOnly: directOnly), as: TeamSummary.self)
+        }
+        // A refusal revokes every filter's grant and latches the session (inside the cache); only a live
+        // answer for the same filter shows a saved copy of it again.
+        // A sign-out, scope change or phone removal during the request discards its result (epoch), even
+        // when the final account/scope/filter look the same again (A → B → A, sign-out → same account).
+        guard teamEpoch == epoch, signedIn, activeStoragePartition == partition, teamDirectOnly == directOnly else { return }
+        if case .removed = enrollment.state { return }
+        team = view
+    }
+
+    // MARK: IOS-016 visit photos
+
+    /// The types offered for a new photo: the server's list, or the provisional defaults.
+    var photoTypeChoices: [PhotoType] { EvidencePhotos.offered(photoTypes) }
+    func photoTypeLabel(_ code: String) -> String { EvidencePhotos.label(code, types: photoTypes) }
+    /// Photos taken in this visit's call on this phone (waiting, uploaded or for review).
+    func photos(for visit: TodayVisit) -> [VisitPhoto] {
+        _ = visitPhotos // Observe refreshes.
+        guard let (initial, _, _) = try? checkIn(for: visit) else { return [] }
+        return visitPhotos[initial.requestId] ?? []
+    }
+    /// Keep one JPEG for the open call: sealed on the phone first, then its metadata. Never waits
+    /// for a network; upload follows separately.
+    func savePhoto(type: String, jpeg: Data, capturedAt: Date, for visit: TodayVisit) throws {
+        let (initial, store, partition) = try checkIn(for: visit)
+        guard !visitProgress(for: visit).checkedOut else { throw CallFailure.alreadyClosed }
+        guard EvidencePhotos.isJpeg(jpeg), (1...EvidencePhotos.maxBytes).contains(Int64(jpeg.count)) else {
+            throw CallFailure.photoInvalid
+        }
+        let row = EvidencePhotoRow(localId: UUID(), checkInRequestId: initial.requestId, photoType: type,
+            mime: EvidencePhotos.mime, sizeBytes: Int64(jpeg.count), sha256: EvidencePhotos.sha256Hex(jpeg),
+            capturedAt: Int64(capturedAt.timeIntervalSince1970 * 1000))
+        let files = try evidenceFiles()
+        try files.write(row.localId, jpeg)
+        do { try store.savePhoto(row, for: partition, now: now()) }
+        catch { files.delete(row.localId); throw error }
+        breadcrumb(.workQueued)
+        refreshToday()
+        BackgroundRetry.shared.scheduleIfNeeded()
+        if !isOffline { Task { await uploadPhotos() } }
+    }
+    private func evidenceFiles() throws -> PhotoFiles {
+        if let photoFiles { return photoFiles }
+        let files = try SealedPhotoFiles.live(folder: storeFolder, secrets: secrets)
+        photoFiles = files
+        return files
+    }
+    /// Upload waiting photos whose call's Start the server has accepted. Separate from the visit
+    /// outbox and from sync health: a slow upload never changes what Start/End report.
+    func uploadPhotos() async {
+        guard signedIn, !isOffline, case .ready = enrollment.state, let partition = activeStoragePartition,
+              let store = fieldStore, (try? store.pendingPhotos(for: partition).isEmpty) == false else { return }
+        let api: EvidenceAPI
+        if let evidenceAPI { api = evidenceAPI }
+        else if let functions, let http { api = ConvexEvidenceAPI(functions: functions, http: http) }
+        else { return }
+        guard let files = try? evidenceFiles() else { return }
+        _ = await EvidenceUploader(store: store, partition: partition, files: files, api: api, now: now).run()
+        refreshToday()
+    }
+
     private func didQueueWork() {
         refreshToday()
         breadcrumb(.workQueued)
@@ -653,6 +817,7 @@ final class AppModel {
                 breadcrumb(.syncSucceeded)
                 succeeded = true
                 if syncMessage?.hasPrefix("Scope changed") != true { syncMessage = nil }
+                await uploadPhotos()
                 return
             } catch VisitSyncClient.Failure.rebootstrap {
                 try? store.holdForReview(current)
@@ -666,6 +831,9 @@ final class AppModel {
                 await enrollment.check()
                 if case .removed = enrollment.state { holdActive() }
                 syncMessage = "Sync proof refused — work retained."
+                return
+            } catch VisitSyncClient.Failure.throttled {
+                syncMessage = "Sync is busy — queued work retained; it will try again shortly."
                 return
             } catch is CancellationError {
                 breadcrumb(.syncCancelled)
@@ -691,6 +859,7 @@ final class AppModel {
             }
             // A changed scope never resumes the prior partition's unsent work automatically.
             let scopeChanged = activeStoragePartition.map { $0 != partition } ?? false
+            if scopeChanged { suggestedOrders.clear() }
             try store.releaseHeld(partition)
             if let prior = activeStoragePartition, prior != partition { try store.holdForReview(prior) }
             activeStoragePartition = partition
@@ -705,6 +874,7 @@ final class AppModel {
                 try store.setSyncHealth(SyncHealth(lastSuccessfulSyncAt: Int64(Date().timeIntervalSince1970 * 1000), lastErrorCode: nil), for: partition)
                 breadcrumb(.syncSucceeded)
                 succeeded = true
+                await uploadPhotos()
             } catch VisitSyncClient.Failure.rebootstrap {
                 try store.holdForReview(partition)
                 syncMessage = "Plan or cursor changed again — unsent work held for review."
@@ -715,6 +885,8 @@ final class AppModel {
                 await enrollment.check()
                 if case .removed = enrollment.state { holdActive() }
                 syncMessage = "Sync proof refused — work retained."
+            } catch VisitSyncClient.Failure.throttled {
+                syncMessage = "Sync is busy — queued work retained; it will try again shortly."
             } catch is CancellationError {
                 breadcrumb(.syncCancelled)
                 return
@@ -737,6 +909,7 @@ final class AppModel {
                     holdActive()
                 } else { syncMessage = "Sign-in or phone proof was refused." }
             case .retryable: syncMessage = "Sync unavailable. Showing last saved visits."
+            case .throttled: syncMessage = "Sync is busy. It will try again shortly; showing last saved visits."
             case .invalidResponse: syncMessage = "Unexpected sync response. Showing saved visits."
             }
         } catch is CancellationError {
@@ -753,13 +926,16 @@ final class AppModel {
     }
 
     private struct EmptyArgs: Encodable {}
+    private var storeFolder: String {
+        #if DEBUG
+        StubBackend.scenario == nil ? "FieldStore" : "FieldStoreStub"
+        #else
+        "FieldStore"
+        #endif
+    }
     private func storageForBootstrap() throws -> any FieldLocalStore {
         if let fieldStore { return fieldStore }
-        #if DEBUG
-        let folder = StubBackend.scenario == nil ? "FieldStore" : "FieldStoreStub"
-        #else
-        let folder = "FieldStore"
-        #endif
+        let folder = storeFolder
         let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
             appropriateFor: nil, create: true).appending(path: folder, directoryHint: .isDirectory)
         let store = try EncryptedFieldStore(url: directory.appending(path: "field.sqlite"), secrets: secrets)
@@ -770,11 +946,7 @@ final class AppModel {
     /// The local store if one exists on disk; never creates a database (or its key) just to sign out.
     private func existingStore() throws -> EncryptedFieldStore? {
         if let fieldStore { return fieldStore }
-        #if DEBUG
-        let folder = StubBackend.scenario == nil ? "FieldStore" : "FieldStoreStub"
-        #else
-        let folder = "FieldStore"
-        #endif
+        let folder = storeFolder
         guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
               FileManager.default.fileExists(atPath: support.appending(path: folder).appending(path: "field.sqlite").path)
         else { return nil }
@@ -793,6 +965,7 @@ final class AppModel {
     func signOut() async {
         enrollment.signedOut()
         signInError = nil
+        withdrawTeam()
         // QSR-010: every partition is held and its cached plan, customers and prices removed; only
         // encrypted unsent evidence remains for supervised review.
         do { try existingStore()?.purgeAllCachesForReview() }
@@ -803,6 +976,7 @@ final class AppModel {
         activeStoragePartition = nil
         try? secrets.delete(Self.partitionAccount)
         clearToday()
+        suggestedOrders.clear()
         lastSyncedAt = nil
         syncStatus = nil
         freshThisLaunch = false

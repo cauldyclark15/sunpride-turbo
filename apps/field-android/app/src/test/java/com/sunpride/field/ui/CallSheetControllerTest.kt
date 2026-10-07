@@ -39,6 +39,13 @@ class CallSheetControllerTest {
         override fun refreshEnrollment(signer: DeviceSigner) = EnrollmentState.Ready(scope.deviceId)
         override fun visitStates() = runBlocking { store.history().map { it.first to it.second.state } }
         override fun callSheet(outletId: String) = runBlocking { store.callSheet(outletId) }
+        val suggestionCalls = mutableListOf<String>()
+        override fun suggestedOrder(outletId: String): SuggestedOrderView {
+            suggestionCalls += outletId
+            return SuggestedOrderView(SuggestedOrder("v1", "2026-09-29", outletId, 8, 7, 1, true, listOf(
+                SuggestedLine("product-1", "SUNP-001", "Hotdog", "PC", "suggest", 8.0, listOf("Suggest 8 PC")),
+                SuggestedLine("product-2", "HOL-010", "Corned beef", "CAN", "enough_stock", 0.0, emptyList()))))
+        }
         override fun queueVisit(kind: String, clientVisitId: String?, checkInRequestId: String?, previousRequestId: String?,
             plannedVisitId: String?, outletId: String, intents: List<String>, unplannedReason: String?, note: String?,
             outcome: String?, reasonCode: String?, location: JSONObject?) = runBlocking {
@@ -118,6 +125,30 @@ class CallSheetControllerTest {
         controller.openDiagnostic(visit).join()
         assertEquals("done", controller.diagnosticRows.last().second)
     }
+    @Test fun openingTheCallSheetLoadsSuggestionsButQueuesNothingUntilSave() = runBlocking {
+        val store = FakeFieldStore(scope)
+        store.swap(store.stage(snapshot()), "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
+        val backend = Backend(store)
+        val controller = FieldController(backend, this, Dispatchers.Unconfined, EmptyCoroutineContext, now = { 100L })
+        controller.start().join(); controller.openDiagnostic(visit).join()
+        controller.queueDiagnostic("visit.checkIn", null, null, null, null).join()
+        controller.openCallSheet().join()
+        assertEquals(listOf("outlet-1"), backend.suggestionCalls)
+        val order = controller.suggestedOrder.order!!
+        val sheet = controller.diagnosticCallSheet!!
+        // Accepting fills a local draft only: still just the check-in in the outbox.
+        val drafts = SuggestedOrderRules.useAll(order, sheet, sheet.lines.map { CallSheetDraftLine(it.productId) })
+        assertEquals(listOf("8", ""), drafts.map { it.order })
+        assertEquals(1, store.history().size)
+        // The salesperson edits the accepted number before saving; the edit is what is saved.
+        controller.queueCallSheet(drafts.map { if (it.productId == "product-1") it.copy(order = "6") else it }).join()
+        assertEquals(2, store.history().size)
+        val lines = JSONObject(store.history().last().first.serializedOperation).getJSONObject("payload")
+            .getJSONObject("activity").getJSONArray("lines")
+        assertEquals(1, lines.length()); assertEquals(6, lines.getJSONObject(0).getInt("order"))
+        controller.signOut().join()
+        assertNull(controller.suggestedOrder.order)
+    }
     @Test fun twoPlannedVisitsAtOneOutletKeepSeparateCheckInAndCallSheetChains() = runBlocking {
         val store = FakeFieldStore(scope)
         store.swap(store.stage(snapshot()), "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
@@ -183,5 +214,129 @@ class CallSheetControllerTest {
         controller.queueDiagnostic("visit.checkOut", null, null, "completed", null).join()
         controller.queueCallSheet(drafts) { cleared++ }.join()
         assertEquals(2, store.history().size); assertEquals(0, cleared)
+    }
+    /**
+     * Release counterexample: open store A (its success is held in flight), then B, then A again, whose newer
+     * request is refused. When the first A success finally lands it must neither show nor renew the cache.
+     */
+    @Test fun anOldStoreAnswerCannotUndoANewerRefusalAfterAStoreSwitch() = runBlocking {
+        SuggestedOrderRepository.forgetSessionDenials()
+        val json = javaClass.classLoader!!.getResourceAsStream("for-outlet.json")!!.bufferedReader().use { it.readText() }
+        val a = JSONObject(json).getJSONObject("outlet").getString("outletId")
+        val day = JSONObject(json).getString("asOfDate")
+        val rows = mutableMapOf<String, SuggestedOrderCacheRow>()
+        val cache = object : SuggestedOrderCache {
+            override fun read(key: String) = synchronized(rows) { rows[key] }
+            override fun write(key: String, json: String, savedAt: Long) { synchronized(rows) { rows[key] = SuggestedOrderCacheRow(json, savedAt) } }
+            override fun block(key: String, reason: String, at: Long) { synchronized(rows) { rows[key] = SuggestedOrderCacheRow(null, at, reason) } }
+        }
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val calls = java.util.concurrent.atomic.AtomicInteger()
+        val store = FakeFieldStore(scope)
+        store.swap(store.stage(snapshot()), "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
+        val backend = object : FieldBackend by Backend(store) {
+            override fun suggestedOrder(outletId: String): SuggestedOrderView =
+                if (outletId != a) SuggestedOrderView(message = "store B")
+                else SuggestedOrderRepository.load(a, day, cache, 1) {
+                    if (calls.incrementAndGet() == 1) {
+                        entered.countDown(); check(release.await(5, java.util.concurrent.TimeUnit.SECONDS)); json
+                    } else throw com.sunpride.field.auth.ConvexFunctionError("Forbidden")
+                }
+        }
+        val controller = FieldController(backend, this, Dispatchers.IO, Dispatchers.Unconfined, now = { 100L })
+        controller.start().join()
+        val old = controller.loadSuggestedOrder(a)
+        assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        controller.loadSuggestedOrder("store-b").join()
+        controller.loadSuggestedOrder(a).join()
+        assertNull(controller.suggestedOrder.order)
+        assertEquals(SuggestedOrderRepository.NOT_ALLOWED, controller.suggestedOrder.message)
+        release.countDown(); old.join()
+        // Neither the screen nor the phone's cache takes the overtaken answer.
+        assertNull(controller.suggestedOrder.order)
+        assertEquals(SuggestedOrderRepository.NOT_ALLOWED, controller.suggestedOrder.message)
+        assertNull(rows.getValue("$day|$a").json)
+        val reopened = SuggestedOrderRepository.load(a, day, cache, 2) { throw com.sunpride.field.auth.AuthFailure(
+            com.sunpride.field.auth.AuthFailure.Kind.OFFLINE) }
+        assertNull(reopened.order); assertEquals(SuggestedOrderRepository.NOT_ALLOWED, reopened.message)
+        SuggestedOrderRepository.forgetSessionDenials()
+    }
+
+    /** A backend whose authorization lifetime and enrollment the test controls; suggestions can be held in flight. */
+    private inner class LifetimeBackend(store: FakeFieldStore) : FieldBackend by Backend(store) {
+        @Volatile var epoch = 0L
+        @Volatile var enrollment: EnrollmentState = EnrollmentState.Ready(scope.deviceId)
+        @Volatile var hold: java.util.concurrent.CountDownLatch? = null
+        val entered = java.util.concurrent.CountDownLatch(1)
+        override val authorizationEpoch get() = epoch
+        override fun refreshEnrollment(signer: DeviceSigner) = enrollment
+        override fun suggestedOrder(outletId: String): SuggestedOrderView {
+            hold?.let { entered.countDown(); check(it.await(5, java.util.concurrent.TimeUnit.SECONDS)) }
+            return SuggestedOrderView(SuggestedOrder("v1", "2026-09-29", outletId, 8, 7, 1, true, listOf(
+                SuggestedLine("product-1", "SUNP-001", "Hotdog", "PC", "suggest", 8.0, listOf("Suggest 8 PC")))))
+        }
+    }
+    private suspend fun lifetimeController(backend: LifetimeBackend, scope: kotlinx.coroutines.CoroutineScope) =
+        FieldController(backend, scope, Dispatchers.IO, Dispatchers.Unconfined, now = { 100L }).also { it.start().join() }
+
+    /** Verified scope A → B: suggestions already on screen are cleared at the next sync. */
+    @Test fun publishedSuggestionsAreClearedWhenTheScopeChanges() = runBlocking {
+        val store = FakeFieldStore(scope); store.swap(store.stage(snapshot()), "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
+        val backend = LifetimeBackend(store)
+        val controller = lifetimeController(backend, this)
+        controller.loadSuggestedOrder("outlet-1").join()
+        assertNotNull(controller.suggestedOrder.order)
+        controller.syncNow().join() // same lifetime: kept
+        assertNotNull(controller.suggestedOrder.order)
+        backend.epoch++ // the sync verified a new scope
+        controller.syncNow().join()
+        assertNull(controller.suggestedOrder.order)
+        // Removal confirmed while suggestions are on screen clears them too.
+        controller.loadSuggestedOrder("outlet-1").join()
+        assertNotNull(controller.suggestedOrder.order)
+        backend.enrollment = EnrollmentState.Removed
+        controller.checkAgain().join()
+        assertNull(controller.suggestedOrder.order)
+    }
+
+    /** An answer asked under scope A never shows after A → B, nor after A → B → A. */
+    @Test fun aLateAnswerFromAnEndedLifetimeIsNotShown() = runBlocking {
+        for (changes in 1..2) {
+            val store = FakeFieldStore(scope); store.swap(store.stage(snapshot()), "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
+            val backend = LifetimeBackend(store)
+            val controller = lifetimeController(backend, this)
+            val release = java.util.concurrent.CountDownLatch(1)
+            backend.hold = release
+            val load = controller.loadSuggestedOrder("outlet-1")
+            assertTrue(backend.entered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            repeat(changes) { backend.epoch++ }
+            release.countDown(); load.join()
+            assertNull(controller.suggestedOrder.order)
+            assertFalse(controller.suggestedOrder.loading)
+            // A fresh request in the current lifetime works.
+            backend.hold = null
+            controller.loadSuggestedOrder("outlet-1").join()
+            assertNotNull(controller.suggestedOrder.order)
+        }
+    }
+
+    /** Confirmed phone removal retires both the shown suggestions and an answer still in flight. */
+    @Test fun phoneRemovalRetiresShownAndInFlightSuggestions() = runBlocking {
+        val store = FakeFieldStore(scope); store.swap(store.stage(snapshot()), "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
+        val backend = LifetimeBackend(store)
+        val controller = lifetimeController(backend, this)
+        controller.loadSuggestedOrder("outlet-1").join()
+        assertNotNull(controller.suggestedOrder.order)
+        val release = java.util.concurrent.CountDownLatch(1)
+        backend.hold = release
+        val load = controller.loadSuggestedOrder("outlet-1")
+        assertTrue(backend.entered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        backend.enrollment = EnrollmentState.Removed
+        controller.checkAgain().join()
+        assertEquals(EnrollmentState.Removed, controller.state)
+        assertNull(controller.suggestedOrder.order)
+        release.countDown(); load.join()
+        assertNull(controller.suggestedOrder.order)
     }
 }

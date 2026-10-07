@@ -3,6 +3,8 @@ package com.sunpride.field.orders
 import com.sunpride.field.storage.FieldStore
 import com.sunpride.field.storage.IntentRow
 import com.sunpride.field.storage.StoreScope
+import com.sunpride.field.storage.AccountSummary
+import com.sunpride.field.storage.accountSummary
 import com.sunpride.field.ui.diagnosticvisit.VisitIntentFactory
 import org.json.JSONArray
 import org.json.JSONObject
@@ -17,7 +19,10 @@ import java.util.UUID
  * server visit ID filled in only after the check-in ack. The draft and the queued request are
  * written in one transaction; after that the draft is read-only and shows the outbox state.
  */
-data class OrderTotals(val products: Int, val units: List<Pair<String, Int>>) {
+data class OrderTotals(val products: Int, val units: List<Pair<String, Int>>, val totalMinor: Long?, val unpricedLines: Int) {
+    val amountText: String get() = totalMinor?.let(OrderSubmission::money) ?: "Amount too large to preview"
+    val officeText: String? get() = if (unpricedLines > 0)
+        "+ $unpricedLines ${if (unpricedLines == 1) "line" else "lines"} priced by the office" else null
     /** "3 products · 24 PC · 12 CAN" */
     val text: String get() = (listOf("$products product${if (products == 1) "" else "s"}") +
         units.map { (uom, n) -> "%,d %s".format(n, uom) }).joinToString(" · ")
@@ -28,24 +33,84 @@ enum class OrderStatus(val label: String) {
     DRAFT("Draft · not sent"),
     QUEUED("Waiting to send"),
     SENDING("Sending"),
-    // The office has the order; it is not yet a priced, posted sales order (no price list yet).
-    RECEIVED("Received by office · not yet posted"),
+    // The office has the order; it is not yet a priced sales order (no price list yet). SP-0124: no
+    // "posted" wording; that implies the accounting system, which is out of scope for the beta.
+    RECEIVED("Received by office"),
     NEEDS_REVIEW("Not accepted · needs review"),
     NOT_SENT("Not sent · call ended"),
 }
 
 /** A locally checkable business rule shown on the review screen. */
-data class OrderCheck(val label: String, val problem: String?) { val ok get() = problem == null }
+data class OrderCheck(val label: String, val problem: String?, val blocking: Boolean = true,
+    val note: String? = null, val warning: Boolean = false) { val ok get() = problem == null }
 
 object OrderSubmission {
     const val KIND = "order_intent"
     private const val MAX_UOM = 20
 
-    /** Units summed per UOM in line order; amounts are never computed (no governed price list). */
+    /** Exact PHP formatting, including Long.MIN_VALUE; no floating-point conversions. */
+    fun money(minor: Long): String {
+        val magnitude = minor.toBigInteger().abs()
+        val whole = (magnitude / 100.toBigInteger()).toString().reversed().chunked(3).joinToString(",").reversed()
+        val cents = (magnitude % 100.toBigInteger()).toString().padStart(2, '0')
+        return "${if (minor < 0) "−" else ""}₱$whole.$cents"
+    }
+    fun lineAmount(line: OrderDraftLine): Long? {
+        val price = line.unitPriceMinor ?: return null
+        if (price < 0 || line.quantity < 0) return null
+        return runCatching { Math.multiplyExact(price, line.quantity.toLong()) }.getOrNull()
+    }
+    fun unitPrice(price: Long?, uom: String): String = price?.let { "${money(it)} / $uom" } ?: "Priced by the office"
+
+    /** Units summed per UOM in line order; nil total means arithmetic overflow. */
     fun totals(draft: OrderDraft): OrderTotals {
         val units = LinkedHashMap<String, Int>()
-        draft.lines.forEach { units[it.uom] = (units[it.uom] ?: 0) + it.quantity }
-        return OrderTotals(draft.lines.size, units.toList())
+        var total: Long? = 0
+        var unpriced = 0
+        draft.lines.forEach { line ->
+            units[line.uom] = (units[line.uom] ?: 0) + line.quantity
+            if (line.unitPriceMinor == null) unpriced++
+            else {
+                val amount = lineAmount(line)
+                val sum = total
+                total = if (amount == null || sum == null) null else runCatching { Math.addExact(sum, amount) }.getOrNull()
+            }
+        }
+        return OrderTotals(draft.lines.size, units.toList(), total, unpriced)
+    }
+
+    /** Advisory only: office open orders plus OTHER submitted orders on this phone/day/outlet. */
+    fun creditCheck(draft: OrderDraft, summary: AccountSummary?, otherOrders: List<OrderDraft> = emptyList()): OrderCheck {
+        fun unknown() = OrderCheck("Credit", null, blocking = false,
+            note = "Credit is checked by the office when the order arrives.")
+        if (summary == null || summary.outletId != draft.outletId || summary.availability != "available") return unknown()
+        val limit = summary.creditLimitMinor ?: return OrderCheck("Credit", null, blocking = false,
+            note = "No credit limit set for this store")
+        val own = totals(draft)
+        val amount = own.totalMinor ?: return unknown()
+        // An office-priced line has no known amount: the known part can prove "over", never "within".
+        var incomplete = own.unpricedLines > 0
+        var open = summary.openOrders?.amountMinor ?: 0
+        val seen = mutableSetOf<String>()
+        for (other in otherOrders) {
+            if (other.draftId == draft.draftId || other.outletId != draft.outletId || other.serviceDate != draft.serviceDate ||
+                other.submittedRequestId == null || !seen.add(other.draftId)) continue
+            val otherTotals = totals(other)
+            val total = otherTotals.totalMinor ?: return unknown()
+            if (otherTotals.unpricedLines > 0) incomplete = true
+            open = runCatching { Math.addExact(open, total) }.getOrNull() ?: return unknown()
+        }
+        val left = runCatching { Math.subtractExact(Math.subtractExact(limit, open), amount) }.getOrNull() ?: return unknown()
+        if (left == Long.MIN_VALUE) return unknown()
+        return when {
+            left < 0 -> OrderCheck("Credit", null, blocking = false,
+                note = "Over the store's credit limit by ${if (incomplete) "at least " else ""}${money(-left)}. You can still send it; the office must approve.",
+                warning = true)
+            incomplete -> OrderCheck("Credit", null, blocking = false,
+                note = "Some lines are priced by the office, so the office checks credit when the order arrives.")
+            else -> OrderCheck("Within the store's credit limit", null, blocking = false,
+                note = "${money(left)} left after this order")
+        }
     }
 
     /** The exact v1 activity for [draft]: clientOrderId is the draft ID, so one order is one submission. */
@@ -88,8 +153,6 @@ object OrderSubmission {
      * setup, products, units and ownership; the phone never claims more than it can know.
      */
     suspend fun checks(store: FieldStore, draft: OrderDraft, now: Long): List<OrderCheck> {
-        val sheet = store.callSheet(draft.outletId)
-        val stale = OrderDraftRules.staleLines(draft, sheet)
         val ruleProblem = runCatching { OrderDraftRules.validate(store, draft.copy(submittedRequestId = null, submittedAt = null), null) }
             .exceptionOrNull()?.let { (it as? OrderDraftFailure)?.code?.text ?: "This draft no longer matches its call." }
         val callProblem = ruleProblem?.takeIf {
@@ -97,13 +160,13 @@ object OrderSubmission {
         }
         return listOf(
             OrderCheck("Call is open", callProblem),
-            OrderCheck("Products are set up for this account",
-                if (sheet == null) OrderDraftFailure.Code.NO_CATALOG.text
-                else if (stale.isNotEmpty() || sheet.revision != draft.catalogRevision) OrderDraftFailure.Code.CATALOG_CHANGED.text
-                else null),
+            OrderCheck("Products are set up for this account", ruleProblem?.takeIf {
+                it in setOf(OrderDraftFailure.Code.NO_CATALOG.text, OrderDraftFailure.Code.CATALOG_CHANGED.text,
+                    OrderDraftFailure.Code.PRICES_CHANGED.text)
+            }),
             OrderCheck("Whole quantities in each product's unit",
                 if (draft.lines.isEmpty()) OrderDraftFailure.Code.EMPTY.text
-                else if (draft.lines.any { it.quantity !in 1..OrderDraftRules.MAX_QUANTITY }) OrderDraftFailure.Code.INVALID_QUANTITY.text
+                else if (draft.lines.size > OrderDraftRules.MAX_LINES || draft.lines.any { it.quantity !in 1..OrderDraftRules.MAX_QUANTITY }) OrderDraftFailure.Code.INVALID_QUANTITY.text
                 else null),
             OrderCheck("Phone can still record today's work",
                 if (store.isLeaseValid(now)) null else OrderDraftFailure.Code.OFFLINE_EXPIRED.text),
@@ -112,7 +175,9 @@ object OrderSubmission {
             // Any other rule failure (forged association, etc.) still blocks submission visibly.
             if (ruleProblem != null && list.none { it.problem == ruleProblem }) list + OrderCheck("Order matches its call", ruleProblem)
             else list
-        }
+        } + listOf(OrderCheck("Prices", null, blocking = false,
+            note = if (draft.priceList == null) "Prices: set by the office" else "The office confirms these prices when the order arrives."),
+            creditCheck(draft, store.accountSummary(draft.outletId), store.orderDrafts()))
     }
 
     /** Outbox state of the draft's request (`pending`/`sending`/`done`/`review`) → what the person sees. */
