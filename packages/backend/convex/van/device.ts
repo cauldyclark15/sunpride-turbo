@@ -8,6 +8,7 @@ import { hashPayload } from "../inventory/posting";
 import { collectScopeUnitIds } from "../lib/scope";
 import { activeAt } from "../org/validation";
 import { resolveOutletScopeAt } from "../outlets/validation";
+import { vanPricing } from "../pricing/wire";
 import { type Caches, toBase, uom as cachedUom } from "../mobile/reference";
 import type { AuthorizedDevice } from "../mobile/types";
 import {
@@ -373,6 +374,13 @@ export const bootstrap = internalQuery({
       })),
       products,
       customers: await customersFor(ctx, trip, actor, now),
+      // SP-0129 / ADR-008: governed Route Sales prices for the products on this truck;
+      // omitted when nothing is priced (the handheld then shows "Priced by the office").
+      ...(await vanPricing(ctx, products, now).then((pricing) =>
+        pricing.priceLines.length > 0 || pricing.promotions.length > 0
+          ? pricing
+          : {},
+      )),
     };
   },
 });

@@ -433,6 +433,16 @@ export const OFFLINE_AUTHORITY_MATRIX: readonly OfflineAuthorityRule[] = [
     "server_read_only",
     "Route and unplanned customers.",
   ),
+  vanSnapshot(
+    "priceLines",
+    "server_read_only",
+    "Governed Route Sales prices as of serverTime (SP-0129); replaced by the next bootstrap.",
+  ),
+  vanSnapshot(
+    "promotions",
+    "server_read_only",
+    "Governed promotions for the truck's list (SP-0129); never combined.",
+  ),
 
   // ── Van push. ──
   {

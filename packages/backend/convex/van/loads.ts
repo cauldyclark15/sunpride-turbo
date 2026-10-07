@@ -1,14 +1,19 @@
-import { ConvexError, v } from "convex/values";
+import { ConvexError, type ObjectType, v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { mutation } from "../_generated/server";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
-import { requireLocationCapability } from "../inventory/location_scope";
 import { requireCapability } from "../lib/capabilities";
+import {
+  authorizeWrite,
+  USER_ACTOR,
+  type WriteActor,
+} from "../lib/write_actor";
 import { audit } from "../org/validation";
 import { loadLines, requireTrip, tripLoad } from "./access";
 import { postTripLoad } from "./ledger";
 import { boundedText, VAN_POLICY } from "./model";
+import { locationForWrite } from "./trips";
 
 /** Base UOM code and scale from the product's inventory policy (ADR-006). */
 export async function productUnit(
@@ -35,92 +40,102 @@ export async function productUnit(
  * CVX-028: the office (warehouse) issues the expected load by product, base quantity and
  * optional lot. One load sheet per trip (Q3 default: no top-ups).
  */
+const planArgs = {
+  tripId: v.id("vanTrips"),
+  lines: v.array(
+    v.object({
+      productId: v.id("products"),
+      expectedBase: v.int64(),
+      lotId: v.optional(v.id("inventoryLots")),
+    }),
+  ),
+};
+
 export const plan = mutation({
-  args: {
-    tripId: v.id("vanTrips"),
-    lines: v.array(
-      v.object({
-        productId: v.id("products"),
-        expectedBase: v.int64(),
-        lotId: v.optional(v.id("inventoryLots")),
-      }),
-    ),
-  },
+  args: planArgs,
   returns: v.id("vanTripLoads"),
-  handler: async (ctx, args) => {
-    const trip = await requireTrip(ctx, args.tripId);
-    const { identity } = await requireCapability(
-      ctx,
-      "van.manage",
-      trip.orgUnitId,
+  handler: async (ctx, args) => planLoad(ctx, args, USER_ACTOR),
+});
+
+/** The load-sheet writer (the office's `plan`, or the trusted beta sample writer). */
+export async function planLoad(
+  ctx: MutationCtx,
+  args: ObjectType<typeof planArgs>,
+  actor: WriteActor,
+) {
+  const trip = await requireTrip(ctx, args.tripId);
+  const actorSubject = await authorizeWrite(
+    ctx,
+    actor,
+    "van.manage",
+    trip.orgUnitId,
+  );
+  await locationForWrite(ctx, actor, trip.sourceLocationId);
+  if (trip.status !== "planned")
+    throw new ConvexError("The load sheet is issued once, before loading");
+  if (args.lines.length === 0 || args.lines.length > VAN_POLICY.maxLoadLines)
+    throw new ConvexError(
+      `A load sheet needs 1-${VAN_POLICY.maxLoadLines} lines`,
     );
-    await requireLocationCapability(ctx, "van.manage", trip.sourceLocationId);
-    if (trip.status !== "planned")
-      throw new ConvexError("The load sheet is issued once, before loading");
-    if (args.lines.length === 0 || args.lines.length > VAN_POLICY.maxLoadLines)
-      throw new ConvexError(
-        `A load sheet needs 1-${VAN_POLICY.maxLoadLines} lines`,
-      );
-    if (await tripLoad(ctx, trip._id))
-      throw new ConvexError("Trip already has a load sheet");
-    const seen = new Set<string>();
-    const now = Date.now();
-    const loadId = await ctx.db.insert("vanTripLoads", {
+  if (await tripLoad(ctx, trip._id))
+    throw new ConvexError("Trip already has a load sheet");
+  const seen = new Set<string>();
+  const now = Date.now();
+  const loadId = await ctx.db.insert("vanTripLoads", {
+    organizationId: SUNPRIDE_ORGANIZATION_ID,
+    tripId: trip._id,
+    loadNumber: 1,
+    status: "planned",
+    createdBy: actorSubject,
+    createdAt: now,
+    updatedAt: now,
+  });
+  for (const [index, line] of args.lines.entries()) {
+    if (line.expectedBase <= 0n)
+      throw new ConvexError("Expected quantity must be positive");
+    const key = `${line.productId}:${line.lotId ?? ""}`;
+    if (seen.has(key))
+      throw new ConvexError("Each product/lot appears once on a load sheet");
+    seen.add(key);
+    const product = await ctx.db.get(line.productId);
+    if (!product || !product.active)
+      throw new ConvexError("Product not found or inactive");
+    let lotNumber: string | undefined;
+    if (line.lotId) {
+      const lot = await ctx.db.get(line.lotId);
+      if (!lot || lot.productId !== product._id)
+        throw new ConvexError("Lot does not belong to the product");
+      lotNumber = lot.lotNumber;
+    }
+    const unit = await productUnit(ctx, product);
+    await ctx.db.insert("vanTripLoadLines", {
       organizationId: SUNPRIDE_ORGANIZATION_ID,
+      loadId,
       tripId: trip._id,
-      loadNumber: 1,
-      status: "planned",
-      createdBy: identity.tokenIdentifier,
+      lineNumber: index + 1,
+      productId: product._id,
+      productCode: product.code,
+      uomCode: unit.uomCode,
+      quantityScale: unit.quantityScale,
+      ...(line.lotId ? { lotId: line.lotId } : {}),
+      ...(lotNumber ? { lotNumber } : {}),
+      expectedBase: line.expectedBase,
       createdAt: now,
       updatedAt: now,
     });
-    for (const [index, line] of args.lines.entries()) {
-      if (line.expectedBase <= 0n)
-        throw new ConvexError("Expected quantity must be positive");
-      const key = `${line.productId}:${line.lotId ?? ""}`;
-      if (seen.has(key))
-        throw new ConvexError("Each product/lot appears once on a load sheet");
-      seen.add(key);
-      const product = await ctx.db.get(line.productId);
-      if (!product || !product.active)
-        throw new ConvexError("Product not found or inactive");
-      let lotNumber: string | undefined;
-      if (line.lotId) {
-        const lot = await ctx.db.get(line.lotId);
-        if (!lot || lot.productId !== product._id)
-          throw new ConvexError("Lot does not belong to the product");
-        lotNumber = lot.lotNumber;
-      }
-      const unit = await productUnit(ctx, product);
-      await ctx.db.insert("vanTripLoadLines", {
-        organizationId: SUNPRIDE_ORGANIZATION_ID,
-        loadId,
-        tripId: trip._id,
-        lineNumber: index + 1,
-        productId: product._id,
-        productCode: product.code,
-        uomCode: unit.uomCode,
-        quantityScale: unit.quantityScale,
-        ...(line.lotId ? { lotId: line.lotId } : {}),
-        ...(lotNumber ? { lotNumber } : {}),
-        expectedBase: line.expectedBase,
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
-    await ctx.db.patch(trip._id, { status: "loading", updatedAt: now });
-    await audit(
-      ctx,
-      identity.tokenIdentifier,
-      "van.load.planned",
-      "vanTripLoad",
-      loadId,
-      `${args.lines.length} lines`,
-      now,
-    );
-    return loadId;
-  },
-});
+  }
+  await ctx.db.patch(trip._id, { status: "loading", updatedAt: now });
+  await audit(
+    ctx,
+    actorSubject,
+    "van.load.planned",
+    "vanTripLoad",
+    loadId,
+    `${args.lines.length} lines`,
+    now,
+  );
+  return loadId;
+}
 
 /** Shared by approval and the matched-confirm path: post, then mark load and trip loaded. */
 export async function finishLoad(

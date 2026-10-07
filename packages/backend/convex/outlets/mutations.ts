@@ -1,12 +1,19 @@
 import { ConvexError, v } from "convex/values";
-import { mutation } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
+import { mutation, type MutationCtx } from "../_generated/server";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
-import { requireCapability } from "../lib/capabilities";
-import { activeAt, audit, normalizeCode, prospective } from "../org/validation";
+import {
+  assertEffectiveStart,
+  authorizeWrite,
+  USER_ACTOR,
+  type WriteActor,
+} from "../lib/write_actor";
+import { activeAt, audit, normalizeCode } from "../org/validation";
 import { assertActiveUnit } from "../territories/validation";
 import {
   assertActiveOutlet,
   currentRow,
+  outletForWrite,
   outletRows,
   required,
   requireOutletCapability,
@@ -38,58 +45,85 @@ export const create = mutation({
     reason: v.string(),
   },
   returns: v.id("outlets"),
-  handler: async (ctx, args) => {
-    const { identity } = await requireCapability(
-      ctx,
-      "outlet.manage",
-      args.custodianOrgUnitId,
-    );
-    await assertActiveUnit(ctx, args.custodianOrgUnitId, Date.now());
-    const code = normalizeCode(args.code);
-    if (
-      await ctx.db
-        .query("outlets")
-        .withIndex("by_organizationId_and_code", (q) =>
-          q.eq("organizationId", SUNPRIDE_ORGANIZATION_ID).eq("code", code),
-        )
-        .first()
-    )
-      throw new ConvexError("Duplicate outlet code");
-    validateProfile(args);
-    required(args.reason, "Reason");
-    const now = Date.now();
-    const id = await ctx.db.insert("outlets", {
-      organizationId: SUNPRIDE_ORGANIZATION_ID,
-      code,
-      name: args.name.trim(),
-      status: args.status,
-      custodianOrgUnitId: args.custodianOrgUnitId,
-      channel: args.channel?.trim(),
-      subchannel: args.subchannel?.trim(),
-      classification: args.classification?.trim(),
-      address: args.address?.trim(),
-      directions: args.directions?.trim(),
-      contacts: args.contacts,
-      salesPotential: args.salesPotential,
-      preferredWeekday: args.preferredWeekday,
-      visitFrequencyDays: args.visitFrequencyDays,
-      visitWindow: args.visitWindow?.trim(),
-      createdBy: identity.tokenIdentifier,
-      createdAt: now,
-      updatedAt: now,
-    });
-    await audit(
-      ctx,
-      identity.tokenIdentifier,
-      "outlet.created",
-      "outlet",
-      id,
-      "Operational outlet created",
-      now,
-    );
-    return id;
-  },
+  handler: async (ctx, args) => createOutlet(ctx, args, USER_ACTOR),
 });
+
+type ProfileFields = {
+  name: string;
+  channel?: string;
+  subchannel?: string;
+  classification?: string;
+  address?: string;
+  directions?: string;
+  contacts?: { name: string; phone?: string }[];
+  salesPotential?: number;
+  preferredWeekday?: number;
+  visitFrequencyDays?: number;
+  visitWindow?: string;
+};
+
+/** The outlet writer: validated operational profile in the custodian unit, audited. */
+export async function createOutlet(
+  ctx: MutationCtx,
+  args: ProfileFields & {
+    code: string;
+    custodianOrgUnitId: Id<"orgUnits">;
+    status: "prospect" | "active";
+    reason: string;
+  },
+  actor: WriteActor,
+) {
+  const actorSubject = await authorizeWrite(
+    ctx,
+    actor,
+    "outlet.manage",
+    args.custodianOrgUnitId,
+  );
+  await assertActiveUnit(ctx, args.custodianOrgUnitId, Date.now());
+  const code = normalizeCode(args.code);
+  if (
+    await ctx.db
+      .query("outlets")
+      .withIndex("by_organizationId_and_code", (q) =>
+        q.eq("organizationId", SUNPRIDE_ORGANIZATION_ID).eq("code", code),
+      )
+      .first()
+  )
+    throw new ConvexError("Duplicate outlet code");
+  validateProfile(args);
+  required(args.reason, "Reason");
+  const now = Date.now();
+  const id = await ctx.db.insert("outlets", {
+    organizationId: SUNPRIDE_ORGANIZATION_ID,
+    code,
+    name: args.name.trim(),
+    status: args.status,
+    custodianOrgUnitId: args.custodianOrgUnitId,
+    channel: args.channel?.trim(),
+    subchannel: args.subchannel?.trim(),
+    classification: args.classification?.trim(),
+    address: args.address?.trim(),
+    directions: args.directions?.trim(),
+    contacts: args.contacts,
+    salesPotential: args.salesPotential,
+    preferredWeekday: args.preferredWeekday,
+    visitFrequencyDays: args.visitFrequencyDays,
+    visitWindow: args.visitWindow?.trim(),
+    createdBy: actorSubject,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await audit(
+    ctx,
+    actorSubject,
+    "outlet.created",
+    "outlet",
+    id,
+    "Operational outlet created",
+    now,
+  );
+  return id;
+}
 
 export const edit = mutation({
   args: {
@@ -147,62 +181,78 @@ export const changeCustomerLink = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    prospective(args.effectiveFrom);
-    const { outlet, identity } = await requireOutletCapability(
-      ctx,
-      "outlet.manage",
-      args.outletId,
-    );
-    assertActiveOutlet(outlet);
-    const reason = required(args.reason, "Reason");
-    const source = required(args.source, "Source", 100);
-    if (args.customerId) {
-      const customer = await ctx.db.get(args.customerId);
-      if (!customer || !customer.active)
-        throw new ConvexError("Customer not active");
-    }
-    const rows = await outletRows(ctx, "outletCustomerLinks", outlet._id);
-    const previous = currentRow(rows, args.effectiveFrom);
-    if (
-      rows.some((row) => row.effectiveFrom >= args.effectiveFrom) ||
-      (previous &&
-        (previous.customerId === args.customerId ||
-          previous.effectiveFrom >= args.effectiveFrom)) ||
-      (!previous &&
-        rows.some(
-          (row) =>
-            row.effectiveTo === undefined ||
-            row.effectiveTo > args.effectiveFrom,
-        ))
-    )
-      throw new ConvexError("Invalid customer link transition");
-    if (!previous && !args.customerId)
-      throw new ConvexError("No customer link to remove");
-    const now = Date.now();
-    if (previous)
-      await ctx.db.patch(previous._id, { effectiveTo: args.effectiveFrom });
-    if (args.customerId)
-      await ctx.db.insert("outletCustomerLinks", {
+    await changeOutletCustomerLink(ctx, args, USER_ACTOR);
+    return null;
+  },
+});
+
+/** The outlet ↔ accounting-customer link writer; returns the new link row, if any. */
+export async function changeOutletCustomerLink(
+  ctx: MutationCtx,
+  args: {
+    outletId: Id<"outlets">;
+    customerId?: Id<"customers">;
+    source: string;
+    effectiveFrom: number;
+    reason: string;
+  },
+  actor: WriteActor,
+) {
+  assertEffectiveStart(actor, args.effectiveFrom);
+  const { outlet, actorSubject } = await outletForWrite(
+    ctx,
+    actor,
+    args.outletId,
+  );
+  assertActiveOutlet(outlet);
+  const reason = required(args.reason, "Reason");
+  const source = required(args.source, "Source", 100);
+  if (args.customerId) {
+    const customer = await ctx.db.get(args.customerId);
+    if (!customer || !customer.active)
+      throw new ConvexError("Customer not active");
+  }
+  const rows = await outletRows(ctx, "outletCustomerLinks", outlet._id);
+  const previous = currentRow(rows, args.effectiveFrom);
+  if (
+    rows.some((row) => row.effectiveFrom >= args.effectiveFrom) ||
+    (previous &&
+      (previous.customerId === args.customerId ||
+        previous.effectiveFrom >= args.effectiveFrom)) ||
+    (!previous &&
+      rows.some(
+        (row) =>
+          row.effectiveTo === undefined || row.effectiveTo > args.effectiveFrom,
+      ))
+  )
+    throw new ConvexError("Invalid customer link transition");
+  if (!previous && !args.customerId)
+    throw new ConvexError("No customer link to remove");
+  const now = Date.now();
+  if (previous)
+    await ctx.db.patch(previous._id, { effectiveTo: args.effectiveFrom });
+  const linkId = args.customerId
+    ? await ctx.db.insert("outletCustomerLinks", {
         outletId: outlet._id,
         customerId: args.customerId,
         source,
         effectiveFrom: args.effectiveFrom,
-        actorSubject: identity.tokenIdentifier,
+        actorSubject,
         reason,
         createdAt: now,
-      });
-    await audit(
-      ctx,
-      identity.tokenIdentifier,
-      "outlet.customer_link_changed",
-      "outlet",
-      outlet._id,
-      "Customer link changed",
-      now,
-    );
-    return null;
-  },
-});
+      })
+    : null;
+  await audit(
+    ctx,
+    actorSubject,
+    "outlet.customer_link_changed",
+    "outlet",
+    outlet._id,
+    "Customer link changed",
+    now,
+  );
+  return linkId;
+}
 
 export const deactivate = mutation({
   args: { outletId: v.id("outlets"), reason: v.string() },

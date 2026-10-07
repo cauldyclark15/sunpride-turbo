@@ -36,6 +36,7 @@ internal object VanWireSchema {
         }
         if (value is String && (value.length < rule.optInt("minLength", 0) || value.length > rule.optInt("maxLength", Int.MAX_VALUE) || rule.has("pattern") && !Regex(rule.getString("pattern")).containsMatchIn(value))) return false
         if (value is Number && rule.has("minimum") && value.toDouble() < rule.getDouble("minimum")) return false
+        if (value is Number && rule.has("maximum") && value.toDouble() > rule.getDouble("maximum")) return false
         return true
     }
     private val SCHEMA = """{
@@ -292,6 +293,123 @@ internal object VanWireSchema {
               }
             }
           }
+        },
+        "priceLines": {
+          "description": "SP-0129 / ADR-008: the governed price-list lines for the trip's van selling list (Route Sales / PMOT), one line per product in the product's van unit. Server-resolved; the handheld never defines a price. Absent or empty means 'Priced by the office'.",
+          "type": "array",
+          "maxItems": 600,
+          "items": { "${'$'}ref": "#/${'$'}defs/priceLine" }
+        },
+        "promotions": {
+          "description": "SP-0129 / ADR-008: governed promotions in force for the van selling list. A rule the handheld cannot evaluate must fail closed (not applied, never approximated).",
+          "type": "array",
+          "maxItems": 50,
+          "items": { "${'$'}ref": "#/${'$'}defs/promotion" }
+        }
+      }
+    },
+    "minor": { "type": "string", "pattern": "^[0-9]{1,15}${'$'}" },
+    "priceLine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "priceListId",
+        "priceListCode",
+        "productId",
+        "uomCode",
+        "unitPriceMinor",
+        "currency",
+        "effectiveFrom",
+        "effectiveTo"
+      ],
+      "properties": {
+        "priceListId": { "${'$'}ref": "#/${'$'}defs/id" },
+        "priceListCode": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "productId": { "${'$'}ref": "#/${'$'}defs/id" },
+        "uomCode": { "type": "string", "minLength": 1, "maxLength": 20 },
+        "unitPriceMinor": { "${'$'}ref": "#/${'$'}defs/minor" },
+        "currency": { "type": "string", "pattern": "^[A-Z]{3}${'$'}" },
+        "effectiveFrom": { "${'$'}ref": "#/${'$'}defs/millis" },
+        "effectiveTo": {
+          "oneOf": [{ "${'$'}ref": "#/${'$'}defs/millis" }, { "type": "null" }]
+        }
+      }
+    },
+    "promotionUnit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["productId", "uomCode", "quantity"],
+      "properties": {
+        "productId": { "${'$'}ref": "#/${'$'}defs/id" },
+        "uomCode": { "type": "string", "minLength": 1, "maxLength": 20 },
+        "quantity": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "promotion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "promotionId",
+        "code",
+        "name",
+        "priceListId",
+        "effectiveFrom",
+        "effectiveTo",
+        "rule"
+      ],
+      "properties": {
+        "promotionId": { "${'$'}ref": "#/${'$'}defs/id" },
+        "code": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "priceListId": {
+          "oneOf": [{ "${'$'}ref": "#/${'$'}defs/id" }, { "type": "null" }]
+        },
+        "effectiveFrom": { "${'$'}ref": "#/${'$'}defs/millis" },
+        "effectiveTo": {
+          "oneOf": [{ "${'$'}ref": "#/${'$'}defs/millis" }, { "type": "null" }]
+        },
+        "rule": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "buy", "free"],
+              "properties": {
+                "kind": { "const": "buy_x_get_y" },
+                "buy": { "${'$'}ref": "#/${'$'}defs/promotionUnit" },
+                "free": { "${'$'}ref": "#/${'$'}defs/promotionUnit" }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "item", "percentOffBasisPoints"],
+              "properties": {
+                "kind": { "const": "percent_off" },
+                "item": { "${'$'}ref": "#/${'$'}defs/promotionUnit" },
+                "percentOffBasisPoints": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10000
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "components", "bundlePriceMinor"],
+              "properties": {
+                "kind": { "const": "bundle" },
+                "components": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 6,
+                  "items": { "${'$'}ref": "#/${'$'}defs/promotionUnit" }
+                },
+                "bundlePriceMinor": { "${'$'}ref": "#/${'$'}defs/minor" }
+              }
+            }
+          ]
         }
       }
     },

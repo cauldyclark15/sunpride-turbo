@@ -24,6 +24,7 @@ import {
   callSheetTemplateLineValidator,
 } from "./callSheets/validators";
 import { fieldOrderLineValidator } from "./orders/field_order_validators";
+import { promotionRuleValidator } from "./pricing/validators";
 import { productiveCallRuleValidator } from "./sfa/productive_call";
 import {
   contributionFields,
@@ -3287,4 +3288,32 @@ export default defineSchema({
     "organizationId",
     "customerId",
   ]),
+  // SP-0129 (ADR-008): governed promotions on the SP-0088 price lists. Units are unit codes
+  // (as on priceListLines); `source` marks beta sample rows. Shipped to the van handheld;
+  // promotions never combine (pricing/promotions.ts).
+  promotions: defineTable({
+    organizationId: v.string(),
+    code: v.string(),
+    name: v.string(),
+    // Absent = applies on every price list.
+    priceListId: v.optional(v.id("priceLists")),
+    rule: promotionRuleValidator,
+    status: v.union(v.literal("active"), v.literal("inactive")),
+    source: v.union(v.literal("sample"), v.literal("office")),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_code", ["organizationId", "code"])
+    .index("by_organizationId_and_status", ["organizationId", "status"]),
+  // SP-0129: every row the beta sample seed created (one table to find and remove them).
+  sampleDataRows: defineTable({
+    batch: v.string(),
+    tableName: v.string(),
+    rowId: v.string(),
+    key: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_batch_and_key", ["batch", "key"])
+    .index("by_batch", ["batch"]),
 });

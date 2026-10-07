@@ -359,6 +359,8 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         val previous = dao.meta(s,d)
         check(previous?.lastBootstrapTime == null || b.serverTime >= previous.lastBootstrapTime) { "Stale bootstrap" }
         dao.clearTrip(s,d); dao.clearLoadLine(s,d); dao.clearProduct(s,d); dao.clearServerCustomers(s,d); dao.clearBaseline(s,d)
+        // Prices are part of this authoritative snapshot, including when the feed is omitted.
+        dao.clearPriceListLine(s,d)
         b.trip?.let { t -> dao.insertTrip(TripRow(s,d,t.tripId,t.tripNumber,t.status,t.serviceDate,o.getJSONObject("trip").toString(),b.load?.loadId,b.load?.status)) }
         b.load?.let { l -> VanBootstrapCodec.objects(o.getJSONObject("load").getJSONArray("lines")).forEach { line ->
             val parsed = VanBootstrapCodec.line(line)
@@ -368,6 +370,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
             dao.insertProduct(ProductRow(s,d,p.productId,p.code,p.name,p.uomCode,p.quantityScale,product.getJSONArray("barcodes").toString(),product.toString())) }
         b.customers.forEach { dao.insertCustomer(CustomerRow(s,d,it.outletId,it.code,it.name,it.address,it.sequence,it.source,
             creditTermsDays = it.credit?.termsDays,creditAvailableMinor = it.credit?.availableMinor)) }
+        b.priceLines.forEach { dao.insertPriceListLine(PriceListLineRow(s,d,it.priceListId,it.productId,it.uomCode,it.unitPriceMinor,it.currency,it.effectiveFrom,it.effectiveTo)) }
         b.trip?.let { t -> b.truckStock.forEach { stock ->
             dao.insertBaseline(BaselineRow(s,d,t.tripId,stock.productId,"available",stock.availableBase,b.serverTime))
             dao.insertBaseline(BaselineRow(s,d,t.tripId,stock.productId,"damaged",stock.damagedBase,b.serverTime))

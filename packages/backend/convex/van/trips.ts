@@ -1,13 +1,19 @@
-import { ConvexError, v } from "convex/values";
-import { mutation, query } from "../_generated/server";
+import { ConvexError, type ObjectType, v } from "convex/values";
+import type { Id } from "../_generated/dataModel";
+import { mutation, query, type MutationCtx } from "../_generated/server";
 import schema from "../schema";
 import { localDate, manilaDate } from "../coverage/validation";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
 import { requireLocationCapability } from "../inventory/location_scope";
 import { capabilityRoles, requireCapability } from "../lib/capabilities";
 import type { AppRole } from "../lib/roles";
+import {
+  authorizeWrite,
+  USER_ACTOR,
+  type WriteActor,
+} from "../lib/write_actor";
 import { audit } from "../org/validation";
-import { requireRoute } from "../territories/route_validation";
+import { requireRoute, routeAt } from "../territories/route_validation";
 import { loadLines, requireTrip, requireVehicle, tripLoad } from "./access";
 import { postLeftoverReturn, truckBalances } from "./ledger";
 import {
@@ -21,120 +27,144 @@ import {
  * CVX-027: the office plans a truck's day — vehicle, salesman (with optional crew names),
  * route and depot. Loading, starting and selling happen afterwards on the van device.
  */
+const planArgs = {
+  vehicleId: v.id("vehicles"),
+  serviceDate: v.string(),
+  salespersonProfileId: v.id("profiles"),
+  routeId: v.optional(v.id("routes")),
+  sourceLocationId: v.optional(v.id("inventoryLocations")),
+  driverName: v.optional(v.string()),
+  helperName: v.optional(v.string()),
+};
+
 export const plan = mutation({
-  args: {
-    vehicleId: v.id("vehicles"),
-    serviceDate: v.string(),
-    salespersonProfileId: v.id("profiles"),
-    routeId: v.optional(v.id("routes")),
-    sourceLocationId: v.optional(v.id("inventoryLocations")),
-    driverName: v.optional(v.string()),
-    helperName: v.optional(v.string()),
-  },
+  args: planArgs,
   returns: v.object({ tripId: v.id("vanTrips"), tripNumber: v.string() }),
-  handler: async (ctx, args) => {
-    const vehicle = await requireVehicle(ctx, args.vehicleId);
-    if (vehicle.status !== "active")
-      throw new ConvexError("Vehicle is not active");
-    const { identity } = await requireCapability(
-      ctx,
-      "van.manage",
-      vehicle.orgUnitId,
-    );
-    const sourceLocationId = args.sourceLocationId ?? vehicle.homeLocationId;
-    const { location: source } = await requireLocationCapability(
-      ctx,
-      "van.manage",
-      sourceLocationId,
-    );
-    if (source.type === "truck")
-      throw new ConvexError("A trip loads from a depot, not another truck");
-    await requireLocationCapability(ctx, "van.manage", vehicle.truckLocationId);
-    if (!SERVICE_DATE.test(args.serviceDate))
-      throw new ConvexError("Service date must be YYYY-MM-DD");
-    // A regex alone admits impossible days (for example February 29 in a non-leap year).
-    localDate(args.serviceDate);
-    if (args.serviceDate < manilaDate(Date.now()))
-      throw new ConvexError("A trip cannot be planned for a past day");
-    const seller = await ctx.db.get(args.salespersonProfileId);
-    if (
-      !seller ||
-      seller.status !== "active" ||
-      !seller.authSubject ||
-      !seller.orgUnitId ||
-      !(capabilityRoles("van.operate") as readonly AppRole[]).includes(
-        seller.role as AppRole,
-      )
-    )
-      throw new ConvexError("An active van salesman is required");
-    await requireCapability(ctx, "van.manage", seller.orgUnitId);
-    if (args.routeId) {
-      const { route } = await requireRoute(ctx, "route.read", args.routeId);
-      if (route.status !== "active") throw new ConvexError("Route is inactive");
-    }
-    const sameVehicle = await ctx.db
-      .query("vanTrips")
-      .withIndex("by_vehicleId_and_serviceDate", (q) =>
-        q.eq("vehicleId", vehicle._id).eq("serviceDate", args.serviceDate),
-      )
-      .take(50);
-    if (
-      sameVehicle.filter((trip) => OPEN_TRIP_STATUSES.includes(trip.status))
-        .length >= VAN_POLICY.maxOpenTripsPerVehicleDay
-    )
-      throw new ConvexError("This truck already has a trip that day");
-    const sameSeller = await ctx.db
-      .query("vanTrips")
-      .withIndex("by_salespersonProfileId_and_serviceDate", (q) =>
-        q
-          .eq("salespersonProfileId", seller._id)
-          .eq("serviceDate", args.serviceDate),
-      )
-      .take(50);
-    if (sameSeller.some((trip) => OPEN_TRIP_STATUSES.includes(trip.status)))
-      throw new ConvexError("This salesman already has a trip that day");
-    const tripNumber = `TRIP-${args.serviceDate.replaceAll("-", "")}-${vehicle.vehicleCode}-${sameVehicle.length + 1}`;
-    const now = Date.now();
-    const driverName = boundedText(
-      args.driverName,
-      VAN_POLICY.maxCrewNameLength,
-      "Driver name",
-    );
-    const helperName = boundedText(
-      args.helperName,
-      VAN_POLICY.maxCrewNameLength,
-      "Helper name",
-    );
-    const tripId = await ctx.db.insert("vanTrips", {
-      organizationId: SUNPRIDE_ORGANIZATION_ID,
-      orgUnitId: vehicle.orgUnitId,
-      tripNumber,
-      vehicleId: vehicle._id,
-      truckLocationId: vehicle.truckLocationId,
-      sourceLocationId,
-      ...(args.routeId ? { routeId: args.routeId } : {}),
-      serviceDate: args.serviceDate,
-      salespersonProfileId: seller._id,
-      salespersonSubject: seller.authSubject,
-      ...(driverName ? { driverName } : {}),
-      ...(helperName ? { helperName } : {}),
-      status: "planned",
-      createdBy: identity.tokenIdentifier,
-      createdAt: now,
-      updatedAt: now,
-    });
-    await audit(
-      ctx,
-      identity.tokenIdentifier,
-      "van.trip.planned",
-      "vanTrip",
-      tripId,
-      tripNumber,
-      now,
-    );
-    return { tripId, tripNumber };
-  },
+  handler: async (ctx, args) => planTrip(ctx, args, USER_ACTOR),
 });
+
+/** The trip planning writer (the office's `plan`, or the trusted beta sample writer). */
+export async function planTrip(
+  ctx: MutationCtx,
+  args: ObjectType<typeof planArgs>,
+  actor: WriteActor,
+) {
+  const vehicle = await requireVehicle(ctx, args.vehicleId);
+  if (vehicle.status !== "active")
+    throw new ConvexError("Vehicle is not active");
+  const actorSubject = await authorizeWrite(
+    ctx,
+    actor,
+    "van.manage",
+    vehicle.orgUnitId,
+  );
+  const sourceLocationId = args.sourceLocationId ?? vehicle.homeLocationId;
+  const source = await locationForWrite(ctx, actor, sourceLocationId);
+  if (source.type === "truck")
+    throw new ConvexError("A trip loads from a depot, not another truck");
+  await locationForWrite(ctx, actor, vehicle.truckLocationId);
+  if (!SERVICE_DATE.test(args.serviceDate))
+    throw new ConvexError("Service date must be YYYY-MM-DD");
+  // A regex alone admits impossible days (for example February 29 in a non-leap year).
+  localDate(args.serviceDate);
+  if (args.serviceDate < manilaDate(Date.now()))
+    throw new ConvexError("A trip cannot be planned for a past day");
+  const seller = await ctx.db.get(args.salespersonProfileId);
+  if (
+    !seller ||
+    seller.status !== "active" ||
+    !seller.authSubject ||
+    !seller.orgUnitId ||
+    !(capabilityRoles("van.operate") as readonly AppRole[]).includes(
+      seller.role as AppRole,
+    )
+  )
+    throw new ConvexError("An active van salesman is required");
+  await authorizeWrite(ctx, actor, "van.manage", seller.orgUnitId);
+  if (args.routeId) {
+    const route =
+      actor.kind === "system"
+        ? (await routeAt(ctx, args.routeId, Date.now())).route
+        : (await requireRoute(ctx, "route.read", args.routeId)).route;
+    if (route.status !== "active") throw new ConvexError("Route is inactive");
+  }
+  const sameVehicle = await ctx.db
+    .query("vanTrips")
+    .withIndex("by_vehicleId_and_serviceDate", (q) =>
+      q.eq("vehicleId", vehicle._id).eq("serviceDate", args.serviceDate),
+    )
+    .take(50);
+  if (
+    sameVehicle.filter((trip) => OPEN_TRIP_STATUSES.includes(trip.status))
+      .length >= VAN_POLICY.maxOpenTripsPerVehicleDay
+  )
+    throw new ConvexError("This truck already has a trip that day");
+  const sameSeller = await ctx.db
+    .query("vanTrips")
+    .withIndex("by_salespersonProfileId_and_serviceDate", (q) =>
+      q
+        .eq("salespersonProfileId", seller._id)
+        .eq("serviceDate", args.serviceDate),
+    )
+    .take(50);
+  if (sameSeller.some((trip) => OPEN_TRIP_STATUSES.includes(trip.status)))
+    throw new ConvexError("This salesman already has a trip that day");
+  const tripNumber = `TRIP-${args.serviceDate.replaceAll("-", "")}-${vehicle.vehicleCode}-${sameVehicle.length + 1}`;
+  const now = Date.now();
+  const driverName = boundedText(
+    args.driverName,
+    VAN_POLICY.maxCrewNameLength,
+    "Driver name",
+  );
+  const helperName = boundedText(
+    args.helperName,
+    VAN_POLICY.maxCrewNameLength,
+    "Helper name",
+  );
+  const tripId = await ctx.db.insert("vanTrips", {
+    organizationId: SUNPRIDE_ORGANIZATION_ID,
+    orgUnitId: vehicle.orgUnitId,
+    tripNumber,
+    vehicleId: vehicle._id,
+    truckLocationId: vehicle.truckLocationId,
+    sourceLocationId,
+    ...(args.routeId ? { routeId: args.routeId } : {}),
+    serviceDate: args.serviceDate,
+    salespersonProfileId: seller._id,
+    salespersonSubject: seller.authSubject,
+    ...(driverName ? { driverName } : {}),
+    ...(helperName ? { helperName } : {}),
+    status: "planned",
+    createdBy: actorSubject,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await audit(
+    ctx,
+    actorSubject,
+    "van.trip.planned",
+    "vanTrip",
+    tripId,
+    tripNumber,
+    now,
+  );
+  return { tripId, tripNumber };
+}
+
+/** A location the writer may use: the person's location capability, or the trusted system writer. */
+export async function locationForWrite(
+  ctx: MutationCtx,
+  actor: WriteActor,
+  locationId: Id<"inventoryLocations">,
+) {
+  if (actor.kind === "user")
+    return (await requireLocationCapability(ctx, "van.manage", locationId))
+      .location;
+  const location = await ctx.db.get(locationId);
+  if (!location || location.organizationId !== SUNPRIDE_ORGANIZATION_ID)
+    throw new ConvexError("Location not found");
+  return location;
+}
 
 /** Before departure only; a posted load must be returned through the ledger first. */
 export const cancel = mutation({

@@ -55,13 +55,25 @@ object VanBootstrapCodec {
         val ps = objects(o.getJSONArray("products")).map(::product)
         val cs = objects(o.getJSONArray("customers")).map(::customer)
         val stocks = objects(o.getJSONArray("truckStock")).map { TruckStock(it.getString("productId"),base(it,"availableBase"),base(it,"damagedBase")) }
+        val prices = o.optJSONArray("priceLines")?.let(::objects)?.map {
+            val minor = it.getString("unitPriceMinor").toLong()
+            val from = it.getLong("effectiveFrom")
+            val to = if (it.isNull("effectiveTo")) null else it.getLong("effectiveTo")
+            require(minor >= 0 && (to == null || to > from))
+            PriceLine(it.getString("priceListId"),it.getString("productId"),it.getString("uomCode"),minor,
+                it.getString("currency"),from,to)
+        } ?: emptyList()
+        val productIds = ps.map { it.productId }.toSet()
+        require(prices.all { it.productId in productIds })
+        require(prices.map { it.priceListId to it.productId }.distinct().size == prices.size)
+        // Promotions are validated by VanWireSchema, but storage/evaluation belongs to SP-0105.
         require(t == null && l == null || t != null && t.serviceDate == day)
         require(ps.all { it.quantityScale > 0 } && l?.lines?.all { it.quantityScale > 0 } != false)
         require(ps.map { it.productId }.distinct().size == ps.size && cs.map { it.outletId }.distinct().size == cs.size)
         require(stocks.map { it.productId }.distinct().size == stocks.size)
         require(l == null || l.lines.map { it.lineNumber }.distinct().size == l.lines.size)
         VanBootstrap(o.getLong("serverTime"), day, o.getJSONObject("seller").let { Seller(it.getString("profileId"),it.getString("name")) },
-            policy(o.getJSONObject("policy")),t,l,stocks,ps,cs)
+            policy(o.getJSONObject("policy")),t,l,stocks,ps,cs,prices)
     } catch (_: Exception) { throw VanWireFailure() }
     fun bootstrapRequest(deviceId: String): ByteArray = JSONObject().put("type","van.bootstrap.request").put("contractVersion",1).put("deviceId",deviceId).toString().toByteArray(Charsets.UTF_8)
     /** Concatenate persisted operation JSON verbatim, never parse/re-serialize queued bytes. */

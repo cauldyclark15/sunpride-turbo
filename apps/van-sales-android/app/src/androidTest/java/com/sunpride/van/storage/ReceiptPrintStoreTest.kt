@@ -40,11 +40,14 @@ class ReceiptPrintStoreTest {
         val lines = o.getJSONObject("load").getJSONArray("lines")
         for (i in 0 until lines.length()) lines.getJSONObject(i).put("actualBase",lines.getJSONObject(i).getString("expectedBase"))
         o.put("truckStock",JSONArray().put(JSONObject().put("productId",juice).put("availableBase","10").put("damagedBase","0")))
+        // Test-only governed feed (replaces the practice prices): ₱85.00 per PC for the juice. Prices reach the phone only through a bootstrap.
+        o.put("priceLines",JSONArray().put(JSONObject().put("priceListId","PL-TEST").put("priceListCode","PL-TEST")
+            .put("productId",juice).put("uomCode","PC").put("unitPriceMinor","8500").put("currency","PHP")
+            .put("effectiveFrom",at-1_000).put("effectiveTo",JSONObject.NULL)))
         return o.toString()
     }
     private fun saved() = runBlocking {
         store.replaceBootstrap(fixture())
-        db.rows().insertPriceListLine(PriceListLineRow(s,d,"PL-TEST",juice,"PC",8_500,"PHP",at-1_000,null))
         store.commitSale(CheckoutRequest(UUID.randomUUID().toString(),outlet,listOf(CartLine(juice,3)),PaymentInput("cash",30_000)),25_500)
     }
     private suspend fun saleFacts() = listOf(db.rows().saleRows(s,d),db.rows().salelineRows(s,d),db.rows().paymentRows(s,d),
@@ -123,6 +126,8 @@ class ReceiptPrintStoreTest {
         val o = JSONObject(fixture(serverTime = at+60))
         val products = o.getJSONArray("products"); products.remove(0)
         val customers = o.getJSONArray("customers"); customers.remove(0)
+        // The removed product's price goes with it (the feed only prices products on the phone).
+        o.put("priceLines",JSONArray())
         return o.toString()
     }
     /** The text lines that reach paper. */

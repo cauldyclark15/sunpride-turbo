@@ -1,12 +1,18 @@
 package com.sunpride.van.sync
 
 import com.sunpride.van.data.*
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 
 class VanBootstrapCodecTest {
     private fun fixture(name: String = "bootstrap-response.json") = javaClass.classLoader!!.getResourceAsStream(name)!!.bufferedReader().use { it.readText() }
+    private fun jsonValue(value: Any): Any = when (value) {
+        is JSONObject -> value.keys().asSequence().associateWith { jsonValue(value.get(it)) }
+        is JSONArray -> (0 until value.length()).map { jsonValue(value.get(it)) }
+        else -> value
+    }
     @Test fun frozenBootstrapIncludesTypedTripProductsCustomersAndPolicy() {
         val b = VanBootstrapCodec.decode(fixture())
         assertEquals("2026-10-07",b.serviceDate); assertEquals("loading",b.trip!!.status)
@@ -27,9 +33,86 @@ class VanBootstrapCodecTest {
         assertEquals(PaymentMethod.CASH_ONLY,b.policy.paymentMethods); assertNull(b.customers[0].credit)
         assertEquals(PaymentMethod.CASH_ONLY,VanBootstrapCodec.decode(fixture("bootstrap-no-trip-response.json")).policy.paymentMethods)
     }
-    @Test fun debugFixtureIsExactlyTheFrozenFixtureReadInPlace() { assertEquals(JSONObject(fixture()).toString(),JSONObject(FakeVanBackend.FIXTURE).toString()) }
+    @Test fun frozenBootstrapIncludesGovernedPricesAndToleratesAllPromotionRules() {
+        val o = JSONObject(fixture())
+        assertEquals(listOf("buy_x_get_y","percent_off","bundle"),
+            VanBootstrapCodec.objects(o.getJSONArray("promotions")).map { it.getJSONObject("rule").getString("kind") })
+        val b = VanBootstrapCodec.decode(o.toString())
+        assertEquals(listOf(
+            PriceLine("k57plst000000000000000000000002","k57prod0000000000000000000000001","PC",6850,"PHP",1790812800000L,null),
+            PriceLine("k57plst000000000000000000000002","k57prod0000000000000000000000002","PC",4275,"PHP",1790812800000L,null)
+        ),b.priceLines)
+    }
+    @Test fun debugFixtureMatchesFrozenFixtureWithAlwaysEffectivePricesAndNoPromotions() {
+        val expected = JSONObject(fixture()).apply { remove("promotions") }
+        VanBootstrapCodec.objects(expected.getJSONArray("priceLines")).forEach { it.put("effectiveFrom",0) }
+        assertEquals(jsonValue(expected),jsonValue(JSONObject(FakeVanBackend.FIXTURE)))
+        val b = VanBootstrapCodec.decode(FakeVanBackend.FIXTURE)
+        assertEquals(listOf(6850L,4275L),b.priceLines.map { it.unitPriceMinor })
+        assertTrue(b.priceLines.all { it.currency == "PHP" && it.effectiveFrom == 0L && it.effectiveTo == null })
+    }
+    @Test fun missingOrEmptyPriceLinesDecodeToEmptyList() {
+        val o = JSONObject(fixture()).apply { remove("priceLines") }
+        assertTrue(VanBootstrapCodec.decode(o.toString()).priceLines.isEmpty())
+        o.put("priceLines",JSONArray())
+        assertTrue(VanBootstrapCodec.decode(o.toString()).priceLines.isEmpty())
+    }
+    @Test fun unknownPriceProductIsRejected() {
+        val o = JSONObject(fixture())
+        o.getJSONArray("priceLines").getJSONObject(0).put("productId","unknown-product")
+        assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(o.toString()) }
+    }
+    @Test fun duplicatePriceListProductIsRejectedEvenForDifferentUnits() {
+        listOf("PC","CS").forEach { uom ->
+            val o = JSONObject(fixture()); val prices = o.getJSONArray("priceLines")
+            prices.put(JSONObject(prices.getJSONObject(0).toString()).put("uomCode",uom))
+            assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(o.toString()) }
+        }
+    }
+    @Test fun sameProductOnDifferentPriceListsIsValid() {
+        val o = JSONObject(fixture()); val prices = o.getJSONArray("priceLines")
+        prices.put(JSONObject(prices.getJSONObject(0).toString()).put("priceListId","another-list"))
+        assertEquals(3,VanBootstrapCodec.decode(o.toString()).priceLines.size)
+    }
+    @Test fun invalidMinorPricesAreRejected() {
+        listOf("-1","not-a-number","1.5","9223372036854775808","",6850,JSONObject.NULL).forEach { minor ->
+            val o = JSONObject(fixture())
+            o.getJSONArray("priceLines").getJSONObject(0).put("unitPriceMinor",minor)
+            assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(o.toString()) }
+        }
+        val o = JSONObject(fixture())
+        o.getJSONArray("priceLines").getJSONObject(0).put("unitPriceMinor","0")
+        assertEquals(0L,VanBootstrapCodec.decode(o.toString()).priceLines.first().unitPriceMinor)
+    }
+    @Test fun priceEndMustBeNullOrStrictlyAfterStart() {
+        val o = JSONObject(fixture()); val line = o.getJSONArray("priceLines").getJSONObject(0)
+        val from = line.getLong("effectiveFrom")
+        listOf(from,from-1).forEach { to ->
+            line.put("effectiveTo",to)
+            assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(o.toString()) }
+        }
+        line.put("effectiveTo",from+1)
+        assertEquals(from+1,VanBootstrapCodec.decode(o.toString()).priceLines.first().effectiveTo)
+        line.put("effectiveTo",JSONObject.NULL)
+        assertNull(VanBootstrapCodec.decode(o.toString()).priceLines.first().effectiveTo)
+    }
+    @Test fun malformedPricesAndPromotionsStillFailSchemaValidation() {
+        val mutations: List<(JSONObject)->Unit> = listOf(
+            { it.put("priceLines",JSONObject.NULL) },
+            { it.getJSONArray("priceLines").getJSONObject(0).remove("priceListCode") },
+            { it.getJSONArray("priceLines").getJSONObject(0).put("effectiveFrom",-1) },
+            { it.getJSONArray("priceLines").getJSONObject(0).put("extra",true) },
+            { it.put("promotions",JSONObject.NULL) },
+            { it.getJSONArray("promotions").getJSONObject(0).getJSONObject("rule").put("kind","unsupported") },
+            { it.getJSONArray("promotions").getJSONObject(0).getJSONObject("rule").remove("free") },
+            { it.getJSONArray("promotions").getJSONObject(1).getJSONObject("rule").put("percentOffBasisPoints",10001) },
+            { it.getJSONArray("promotions").getJSONObject(1).getJSONObject("rule").put("percentOffBasisPoints",0) },
+            { it.getJSONArray("promotions").getJSONObject(2).getJSONObject("rule").getJSONArray("components").remove(1) }
+        )
+        mutations.forEach { change -> val o = JSONObject(fixture()); change(o); assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(o.toString()) } }
+    }
     @Test fun frozenNoTripIsValidEmptyState() {
-        val b = VanBootstrapCodec.decode(fixture("bootstrap-no-trip-response.json")); assertNull(b.trip); assertNull(b.load); assertTrue(b.truckStock.isEmpty())
+        val b = VanBootstrapCodec.decode(fixture("bootstrap-no-trip-response.json")); assertNull(b.trip); assertNull(b.load); assertTrue(b.truckStock.isEmpty()); assertTrue(b.priceLines.isEmpty())
     }
     @Test fun strictEnumsTypesMissingNullsBoundsAndExtraFieldsAreRejected() {
         val mutations: List<(JSONObject)->Unit> = listOf(
