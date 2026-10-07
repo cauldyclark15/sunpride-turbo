@@ -7,6 +7,8 @@ import { modules } from "../test.setup";
 import { manilaDate } from "../coverage/validation";
 import type { AuthorizedDevice } from "../mobile/types";
 import { postMovement } from "../inventory/posting";
+import { resetBlockers } from "./sample";
+import { schemaReferences, valuesAt } from "./sample_dependencies";
 import { pricingCache, priceListFor, productPrices } from "../pricing/model";
 import { topology } from "../org/validation";
 import {
@@ -463,6 +465,81 @@ describe("beta sample seed (SP-0129)", { timeout: 30_000 }, () => {
       t.mutation(internal.beta.sample.reset, { confirm: "remove-beta-sample" }),
     ).rejects.toThrow(/stock has moved at SMP-DEPOT-CEBU/);
     expect(await counts(t)).toEqual(before);
+  });
+
+  it("reset refuses, removing nothing, when a sample product is stocked at a non-sample warehouse", async () => {
+    const t = await fresh();
+    await t.mutation(internal.beta.sample.seed, {});
+    const juice = await byCode(t, "products", "SMP-PJ-240");
+    await t.run(async (ctx) => {
+      const root = (await ctx.db.query("orgUnits").collect()).find(
+        (unit) => unit.code === "SUNPRIDE",
+      )!;
+      const warehouse = await ctx.db.insert("inventoryLocations", {
+        organizationId: "sunpride",
+        siteCode: "REAL-CEBU",
+        code: "REAL-DEPOT",
+        name: "Real depot",
+        type: "warehouse",
+        active: true,
+        orgUnitId: root._id,
+        allowsPicking: true,
+        allowsReceiving: true,
+        allowsSale: false,
+        allowsProduction: false,
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+      await postMovement(ctx, {
+        idempotencyKey: "external-receipt",
+        payloadHash: "external-receipt",
+        commandType: "inventory.receipt",
+        movementType: "goods_receipt",
+        sourceType: "review",
+        sourceDocumentId: "external-receipt",
+        actorSubject: "reviewer",
+        lines: [
+          {
+            productId: juice._id,
+            toLocationId: warehouse,
+            toStockStatus: "available",
+            quantityBase: 5n,
+          },
+        ],
+        emitIntegrationEvent: false,
+      });
+    });
+    const blockers = await t.run((ctx) => resetBlockers(ctx));
+    expect(blockers.join("; ")).toMatch(
+      new RegExp(
+        `inventoryBalances\\.productId uses sample products ${juice._id}`,
+      ),
+    );
+    const before = await counts(t);
+    await expect(
+      t.mutation(internal.beta.sample.reset, {
+        confirm: "remove-beta-sample",
+        limit: 1_000,
+      }),
+    ).rejects.toThrow(/in use/);
+    expect(await counts(t)).toEqual(before);
+    expect(await t.run((ctx) => ctx.db.get(juice._id))).not.toBeNull();
+  });
+
+  it("the dependency check sees every ID-holding field, nested arrays included", () => {
+    const references = schemaReferences();
+    // Every ID field the sample tables can be reached through appears, indexed or scanned.
+    const toProducts = references.filter((r) => r.target === "products");
+    expect(toProducts.length).toBeGreaterThan(5);
+    expect(
+      toProducts.some(
+        (r) =>
+          r.table === "inventoryBalances" && r.path.join(".") === "productId",
+      ),
+    ).toBe(true);
+    expect(
+      valuesAt({ lines: [{ p: "a" }, { p: "b" }] }, ["lines", "[]", "p"]),
+    ).toEqual(["a", "b"]);
   });
 
   it("attaches invited testers on a re-run: unit, position, supervisor, territory and route", async () => {

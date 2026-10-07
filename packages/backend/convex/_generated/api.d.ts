@@ -32,6 +32,7 @@ import type * as auth from "../auth.js";
 import type * as authPolicy from "../authPolicy.js";
 import type * as beta_sample from "../beta/sample.js";
 import type * as beta_sample_data from "../beta/sample_data.js";
+import type * as beta_sample_dependencies from "../beta/sample_dependencies.js";
 import type * as callSheets_accounts from "../callSheets/accounts.js";
 import type * as callSheets_model from "../callSheets/model.js";
 import type * as callSheets_report from "../callSheets/report.js";
@@ -229,6 +230,7 @@ declare const fullApi: ApiFromModules<{
   authPolicy: typeof authPolicy;
   "beta/sample": typeof beta_sample;
   "beta/sample_data": typeof beta_sample_data;
+  "beta/sample_dependencies": typeof beta_sample_dependencies;
   "callSheets/accounts": typeof callSheets_accounts;
   "callSheets/model": typeof callSheets_model;
   "callSheets/report": typeof callSheets_report;

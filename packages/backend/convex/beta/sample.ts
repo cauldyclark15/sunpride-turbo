@@ -11,6 +11,7 @@ import { buildOpeningBalanceLine } from "../inventory/setup";
 import { manilaDate } from "../coverage/validation";
 import { insertUomConversion } from "../inventory/policies";
 import type { WriteActor } from "../lib/write_actor";
+import { addSampleId, externalReferences } from "./sample_dependencies";
 import { createOrgUnit } from "../org/mutations";
 import { assignOutlet } from "../outlets/assignments";
 import { changeOutletCustomerLink, createOutlet } from "../outlets/mutations";
@@ -1117,11 +1118,15 @@ async function sampleRow<T extends TableNames>(
   return row ? ctx.db.normalizeId(table, row.rowId) : null;
 }
 
+const MAX_SAMPLE_ROWS = 5_000;
+
 /**
  * Why removing the sample now would break someone else's data (empty = safe). Reset refuses
  * while testers or real work depend on sample rows: deleting them would leave profiles and
  * assignment history pointing at removed units, and deleting a depot balance that a later
- * movement changed would break the stock ledger (ADR-003/007). Each check is bounded.
+ * movement changed would break the stock ledger (ADR-003/007). Finally every schema field that
+ * can hold a sample row's ID is searched for a row the seed did not create
+ * (`sample_dependencies.ts`). Each check is bounded and fails closed.
  */
 export async function resetBlockers(ctx: MutationCtx) {
   const blockers: string[] = [];
@@ -1214,6 +1219,29 @@ export async function resetBlockers(ctx: MutationCtx) {
     if (visit || order)
       blockers.push(`store ${store.code} has visits or orders`);
   }
+  // The full closure: any row the seed did not create that holds an ID of a sample row
+  // (stock of a sample product at a real warehouse, a real order line, …).
+  const tracked = new Set<string>();
+  const sampleIds = new Map<string, Set<string>>();
+  const rows = await ctx.db
+    .query("sampleDataRows")
+    .withIndex("by_batch", (q) => q.eq("batch", SAMPLE_BATCH))
+    .take(MAX_SAMPLE_ROWS + 1);
+  if (rows.length > MAX_SAMPLE_ROWS)
+    blockers.push(`more than ${MAX_SAMPLE_ROWS} sample rows to check`);
+  for (const row of rows) {
+    tracked.add(row.rowId);
+    addSampleId(sampleIds, row.tableName, row.rowId);
+  }
+  for (const blocker of await externalReferences(
+    ctx,
+    sampleIds,
+    tracked,
+    // A sample price list another seed has added lines to is kept, not deleted (see reset).
+    (reference) =>
+      reference.table === "priceListLines" && reference.target === "priceLists",
+  ))
+    if (!blockers.includes(blocker)) blockers.push(blocker);
   return blockers;
 }
 

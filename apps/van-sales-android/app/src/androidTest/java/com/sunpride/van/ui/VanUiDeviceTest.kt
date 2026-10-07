@@ -286,14 +286,21 @@ class VanUiDeviceTest {
         rule.onNodeWithTag("printer-done").performClick()
         rule.onNodeWithTag("sign-in").assertExists()
     }
+    /** Swaps the practice backend's price feed for a test-only one: ₱85.00 per PC for the juice, every other product unpriced. */
+    private fun testPriceFeed(juice: String) {
+        runBlocking { c.repository.fixtureStore().let { st ->
+            st.db.rows().clearPriceListLine(st.scope.fullAuthSubject,st.scope.deviceId)
+            st.db.rows().insertPriceListLine(com.sunpride.van.storage.PriceListLineRow(
+                st.scope.fullAuthSubject,st.scope.deviceId,"PL-PRACTICE",juice,"PC",8_500,"PHP",System.currentTimeMillis()-60_000,null))
+        } }
+        rule.waitUntil(10_000) { c.prices.map { it.priceListId to it.productId } == listOf("PL-PRACTICE" to juice) }
+    }
     @Test fun checkoutValidatesPricesAndCashThenSavesTheSaleOnThisPhone() {
         mount(); loadAndStart()
         val juice = c.products.single { it.code == "SP-PJ-1L" }
         rule.waitUntil(10_000) { c.stock.any { it.productId == juice.productId && it.availableBase > 2 } }
         val before = c.stock.single { it.productId == juice.productId }.availableBase
-        // Practice-data price only (the governed price feed is not delivered yet): ₱85.00 per PC for the juice.
-        runBlocking { c.repository.fixtureStore().let { st -> st.db.rows().insertPriceListLine(com.sunpride.van.storage.PriceListLineRow(
-            st.scope.fullAuthSubject,st.scope.deviceId,"PL-PRACTICE",juice.productId,"PC",8_500,"PHP",System.currentTimeMillis()-60_000,null)) } }
+        testPriceFeed(juice.productId)
         rule.waitUntil(10_000) { c.prices.isNotEmpty() }
         open(Page.HOME)
         rule.onNodeWithTag("new-sale").performScrollTo().performClick()
@@ -356,8 +363,7 @@ class VanUiDeviceTest {
         mount(); loadAndStart()
         val juice = c.products.single { it.code == "SP-PJ-1L" }
         rule.waitUntil(10_000) { c.stock.any { it.productId == juice.productId && it.availableBase > 2 } }
-        runBlocking { c.repository.fixtureStore().let { st -> st.db.rows().insertPriceListLine(com.sunpride.van.storage.PriceListLineRow(
-            st.scope.fullAuthSubject,st.scope.deviceId,"PL-PRACTICE",juice.productId,"PC",8_500,"PHP",System.currentTimeMillis()-60_000,null)) } }
+        testPriceFeed(juice.productId)
         rule.waitUntil(10_000) { c.prices.isNotEmpty() }
         open(Page.HOME)
         rule.onNodeWithTag("new-sale").performScrollTo().performClick()

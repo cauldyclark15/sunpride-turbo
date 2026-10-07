@@ -123,8 +123,13 @@ Reset deletes only rows listed in `sampleDataRows` (newest first, 400 per call),
 while the sample is unused**. It refuses and removes nothing when any of these exist: a tester
 has signed up with a sample invitation; anyone is or was assigned to a sample unit; stock moved
 at the sample depot or a truck after the opening balance; a sample truck has a trip; a sample
-store has visits or orders. Deleting those rows would leave profiles and assignment history
-pointing at removed units and break the stock ledger. A beta deployment testers have used is
+store has visits or orders; or **any row the seed did not create holds the ID of a sample row**
+(for example stock of a sample product received at a real warehouse, a real order line, a real
+device or plan). That last check walks every ID field in the schema (`beta/sample_dependencies.ts`,
+so new tables are covered automatically); a table without a usable index is scanned, and a table
+over 4,000 rows is reported as unverifiable rather than assumed clean. Deleting those rows would
+leave profiles, assignment history and the stock ledger pointing at removed rows. The check runs
+before every batch, so no batch deletes anything another row still uses. A beta deployment testers have used is
 retired, not reset: go live on a fresh production deployment. A sample price list SP-0088's seed
 has also filled is kept (its own reset removes it).
 
