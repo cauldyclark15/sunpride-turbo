@@ -12,6 +12,11 @@ class StockProjectionTest {
         val p = StockProjection.project(baseline,m,emptySet()).single()
         assertEquals(86L,p.availableBase); assertEquals(2L,p.damagedBase)
     }
+    @Test fun voidExactlyCompensatesTheSaleWithoutTouchingDamagedStock() {
+        val baseline = listOf(BaselineRow("a","d","t","p","available",10,1),BaselineRow("a","d","t","p","damaged",2,1))
+        val stock = StockProjection.project(baseline,listOf(movement(MovementType.SALE,-3),movement(MovementType.VOID,3)),emptySet()).single()
+        assertEquals(10L,stock.availableBase); assertEquals(2L,stock.damagedBase)
+    }
     @Test fun onlyAckPlusStrictlyLaterBootstrapSettles() {
         assertFalse(StockProjection.reflected(null,11)); assertFalse(StockProjection.reflected(10,10)); assertFalse(StockProjection.reflected(10,9)); assertTrue(StockProjection.reflected(10,11))
         val sale = movement(MovementType.SALE,-3)

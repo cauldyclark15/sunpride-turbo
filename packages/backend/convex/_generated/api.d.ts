@@ -183,6 +183,7 @@ import type * as van_loads from "../van/loads.js";
 import type * as van_model from "../van/model.js";
 import type * as van_trips from "../van/trips.js";
 import type * as van_vehicles from "../van/vehicles.js";
+import type * as van_voids from "../van/voids.js";
 import type * as visits_activity_rules from "../visits/activity_rules.js";
 import type * as visits_commands from "../visits/commands.js";
 import type * as visits_events from "../visits/events.js";
@@ -374,6 +375,7 @@ declare const fullApi: ApiFromModules<{
   "van/model": typeof van_model;
   "van/trips": typeof van_trips;
   "van/vehicles": typeof van_vehicles;
+  "van/voids": typeof van_voids;
   "visits/activity_rules": typeof visits_activity_rules;
   "visits/commands": typeof visits_commands;
   "visits/events": typeof visits_events;

@@ -6,7 +6,9 @@ import java.math.BigDecimal
 data class VanPolicy(val allowNegativeStock: Boolean = false,
     val loadDiscrepancyRequiresApproval: Boolean = true, val walkInAllowed: Boolean = false,
     val loadDiscrepancyReasons: List<String> = emptyList(), val damageReasons: List<String> = emptyList(),
-    val paymentMethods: List<PaymentMethod> = PaymentMethod.CASH_ONLY)
+    val paymentMethods: List<PaymentMethod> = PaymentMethod.CASH_ONLY,
+    val voidReasons: List<String> = emptyList(), val voidApproval: VoidApproval? = null)
+data class VoidApproval(val required: Boolean, val thresholdMinor: Long, val key: String?)
 /** How a payment settles: [CASH] gives change, [OTHER] (check, e-wallet, bank) equals the total, [CREDIT] charges the account. */
 enum class PaymentKind(val wire: String) { CASH("cash"), CREDIT("credit"), OTHER("other");
     companion object { fun of(wire: String) = entries.single { it.wire == wire } } }

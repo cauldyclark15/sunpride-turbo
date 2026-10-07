@@ -19,12 +19,15 @@ object SaleReceiptDocuments {
     fun money(minor: Long, currency: String): String =
         if (currency == "PHP") PesoAmounts.fromCentavos(minor) else "$currency ${BigDecimal.valueOf(minor, 2).toPlainString()}"
 
-    fun build(receipt: SaleReceipt, header: ReceiptHeader, attempt: PrintAttempt, printedAt: Long, zone: ZoneId = MANILA): ReceiptDocument {
+    fun build(receipt: SaleReceipt, header: ReceiptHeader, attempt: PrintAttempt, printedAt: Long, zone: ZoneId = MANILA, void: SaleVoidInfo? = null): ReceiptDocument {
+        val voidSlip = attempt.kind == PrintKind.VOID
+        if (voidSlip) requireNotNull(void) { "Void slip needs cancellation evidence" }
         val reprint = attempt.kind == PrintKind.REPRINT
         val at = { ms: Long -> Instant.ofEpochMilli(ms).atZone(zone).format(time) }
         val elements = buildList {
             add(ReceiptElement.Text("SUNPRIDE VAN SALES", ReceiptStyle(ReceiptAlignment.CENTER, bold = true, doubleHeight = true)))
             add(ReceiptElement.Text("DELIVERY RECEIPT", ReceiptStyle(ReceiptAlignment.CENTER, bold = true)))
+            if (voidSlip) add(ReceiptElement.Text("VOID - SALE CANCELLED", ReceiptStyle(ReceiptAlignment.CENTER, bold = true, doubleWidth = true)))
             if (reprint) add(ReceiptElement.Text("REPRINT - COPY ${attempt.copyNumber}", ReceiptStyle(ReceiptAlignment.CENTER, bold = true, doubleWidth = true)))
             add(ReceiptElement.Divider())
             add(ReceiptElement.Text("Receipt: ${receipt.receiptNumber}"))
@@ -56,6 +59,13 @@ object SaleReceiptDocuments {
                 add(ReceiptElement.Text("Reprinted: ${at(printedAt)}"))
                 ReprintRules.reasonLabel(attempt.reason)?.let { add(ReceiptElement.Text("Reason: $it")) }
                 add(ReceiptElement.Text("** REPRINT - NOT ORIGINAL **", ReceiptStyle(ReceiptAlignment.CENTER, bold = true)))
+            }
+            if (voidSlip) {
+                val info = checkNotNull(void)
+                add(ReceiptElement.Text("Voided: ${at(info.voidedAt)}"))
+                add(ReceiptElement.Text("Reason: ${com.sunpride.van.pos.VoidReasons.label(info.reasonCode)}"))
+                if (info.approved) add(ReceiptElement.Text("Supervisor approved"))
+                add(ReceiptElement.Text("** VOID - NOT A VALID RECEIPT **", ReceiptStyle(ReceiptAlignment.CENTER, bold = true)))
             }
             add(ReceiptElement.Qr(receipt.receiptNumber))
             add(ReceiptElement.Text(TestReceipts.DISCLAIMER, ReceiptStyle(ReceiptAlignment.CENTER)))

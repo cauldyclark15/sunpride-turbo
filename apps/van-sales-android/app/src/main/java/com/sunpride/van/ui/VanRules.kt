@@ -94,13 +94,28 @@ object VanRules {
         "on_account" -> if (dueDate != null) "Charged to account · due $dueDate" else "Charged to account"
         else -> "To be confirmed by the office"
     }
+    fun voidMessage(problem: com.sunpride.van.pos.VoidProblem): String = when (problem) {
+        com.sunpride.van.pos.VoidProblem.VOID_UNAVAILABLE -> "Voiding sales is not set up on this phone. Sync, then try again."
+        com.sunpride.van.pos.VoidProblem.SALE_NOT_FOUND -> "This sale is not on this phone."
+        com.sunpride.van.pos.VoidProblem.NOT_THIS_TRIP -> "Only sales from this trip can be voided on this phone. Ask the office."
+        com.sunpride.van.pos.VoidProblem.HELD -> "Sign in and sync before voiding a sale."
+        com.sunpride.van.pos.VoidProblem.ALREADY_VOIDED -> "This sale is already voided."
+        com.sunpride.van.pos.VoidProblem.REASON_REQUIRED -> "Choose why you are voiding this sale."
+        com.sunpride.van.pos.VoidProblem.NOTE_REQUIRED -> "Explain why you are voiding this sale."
+        com.sunpride.van.pos.VoidProblem.NOTE_INVALID -> "Use plain text for the note (300 characters at most)."
+        com.sunpride.van.pos.VoidProblem.APPROVAL_UNAVAILABLE -> "Supervisor approval is not set up on this phone. Sync, then try again."
+        com.sunpride.van.pos.VoidProblem.CODE_REQUIRED -> "Enter the 8-digit code from your supervisor."
+        com.sunpride.van.pos.VoidProblem.CODE_WRONG -> "That code does not match. Check the receipt number, total and reason with your supervisor."
+    }
     /** VAN-017: what happened to a print, in plain words. A printer problem never changes the saved sale. */
     fun printMessage(result: com.sunpride.van.printing.PrintJobResult): String = when (result) {
         is com.sunpride.van.printing.PrintJobResult.Printed ->
             if (result.attempt.kind == com.sunpride.van.printing.PrintKind.REPRINT) "Reprint copy ${result.attempt.copyNumber} printed. It is marked REPRINT."
+            else if (result.attempt.kind == com.sunpride.van.printing.PrintKind.VOID) "Void slip printed. The sale is cancelled."
             else "Receipt printed. Tear it off for the customer."
         is com.sunpride.van.printing.PrintJobResult.Failed -> when {
             result.attempt == null -> "Printer not ready: ${com.sunpride.van.printing.PrinterWords.status(result.status)}. The sale is saved. Check the printer, then print again."
+            result.mayHavePrinted && result.attempt.kind == com.sunpride.van.printing.PrintKind.VOID -> "The printer stopped during the void slip. Check the paper. Use Reprint void slip for another copy."
             result.mayHavePrinted -> "The printer stopped during the receipt. Check the paper. Any new copy will be marked REPRINT."
             else -> "Not printed: ${com.sunpride.van.printing.PrinterWords.status(result.status)}. The sale is saved. Print again."
         }

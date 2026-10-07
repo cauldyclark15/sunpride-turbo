@@ -23,7 +23,25 @@ export const VAN_POLICY = {
   /** Bootstrap returns at most this many route customers / other scoped customers. */
   maxRouteCustomers: 300,
   maxUnplannedCustomers: 300,
+  /**
+   * VAN-021 (Q10 plan: "Yes, with a reason, and a supervisor approves it"): a void needs a
+   * supervisor's approval code when the sale total is at least this many centavos. 0 = every
+   * void. Assumed default until Sunpride sets a threshold.
+   */
+  voidRequiresApproval: true,
+  voidApprovalThresholdMinor: 0n,
 } as const;
+
+/** VAN-021 reasons a seller may give for voiding a whole sale on the handheld. */
+export const VOID_REASONS = [
+  "wrong_items",
+  "wrong_quantity",
+  "wrong_customer",
+  "wrong_payment",
+  "customer_cancelled",
+  "other",
+] as const;
+export type VoidReason = (typeof VOID_REASONS)[number];
 
 export const vehicleStatusValidator = v.union(
   v.literal("active"),

@@ -194,6 +194,17 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
             message = e.issues.joinToString("\n") { issue -> VanRules.checkoutMessage(issue.problem,issue.productId?.let { id -> products.firstOrNull { it.productId == id }?.name }) }
         }
     }
+    /** [onVoided] runs only after the void is saved, so a refused code keeps the dialog (and what was typed) open. */
+    fun voidSale(saleId: String, reason: String?, note: String?, code: String?, onVoided: () -> Unit = {}) = command {
+        try {
+            repository.voidSale(saleId,reason,note,code)
+            onVoided()
+            message = "Sale voided. The stock is back on the truck."
+            savedSales = repository.savedSales()
+            refreshPaymentFacts()
+            startPrint(saleId,explicit = false,reason = null)
+        } catch (e: VoidRefused) { message = VanRules.voidMessage(e.problem) }
+    }
     /** Print the receipt again: the original if it never reached paper, else a REPRINT copy that needs [reason]. */
     fun printReceipt(saleId: String, reason: String? = null) = startPrint(saleId,explicit = true,reason = reason)
     fun refreshReceipts() {
