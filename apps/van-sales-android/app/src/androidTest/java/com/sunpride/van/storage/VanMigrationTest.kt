@@ -41,6 +41,16 @@ class VanMigrationTest {
                 assertEquals(listOf("fullAuthSubject","deviceId","printId","saleId","kind","copyNumber","reason","outcome","startedAt","finishedAt"),columns) }
             database.query("SELECT saleId,receiptNumber,status,totalMinor FROM sale").use { assertTrue(it.moveToFirst()); assertEquals("s1",it.getString(0)); assertEquals("R-1",it.getString(1)); assertEquals("saved",it.getString(2)); assertEquals(8500L,it.getLong(3)) }
             database.query("SELECT operationJson,status FROM outbox").use { assertTrue(it.moveToFirst()); assertEquals("immutable bytes",it.getString(0)); assertEquals("pending",it.getString(1)) }
+            database.execSQL("INSERT INTO receipt_print (fullAuthSubject,deviceId,printId,saleId,kind,copyNumber,outcome,startedAt) VALUES ('issuer|subject','d','p1','s1','original',0,'printed',2)")
+        }
+        // VAN-017: v3 → v4 adds only the empty, scoped sale_receipt table; print history, sales and operation bytes are untouched.
+        helper.runMigrationsAndValidate(name,4,true,VanDatabase.MIGRATION_3_4).use { database ->
+            database.query("SELECT COUNT(*) FROM sale_receipt").use { assertTrue(it.moveToFirst()); assertEquals(0,it.getInt(0)) }
+            database.query("PRAGMA table_info(`sale_receipt`)").use { cursor -> val columns=mutableListOf<String>(); while(cursor.moveToNext()) columns+=cursor.getString(1)
+                assertEquals(listOf("fullAuthSubject","deviceId","saleId","documentJson"),columns) }
+            database.query("SELECT saleId,kind,outcome FROM receipt_print").use { assertTrue(it.moveToFirst()); assertEquals("s1",it.getString(0)); assertEquals("original",it.getString(1)); assertEquals("printed",it.getString(2)) }
+            database.query("SELECT receiptNumber,totalMinor FROM sale").use { assertTrue(it.moveToFirst()); assertEquals("R-1",it.getString(0)); assertEquals(8500L,it.getLong(1)) }
+            database.query("SELECT operationJson,status FROM outbox").use { assertTrue(it.moveToFirst()); assertEquals("immutable bytes",it.getString(0)); assertEquals("pending",it.getString(1)) }
         }
     }
 }

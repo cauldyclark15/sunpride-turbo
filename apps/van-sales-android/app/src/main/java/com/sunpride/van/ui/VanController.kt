@@ -2,6 +2,7 @@ package com.sunpride.van.ui
 
 import androidx.compose.runtime.*
 import com.sunpride.van.AppEnvironment
+import com.sunpride.van.VanFeatures
 import com.sunpride.van.auth.*
 import com.sunpride.van.data.*
 import com.sunpride.van.pos.*
@@ -15,6 +16,8 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     val fixtureMode: Boolean = false,
     /** VAN-017: the one printer for this UI lifetime; the Activity selects and closes it. Tests inject a fake. */
     val printer: ReceiptPrinter = NoPrinter(),
+    /** SP-0125: what this build shows (unfinished screens are hidden in release/beta). */
+    val features: VanFeatures = VanFeatures.ALL,
     private val fingerprintLoader: suspend () -> String = { "Unavailable" }) {
     var page by mutableStateOf(Page.HOME)
         private set

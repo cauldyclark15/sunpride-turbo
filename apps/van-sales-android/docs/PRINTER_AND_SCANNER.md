@@ -34,6 +34,14 @@ hook for that later lane.
 original available; `started` (app died mid-print), `maybe_printed` and `printed` all count as on
 paper, so any further copy is a reprint. An automatic print never reprints.
 
+**Frozen receipt.** Complete sale writes the receipt exactly as sold — customer name, product
+names, UOM and quantity labels, prices, payment wording, seller, trip and truck — to the
+`sale_receipt` table (DB v4, `MIGRATION_3_4`) in the same transaction as the sale
+(`FrozenReceipts`). Every print and the replay of Complete sale read that row, so a later bootstrap
+that renames, re-units or removes a product or customer never changes a reprint; a reprint only
+adds its REPRINT marker. Sales saved before v4 (development phones only) have no frozen row and
+fall back to a rebuild from current master data.
+
 **Authorized reprint.** A reprint needs an explicit seller request (Receipts or Sale saved → Reprint)
 with one of the reasons in `ReprintRules.REASONS`, and is allowed only for:
 

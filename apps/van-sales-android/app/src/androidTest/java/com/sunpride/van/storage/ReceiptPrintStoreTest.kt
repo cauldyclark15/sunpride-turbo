@@ -109,6 +109,59 @@ class ReceiptPrintStoreTest {
         assertEquals(2,db.receiptPrints().forSale(s,d,receipt.saleId).size)
     }
 
+    /** Same trip, newer bootstrap: product renamed and re-unit (PC → CS of 1000), customer and seller renamed. */
+    private fun renamedFixture(): String {
+        val o = JSONObject(fixture(serverTime = at+50))
+        o.getJSONObject("seller").put("name","Someone Else")
+        val p = o.getJSONArray("products").getJSONObject(0)
+        p.put("name","Renamed Juice").put("uomCode","CS").put("quantityScale","1000")
+        o.getJSONArray("customers").getJSONObject(0).put("name","Renamed Store")
+        return o.toString()
+    }
+    /** Same trip, newer bootstrap: the sold product and the customer are no longer on the phone. */
+    private fun removedFixture(): String {
+        val o = JSONObject(fixture(serverTime = at+60))
+        val products = o.getJSONArray("products"); products.remove(0)
+        val customers = o.getJSONArray("customers"); customers.remove(0)
+        return o.toString()
+    }
+    /** The text lines that reach paper. */
+    private fun paper(doc: ReceiptDocument) = ReceiptLayoutFormatter().format(doc).filterIsInstance<ReceiptCommand.Line>().joinToString("\n") { it.text }
+
+    @Test fun reprintKeepsTheSaleTimeFactsAfterMasterDataIsRenamedOrRemoved() = runBlocking {
+        val receipt = saved()
+        val printer = FakeReceiptPrinter()
+        val flow = ReceiptPrintFlow(printer,RoomReceiptPrintLog(db,scope)) { at+30 }
+        assertTrue(flow.print(receipt.saleId,explicit = false) is PrintJobResult.Printed)
+        val original = paper(printer.documents.single())
+        listOf("Aling Nena Store","Pineapple Juice 1L","3 PC","Juan Dela Cruz","TRIP-20261007-V014-1","V014 NBC 1234").forEach {
+            assertTrue("original shows $it",original.contains(it)) }
+        for (bootstrap in listOf(renamedFixture(),removedFixture())) {
+            store.replaceBootstrap(bootstrap)
+            val go = RoomReceiptPrintLog(db,scope).begin(receipt.saleId,true,"customer_copy") as BeginPrint.Go
+            // Exactly what Complete sale returned, and the same seller/trip/truck as the original slip.
+            assertEquals(receipt.copy(replay = true),go.receipt)
+            assertEquals(ReceiptHeader("Juan Dela Cruz","TRIP-20261007-V014-1","V014 NBC 1234"),go.header)
+            assertEquals(receipt.copy(replay = true),RoomReceiptPrintLog(db,scope).savedSales().single().receipt)
+        }
+        val copy = flow.print(receipt.saleId,explicit = true,reasonCode = "customer_copy") as PrintJobResult.Printed
+        val reprint = paper(printer.documents.last())
+        assertTrue(copy.attempt.kind == PrintKind.REPRINT && printer.documents.last().isReprint)
+        listOf("Aling Nena Store","Pineapple Juice 1L","3 PC","Juan Dela Cruz","REPRINT").forEach { assertTrue("reprint shows $it",reprint.contains(it)) }
+        listOf("Renamed","0.003","CS","Someone Else",juice).forEach { assertFalse("reprint must not show $it",reprint.contains(it)) }
+        // Replaying Complete sale with the same cart also returns the frozen receipt, not a rebuild.
+        assertEquals(receipt.copy(replay = true),store.commitSale(CheckoutRequest(receipt.saleId,outlet,listOf(CartLine(juice,3)),PaymentInput("cash",30_000)),25_500))
+    }
+
+    @Test fun theFrozenReceiptIsWrittenWithTheSaleAndNeverChanges() = runBlocking {
+        val receipt = saved()
+        val row = checkNotNull(db.receiptPrints().saleReceipt(s,d,receipt.saleId))
+        assertEquals(receipt.copy(replay = true) to ReceiptHeader("Juan Dela Cruz","TRIP-20261007-V014-1","V014 NBC 1234"),FrozenReceipts.decode(row.documentJson))
+        assertThrows(Exception::class.java) { runBlocking { db.receiptPrints().insertSaleReceipt(row.copy(documentJson = "{}")) } }
+        store.replaceBootstrap(renamedFixture())
+        assertEquals(row,db.receiptPrints().saleReceipt(s,d,receipt.saleId))
+    }
+
     @Test fun onlyTheSignedInSellersSalesOnTheCurrentTripPrint() = runBlocking {
         val receipt = saved()
         // Another account or device on the same phone cannot see or print this sale.

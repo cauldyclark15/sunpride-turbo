@@ -141,12 +141,18 @@ interface VanDao {
 }
 
 @Database(entities = [TripRow::class,LoadLineRow::class,ProductRow::class,CustomerRow::class,BaselineRow::class,MovementRow::class,SettlementRow::class,OutboxRow::class,AckRow::class,SyncMetaRow::class,SequenceCounterRow::class,TransactionIdRow::class,SaleRow::class,SaleLineRow::class,PaymentRow::class,CustomerReturnRow::class,ReturnLineRow::class,ReconciliationRow::class,PriceListLineRow::class,
-    ReceiptPrintRow::class], version = 3, exportSchema = true)
+    ReceiptPrintRow::class,SaleReceiptRow::class], version = 4, exportSchema = true)
 abstract class VanDatabase : RoomDatabase() {
     abstract fun rows(): VanDao
     /** VAN-017 receipt print history (v3). */
     abstract fun receiptPrints(): ReceiptPrintDao
     companion object {
+        /** VAN-017: one new append-only table of receipts frozen at checkout; sales saved before it have none. */
+        val MIGRATION_3_4 = object : androidx.room.migration.Migration(3,4) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `sale_receipt` (`fullAuthSubject` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `saleId` TEXT NOT NULL, `documentJson` TEXT NOT NULL, PRIMARY KEY(`fullAuthSubject`, `deviceId`, `saleId`))")
+            }
+        }
         /** VAN-017: one new append-only table; no existing row, operation byte or movement changes. */
         val MIGRATION_2_3 = object : androidx.room.migration.Migration(2,3) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
