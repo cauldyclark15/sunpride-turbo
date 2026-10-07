@@ -21,6 +21,7 @@ import {
 import {
   CASH_VARIANCE_REASONS,
   STOCK_VARIANCE_REASONS,
+  VAN_TRIP_CLOSE_POLICY,
   VAN_PAYMENT_METHODS,
   VOID_REASONS,
 } from "./model";
@@ -3210,5 +3211,29 @@ describe("van end-of-trip stock reconciliation approval (VAN-023)", () => {
     ).rejects.toThrow(/your own stock count/);
     delete process.env[SECRET_ENV];
     await expect(issue(manager)).rejects.toThrow(/not configured/);
+  });
+});
+
+describe("van trip close policy (VAN-024)", () => {
+  it("sends the trip close checks in every bootstrap, with or without a trip", async () => {
+    const f = await fixture();
+    const expected = {
+      requireCashCount: true,
+      requireStockCount: true,
+      requireUploadsSent: true,
+      exceptionsNeedReview: true,
+    };
+    expect(VAN_TRIP_CLOSE_POLICY).toEqual(expected);
+    const empty = await f.t.query(internal.van.device.bootstrap, {
+      actor: f.seller.actor,
+      now: NOW,
+    });
+    expect(empty.policy.tripClose).toEqual(expected);
+    await f.loaded();
+    const view = await f.t.query(internal.van.device.bootstrap, {
+      actor: f.seller.actor,
+      now: NOW,
+    });
+    expect(view.policy.tripClose).toEqual(expected);
   });
 });

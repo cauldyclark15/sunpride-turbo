@@ -76,6 +76,16 @@ data class StockReconciliationRow(val fullAuthSubject: String, val deviceId: Str
     val idempotencyKey: String, val linesJson: String, val countCode: String, val varianceLines: Int, val shortBase: Long,
     val overBase: Long, val note: String?, val approvalMethod: String, val approvalCode: String?, val createdAt: Long)
 
+/**
+ * VAN-024: the trip closed on this phone, append-only and one per scoped trip. The exceptions the seller confirmed and
+ * the list of this trip's operations are also frozen in its parked `trip.close` operation bytes.
+ */
+@Entity(tableName = "trip_close", primaryKeys = ["fullAuthSubject", "deviceId", "closeId"],
+    indices = [Index(value = ["fullAuthSubject", "deviceId", "tripId"], unique = true)])
+data class TripCloseRow(val fullAuthSubject: String, val deviceId: String, val closeId: String, val tripId: String,
+    val idempotencyKey: String, val exceptionsJson: String, val reviewed: Boolean, val endOdometerKm: Double?, val note: String?,
+    val operationCount: Int, val createdAt: Long)
+
 @Entity(tableName = "sale_line", primaryKeys = ["fullAuthSubject", "deviceId", "saleId", "lineNumber"])
 data class SaleLineRow(val fullAuthSubject: String, val deviceId: String, val saleId: String, val lineNumber: Int, val productId: String, val quantityBase: Long, val unitPriceMinor: Long? = null, val totalMinor: Long? = null)
 
@@ -146,6 +156,9 @@ interface VanDao {
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertStockReconciliation(row: StockReconciliationRow)
     @Query("SELECT * FROM stock_reconciliation WHERE fullAuthSubject=:subject AND deviceId=:device AND tripId=:tripId") suspend fun stockReconciliation(subject: String, device: String, tripId: String): StockReconciliationRow?
     @Query("SELECT * FROM stock_reconciliation WHERE fullAuthSubject=:subject AND deviceId=:device") fun observeStockReconciliation(subject: String, device: String): Flow<List<StockReconciliationRow>>
+    @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertTripClose(row: TripCloseRow)
+    @Query("SELECT * FROM trip_close WHERE fullAuthSubject=:subject AND deviceId=:device AND tripId=:tripId") suspend fun tripClose(subject: String, device: String, tripId: String): TripCloseRow?
+    @Query("SELECT * FROM trip_close WHERE fullAuthSubject=:subject AND deviceId=:device") fun observeTripClose(subject: String, device: String): Flow<List<TripCloseRow>>
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertSaleLine(row: SaleLineRow)
     @Query("SELECT * FROM sale_line WHERE fullAuthSubject=:subject AND deviceId=:device") suspend fun salelineRows(subject: String, device: String): List<SaleLineRow>
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertPayment(row: PaymentRow)
@@ -176,7 +189,7 @@ interface VanDao {
 }
 
 @Database(entities = [TripRow::class,LoadLineRow::class,ProductRow::class,CustomerRow::class,BaselineRow::class,MovementRow::class,SettlementRow::class,OutboxRow::class,AckRow::class,SyncMetaRow::class,SequenceCounterRow::class,TransactionIdRow::class,SaleRow::class,SaleLineRow::class,PaymentRow::class,CustomerReturnRow::class,ReturnLineRow::class,ReconciliationRow::class,PriceListLineRow::class,
-    ReceiptPrintRow::class,SaleReceiptRow::class,SaleVoidRow::class,CashReconciliationRow::class,StockReconciliationRow::class], version = 7, exportSchema = true)
+    ReceiptPrintRow::class,SaleReceiptRow::class,SaleVoidRow::class,CashReconciliationRow::class,StockReconciliationRow::class,TripCloseRow::class], version = 8, exportSchema = true)
 abstract class VanDatabase : RoomDatabase() {
     abstract fun rows(): VanDao
     /** VAN-017 receipt print history (v3). */
@@ -194,6 +207,13 @@ abstract class VanDatabase : RoomDatabase() {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("CREATE TABLE IF NOT EXISTS `stock_reconciliation` (`fullAuthSubject` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `reconciliationId` TEXT NOT NULL, `tripId` TEXT NOT NULL, `idempotencyKey` TEXT NOT NULL, `linesJson` TEXT NOT NULL, `countCode` TEXT NOT NULL, `varianceLines` INTEGER NOT NULL, `shortBase` INTEGER NOT NULL, `overBase` INTEGER NOT NULL, `note` TEXT, `approvalMethod` TEXT NOT NULL, `approvalCode` TEXT, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`fullAuthSubject`, `deviceId`, `reconciliationId`))")
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_stock_reconciliation_fullAuthSubject_deviceId_tripId` ON `stock_reconciliation` (`fullAuthSubject`, `deviceId`, `tripId`)")
+            }
+        }
+        /** VAN-024: one new append-only table for the trip closed on this phone; no existing row changes. */
+        val MIGRATION_7_8 = object : androidx.room.migration.Migration(7,8) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `trip_close` (`fullAuthSubject` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `closeId` TEXT NOT NULL, `tripId` TEXT NOT NULL, `idempotencyKey` TEXT NOT NULL, `exceptionsJson` TEXT NOT NULL, `reviewed` INTEGER NOT NULL, `endOdometerKm` REAL, `note` TEXT, `operationCount` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`fullAuthSubject`, `deviceId`, `closeId`))")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_trip_close_fullAuthSubject_deviceId_tripId` ON `trip_close` (`fullAuthSubject`, `deviceId`, `tripId`)")
             }
         }
         /** VAN-021: additive cancellation evidence only, never edit or delete a sale. */

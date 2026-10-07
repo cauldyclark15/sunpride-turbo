@@ -95,6 +95,15 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         private set
     var stockDraft by mutableStateOf(StockDraft(StockReconciliationRules.newCountId()))
         private set
+    /** VAN-024: the trip is closed on this phone; nothing more is recorded on it. */
+    var tripClosed by mutableStateOf(false)
+        private set
+    /** VAN-024: what Close trip shows; refreshed whenever the page opens, after a sync and after closing. */
+    var closeSummary by mutableStateOf<TripCloseSummary?>(null)
+        private set
+    /** Close trip form; [CloseDraft.closeId] makes Close trip safe to tap twice. In memory only. */
+    var closeDraft by mutableStateOf(CloseDraft(TripCloseRules.newCloseId()))
+        private set
     private var scope: CoroutineScope? = null
 
     suspend fun run(restore: Boolean = true): Unit = coroutineScope {
@@ -113,6 +122,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         launch { repository.syncStatus.collect { sync = it } }
         launch { repository.cashCounted.collect { cashCounted = it } }
         launch { repository.stockCounted.collect { stockCounted = it } }
+        launch { repository.tripClosed.collect { tripClosed = it } }
         launch { fingerprint = try { fingerprintLoader() } catch (_: Exception) { "Unavailable. Check again." } }
         if (restore) {
             busy = true
@@ -143,6 +153,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         if (next == Page.RECEIPTS) { printMessage = null; refreshReceipts() }
         if (next == Page.CASH) refreshCash()
         if (next == Page.STOCK_COUNT) refreshStock()
+        if (next == Page.CLOSE_TRIP) refreshClose()
     }
     fun back() {
         val target = when (page) {
@@ -162,7 +173,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         repository.signIn(email.trim(),password)
         if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow()
     }
-    fun signOut() = command { repository.signOut(); page = Page.HOME; sale = null; pickingForSale = false; lastReceipt = null; savedSales = emptyList(); printMessage = null; returnDraft = null; lastReturn = null; cashSummary = null; cashDraft = CashDraft(CashReconciliationRules.newReconciliationId()); stockSummary = null; stockDraft = StockDraft(StockReconciliationRules.newCountId()) }
+    fun signOut() = command { repository.signOut(); page = Page.HOME; sale = null; pickingForSale = false; lastReceipt = null; savedSales = emptyList(); printMessage = null; returnDraft = null; lastReturn = null; cashSummary = null; cashDraft = CashDraft(CashReconciliationRules.newReconciliationId()); stockSummary = null; stockDraft = StockDraft(StockReconciliationRules.newCountId()); closeSummary = null; closeDraft = CloseDraft(TripCloseRules.newCloseId()) }
     fun checkAgain() = command(failure = { AuthMessages.forFailure(it,AuthMessages.CHECK_FALLBACK) }) { repository.refreshEnrollment(); if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow() }
     fun syncNow() = command("Sync finished. Check the waiting and review counts.") { repository.syncNow() }
     // Pending state is read from the store (VanRules.status), never from a stale one-off message.
@@ -175,7 +186,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     fun damage(product: Product, qty: Long, reason: String, note: String, photoSha256: String? = null, onSaved: () -> Unit) = command {
         try {
             if (!repository.canRemove(product.productId,qty)) {
-                message = if (stockCounted) VanRules.stockMessage(StockProblem.STOCK_COUNTED) else "Not enough stock on the truck"
+                message = if (tripClosed) VanRules.stockMessage(StockProblem.TRIP_CLOSED) else if (stockCounted) VanRules.stockMessage(StockProblem.STOCK_COUNTED) else "Not enough stock on the truck"
             } else {
                 repository.recordDamage(product.productId,qty,reason,note.takeIf { it.isNotBlank() },photoSha256)
                 message = "Damage saved — waiting for sync"; onSaved()
@@ -184,6 +195,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     }
     fun discardDamagePhoto(sha: String) { scope?.launch { runCatching { repository.discardDamagePhoto(sha) } } }
     fun startSale(customer: Customer) {
+        if (tripClosed) { message = TRIP_CLOSED_MESSAGE; return }
         if (!VanRules.canSell(trip)) { message = VanRules.checkoutMessage(CheckoutProblem.TRIP_NOT_SELLING,null); return }
         if (cashCounted) { message = VanRules.checkoutMessage(CheckoutProblem.CASH_COUNTED,null); return }
         if (stockCounted) { message = VanRules.checkoutMessage(CheckoutProblem.STOCK_COUNTED,null); return }
@@ -251,6 +263,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     var returnFacts by mutableStateOf<ReturnContext?>(null)
         private set
     fun startReturn(customer: Customer) {
+        if (tripClosed) { message = TRIP_CLOSED_MESSAGE; return }
         if (!VanRules.canSell(trip)) { message = VanRules.returnMessage(ReturnProblem.TRIP_NOT_OPEN,null); return }
         if (stockCounted) { message = VanRules.returnMessage(ReturnProblem.STOCK_COUNTED,null); return }
         if (returnDraft?.customer?.outletId != customer.outletId) returnDraft = ReturnDraft(ReturnRules.newReturnId(),customer,null,emptyList())
@@ -344,6 +357,32 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
             if (e.problem == StockProblem.EXPECTED_CHANGED || e.problem == StockProblem.ALREADY_COUNTED) stockSummary = repository.stockSummary()
         }
     }
+    fun refreshClose() {
+        scope?.launch {
+            closeSummary = try { repository.closeSummary() } catch (e: CancellationException) { throw e }
+                catch (e: TripCloseRefused) { message = VanRules.closeMessage(e.problem); null } catch (_: Exception) { null }
+        }
+    }
+    fun editClose(draft: CloseDraft) { closeDraft = draft }
+    /** Sync from Close trip, then read the checklist again (waiting work may have gone out). */
+    fun syncForClose() = command("Sync finished. Check the list again.") {
+        try { repository.syncNow() } finally { closeSummary = runCatching { repository.closeSummary() }.getOrDefault(closeSummary) }
+    }
+    /** The store repeats the whole checklist and compares the confirmed exceptions in its transaction; a refusal keeps the form. */
+    fun closeTrip() = command {
+        val summary = checkNotNull(closeSummary)
+        val draft = closeDraft
+        val km = draft.odometer.takeIf { it.isNotBlank() }?.let { it.trim().toDoubleOrNull() ?: Double.NaN }
+        try {
+            repository.closeTrip(TripCloseRequest(draft.closeId,summary.checklist.reviewCode.takeIf { draft.reviewed },km,draft.note.takeIf { it.isNotBlank() }))
+            closeSummary = repository.closeSummary()
+            message = "Trip closed on this phone. Hand the cash and truck to the office."
+        } catch (e: TripCloseRefused) {
+            message = VanRules.closeMessage(e.problem)
+            if (e.problem == CloseProblem.EXCEPTIONS_CHANGED) closeDraft = draft.copy(reviewed = false)
+            closeSummary = runCatching { repository.closeSummary() }.getOrDefault(summary)
+        }
+    }
     fun walkIn(name: String, reason: String) = command {
         repository.addWalkInCustomer(name.trim(),reason.trim()); page = Page.CUSTOMERS
     }
@@ -358,5 +397,8 @@ data class CashDraft(val reconciliationId: String, val pieces: Map<Long,String> 
 /** VAN-023 Count stock form: decimal quantities are kept as text until parsed against each product scale. */
 data class StockDraft(val reconciliationId: String, val counts: Map<Pair<String,String>,String> = emptyMap(),
     val reasons: Map<Pair<String,String>,String?> = emptyMap(), val note: String = "", val code: String = "")
+/** VAN-024 Close trip form: the seller ticked "I have checked these", end odometer text and note. */
+data class CloseDraft(val closeId: String, val reviewed: Boolean = false, val odometer: String = "", val note: String = "")
+const val TRIP_CLOSED_MESSAGE = "This trip is closed on this phone. Nothing more can be recorded on it."
 /** A sale being built for one customer (VAN-011). */
 data class SaleDraft(val saleId: String, val customer: Customer, val lines: List<CartLine>)

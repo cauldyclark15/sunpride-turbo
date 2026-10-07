@@ -152,6 +152,18 @@ class VanBootstrapCodecTest {
         mutations.forEach { mutate -> val bad = JSONObject(fixture()); mutate(bad.getJSONObject("policy").getJSONObject("stockReconciliation"))
             assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(bad.toString()) } }
     }
+    @Test fun tripClosePolicyDecodesAndAnOldCachedPolicyFallsBackToStrict() {
+        val b = VanBootstrapCodec.decode(fixture())
+        assertEquals(TripClosePolicy(true,true,true,true),b.policy.tripClose)
+        val o = JSONObject(fixture()); o.getJSONObject("policy").getJSONObject("tripClose").put("requireUploadsSent",false)
+        assertEquals(TripClosePolicy(true,true,false,true),VanBootstrapCodec.decode(o.toString()).policy.tripClose)
+        val legacy = JSONObject(fixture()); legacy.getJSONObject("policy").remove("tripClose")
+        val decoded = VanBootstrapCodec.decode(legacy.toString()).policy
+        assertNull(decoded.tripClose); assertEquals(TripClosePolicy.STRICT,com.sunpride.van.pos.TripCloseRules.policy(decoded))
+        val mutations: List<(JSONObject) -> Unit> = listOf({ it.put("requireCashCount","yes") },{ it.remove("exceptionsNeedReview") },{ it.put("extra",true) })
+        mutations.forEach { mutate -> val bad = JSONObject(fixture()); mutate(bad.getJSONObject("policy").getJSONObject("tripClose"))
+            assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(bad.toString()) } }
+    }
     @Test fun sameProductOnDifferentPriceListsIsValid() {
         val o = JSONObject(fixture()); val prices = o.getJSONArray("priceLines")
         prices.put(JSONObject(prices.getJSONObject(0).toString()).put("priceListId","another-list"))

@@ -100,6 +100,12 @@
         "other"
       ],
       "key": "ftgd8nUKPhvNhRTGW3T2lRGvsHPZ_3xpnUU3FN3kvLA"
+    },
+    "tripClose": {
+      "requireCashCount": true,
+      "requireStockCount": true,
+      "requireUploadsSent": true,
+      "exceptionsNeedReview": true
     }
   },
   "trip": {

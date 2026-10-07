@@ -20,7 +20,7 @@ class StockReconciliationStore(private val store: RoomVanStore) {
 
     private suspend fun policy(): VanPolicy? = dao.meta(s, d)?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)) }
 
-    private suspend fun countable(t: TripRow): Boolean = t.status in setOf("active", "closing", "reconciling", "review_required") ||
+    private suspend fun countable(t: TripRow): Boolean = dao.tripClose(s, d, t.tripId) == null && t.status in setOf("active", "closing", "reconciling", "review_required") ||
         dao.outboxRows(s, d).any { it.tripId == t.tripId && it.kind == "trip.start" && it.status in setOf("pending", "sending", "done") }
 
     /** The expected stock is the current local projection: authoritative baseline plus unsettled local movements. */

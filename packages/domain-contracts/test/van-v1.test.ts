@@ -263,6 +263,28 @@ describe("van v1 contract fixtures", () => {
       expect(String(binary % 100_000_000).padStart(8, "0")).toBe(vector.code);
     }
   });
+  test("the trip close checks are optional and strict booleans (VAN-024)", async () => {
+    const boot = await read("bootstrap-response.json");
+    const policy = boot.policy as Record<string, unknown>;
+    const close = policy.tripClose as Record<string, unknown>;
+    expect(close).toEqual({
+      requireCashCount: true,
+      requireStockCount: true,
+      requireUploadsSent: true,
+      exceptionsNeedReview: true,
+    });
+    const withClose = (extra: Record<string, unknown>) =>
+      validate({ ...boot, policy: { ...policy, tripClose: extra } });
+    const legacy = { ...policy };
+    delete legacy.tripClose;
+    expect(validate({ ...boot, policy: legacy })).toBe(true);
+    expect(withClose({ ...close, requireUploadsSent: false })).toBe(true);
+    expect(withClose({ ...close, requireCashCount: "yes" })).toBe(false);
+    expect(withClose({ ...close, extra: true })).toBe(false);
+    const { exceptionsNeedReview: _review, ...partial } = close;
+    void _review;
+    expect(withClose(partial)).toBe(false);
+  });
   test("the cash reconciliation rule is optional and bounded (VAN-022)", async () => {
     const boot = await read("bootstrap-response.json");
     const policy = boot.policy as Record<string, unknown>;

@@ -103,4 +103,25 @@ class VanMigrationTest {
             }
         }
     }
+    @Test fun exportedV7MigratesToTheAppendOnlyTripCloseTable() {
+        val name = "van-migration-close-v7.db"
+        helper.createDatabase(name,7).apply {
+            execSQL("INSERT INTO stock_reconciliation (fullAuthSubject,deviceId,reconciliationId,tripId,idempotencyKey,linesJson,countCode,varianceLines,shortBase,overBase,approvalMethod,createdAt) VALUES ('issuer|subject','d','stock-id','trip','stock-key','[]','ABCDEF123456',0,0,0,'none',1)")
+            execSQL("INSERT INTO outbox (fullAuthSubject,deviceId,clientRequestId,tripId,kind,operationJson,createdAt,status) VALUES ('issuer|subject','d','stock-key','trip','stock.reconcile','immutable bytes',1,'parked')")
+            close()
+        }
+        helper.runMigrationsAndValidate(name,8,true,VanDatabase.MIGRATION_7_8).use { database ->
+            database.query("SELECT COUNT(*) FROM trip_close").use { assertTrue(it.moveToFirst()); assertEquals(0,it.getInt(0)) }
+            database.query("PRAGMA table_info(`trip_close`)").use { cursor ->
+                val columns = mutableListOf<String>(); while (cursor.moveToNext()) columns += cursor.getString(1)
+                assertEquals(listOf("fullAuthSubject","deviceId","closeId","tripId","idempotencyKey","exceptionsJson","reviewed","endOdometerKm","note","operationCount","createdAt"),columns)
+            }
+            database.query("SELECT countCode FROM stock_reconciliation").use { assertTrue(it.moveToFirst()); assertEquals("ABCDEF123456",it.getString(0)) }
+            database.query("SELECT operationJson,status FROM outbox").use { assertTrue(it.moveToFirst()); assertEquals("immutable bytes",it.getString(0)); assertEquals("parked",it.getString(1)) }
+            database.query("PRAGMA index_list(`trip_close`)").use { cursor -> var unique = false
+                while (cursor.moveToNext()) if (cursor.getString(1) == "index_trip_close_fullAuthSubject_deviceId_tripId") unique = cursor.getInt(2) == 1
+                assertTrue(unique)
+            }
+        }
+    }
 }

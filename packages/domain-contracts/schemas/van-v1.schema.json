@@ -165,6 +165,23 @@
         }
       }
     },
+    "tripClose": {
+      "description": "VAN-024 what the handheld checks before the seller closes the trip on the phone. requireCashCount / requireStockCount: the end-of-trip cash (VAN-022) and stock (VAN-023) counts must be saved. requireUploadsSent: no operation the gateway accepts may still be waiting or sending (work without a van upload yet stays parked and is listed in the close record). exceptionsNeedReview: the seller must confirm the open exceptions (receipts not printed, operations the office refused, cash or stock differences) shown at close.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requireCashCount",
+        "requireStockCount",
+        "requireUploadsSent",
+        "exceptionsNeedReview"
+      ],
+      "properties": {
+        "requireCashCount": { "type": "boolean" },
+        "requireStockCount": { "type": "boolean" },
+        "requireUploadsSent": { "type": "boolean" },
+        "exceptionsNeedReview": { "type": "boolean" }
+      }
+    },
     "paymentMethod": {
       "description": "VAN-012 payment method the office allows. cash gives change; other equals the total and carries a reference when referenceRequired; credit charges the customer's account and needs customer credit terms.",
       "type": "object",
@@ -324,7 +341,8 @@
             },
             "voidApproval": { "$ref": "#/$defs/voidApproval" },
             "cashReconciliation": { "$ref": "#/$defs/cashReconciliation" },
-            "stockReconciliation": { "$ref": "#/$defs/stockReconciliation" }
+            "stockReconciliation": { "$ref": "#/$defs/stockReconciliation" },
+            "tripClose": { "$ref": "#/$defs/tripClose" }
           }
         },
         "trip": {
