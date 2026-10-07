@@ -43,14 +43,17 @@ import java.time.format.DateTimeFormatter
             ListRow("Receipts","Print or reprint a receipt from this trip","open-receipts",onClick = { c.open(Page.RECEIPTS) })
             ListRow("Printer & scanner","Check the printer and paper","open-printer",onClick = { c.open(Page.PRINTER) })
             ListRow("Sync now","Send saved work and check for changes","sync-now",onClick = c::syncNow,enabled = !c.busy)
-            val selling = VanRules.canSell(trip) && !c.cashCounted
+            val selling = VanRules.canSell(trip) && !c.cashCounted && !c.stockCounted
             if (c.sale != null && selling) ListRow("Continue sale",c.sale!!.customer.name,"new-sale",enabled = !c.busy,onClick = c::continueSale)
-            else ListRow("New sale",when { c.cashCounted -> "Cash counted — no more sales on this trip"; selling -> "Choose the customer, then add products"; else -> "Start the trip to sell" },
+            else ListRow("New sale",when { c.cashCounted -> "Cash counted — no more sales on this trip"; c.stockCounted -> "Stock counted — no more sales on this trip"; selling -> "Choose the customer, then add products"; else -> "Start the trip to sell" },
                 "new-sale",enabled = selling && !c.busy,onClick = { c.open(Page.CUSTOMERS) })
             // VAN-022: end of trip. Open once the trip is on the road; after saving it shows the count.
             val countable = c.cashCounted || VanRules.canCountCash(trip)
             ListRow("Count cash",if (c.cashCounted) "Counted — see the result" else if (countable) "End of trip: count the cash you collected" else "Start the trip first",
                 "open-cash",enabled = countable && !c.busy,onClick = { c.open(Page.CASH) })
+            val stockCountable = c.stockCounted || VanRules.canCountStock(trip)
+            ListRow("Count stock",if (c.stockCounted) "Stock counted — see the result" else if (stockCountable) "End of trip: compare truck stock with the physical count" else "Start the trip first",
+                "open-stock-count",enabled = stockCountable && !c.busy,onClick = { c.open(Page.STOCK_COUNT) })
         }
         val context = LocalContext.current
         c.features.reportIssueUrl?.let { url -> ListRow("Report an issue","Tell the Sunpride team what went wrong","report-issue",onClick = { openLink(context,url) }) }

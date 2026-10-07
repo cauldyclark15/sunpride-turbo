@@ -41,7 +41,9 @@ object VoidApprovalCodes {
 enum class VoidProblem { VOID_UNAVAILABLE, SALE_NOT_FOUND, NOT_THIS_TRIP, HELD, ALREADY_VOIDED, SALE_HAS_RETURNS, REASON_REQUIRED,
     NOTE_REQUIRED, NOTE_INVALID, APPROVAL_UNAVAILABLE, CODE_REQUIRED, CODE_WRONG,
     /** VAN-022: the trip's cash is counted; a void now would change the cash the count was approved against. */
-    CASH_COUNTED }
+    CASH_COUNTED,
+    /** VAN-023: the approved physical count freezes every stock-changing action. */
+    STOCK_COUNTED }
 class VoidRefused(val problem: VoidProblem) : IllegalStateException(problem.name)
 data class VoidAuthorization(val method: String, val code: String?, val note: String?)
 data class SaleVoidResult(val saleId: String, val voidId: String, val receiptNumber: String, val reasonCode: String,

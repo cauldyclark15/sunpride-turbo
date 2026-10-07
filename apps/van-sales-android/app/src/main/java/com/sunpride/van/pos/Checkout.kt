@@ -46,7 +46,9 @@ enum class CheckoutProblem {
     UNKNOWN_PAYMENT_METHOD, REFERENCE_MISSING, REFERENCE_INVALID, REFERENCE_ALREADY_USED, CREDIT_LIMIT_EXCEEDED,
     PROMOTION_CONFLICT, PROMOTION_NEEDS_OFFICE,
     /** VAN-022: the trip's cash is already counted, so it sells nothing more. */
-    CASH_COUNTED
+    CASH_COUNTED,
+    /** VAN-023: the approved physical stock count freezes every stock-changing action. */
+    STOCK_COUNTED
 }
 
 /** A problem, optionally tied to a product line. */
@@ -79,7 +81,8 @@ data class CheckoutResult(val quote: CheckoutQuote?, val issues: List<CheckoutIs
 data class CheckoutContext(val tripSelling: Boolean, val customers: List<Customer>, val products: List<Product>,
     val stock: List<TruckStock>, val prices: List<PriceLine>, val policy: VanPolicy?, val now: Long,
     val serviceDate: String? = null, val creditUsedMinor: Map<String,Long> = emptyMap(), val usedReferences: Set<String> = emptySet(),
-    val cashCounted: Boolean = false, val promotions: List<com.sunpride.van.data.Promotion> = emptyList())
+    val cashCounted: Boolean = false, val stockCounted: Boolean = false,
+    val promotions: List<com.sunpride.van.data.Promotion> = emptyList())
 
 class CheckoutRefused(val issues: List<CheckoutIssue>) : IllegalStateException("Checkout refused")
 
@@ -97,6 +100,7 @@ object CheckoutRules {
         val issues = mutableListOf<CheckoutIssue>()
         if (!context.tripSelling || context.policy == null) issues += CheckoutIssue(CheckoutProblem.TRIP_NOT_SELLING)
         if (context.cashCounted) issues += CheckoutIssue(CheckoutProblem.CASH_COUNTED)
+        if (context.stockCounted) issues += CheckoutIssue(CheckoutProblem.STOCK_COUNTED)
         when {
             request.customerId.isNullOrBlank() -> issues += CheckoutIssue(CheckoutProblem.NO_CUSTOMER)
             context.customers.none { it.outletId == request.customerId } -> issues += CheckoutIssue(CheckoutProblem.UNKNOWN_CUSTOMER)

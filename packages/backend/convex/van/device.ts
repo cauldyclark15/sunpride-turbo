@@ -35,6 +35,7 @@ import {
   VOID_REASONS,
 } from "./model";
 import { cashReconciliationPolicy } from "./cash";
+import { stockReconciliationPolicy } from "./stock_count";
 import { voidApprovalPolicy } from "./voids";
 
 /**
@@ -409,6 +410,8 @@ async function policyView(
     voidApproval: await voidApprovalPolicy(tripId),
     // VAN-022: end-of-trip cash count — variance reasons, approval tolerance and trip key.
     cashReconciliation: await cashReconciliationPolicy(tripId),
+    // VAN-023: end-of-trip stock count — variance reasons, approval rule and trip key.
+    stockReconciliation: await stockReconciliationPolicy(tripId),
   };
 }
 

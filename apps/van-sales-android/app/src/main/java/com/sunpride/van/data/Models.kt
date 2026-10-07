@@ -8,7 +8,8 @@ data class VanPolicy(val allowNegativeStock: Boolean = false,
     val loadDiscrepancyReasons: List<String> = emptyList(), val damageReasons: List<String> = emptyList(),
     val paymentMethods: List<PaymentMethod> = PaymentMethod.CASH_ONLY, val damagePolicy: DamagePolicy? = null,
     val voidReasons: List<String> = emptyList(), val voidApproval: VoidApproval? = null,
-    val cashReconciliation: CashReconciliationPolicy? = null)
+    val cashReconciliation: CashReconciliationPolicy? = null,
+    val stockReconciliation: StockReconciliationPolicy? = null)
 data class VoidApproval(val required: Boolean, val thresholdMinor: Long, val key: String?)
 /**
  * VAN-022 end-of-trip cash count: any difference needs one of [reasons]; when [approvalRequired] a difference of more
@@ -16,6 +17,8 @@ data class VoidApproval(val required: Boolean, val thresholdMinor: Long, val key
  * A policy cached before VAN-022 has none, and then every difference needs a code that cannot be checked.
  */
 data class CashReconciliationPolicy(val approvalRequired: Boolean, val toleranceMinor: Long, val reasons: List<String>, val key: String?)
+/** VAN-023 end-of-trip stock count policy. A missing policy is treated as approval-required fail closed. */
+data class StockReconciliationPolicy(val approvalRequired: Boolean, val reasons: List<String>, val key: String?)
 /** How a payment settles: [CASH] gives change, [OTHER] (check, e-wallet, bank) equals the total, [CREDIT] charges the account. */
 enum class PaymentKind(val wire: String) { CASH("cash"), CREDIT("credit"), OTHER("other");
     companion object { fun of(wire: String) = entries.single { it.wire == wire } } }

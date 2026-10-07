@@ -136,6 +136,22 @@ class VanBootstrapCodecTest {
             assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(o.toString()) }
         }
     }
+    @Test fun stockReconciliationPolicyDecodesAndOldCachedPolicyStillHasNoRule() {
+        val b = VanBootstrapCodec.decode(fixture())
+        assertEquals(StockReconciliationPolicy(true,com.sunpride.van.pos.StockVarianceReasons.ALL.map { it.code },
+            "ftgd8nUKPhvNhRTGW3T2lRGvsHPZ_3xpnUU3FN3kvLA"),b.policy.stockReconciliation)
+        val o = JSONObject(fixture()); o.getJSONObject("policy").remove("stockReconciliation")
+        assertNull(VanBootstrapCodec.decode(o.toString()).policy.stockReconciliation)
+        assertNull(VanBootstrapCodec.decode(fixture("bootstrap-no-trip-response.json")).policy.stockReconciliation)
+        val mutations: List<(JSONObject) -> Unit> = listOf(
+            { it.put("reasons",JSONArray()) },
+            { it.put("reasons",JSONArray().put("unknown")) },
+            { it.put("key","not-a-key") },
+            { it.remove("approvalRequired") },
+            { it.put("extra",1) })
+        mutations.forEach { mutate -> val bad = JSONObject(fixture()); mutate(bad.getJSONObject("policy").getJSONObject("stockReconciliation"))
+            assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(bad.toString()) } }
+    }
     @Test fun sameProductOnDifferentPriceListsIsValid() {
         val o = JSONObject(fixture()); val prices = o.getJSONArray("priceLines")
         prices.put(JSONObject(prices.getJSONObject(0).toString()).put("priceListId","another-list"))

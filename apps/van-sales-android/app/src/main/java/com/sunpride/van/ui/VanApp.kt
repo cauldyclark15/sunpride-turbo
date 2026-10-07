@@ -50,6 +50,7 @@ import kotlinx.coroutines.delay
                 Page.LOAD -> CheckLoadScreen(controller)
                 Page.START -> StartTripScreen(controller)
                 Page.STOCK -> TruckStockScreen(controller)
+                Page.STOCK_COUNT -> StockCountScreen(controller)
                 Page.CUSTOMERS -> CustomersScreen(controller)
                 Page.WALK_IN -> WalkInScreen(controller)
                 Page.CUSTOMER -> CustomerDetailScreen(controller)

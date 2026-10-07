@@ -87,6 +87,19 @@
         "other"
       ],
       "key": "PnoIS45xGmCnubWwLVAmPBjjgF-prN3ykOOEvfv5zsY"
+    },
+    "stockReconciliation": {
+      "approvalRequired": true,
+      "reasons": [
+        "missing",
+        "extra_found",
+        "damaged_not_recorded",
+        "sale_or_return_not_recorded",
+        "free_goods_or_sample",
+        "loading_error",
+        "other"
+      ],
+      "key": "ftgd8nUKPhvNhRTGW3T2lRGvsHPZ_3xpnUU3FN3kvLA"
     }
   },
   "trip": {
