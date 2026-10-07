@@ -35,6 +35,7 @@ final class AppModel {
     /// Day-level tasks from the same saved snapshot.
     private(set) var dayTasks: [StoreSnapshot.Task] = []
     private(set) var callSheets: [CallSheet] = []
+    private(set) var orderTerms: [OrderTerms] = []
     /// IOS-013 activity-form rules per visit intent from the active snapshot.
     private(set) var activityRules: [ActivityRule] = []
     /// IOS-016 photo types from the active snapshot (empty = provisional defaults are offered).
@@ -271,7 +272,7 @@ final class AppModel {
 
     /// `newSession` starts the in-session Team refusal over; a phone removal keeps it in force.
     private func clearToday(newSession: Bool = true) {
-        visits = []; callSheets = []; activityRules = []; photoTypes = []; visitPhotos = [:]; orderDrafts = []
+        visits = []; callSheets = []; orderTerms = []; activityRules = []; photoTypes = []; visitPhotos = [:]; orderDrafts = []
         outletDetails = [:]; customerDetails = [:]; routeCode = nil
         customers = []; dayTasks = []; dayTarget = nil; daySales = nil
         supervisor = false; team = TeamView(); teamDirectOnly = true
@@ -331,6 +332,7 @@ final class AppModel {
         guard let partition = activeStoragePartition, let store = try? storage(for: partition) else { return }
         do {
             callSheets = try store.snapshot(for: partition)?.callSheets ?? []
+            orderTerms = try store.snapshot(for: partition)?.orderTerms ?? []
             activityRules = try store.snapshot(for: partition)?.activityRules ?? []
             photoTypes = try store.snapshot(for: partition)?.photoTypes ?? []
             orderDrafts = try store.orderDrafts(for: partition)
@@ -598,7 +600,10 @@ final class AppModel {
         didQueueWork()
     }
     /// SP-0044: the account's authorized products for this visit (Annex C setup), in setup order.
-    func orderCatalog(for visit: TodayVisit) -> [OrderCatalog.Item] { OrderCatalog.items(callSheet(for: visit)) }
+    func orderTerms(for visit: TodayVisit) -> OrderTerms? { orderTerms.first { $0.outletId == visit.outletId } }
+    func orderCatalog(for visit: TodayVisit) -> [OrderCatalog.Item] {
+        OrderCatalog.items(callSheet(for: visit), terms: orderTerms(for: visit))
+    }
     /// Drafts taken during this visit's call on this phone.
     func orderDrafts(for visit: TodayVisit) -> [OrderDraft] {
         _ = visits // Observe durable refreshes.
@@ -609,7 +614,7 @@ final class AppModel {
     /// Save a new draft (`draftId` nil) or the next version of one for the open call. The association
     /// is built from the stored check-in and cached snapshot; the store re-validates in its transaction.
     @discardableResult
-    func saveOrderDraft(draftId: String?, quantities: [(productId: String, quantity: Int)], for visit: TodayVisit) throws -> OrderDraft {
+    func saveOrderDraft(draftId: String?, quantities: [(productId: String, quantity: Int)], units: [String: String] = [:], for visit: TodayVisit) throws -> OrderDraft {
         guard let partition = activeStoragePartition else { throw StoreError.invalidInput }
         let store = try storage(for: partition)
         guard let initial = try store.intents(for: partition).first(where: { $0.matches(visit) }) else { throw OrderDraftFailure.callNotOpen }
@@ -619,7 +624,7 @@ final class AppModel {
         }
         let timestamp = now()
         let draft = try OrderDraftRules.build(OrderCallContext.read(store: store, partition: partition), existing: existing,
-                                              checkIn: initial, quantities: quantities, now: timestamp)
+                                              checkIn: initial, quantities: quantities, units: units, now: timestamp)
         try store.saveOrderDraft(draft, for: partition, now: timestamp)
         refreshToday()
         return draft
@@ -639,7 +644,8 @@ final class AppModel {
         let summary = (try? store.snapshot(for: partition))?.accountSummaries.first { $0.outletId == draft.outletId }
         return OrderSubmission.checks(context, draft: draft,
                                       phoneCanRecord: (try? store.isLeaseValid(now: now(), for: partition)) == true,
-                                      held: (try? store.isHeld(partition)) ?? true, summary: summary)
+                                      held: (try? store.isHeld(partition)) ?? true, summary: summary,
+                                      otherOrders: (try? store.orderDrafts(for: partition)) ?? [])
     }
     /// IOS-015: where this order is on its way to the office, from the durable outbox.
     func orderStatus(_ draft: OrderDraft) -> OrderSubmission.Status {

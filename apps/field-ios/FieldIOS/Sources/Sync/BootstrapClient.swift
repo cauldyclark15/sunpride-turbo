@@ -44,6 +44,7 @@ final class BootstrapClient {
         var visits: [StoreSnapshot.Visit] = []
         var outlets: [StoreSnapshot.Outlet] = []
         var callSheets: [CallSheet] = []
+        var orderTerms: [OrderTerms] = []
         var products: [BootstrapV1.Product] = []
         var inventory: [BootstrapV1.InventoryAvailability] = []
         var summaries: [AccountSummary] = []
@@ -74,6 +75,7 @@ final class BootstrapClient {
             visits += page.plannedVisits
             outlets += page.outlets
             callSheets += page.callSheets
+            orderTerms += page.orderTerms
             products += page.productCatalog
             inventory += page.inventoryAvailability
             summaries += page.accountSummaries
@@ -118,6 +120,7 @@ final class BootstrapClient {
             let uniqueOutlets = try Self.unique(outlets, id: { $0.id }, equivalent: { $0.name == $1.name && $0.routeId == $1.routeId })
             let uniqueCustomers = try Self.unique(customers, id: { $0.id }, equivalent: { $0.code == $1.code })
             let uniqueCallSheets = try Self.unique(callSheets, id: { $0.outletId }, equivalent: { $0 == $1 })
+            let uniqueTerms = try Self.unique(orderTerms, id: { $0.outletId }, equivalent: { $0 == $1 })
             let uniqueProducts = try Self.unique(products, id: { $0.id }, equivalent: { $0 == $1 })
             let uniqueInventory = try Self.unique(inventory, id: { $0.id }, equivalent: { $0 == $1 })
             // The server ships each outlet's figures once per snapshot; a repeat must be identical.
@@ -126,7 +129,7 @@ final class BootstrapClient {
                   Set(tasks.map(\.id)).count == tasks.count,
                   visits.allSatisfy({ visit in uniqueOutlets.contains(where: { $0.id == visit.outletId }) }) else { throw Failure.invalidResponse }
             let snapshot = StoreSnapshot(employee: initial.employee, visits: visits, outlets: uniqueOutlets,
-                                         customers: uniqueCustomers, route: route, tasks: tasks, callSheets: uniqueCallSheets,
+                                         customers: uniqueCustomers, route: route, tasks: tasks, callSheets: uniqueCallSheets, orderTerms: uniqueTerms,
                                          productCatalog: uniqueProducts, inventoryAvailability: uniqueInventory,
                                          accountSummaries: uniqueSummaries, dayTarget: dayTarget, daySales: daySales,
                                          activityRules: activityRules ?? [], photoTypes: photoTypes ?? [])

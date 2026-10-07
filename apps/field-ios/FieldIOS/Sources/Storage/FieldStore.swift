@@ -97,6 +97,7 @@ struct StoreSnapshot: Sendable {
     let route: Route?
     let tasks: [Task]
     let callSheets: [CallSheet]
+    let orderTerms: [OrderTerms]
     let productCatalog: [BootstrapV1.Product]
     let inventoryAvailability: [BootstrapV1.InventoryAvailability]
     /// IOS-011 cached account figures, one per outlet; stored with the snapshot generation.
@@ -109,13 +110,14 @@ struct StoreSnapshot: Sendable {
     var photoTypes: [PhotoType] = []
 
     init(employee: Employee, visits: [Visit], outlets: [Outlet], customers: [Customer],
-         route: Route?, tasks: [Task], callSheets: [CallSheet] = [],
+         route: Route?, tasks: [Task], callSheets: [CallSheet] = [], orderTerms: [OrderTerms] = [],
          productCatalog: [BootstrapV1.Product] = [], inventoryAvailability: [BootstrapV1.InventoryAvailability] = [],
          accountSummaries: [AccountSummary] = [],
          dayTarget: DayTarget? = nil, daySales: DaySales? = nil, activityRules: [ActivityRule] = [],
          photoTypes: [PhotoType] = []) {
         self.employee = employee; self.visits = visits; self.outlets = outlets
         self.customers = customers; self.route = route; self.tasks = tasks; self.callSheets = callSheets
+        self.orderTerms = orderTerms
         self.productCatalog = productCatalog; self.inventoryAvailability = inventoryAvailability
         self.accountSummaries = accountSummaries
         self.dayTarget = dayTarget; self.daySales = daySales; self.activityRules = activityRules
@@ -454,8 +456,8 @@ final class EncryptedFieldStore: FieldLocalStore {
           PRIMARY KEY(subject,device,scope,entity,id));
         """
     private func migrate() throws {
-        guard let raw = try scalar("PRAGMA user_version"), let version = Int(raw), version <= 6 else { throw StoreError.unsupportedVersion }
-        if version == 6 { return }
+        guard let raw = try scalar("PRAGMA user_version"), let version = Int(raw), version <= 7 else { throw StoreError.unsupportedVersion }
+        if version == 7 { return }
         try transaction {
             if version < 3 { try migrateToV3(from: version) }
             if version < 4 {
@@ -481,7 +483,15 @@ final class EncryptedFieldStore: FieldLocalStore {
             }
             // v6 (IOS-016): photo metadata. Bytes are sealed files; rows are evidence and are never
             // purged with the server cache (sign-out keeps them held for supervised review).
-            try exec(Self.createPhotos + "PRAGMA user_version=6;")
+            try exec(Self.createPhotos)
+            // v7 (SP-0088): account order terms promote with the snapshot; existing drafts remain intact.
+            try exec("""
+                CREATE TABLE IF NOT EXISTS order_terms (
+                  subject TEXT NOT NULL, device TEXT NOT NULL, scope TEXT NOT NULL,
+                  generation INTEGER NOT NULL, outlet_id TEXT NOT NULL, body BLOB NOT NULL,
+                  PRIMARY KEY(subject,device,scope,generation,outlet_id));
+                PRAGMA user_version=7;
+                """)
         }
     }
     private static let createPhotos = """
@@ -544,7 +554,9 @@ final class EncryptedFieldStore: FieldLocalStore {
         // One row keeps the server's rule order; it rides the generic snapshot table (no migration).
         if !snapshot.activityRules.isEmpty { rows.append(("activityRules", "all", nil, try encode(snapshot.activityRules))) }
         if !snapshot.photoTypes.isEmpty { rows.append(("photoTypes", "all", nil, try encode(snapshot.photoTypes))) }
-        guard rows.allSatisfy({ !$0.1.isEmpty }), snapshot.callSheets.allSatisfy(\.isValid),
+        guard Set(snapshot.orderTerms.map(\.outletId)).count == snapshot.orderTerms.count,
+              snapshot.orderTerms.allSatisfy({ terms in terms.isValid && snapshot.visits.contains { $0.outletId == terms.outletId } }),
+              rows.allSatisfy({ !$0.1.isEmpty }), snapshot.callSheets.allSatisfy(\.isValid),
               snapshot.callSheets.allSatisfy({ sheet in snapshot.outlets.contains { $0.id == sheet.outletId } }),
               Set(snapshot.accountSummaries.map(\.outletId)).count == snapshot.accountSummaries.count,
               snapshot.accountSummaries.allSatisfy({ $0.isValid && snapshot.outlets.map(\.id).contains($0.outletId) }) else { throw StoreError.invalidInput }
@@ -552,6 +564,7 @@ final class EncryptedFieldStore: FieldLocalStore {
             throw StoreError.invalidInput
         }
         let sheets = try snapshot.callSheets.map { ($0.outletId, try encode($0)) }
+        let terms = try snapshot.orderTerms.map { ($0.outletId, try encode($0)) }
         var references: [(String, String, String, Int64, Value)] = []
         for product in snapshot.productCatalog {
             references.append(("product", product.id, product.id, product.revision ?? 0, try encode(product)))
@@ -570,6 +583,11 @@ final class EncryptedFieldStore: FieldLocalStore {
                 try run("INSERT INTO call_sheets(subject,device,scope,generation,outlet_id,body) VALUES (?,?,?,?,?,?)",
                         p(partition) + [.integer(generation), .text(outletId), body])
             }
+            for (outletId, body) in terms {
+                try run("INSERT INTO order_terms(subject,device,scope,generation,outlet_id,body) VALUES (?,?,?,?,?,?)",
+                        p(partition) + [.integer(generation), .text(outletId), body])
+            }
+            try run("DELETE FROM order_terms WHERE \(Self.predicate) AND generation<>?", p(partition) + [.integer(generation)])
             for (entity, id, productId, revision, body) in references {
                 try writeReference(entity: entity, id: id, productId: productId, revision: revision,
                                    body: body, generation: generation, partition: partition, replacing: false)
@@ -601,6 +619,11 @@ final class EncryptedFieldStore: FieldLocalStore {
         guard let (generation, _) = try state(partition), generation > 0 else { return [] }
         return try query("SELECT body FROM call_sheets WHERE \(Self.predicate) AND generation=? ORDER BY outlet_id",
                          p(partition) + [.integer(generation)]) { try decode(CallSheet.self, Self.data($0, 0)) }
+    }
+    private func orderTerms(for partition: StorePartition) throws -> [OrderTerms] {
+        guard let (generation, _) = try state(partition), generation > 0 else { return [] }
+        return try query("SELECT body FROM order_terms WHERE \(Self.predicate) AND generation=? ORDER BY outlet_id",
+                         p(partition) + [.integer(generation)]) { try decode(OrderTerms.self, Self.data($0, 0)) }
     }
     private func referenceRows<T: Decodable>(_ type: T.Type, entity: String, partition: StorePartition,
                                              productId: String? = nil) throws -> [T] {
@@ -635,7 +658,7 @@ final class EncryptedFieldStore: FieldLocalStore {
             customers: entities(StoreSnapshot.Customer.self, kind: "customer", partition: partition),
             route: entities(StoreSnapshot.Route.self, kind: "route", partition: partition).first,
             tasks: entities(StoreSnapshot.Task.self, kind: "task", partition: partition),
-            callSheets: callSheets(for: partition), productCatalog: catalog(for: partition),
+            callSheets: callSheets(for: partition), orderTerms: orderTerms(for: partition), productCatalog: catalog(for: partition),
             inventoryAvailability: referenceRows(BootstrapV1.InventoryAvailability.self, entity: "inventory", partition: partition),
             accountSummaries: entities(AccountSummary.self, kind: "account_summary", partition: partition),
             dayTarget: entities(StoreSnapshot.DayTarget.self, kind: "dayTarget", partition: partition).first,
@@ -958,7 +981,7 @@ final class EncryptedFieldStore: FieldLocalStore {
         // Tests only: the cache DELETE fails (rolled back) while reads and a separate hold still work.
         if purgeFailsForTests { throw StoreError.invalidInput }
         #endif
-        for table in ["snapshot", "call_sheets", "reference_data", "delta"] {
+        for table in ["snapshot", "call_sheets", "order_terms", "reference_data", "delta"] {
             try run("DELETE FROM \(table) WHERE \(clause)", values)
         }
         try run("UPDATE partitions SET held=1,cursor=NULL,lease_expiry=NULL,cache_expiry=NULL WHERE \(clause)", values)
@@ -1148,19 +1171,22 @@ final class EncryptedFieldStore: FieldLocalStore {
     #if DEBUG
     /// Downgrade harness: preserve actual v2 snapshot/outbox/acks while removing the v3, v4 and v5 additions.
     func prepareLegacyV2() throws {
-        try transaction { try exec("DROP TABLE evidence_photos; DROP TABLE reference_data; DROP TABLE call_sheets; DROP TABLE order_drafts; PRAGMA user_version=2") }
+        try transaction { try exec("DROP TABLE IF EXISTS order_terms; DROP TABLE evidence_photos; DROP TABLE reference_data; DROP TABLE call_sheets; DROP TABLE order_drafts; PRAGMA user_version=2") }
     }
     /// Preserve real v3 call sheets and durable evidence while removing the v4, v5 and v6 additions.
     func prepareLegacyV3() throws {
-        try transaction { try exec("DROP TABLE evidence_photos; DROP TABLE reference_data; DROP TABLE order_drafts; PRAGMA user_version=3") }
+        try transaction { try exec("DROP TABLE IF EXISTS order_terms; DROP TABLE evidence_photos; DROP TABLE reference_data; DROP TABLE order_drafts; PRAGMA user_version=3") }
     }
     /// Preserve real v4 order drafts while removing the v5 reference data and v6 photo tables.
     func prepareLegacyV4() throws {
-        try transaction { try exec("DROP TABLE evidence_photos; DROP TABLE reference_data; PRAGMA user_version=4") }
+        try transaction { try exec("DROP TABLE IF EXISTS order_terms; DROP TABLE evidence_photos; DROP TABLE reference_data; PRAGMA user_version=4") }
     }
     /// The v5 schema with its data, only the v6 photo table removed.
     func prepareLegacyV5() throws {
-        try transaction { try exec("DROP TABLE evidence_photos; PRAGMA user_version=5") }
+        try transaction { try exec("DROP TABLE IF EXISTS order_terms; DROP TABLE evidence_photos; PRAGMA user_version=5") }
+    }
+    func prepareLegacyV6() throws {
+        try transaction { try exec("DROP TABLE order_terms; PRAGMA user_version=6") }
     }
     var schemaVersion: Int { (try? scalar("PRAGMA user_version")).flatMap(Int.init) ?? -1 }
 
@@ -1170,7 +1196,7 @@ final class EncryptedFieldStore: FieldLocalStore {
         // Initialize an encrypted file, then recreate the v0 schema under its existing key.
         let store = try EncryptedFieldStore(url: url, secrets: secrets, keyAccount: keyAccount)
         try store.transaction {
-            try store.exec("DROP TABLE evidence_photos; DROP TABLE reference_data; DROP TABLE order_drafts; DROP TABLE call_sheets; DROP TABLE acks; DROP TABLE outbox; DROP TABLE intents; DROP TABLE snapshot; DROP TABLE partitions")
+            try store.exec("DROP TABLE IF EXISTS order_terms; DROP TABLE evidence_photos; DROP TABLE reference_data; DROP TABLE order_drafts; DROP TABLE call_sheets; DROP TABLE acks; DROP TABLE outbox; DROP TABLE intents; DROP TABLE snapshot; DROP TABLE partitions")
             try store.exec("CREATE TABLE legacy_intents(subject TEXT,device TEXT,scope TEXT,request_id TEXT,kind TEXT,body BLOB)")
             try store.run("INSERT INTO legacy_intents VALUES(?,?,?,?,?,?)", store.p(partition) + [.text(intent.requestId.uuidString.lowercased()), .text(intent.kind), .blob(intent.operationJSON)])
             try store.exec("PRAGMA user_version=0")

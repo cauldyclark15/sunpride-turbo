@@ -23,6 +23,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -109,7 +112,7 @@ fun FieldApp(
     val status = controller.today.syncStatus.copy(offline = offline)
     MaterialTheme(colorScheme = if (dark) SunprideTokens.darkColors else SunprideTokens.lightColors,
         shapes = SunprideTokens.shapes, typography = SunprideTokens.typography) {
-        Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
+        Scaffold(contentWindowInsets = WindowInsets.safeDrawing, containerColor = MaterialTheme.colorScheme.background, topBar = {
             Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp, modifier = Modifier.statusBarsPadding()) {
                 Column {
                 Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 20.dp),
@@ -164,7 +167,7 @@ fun FieldApp(
                 }
             }
         }) { padding ->
-            val modifier = Modifier.padding(padding)
+            val modifier = Modifier.padding(padding).consumeWindowInsets(padding)
             when {
                 controller.state == EnrollmentState.SignedOut -> SignInScreen(environment, controller.busy, controller.error,
                     controller::signIn, modifier)
