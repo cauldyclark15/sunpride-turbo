@@ -449,6 +449,10 @@
                     "$ref": "#/$defs/customerCredit"
                   }
                 ]
+              },
+              "priceListId": {
+                "description": "SP-0105 / ADR-008: the price list that prices this customer (its outlet channel's list, else the van Route Sales list); its lines are in priceLines. Null: no single governed list (ambiguous or none), so nothing sells at a price for this customer. Absent (older servers): every shipped line applies.",
+                "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }]
               }
             }
           }
@@ -509,13 +513,13 @@
           }
         },
         "priceLines": {
-          "description": "SP-0129 / ADR-008: the governed price-list lines for the trip's van selling list (Route Sales / PMOT), one line per product in the product's van unit. Server-resolved; the handheld never defines a price. Absent or empty means 'Priced by the office'.",
+          "description": "SP-0129 / ADR-008: the governed price-list lines for the trip's van selling list (Route Sales / PMOT) and, SP-0105, for each customer's own list (customers[].priceListId), one line per list and product in the product's van unit. Server-resolved; the handheld never defines a price. Absent or empty means 'Priced by the office'.",
           "type": "array",
           "maxItems": 600,
           "items": { "$ref": "#/$defs/priceLine" }
         },
         "promotions": {
-          "description": "SP-0129 / ADR-008: governed promotions in force for the van selling list. A rule the handheld cannot evaluate must fail closed (not applied, never approximated).",
+          "description": "SP-0129 / ADR-008: governed promotions in force for the van selling list and the customers' own lists (SP-0105). A rule the handheld cannot evaluate must fail closed (not applied, never approximated).",
           "type": "array",
           "maxItems": 50,
           "items": { "$ref": "#/$defs/promotion" }

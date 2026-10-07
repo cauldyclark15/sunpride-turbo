@@ -43,6 +43,7 @@ class VanRepository private constructor(private val context: Context, private va
     val products: Flow<List<Product>> = current.flatMapLatest { it?.products ?: flowOf(emptyList()) }
     val customers: Flow<List<Customer>> = current.flatMapLatest { it?.customers ?: flowOf(emptyList()) }
     val priceLines: Flow<List<PriceLine>> = current.flatMapLatest { it?.priceLines ?: flowOf(emptyList()) }
+    val promotions: Flow<List<Promotion>> = current.flatMapLatest { it?.promotions ?: flowOf(emptyList()) }
     val syncStatus: Flow<SyncStatus> = current.flatMapLatest { it?.syncStatus ?: flowOf(SyncStatus()) }
     /** VAN-022: the current trip's cash is counted on this phone. */
     val cashCounted: Flow<Boolean> = current.flatMapLatest { it?.cashCounted ?: flowOf(false) }

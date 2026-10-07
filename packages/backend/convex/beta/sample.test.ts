@@ -831,8 +831,9 @@ describe("beta sample seed (SP-0129)", { timeout: 30_000 }, () => {
       now: LATER,
     })) as unknown as {
       trip: { tripId: string } | null;
-      customers: { code: string }[];
+      customers: { code: string; priceListId?: string | null }[];
       priceLines: {
+        priceListId: string;
         productId: string;
         unitPriceMinor: string;
         uomCode: string;
@@ -846,8 +847,11 @@ describe("beta sample seed (SP-0129)", { timeout: 30_000 }, () => {
     };
     expect(boot.trip?.tripId).toBe(tripId);
     expect(boot.customers.length).toBeGreaterThan(0);
+    const routeLines = boot.priceLines.filter(
+      (line) => line.priceListCode === "SAMPLE-RS",
+    );
     expect(
-      boot.priceLines
+      routeLines
         .map((line) => [line.productId, line.uomCode, line.unitPriceMinor])
         .sort(),
     ).toEqual(
@@ -864,9 +868,17 @@ describe("beta sample seed (SP-0129)", { timeout: 30_000 }, () => {
         ],
       ].sort(),
     );
-    expect(boot.priceLines.every((l) => l.priceListCode === "SAMPLE-RS")).toBe(
-      true,
-    );
+    // SP-0105: the Public Market sample outlets on this route are priced by their own list, shipped beside the
+    // Route Sales list; every customer names a shipped list.
+    const shipped = new Set(boot.priceLines.map((l) => l.priceListId));
+    expect(
+      [...new Set(boot.priceLines.map((l) => l.priceListCode))].sort(),
+    ).toEqual(["SAMPLE-PM", "SAMPLE-RS"]);
+    expect(
+      boot.customers.every(
+        (c) => typeof c.priceListId === "string" && shipped.has(c.priceListId),
+      ),
+    ).toBe(true);
     expect(boot.priceLines.every((l) => l.currency === "PHP")).toBe(true);
     // The Merienda bundle needs Pancake Mix and 1L juice, which this truck does not carry.
     expect(boot.promotions.map((p) => p.code).sort()).toEqual([
@@ -927,7 +939,7 @@ describe("beta sample seed (SP-0129)", { timeout: 30_000 }, () => {
     })) as unknown as {
       trip: { tripId: string; status: string } | null;
       load: { lines: { productCode: string; expectedBase: string }[] } | null;
-      priceLines: unknown[];
+      priceLines: { priceListCode: string }[];
       promotions: {
         code: string;
         rule: { kind: string; bundlePriceMinor?: string };
@@ -942,7 +954,9 @@ describe("beta sample seed (SP-0129)", { timeout: 30_000 }, () => {
       boot.load?.lines.find((line) => line.productCode === "SMP-PJ-240")
         ?.expectedBase,
     ).toBe(String(24 * 5));
-    expect(boot.priceLines).toHaveLength(10);
+    expect(
+      boot.priceLines.filter((l) => l.priceListCode === "SAMPLE-RS"),
+    ).toHaveLength(10);
     // The sample day's load carries every product of all three promotions.
     expect(boot.promotions.map((p) => p.code).sort()).toEqual([
       "SMP-PROMO-CB150-CASE5",

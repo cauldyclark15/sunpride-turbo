@@ -4,6 +4,7 @@ import com.sunpride.van.data.PaymentKind
 import com.sunpride.van.data.SaleReceipt
 import com.sunpride.van.data.SaleReceiptLine
 import com.sunpride.van.printing.ReceiptHeader
+import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -29,5 +30,15 @@ class FrozenReceiptsTest {
         val json = FrozenReceipts.encode(SaleReceipt("s", "R", "C", lines, "PHP", 1, 1, 0, 1L), ReceiptHeader(null, null, null))
             .replace("\"version\":1", "\"version\":2")
         assertThrows(IllegalStateException::class.java) { FrozenReceipts.decode(json) }
+    }
+    @Test fun oldFrozenReceiptWithoutPromotionFieldsStillDecodes() {
+        val receipt = SaleReceipt("sale-old", "R-OLD", "Store", lines.take(1), "PHP", 25_500, 25_500, 0, 1L)
+        val old = JSONObject(FrozenReceipts.encode(receipt,ReceiptHeader(null,null,null)))
+        old.getJSONArray("lines").getJSONObject(0).apply {
+            remove("freeBase"); remove("discountMinor"); remove("promotionCode"); remove("priceListCode"); remove("freeQuantityLabel")
+        }
+        val decoded = FrozenReceipts.decode(old.toString()).first
+        assertEquals(0L,decoded.lines.single().freeBase); assertEquals(0L,decoded.lines.single().discountMinor)
+        assertNull(decoded.lines.single().promotionCode); assertNull(decoded.lines.single().priceListCode)
     }
 }

@@ -1,5 +1,8 @@
 package com.sunpride.van.printing
 
+import com.sunpride.van.data.PaymentKind
+import com.sunpride.van.data.SaleReceipt
+import com.sunpride.van.data.SaleReceiptLine
 import java.time.ZonedDateTime
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
@@ -52,5 +55,16 @@ class ReceiptPrintingTest {
         val outcome = ReceiptPrinting(NoPrinter()).saveThenPrint(save = { 42 }, build = { TestReceipts.build("test", "none") })
         assertEquals(42, outcome.saved)
         assertEquals(PrintResult.Error(PrinterStatus.Unavailable), outcome.printing)
+    }
+    @Test fun saleReceiptPrintsPromotionFreeGoodsAndPriceSource() {
+        val receipt = SaleReceipt("sale","R-1","Store",listOf(
+            SaleReceiptLine(1,"p1","Pineapple Juice","PC","21",8_500,178_500,2,0,"PROMO-B10G1","PL-ROUTE-SALES","2")
+        ),"PHP",178_500,178_500,0,1L,false,"cash","Cash",PaymentKind.CASH,"paid")
+        val document = SaleReceiptDocuments.build(receipt,ReceiptHeader(null,null,null),
+            PrintAttempt("print","sale",PrintKind.ORIGINAL,0,null,PrintOutcome.PRINTED,1),1L)
+        val text = document.elements.filterIsInstance<ReceiptElement.Text>().joinToString("\n") { it.text }
+        assertTrue(text.contains("Promo PROMO-B10G1  -P0.00"))
+        assertTrue(text.contains("Free 2 PC (PROMO-B10G1)"))
+        assertTrue(text.contains("Prices: PL-ROUTE-SALES"))
     }
 }

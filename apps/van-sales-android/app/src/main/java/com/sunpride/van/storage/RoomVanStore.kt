@@ -24,7 +24,12 @@ data class SaleStockIssue(val saleId: String?, val movementId: String?, val code
 /** VAN-012 credit sold here per customer (not yet acknowledged by the office) and `method|REFERENCE` keys already used. */
 data class PaymentFacts(val creditUsedMinor: Map<String,Long> = emptyMap(), val usedReferences: Set<String> = emptySet())
 private fun CustomerRow.toCustomer() = Customer(outletId,code,name,address,sequence,source,reason,localOnly,
-    if (creditTermsDays != null && creditAvailableMinor != null) CustomerCredit(creditTermsDays,creditAvailableMinor) else null)
+    if (creditTermsDays != null && creditAvailableMinor != null) CustomerCredit(creditTermsDays,creditAvailableMinor) else null,
+    priceListId,when (priceListMode) {
+        "none" -> CustomerPriceListMode.NONE
+        "governed" -> CustomerPriceListMode.GOVERNED
+        else -> CustomerPriceListMode.LEGACY
+    })
 
 /** Immutable operation bytes, acknowledgements and movement facts; only acked JPEG files are removed. */
 class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private val clock: () -> Long = System::currentTimeMillis,
@@ -53,7 +58,8 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
     val policy: Flow<VanPolicy?> = dao.observeSyncMeta(s,d).let { flow -> flow.map { it.singleOrNull()?.policyJson?.let { json -> VanBootstrapCodec.policy(JSONObject(json)) } } }
     val seller: Flow<Seller?> = dao.observeSyncMeta(s,d).map { it.singleOrNull()?.sellerJson?.let { json -> JSONObject(json).let { o -> Seller(o.getString("profileId"),o.getString("name")) } } }
     val products: Flow<List<Product>> = dao.observeProduct(s,d).let { flow -> flow.map { rows -> rows.map { VanBootstrapCodec.product(JSONObject(it.json)) } } }
-    val priceLines: Flow<List<PriceLine>> = dao.observePriceListLine(s,d).map { rows -> rows.map { PriceLine(it.priceListId,it.productId,it.uomCode,it.unitPriceMinor,it.currency,it.effectiveFrom,it.effectiveTo) } }
+    val priceLines: Flow<List<PriceLine>> = dao.observePriceListLine(s,d).map { rows -> rows.map { PriceLine(it.priceListId,it.productId,it.uomCode,it.unitPriceMinor,it.currency,it.effectiveFrom,it.effectiveTo,it.priceListCode) } }
+    val promotions: Flow<List<Promotion>> = dao.observePromotion(s,d).map { rows -> rows.map { VanBootstrapCodec.promotion(JSONObject(it.json)) } }
     val customers: Flow<List<Customer>> = dao.observeCustomer(s,d).let { flow -> flow.map { rows -> rows.sortedWith(compareBy<CustomerRow> { it.sequence ?: Int.MAX_VALUE }.thenBy { it.name }).map { it.toCustomer() } } }
     val syncStatus: Flow<SyncStatus> = combine(dao.observeOutbox(s,d),dao.observeSyncMeta(s,d)) { ops, metas ->
         val m = metas.singleOrNull(); val held = m?.held == true
@@ -176,9 +182,9 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         return CheckoutContext(t != null && meta?.held == false && selling(t),
             dao.customerRows(s,d).map { it.toCustomer() },
             dao.productRows(s,d).map { VanBootstrapCodec.product(JSONObject(it.json)) }, stock(),
-            dao.pricelistlineRows(s,d).map { PriceLine(it.priceListId,it.productId,it.uomCode,it.unitPriceMinor,it.currency,it.effectiveFrom,it.effectiveTo) },
+            dao.pricelistlineRows(s,d).map { PriceLine(it.priceListId,it.productId,it.uomCode,it.unitPriceMinor,it.currency,it.effectiveFrom,it.effectiveTo,it.priceListCode) },
             meta?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)) }, clock(), t?.serviceDate,
-            facts.creditUsedMinor, facts.usedReferences, counted)
+            facts.creditUsedMinor, facts.usedReferences, counted, dao.promotionRows(s,d).map { VanBootstrapCodec.promotion(JSONObject(it.json)) })
     }
 
     /**
@@ -224,7 +230,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         val pay = quote.payment
         // Posting state ("saved" on this phone) and payment state are separate columns (VAN-012).
         dao.insertSale(SaleRow(s,d,request.saleId,t.tripId,id.receiptNumber,id.idempotencyKey,customer.outletId,"saved",quote.totalMinor,at,pay.state.wire))
-        quote.lines.forEach { dao.insertSaleLine(SaleLineRow(s,d,request.saleId,it.lineNumber,it.product.productId,it.quantityBase,it.unitPriceMinor,it.totalMinor)) }
+        quote.lines.forEach { dao.insertSaleLine(SaleLineRow(s,d,request.saleId,it.lineNumber,it.product.productId,it.quantityBase,it.unitPriceMinor,it.totalMinor,it.freeBase,it.discountMinor)) }
         dao.insertPayment(PaymentRow(s,d,UUID.randomUUID().toString(),request.saleId,pay.method.code,pay.amountMinor,at,
             pay.reference,pay.state.wire,pay.tenderedMinor,pay.dueDate))
         // VAN-018: deduct every line from available truck stock in this same transaction, then prove the sale and
@@ -237,8 +243,10 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         val payload = JSONObject().put("tripId",t.tripId).put("saleId",request.saleId).put("receiptNumber",id.receiptNumber)
             .put("customer",customerJson).put("currency",quote.currency).put("totalMinor",quote.totalMinor.toString())
             .put("lines",JSONArray(quote.lines.map { JSONObject().put("lineNumber",it.lineNumber).put("productId",it.product.productId)
-                .put("quantityBase",it.quantityBase.toString()).put("unitPriceMinor",it.unitPriceMinor.toString()).put("totalMinor",it.totalMinor.toString())
-                .put("priceListIds",JSONArray(it.priceListIds)) }))
+                .put("quantityBase",it.quantityBase.toString()).put("paidBase",it.paidBase.toString()).put("freeBase",it.freeBase.toString())
+                .put("unitPriceMinor",it.unitPriceMinor.toString()).put("grossMinor",it.grossMinor.toString()).put("discountMinor",it.discountMinor.toString()).put("totalMinor",it.totalMinor.toString())
+                .put("priceListIds",JSONArray(it.priceListIds)).put("priceSource",it.priceListId?.let { id -> JSONObject().put("priceListId",id).put("priceListCode",it.priceListCode ?: JSONObject.NULL) } ?: JSONObject.NULL)
+                .put("promotion",it.promotion?.let { p -> JSONObject().put("promotionId",p.promotionId).put("code",p.code).put("kind",p.kind) } ?: JSONObject.NULL) }))
             .put("payment",JSONObject().put("method",pay.method.code).put("kind",pay.method.kind.wire).put("status",pay.state.wire)
                 .put("amountMinor",pay.amountMinor.toString())
                 .apply { pay.tenderedMinor?.let { put("tenderedMinor",it.toString()).put("changeMinor",pay.changeMinor.toString()) } }
@@ -247,7 +255,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
             .put("deviceTime",context.now)
         val op = JSONObject().put("kind",SALE_KIND).put("clientRequestId",id.idempotencyKey).put("payload",payload).toString()
         dao.insertOutbox(OutboxRow(s,d,id.idempotencyKey,t.tripId,SALE_KIND,op,at,null,SALE_PARKED))
-        val receipt = SaleReceipt(request.saleId,id.receiptNumber,customer.name,quote.lines.map { receiptLine(it.lineNumber,it.product,it.quantityBase,it.unitPriceMinor,it.totalMinor) },
+        val receipt = SaleReceipt(request.saleId,id.receiptNumber,customer.name,quote.lines.map { receiptLine(it) },
             quote.currency,quote.totalMinor,quote.tenderedMinor,quote.changeMinor,at,false,pay.method.code,pay.method.label,pay.method.kind,
             pay.state.wire,pay.reference,pay.dueDate)
         // VAN-017: freeze what this receipt says (and seller/trip/truck) in the same transaction as the sale.
@@ -366,7 +374,10 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
 
     private suspend fun savedReceipt(sale: SaleRow, request: CheckoutRequest): SaleReceipt {
         val lines = dao.salelineRows(s,d).filter { it.saleId == sale.saleId }.sortedBy { it.lineNumber }
-        check(sale.customerId == request.customerId && lines.map { it.productId to it.quantityBase } == request.lines.map { it.productId to it.quantityBase }) { "Sale replay conflict" }
+        val savedPaid = lines.filter { (it.quantityBase - (it.freeBase ?: 0L)) > 0L }
+            .associate { it.productId to (it.quantityBase - (it.freeBase ?: 0L)) }
+        val requestedPaid = request.lines.associate { it.productId to it.quantityBase }
+        check(sale.customerId == request.customerId && request.lines.size == requestedPaid.size && savedPaid == requestedPaid) { "Sale replay conflict" }
         db.receiptPrints().saleReceipt(s,d,sale.saleId)?.let { return FrozenReceipts.decode(it.documentJson).first }
         val op = JSONObject(checkNotNull(dao.outbox(s,d,sale.idempotencyKey)).operationJson).getJSONObject("payload")
         val payment = op.getJSONObject("payment")
@@ -379,12 +390,16 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         val change = if (payment.has("changeMinor")) payment.getString("changeMinor").toLong() else 0L
         val products = dao.productRows(s,d).associate { it.productId to VanBootstrapCodec.product(JSONObject(it.json)) }
         val customer = dao.customerRows(s,d).singleOrNull { it.outletId == sale.customerId }?.name ?: ""
-        return SaleReceipt(sale.saleId,sale.receiptNumber,customer,lines.map { receiptLine(it.lineNumber,checkNotNull(products[it.productId]),it.quantityBase,it.unitPriceMinor!!,it.totalMinor!!) },
+        return SaleReceipt(sale.saleId,sale.receiptNumber,customer,lines.map { receiptLine(it.lineNumber,checkNotNull(products[it.productId]),it.quantityBase,it.unitPriceMinor!!,it.totalMinor!!,it.freeBase ?: 0L,it.discountMinor ?: 0L) },
             op.getString("currency"),total,tendered,change,sale.createdAt,true,code,method.label,method.kind,
             sale.paymentStatus ?: payment.optString("status",PaymentState.PAID.wire),payment.optString("reference").ifEmpty { null },payment.optString("dueDate").ifEmpty { null })
     }
-    private fun receiptLine(n: Int, p: Product, quantityBase: Long, unit: Long, total: Long) =
-        SaleReceiptLine(n,p.productId,p.name,p.uomCode,p.displayQuantity(quantityBase),unit,total)
+    private fun receiptLine(line: QuotedLine) = SaleReceiptLine(line.lineNumber,line.product.productId,line.product.name,line.product.uomCode,
+        line.product.displayQuantity(line.quantityBase),line.unitPriceMinor,line.totalMinor,line.freeBase,line.discountMinor,
+        line.promotion?.code,line.priceListCode,line.freeBase.takeIf { it > 0L }?.let(line.product::displayQuantity))
+    private fun receiptLine(n: Int, p: Product, quantityBase: Long, unit: Long, total: Long, freeBase: Long = 0L,
+        discountMinor: Long = 0L, promotionCode: String? = null, priceListCode: String? = null) =
+        SaleReceiptLine(n,p.productId,p.name,p.uomCode,p.displayQuantity(quantityBase),unit,total,freeBase,discountMinor,promotionCode,priceListCode)
 
     override suspend fun pending(excluding: Set<String>): List<OutboxRow> = if (!canSync()) emptyList() else
         dao.outboxRows(s,d).filter { it.status == "pending" && it.clientRequestId !in excluding }.sortedWith(compareBy<OutboxRow> { it.createdAt }.thenBy { it.clientRequestId }).take(20)
@@ -456,6 +471,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         dao.clearTrip(s,d); dao.clearLoadLine(s,d); dao.clearProduct(s,d); dao.clearServerCustomers(s,d); dao.clearBaseline(s,d)
         // Prices are part of this authoritative snapshot, including when the feed is omitted.
         dao.clearPriceListLine(s,d)
+        dao.clearPromotion(s,d)
         b.trip?.let { t -> dao.insertTrip(TripRow(s,d,t.tripId,t.tripNumber,t.status,t.serviceDate,o.getJSONObject("trip").put("_damageRecords",o.optJSONArray("damageRecords") ?: JSONArray()).toString(),b.load?.loadId,b.load?.status)) }
         b.load?.let { l -> VanBootstrapCodec.objects(o.getJSONObject("load").getJSONArray("lines")).forEach { line ->
             val parsed = VanBootstrapCodec.line(line)
@@ -464,8 +480,14 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         VanBootstrapCodec.objects(o.getJSONArray("products")).forEach { product -> val p = VanBootstrapCodec.product(product)
             dao.insertProduct(ProductRow(s,d,p.productId,p.code,p.name,p.uomCode,p.quantityScale,product.getJSONArray("barcodes").toString(),product.toString())) }
         b.customers.forEach { dao.insertCustomer(CustomerRow(s,d,it.outletId,it.code,it.name,it.address,it.sequence,it.source,
-            creditTermsDays = it.credit?.termsDays,creditAvailableMinor = it.credit?.availableMinor)) }
-        b.priceLines.forEach { dao.insertPriceListLine(PriceListLineRow(s,d,it.priceListId,it.productId,it.uomCode,it.unitPriceMinor,it.currency,it.effectiveFrom,it.effectiveTo)) }
+            creditTermsDays = it.credit?.termsDays,creditAvailableMinor = it.credit?.availableMinor,
+            priceListId = it.priceListId,priceListMode = when (it.priceListMode) {
+                CustomerPriceListMode.NONE -> "none"
+                CustomerPriceListMode.GOVERNED -> "governed"
+                CustomerPriceListMode.LEGACY -> "legacy"
+            })) }
+        b.priceLines.forEach { dao.insertPriceListLine(PriceListLineRow(s,d,it.priceListId,it.productId,it.uomCode,it.unitPriceMinor,it.currency,it.effectiveFrom,it.effectiveTo,it.priceListCode)) }
+        b.promotions.forEach { dao.insertPromotion(PromotionRow(s,d,it.promotionId,VanBootstrapCodec.promotionJson(it).toString())) }
         b.trip?.let { t -> b.truckStock.forEach { stock ->
             dao.insertBaseline(BaselineRow(s,d,t.tripId,stock.productId,"available",stock.availableBase,b.serverTime))
             dao.insertBaseline(BaselineRow(s,d,t.tripId,stock.productId,"damaged",stock.damagedBase,b.serverTime))

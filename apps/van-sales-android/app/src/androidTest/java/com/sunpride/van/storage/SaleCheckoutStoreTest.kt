@@ -37,8 +37,10 @@ class SaleCheckoutStoreTest {
         store = RoomVanStore(db,scope,clock = { at+10 })
     }
     @After fun cleanup() { db.close(); context.deleteDatabase(name) }
-    private fun fixture(active: Boolean = true, available: Long = 10, serverTime: Long = at): String {
+    private fun fixture(active: Boolean = true, available: Long = 10, serverTime: Long = at, withPromotion: Boolean = false): String {
         val o = JSONObject(FakeVanBackend.FIXTURE).put("serverTime",serverTime)
+        o.getJSONArray("customers").getJSONObject(0).put("priceListId","PL-TEST")
+        if (!withPromotion) o.remove("promotions")
         if (active) {
             o.getJSONObject("trip").put("status","active").put("routeSessionId","test-route")
             o.getJSONObject("load").put("status","posted")
@@ -52,6 +54,14 @@ class SaleCheckoutStoreTest {
         val lines = JSONArray().put(priceLine(juice,8_500))
         chunkPriceMinor?.let { lines.put(priceLine(chunks,it)) }
         o.put("priceLines",lines)
+        if (withPromotion) {
+            val promotion = JSONObject().put("promotionId","promo-buy-test").put("code","PROMO-B10G1").put("name","Buy 10, get 1 free")
+                .put("priceListId","PL-TEST").put("effectiveFrom",at-1_000).put("effectiveTo",JSONObject.NULL)
+            val rule = JSONObject().put("kind","buy_x_get_y")
+                .put("buy",JSONObject().put("productId",juice).put("uomCode","PC").put("quantity",10))
+                .put("free",JSONObject().put("productId",juice).put("uomCode","PC").put("quantity",1))
+            o.put("promotions",JSONArray().put(promotion.put("rule",rule)))
+        }
         return o.toString()
     }
     private var chunkPriceMinor: Long? = null
@@ -102,6 +112,15 @@ class SaleCheckoutStoreTest {
         // A newer office snapshot that does not know the sale keeps it deducted.
         store.replaceBootstrap(fixture(serverTime = at+50))
         assertEquals(7L,store.stock().single { it.productId == juice }.availableBase); Unit
+    }
+    @Test fun promotionSaleDeductsPaidAndFreeUnitsInOneSaleLine() = runBlocking {
+        store.replaceBootstrap(fixture(available = 30,withPromotion = true))
+        val receipt = store.commitSale(sale(qty = 21,cash = 200_000),178_500)
+        val line = db.rows().salelineRows(s,d).single()
+        assertEquals(23L,line.quantityBase); assertEquals(2L,line.freeBase); assertEquals(0L,line.discountMinor)
+        assertEquals("PROMO-B10G1",receipt.lines.single().promotionCode)
+        assertEquals(listOf(juice to -23L),db.rows().stockmovementRows(s,d).map { it.productId to it.quantityBase })
+        assertTrue(store.saleStockIssues().isEmpty())
     }
     @Test fun completingTheSameSaleTwiceDoesNotSellTwice() = runBlocking {
         ready()

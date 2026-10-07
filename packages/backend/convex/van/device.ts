@@ -8,7 +8,7 @@ import { hashPayload } from "../inventory/posting";
 import { collectScopeUnitIds } from "../lib/scope";
 import { activeAt } from "../org/validation";
 import { resolveOutletScopeAt } from "../outlets/validation";
-import { vanPricing } from "../pricing/wire";
+import { vanCustomerPricing } from "../pricing/wire";
 import { type Caches, toBase, uom as cachedUom } from "../mobile/reference";
 import type { AuthorizedDevice } from "../mobile/types";
 import {
@@ -303,6 +303,16 @@ export const bootstrap = internalQuery({
       if (view) products.push(view);
     }
     const names = new Map(products.map((p) => [p.productId, p]));
+    const customers = await customersFor(ctx, trip, actor, now);
+    // SP-0129 / ADR-008 + SP-0105: governed prices for the products on this truck, from the
+    // van Route Sales list and each customer's own channel list; omitted when nothing is
+    // priced (the handheld then shows "Priced by the office").
+    const pricing = await vanCustomerPricing(
+      ctx,
+      products,
+      customers.map((customer) => customer.outletId),
+      now,
+    );
     const negative = await ctx.db
       .query("negativeStockAllowances")
       .withIndex("by_organizationId_and_locationId", (q) =>
@@ -366,15 +376,14 @@ export const bootstrap = internalQuery({
         damagedBase: String(balance.damagedBase),
       })),
       products,
-      customers: await customersFor(ctx, trip, actor, now),
+      customers: customers.map((customer) => ({
+        ...customer,
+        priceListId: pricing.customerPriceListIds[customer.outletId] ?? null,
+      })),
       damageRecords: await tripDamageRecords(ctx, trip._id),
-      // SP-0129 / ADR-008: governed Route Sales prices for the products on this truck;
-      // omitted when nothing is priced (the handheld then shows "Priced by the office").
-      ...(await vanPricing(ctx, products, now).then((pricing) =>
-        pricing.priceLines.length > 0 || pricing.promotions.length > 0
-          ? pricing
-          : {},
-      )),
+      ...(pricing.priceLines.length > 0 || pricing.promotions.length > 0
+        ? { priceLines: pricing.priceLines, promotions: pricing.promotions }
+        : {}),
     };
   },
 });

@@ -52,7 +52,7 @@ private val barcodeLike = Regex("^[0-9]{8,14}$")
     // Price effectivity is evaluated when the snapshot changes and at most once a minute while open.
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(60_000); now = System.currentTimeMillis() } }
-    val index = remember(c.products,c.stock,c.prices,now) { ProductSearch(c.products,c.stock,c.prices,now) }
+    val index = remember(c.products,c.stock,c.prices,now,c.sale?.customer) { ProductSearch(c.products,c.stock,c.prices,now,c.sale?.customer) }
     val hits = remember(index,query) { index.search(query) }
     // Re-resolve against fresh stock/products while the result is shown.
     val outcome = remember(index,scan) { scan?.let { it.copy(hits = index.resolveScan(it.code)) } }

@@ -1,21 +1,47 @@
 # VAN-010 (SP-0105): offline price lists and promotions on the van POS — readiness
 
-Status: blocked. This page records what is needed before the work can start, the rules the build will follow, and
-the tests that will prove it. Authority: ADR-008 (pricing before SAP), ADR-004/ADR-010 (separate van-sales Android
-app), ADR-019 (offline business guarantees).
+Status: built on beta sample data (jc, 2026-10-07: do not wait for Sunpride). The sections below the
+"What was built" summary are the original design notes; where they differ, "What was built" wins. Authority:
+ADR-008 (pricing before SAP), ADR-004/ADR-010 (separate van-sales Android app), ADR-019 (offline business
+guarantees).
 
-## Why it cannot be built yet
+## What was built (SP-0105)
 
-| Blocker                                                                                                | Owner                                 | Tracker               |
-| ------------------------------------------------------------------------------------------------------ | ------------------------------------- | --------------------- |
-| Sunpride's real price lists, units/packs and promotion examples (filled intake files below)            | Sunpride sales team                   | SP-0033 (ARCH-006)    |
-| Pricing scope decision: one price per channel, per customer group, or per customer with exceptions     | Sunpride (Sir Francis)                | ADR-008 open decision |
-| Who may change a price on the handheld, by how much, and whether a supervisor must approve             | Sunpride (Sir Francis)                | this issue            |
-| Governed price/promotion master on the server, delivered in the van bootstrap                          | our team, after the two answers above | SFD-006 / CVX-019     |
-| The van-sales app itself on main (currently withheld on `feat/van-pos` for a bootstrap barcode defect) | our team                              | SP-0095, SP-0097      |
+- **Customer price list (server).** The van bootstrap (`van/device.ts` → `pricing/wire.ts` `vanCustomerPricing`)
+  ships the van Route Sales list and, for every trip customer whose outlet channel (else linked accounting
+  customer's channel) has its own list, that list too, plus each shipped list's promotions. Each customer carries
+  `priceListId` (van-v1, additive): the list that prices it, or `null` when its channel is ambiguous or its list
+  does not fit the 600-line bootstrap bound. A customer is never priced from another list. Same list choice as
+  SP-0088 field pricing (`priceListFor`).
+- **Offline price on the handheld.** `PriceResolver` prices a sale line only from the customer's list (older
+  servers without the field keep the old any-line rule). No line, or two different prices → "No price for this
+  customer", the sale cannot complete.
+- **Promotions offline.** `pos/Promotions.kt` applies the three governed rule kinds (buy X get Y, percent off,
+  bundle) from the bootstrap at the sale instant, for the customer's list or all-lists promotions. Promotions never
+  combine: two that would touch the same product block the sale ("ask the office"); a rule the handheld cannot
+  evaluate exactly (unit mismatch, free product not on the truck, unpriced bundle component) blocks it too
+  ("Promotion needs the office"). Free goods are deducted from truck stock on the same product line (one SALE
+  movement per product, VAN-018).
+- **Price source.** Every sale line saves the price list (ID + code), paid/free quantities, gross, discount and
+  promotion (ID, code, kind) in the parked `sale.record` operation, the sale line row (Room v7 `freeBase`,
+  `discountMinor`) and the frozen receipt. The receipt prints the promotion/free-goods lines and a
+  `Prices: <list code>` line.
+- **No manual override.** The cart has no price field; the price is re-resolved inside the Room transaction that
+  saves the sale and a total that differs from what the seller agreed is refused (`PRICES_CHANGED`). There is no
+  override capability; adding one needs Sunpride's rule (who, how much, approval).
 
-The van app branch already reserves an empty `price_list_line` table and shows **Priced by the office**; nothing
-in the app or server defines a price today, and none may be invented (ADR-008: clients read prices, never define them).
+Made-up defaults until Sunpride confirms (sample data: SP-0129 `beta/sample_data.ts`):
+
+| Decision                        | Default used                                                                                    |
+| ------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Pricing scope                   | per outlet channel list, else the Route Sales list                                              |
+| Promotions combining            | never; overlap blocks the sale                                                                  |
+| Percent-off rounding            | discount rounded down to the centavo                                                            |
+| Bundle discount allocation      | in component order, never making a line negative                                                |
+| Manual price change on handheld | not allowed                                                                                     |
+| Too many lists / promotions     | a list that does not fit is not shipped (its customers unpriced); over 50 promotions ships none |
+
+The intake templates below stay for Sunpride's real price lists and promotions.
 
 ## Rules the build will follow
 

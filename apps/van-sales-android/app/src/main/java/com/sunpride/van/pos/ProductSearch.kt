@@ -1,5 +1,7 @@
 package com.sunpride.van.pos
 
+import com.sunpride.van.data.Customer
+import com.sunpride.van.data.CustomerPriceListMode
 import com.sunpride.van.data.PriceLine
 import com.sunpride.van.data.Product
 import com.sunpride.van.data.TruckStock
@@ -15,7 +17,8 @@ data class ScanHit(val hit: PosProductHit, val candidate: ScanCandidate)
 enum class MatchKind { BARCODE, CODE, CODE_PREFIX, BARCODE_PREFIX, NAME_PREFIX, WORD_PREFIX, CONTAINS, ALL }
 
 /** A configured selling price for the product's own UOM, in minor currency units. */
-data class PosPrice(val unitPriceMinor: Long, val currency: String, val uomCode: String) {
+data class PosPrice(val unitPriceMinor: Long, val currency: String, val uomCode: String,
+    val priceListId: String? = null, val priceListCode: String? = null) {
     fun label(): String = PosMoney.format(unitPriceMinor, currency) + " / " + uomCode
 }
 
@@ -42,13 +45,35 @@ object PosMoney {
  */
 object PriceResolver {
     /** The effective lines for the product's own UOM at [now] (VAN-011 records their list IDs as the price source). */
-    fun matching(product: Product, lines: List<PriceLine>, now: Long): List<PriceLine> = lines.filter {
+    fun matching(product: Product, lines: List<PriceLine>, now: Long): List<PriceLine> = matching(product,lines,now,null)
+
+    /**
+     * Resolve against a customer only when one is supplied.  A null customer is the product-search/legacy path;
+     * an explicitly unpriced customer is [CustomerPriceListMode.NONE] and therefore has no matching lines.
+     */
+    fun matching(product: Product, lines: List<PriceLine>, now: Long, customer: Customer?): List<PriceLine> {
+        val selected = when (customer?.priceListMode) {
+            CustomerPriceListMode.NONE -> emptyList()
+            CustomerPriceListMode.GOVERNED -> lines.filter { it.priceListId == customer.priceListId }
+            CustomerPriceListMode.LEGACY, null -> lines
+        }
+        return selected.filter {
         it.productId == product.productId && it.uomCode == product.uomCode && it.unitPriceMinor >= 0 &&
             it.effectiveFrom <= now && (it.effectiveTo == null || now < it.effectiveTo)
+        }
     }
     fun resolve(product: Product, lines: List<PriceLine>, now: Long): PosPrice? {
-        val distinct = matching(product, lines, now).map { it.unitPriceMinor to it.currency }.distinct()
-        return distinct.singleOrNull()?.let { (minor, currency) -> PosPrice(minor, currency, product.uomCode) }
+        return resolve(product,lines,now,null)
+    }
+    fun resolve(product: Product, lines: List<PriceLine>, now: Long, customer: Customer?): PosPrice? {
+        val effective = matching(product,lines,now,customer)
+        val distinct = effective.map { it.unitPriceMinor to it.currency }.distinct()
+        return distinct.singleOrNull()?.let { (minor, currency) ->
+            // A legacy snapshot may have agreeing copies from several lists. Keep the price usable and retain a
+            // deterministic first source for the sale; product search (customer == null) intentionally shows no source.
+            val source = if (customer == null) null else effective.firstOrNull()
+            PosPrice(minor,currency,product.uomCode,source?.priceListId,source?.priceListCode)
+        }
     }
 }
 
@@ -61,7 +86,8 @@ object PriceResolver {
  * word starting a word of the name/code; then every word contained anywhere. Within a rank, products with
  * stock on the truck come first, then by name.
  */
-class ProductSearch(products: List<Product>, stock: List<TruckStock>, prices: List<PriceLine>, now: Long) {
+/** SP-0105: opened from a sale, [customer] prices the hits from that customer's own list. */
+class ProductSearch(products: List<Product>, stock: List<TruckStock>, prices: List<PriceLine>, now: Long, customer: Customer? = null) {
     private class Entry(val hit: PosProductHit, val code: String, val compactCode: String, val name: String,
         val words: List<String>, val barcodes: List<String>, val haystack: String) {
         val gtins: Set<String> = barcodes.mapNotNull(BarcodeKeys::gtin14).toSet()
@@ -70,7 +96,7 @@ class ProductSearch(products: List<Product>, stock: List<TruckStock>, prices: Li
     private val entries: List<Entry> = products.map { product ->
         val available = stock.firstOrNull { it.productId == product.productId }?.availableBase ?: 0L
         val code = normalize(product.code); val name = normalize(product.name)
-        Entry(PosProductHit(product, available, PriceResolver.resolve(product, prices, now), MatchKind.ALL),
+        Entry(PosProductHit(product, available, PriceResolver.resolve(product, prices, now, customer), MatchKind.ALL),
             code, compact(code), name, words(name) + words(code), product.barcodes, "$code $name")
     }
     private val order = compareBy<Pair<Entry, MatchKind>>({ it.second.ordinal }, { !it.first.hit.onTruck }, { it.first.name }, { it.first.code })

@@ -83,5 +83,17 @@ class VanMigrationTest {
                 while(cursor.moveToNext()) if(cursor.getString(1) == "index_cash_reconciliation_fullAuthSubject_deviceId_tripId") unique = cursor.getInt(2) == 1
                 assertTrue(unique) }
         }
+        // SP-0105: v6 → v7 adds customer/list/promotion facts and nullable sale-line facts without changing saved rows.
+        helper.runMigrationsAndValidate(name,7,true,VanDatabase.MIGRATION_6_7).use { database ->
+            database.query("PRAGMA table_info(`customer`)").use { cursor -> val columns=mutableListOf<String>(); while(cursor.moveToNext()) columns+=cursor.getString(1)
+                assertTrue(columns.containsAll(listOf("priceListId","priceListMode"))) }
+            database.query("PRAGMA table_info(`price_list_line`)").use { cursor -> val columns=mutableListOf<String>(); while(cursor.moveToNext()) columns+=cursor.getString(1)
+                assertTrue(columns.contains("priceListCode")) }
+            database.query("PRAGMA table_info(`sale_line`)").use { cursor -> val columns=mutableListOf<String>(); while(cursor.moveToNext()) columns+=cursor.getString(1)
+                assertTrue(columns.containsAll(listOf("freeBase","discountMinor"))) }
+            database.query("SELECT receiptNumber,totalMinor,status FROM sale").use { assertTrue(it.moveToFirst()); assertEquals("R-1",it.getString(0)); assertEquals(8500L,it.getLong(1)); assertEquals("saved",it.getString(2)) }
+            database.query("SELECT operationJson,status FROM outbox").use { assertTrue(it.moveToFirst()); assertEquals("immutable bytes",it.getString(0)); assertEquals("pending",it.getString(1)) }
+            database.query("SELECT COUNT(*) FROM promotion").use { assertTrue(it.moveToFirst()); assertEquals(0,it.getInt(0)) }
+        }
     }
 }

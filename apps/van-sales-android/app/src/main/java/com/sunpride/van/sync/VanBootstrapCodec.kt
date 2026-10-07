@@ -47,9 +47,48 @@ object VanBootstrapCodec {
         return Product(o.getString("productId"), o.getString("code"), o.getString("name"), o.getString("uomCode"),
             base(o,"quantityScale"), barcodes, units)
     }
-    fun customer(o: JSONObject) = Customer(o.getString("outletId"), o.getString("code"), o.getString("name"), nullable(o,"address"),
-        if (o.isNull("sequence")) null else o.getInt("sequence"), o.getString("source"),
-        credit = o.optJSONObject("credit")?.let { CustomerCredit(it.getInt("termsDays").also { d -> require(d in 1..180) }, base(it,"availableMinor")) })
+    fun customer(o: JSONObject): Customer {
+        val mode = when {
+            !o.has("priceListId") -> CustomerPriceListMode.LEGACY
+            o.isNull("priceListId") -> CustomerPriceListMode.NONE
+            else -> CustomerPriceListMode.GOVERNED
+        }
+        return Customer(o.getString("outletId"), o.getString("code"), o.getString("name"), nullable(o,"address"),
+            if (o.isNull("sequence")) null else o.getInt("sequence"), o.getString("source"),
+            credit = o.optJSONObject("credit")?.let { CustomerCredit(it.getInt("termsDays").also { d -> require(d in 1..180) }, base(it,"availableMinor")) },
+            priceListId = if (mode == CustomerPriceListMode.GOVERNED) o.getString("priceListId") else null,
+            priceListMode = mode)
+    }
+    fun promotionUnit(o: JSONObject) = PromotionUnit(o.getString("productId"),o.getString("uomCode"),o.getInt("quantity").also { require(it > 0) })
+    fun promotion(o: JSONObject): Promotion {
+        val from = o.getLong("effectiveFrom")
+        val to = if (o.isNull("effectiveTo")) null else o.getLong("effectiveTo")
+        require(to == null || to > from)
+        val r = o.getJSONObject("rule")
+        val rule = when (r.getString("kind")) {
+            "buy_x_get_y" -> PromotionRule.BuyXGetY(promotionUnit(r.getJSONObject("buy")),promotionUnit(r.getJSONObject("free")))
+            "percent_off" -> PromotionRule.PercentOff(promotionUnit(r.getJSONObject("item")),r.getInt("percentOffBasisPoints").also { require(it in 1..10_000) })
+            "bundle" -> {
+                val components = objects(r.getJSONArray("components")).map(::promotionUnit)
+                require(components.size >= 2 && components.map { it.productId }.distinct().size == components.size)
+                PromotionRule.Bundle(components,r.getString("bundlePriceMinor").toLong().also { require(it >= 0) })
+            }
+            else -> throw IllegalArgumentException("Unknown promotion")
+        }
+        return Promotion(o.getString("promotionId"),o.getString("code"),o.getString("name"),
+            nullable(o,"priceListId"),from,to,rule)
+    }
+    fun promotionJson(p: Promotion): JSONObject {
+        val rule = when (val r = p.rule) {
+            is PromotionRule.BuyXGetY -> JSONObject().put("kind","buy_x_get_y").put("buy",unitJson(r.buy)).put("free",unitJson(r.free))
+            is PromotionRule.PercentOff -> JSONObject().put("kind","percent_off").put("item",unitJson(r.item)).put("percentOffBasisPoints",r.percentOffBasisPoints)
+            is PromotionRule.Bundle -> JSONObject().put("kind","bundle").put("components",JSONArray(r.components.map(::unitJson))).put("bundlePriceMinor",r.bundlePriceMinor.toString())
+        }
+        return JSONObject().put("promotionId",p.promotionId).put("code",p.code).put("name",p.name)
+            .put("priceListId",p.priceListId ?: JSONObject.NULL).put("effectiveFrom",p.effectiveFrom)
+            .put("effectiveTo",p.effectiveTo ?: JSONObject.NULL).put("rule",rule)
+    }
+    private fun unitJson(u: PromotionUnit) = JSONObject().put("productId",u.productId).put("uomCode",u.uomCode).put("quantity",u.quantity)
     fun damageRecords(a: JSONArray): List<DamageRecord> = objects(a).map {
         DamageRecord(it.getString("damageId"),it.getString("clientRequestId"),it.getString("productId"),
             it.getString("uomCode"),base(it,"quantityScale"),base(it,"quantityBase"),
@@ -71,19 +110,28 @@ object VanBootstrapCodec {
             val to = if (it.isNull("effectiveTo")) null else it.getLong("effectiveTo")
             require(minor >= 0 && (to == null || to > from))
             PriceLine(it.getString("priceListId"),it.getString("productId"),it.getString("uomCode"),minor,
-                it.getString("currency"),from,to)
+                it.getString("currency"),from,to,nullable(it,"priceListCode"))
         } ?: emptyList()
         val productIds = ps.map { it.productId }.toSet()
         require(prices.all { it.productId in productIds })
         require(prices.map { it.priceListId to it.productId }.distinct().size == prices.size)
-        // Promotions are validated by VanWireSchema, but storage/evaluation belongs to SP-0105.
+        val promotions = o.optJSONArray("promotions")?.let(::objects)?.map(::promotion) ?: emptyList()
+        require(promotions.map { it.promotionId }.distinct().size == promotions.size)
+        require(promotions.map { it.code }.distinct().size == promotions.size)
+        fun units(p: Promotion): List<PromotionUnit> = when (val r = p.rule) {
+            is PromotionRule.BuyXGetY -> listOf(r.buy,r.free)
+            is PromotionRule.PercentOff -> listOf(r.item)
+            is PromotionRule.Bundle -> r.components
+        }
+        require(promotions.flatMap { units(it) }.all { it.productId in productIds && it.quantity > 0 })
+        // Promotions are validated by the wire schema and by the domain constraints above before storage/evaluation.
         require(t == null && l == null || t != null && t.serviceDate == day)
         require(ps.all { it.quantityScale > 0 } && l?.lines?.all { it.quantityScale > 0 } != false)
         require(ps.map { it.productId }.distinct().size == ps.size && cs.map { it.outletId }.distinct().size == cs.size)
         require(stocks.map { it.productId }.distinct().size == stocks.size)
         require(l == null || l.lines.map { it.lineNumber }.distinct().size == l.lines.size)
         VanBootstrap(o.getLong("serverTime"), day, o.getJSONObject("seller").let { Seller(it.getString("profileId"),it.getString("name")) },
-            policy(o.getJSONObject("policy")),t,l,stocks,ps,cs,prices,o.optJSONArray("damageRecords")?.let(::damageRecords) ?: emptyList())
+            policy(o.getJSONObject("policy")),t,l,stocks,ps,cs,prices,o.optJSONArray("damageRecords")?.let(::damageRecords) ?: emptyList(),promotions)
     } catch (_: Exception) { throw VanWireFailure() }
     fun bootstrapRequest(deviceId: String): ByteArray = JSONObject().put("type","van.bootstrap.request").put("contractVersion",1).put("deviceId",deviceId).toString().toByteArray(Charsets.UTF_8)
     /** Concatenate persisted operation JSON verbatim, never parse/re-serialize queued bytes. */

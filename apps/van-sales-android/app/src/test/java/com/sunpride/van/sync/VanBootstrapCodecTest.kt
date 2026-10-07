@@ -106,8 +106,8 @@ class VanBootstrapCodecTest {
             VanBootstrapCodec.objects(o.getJSONArray("promotions")).map { it.getJSONObject("rule").getString("kind") })
         val b = VanBootstrapCodec.decode(o.toString())
         assertEquals(listOf(
-            PriceLine("k57plst000000000000000000000002","k57prod0000000000000000000000001","PC",6850,"PHP",1790812800000L,null),
-            PriceLine("k57plst000000000000000000000002","k57prod0000000000000000000000002","PC",4275,"PHP",1790812800000L,null)
+            PriceLine("k57plst000000000000000000000002","k57prod0000000000000000000000001","PC",6850,"PHP",1790812800000L,null,"PL-ROUTE-SALES"),
+            PriceLine("k57plst000000000000000000000002","k57prod0000000000000000000000002","PC",4275,"PHP",1790812800000L,null,"PL-ROUTE-SALES")
         ),b.priceLines)
     }
     @Test fun debugFixtureMatchesFrozenFixtureWithAlwaysEffectivePricesAndNoPromotions() {
@@ -177,6 +177,29 @@ class VanBootstrapCodecTest {
             { it.getJSONArray("promotions").getJSONObject(2).getJSONObject("rule").getJSONArray("components").remove(1) }
         )
         mutations.forEach { change -> val o = JSONObject(fixture()); change(o); assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(o.toString()) } }
+    }
+    @Test fun customerPriceListPresenceDistinguishesLegacyNoneAndGoverned() {
+        val absent = JSONObject(fixture()).also { it.getJSONArray("customers").getJSONObject(0).remove("priceListId") }
+        assertEquals(CustomerPriceListMode.LEGACY,VanBootstrapCodec.decode(absent.toString()).customers.first().priceListMode)
+        val none = JSONObject(fixture()).also { it.getJSONArray("customers").getJSONObject(0).put("priceListId",JSONObject.NULL) }
+        assertEquals(CustomerPriceListMode.NONE,VanBootstrapCodec.decode(none.toString()).customers.first().priceListMode)
+        val governed = JSONObject(fixture()).also { it.getJSONArray("customers").getJSONObject(0).put("priceListId","k57plst000000000000000000000002") }
+        val customer = VanBootstrapCodec.decode(governed.toString()).customers.first()
+        assertEquals(CustomerPriceListMode.GOVERNED,customer.priceListMode); assertEquals("k57plst000000000000000000000002",customer.priceListId)
+    }
+    @Test fun promotionCrossReferencesAndIdentifiersAreValidated() {
+        val unknownProduct = JSONObject(fixture()).also {
+            it.getJSONArray("promotions").getJSONObject(0).getJSONObject("rule").getJSONObject("buy").put("productId","unknown")
+        }
+        assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(unknownProduct.toString()) }
+        val duplicateId = JSONObject(fixture()).also {
+            it.getJSONArray("promotions").getJSONObject(1).put("promotionId",it.getJSONArray("promotions").getJSONObject(0).getString("promotionId"))
+        }
+        assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(duplicateId.toString()) }
+        val duplicateCode = JSONObject(fixture()).also {
+            it.getJSONArray("promotions").getJSONObject(1).put("code",it.getJSONArray("promotions").getJSONObject(0).getString("code"))
+        }
+        assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(duplicateCode.toString()) }
     }
     @Test fun frozenNoTripIsValidEmptyState() {
         val b = VanBootstrapCodec.decode(fixture("bootstrap-no-trip-response.json")); assertNull(b.trip); assertNull(b.load); assertTrue(b.truckStock.isEmpty()); assertTrue(b.priceLines.isEmpty())

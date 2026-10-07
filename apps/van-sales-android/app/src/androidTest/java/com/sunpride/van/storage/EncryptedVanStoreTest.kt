@@ -168,7 +168,7 @@ class EncryptedVanStoreTest {
         val text = governedFixture()
         val b = store.replaceBootstrap(text)
         assertEquals(2,b.priceLines.size)
-        val expected = b.priceLines.map { PriceListLineRow(scope.fullAuthSubject,scope.deviceId,it.priceListId,it.productId,it.uomCode,it.unitPriceMinor,it.currency,it.effectiveFrom,it.effectiveTo) }.toSet()
+        val expected = b.priceLines.map { PriceListLineRow(scope.fullAuthSubject,scope.deviceId,it.priceListId,it.productId,it.uomCode,it.unitPriceMinor,it.currency,it.effectiveFrom,it.effectiveTo,it.priceListCode) }.toSet()
         assertEquals(expected,db.rows().pricelistlineRows(scope.fullAuthSubject,scope.deviceId).toSet())
         assertEquals(listOf(4275L,6850L),store.priceLines.first().map { it.unitPriceMinor }.sorted())
         val otherSubject = RoomVanStore(db,StoreScope("https://test.invalid|other-subject",scope.deviceId))

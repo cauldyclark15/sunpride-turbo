@@ -102,6 +102,15 @@ class ProductSearchTest {
         assertNull(ProductSearch(withoutPrices.products,withoutPrices.truckStock,withoutPrices.priceLines,withoutPrices.serverTime)
             .search("SP-PJ-1L").single().price)
     }
+    @Test fun customerPriceListsSelectTheirListNoneMeansNoPriceAndLegacyKeepsAnyList() {
+        val lines = listOf(price("p1",4_550,list = "L1"),price("p1",5_000,list = "L2"))
+        val customer = com.sunpride.van.data.Customer("o1","O1","Store",null,1,"route",priceListId = "L2")
+        assertEquals(5_000L,PriceResolver.resolve(juice,lines,now,customer)?.unitPriceMinor)
+        assertNull(PriceResolver.resolve(juice,lines,now,customer.copy(priceListId = null,priceListMode = com.sunpride.van.data.CustomerPriceListMode.NONE)))
+        assertNull("legacy conflicting lists remain ambiguous",PriceResolver.resolve(juice,lines,now,customer.copy(priceListId = null,priceListMode = com.sunpride.van.data.CustomerPriceListMode.LEGACY)))
+        assertEquals(5_000L,PriceResolver.resolve(juice,listOf(price("p1",5_000,list = "L1"),price("p1",5_000,list = "L2")),now,
+            customer.copy(priceListId = null,priceListMode = com.sunpride.van.data.CustomerPriceListMode.LEGACY))?.unitPriceMinor)
+    }
     @Test fun moneyFormatting() {
         assertEquals("₱1,234.50",PosMoney.format(123450,"PHP"))
         assertEquals("₱0.05",PosMoney.format(5,"PHP"))

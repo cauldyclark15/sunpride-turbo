@@ -2044,6 +2044,41 @@ describe("van bootstrap projection", () => {
     expect(
       later.customers.find((c: { code: string }) => c.code === "TERMS")!.credit,
     ).toEqual({ termsDays: 7, availableMinor: "1000" });
+    // SP-0105: each customer names the list that prices it (its outlet channel's list, else
+    // the van Route Sales list).
+    const priceList = (code: string, channelKey: string) =>
+      f.t.run((ctx) =>
+        ctx.db.insert("priceLists", {
+          organizationId: "sunpride",
+          code,
+          name: code,
+          channelKey,
+          currency: "PHP",
+          status: "active",
+          source: "office",
+          effectiveFrom: 0,
+          updatedAt: NOW,
+        }),
+      );
+    const routeList = await priceList("RS", "route sales");
+    const keyList = await priceList("KA", "key accounts");
+    await f.t.run((ctx) =>
+      ctx.db.patch(outlets.terms, { channel: "Key Accounts" }),
+    );
+    const priced = await f.t.query(internal.van.device.bootstrap, {
+      actor: f.seller.actor,
+      now: NOW,
+    });
+    expect(
+      priced.customers.map((c: { code: string; priceListId: unknown }) => [
+        c.code,
+        c.priceListId,
+      ]),
+    ).toEqual([
+      ["TERMS", keyList],
+      ["ENDED", routeList],
+      ["CASH", routeList],
+    ]);
     // The empty (no trip) bootstrap still tells the phone which methods exist.
     const other = await f.person();
     expect(

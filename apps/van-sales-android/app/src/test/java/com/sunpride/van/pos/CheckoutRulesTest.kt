@@ -26,8 +26,9 @@ class CheckoutRulesTest {
     private val prices = listOf(price("p1",8_500),price("p3",32_000,"KG"))
     private fun context(stock: List<TruckStock> = listOf(TruckStock("p1",10,2),TruckStock("p2",5,0),TruckStock("p3",2_000,0)),
         prices: List<PriceLine> = this.prices, policy: VanPolicy? = this.policy, selling: Boolean = true,
-        creditUsed: Map<String,Long> = emptyMap(), usedReferences: Set<String> = emptySet()) =
-        CheckoutContext(selling,listOf(route,walkIn,onTerms),listOf(juice,chunks,bulk),stock,prices,policy,now,"2026-10-07",creditUsed,usedReferences)
+        creditUsed: Map<String,Long> = emptyMap(), usedReferences: Set<String> = emptySet(), customers: List<Customer> = listOf(route,walkIn,onTerms),
+        promotions: List<Promotion> = emptyList()) =
+        CheckoutContext(selling,customers,listOf(juice,chunks,bulk),stock,prices,policy,now,"2026-10-07",creditUsed,usedReferences,false,promotions)
     private fun request(vararg lines: CartLine, customer: String? = "o1", payment: PaymentInput = PaymentInput("cash",1_000_000)) =
         CheckoutRequest(saleId,customer,lines.toList(),payment)
     private fun problems(result: CheckoutResult) = result.issues.map { it.problem }.toSet()
@@ -161,5 +162,76 @@ class CheckoutRulesTest {
         assertEquals(17_000L,q.totalMinor)
         assertEquals("Paid",VanRules.paymentStateLabel("paid",null)); assertEquals("Charged to account · due 2026-11-06",VanRules.paymentStateLabel("on_account","2026-11-06"))
         assertEquals("To be confirmed by the office",VanRules.paymentStateLabel("awaiting_confirmation",null))
+    }
+
+    // ── SP-0105 customer price lists and governed promotions ──
+    @Test fun customerPriceListSelectsOnlyItsListAndExplicitNoneIsUnpriced() {
+        val governed = route.copy(priceListId = "L2",priceListMode = CustomerPriceListMode.GOVERNED)
+        val governedResult = CheckoutRules.evaluate(request(CartLine("p1",1)),context(
+            prices = listOf(price("p1",8_500,list = "L1") .copy(priceListCode = "ROUTE"),price("p1",9_000,list = "L2").copy(priceListCode = "CUSTOMER")),customers = listOf(governed)))
+        assertTrue(governedResult.ok)
+        assertEquals(9_000L,governedResult.quote!!.lines.single().unitPriceMinor)
+        assertEquals("L2",governedResult.quote.lines.single().priceListId)
+        assertEquals("CUSTOMER",governedResult.quote.lines.single().priceListCode)
+        val none = route.copy(priceListMode = CustomerPriceListMode.NONE,priceListId = null)
+        val noneResult = CheckoutRules.evaluate(request(CartLine("p1",1)),context(customers = listOf(none)))
+        assertEquals(setOf(CheckoutProblem.UNPRICED),problems(noneResult))
+    }
+
+    @Test fun buyTenGetOneAddsFreeUnitsToOneProductLineAndChecksTotalStock() {
+        val promo = Promotion("promo-buy","PROMO-B10G1","Buy 10, get 1 free",null,now - 1,null,
+            PromotionRule.BuyXGetY(PromotionUnit("p1","PC",10),PromotionUnit("p1","PC",1)))
+        val quote = CheckoutRules.evaluate(request(CartLine("p1",21)),context(
+            stock = listOf(TruckStock("p1",30,0)),promotions = listOf(promo))).quote!!
+        val line = quote.lines.single()
+        assertEquals(21L,line.paidBase); assertEquals(2L,line.freeBase); assertEquals(23L,line.quantityBase)
+        assertEquals(178_500L,line.grossMinor); assertEquals(178_500L,line.totalMinor); assertEquals("PROMO-B10G1",line.promotion!!.code)
+        val refused = CheckoutRules.evaluate(request(CartLine("p1",21)),context(
+            stock = listOf(TruckStock("p1",21,0)),promotions = listOf(promo)))
+        assertEquals(setOf(CheckoutProblem.INSUFFICIENT_STOCK),problems(refused))
+    }
+
+    @Test fun buyGetCanAppendFreeOnlyLineAndPercentOffRoundsDown() {
+        val buyFree = Promotion("promo-gift","PROMO-GIFT","Gift chunks",null,now - 1,null,
+            PromotionRule.BuyXGetY(PromotionUnit("p1","PC",2),PromotionUnit("p2","PC",1)))
+        val giftQuote = CheckoutRules.evaluate(request(CartLine("p1",2)),context(
+            prices = prices + price("p2",1_001),promotions = listOf(buyFree))).quote!!
+        assertEquals(listOf("p1","p2"),giftQuote.lines.map { it.product.productId })
+        assertEquals(0L,giftQuote.lines[1].paidBase); assertEquals(1L,giftQuote.lines[1].freeBase); assertEquals(0L,giftQuote.lines[1].totalMinor)
+        val percent = Promotion("promo-percent","PROMO-5","Five percent",null,now - 1,null,
+            PromotionRule.PercentOff(PromotionUnit("p1","PC",1),500))
+        val percentQuote = CheckoutRules.evaluate(request(CartLine("p1",1)),context(
+            prices = listOf(price("p1",999)),promotions = listOf(percent))).quote!!
+        assertEquals(49L,percentQuote.lines.single().discountMinor); assertEquals(950L,percentQuote.totalMinor)
+    }
+
+    @Test fun bundlePricesCompleteSetsAndLeavesPartialUnitsAtNormalPrice() {
+        val bundle = Promotion("promo-bundle","PROMO-BUNDLE","Juice and chunks",null,now - 1,null,
+            PromotionRule.Bundle(listOf(PromotionUnit("p1","PC",1),PromotionUnit("p2","PC",1)),12_000))
+        val quote = CheckoutRules.evaluate(request(CartLine("p1",3),CartLine("p2",2)),context(
+            prices = listOf(price("p1",8_500),price("p2",4_275)),stock = listOf(TruckStock("p1",3,0),TruckStock("p2",2,0)),promotions = listOf(bundle))).quote!!
+        assertEquals(1_550L,quote.lines.sumOf { it.discountMinor }); assertEquals(32_500L,quote.totalMinor)
+        assertTrue(quote.lines.all { it.totalMinor >= 0L })
+    }
+
+    @Test fun promotionsConflictOrNeedOfficeAndIgnoredDatesAndListsFailClosed() {
+        val percent = Promotion("promo-percent","PROMO-5","Five percent",null,now - 1,null,
+            PromotionRule.PercentOff(PromotionUnit("p1","PC",1),500))
+        val conflict = percent.copy(promotionId = "promo-buy",code = "PROMO-BUY",rule = PromotionRule.BuyXGetY(
+            PromotionUnit("p1","PC",1),PromotionUnit("p1","PC",1)))
+        val blocked = CheckoutRules.evaluate(request(CartLine("p1",2)),context(promotions = listOf(percent,conflict)))
+        assertEquals(setOf(CheckoutProblem.PROMOTION_CONFLICT),problems(blocked))
+        val wrongUom = percent.copy(promotionId = "promo-wrong",code = "PROMO-WRONG",rule = PromotionRule.PercentOff(PromotionUnit("p1","CS",1),500))
+        assertEquals(setOf(CheckoutProblem.PROMOTION_NEEDS_OFFICE),problems(CheckoutRules.evaluate(request(CartLine("p1",1)),context(promotions = listOf(wrongUom)))))
+        val missingFree = Promotion("promo-missing","PROMO-MISSING","Missing free product",null,now - 1,null,
+            PromotionRule.BuyXGetY(PromotionUnit("p1","PC",1),PromotionUnit("missing","PC",1)))
+        assertEquals(setOf(CheckoutProblem.PROMOTION_NEEDS_OFFICE),problems(CheckoutRules.evaluate(request(CartLine("p1",1)),context(promotions = listOf(missingFree)))))
+        val unpricedBundle = Promotion("promo-unpriced","PROMO-UNPRICED","Unpriced bundle",null,now - 1,null,
+            PromotionRule.Bundle(listOf(PromotionUnit("p1","PC",1),PromotionUnit("p2","PC",1)),1))
+        assertEquals(setOf(CheckoutProblem.PROMOTION_NEEDS_OFFICE),problems(CheckoutRules.evaluate(request(CartLine("p1",1),CartLine("p2",1)),context(promotions = listOf(unpricedBundle)))))
+        val expired = percent.copy(promotionId = "promo-expired",code = "PROMO-EXPIRED",effectiveFrom = now - 100,effectiveTo = now)
+        val otherList = percent.copy(promotionId = "promo-other",code = "PROMO-OTHER",priceListId = "L2")
+        val unaffected = CheckoutRules.evaluate(request(CartLine("p1",1)),context(promotions = listOf(expired,otherList)))
+        assertTrue(unaffected.ok); assertEquals(8_500L,unaffected.quote!!.totalMinor)
     }
 }

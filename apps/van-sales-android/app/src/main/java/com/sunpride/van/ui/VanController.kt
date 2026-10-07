@@ -38,6 +38,8 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         private set
     var prices by mutableStateOf(emptyList<PriceLine>())
         private set
+    var promotions by mutableStateOf(emptyList<Promotion>())
+        private set
     var stock by mutableStateOf(emptyList<TruckStock>())
         private set
     var damageRecords by mutableStateOf(emptyList<DamageRecord>())
@@ -98,6 +100,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         launch { repository.products.collect { products = it } }
         launch { repository.customers.collect { customers = it } }
         launch { repository.priceLines.collect { prices = it } }
+        launch { repository.promotions.collect { promotions = it } }
         launch { repository.truckStock.collect { stock = it } }
         launch { repository.policy.collect { policy = it } }
         launch { repository.damageRecords.collect { damageRecords = it } }
@@ -199,7 +202,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     suspend fun refreshPaymentFacts() { paymentFacts = runCatching { repository.paymentFacts() }.getOrDefault(com.sunpride.van.storage.PaymentFacts()) }
     fun saleContext(now: Long = System.currentTimeMillis()): CheckoutContext =
         CheckoutContext(VanRules.canSell(trip) && session.signedIn,customers,products,stock,prices,policy,now,trip?.serviceDate,
-            paymentFacts.creditUsedMinor,paymentFacts.usedReferences,cashCounted)
+            paymentFacts.creditUsedMinor,paymentFacts.usedReferences,cashCounted,promotions)
     fun quote(payment: PaymentInput): CheckoutResult? = sale?.let { CheckoutRules.evaluate(CheckoutRequest(it.saleId,it.customer.outletId,it.lines,payment),saleContext()) }
     /** Lines and total of the cart alone, before a payment is entered. */
     fun cartQuote(): CheckoutQuote? = sale?.let { CheckoutRules.cartQuote(CheckoutRequest(it.saleId,it.customer.outletId,it.lines,PaymentInput(PaymentMethod.CASH.code)),saleContext()) }

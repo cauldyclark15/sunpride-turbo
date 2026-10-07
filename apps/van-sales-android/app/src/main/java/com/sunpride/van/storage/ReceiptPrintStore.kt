@@ -31,7 +31,10 @@ object FrozenReceipts {
         .put("saleId", receipt.saleId).put("receiptNumber", receipt.receiptNumber).put("customerName", receipt.customerName)
         .put("lines", JSONArray(receipt.lines.map { JSONObject().put("lineNumber", it.lineNumber).put("productId", it.productId)
             .put("name", it.name).put("uomCode", it.uomCode).put("quantityLabel", it.quantityLabel)
-            .put("unitPriceMinor", it.unitPriceMinor.toString()).put("totalMinor", it.totalMinor.toString()) }))
+            .put("unitPriceMinor", it.unitPriceMinor.toString()).put("totalMinor", it.totalMinor.toString())
+            .put("freeBase",it.freeBase.toString()).put("discountMinor",it.discountMinor.toString())
+            .put("promotionCode",it.promotionCode ?: JSONObject.NULL).put("priceListCode",it.priceListCode ?: JSONObject.NULL)
+            .put("freeQuantityLabel",it.freeQuantityLabel ?: JSONObject.NULL) }))
         .put("currency", receipt.currency).put("totalMinor", receipt.totalMinor.toString())
         .put("tenderedMinor", receipt.tenderedMinor.toString()).put("changeMinor", receipt.changeMinor.toString())
         .put("createdAt", receipt.createdAt.toString())
@@ -45,10 +48,12 @@ object FrozenReceipts {
     fun decode(json: String): Pair<SaleReceipt, ReceiptHeader> {
         val o = JSONObject(json)
         check(o.getInt("version") == VERSION) { "Unknown frozen receipt version" }
-        fun JSONObject.text(k: String): String? = if (isNull(k)) null else getString(k)
+        fun JSONObject.text(k: String): String? = if (!has(k) || isNull(k)) null else getString(k)
+        fun JSONObject.amount(k: String): Long = if (!has(k) || isNull(k)) 0L else getString(k).toLong()
         val lines = o.getJSONArray("lines").let { a -> (0 until a.length()).map { i -> a.getJSONObject(i) } }.map {
             SaleReceiptLine(it.getInt("lineNumber"), it.getString("productId"), it.getString("name"), it.getString("uomCode"),
-                it.getString("quantityLabel"), it.getString("unitPriceMinor").toLong(), it.getString("totalMinor").toLong())
+                it.getString("quantityLabel"), it.getString("unitPriceMinor").toLong(), it.getString("totalMinor").toLong(),
+                it.amount("freeBase"),it.amount("discountMinor"),it.text("promotionCode"),it.text("priceListCode"),it.text("freeQuantityLabel"))
         }
         val receipt = SaleReceipt(o.getString("saleId"), o.getString("receiptNumber"), o.getString("customerName"), lines,
             o.getString("currency"), o.getString("totalMinor").toLong(), o.getString("tenderedMinor").toLong(), o.getString("changeMinor").toLong(),

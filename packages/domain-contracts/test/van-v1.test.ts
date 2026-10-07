@@ -154,6 +154,17 @@ describe("van v1 contract fixtures", () => {
     expect(withCredit({ termsDays: 30 })).toBe(false);
   });
 
+  test("customer price list is optional: an id, or null for none (SP-0105)", async () => {
+    const boot = await read("bootstrap-response.json");
+    const customers = boot.customers as Record<string, unknown>[];
+    const withList = (priceListId: unknown) =>
+      validate({ ...boot, customers: [{ ...customers[0]!, priceListId }] });
+    expect(withList("k57abc123priceListsXYZ")).toBe(true);
+    expect(withList(null)).toBe(true);
+    expect(withList("")).toBe(false);
+    expect(withList(42)).toBe(false);
+  });
+
   test("damage photo, approval policy and damage records are bounded (VAN-020)", async () => {
     const boot = await read("bootstrap-response.json");
     const policy = boot.policy as Record<string, unknown>;

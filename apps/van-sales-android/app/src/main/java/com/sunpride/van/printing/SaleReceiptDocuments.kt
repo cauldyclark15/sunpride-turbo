@@ -41,8 +41,15 @@ object SaleReceiptDocuments {
                 add(ReceiptElement.Text(line.name))
                 add(ReceiptElement.Columns("  ${line.quantityLabel} ${line.uomCode} x ${money(line.unitPriceMinor, receipt.currency)}",
                     money(line.totalMinor, receipt.currency)))
+                line.promotionCode?.let { code ->
+                    add(ReceiptElement.Text("  Promo $code  -${money(line.discountMinor,receipt.currency)}"))
+                }
+                if (line.freeBase > 0L) add(ReceiptElement.Text("  Free ${line.freeQuantityLabel ?: line.freeBase} ${line.uomCode} (${line.promotionCode ?: "promotion"})"))
             }
             add(ReceiptElement.Divider())
+            receipt.lines.mapNotNull { it.priceListCode }.distinct().takeIf { it.isNotEmpty() }?.let { codes ->
+                add(ReceiptElement.Text("Prices: ${codes.joinToString(", ")}"))
+            }
             add(ReceiptElement.Columns("TOTAL", money(receipt.totalMinor, receipt.currency), bold = true))
             when (receipt.paymentKind) {
                 PaymentKind.CASH -> {

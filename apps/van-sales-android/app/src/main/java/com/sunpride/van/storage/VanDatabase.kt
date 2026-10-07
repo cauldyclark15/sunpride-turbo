@@ -20,7 +20,9 @@ data class ProductRow(val fullAuthSubject: String, val deviceId: String, val pro
 @Entity(tableName = "customer", primaryKeys = ["fullAuthSubject", "deviceId", "outletId"])
 data class CustomerRow(val fullAuthSubject: String, val deviceId: String, val outletId: String, val code: String, val name: String, val address: String?, val sequence: Int?, val source: String, val reason: String? = null, val localOnly: Boolean = false,
     /** VAN-012 office credit terms (v2); null = no credit for this customer. */
-    val creditTermsDays: Int? = null, val creditAvailableMinor: Long? = null)
+    val creditTermsDays: Int? = null, val creditAvailableMinor: Long? = null,
+    /** SP-0105: null plus [priceListMode] = none; legacy snapshots retain the old any-list behaviour. */
+    val priceListId: String? = null, val priceListMode: String = "legacy")
 
 @Entity(tableName = "truck_stock_baseline", primaryKeys = ["fullAuthSubject", "deviceId", "tripId", "productId", "stockStatus"])
 data class BaselineRow(val fullAuthSubject: String, val deviceId: String, val tripId: String, val productId: String, val stockStatus: String, val quantityBase: Long, val baselineServerTime: Long)
@@ -70,7 +72,9 @@ data class CashReconciliationRow(val fullAuthSubject: String, val deviceId: Stri
     val cashSaleCount: Int, val createdAt: Long)
 
 @Entity(tableName = "sale_line", primaryKeys = ["fullAuthSubject", "deviceId", "saleId", "lineNumber"])
-data class SaleLineRow(val fullAuthSubject: String, val deviceId: String, val saleId: String, val lineNumber: Int, val productId: String, val quantityBase: Long, val unitPriceMinor: Long? = null, val totalMinor: Long? = null)
+data class SaleLineRow(val fullAuthSubject: String, val deviceId: String, val saleId: String, val lineNumber: Int, val productId: String, val quantityBase: Long, val unitPriceMinor: Long? = null, val totalMinor: Long? = null,
+    /** SP-0105: null on pre-v7 rows; quantityBase remains the total stock deduction. */
+    val freeBase: Long? = null, val discountMinor: Long? = null)
 
 @Entity(tableName = "payment", primaryKeys = ["fullAuthSubject", "deviceId", "paymentId"])
 data class PaymentRow(val fullAuthSubject: String, val deviceId: String, val paymentId: String, val saleId: String, val method: String = "cash", val amountMinor: Long? = null, val createdAt: Long,
@@ -87,7 +91,11 @@ data class ReturnLineRow(val fullAuthSubject: String, val deviceId: String, val 
 data class ReconciliationRow(val fullAuthSubject: String, val deviceId: String, val reconciliationId: String, val tripId: String, val countLinesJson: String, val declaredCashMinor: Long?, val status: String, val createdAt: Long)
 
 @Entity(tableName = "price_list_line", primaryKeys = ["fullAuthSubject", "deviceId", "priceListId", "productId"])
-data class PriceListLineRow(val fullAuthSubject: String, val deviceId: String, val priceListId: String, val productId: String, val uomCode: String, val unitPriceMinor: Long, val currency: String, val effectiveFrom: Long, val effectiveTo: Long?)
+data class PriceListLineRow(val fullAuthSubject: String, val deviceId: String, val priceListId: String, val productId: String, val uomCode: String, val unitPriceMinor: Long, val currency: String, val effectiveFrom: Long, val effectiveTo: Long?, val priceListCode: String? = null)
+
+/** SP-0105: the exact promotion JSON is frozen per bootstrap generation in the scoped encrypted store. */
+@Entity(tableName = "promotion", primaryKeys = ["fullAuthSubject", "deviceId", "promotionId"])
+data class PromotionRow(val fullAuthSubject: String, val deviceId: String, val promotionId: String, val json: String)
 
 @Dao
 interface VanDao {
@@ -150,6 +158,10 @@ interface VanDao {
     @Query("SELECT * FROM price_list_line WHERE fullAuthSubject=:subject AND deviceId=:device") suspend fun pricelistlineRows(subject: String, device: String): List<PriceListLineRow>
     @Query("SELECT * FROM price_list_line WHERE fullAuthSubject=:subject AND deviceId=:device") fun observePriceListLine(subject: String, device: String): Flow<List<PriceListLineRow>>
     @Query("DELETE FROM price_list_line WHERE fullAuthSubject=:subject AND deviceId=:device") suspend fun clearPriceListLine(subject: String, device: String)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertPromotion(row: PromotionRow)
+    @Query("SELECT * FROM promotion WHERE fullAuthSubject=:subject AND deviceId=:device") suspend fun promotionRows(subject: String, device: String): List<PromotionRow>
+    @Query("SELECT * FROM promotion WHERE fullAuthSubject=:subject AND deviceId=:device") fun observePromotion(subject: String, device: String): Flow<List<PromotionRow>>
+    @Query("DELETE FROM promotion WHERE fullAuthSubject=:subject AND deviceId=:device") suspend fun clearPromotion(subject: String, device: String)
 
     @Query("DELETE FROM customer WHERE fullAuthSubject=:subject AND deviceId=:device AND localOnly=0") suspend fun clearServerCustomers(subject: String, device: String)
     @Query("SELECT * FROM sync_meta WHERE fullAuthSubject=:subject AND deviceId=:device") suspend fun meta(subject: String, device: String): SyncMetaRow?
@@ -165,8 +177,8 @@ interface VanDao {
     @Query("SELECT * FROM sequence_counter WHERE fullAuthSubject=:subject AND deviceId=:device AND tripId=:tripId") suspend fun counter(subject: String, device: String, tripId: String): SequenceCounterRow?
 }
 
-@Database(entities = [TripRow::class,LoadLineRow::class,ProductRow::class,CustomerRow::class,BaselineRow::class,MovementRow::class,SettlementRow::class,OutboxRow::class,AckRow::class,SyncMetaRow::class,SequenceCounterRow::class,TransactionIdRow::class,SaleRow::class,SaleLineRow::class,PaymentRow::class,CustomerReturnRow::class,ReturnLineRow::class,ReconciliationRow::class,PriceListLineRow::class,
-    ReceiptPrintRow::class,SaleReceiptRow::class,SaleVoidRow::class,CashReconciliationRow::class], version = 6, exportSchema = true)
+@Database(entities = [TripRow::class,LoadLineRow::class,ProductRow::class,CustomerRow::class,BaselineRow::class,MovementRow::class,SettlementRow::class,OutboxRow::class,AckRow::class,SyncMetaRow::class,SequenceCounterRow::class,TransactionIdRow::class,SaleRow::class,SaleLineRow::class,PaymentRow::class,CustomerReturnRow::class,ReturnLineRow::class,ReconciliationRow::class,PriceListLineRow::class,PromotionRow::class,
+    ReceiptPrintRow::class,SaleReceiptRow::class,SaleVoidRow::class,CashReconciliationRow::class], version = 7, exportSchema = true)
 abstract class VanDatabase : RoomDatabase() {
     abstract fun rows(): VanDao
     /** VAN-017 receipt print history (v3). */
@@ -177,6 +189,17 @@ abstract class VanDatabase : RoomDatabase() {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("CREATE TABLE IF NOT EXISTS `cash_reconciliation` (`fullAuthSubject` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `reconciliationId` TEXT NOT NULL, `tripId` TEXT NOT NULL, `idempotencyKey` TEXT NOT NULL, `currency` TEXT NOT NULL, `expectedMinor` INTEGER NOT NULL, `declaredMinor` INTEGER NOT NULL, `varianceMinor` INTEGER NOT NULL, `countsJson` TEXT NOT NULL, `reasonCode` TEXT, `note` TEXT, `approvalMethod` TEXT NOT NULL, `approvalCode` TEXT, `cashSaleCount` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`fullAuthSubject`, `deviceId`, `reconciliationId`))")
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_cash_reconciliation_fullAuthSubject_deviceId_tripId` ON `cash_reconciliation` (`fullAuthSubject`, `deviceId`, `tripId`)")
+            }
+        }
+        /** SP-0105: additive pricing/promotion facts only; all saved sale rows and operation bytes remain unchanged. */
+        val MIGRATION_6_7 = object : androidx.room.migration.Migration(6,7) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE customer ADD COLUMN priceListId TEXT")
+                db.execSQL("ALTER TABLE customer ADD COLUMN priceListMode TEXT NOT NULL DEFAULT 'legacy'")
+                db.execSQL("ALTER TABLE price_list_line ADD COLUMN priceListCode TEXT")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `promotion` (`fullAuthSubject` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `promotionId` TEXT NOT NULL, `json` TEXT NOT NULL, PRIMARY KEY(`fullAuthSubject`, `deviceId`, `promotionId`))")
+                db.execSQL("ALTER TABLE sale_line ADD COLUMN freeBase INTEGER")
+                db.execSQL("ALTER TABLE sale_line ADD COLUMN discountMinor INTEGER")
             }
         }
         /** VAN-021: additive cancellation evidence only, never edit or delete a sale. */

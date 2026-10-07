@@ -52,16 +52,45 @@ data class Product(val productId: String, val code: String, val name: String, va
     val quantityScale: Long, val barcodes: List<String>, val barcodeUnits: List<BarcodeUnit> = emptyList()) {
     fun displayQuantity(base: Long): String = BigDecimal.valueOf(base).divide(BigDecimal.valueOf(quantityScale),java.math.MathContext.DECIMAL128).stripTrailingZeros().toPlainString()
 }
+/**
+ * Whether the bootstrap explicitly governed a customer's price list.  [LEGACY] means the field was absent
+ * (older snapshots keep the historical "any shipped line" behaviour); [NONE] means it was explicitly null and
+ * this customer must not be sold a governed price; [GOVERNED] carries [Customer.priceListId].
+ */
+enum class CustomerPriceListMode { LEGACY, NONE, GOVERNED }
 data class Customer(val outletId: String, val code: String, val name: String, val address: String?,
     val sequence: Int?, val source: String, val reason: String? = null, val localOnly: Boolean = false,
-    val credit: CustomerCredit? = null)
+    val credit: CustomerCredit? = null, val priceListId: String? = null,
+    val priceListMode: CustomerPriceListMode = if (priceListId == null) CustomerPriceListMode.LEGACY else CustomerPriceListMode.GOVERNED)
 data class TruckStock(val productId: String, val availableBase: Long, val damagedBase: Long)
 /** A governed price-list line cached from the server bootstrap (minor currency units, ADR-008). */
 data class PriceLine(val priceListId: String, val productId: String, val uomCode: String, val unitPriceMinor: Long,
-    val currency: String, val effectiveFrom: Long, val effectiveTo: Long?)
+    val currency: String, val effectiveFrom: Long, val effectiveTo: Long?, val priceListCode: String? = null)
+
+/** A whole product-UOM quantity used by a governed promotion. */
+data class PromotionUnit(val productId: String, val uomCode: String, val quantity: Int)
+
+/** The three promotion rules supported by the offline handheld. */
+sealed class PromotionRule {
+    data class BuyXGetY(val buy: PromotionUnit, val free: PromotionUnit) : PromotionRule()
+    data class PercentOff(val item: PromotionUnit, val percentOffBasisPoints: Int) : PromotionRule()
+    data class Bundle(val components: List<PromotionUnit>, val bundlePriceMinor: Long) : PromotionRule()
+}
+
+/** A server-governed, effective-dated promotion frozen in the bootstrap. */
+data class Promotion(val promotionId: String, val code: String, val name: String, val priceListId: String?,
+    val effectiveFrom: Long, val effectiveTo: Long?, val rule: PromotionRule) {
+    val kind: String get() = when (rule) {
+        is PromotionRule.BuyXGetY -> "buy_x_get_y"
+        is PromotionRule.PercentOff -> "percent_off"
+        is PromotionRule.Bundle -> "bundle"
+    }
+}
+
 data class VanBootstrap(val serverTime: Long, val serviceDate: String, val seller: Seller, val policy: VanPolicy,
     val trip: Trip?, val load: Load?, val truckStock: List<TruckStock>, val products: List<Product>, val customers: List<Customer>,
-    val priceLines: List<PriceLine> = emptyList(), val damageRecords: List<DamageRecord> = emptyList())
+    val priceLines: List<PriceLine> = emptyList(), val damageRecords: List<DamageRecord> = emptyList(),
+    val promotions: List<Promotion> = emptyList())
 data class LoadActual(val lineNumber: Int, val actualBase: Long, val reason: String? = null)
 /**
  * [savedSales]: VAN-011 sales committed on this phone whose office upload is not available yet (parked, never sent);
@@ -71,7 +100,9 @@ data class SyncStatus(val queued: Int = 0, val sending: Int = 0, val review: Int
     val held: Int = 0, val lastSyncTime: Long? = null, val health: String = "never_synced", val savedSales: Int = 0, val savedReturns: Int = 0)
 /** A completed van sale as saved on this phone (VAN-011). Money is in minor units of [currency]. */
 data class SaleReceiptLine(val lineNumber: Int, val productId: String, val name: String, val uomCode: String,
-    val quantityLabel: String, val unitPriceMinor: Long, val totalMinor: Long)
+    val quantityLabel: String, val unitPriceMinor: Long, val totalMinor: Long, val freeBase: Long = 0L,
+    val discountMinor: Long = 0L, val promotionCode: String? = null, val priceListCode: String? = null,
+    val freeQuantityLabel: String? = null)
 /**
  * [paymentStatus] is separate from the sale's posting state: `paid` (cash), `awaiting_confirmation` (check, e-wallet,
  * bank: the office confirms the reference) or `on_account` (credit, due on [dueDate]). The sale itself is saved on

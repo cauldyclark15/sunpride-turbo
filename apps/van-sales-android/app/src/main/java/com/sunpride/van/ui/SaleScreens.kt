@@ -27,19 +27,22 @@ import com.sunpride.van.pos.*
 @Composable fun SaleScreen(c: VanController) {
     val draft = c.sale
     var editing by remember { mutableStateOf<Product?>(null) }
-    val now = remember(c.prices,c.stock,draft) { System.currentTimeMillis() }
+    val quote = remember(c.prices,c.promotions,c.stock,c.customers,draft) { c.cartQuote() }
     val priced = draft?.lines?.map { line ->
         val product = c.products.firstOrNull { it.productId == line.productId }
-        val price = product?.let { PriceResolver.resolve(it,c.prices,now) }
-        Triple(line,product,price?.let { CheckoutRules.lineTotal(it.unitPriceMinor,line.quantityBase,product.quantityScale)?.let { total -> price to total } })
+        Triple(line,product,quote?.lines?.firstOrNull { it.product.productId == line.productId })
     } ?: emptyList()
-    val allPriced = priced.isNotEmpty() && priced.all { it.third != null } && priced.mapNotNull { it.third?.first?.currency }.distinct().size == 1
-    val total = if (allPriced) priced.sumOf { it.third!!.second } else null
+    // Without a whole-cart quote (a line unpriced, or a promotion needs the office) each line still shows its own
+    // customer price, so the seller sees which product is the problem.
+    val now = remember(c.prices,draft) { System.currentTimeMillis() }
+    val linePrice = { line: CartLine, product: Product -> PriceResolver.resolve(product,c.prices,now,draft?.customer)
+        ?.let { p -> CheckoutRules.lineTotal(p.unitPriceMinor,line.quantityBase,product.quantityScale)?.let { PosMoney.format(it,p.currency) } } }
+    val total = quote?.totalMinor
     ScreenFrame("Sale",c::back,action = "Checkout",actionTag = "checkout",enabled = !c.busy && draft != null && draft.lines.isNotEmpty(),
         onAction = { c.open(Page.CHECKOUT) },message = c.message,
         footer = when {
             draft == null || draft.lines.isEmpty() -> "No products yet"
-            total != null -> "Total ${PosMoney.format(total,priced.first().third!!.first.currency)}"
+            quote != null -> "Total ${PosMoney.format(total!!,quote.currency)}"
             else -> "Total not ready: some products are priced by the office"
         }) {
         if (draft == null) { Text("No sale in progress."); return@ScreenFrame }
@@ -54,10 +57,16 @@ import com.sunpride.van.pos.*
                 Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(16.dp),verticalAlignment = Alignment.CenterVertically,horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(Modifier.weight(1f),verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(product?.name ?: "Product no longer on this phone",style = MaterialTheme.typography.titleMedium)
-                        Text(product?.let { "${it.displayQuantity(line.quantityBase)} ${it.uomCode}" + (money?.let { (p,_) -> " × ${p.label()}" } ?: "") } ?: "",
-                            style = MaterialTheme.typography.bodyMedium,color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(product?.let { p ->
+                            buildList {
+                                add("${p.displayQuantity(money?.quantityBase ?: line.quantityBase)} ${p.uomCode}")
+                                money?.priceListCode?.let { add("Price: $it") }
+                                money?.promotion?.let { add("${it.name}${if (money.discountMinor > 0) " · discount ${PosMoney.format(money.discountMinor,quote?.currency ?: "PHP")}" else ""}") }
+                                money?.let { q -> if (q.freeBase > 0L) add("Free ${p.displayQuantity(q.freeBase)} ${p.uomCode}") }
+                            }.joinToString(" · ")
+                        } ?: "",style = MaterialTheme.typography.bodyMedium,color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Text(money?.let { (p,t) -> PosMoney.format(t,p.currency) } ?: "Priced by the office",
+                    Text(money?.let { PosMoney.format(it.totalMinor,quote?.currency ?: "PHP") } ?: product?.let { linePrice(line,it) } ?: "Priced by the office",
                         style = if (money != null) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
                         fontWeight = if (money != null) FontWeight.SemiBold else FontWeight.Normal,modifier = Modifier.testTag("sale-line-total-$index"))
                 }
@@ -103,9 +112,14 @@ import com.sunpride.van.pos.*
         due?.let { q ->
             SectionCard("Items") {
                 q.lines.forEach { line ->
-                    Row(Modifier.fillMaxWidth(),horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("${line.product.displayQuantity(line.quantityBase)} ${line.product.uomCode} ${line.product.name}",Modifier.weight(1f),style = MaterialTheme.typography.bodyLarge)
-                        Text(PosMoney.format(line.totalMinor,q.currency),style = MaterialTheme.typography.bodyLarge)
+                    Column(Modifier.fillMaxWidth(),verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Row(Modifier.fillMaxWidth(),horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("${line.product.displayQuantity(line.quantityBase)} ${line.product.uomCode} ${line.product.name}",Modifier.weight(1f),style = MaterialTheme.typography.bodyLarge)
+                            Text(PosMoney.format(line.totalMinor,q.currency),style = MaterialTheme.typography.bodyLarge)
+                        }
+                        line.priceListCode?.let { Text("Price: $it",style = MaterialTheme.typography.bodyMedium,color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        line.promotion?.let { p -> Text("${p.name}${if (line.discountMinor > 0) " · discount ${PosMoney.format(line.discountMinor,q.currency)}" else ""}",style = MaterialTheme.typography.bodyMedium) }
+                        if (line.freeBase > 0L) Text("Free ${line.product.displayQuantity(line.freeBase)} ${line.product.uomCode}",style = MaterialTheme.typography.bodyMedium)
                     }
                 }
                 Row(Modifier.fillMaxWidth()) {
@@ -153,11 +167,17 @@ import com.sunpride.van.pos.*
         }
         SectionCard("Items") {
             receipt.lines.forEach { line ->
-                Row(Modifier.fillMaxWidth(),horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("${line.quantityLabel} ${line.uomCode} ${line.name}",Modifier.weight(1f),style = MaterialTheme.typography.bodyLarge)
-                    Text(PosMoney.format(line.totalMinor,receipt.currency),style = MaterialTheme.typography.bodyLarge)
+                Column(Modifier.fillMaxWidth(),verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Row(Modifier.fillMaxWidth(),horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("${line.quantityLabel} ${line.uomCode} ${line.name}",Modifier.weight(1f),style = MaterialTheme.typography.bodyLarge)
+                        Text(PosMoney.format(line.totalMinor,receipt.currency),style = MaterialTheme.typography.bodyLarge)
+                    }
+                    line.priceListCode?.let { Text("Price: $it",style = MaterialTheme.typography.bodyMedium,color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    line.promotionCode?.let { Text("Promo $it${if (line.discountMinor > 0) " · discount ${PosMoney.format(line.discountMinor,receipt.currency)}" else ""}",style = MaterialTheme.typography.bodyMedium) }
+                    if (line.freeBase > 0L) Text("Free ${line.freeQuantityLabel ?: line.freeBase} ${line.uomCode}",style = MaterialTheme.typography.bodyMedium)
                 }
             }
+            receipt.lines.mapNotNull { it.priceListCode }.distinct().takeIf { it.isNotEmpty() }?.let { Text("Prices: ${it.joinToString(", ")}",style = MaterialTheme.typography.bodyMedium) }
             Row(Modifier.fillMaxWidth()) {
                 Text("Total",Modifier.weight(1f),style = MaterialTheme.typography.titleLarge)
                 Text(PosMoney.format(receipt.totalMinor,receipt.currency),style = MaterialTheme.typography.titleLarge,modifier = Modifier.testTag("receipt-total"))

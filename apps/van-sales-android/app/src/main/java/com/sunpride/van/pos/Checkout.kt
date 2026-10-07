@@ -16,7 +16,10 @@ import java.util.UUID
  * stock, price and customer checked are the ones the sale is written against.
  */
 
-/** One cart line: a product and a quantity in base units (integral, never a float). */
+/**
+ * One cart line: a product and a quantity in base units (integral, never a float). There is intentionally no price here:
+ * prices come only from the bootstrap, and the store re-evaluates them inside its transaction before saving; a changed agreed total
+ * is refused as [CheckoutProblem.PRICES_CHANGED]. */
 data class CartLine(val productId: String, val quantityBase: Long)
 
 /**
@@ -41,6 +44,7 @@ enum class CheckoutProblem {
     UNKNOWN_PRODUCT, BAD_QUANTITY, INSUFFICIENT_STOCK, UNPRICED, PRICE_NOT_EXACT, MIXED_CURRENCY,
     TOTAL_TOO_LARGE, CREDIT_TERMS_UNAVAILABLE, CASH_MISSING, CASH_SHORT, PRICES_CHANGED,
     UNKNOWN_PAYMENT_METHOD, REFERENCE_MISSING, REFERENCE_INVALID, REFERENCE_ALREADY_USED, CREDIT_LIMIT_EXCEEDED,
+    PROMOTION_CONFLICT, PROMOTION_NEEDS_OFFICE,
     /** VAN-022: the trip's cash is already counted, so it sells nothing more. */
     CASH_COUNTED
 }
@@ -48,8 +52,15 @@ enum class CheckoutProblem {
 /** A problem, optionally tied to a product line. */
 data class CheckoutIssue(val problem: CheckoutProblem, val productId: String? = null)
 
+/**
+ * A quote is the only source of a sale price. [quantityBase] is the total stock deduction; [paidBase] and [freeBase]
+ * explain it. The cart deliberately has no price field: the store re-evaluates this quote in its transaction and
+ * refuses with PRICES_CHANGED when the agreed total no longer matches.
+ */
 data class QuotedLine(val lineNumber: Int, val product: Product, val quantityBase: Long, val unitPriceMinor: Long,
-    val totalMinor: Long, val priceListIds: List<String>)
+    val totalMinor: Long, val priceListIds: List<String>, val paidBase: Long = quantityBase, val freeBase: Long = 0L,
+    val grossMinor: Long = totalMinor, val discountMinor: Long = 0L, val priceListId: String? = null,
+    val priceListCode: String? = null, val promotion: QuotedPromotion? = null)
 
 /** [tenderedMinor]/[changeMinor] are the cash handed over and change (non-cash: the amount and zero). */
 data class CheckoutQuote(val lines: List<QuotedLine>, val currency: String, val totalMinor: Long,
@@ -68,7 +79,7 @@ data class CheckoutResult(val quote: CheckoutQuote?, val issues: List<CheckoutIs
 data class CheckoutContext(val tripSelling: Boolean, val customers: List<Customer>, val products: List<Product>,
     val stock: List<TruckStock>, val prices: List<PriceLine>, val policy: VanPolicy?, val now: Long,
     val serviceDate: String? = null, val creditUsedMinor: Map<String,Long> = emptyMap(), val usedReferences: Set<String> = emptySet(),
-    val cashCounted: Boolean = false)
+    val cashCounted: Boolean = false, val promotions: List<com.sunpride.van.data.Promotion> = emptyList())
 
 class CheckoutRefused(val issues: List<CheckoutIssue>) : IllegalStateException("Checkout refused")
 
@@ -96,29 +107,50 @@ object CheckoutRules {
 
         val products = context.products.associateBy { it.productId }
         val available = context.stock.associate { it.productId to it.availableBase }
+        val customer = context.customers.firstOrNull { it.outletId == request.customerId }
+        val promotionResult = customer?.let { PromotionEngine.apply(request.lines,it,products,context.prices,context.promotions,context.now) }
+            ?: PromotionResult(emptyList(),emptyList())
+        issues += promotionResult.issues
+        val needsOfficeProducts = promotionResult.issues.filter { it.problem == CheckoutProblem.PROMOTION_NEEDS_OFFICE }
+            .mapNotNull { it.productId }.toSet()
         val quoted = mutableListOf<QuotedLine>()
         val currencies = mutableSetOf<String>()
         request.lines.forEachIndexed { index, line ->
             val product = products[line.productId]
             if (product == null) { issues += CheckoutIssue(CheckoutProblem.UNKNOWN_PRODUCT,line.productId); return@forEachIndexed }
             if (line.quantityBase !in 1L..MAX_BASE) { issues += CheckoutIssue(CheckoutProblem.BAD_QUANTITY,line.productId); return@forEachIndexed }
-            // Only available stock sells; damaged stock never does. Negative stock only when the office allows it.
-            if (!(context.policy?.allowNegativeStock ?: false) && (available[line.productId] ?: 0L) < line.quantityBase)
-                issues += CheckoutIssue(CheckoutProblem.INSUFFICIENT_STOCK,line.productId)
-            val matching = PriceResolver.matching(product,context.prices,context.now)
-            val price = PriceResolver.resolve(product,context.prices,context.now)
-            if (price == null) { issues += CheckoutIssue(CheckoutProblem.UNPRICED,line.productId); return@forEachIndexed }
-            val total = lineTotal(price.unitPriceMinor,line.quantityBase,product.quantityScale)
-            if (total == null) { issues += CheckoutIssue(CheckoutProblem.PRICE_NOT_EXACT,line.productId); return@forEachIndexed }
-            if (total > MAX_MINOR) { issues += CheckoutIssue(CheckoutProblem.TOTAL_TOO_LARGE,line.productId); return@forEachIndexed }
-            currencies += price.currency
-            quoted += QuotedLine(index+1,product,line.quantityBase,price.unitPriceMinor,total,matching.map { it.priceListId }.distinct().sorted())
+            val promotionLine = promotionResult.lines.firstOrNull { it.lineNumber == index + 1 }
+            val price = promotionLine?.price ?: PriceResolver.resolve(product,context.prices,context.now,customer)
+            if (price == null && line.productId !in needsOfficeProducts) {
+                issues += CheckoutIssue(CheckoutProblem.UNPRICED,line.productId); return@forEachIndexed
+            }
+            if (price != null && lineTotal(price.unitPriceMinor,line.quantityBase,product.quantityScale) == null)
+                issues += CheckoutIssue(CheckoutProblem.PRICE_NOT_EXACT,line.productId)
+        }
+        promotionResult.lines.forEach { line ->
+            val price = line.price
+            if (line.paidBase > 0L && price == null) return@forEach
+            val gross = if (line.paidBase == 0L) 0L else lineTotal(checkNotNull(price).unitPriceMinor,line.paidBase,line.product.quantityScale)
+            if (gross == null) { issues += CheckoutIssue(CheckoutProblem.PRICE_NOT_EXACT,line.product.productId); return@forEach }
+            val discount = minOf(line.discountMinor,gross)
+            val total = Math.subtractExact(gross,discount)
+            if (total > MAX_MINOR) { issues += CheckoutIssue(CheckoutProblem.TOTAL_TOO_LARGE,line.product.productId); return@forEach }
+            if (price != null) currencies += price.currency
+            val matching = PriceResolver.matching(line.product,context.prices,context.now,customer)
+            val quantity = Math.addExact(line.paidBase,line.freeBase)
+            // Stock is checked against paid plus free goods; damaged stock is never sellable.
+            if (!(context.policy?.allowNegativeStock ?: false) && (available[line.product.productId] ?: 0L) < quantity)
+                issues += CheckoutIssue(CheckoutProblem.INSUFFICIENT_STOCK,line.product.productId)
+            quoted += QuotedLine(line.lineNumber,line.product,quantity,price?.unitPriceMinor ?: 0L,total,
+                matching.map { it.priceListId }.distinct().sorted(),line.paidBase,line.freeBase,gross,discount,
+                price?.priceListId,price?.priceListCode,line.promotion)
         }
         if (currencies.size > 1) issues += CheckoutIssue(CheckoutProblem.MIXED_CURRENCY)
-        val total = quoted.fold(0L) { sum, line -> Math.addExact(sum,line.totalMinor) }
+        val total = runCatching { quoted.fold(0L) { sum, line -> Math.addExact(sum,line.totalMinor) } }.getOrElse {
+            issues += CheckoutIssue(CheckoutProblem.TOTAL_TOO_LARGE); 0L
+        }
         if (total > MAX_MINOR) issues += CheckoutIssue(CheckoutProblem.TOTAL_TOO_LARGE)
 
-        val customer = context.customers.firstOrNull { it.outletId == request.customerId }
         val payment = payment(request.payment,total,customer,context,issues)
         if (issues.isNotEmpty() || payment == null) return CheckoutResult(null,issues.distinct())
         return CheckoutResult(CheckoutQuote(quoted,currencies.single(),total,payment.tenderedMinor ?: total,payment.changeMinor,payment),emptyList())

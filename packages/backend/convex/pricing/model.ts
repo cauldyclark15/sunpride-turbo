@@ -76,7 +76,8 @@ function effective(
   return activeAt(row.effectiveFrom, row.effectiveTo, at);
 }
 
-async function listFor(
+/** The single effective list for a channel key; `found` says the key has live lists (null list = ambiguous). */
+export async function listFor(
   ctx: Ctx,
   key: string | null,
   at: number,
