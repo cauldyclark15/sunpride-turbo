@@ -39,15 +39,19 @@ class VanUiDeviceTest {
         rule.waitForIdle()
         repositories.forEach { it.close() }
     }
-    private fun newController(mode: String = "ready", fixtureMode: Boolean = true, features: VanFeatures = VanFeatures.ALL): VanController {
+    private fun newController(mode: String = "ready", fixtureMode: Boolean = true,
+        printer: com.sunpride.van.printing.ReceiptPrinter = com.sunpride.van.printing.NoPrinter(),
+        features: VanFeatures = VanFeatures.ALL): VanController {
         val repo = if (mode == "ready") VanRepository.forWorker(context,true) else VanRepository.create(context,stubMode = mode)
         repositories += repo
-        return VanController(repo,AppEnvironment("",""),fixtureMode,features) {
+        return VanController(repo,AppEnvironment("",""),fixtureMode,printer = printer,features = features) {
             withContext(Dispatchers.IO) { hex(sha256(KeystoreDeviceKey.loadOrCreate(context,"sunpride-van-stub-device-p256-v1").publicKeySpki)).uppercase().chunked(4).joinToString(" ") }
         }
     }
-    private fun mount(restore: Boolean = true, fixtureMode: Boolean = true, features: VanFeatures = VanFeatures.ALL) {
-        host = Host(newController(fixtureMode = fixtureMode,features = features),restore)
+    private fun mount(restore: Boolean = true, fixtureMode: Boolean = true,
+        printer: com.sunpride.van.printing.ReceiptPrinter = com.sunpride.van.printing.NoPrinter(),
+        features: VanFeatures = VanFeatures.ALL) {
+        host = Host(newController(fixtureMode = fixtureMode,printer = printer,features = features),restore)
         rule.setContent { host?.let { VanApp(it.controller,restore = it.restore) } }
         if (restore) ready() else rule.waitUntil(10_000) { c.initialized }
     }
@@ -225,11 +229,76 @@ class VanUiDeviceTest {
         assertPrimaryClearance(rule,"product-camera")
     }
     @Test fun printerAndScannerScreenRendersRealServiceControls() {
-        mount(); open(Page.PRINTER)
-        rule.onNodeWithText("Printer & scanner").assertIsDisplayed()
-        rule.onNodeWithText("Print test receipt").assertExists()
-        rule.onNodeWithText("Scan with camera").assertExists()
-        // The existing printer device suite, not this UI smoke test, prints the real receipt.
+        // VAN-017: the real registry printer (the H10P service) for the check; nothing is printed here.
+        val printer = com.sunpride.van.printing.PrinterRegistry.select(context)
+        try {
+            mount(printer = printer); open(Page.PRINTER)
+            rule.onNodeWithText("Printer & scanner").assertIsDisplayed()
+            rule.onNodeWithText("Print test receipt").assertExists()
+            rule.onNodeWithText("Scan with camera").assertExists()
+            rule.waitUntil(10_000) { rule.onAllNodesWithText("Connection: Connected",substring = true).fetchSemanticsNodes().isNotEmpty() }
+            // The H10P service has no paper query; the check says so instead of claiming paper is loaded.
+            rule.onNodeWithTag("printer-paper").assertTextContains("Paper: Not reported by this printer",substring = true)
+            rule.onNodeWithTag("printer-last").assertTextEquals("Last receipt: None printed yet")
+            rule.onNodeWithTag("check-printer").performClick()
+            rule.waitUntil(10_000) { rule.onAllNodesWithText("Check printer").fetchSemanticsNodes().isNotEmpty() }
+            captureVanScreenshot(rule,"24-printer-check","printer-done")
+            // The existing printer device suite, not this UI smoke test, prints the real receipt.
+        } finally { rule.runOnUiThread { host = null }; rule.waitForIdle(); printer.close() }
+    }
+    @Test fun saleReceiptPrintsOnceThenReprintsOnlyWithAReasonAndMarker() {
+        val printer = com.sunpride.van.printing.FakeReceiptPrinter()
+        mount(printer = printer); loadAndStart()
+        val juice = c.products.single { it.code == "SP-PJ-1L" }
+        rule.waitUntil(10_000) { c.stock.any { it.productId == juice.productId && it.availableBase > 2 } }
+        runBlocking { c.repository.fixtureStore().let { st -> st.db.rows().insertPriceListLine(com.sunpride.van.storage.PriceListLineRow(
+            st.scope.fullAuthSubject,st.scope.deviceId,"PL-PRACTICE",juice.productId,"PC",8_500,"PHP",System.currentTimeMillis()-60_000,null)) } }
+        rule.waitUntil(10_000) { c.prices.isNotEmpty() }
+        open(Page.HOME)
+        rule.onNodeWithTag("new-sale").performScrollTo().performClick()
+        rule.onNodeWithTag("customer-route-1").performClick()
+        rule.onNodeWithTag("start-sale").performClick()
+        rule.onNodeWithTag("sale-add-product").performScrollTo().performClick()
+        rule.onNodeWithTag("product-search").performTextInput("sppj1l"); hideKeyboard()
+        rule.onNodeWithTag("product-0").performClick()
+        rule.onNodeWithTag("sale-quantity").performTextInput("1"); hideKeyboard()
+        rule.onNodeWithTag("save-quantity").performClick()
+        rule.waitUntil(5_000) { c.page == Page.SALE }
+        rule.onNodeWithTag("checkout").performClick()
+        rule.onNodeWithTag("cash-received").performTextInput("100"); hideKeyboard()
+        rule.onNodeWithTag("complete-sale").assertIsEnabled().performClick()
+        // Saved first, then the original prints automatically, once.
+        rule.waitUntil(10_000) { c.page == Page.SALE_DONE && !c.printing && printer.documents.size == 1 && c.savedSales.isNotEmpty() }
+        assertFalse(printer.documents.single().isReprint)
+        rule.onNodeWithTag("print-status",useUnmergedTree = true).performScrollTo().assertTextEquals("Receipt printed. Tear it off for the customer.")
+        captureVanScreenshot(rule,"33-sale-printed","sale-done")
+        rule.onNodeWithTag("sale-reprint").performScrollTo().performClick()
+        rule.onNodeWithTag("confirm-reprint").assertIsNotEnabled()
+        rule.onNodeWithTag("reprint-reason-customer_copy").performClick()
+        rule.onNodeWithTag("confirm-reprint").assertTextEquals("Print copy 1").assertIsEnabled()
+        captureVanScreenshot(rule,"34-reprint-reason","confirm-reprint")
+        rule.onNodeWithTag("confirm-reprint").performClick()
+        rule.waitUntil(10_000) { !c.printing && printer.documents.size == 2 }
+        assertTrue(printer.documents[1].isReprint)
+        val lines = com.sunpride.van.printing.ReceiptLayoutFormatter().format(printer.documents[1])
+            .filterIsInstance<com.sunpride.van.printing.ReceiptCommand.Line>().map { it.text }
+        assertEquals("REPRINT",lines.first()); assertTrue(lines.joinToString("").contains("Reason: Customer needs another copy"))
+        rule.onNodeWithTag("print-status",useUnmergedTree = true).assertTextEquals("Reprint copy 1 printed. It is marked REPRINT.")
+        // The sale itself is unchanged: one saved sale, stock deducted once.
+        assertEquals(1,c.sync.savedSales)
+        rule.onNodeWithTag("sale-done").performClick()
+        rule.onNodeWithTag("open-receipts").performScrollTo().performClick()
+        rule.waitUntil(10_000) { c.savedSales.size == 1 }
+        rule.onNodeWithTag("receipt-0-state",useUnmergedTree = true).assertTextEquals("Printed · reprinted 1× · 2 reprints left")
+        captureVanScreenshot(rule,"35-receipts")
+        // Printer reports no paper: refused before anything is recorded or printed.
+        printer.paper = com.sunpride.van.printing.PaperState.OUT
+        rule.onNodeWithTag("receipt-0-reprint").performClick()
+        rule.onNodeWithTag("reprint-reason-unreadable").performClick()
+        rule.onNodeWithTag("confirm-reprint").performClick()
+        rule.waitUntil(10_000) { !c.printing && c.printMessage == "The printer is out of paper. Load paper, then print again." }
+        assertEquals(2,printer.documents.size)
+        rule.onNodeWithTag("receipt-0-state",useUnmergedTree = true).assertTextEquals("Printed · reprinted 1× · 2 reprints left")
     }
     // SP-0125 password eye: hidden by default, accessible label, re-hidden when the app is left or the form is sent.
     @Test fun passwordEyeShowsAndHidesAndReHidesWhenTheAppIsLeft() {

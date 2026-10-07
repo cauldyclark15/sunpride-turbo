@@ -173,6 +173,7 @@ import com.sunpride.van.pos.*
             Text(VanRules.paymentStateLabel(receipt.paymentStatus,receipt.dueDate),style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.testTag("receipt-payment-state"))
         }
+        ReceiptPrintCard(c,receipt.saleId)
         Text("Saved on this phone and taken off the truck stock. Sending sales to the office comes in a later update.",
             style = MaterialTheme.typography.bodyMedium,modifier = Modifier.testTag("sale-saved-note"))
     }

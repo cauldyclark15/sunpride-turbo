@@ -16,6 +16,7 @@ sqlite = "2.7.0"
 serialization = "1.7.3"
 work = "2.10.5"
 camerax = "1.5.3"
+biometric = "1.1.0"
 
 [libraries]
 compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
@@ -48,6 +49,7 @@ camera-core = { module = "androidx.camera:camera-core", version.ref = "camerax" 
 camera-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "camerax" }
 camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "camerax" }
 camera-view = { module = "androidx.camera:camera-view", version.ref = "camerax" }
+biometric = { module = "androidx.biometric:biometric", version.ref = "biometric" }
 espresso-core = { module = "androidx.test.espresso:espresso-core", version.ref = "espresso" }
 
 [plugins]

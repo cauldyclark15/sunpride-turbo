@@ -48,6 +48,23 @@ fun AccountGlyph() {
     }
 }
 
+/** SP-0128 show/hide password eye; [crossed] draws the slash shown while the password is visible. */
+@Composable
+fun EyeGlyph(crossed: Boolean, modifier: Modifier = Modifier) {
+    val color = MaterialTheme.colorScheme.onSurfaceVariant
+    Canvas(modifier.size(22.dp)) {
+        val unit = size.width / 22f
+        val stroke = Stroke(width = 1.8f * unit, cap = StrokeCap.Round)
+        drawArc(color, startAngle = 200f, sweepAngle = 140f, useCenter = false,
+            topLeft = Offset(1.5f * unit, 4.5f * unit), size = Size(19f * unit, 19f * unit), style = stroke)
+        drawArc(color, startAngle = 20f, sweepAngle = 140f, useCenter = false,
+            topLeft = Offset(1.5f * unit, -1.5f * unit), size = Size(19f * unit, 19f * unit), style = stroke)
+        drawCircle(color, radius = 3f * unit, center = Offset(11f * unit, 11f * unit))
+        if (crossed) drawLine(color, Offset(3.5f * unit, 3.5f * unit), Offset(18.5f * unit, 18.5f * unit),
+            strokeWidth = 1.8f * unit, cap = StrokeCap.Round)
+    }
+}
+
 @Composable
 fun SectionCard(label: String, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Surface(modifier = modifier.fillMaxWidth(), shape = SunprideTokens.shapes.large,
@@ -111,11 +128,12 @@ fun ValueRow(label: String, value: String, modifier: Modifier = Modifier) {
 fun LabeledField(label: String, value: String, onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier, enabled: Boolean = true,
     visualTransformation: androidx.compose.ui.text.input.VisualTransformation = androidx.compose.ui.text.input.VisualTransformation.None,
-    keyboardOptions: androidx.compose.foundation.text.KeyboardOptions = androidx.compose.foundation.text.KeyboardOptions.Default) {
+    keyboardOptions: androidx.compose.foundation.text.KeyboardOptions = androidx.compose.foundation.text.KeyboardOptions.Default,
+    trailingIcon: (@Composable () -> Unit)? = null) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
         OutlinedTextField(value, onValueChange, singleLine = true, enabled = enabled,
-            visualTransformation = visualTransformation, keyboardOptions = keyboardOptions,
+            visualTransformation = visualTransformation, keyboardOptions = keyboardOptions, trailingIcon = trailingIcon,
             modifier = modifier.fillMaxWidth().height(48.dp), shape = SunprideTokens.shapes.small,
             textStyle = MaterialTheme.typography.bodyMedium,
             colors = OutlinedTextFieldDefaults.colors(
