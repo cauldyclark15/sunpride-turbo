@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 7,
-    "identityHash": "2c6ef648b22c33bfe3b3e08a3285606a",
+    "identityHash": "0ff3945e50ecf1100aac1b759eaa43bf",
     "entities": [
       {
         "tableName": "trip",
@@ -1624,11 +1624,120 @@
             "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_cash_reconciliation_fullAuthSubject_deviceId_tripId` ON `${TABLE_NAME}` (`fullAuthSubject`, `deviceId`, `tripId`)"
           }
         ]
+      },
+      {
+        "tableName": "stock_reconciliation",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`fullAuthSubject` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `reconciliationId` TEXT NOT NULL, `tripId` TEXT NOT NULL, `idempotencyKey` TEXT NOT NULL, `linesJson` TEXT NOT NULL, `countCode` TEXT NOT NULL, `varianceLines` INTEGER NOT NULL, `shortBase` INTEGER NOT NULL, `overBase` INTEGER NOT NULL, `note` TEXT, `approvalMethod` TEXT NOT NULL, `approvalCode` TEXT, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`fullAuthSubject`, `deviceId`, `reconciliationId`))",
+        "fields": [
+          {
+            "fieldPath": "fullAuthSubject",
+            "columnName": "fullAuthSubject",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deviceId",
+            "columnName": "deviceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reconciliationId",
+            "columnName": "reconciliationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tripId",
+            "columnName": "tripId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "idempotencyKey",
+            "columnName": "idempotencyKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "linesJson",
+            "columnName": "linesJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "countCode",
+            "columnName": "countCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "varianceLines",
+            "columnName": "varianceLines",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "shortBase",
+            "columnName": "shortBase",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "overBase",
+            "columnName": "overBase",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "note",
+            "columnName": "note",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "approvalMethod",
+            "columnName": "approvalMethod",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "approvalCode",
+            "columnName": "approvalCode",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "fullAuthSubject",
+            "deviceId",
+            "reconciliationId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_stock_reconciliation_fullAuthSubject_deviceId_tripId",
+            "unique": true,
+            "columnNames": [
+              "fullAuthSubject",
+              "deviceId",
+              "tripId"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_stock_reconciliation_fullAuthSubject_deviceId_tripId` ON `${TABLE_NAME}` (`fullAuthSubject`, `deviceId`, `tripId`)"
+          }
+        ]
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '2c6ef648b22c33bfe3b3e08a3285606a')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '0ff3945e50ecf1100aac1b759eaa43bf')"
     ]
   }
 }

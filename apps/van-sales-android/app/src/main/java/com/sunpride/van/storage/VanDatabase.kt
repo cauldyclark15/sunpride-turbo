@@ -223,13 +223,13 @@ abstract class VanDatabase : RoomDatabase() {
                 db.execSQL("CREATE TABLE IF NOT EXISTS `promotion` (`fullAuthSubject` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `promotionId` TEXT NOT NULL, `json` TEXT NOT NULL, PRIMARY KEY(`fullAuthSubject`, `deviceId`, `promotionId`))")
                 db.execSQL("ALTER TABLE sale_line ADD COLUMN freeBase INTEGER")
                 db.execSQL("ALTER TABLE sale_line ADD COLUMN discountMinor INTEGER")
-            }
-        }
-        /** VAN-023 and VAN-024: migrate both additive tables from the pricing-enabled v7 schema. */
-        val MIGRATION_7_8 = object : androidx.room.migration.Migration(7,8) {
-            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("CREATE TABLE IF NOT EXISTS `stock_reconciliation` (`fullAuthSubject` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `reconciliationId` TEXT NOT NULL, `tripId` TEXT NOT NULL, `idempotencyKey` TEXT NOT NULL, `linesJson` TEXT NOT NULL, `countCode` TEXT NOT NULL, `varianceLines` INTEGER NOT NULL, `shortBase` INTEGER NOT NULL, `overBase` INTEGER NOT NULL, `note` TEXT, `approvalMethod` TEXT NOT NULL, `approvalCode` TEXT, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`fullAuthSubject`, `deviceId`, `reconciliationId`))")
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_stock_reconciliation_fullAuthSubject_deviceId_tripId` ON `stock_reconciliation` (`fullAuthSubject`, `deviceId`, `tripId`)")
+            }
+        }
+        /** VAN-024: add the trip-close table after the pricing and stock-reconciliation v7 schema. */
+        val MIGRATION_7_8 = object : androidx.room.migration.Migration(7,8) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("CREATE TABLE IF NOT EXISTS `trip_close` (`fullAuthSubject` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `closeId` TEXT NOT NULL, `tripId` TEXT NOT NULL, `idempotencyKey` TEXT NOT NULL, `exceptionsJson` TEXT NOT NULL, `reviewed` INTEGER NOT NULL, `endOdometerKm` REAL, `note` TEXT, `operationCount` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`fullAuthSubject`, `deviceId`, `closeId`))")
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_trip_close_fullAuthSubject_deviceId_tripId` ON `trip_close` (`fullAuthSubject`, `deviceId`, `tripId`)")
             }
