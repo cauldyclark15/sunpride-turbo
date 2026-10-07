@@ -49,6 +49,20 @@ export const VAN_POLICY = {
   maxStockCountProducts: 500,
 } as const;
 
+/**
+ * VAN-024 what the handheld checks before the seller may close the trip on the phone. Assumed
+ * defaults (the strictest) until Sunpride sets its own: cash and stock must both be counted,
+ * nothing may still be waiting to send (work with no van upload yet stays saved on the phone and is
+ * listed in the close record), and the seller must confirm each open exception (receipts not
+ * printed, items the office refused, cash or stock differences) before closing.
+ */
+export const VAN_TRIP_CLOSE_POLICY = {
+  requireCashCount: true,
+  requireStockCount: true,
+  requireUploadsSent: true,
+  exceptionsNeedReview: true,
+} as const;
+
 /** VAN-023 reasons a seller may give when counted truck stock differs from the expected stock. */
 export const STOCK_VARIANCE_REASONS = [
   "missing",

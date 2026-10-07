@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 8,
-    "identityHash": "0ff3945e50ecf1100aac1b759eaa43bf",
+    "identityHash": "03a52661e09ff2c4fadcc7d015e6b969",
     "entities": [
       {
         "tableName": "trip",
@@ -202,7 +202,7 @@
       },
       {
         "tableName": "customer",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`fullAuthSubject` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `outletId` TEXT NOT NULL, `code` TEXT NOT NULL, `name` TEXT NOT NULL, `address` TEXT, `sequence` INTEGER, `source` TEXT NOT NULL, `reason` TEXT, `localOnly` INTEGER NOT NULL, `creditTermsDays` INTEGER, `creditAvailableMinor` INTEGER, `priceListId` TEXT, `priceListMode` TEXT NOT NULL, PRIMARY KEY(`fullAuthSubject`, `deviceId`, `outletId`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`fullAuthSubject` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `outletId` TEXT NOT NULL, `code` TEXT NOT NULL, `name` TEXT NOT NULL, `address` TEXT, `sequence` INTEGER, `source` TEXT NOT NULL, `reason` TEXT, `localOnly` INTEGER NOT NULL, `creditTermsDays` INTEGER, `creditAvailableMinor` INTEGER, PRIMARY KEY(`fullAuthSubject`, `deviceId`, `outletId`))",
         "fields": [
           {
             "fieldPath": "fullAuthSubject",
@@ -270,17 +270,6 @@
             "fieldPath": "creditAvailableMinor",
             "columnName": "creditAvailableMinor",
             "affinity": "INTEGER"
-          },
-          {
-            "fieldPath": "priceListId",
-            "columnName": "priceListId",
-            "affinity": "TEXT"
-          },
-          {
-            "fieldPath": "priceListMode",
-            "columnName": "priceListMode",
-            "affinity": "TEXT",
-            "notNull": true
           }
         ],
         "primaryKey": {
@@ -844,7 +833,7 @@
       },
       {
         "tableName": "sale_line",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`fullAuthSubject` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `saleId` TEXT NOT NULL, `lineNumber` INTEGER NOT NULL, `productId` TEXT NOT NULL, `quantityBase` INTEGER NOT NULL, `unitPriceMinor` INTEGER, `totalMinor` INTEGER, `freeBase` INTEGER, `discountMinor` INTEGER, PRIMARY KEY(`fullAuthSubject`, `deviceId`, `saleId`, `lineNumber`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`fullAuthSubject` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `saleId` TEXT NOT NULL, `lineNumber` INTEGER NOT NULL, `productId` TEXT NOT NULL, `quantityBase` INTEGER NOT NULL, `unitPriceMinor` INTEGER, `totalMinor` INTEGER, PRIMARY KEY(`fullAuthSubject`, `deviceId`, `saleId`, `lineNumber`))",
         "fields": [
           {
             "fieldPath": "fullAuthSubject",
@@ -890,16 +879,6 @@
           {
             "fieldPath": "totalMinor",
             "columnName": "totalMinor",
-            "affinity": "INTEGER"
-          },
-          {
-            "fieldPath": "freeBase",
-            "columnName": "freeBase",
-            "affinity": "INTEGER"
-          },
-          {
-            "fieldPath": "discountMinor",
-            "columnName": "discountMinor",
             "affinity": "INTEGER"
           }
         ],
@@ -1182,7 +1161,7 @@
       },
       {
         "tableName": "price_list_line",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`fullAuthSubject` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `priceListId` TEXT NOT NULL, `productId` TEXT NOT NULL, `uomCode` TEXT NOT NULL, `unitPriceMinor` INTEGER NOT NULL, `currency` TEXT NOT NULL, `effectiveFrom` INTEGER NOT NULL, `effectiveTo` INTEGER, `priceListCode` TEXT, PRIMARY KEY(`fullAuthSubject`, `deviceId`, `priceListId`, `productId`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`fullAuthSubject` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `priceListId` TEXT NOT NULL, `productId` TEXT NOT NULL, `uomCode` TEXT NOT NULL, `unitPriceMinor` INTEGER NOT NULL, `currency` TEXT NOT NULL, `effectiveFrom` INTEGER NOT NULL, `effectiveTo` INTEGER, PRIMARY KEY(`fullAuthSubject`, `deviceId`, `priceListId`, `productId`))",
         "fields": [
           {
             "fieldPath": "fullAuthSubject",
@@ -1236,11 +1215,6 @@
             "fieldPath": "effectiveTo",
             "columnName": "effectiveTo",
             "affinity": "INTEGER"
-          },
-          {
-            "fieldPath": "priceListCode",
-            "columnName": "priceListCode",
-            "affinity": "TEXT"
           }
         ],
         "primaryKey": {
@@ -1250,44 +1224,6 @@
             "deviceId",
             "priceListId",
             "productId"
-          ]
-        }
-      },
-      {
-        "tableName": "promotion",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`fullAuthSubject` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `promotionId` TEXT NOT NULL, `json` TEXT NOT NULL, PRIMARY KEY(`fullAuthSubject`, `deviceId`, `promotionId`))",
-        "fields": [
-          {
-            "fieldPath": "fullAuthSubject",
-            "columnName": "fullAuthSubject",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "deviceId",
-            "columnName": "deviceId",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "promotionId",
-            "columnName": "promotionId",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "json",
-            "columnName": "json",
-            "affinity": "TEXT",
-            "notNull": true
-          }
-        ],
-        "primaryKey": {
-          "autoGenerate": false,
-          "columnNames": [
-            "fullAuthSubject",
-            "deviceId",
-            "promotionId"
           ]
         }
       },
@@ -1733,11 +1669,102 @@
             "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_stock_reconciliation_fullAuthSubject_deviceId_tripId` ON `${TABLE_NAME}` (`fullAuthSubject`, `deviceId`, `tripId`)"
           }
         ]
+      },
+      {
+        "tableName": "trip_close",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`fullAuthSubject` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `closeId` TEXT NOT NULL, `tripId` TEXT NOT NULL, `idempotencyKey` TEXT NOT NULL, `exceptionsJson` TEXT NOT NULL, `reviewed` INTEGER NOT NULL, `endOdometerKm` REAL, `note` TEXT, `operationCount` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`fullAuthSubject`, `deviceId`, `closeId`))",
+        "fields": [
+          {
+            "fieldPath": "fullAuthSubject",
+            "columnName": "fullAuthSubject",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deviceId",
+            "columnName": "deviceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "closeId",
+            "columnName": "closeId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tripId",
+            "columnName": "tripId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "idempotencyKey",
+            "columnName": "idempotencyKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "exceptionsJson",
+            "columnName": "exceptionsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reviewed",
+            "columnName": "reviewed",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endOdometerKm",
+            "columnName": "endOdometerKm",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "note",
+            "columnName": "note",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "operationCount",
+            "columnName": "operationCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "fullAuthSubject",
+            "deviceId",
+            "closeId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_trip_close_fullAuthSubject_deviceId_tripId",
+            "unique": true,
+            "columnNames": [
+              "fullAuthSubject",
+              "deviceId",
+              "tripId"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_trip_close_fullAuthSubject_deviceId_tripId` ON `${TABLE_NAME}` (`fullAuthSubject`, `deviceId`, `tripId`)"
+          }
+        ]
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '0ff3945e50ecf1100aac1b759eaa43bf')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '03a52661e09ff2c4fadcc7d015e6b969')"
     ]
   }
 }

@@ -61,7 +61,9 @@ data class StockAuthorization(val method: String, val code: String?)
 enum class StockProblem {
     NOT_ON_ROUTE, HELD, ALREADY_COUNTED, EXPECTED_CHANGED, COUNT_INVALID, TOO_MANY_LINES,
     REASON_REQUIRED, NOTE_REQUIRED, NOTE_INVALID, APPROVAL_UNAVAILABLE, CODE_REQUIRED, CODE_WRONG,
-    STOCK_COUNTED
+    STOCK_COUNTED,
+    /** VAN-024: the trip is closed on this phone. */
+    TRIP_CLOSED
 }
 
 class StockRefused(val problem: StockProblem) : IllegalStateException(problem.name)

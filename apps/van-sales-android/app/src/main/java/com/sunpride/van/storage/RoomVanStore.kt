@@ -75,6 +75,10 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
     val stockCounted: Flow<Boolean> = combine(dao.observeTrip(s,d),dao.observeStockReconciliation(s,d)) { trips, rows ->
         trips.singleOrNull()?.let { t -> rows.any { it.tripId == t.tripId } } ?: false
     }
+    /** VAN-024: the current trip is closed on this phone (nothing more is recorded on it). */
+    val tripClosed: Flow<Boolean> = combine(dao.observeTrip(s,d),dao.observeTripClose(s,d)) { trips, rows ->
+        trips.singleOrNull()?.let { t -> rows.any { it.tripId == t.tripId } } ?: false
+    }
     val truckStock: Flow<List<TruckStock>> = combine(dao.observeBaseline(s,d),dao.observeMovement(s,d),dao.observeSettlement(s,d),dao.observeTrip(s,d)) { b,m,settled,t ->
         val trip = t.singleOrNull()?.tripId
         if (trip == null) emptyList() else StockProjection.project(b.filter { it.tripId == trip },m.filter { it.tripId == trip },settled.map { it.movementId }.toSet())
@@ -86,7 +90,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
     suspend fun canRemove(productId: String, qty: Long): Boolean = db.withTransaction {
         val p = dao.meta(s,d)?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)) } ?: return@withTransaction false
         val trip = dao.trip(s,d) ?: return@withTransaction false
-        if (dao.stockReconciliation(s,d,trip.tripId) != null) return@withTransaction false
+        if (dao.stockReconciliation(s,d,trip.tripId) != null || dao.tripClose(s,d,trip.tripId) != null) return@withTransaction false
         dao.productRows(s,d).any { it.productId == productId } && StockProjection.canRemove(stock().firstOrNull { it.productId == productId }?.availableBase ?: 0L,qty,p.allowNegativeStock)
     }
     /** The store's clock, for work saved through companion stores (VAN-019 returns). */
@@ -134,6 +138,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
     }
     suspend fun recordDamage(productId: String, qty: Long, reason: String, note: String?, photoSha256: String? = null): String = db.withTransaction {
         val t = writable()
+        if (dao.tripClose(s,d,t.tripId) != null) throw StockRefused(StockProblem.TRIP_CLOSED)
         if (dao.stockReconciliation(s,d,t.tripId) != null) throw StockRefused(StockProblem.STOCK_COUNTED)
         check(t.status == "active" || dao.outboxRows(s,d).any { it.tripId == t.tripId && it.kind == "trip.start" && it.status in setOf("pending","sending","done") }) { "Trip not active" }
         val policy = VanBootstrapCodec.policy(JSONObject(dao.meta(s,d)!!.policyJson!!))
@@ -158,6 +163,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
             "Load, damage, sale and void use their atomic paths" }
         require(Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$").matches(clientRequestId) && quantityBase != 0L)
         val t = writable()
+        if (dao.tripClose(s,d,t.tripId) != null) throw StockRefused(StockProblem.TRIP_CLOSED)
         if (dao.stockReconciliation(s,d,t.tripId) != null) throw StockRefused(StockProblem.STOCK_COUNTED)
         require(dao.productRows(s,d).any { it.productId == productId })
         if (type == com.sunpride.van.ledger.MovementType.RETURN) require(quantityBase > 0)
@@ -179,9 +185,9 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         dao.insertCustomer(row)
         Customer(row.outletId,row.code,n,null,null,row.source,r,true)
     }
-    /** Same rule as damage: the trip is on route, or its start is saved on this phone. */
-    private suspend fun selling(t: TripRow): Boolean = t.status == "active" ||
-        dao.outboxRows(s,d).any { it.tripId == t.tripId && it.kind == "trip.start" && it.status in setOf("pending","sending","done") }
+    /** Same rule as damage: the trip is on route, or its start is saved on this phone, and it is not closed here (VAN-024). */
+    private suspend fun selling(t: TripRow): Boolean = dao.tripClose(s,d,t.tripId) == null && (t.status == "active" ||
+        dao.outboxRows(s,d).any { it.tripId == t.tripId && it.kind == "trip.start" && it.status in setOf("pending","sending","done") })
 
     /** Checkout context read from this scoped partition; inside [commitSale] it is read in the sale's transaction. */
     suspend fun checkoutContext(): CheckoutContext {
@@ -277,6 +283,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         if (dao.meta(s,d)?.held != false) throw VoidRefused(VoidProblem.HELD)
         val sale = dao.saleRows(s,d).singleOrNull { it.saleId == saleId } ?: throw VoidRefused(VoidProblem.SALE_NOT_FOUND)
         if (dao.trip(s,d)?.tripId != sale.tripId) throw VoidRefused(VoidProblem.NOT_THIS_TRIP)
+        if (dao.tripClose(s,d,sale.tripId) != null && dao.saleVoid(s,d,saleId) == null) throw VoidRefused(VoidProblem.TRIP_CLOSED)
         if (dao.stockReconciliation(s,d,sale.tripId) != null && dao.saleVoid(s,d,saleId) == null) throw VoidRefused(VoidProblem.STOCK_COUNTED)
         if (dao.cashReconciliation(s,d,sale.tripId) != null && dao.saleVoid(s,d,saleId) == null) throw VoidRefused(VoidProblem.CASH_COUNTED)
         dao.saleVoid(s,d,saleId)?.let { prior ->

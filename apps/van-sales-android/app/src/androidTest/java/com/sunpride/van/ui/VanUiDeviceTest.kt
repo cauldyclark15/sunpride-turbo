@@ -725,6 +725,63 @@ class VanUiDeviceTest {
         captureVanScreenshot(rule,"55-stock-count-saved","save-stock")
         assertPrimaryClearance(rule,"save-stock")
     }
+    @Test fun closeTripWaitsForBothCountsThenNeedsTheExceptionsCheckedAndFreezesTheTrip() {
+        mount(); loadAndStart()
+        val juice = c.products.single { it.code == "SP-PJ-1L" }
+        rule.waitUntil(10_000) { c.stock.any { it.productId == juice.productId && it.availableBase > 4 } }
+        testPriceFeed(juice.productId)
+        val customer = c.customers.first { it.source == "route" }
+        // ₱170 cash sale whose receipt never printed (saved through the repository, so nothing prints).
+        runBlocking {
+            c.repository.completeSale(com.sunpride.van.pos.CheckoutRequest(java.util.UUID.randomUUID().toString(),customer.outletId,
+                listOf(com.sunpride.van.pos.CartLine(juice.productId,2)),com.sunpride.van.pos.PaymentInput("cash",17_000)),17_000)
+        }
+        open(Page.HOME)
+        rule.onNodeWithTag("open-close-trip").performScrollTo().assertIsEnabled().performClick()
+        rule.waitUntil(10_000) { c.page == Page.CLOSE_TRIP && c.closeSummary != null }
+        rule.onNodeWithTag("close-step-cash_counted").performScrollTo().assertTextContains("Count the cash",substring = true)
+        rule.onNodeWithTag("close-step-stock_counted").performScrollTo().assertTextContains("Count the truck stock",substring = true)
+        rule.onNodeWithTag("close-go-cash").assertExists(); rule.onNodeWithTag("close-go-stock").assertExists()
+        rule.onNodeWithTag("close-trip").assertIsNotEnabled()
+        captureVanScreenshot(rule,"56-close-trip-checklist","close-trip")
+        assertPrimaryClearance(rule,"close-trip")
+        runBlocking {
+            c.repository.countCash(com.sunpride.van.pos.CashCountRequest(java.util.UUID.randomUUID().toString(),mapOf(10_000L to 1L,5_000L to 1L,2_000L to 1L),
+                null,null,null,17_000))
+            val stock = c.repository.stockSummary()!!
+            c.repository.countStock(com.sunpride.van.pos.StockCountRequest(java.util.UUID.randomUUID().toString(),
+                stock.lines.map { com.sunpride.van.pos.StockCountLine(it.productId,it.status,it.expectedBase,it.expectedBase) }))
+        }
+        open(Page.HOME); open(Page.CLOSE_TRIP)
+        rule.waitUntil(10_000) { c.closeSummary?.checklist?.ready == true }
+        rule.onNodeWithTag("close-step-cash_counted").performScrollTo().assertTextContains("Cash counted",substring = true)
+        rule.onNodeWithTag("close-exception-unprinted_receipts").performScrollTo().assertTextEquals("1 receipt not printed")
+        rule.onNodeWithTag("close-go-receipts").assertExists()
+        rule.onNodeWithTag("close-trip").assertIsNotEnabled()
+        rule.onNodeWithTag("close-reviewed").performScrollTo().performClick()
+        rule.onNodeWithTag("close-odometer").performScrollTo().performTextInput("1234.5"); hideKeyboard()
+        rule.onNodeWithTag("close-trip").assertIsEnabled()
+        assertPrimaryClearance(rule,"close-trip")
+        captureVanScreenshot(rule,"57-close-trip-review","close-trip")
+        rule.onNodeWithTag("close-trip").performClick()
+        rule.waitUntil(10_000) { !c.busy && c.closeSummary?.saved != null }
+        rule.onNodeWithTag("close-saved").assertTextEquals("Closed on this phone")
+        rule.onNodeWithTag("close-saved-reviewed").performScrollTo().assertExists()
+        rule.onNodeWithTag("close-saved-records").performScrollTo().assertTextContains("records from this trip saved for the office",substring = true)
+        captureVanScreenshot(rule,"58-close-trip-saved","close-trip")
+        assertPrimaryClearance(rule,"close-trip")
+        rule.waitUntil(10_000) { c.tripClosed }
+        rule.onNodeWithTag("close-trip").performClick()
+        rule.waitUntil(5_000) { c.page == Page.HOME }
+        rule.onNodeWithTag("trip-status").assertTextEquals("Closed on this phone")
+        rule.onNodeWithTag("new-sale").performScrollTo()
+        rule.onNodeWithText("Trip closed — no more sales on this trip").assertExists()
+        rule.onNodeWithTag("new-sale").performClick(); rule.waitForIdle()
+        assertEquals(Page.HOME,c.page)
+        captureVanScreenshot(rule,"59-home-trip-closed","home-primary")
+        // Parked like the counts: saved on this phone, never queued for the gateway.
+        assertEquals(0,c.sync.queued)
+    }
     @Test fun fullScreenScreenshotTour() {
         mount(restore = false,fixtureMode = false)
         rule.onNodeWithTag("configuration-warning").assertExists()

@@ -4,7 +4,7 @@ import com.sunpride.van.data.*
 import java.math.BigDecimal
 import java.math.MathContext
 
-enum class Page { HOME, LOAD, START, STOCK, STOCK_COUNT, CUSTOMERS, WALK_IN, CUSTOMER, PRINTER, PRODUCTS, SALE, CHECKOUT, SALE_DONE, RECEIPTS, RETURN, RETURN_DONE, CASH }
+enum class Page { HOME, LOAD, START, STOCK, STOCK_COUNT, CUSTOMERS, WALK_IN, CUSTOMER, PRINTER, PRODUCTS, SALE, CHECKOUT, SALE_DONE, RECEIPTS, RETURN, RETURN_DONE, CASH, CLOSE_TRIP }
 data class NextAction(val page: Page, val label: String)
 
 /** Display/validation only. The repository repeats every business check transactionally. */
@@ -38,6 +38,8 @@ object VanRules {
     fun parseQuantity(text: String, scale: Long): Long? = try {
         if (scale <= 0 || text.isBlank()) null else BigDecimal(text.trim()).multiply(BigDecimal.valueOf(scale)).longValueExact().takeIf { it in 0..MAX_BASE }
     } catch (_: ArithmeticException) { null } catch (_: NumberFormatException) { null }
+    /** An odometer reading in km without trailing zeros ("12345.6"). */
+    fun km(value: Double): String = BigDecimal(value.toString()).stripTrailingZeros().toPlainString()
     fun reasonRequired(expected: Long, actual: Long?): Boolean = actual != null && actual != expected
     fun canStart(trip: Trip?, truck: Boolean, route: Boolean): Boolean = trip?.status == "loaded" && !trip.startPending && truck && route && trip.vehicle != null && trip.route != null
     fun canConfirm(trip: Trip?, load: Load?): Boolean = trip?.status == "loading" && load?.status == "planned" && !load.confirmPending
@@ -117,6 +119,7 @@ object VanRules {
         com.sunpride.van.pos.VoidProblem.CODE_WRONG -> "That code does not match. Check the receipt number, total and reason with your supervisor."
         com.sunpride.van.pos.VoidProblem.CASH_COUNTED -> "The cash for this trip is already counted, so sales can no longer be voided. Ask the office."
         com.sunpride.van.pos.VoidProblem.STOCK_COUNTED -> "Truck stock is already counted, so sales can no longer be voided. Ask the office."
+        com.sunpride.van.pos.VoidProblem.TRIP_CLOSED -> "This trip is closed, so sales can no longer be voided. Ask the office."
     }
     /** VAN-022: plain words for each cash count refusal. */
     fun cashMessage(problem: com.sunpride.van.pos.CashProblem): String = when (problem) {
@@ -148,6 +151,38 @@ object VanRules {
         com.sunpride.van.pos.StockProblem.CODE_REQUIRED -> "Enter the 8-digit code from your supervisor."
         com.sunpride.van.pos.StockProblem.CODE_WRONG -> "That code does not match. Check the trip, count code and stock totals with your supervisor."
         com.sunpride.van.pos.StockProblem.STOCK_COUNTED -> "Truck stock is already counted. No more stock changes on this trip."
+        com.sunpride.van.pos.StockProblem.TRIP_CLOSED -> "This trip is closed. No more stock changes on this trip."
+    }
+    /** VAN-024: plain words for each trip close refusal. */
+    fun closeMessage(problem: com.sunpride.van.pos.CloseProblem): String = when (problem) {
+        com.sunpride.van.pos.CloseProblem.NOT_ON_ROUTE -> "Start the trip before closing it."
+        com.sunpride.van.pos.CloseProblem.HELD -> "Sign in and sync before closing the trip."
+        com.sunpride.van.pos.CloseProblem.ALREADY_CLOSED -> "This trip is already closed on this phone."
+        com.sunpride.van.pos.CloseProblem.CASH_NOT_COUNTED -> "Count the cash first."
+        com.sunpride.van.pos.CloseProblem.STOCK_NOT_COUNTED -> "Count the truck stock first."
+        com.sunpride.van.pos.CloseProblem.UPLOADS_WAITING -> "Some work is still waiting to send. Tap Sync now with signal, then close the trip."
+        com.sunpride.van.pos.CloseProblem.SALES_STOCK_DISAGREE -> "Sales and truck stock on this phone do not agree. Call the office before closing."
+        com.sunpride.van.pos.CloseProblem.REVIEW_REQUIRED -> "Check the items below and tick the box before closing."
+        com.sunpride.van.pos.CloseProblem.EXCEPTIONS_CHANGED -> "Something changed while you were checking. Look at the items again and tick the box."
+        com.sunpride.van.pos.CloseProblem.CLOSE_INVALID -> "Could not close the trip. Go back and try again."
+        com.sunpride.van.pos.CloseProblem.ODOMETER_INVALID -> "Enter the end odometer in km, not lower than at the start."
+        com.sunpride.van.pos.CloseProblem.NOTE_INVALID -> "Use plain text for the note (300 characters at most)."
+    }
+    /** VAN-024 checklist line: what is done, or what to do next. */
+    fun closeStepLabel(step: com.sunpride.van.pos.CloseStepState): String = when (step.step) {
+        com.sunpride.van.pos.CloseStep.TRIP_STARTED -> if (step.done) "Trip started" else "Start the trip first"
+        com.sunpride.van.pos.CloseStep.PHONE_ACTIVE -> if (step.done) "Signed in on this phone" else "Sign in and sync"
+        com.sunpride.van.pos.CloseStep.CASH_COUNTED -> if (step.done) "Cash counted" else if (step.required) "Count the cash" else "Cash not counted (not required)"
+        com.sunpride.van.pos.CloseStep.STOCK_COUNTED -> if (step.done) "Truck stock counted" else if (step.required) "Count the truck stock" else "Stock not counted (not required)"
+        com.sunpride.van.pos.CloseStep.UPLOADS_SENT -> if (step.done) "Nothing waiting to send" else "${step.count} waiting to send — sync with signal" + if (step.required) "" else " (not required)"
+        com.sunpride.van.pos.CloseStep.SALES_MATCH_STOCK -> if (step.done) "Sales match truck stock" else "${step.count} sales and stock problems — call the office"
+    }
+    /** VAN-024 exception line shown before closing. */
+    fun closeExceptionLabel(e: com.sunpride.van.pos.CloseException, currency: String = "PHP"): String = when (e.kind) {
+        com.sunpride.van.pos.CloseExceptionKind.UNPRINTED_RECEIPTS -> "${e.amount} ${if (e.amount == 1L) "receipt" else "receipts"} not printed"
+        com.sunpride.van.pos.CloseExceptionKind.OFFICE_REFUSED -> "${e.amount} ${if (e.amount == 1L) "item" else "items"} refused by the office — tell your supervisor"
+        com.sunpride.van.pos.CloseExceptionKind.CASH_DIFFERENCE -> "Cash ${varianceLabel(e.amount,currency)}"
+        com.sunpride.van.pos.CloseExceptionKind.STOCK_DIFFERENCE -> "Stock count: ${e.amount} ${if (e.amount == 1L) "line" else "lines"} differed"
     }
     /** "Matches", "₱120.00 short" or "₱50.00 over". */
     fun varianceLabel(varianceMinor: Long, currency: String): String = when {

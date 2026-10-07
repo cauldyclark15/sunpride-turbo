@@ -32,6 +32,7 @@ import {
   VAN_PAYMENT_METHODS,
   VAN_POLICY,
   type VanOperationKind,
+  VAN_TRIP_CLOSE_POLICY,
   VOID_REASONS,
 } from "./model";
 import { cashReconciliationPolicy } from "./cash";
@@ -412,6 +413,8 @@ async function policyView(
     cashReconciliation: await cashReconciliationPolicy(tripId),
     // VAN-023: end-of-trip stock count — variance reasons, approval rule and trip key.
     stockReconciliation: await stockReconciliationPolicy(tripId),
+    // VAN-024: what must be done on the handheld before the seller closes the trip.
+    tripClose: { ...VAN_TRIP_CLOSE_POLICY },
   };
 }
 

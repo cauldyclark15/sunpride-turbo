@@ -9,7 +9,16 @@ data class VanPolicy(val allowNegativeStock: Boolean = false,
     val paymentMethods: List<PaymentMethod> = PaymentMethod.CASH_ONLY, val damagePolicy: DamagePolicy? = null,
     val voidReasons: List<String> = emptyList(), val voidApproval: VoidApproval? = null,
     val cashReconciliation: CashReconciliationPolicy? = null,
-    val stockReconciliation: StockReconciliationPolicy? = null)
+    val stockReconciliation: StockReconciliationPolicy? = null,
+    val tripClose: TripClosePolicy? = null)
+/**
+ * VAN-024 what must be done before the seller closes the trip on this phone. A policy cached before VAN-024 has
+ * none and then [STRICT] applies: every check on.
+ */
+data class TripClosePolicy(val requireCashCount: Boolean, val requireStockCount: Boolean, val requireUploadsSent: Boolean,
+    val exceptionsNeedReview: Boolean) {
+    companion object { val STRICT = TripClosePolicy(true,true,true,true) }
+}
 data class VoidApproval(val required: Boolean, val thresholdMinor: Long, val key: String?)
 /**
  * VAN-022 end-of-trip cash count: any difference needs one of [reasons]; when [approvalRequired] a difference of more

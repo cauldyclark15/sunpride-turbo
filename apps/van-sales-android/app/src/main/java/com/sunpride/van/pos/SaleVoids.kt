@@ -42,6 +42,8 @@ enum class VoidProblem { VOID_UNAVAILABLE, SALE_NOT_FOUND, NOT_THIS_TRIP, HELD, 
     NOTE_REQUIRED, NOTE_INVALID, APPROVAL_UNAVAILABLE, CODE_REQUIRED, CODE_WRONG,
     /** VAN-022: the trip's cash is counted; a void now would change the cash the count was approved against. */
     CASH_COUNTED,
+    /** VAN-024: the trip is closed on this phone. */
+    TRIP_CLOSED,
     /** VAN-023: the approved physical count freezes every stock-changing action. */
     STOCK_COUNTED }
 class VoidRefused(val problem: VoidProblem) : IllegalStateException(problem.name)

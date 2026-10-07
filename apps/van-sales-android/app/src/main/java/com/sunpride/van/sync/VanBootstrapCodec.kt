@@ -19,7 +19,9 @@ object VanBootstrapCodec {
         o.optJSONObject("cashReconciliation")?.let { CashReconciliationPolicy(it.getBoolean("approvalRequired"),base(it,"toleranceMinor"),
             strings(it.getJSONArray("reasons")),nullable(it,"key")) },
         o.optJSONObject("stockReconciliation")?.let { StockReconciliationPolicy(it.getBoolean("approvalRequired"),
-            strings(it.getJSONArray("reasons")),nullable(it,"key")) })
+            strings(it.getJSONArray("reasons")),nullable(it,"key")) },
+        o.optJSONObject("tripClose")?.let { TripClosePolicy(it.getBoolean("requireCashCount"),it.getBoolean("requireStockCount"),
+            it.getBoolean("requireUploadsSent"),it.getBoolean("exceptionsNeedReview")) })
     /** VAN-012: optional; a policy cached before it (or an older server) allows cash only. */
     fun paymentMethods(a: JSONArray): List<PaymentMethod> {
         val methods = objects(a).map { PaymentMethod(it.getString("code"), it.getString("label"), PaymentKind.of(it.getString("kind")),

@@ -32,7 +32,7 @@ import java.time.format.DateTimeFormatter
         } else {
             SectionCard("Your trip") {
                 Text(trip.tripNumber,style = MaterialTheme.typography.titleMedium,modifier = Modifier.testTag("trip-number"))
-                Text(VanRules.status(trip,c.load),style = MaterialTheme.typography.titleLarge,modifier = Modifier.testTag("trip-status"))
+                Text(if (c.tripClosed) "Closed on this phone" else VanRules.status(trip,c.load),style = MaterialTheme.typography.titleLarge,modifier = Modifier.testTag("trip-status"))
                 Text(trip.vehicle?.let { "Truck ${it.vehicleCode} · ${it.plateNumber}" } ?: "Truck not assigned")
                 Text(trip.route?.let { "Route · ${it.name}" } ?: "Route not assigned")
                 Text(listOfNotNull(c.seller?.name,trip.driverName?.let { "Driver: $it" },trip.helperName?.let { "Helper: $it" }).joinToString("\n"),style = MaterialTheme.typography.bodyMedium)
@@ -43,17 +43,21 @@ import java.time.format.DateTimeFormatter
             ListRow("Receipts","Print or reprint a receipt from this trip","open-receipts",onClick = { c.open(Page.RECEIPTS) })
             ListRow("Printer & scanner","Check the printer and paper","open-printer",onClick = { c.open(Page.PRINTER) })
             ListRow("Sync now","Send saved work and check for changes","sync-now",onClick = c::syncNow,enabled = !c.busy)
-            val selling = VanRules.canSell(trip) && !c.cashCounted && !c.stockCounted
+            val selling = VanRules.canSell(trip) && !c.cashCounted && !c.stockCounted && !c.tripClosed
             if (c.sale != null && selling) ListRow("Continue sale",c.sale!!.customer.name,"new-sale",enabled = !c.busy,onClick = c::continueSale)
-            else ListRow("New sale",when { c.cashCounted -> "Cash counted — no more sales on this trip"; c.stockCounted -> "Stock counted — no more sales on this trip"; selling -> "Choose the customer, then add products"; else -> "Start the trip to sell" },
+            else ListRow("New sale",when { c.tripClosed -> "Trip closed — no more sales on this trip"; c.cashCounted -> "Cash counted — no more sales on this trip"; c.stockCounted -> "Stock counted — no more sales on this trip"; selling -> "Choose the customer, then add products"; else -> "Start the trip to sell" },
                 "new-sale",enabled = selling && !c.busy,onClick = { c.open(Page.CUSTOMERS) })
             // VAN-022: end of trip. Open once the trip is on the road; after saving it shows the count.
-            val countable = c.cashCounted || VanRules.canCountCash(trip)
+            val countable = c.cashCounted || VanRules.canCountCash(trip) && !c.tripClosed
             ListRow("Count cash",if (c.cashCounted) "Counted — see the result" else if (countable) "End of trip: count the cash you collected" else "Start the trip first",
                 "open-cash",enabled = countable && !c.busy,onClick = { c.open(Page.CASH) })
-            val stockCountable = c.stockCounted || VanRules.canCountStock(trip)
+            val stockCountable = c.stockCounted || VanRules.canCountStock(trip) && !c.tripClosed
             ListRow("Count stock",if (c.stockCounted) "Stock counted — see the result" else if (stockCountable) "End of trip: compare truck stock with the physical count" else "Start the trip first",
                 "open-stock-count",enabled = stockCountable && !c.busy,onClick = { c.open(Page.STOCK_COUNT) })
+            // VAN-024: last step of the day. Opens once the trip is on the road; after closing it shows the close.
+            val closable = c.tripClosed || VanRules.canCountCash(trip)
+            ListRow("Close trip",when { c.tripClosed -> "Closed — see the close"; closable -> "End of trip: check everything, then close"; else -> "Start the trip first" },
+                "open-close-trip",enabled = closable && !c.busy,onClick = { c.open(Page.CLOSE_TRIP) })
         }
         val context = LocalContext.current
         c.features.reportIssueUrl?.let { url -> ListRow("Report an issue","Tell the Sunpride team what went wrong","report-issue",onClick = { openLink(context,url) }) }

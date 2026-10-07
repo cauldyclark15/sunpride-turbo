@@ -29,7 +29,7 @@ class ReturnStore(private val store: RoomVanStore) {
     private suspend fun tripOpen(): Boolean {
         val t = dao.trip(s, d) ?: return false
         if (dao.meta(s, d)?.held != false) return false
-        if (dao.stockReconciliation(s, d, t.tripId) != null) return false
+        if (dao.stockReconciliation(s, d, t.tripId) != null || dao.tripClose(s, d, t.tripId) != null) return false
         return t.status == "active" || dao.outboxRows(s, d).any { it.tripId == t.tripId && it.kind == "trip.start" && it.status in setOf("pending", "sending", "done") }
     }
 
