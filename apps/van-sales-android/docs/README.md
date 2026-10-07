@@ -8,6 +8,7 @@ Separate native app for truck sellers (PMOT, PMOT Extruck, RDS) per ADR-010 and 
 | [ARCHITECTURE.md](ARCHITECTURE.md)               | Packages, `VanRepository` API, encrypted Room DB, truck-stock ledger, transaction ids, sync engine |
 | [PRINTER_AND_SCANNER.md](PRINTER_AND_SCANNER.md) | Recovered Senraise printer AIDL, printer abstraction, scanner modes, camera fallback               |
 | [SCREENS.md](SCREENS.md)                         | Screens and screenshot verdicts                                                                    |
+| [beta.md](beta.md)                               | Beta APK: hidden features, signing key, `bun run apk:van-beta`, logo/splash, install and proof     |
 
 Root check: `bun run native:van` (assemble, JVM tests and lint, then device tests on the H10P through the lock-guarded runner; skips the device step when the handheld is absent).
 
@@ -28,7 +29,7 @@ From `_handoffs/sunpride-van-sales-questions.md`, "What we plan today":
 
 ## What is stubbed or not built yet
 
-- **Selling, payments, returns, voids, end-of-day cash/stock count**: tables exist in the encrypted DB (VAN-002); screens and sync operations are the next lane. The home screen shows "Selling comes in the next update".
+- **Returns, voids, end-of-day cash/stock count**: tables exist in the encrypted DB (VAN-002); screens and sync operations are the next lane. Sales (VAN-011/012) are saved on the phone but not yet uploaded; the beta build shows them too ([beta.md](beta.md)).
 - **Prices**: optional governed `priceLines` from the bootstrap replace the scope's `price_list_line` snapshot atomically; omission or an empty feed clears cached prices. Find product shows the effective selling-unit price (practice prices: ₱68.50 and ₱42.75 per PC); missing, expired or conflicting prices still say "Priced by the office". Optional `promotions` are schema-validated but not stored or applied yet (SP-0105).
 - **Live backend**: the van functions are not deployed to the shared DEV deployment (the lead deploys after merge). Device tests and screenshots use the DEBUG-only practice backend (`VAN_STUB_BACKEND`) serving `fixtures/van-v1`; no live sign-in → bootstrap → push run has been made.
 - **Office screens**: no web UI for vehicles/trips/load sheets/approval; use the Convex functions `van/vehicles:create`, `van/trips:plan`, `van/loads:plan`, `van/loads:approve`, `van/trips:returnLeftover`, `van/trips:close`.

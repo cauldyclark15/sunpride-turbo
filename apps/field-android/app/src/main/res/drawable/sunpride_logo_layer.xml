@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SP-0126: the client's logo on its own red, used as the adaptive-icon BACKGROUND and the Android 12+
+     splash icon. Both canvases show only their central two thirds (72dp of the 108dp adaptive canvas;
+     192dp of the 288dp splash icon), so the logo is inset by one sixth per side: it fills exactly that
+     visible area and the wordmark (6%..73% across, centre band) stays inside the mask circle instead of
+     losing its "s". The red margin is only revealed by launcher parallax/zoom. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/sunpride_red" />
+    <item>
+        <inset android:drawable="@drawable/sunpride_logo_icon" android:inset="16.6667%" />
+    </item>
+</layer-list>

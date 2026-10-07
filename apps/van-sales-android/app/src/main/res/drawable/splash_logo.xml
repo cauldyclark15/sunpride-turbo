@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SP-0125 splash icon: the client's logo inside the 192dp circle of the 288dp splash icon area. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/sunpride_logo"
+    android:inset="48dp" />

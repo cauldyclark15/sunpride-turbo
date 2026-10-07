@@ -1,6 +1,7 @@
 package com.sunpride.van.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -10,6 +11,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.*
@@ -54,11 +61,36 @@ import androidx.compose.ui.unit.dp
         }
     }
 }
+/** SP-0125 show/hide password eye; [crossed] draws the slash shown while the password is visible. */
+@Composable fun EyeGlyph(crossed: Boolean, modifier: Modifier = Modifier) {
+    val color = MaterialTheme.colorScheme.onSurfaceVariant
+    Canvas(modifier.size(24.dp)) {
+        val unit = size.width / 22f
+        val stroke = Stroke(width = 1.8f * unit, cap = StrokeCap.Round)
+        drawArc(color, startAngle = 200f, sweepAngle = 140f, useCenter = false,
+            topLeft = Offset(1.5f * unit, 4.5f * unit), size = Size(19f * unit, 19f * unit), style = stroke)
+        drawArc(color, startAngle = 20f, sweepAngle = 140f, useCenter = false,
+            topLeft = Offset(1.5f * unit, -1.5f * unit), size = Size(19f * unit, 19f * unit), style = stroke)
+        drawCircle(color, radius = 3f * unit, center = Offset(11f * unit, 11f * unit))
+        if (crossed) drawLine(color, Offset(3.5f * unit, 3.5f * unit), Offset(18.5f * unit, 18.5f * unit),
+            strokeWidth = 1.8f * unit, cap = StrokeCap.Round)
+    }
+}
+/** Accessible label of the password eye: what pressing it does. */
+fun passwordToggleLabel(revealed: Boolean): String = if (revealed) "Hide password" else "Show password"
+/** [onToggleReveal] adds the eye button to a password field; the caller owns [revealed] (never saved). */
 @Composable fun LabeledField(label: String, value: String, onChange: (String) -> Unit, tag: String,
-    numeric: Boolean = false, password: Boolean = false, enabled: Boolean = true, maxLength: Int = 300) {
+    numeric: Boolean = false, password: Boolean = false, enabled: Boolean = true, maxLength: Int = 300,
+    revealed: Boolean = false, onToggleReveal: (() -> Unit)? = null) {
     OutlinedTextField(value, { if (it.length <= maxLength) onChange(it) }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag(tag),
         label = { Text(label) }, singleLine = true, enabled = enabled,
-        visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
+        visualTransformation = if (password && !revealed) PasswordVisualTransformation() else VisualTransformation.None,
+        trailingIcon = if (password && onToggleReveal != null) ({
+            val description = passwordToggleLabel(revealed)
+            IconButton(onToggleReveal, Modifier.size(56.dp).testTag("$tag-toggle").semantics { contentDescription = description }) {
+                EyeGlyph(crossed = revealed)
+            }
+        }) else null,
         keyboardOptions = KeyboardOptions(keyboardType = when { password -> KeyboardType.Password; numeric -> KeyboardType.Decimal; tag == "email" -> KeyboardType.Email; else -> KeyboardType.Text }),
         shape = SunprideTokens.shapes.small, textStyle = MaterialTheme.typography.bodyLarge,
         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = MaterialTheme.colorScheme.onSurface,

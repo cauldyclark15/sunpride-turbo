@@ -16,6 +16,21 @@ fun endpoint(key: String): String = (providers.gradleProperty(key).orNull
     ?: local.getProperty(key)
     ?: "").trim()
 fun quoted(value: String) = "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+fun homePath(path: String) = if (path.startsWith("~/")) System.getProperty("user.home") + path.substring(1) else path
+
+// SP-0125 beta: endpoints fall back to DEV (with a build warning) until a beta deployment exists.
+val betaRequested = gradle.startParameter.taskNames.any { it.contains("beta", ignoreCase = true) }
+val betaBuild = endpoint("SUNPRIDE_BETA_BUILD").ifEmpty { "1" }.toIntOrNull()?.takeIf { it in 1..9999 }
+    ?: error("SUNPRIDE_BETA_BUILD must be a whole number from 1 to 9999")
+fun betaEndpoint(key: String): String = endpoint("SUNPRIDE_BETA_$key").ifEmpty {
+    if (betaRequested) logger.warn("WARNING: SUNPRIDE_BETA_$key is not set; the van beta build uses the DEV value.")
+    endpoint("SUNPRIDE_DEV_$key")
+}
+// The beta signing key lives OUTSIDE the repo; this properties file (chmod 600) holds its path and password.
+val betaSigning = Properties().apply {
+    val file = File(homePath(endpoint("SUNPRIDE_VAN_BETA_SIGNING_PROPERTIES").ifEmpty { "~/.sunpride-keys/van-beta.properties" }))
+    if (file.exists()) file.inputStream().use { load(it) }
+}
 
 // Sunpride Van Sales POS (ADR-010): its own app, never the field app with POS switched on.
 // Same Convex deployment endpoints as the field app (SUNPRIDE_<FLAVOR>_CONVEX_*).
@@ -41,9 +56,35 @@ android {
                 resValue("string", "app_name", "Sunpride Van (${name.replaceFirstChar { it.uppercase() }})")
                 buildConfigField("String", "CONVEX_SITE_URL", quoted(endpoint("SUNPRIDE_${name.uppercase()}_CONVEX_SITE_URL")))
                 buildConfigField("String", "CONVEX_URL", quoted(endpoint("SUNPRIDE_${name.uppercase()}_CONVEX_URL")))
+                buildConfigField("String", "WEB_URL", quoted(endpoint("SUNPRIDE_${name.uppercase()}_WEB_URL")))
+                buildConfigField("boolean", "BETA", "false")
             }
         }
+        // SP-0125: the hand-delivered tester build. Release only (see androidComponents below).
+        create("beta") {
+            dimension = "environment"
+            applicationIdSuffix = ".beta"
+            versionCode = betaBuild
+            versionName = "1.0.0-beta.$betaBuild"
+            resValue("string", "app_name", "Sunpride Van Sales (Beta)")
+            buildConfigField("String", "CONVEX_SITE_URL", quoted(betaEndpoint("CONVEX_SITE_URL")))
+            buildConfigField("String", "CONVEX_URL", quoted(betaEndpoint("CONVEX_URL")))
+            // "Report an issue" opens <web>/issues/new; hidden when this is empty.
+            buildConfigField("String", "WEB_URL", quoted(endpoint("SUNPRIDE_BETA_WEB_URL")))
+            buildConfigField("boolean", "BETA", "true")
+        }
     }
+    signingConfigs {
+        if (betaSigning.getProperty("storeFile") != null) create("beta") {
+            storeFile = File(homePath(betaSigning.getProperty("storeFile")))
+            storePassword = betaSigning.getProperty("storePassword")
+            keyAlias = betaSigning.getProperty("keyAlias")
+            keyPassword = betaSigning.getProperty("keyPassword")
+        }
+    }
+    // Only betaRelease takes the beta key; without the key file the APK stays unsigned and the
+    // build script refuses to publish it.
+    productFlavors.getByName("beta").signingConfig = signingConfigs.findByName("beta")
     buildTypes {
         release { isMinifyEnabled = false }
     }

@@ -25,10 +25,12 @@ object StockProjection {
 class TruckStockLedger(private val store: RoomVanStore, private val afterEnqueue: () -> Unit = {}) {
     suspend fun projection(): List<TruckStock> = store.stock()
     suspend fun canRemove(productId: String, qty: Long): Boolean = store.canRemove(productId,qty)
-    /** Local sale/return/transfer/adjustment hook for later lanes; no unsupported gateway op is fabricated. */
+    /** Local return/transfer/adjustment hook for later lanes; no unsupported gateway op is fabricated. Sales deduct only through checkout. */
     suspend fun recordLocalMovement(type: MovementType, productId: String, stockStatus: StockStatus,
         quantityBase: Long, reason: String?, clientRequestId: String): String =
         store.recordLocalMovement(type,productId,stockStatus,quantityBase,reason,clientRequestId)
+    /** VAN-018: empty when every saved sale and its truck-stock deduction agree. */
+    suspend fun saleStockIssues(): List<SaleStockIssue> = store.saleStockIssues()
     /** Available → damaged transfer plus immutable operation bytes in ONE Room transaction. */
     suspend fun recordDamage(productId: String, qty: Long, reason: String, note: String? = null): String {
         val id = store.recordDamage(productId,qty,reason,note)
