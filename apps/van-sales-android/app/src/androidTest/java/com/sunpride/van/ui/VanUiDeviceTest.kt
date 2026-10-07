@@ -82,6 +82,28 @@ class VanUiDeviceTest {
         ready()
         rule.onNodeWithTag("trip-number").assertTextEquals("TRIP-20261007-V014-1")
     }
+    // SP-0130: a wrong password or no connection reads as plain words, and the seller stays on Sign in.
+    @Test fun wrongPasswordAndOfflineShowPlainSignInMessages() {
+        mount(restore = false)
+        fun attempt(password: String, expected: String) {
+            rule.onNodeWithTag("email").performTextClearance()
+            rule.onNodeWithTag("email").performTextInput("seller@fixture.invalid")
+            rule.onNodeWithTag("password").performTextInput(password)
+            hideKeyboard()
+            rule.onNodeWithTag("sign-in").performClick()
+            rule.waitUntil(10_000) { !c.busy && c.message == expected }
+            rule.onNodeWithTag("message").assertTextEquals(expected)
+            assertFalse(c.session.signedIn)
+            rule.onNodeWithTag("sign-in").assertExists()
+        }
+        attempt(VanRepository.STUB_WRONG_PASSWORD,"Incorrect email or password.")
+        captureVanScreenshot(rule,"sp-0130-wrong-password","sign-in")
+        attempt(VanRepository.STUB_OFFLINE_PASSWORD,"You're offline. Check your connection and try again.")
+        // The right password still signs in afterwards.
+        rule.onNodeWithTag("password").performTextInput("practice"); hideKeyboard()
+        rule.onNodeWithTag("sign-in").performClick()
+        ready()
+    }
     @Test fun homeRendersFixtureAndSafePrimaryBounds() {
         mount()
         rule.onNodeWithTag("trip-number").assertTextEquals("TRIP-20261007-V014-1")
