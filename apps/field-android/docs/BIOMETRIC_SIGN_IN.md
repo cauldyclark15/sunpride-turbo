@@ -21,7 +21,9 @@ Android field app only (`apps/field-android`).
 - **Too many tries.** "Too many tries. Sign in with your password." The fingerprint sign-in stays on.
 - **Account → Sign-in.** A switch turns it on or off. Off moves the session back to the ordinary store with
   no prompt; on asks for the prompt once.
-- **Sign out** deletes the session, the sealed copy and the biometric key.
+- **Sign out** deletes the session, the sealed copy and the biometric key. This always runs, even when
+  clearing the phone's saved day (encrypted cache) or its cache index fails first: `signOutTeardown`
+  runs every step and reports the first failure afterwards.
 
 ## How it works
 
@@ -77,7 +79,9 @@ data for it) until the person opens the app again, which schedules them.
   `independent/review/IndependentBiometricPersistenceTest` (the second release check's 12 probes, verbatim:
   production vault/gate/AuthClient over preference files that refuse writes while old data stays readable)
   and `BiometricKeyConfigTest`
-  (key and prompt accept strong biometric only, never the screen lock).
+  (key and prompt accept strong biometric only, never the screen lock), and `ui/SignOutTeardownTest`
+  (the real sign-out body and controller: a failing cache purge or index clear still wipes the session,
+  sealed copy and key; a cold start cannot reopen the old account).
 - Phone (`~/.hermes/scripts/sunpride-android-phone-test.sh <worktree>`):
   `BiometricSignInUiTest` (the real `FieldApp` with the prompt seam: eye toggle and re-hide on leaving,
   offer → on → Account off, Not now, locked launch → Today, cancel → password → retry, prompt stuck →
