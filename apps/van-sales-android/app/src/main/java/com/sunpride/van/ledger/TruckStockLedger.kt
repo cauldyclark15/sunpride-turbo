@@ -30,8 +30,8 @@ class TruckStockLedger(private val store: RoomVanStore, private val afterEnqueue
         quantityBase: Long, reason: String?, clientRequestId: String): String =
         store.recordLocalMovement(type,productId,stockStatus,quantityBase,reason,clientRequestId)
     /** Available → damaged transfer plus immutable operation bytes in ONE Room transaction. */
-    suspend fun recordDamage(productId: String, qty: Long, reason: String, note: String? = null): String {
-        val id = store.recordDamage(productId,qty,reason,note)
+    suspend fun recordDamage(productId: String, qty: Long, reason: String, note: String? = null, photoSha256: String? = null): String {
+        val id = store.recordDamage(productId,qty,reason,note,photoSha256)
         afterEnqueue()
         return id
     }

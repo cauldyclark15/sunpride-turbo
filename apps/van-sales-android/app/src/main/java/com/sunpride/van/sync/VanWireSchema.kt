@@ -36,30 +36,63 @@ internal object VanWireSchema {
         }
         if (value is String && (value.length < rule.optInt("minLength", 0) || value.length > rule.optInt("maxLength", Int.MAX_VALUE) || rule.has("pattern") && !Regex(rule.getString("pattern")).containsMatchIn(value))) return false
         if (value is Number && rule.has("minimum") && value.toDouble() < rule.getDouble("minimum")) return false
+        if (value is Number && rule.has("maximum") && value.toDouble() > rule.getDouble("maximum")) return false
         return true
     }
-    private val SCHEMA = """{
+    internal val SCHEMA = """{
   "${'$'}schema": "https://json-schema.org/draft/2020-12/schema",
   "${'$'}id": "https://sunpride.local/contracts/van-v1.schema.json",
   "title": "Sunpride van-sales POS wire contract v1 (VAN-003, ADR-010)",
-  "description": "Signed POST bodies for /van/v1/bootstrap and /van/v1/push. Headers are the field gateway's x-mobile-* proof headers with x-mobile-app = VAN_ANDROID. Integers that can exceed 2^53 (base quantities, scales) are decimal strings.",
+  "description": "Signed POST bodies for /van/v1/bootstrap, /van/v1/push and /van/v1/evidence. Headers are the field gateway's x-mobile-* proof headers with x-mobile-app = VAN_ANDROID. Integers that can exceed 2^53 (base quantities, scales) are decimal strings.",
   "oneOf": [
-    { "${'$'}ref": "#/${'$'}defs/bootstrapRequest" },
-    { "${'$'}ref": "#/${'$'}defs/bootstrapResponse" },
-    { "${'$'}ref": "#/${'$'}defs/pushRequest" },
-    { "${'$'}ref": "#/${'$'}defs/pushResponse" },
-    { "${'$'}ref": "#/${'$'}defs/errorResponse" }
+    {
+      "${'$'}ref": "#/${'$'}defs/bootstrapRequest"
+    },
+    {
+      "${'$'}ref": "#/${'$'}defs/bootstrapResponse"
+    },
+    {
+      "${'$'}ref": "#/${'$'}defs/pushRequest"
+    },
+    {
+      "${'$'}ref": "#/${'$'}defs/pushResponse"
+    },
+    {
+      "${'$'}ref": "#/${'$'}defs/evidenceRequest"
+    },
+    {
+      "${'$'}ref": "#/${'$'}defs/evidenceResponse"
+    },
+    {
+      "${'$'}ref": "#/${'$'}defs/errorResponse"
+    }
   ],
   "${'$'}defs": {
-    "id": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
     "uuid": {
       "type": "string",
       "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}${'$'}"
     },
-    "base": { "type": "string", "pattern": "^[0-9]{1,18}${'$'}" },
-    "date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}${'$'}" },
-    "millis": { "type": "integer", "minimum": 0 },
-    "nullableText": { "type": ["string", "null"], "maxLength": 300 },
+    "base": {
+      "type": "string",
+      "pattern": "^[0-9]{1,18}${'$'}"
+    },
+    "date": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}${'$'}"
+    },
+    "millis": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "nullableText": {
+      "type": ["string", "null"],
+      "maxLength": 300
+    },
     "tripStatus": {
       "enum": [
         "planned",
@@ -100,10 +133,21 @@ internal object VanWireSchema {
         "referenceLabel"
       ],
       "properties": {
-        "code": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}${'$'}" },
-        "label": { "type": "string", "minLength": 1, "maxLength": 40 },
-        "kind": { "enum": ["cash", "credit", "other"] },
-        "referenceRequired": { "type": "boolean" },
+        "code": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,31}${'$'}"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "kind": {
+          "enum": ["cash", "credit", "other"]
+        },
+        "referenceRequired": {
+          "type": "boolean"
+        },
         "referenceLabel": {
           "type": ["string", "null"],
           "minLength": 1,
@@ -117,8 +161,14 @@ internal object VanWireSchema {
       "additionalProperties": false,
       "required": ["termsDays", "availableMinor"],
       "properties": {
-        "termsDays": { "type": "integer", "minimum": 1, "maximum": 180 },
-        "availableMinor": { "${'$'}ref": "#/${'$'}defs/base" }
+        "termsDays": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 180
+        },
+        "availableMinor": {
+          "${'$'}ref": "#/${'$'}defs/base"
+        }
       }
     },
     "bootstrapRequest": {
@@ -126,9 +176,15 @@ internal object VanWireSchema {
       "additionalProperties": false,
       "required": ["type", "contractVersion", "deviceId"],
       "properties": {
-        "type": { "const": "van.bootstrap.request" },
-        "contractVersion": { "const": 1 },
-        "deviceId": { "${'$'}ref": "#/${'$'}defs/id" }
+        "type": {
+          "const": "van.bootstrap.request"
+        },
+        "contractVersion": {
+          "const": 1
+        },
+        "deviceId": {
+          "${'$'}ref": "#/${'$'}defs/id"
+        }
       }
     },
     "bootstrapResponse": {
@@ -148,17 +204,29 @@ internal object VanWireSchema {
         "customers"
       ],
       "properties": {
-        "type": { "const": "van.bootstrap.response" },
-        "contractVersion": { "const": 1 },
-        "serverTime": { "${'$'}ref": "#/${'$'}defs/millis" },
-        "serviceDate": { "${'$'}ref": "#/${'$'}defs/date" },
+        "type": {
+          "const": "van.bootstrap.response"
+        },
+        "contractVersion": {
+          "const": 1
+        },
+        "serverTime": {
+          "${'$'}ref": "#/${'$'}defs/millis"
+        },
+        "serviceDate": {
+          "${'$'}ref": "#/${'$'}defs/date"
+        },
         "seller": {
           "type": "object",
           "additionalProperties": false,
           "required": ["profileId", "name"],
           "properties": {
-            "profileId": { "${'$'}ref": "#/${'$'}defs/id" },
-            "name": { "type": "string" }
+            "profileId": {
+              "${'$'}ref": "#/${'$'}defs/id"
+            },
+            "name": {
+              "type": "string"
+            }
           }
         },
         "policy": {
@@ -172,30 +240,59 @@ internal object VanWireSchema {
             "damageReasons"
           ],
           "properties": {
-            "allowNegativeStock": { "type": "boolean" },
-            "loadDiscrepancyRequiresApproval": { "type": "boolean" },
-            "walkInAllowed": { "type": "boolean" },
+            "allowNegativeStock": {
+              "type": "boolean"
+            },
+            "loadDiscrepancyRequiresApproval": {
+              "type": "boolean"
+            },
+            "walkInAllowed": {
+              "type": "boolean"
+            },
             "loadDiscrepancyReasons": {
               "type": "array",
-              "items": { "${'$'}ref": "#/${'$'}defs/discrepancyReason" }
+              "items": {
+                "${'$'}ref": "#/${'$'}defs/discrepancyReason"
+              }
             },
             "damageReasons": {
               "type": "array",
-              "items": { "${'$'}ref": "#/${'$'}defs/damageReason" }
+              "items": {
+                "${'$'}ref": "#/${'$'}defs/damageReason"
+              }
             },
             "paymentMethods": {
               "type": "array",
               "minItems": 1,
               "maxItems": 12,
-              "items": { "${'$'}ref": "#/${'$'}defs/paymentMethod" }
+              "items": {
+                "${'$'}ref": "#/${'$'}defs/paymentMethod"
+              }
+            },
+            "damagePolicy": {
+              "${'$'}ref": "#/${'$'}defs/damagePolicy"
             }
           }
         },
         "trip": {
-          "oneOf": [{ "type": "null" }, { "${'$'}ref": "#/${'$'}defs/trip" }]
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "${'$'}ref": "#/${'$'}defs/trip"
+            }
+          ]
         },
         "load": {
-          "oneOf": [{ "type": "null" }, { "${'$'}ref": "#/${'$'}defs/load" }]
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "${'$'}ref": "#/${'$'}defs/load"
+            }
+          ]
         },
         "truckStock": {
           "type": "array",
@@ -205,12 +302,16 @@ internal object VanWireSchema {
             "additionalProperties": false,
             "required": ["productId", "availableBase", "damagedBase"],
             "properties": {
-              "productId": { "${'$'}ref": "#/${'$'}defs/id" },
+              "productId": {
+                "${'$'}ref": "#/${'$'}defs/id"
+              },
               "availableBase": {
                 "type": "string",
                 "pattern": "^-?[0-9]{1,18}${'$'}"
               },
-              "damagedBase": { "${'$'}ref": "#/${'$'}defs/base" }
+              "damagedBase": {
+                "${'$'}ref": "#/${'$'}defs/base"
+              }
             }
           }
         },
@@ -229,15 +330,27 @@ internal object VanWireSchema {
               "barcodes"
             ],
             "properties": {
-              "productId": { "${'$'}ref": "#/${'$'}defs/id" },
-              "code": { "type": "string" },
-              "name": { "type": "string" },
-              "uomCode": { "type": "string" },
-              "quantityScale": { "${'$'}ref": "#/${'$'}defs/base" },
+              "productId": {
+                "${'$'}ref": "#/${'$'}defs/id"
+              },
+              "code": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "uomCode": {
+                "type": "string"
+              },
+              "quantityScale": {
+                "${'$'}ref": "#/${'$'}defs/base"
+              },
               "barcodes": {
                 "type": "array",
                 "maxItems": 20,
-                "items": { "type": "string" }
+                "items": {
+                  "type": "string"
+                }
               },
               "barcodeUnits": {
                 "description": "VAN-009: the unit each barcode scans into; baseQuantity is the base quantity of one scan, null when no exact conversion exists.",
@@ -253,9 +366,18 @@ internal object VanWireSchema {
                       "minLength": 1,
                       "maxLength": 64
                     },
-                    "uomCode": { "type": "string" },
+                    "uomCode": {
+                      "type": "string"
+                    },
                     "baseQuantity": {
-                      "oneOf": [{ "${'$'}ref": "#/${'$'}defs/base" }, { "type": "null" }]
+                      "oneOf": [
+                        {
+                          "${'$'}ref": "#/${'$'}defs/base"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   }
                 }
@@ -278,17 +400,78 @@ internal object VanWireSchema {
               "source"
             ],
             "properties": {
-              "outletId": { "${'$'}ref": "#/${'$'}defs/id" },
-              "code": { "type": "string" },
-              "name": { "type": "string" },
-              "address": { "type": ["string", "null"] },
-              "sequence": { "type": ["integer", "null"] },
-              "source": { "enum": ["route", "unplanned"] },
+              "outletId": {
+                "${'$'}ref": "#/${'$'}defs/id"
+              },
+              "code": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "address": {
+                "type": ["string", "null"]
+              },
+              "sequence": {
+                "type": ["integer", "null"]
+              },
+              "source": {
+                "enum": ["route", "unplanned"]
+              },
               "credit": {
                 "oneOf": [
-                  { "type": "null" },
-                  { "${'$'}ref": "#/${'$'}defs/customerCredit" }
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "${'$'}ref": "#/${'$'}defs/customerCredit"
+                  }
                 ]
+              }
+            }
+          }
+        },
+        "damageRecords": {
+          "description": "VAN-020: this trip's damage records and their approval state, newest first.",
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "damageId",
+              "clientRequestId",
+              "productId",
+              "quantityBase",
+              "reason",
+              "status",
+              "recordedAt",
+              "decisionNote"
+            ],
+            "properties": {
+              "damageId": {
+                "${'$'}ref": "#/${'$'}defs/id"
+              },
+              "clientRequestId": {
+                "${'$'}ref": "#/${'$'}defs/uuid"
+              },
+              "productId": {
+                "${'$'}ref": "#/${'$'}defs/id"
+              },
+              "quantityBase": {
+                "${'$'}ref": "#/${'$'}defs/base"
+              },
+              "reason": {
+                "${'$'}ref": "#/${'$'}defs/damageReason"
+              },
+              "status": {
+                "${'$'}ref": "#/${'$'}defs/damageStatus"
+              },
+              "recordedAt": {
+                "${'$'}ref": "#/${'$'}defs/millis"
+              },
+              "decisionNote": {
+                "${'$'}ref": "#/${'$'}defs/nullableText"
               }
             }
           }
@@ -312,49 +495,95 @@ internal object VanWireSchema {
         "startedAt"
       ],
       "properties": {
-        "tripId": { "${'$'}ref": "#/${'$'}defs/id" },
-        "tripNumber": { "type": "string" },
-        "status": { "${'$'}ref": "#/${'$'}defs/tripStatus" },
-        "serviceDate": { "${'$'}ref": "#/${'$'}defs/date" },
+        "tripId": {
+          "${'$'}ref": "#/${'$'}defs/id"
+        },
+        "tripNumber": {
+          "type": "string"
+        },
+        "status": {
+          "${'$'}ref": "#/${'$'}defs/tripStatus"
+        },
+        "serviceDate": {
+          "${'$'}ref": "#/${'$'}defs/date"
+        },
         "vehicle": {
           "oneOf": [
-            { "type": "null" },
+            {
+              "type": "null"
+            },
             {
               "type": "object",
               "additionalProperties": false,
               "required": ["vehicleId", "vehicleCode", "plateNumber", "name"],
               "properties": {
-                "vehicleId": { "${'$'}ref": "#/${'$'}defs/id" },
-                "vehicleCode": { "type": "string" },
-                "plateNumber": { "type": "string" },
-                "name": { "type": ["string", "null"] }
+                "vehicleId": {
+                  "${'$'}ref": "#/${'$'}defs/id"
+                },
+                "vehicleCode": {
+                  "type": "string"
+                },
+                "plateNumber": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": ["string", "null"]
+                }
               }
             }
           ]
         },
         "route": {
           "oneOf": [
-            { "type": "null" },
+            {
+              "type": "null"
+            },
             {
               "type": "object",
               "additionalProperties": false,
               "required": ["routeId", "code", "name"],
               "properties": {
-                "routeId": { "${'$'}ref": "#/${'$'}defs/id" },
-                "code": { "type": "string" },
-                "name": { "type": "string" }
+                "routeId": {
+                  "${'$'}ref": "#/${'$'}defs/id"
+                },
+                "code": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
               }
             }
           ]
         },
-        "driverName": { "${'$'}ref": "#/${'$'}defs/nullableText" },
-        "helperName": { "${'$'}ref": "#/${'$'}defs/nullableText" },
-        "truckLocationId": { "${'$'}ref": "#/${'$'}defs/id" },
+        "driverName": {
+          "${'$'}ref": "#/${'$'}defs/nullableText"
+        },
+        "helperName": {
+          "${'$'}ref": "#/${'$'}defs/nullableText"
+        },
+        "truckLocationId": {
+          "${'$'}ref": "#/${'$'}defs/id"
+        },
         "routeSessionId": {
-          "oneOf": [{ "type": "null" }, { "${'$'}ref": "#/${'$'}defs/id" }]
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "${'$'}ref": "#/${'$'}defs/id"
+            }
+          ]
         },
         "startedAt": {
-          "oneOf": [{ "type": "null" }, { "${'$'}ref": "#/${'$'}defs/millis" }]
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "${'$'}ref": "#/${'$'}defs/millis"
+            }
+          ]
         }
       }
     },
@@ -363,8 +592,12 @@ internal object VanWireSchema {
       "additionalProperties": false,
       "required": ["loadId", "status", "lines"],
       "properties": {
-        "loadId": { "${'$'}ref": "#/${'$'}defs/id" },
-        "status": { "${'$'}ref": "#/${'$'}defs/loadStatus" },
+        "loadId": {
+          "${'$'}ref": "#/${'$'}defs/id"
+        },
+        "status": {
+          "${'$'}ref": "#/${'$'}defs/loadStatus"
+        },
         "lines": {
           "type": "array",
           "minItems": 1,
@@ -385,21 +618,49 @@ internal object VanWireSchema {
               "discrepancyReason"
             ],
             "properties": {
-              "lineNumber": { "type": "integer", "minimum": 1 },
-              "productId": { "${'$'}ref": "#/${'$'}defs/id" },
-              "productCode": { "type": "string" },
-              "productName": { "type": "string" },
-              "uomCode": { "type": "string" },
-              "quantityScale": { "${'$'}ref": "#/${'$'}defs/base" },
-              "lotNumber": { "type": ["string", "null"] },
-              "expectedBase": { "${'$'}ref": "#/${'$'}defs/base" },
+              "lineNumber": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "productId": {
+                "${'$'}ref": "#/${'$'}defs/id"
+              },
+              "productCode": {
+                "type": "string"
+              },
+              "productName": {
+                "type": "string"
+              },
+              "uomCode": {
+                "type": "string"
+              },
+              "quantityScale": {
+                "${'$'}ref": "#/${'$'}defs/base"
+              },
+              "lotNumber": {
+                "type": ["string", "null"]
+              },
+              "expectedBase": {
+                "${'$'}ref": "#/${'$'}defs/base"
+              },
               "actualBase": {
-                "oneOf": [{ "type": "null" }, { "${'$'}ref": "#/${'$'}defs/base" }]
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "${'$'}ref": "#/${'$'}defs/base"
+                  }
+                ]
               },
               "discrepancyReason": {
                 "oneOf": [
-                  { "type": "null" },
-                  { "${'$'}ref": "#/${'$'}defs/discrepancyReason" }
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "${'$'}ref": "#/${'$'}defs/discrepancyReason"
+                  }
                 ]
               }
             }
@@ -412,18 +673,30 @@ internal object VanWireSchema {
       "additionalProperties": false,
       "required": ["type", "contractVersion", "deviceId", "operations"],
       "properties": {
-        "type": { "const": "van.push.request" },
-        "contractVersion": { "const": 1 },
-        "deviceId": { "${'$'}ref": "#/${'$'}defs/id" },
+        "type": {
+          "const": "van.push.request"
+        },
+        "contractVersion": {
+          "const": 1
+        },
+        "deviceId": {
+          "${'$'}ref": "#/${'$'}defs/id"
+        },
         "operations": {
           "type": "array",
           "minItems": 1,
           "maxItems": 20,
           "items": {
             "oneOf": [
-              { "${'$'}ref": "#/${'$'}defs/tripStart" },
-              { "${'$'}ref": "#/${'$'}defs/loadConfirm" },
-              { "${'$'}ref": "#/${'$'}defs/truckDamage" }
+              {
+                "${'$'}ref": "#/${'$'}defs/tripStart"
+              },
+              {
+                "${'$'}ref": "#/${'$'}defs/loadConfirm"
+              },
+              {
+                "${'$'}ref": "#/${'$'}defs/truckDamage"
+              }
             ]
           }
         }
@@ -434,8 +707,12 @@ internal object VanWireSchema {
       "additionalProperties": false,
       "required": ["kind", "clientRequestId", "payload"],
       "properties": {
-        "kind": { "const": "trip.start" },
-        "clientRequestId": { "${'$'}ref": "#/${'$'}defs/uuid" },
+        "kind": {
+          "const": "trip.start"
+        },
+        "clientRequestId": {
+          "${'$'}ref": "#/${'$'}defs/uuid"
+        },
         "payload": {
           "type": "object",
           "additionalProperties": false,
@@ -446,14 +723,34 @@ internal object VanWireSchema {
             "deviceTime"
           ],
           "properties": {
-            "tripId": { "${'$'}ref": "#/${'$'}defs/id" },
-            "vehicleConfirmed": { "const": true },
-            "routeConfirmed": { "const": true },
-            "driverName": { "type": "string", "maxLength": 80 },
-            "helperName": { "type": "string", "maxLength": 80 },
-            "odometerKm": { "type": "number", "minimum": 0 },
-            "note": { "type": "string", "maxLength": 300 },
-            "deviceTime": { "${'$'}ref": "#/${'$'}defs/millis" }
+            "tripId": {
+              "${'$'}ref": "#/${'$'}defs/id"
+            },
+            "vehicleConfirmed": {
+              "const": true
+            },
+            "routeConfirmed": {
+              "const": true
+            },
+            "driverName": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "helperName": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "odometerKm": {
+              "type": "number",
+              "minimum": 0
+            },
+            "note": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "deviceTime": {
+              "${'$'}ref": "#/${'$'}defs/millis"
+            }
           }
         }
       }
@@ -463,16 +760,26 @@ internal object VanWireSchema {
       "additionalProperties": false,
       "required": ["kind", "clientRequestId", "payload"],
       "properties": {
-        "kind": { "const": "load.confirm" },
-        "clientRequestId": { "${'$'}ref": "#/${'$'}defs/uuid" },
+        "kind": {
+          "const": "load.confirm"
+        },
+        "clientRequestId": {
+          "${'$'}ref": "#/${'$'}defs/uuid"
+        },
         "payload": {
           "type": "object",
           "additionalProperties": false,
           "required": ["tripId", "loadId", "lines", "deviceTime"],
           "properties": {
-            "tripId": { "${'$'}ref": "#/${'$'}defs/id" },
-            "loadId": { "${'$'}ref": "#/${'$'}defs/id" },
-            "deviceTime": { "${'$'}ref": "#/${'$'}defs/millis" },
+            "tripId": {
+              "${'$'}ref": "#/${'$'}defs/id"
+            },
+            "loadId": {
+              "${'$'}ref": "#/${'$'}defs/id"
+            },
+            "deviceTime": {
+              "${'$'}ref": "#/${'$'}defs/millis"
+            },
             "lines": {
               "type": "array",
               "minItems": 1,
@@ -482,9 +789,16 @@ internal object VanWireSchema {
                 "additionalProperties": false,
                 "required": ["lineNumber", "actualBase"],
                 "properties": {
-                  "lineNumber": { "type": "integer", "minimum": 1 },
-                  "actualBase": { "${'$'}ref": "#/${'$'}defs/base" },
-                  "reason": { "${'$'}ref": "#/${'$'}defs/discrepancyReason" }
+                  "lineNumber": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "actualBase": {
+                    "${'$'}ref": "#/${'$'}defs/base"
+                  },
+                  "reason": {
+                    "${'$'}ref": "#/${'$'}defs/discrepancyReason"
+                  }
                 }
               }
             }
@@ -497,8 +811,12 @@ internal object VanWireSchema {
       "additionalProperties": false,
       "required": ["kind", "clientRequestId", "payload"],
       "properties": {
-        "kind": { "const": "truck.damage" },
-        "clientRequestId": { "${'$'}ref": "#/${'$'}defs/uuid" },
+        "kind": {
+          "const": "truck.damage"
+        },
+        "clientRequestId": {
+          "${'$'}ref": "#/${'$'}defs/uuid"
+        },
         "payload": {
           "type": "object",
           "additionalProperties": false,
@@ -510,12 +828,28 @@ internal object VanWireSchema {
             "deviceTime"
           ],
           "properties": {
-            "tripId": { "${'$'}ref": "#/${'$'}defs/id" },
-            "productId": { "${'$'}ref": "#/${'$'}defs/id" },
-            "quantityBase": { "${'$'}ref": "#/${'$'}defs/base" },
-            "reason": { "${'$'}ref": "#/${'$'}defs/damageReason" },
-            "note": { "type": "string", "maxLength": 300 },
-            "deviceTime": { "${'$'}ref": "#/${'$'}defs/millis" }
+            "tripId": {
+              "${'$'}ref": "#/${'$'}defs/id"
+            },
+            "productId": {
+              "${'$'}ref": "#/${'$'}defs/id"
+            },
+            "quantityBase": {
+              "${'$'}ref": "#/${'$'}defs/base"
+            },
+            "reason": {
+              "${'$'}ref": "#/${'$'}defs/damageReason"
+            },
+            "note": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "deviceTime": {
+              "${'$'}ref": "#/${'$'}defs/millis"
+            },
+            "photoSha256": {
+              "${'$'}ref": "#/${'$'}defs/sha256"
+            }
           }
         }
       }
@@ -525,9 +859,15 @@ internal object VanWireSchema {
       "additionalProperties": false,
       "required": ["type", "contractVersion", "serverTime", "results"],
       "properties": {
-        "type": { "const": "van.push.response" },
-        "contractVersion": { "const": 1 },
-        "serverTime": { "${'$'}ref": "#/${'$'}defs/millis" },
+        "type": {
+          "const": "van.push.response"
+        },
+        "contractVersion": {
+          "const": 1
+        },
+        "serverTime": {
+          "${'$'}ref": "#/${'$'}defs/millis"
+        },
         "results": {
           "type": "array",
           "items": {
@@ -540,18 +880,33 @@ internal object VanWireSchema {
                   "kind": {
                     "enum": ["trip.start", "load.confirm", "truck.damage"]
                   },
-                  "clientRequestId": { "${'$'}ref": "#/${'$'}defs/uuid" },
-                  "status": { "const": "accepted" },
+                  "clientRequestId": {
+                    "${'$'}ref": "#/${'$'}defs/uuid"
+                  },
+                  "status": {
+                    "const": "accepted"
+                  },
                   "ack": {
                     "type": "object",
                     "additionalProperties": false,
                     "required": ["entityId", "movementId", "serverTime"],
                     "properties": {
-                      "entityId": { "${'$'}ref": "#/${'$'}defs/id" },
-                      "movementId": {
-                        "oneOf": [{ "type": "null" }, { "${'$'}ref": "#/${'$'}defs/id" }]
+                      "entityId": {
+                        "${'$'}ref": "#/${'$'}defs/id"
                       },
-                      "serverTime": { "${'$'}ref": "#/${'$'}defs/millis" }
+                      "movementId": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "${'$'}ref": "#/${'$'}defs/id"
+                          }
+                        ]
+                      },
+                      "serverTime": {
+                        "${'$'}ref": "#/${'$'}defs/millis"
+                      }
                     }
                   }
                 }
@@ -564,15 +919,20 @@ internal object VanWireSchema {
                   "kind": {
                     "enum": ["trip.start", "load.confirm", "truck.damage"]
                   },
-                  "clientRequestId": { "${'$'}ref": "#/${'$'}defs/uuid" },
-                  "status": { "enum": ["rejected", "conflict"] },
+                  "clientRequestId": {
+                    "${'$'}ref": "#/${'$'}defs/uuid"
+                  },
+                  "status": {
+                    "enum": ["rejected", "conflict"]
+                  },
                   "code": {
                     "enum": [
                       "invalid_request",
                       "conflict",
                       "out_of_scope",
                       "wrong_date",
-                      "load_not_posted"
+                      "load_not_posted",
+                      "photo_required"
                     ]
                   }
                 }
@@ -594,9 +954,15 @@ internal object VanWireSchema {
         "retryable"
       ],
       "properties": {
-        "type": { "const": "error.response" },
-        "contractVersion": { "const": 1 },
-        "serverTime": { "${'$'}ref": "#/${'$'}defs/millis" },
+        "type": {
+          "const": "error.response"
+        },
+        "contractVersion": {
+          "const": 1
+        },
+        "serverTime": {
+          "${'$'}ref": "#/${'$'}defs/millis"
+        },
         "code": {
           "enum": [
             "version_unsupported",
@@ -605,12 +971,110 @@ internal object VanWireSchema {
             "temporarily_unavailable"
           ]
         },
-        "message": { "type": "string" },
-        "retryable": { "type": "boolean" }
+        "message": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      }
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}${'$'}"
+    },
+    "damageStatus": {
+      "enum": ["recorded", "pending_approval", "approved", "rejected"]
+    },
+    "damagePolicy": {
+      "description": "VAN-020: a damage record needs a photo when its reason is listed or when it needs approval; it needs a supervisor when its quantity is at least approvalFromUnits whole selling units (quantityBase >= approvalFromUnits * quantityScale). Photos are JPEG of at most photoMaxBytes bytes.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "photoRequiredReasons",
+        "approvalFromUnits",
+        "photoMaxBytes"
+      ],
+      "properties": {
+        "photoRequiredReasons": {
+          "type": "array",
+          "items": {
+            "${'$'}ref": "#/${'$'}defs/damageReason"
+          }
+        },
+        "approvalFromUnits": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000
+        },
+        "photoMaxBytes": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 96000
+        }
+      }
+    },
+    "evidenceRequest": {
+      "description": "VAN-020: one damage photo, uploaded before the push that references it by photoSha256. Idempotent per seller and digest.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "contractVersion",
+        "deviceId",
+        "contentType",
+        "sha256",
+        "dataBase64"
+      ],
+      "properties": {
+        "type": {
+          "const": "van.evidence.request"
+        },
+        "contractVersion": {
+          "const": 1
+        },
+        "deviceId": {
+          "${'$'}ref": "#/${'$'}defs/id"
+        },
+        "contentType": {
+          "const": "image/jpeg"
+        },
+        "sha256": {
+          "${'$'}ref": "#/${'$'}defs/sha256"
+        },
+        "dataBase64": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128000,
+          "pattern": "^[A-Za-z0-9+/]+={0,2}${'$'}"
+        }
+      }
+    },
+    "evidenceResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "contractVersion", "serverTime", "sha256", "status"],
+      "properties": {
+        "type": {
+          "const": "van.evidence.response"
+        },
+        "contractVersion": {
+          "const": 1
+        },
+        "serverTime": {
+          "${'$'}ref": "#/${'$'}defs/millis"
+        },
+        "sha256": {
+          "${'$'}ref": "#/${'$'}defs/sha256"
+        },
+        "status": {
+          "const": "stored"
+        }
       }
     }
   }
-}"""
+}
+"""
 }
 
 class VanWireFailure : Exception("Invalid van gateway response", null)

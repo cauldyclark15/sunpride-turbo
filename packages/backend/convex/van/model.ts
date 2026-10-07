@@ -156,6 +156,51 @@ export const damageReasonValidator = v.union(
   v.literal("other"),
 );
 
+/**
+ * VAN-020: damage/spoilage evidence and approval. Assumed defaults until Sunpride sets its
+ * own (documented in docs/runbooks/van-damage-spoilage.md): a photo for every visible-damage
+ * reason, and a supervisor for any single record of 12 or more whole selling units (one
+ * typical case). Records needing approval always need a photo. The stock moves
+ * available → damaged at once in every case (it cannot be sold either way); a rejection
+ * posts a separate reversal movement, so no movement is ever edited.
+ */
+export const VAN_DAMAGE_POLICY = {
+  photoRequiredReasons: ["crushed", "leaking", "spoiled", "other"],
+  approvalFromUnits: 12,
+  /** JPEG bytes; the signed evidence body must stay under the 128 KiB gateway cap. */
+  photoMaxBytes: 90_000,
+} as const satisfies {
+  photoRequiredReasons: readonly (typeof DAMAGE_REASONS)[number][];
+  approvalFromUnits: number;
+  photoMaxBytes: number;
+};
+
+export const damageStatusValidator = v.union(
+  v.literal("recorded"),
+  v.literal("pending_approval"),
+  v.literal("approved"),
+  v.literal("rejected"),
+);
+export type DamageStatus =
+  "recorded" | "pending_approval" | "approved" | "rejected";
+
+/** Whether a damage record of this size needs a supervisor, and whether it needs a photo. */
+export function damageRules(
+  reason: string,
+  quantityBase: bigint,
+  quantityScale: bigint,
+): { needsApproval: boolean; photoRequired: boolean } {
+  const scale = quantityScale > 0n ? quantityScale : 1n;
+  const needsApproval =
+    quantityBase >= BigInt(VAN_DAMAGE_POLICY.approvalFromUnits) * scale;
+  const photoRequired =
+    needsApproval ||
+    (VAN_DAMAGE_POLICY.photoRequiredReasons as readonly string[]).includes(
+      reason,
+    );
+  return { needsApproval, photoRequired };
+}
+
 export const vanOperationKindValidator = v.union(
   v.literal("trip.start"),
   v.literal("load.confirm"),
@@ -183,3 +228,22 @@ export function boundedText(
     );
   return text;
 }
+
+/** A van device actor proven by mobile/device_auth.authorize (see van/http_handlers.ts). */
+export const actorValidator = v.object({
+  deviceId: v.id("registeredDevices"),
+  profileId: v.id("profiles"),
+  subject: v.string(),
+  orgUnitId: v.id("orgUnits"),
+  role: v.union(
+    v.literal("super_admin"),
+    v.literal("admin"),
+    v.literal("operations"),
+    v.literal("manager"),
+    v.literal("approver"),
+    v.literal("sales"),
+    v.literal("analyst"),
+    v.literal("viewer"),
+  ),
+  scopeFingerprint: v.string(),
+});

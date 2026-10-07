@@ -196,5 +196,11 @@ http.route({
   method: "POST",
   handler: vanHandlers.push,
 });
+// VAN-020: damage photos, uploaded before the push that references them.
+http.route({
+  path: "/van/v1/evidence",
+  method: "POST",
+  handler: vanHandlers.evidence,
+});
 
 export default http;

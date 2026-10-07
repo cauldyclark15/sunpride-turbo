@@ -36,6 +36,29 @@ class VanSyncClientTest {
         }
         Unit
     }
+    @Test fun evidenceUsesFreshProofForExactRouteOnEveryAttempt() = runBlocking {
+        val request = JSONObject(javaClass.classLoader!!.getResourceAsStream("evidence-request.json")!!.bufferedReader().readText())
+        val response = javaClass.classLoader!!.getResourceAsStream("evidence-response.json")!!.bufferedReader().readText()
+        val t = Transport(ArrayDeque(listOf(401 to "",200 to response)))
+        VanSyncClient(t,signer,"d").evidence(request.getString("sha256"),java.util.Base64.getDecoder().decode(request.getString("dataBase64")))
+        assertEquals(2,t.challenges); assertArrayEquals(t.bodies[0],t.bodies[1])
+        assertNotEquals(t.headers[0]["x-mobile-nonce"],t.headers[1]["x-mobile-nonce"])
+        t.headers.forEachIndexed { i,h ->
+            assertTrue(CryptoVectors.verifyP1363(CryptoVectors.publicKey,RequestSigner.canonical("POST","/van/v1/evidence",t.bodies[i],h.getValue("x-mobile-nonce"),h.getValue("x-mobile-timestamp").toLong()).toByteArray(),h.getValue("x-mobile-signature")))
+        }
+        Unit
+    }
+    @Test fun mismatchedEvidenceResponseCannotMarkAnotherPhotoStored() = runBlocking {
+        val request = JSONObject(javaClass.classLoader!!.getResourceAsStream("evidence-request.json")!!.bufferedReader().readText())
+        val t = Transport(ArrayDeque(listOf(200 to JSONObject().put("type","van.evidence.response").put("contractVersion",1).put("serverTime",1).put("sha256","a".repeat(64)).put("status","stored").toString())))
+        assertTrue(runCatching { VanSyncClient(t,signer,"d").evidence(request.getString("sha256"),java.util.Base64.getDecoder().decode(request.getString("dataBase64"))) }.exceptionOrNull() is VanWireFailure)
+        Unit
+    }
+    @Test fun maximumPhotoBodyIsBelow128KiBAndBase64HasNoLineBreaks() {
+        val jpeg = ByteArray(96_000).apply { this[0] = 0xff.toByte(); this[1] = 0xd8.toByte(); this[lastIndex-1] = 0xff.toByte(); this[lastIndex] = 0xd9.toByte() }
+        val body = VanEvidenceCodec.request("d".repeat(64),hex(sha256(jpeg)),jpeg)
+        assertTrue(body.size < 128*1024); assertFalse(JSONObject(String(body)).getString("dataBase64").contains('\n'))
+    }
     @Test fun second401StopsAndNeverLabelsDataAccepted() = runBlocking {
         val t = Transport(ArrayDeque(listOf(401 to "",401 to "")))
         val e = runCatching { VanSyncClient(t,signer,"d").bootstrap() }.exceptionOrNull()

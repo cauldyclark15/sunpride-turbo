@@ -372,3 +372,147 @@ describe("van HTTP gateway", () => {
     expect(h.refund).not.toHaveBeenCalled();
   });
 });
+
+describe("van evidence route (VAN-020)", () => {
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 0xff, 0xd9]);
+  const hex = async (bytes: Uint8Array) =>
+    Array.from(
+      new Uint8Array(
+        await crypto.subtle.digest("SHA-256", bytes.slice().buffer),
+      ),
+      (byte) => byte.toString(16).padStart(2, "0"),
+    ).join("");
+  const base64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes));
+  async function evidenceBody(bytes = jpeg, sha?: string) {
+    return {
+      type: "van.evidence.request",
+      contractVersion: 1,
+      deviceId: "device",
+      contentType: "image/jpeg",
+      sha256: sha ?? (await hex(bytes)),
+      dataBase64: base64(bytes),
+    };
+  }
+  function evidenceHarness(exists = false, registered = true) {
+    const h = harness();
+    const store = vi.fn(async () => "storage-1"),
+      remove = vi.fn(async () => null);
+    const register = vi.fn(async (_args: Record<string, unknown>) => {
+      void _args;
+      return registered;
+    });
+    const runQuery = vi.fn(async (fn: unknown) => {
+      expect(getFunctionName(fn as never)).toBe("van/damage:photoExists");
+      return exists;
+    });
+    const previous = h.runMutation.getMockImplementation()!;
+    const runMutation = vi.fn(
+      async (fn: unknown, args: Record<string, unknown>): Promise<unknown> =>
+        getFunctionName(fn as never) === "van/damage:registerPhoto"
+          ? register(args)
+          : previous(fn, args),
+    );
+    Object.assign(h.ctx, {
+      runMutation,
+      runQuery,
+      storage: { store, delete: remove },
+    });
+    return { ...h, store, remove, register, runQuery };
+  }
+  const send = async (value: unknown) =>
+    new Request("https://example.convex.site/van/v1/evidence", {
+      method: "POST",
+      body: JSON.stringify(value),
+      headers: (await request("push", value)).headers,
+    });
+
+  it("stores a JPEG whose digest matches, under the exact proof path", async () => {
+    const h = evidenceHarness();
+    const value = await evidenceBody();
+    const response = await handleVan(h.ctx, await send(value), "evidence");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      type: "van.evidence.response",
+      contractVersion: 1,
+      sha256: value.sha256,
+      status: "stored",
+    });
+    expect(h.authorize).toHaveBeenCalledWith(
+      expect.objectContaining({ path: "/van/v1/evidence" }),
+    );
+    expect(h.store).toHaveBeenCalledOnce();
+    expect(h.register).toHaveBeenCalledExactlyOnceWith({
+      actor,
+      sha256: value.sha256,
+      storageId: "storage-1",
+      size: jpeg.length,
+    });
+    expect(h.remove).not.toHaveBeenCalled();
+  });
+
+  it("is idempotent: a known digest stores nothing, a lost race deletes its copy", async () => {
+    const known = evidenceHarness(true);
+    expect(
+      (await handleVan(known.ctx, await send(await evidenceBody()), "evidence"))
+        .status,
+    ).toBe(200);
+    expect(known.store).not.toHaveBeenCalled();
+    const raced = evidenceHarness(false, false);
+    expect(
+      (await handleVan(raced.ctx, await send(await evidenceBody()), "evidence"))
+        .status,
+    ).toBe(200);
+    expect(raced.remove).toHaveBeenCalledExactlyOnceWith("storage-1");
+  });
+
+  it("refuses a digest mismatch, a non-JPEG, an oversized photo and unknown fields", async () => {
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2]);
+    const big = new Uint8Array(90_001);
+    big.set([0xff, 0xd8]);
+    for (const value of [
+      await evidenceBody(jpeg, "0".repeat(64)),
+      await evidenceBody(png),
+      await evidenceBody(big),
+      { ...(await evidenceBody()), contentType: "image/png" },
+      { ...(await evidenceBody()), extra: true },
+      { ...(await evidenceBody()), sha256: "ABC" },
+    ]) {
+      const h = evidenceHarness();
+      const response = await handleVan(h.ctx, await send(value), "evidence");
+      expect(response.status).toBe(400);
+      expect(h.store).not.toHaveBeenCalled();
+      expect(h.register).not.toHaveBeenCalled();
+    }
+  });
+
+  it("reports photo_required per damage operation instead of failing the push", async () => {
+    const h = harness();
+    h.apply.mockRejectedValueOnce(new ConvexError("photo_required"));
+    const damage = {
+      kind: "truck.damage",
+      clientRequestId: uuid(9),
+      payload: {
+        tripId: "trip",
+        productId: "product",
+        quantityBase: "1",
+        reason: "crushed",
+      },
+    };
+    const response = await handleVan(
+      h.ctx,
+      await request("push", body("push", [damage])),
+      "push",
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      results: [
+        {
+          kind: "truck.damage",
+          clientRequestId: uuid(9),
+          status: "rejected",
+          code: "photo_required",
+        },
+      ],
+    });
+  });
+});

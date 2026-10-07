@@ -5,6 +5,8 @@ import type { Id } from "../_generated/dataModel";
 import type { AuthorizedDevice } from "../mobile/types";
 import { MOBILE_LIMITS } from "../mobile/rate_limits";
 import { hexDigest, rawBody } from "../mobile/http_handlers";
+import { SHA256_HEX } from "./damage";
+import { VAN_DAMAGE_POLICY } from "./model";
 
 /**
  * VAN-003 sync gateway for the separate van-sales app (ADR-010): `/van/v1/bootstrap` and
@@ -13,7 +15,7 @@ import { hexDigest, rawBody } from "../mobile/http_handlers";
  * whose proofs `mobile/device_auth.authorize` accepts on van paths only.
  * Contract: `packages/domain-contracts/schemas/van-v1.schema.json`.
  */
-type Route = "bootstrap" | "push";
+type Route = "bootstrap" | "push" | "evidence";
 type RecordValue = Record<string, unknown>;
 const record = (value: unknown): value is RecordValue =>
   value !== null && typeof value === "object" && !Array.isArray(value);
@@ -29,6 +31,7 @@ const businessCodes = new Set([
   "out_of_scope",
   "wrong_date",
   "load_not_posted",
+  "photo_required",
 ]);
 const MAX_OPERATIONS = 20;
 
@@ -134,6 +137,78 @@ function validOperation(value: unknown): boolean {
   );
 }
 
+/** VAN-020 evidence body shape; the bytes themselves are checked after the proof. */
+function validEvidence(body: RecordValue): boolean {
+  return (
+    body.contentType === "image/jpeg" &&
+    typeof body.sha256 === "string" &&
+    SHA256_HEX.test(body.sha256) &&
+    typeof body.dataBase64 === "string" &&
+    body.dataBase64.length >= 4 &&
+    body.dataBase64.length <= 128_000 &&
+    /^[A-Za-z0-9+/]+={0,2}$/.test(body.dataBase64)
+  );
+}
+
+function decodeBase64(text: string): Uint8Array | null {
+  try {
+    const binary = atob(text);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index++)
+      bytes[index] = binary.charCodeAt(index);
+    return bytes;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Stores one damage photo for the proven seller. The decoded bytes must be a JPEG within
+ * the policy size whose SHA-256 equals the declared digest; a repeat upload is a no-op.
+ */
+async function storeEvidence(
+  ctx: ActionCtx,
+  actor: AuthorizedDevice,
+  body: RecordValue,
+): Promise<Response> {
+  const sha256 = body.sha256 as string;
+  const bytes = decodeBase64(body.dataBase64 as string);
+  if (
+    !bytes ||
+    bytes.length < 4 ||
+    bytes.length > VAN_DAMAGE_POLICY.photoMaxBytes ||
+    bytes[0] !== 0xff ||
+    bytes[1] !== 0xd8 ||
+    (await hexDigest(bytes)) !== sha256
+  )
+    return failure("invalid_request", 400);
+  const stored = () =>
+    json({
+      type: "van.evidence.response",
+      contractVersion: 1,
+      serverTime: Date.now(),
+      sha256,
+      status: "stored",
+    });
+  if (await ctx.runQuery(internal.van.damage.photoExists, { actor, sha256 }))
+    return stored();
+  const storageId = await ctx.storage.store(
+    new Blob([bytes.slice().buffer as ArrayBuffer], { type: "image/jpeg" }),
+  );
+  let registered = false;
+  try {
+    registered = await ctx.runMutation(internal.van.damage.registerPhoto, {
+      actor,
+      sha256,
+      storageId,
+      size: bytes.length,
+    });
+  } finally {
+    if (!registered) await ctx.storage.delete(storageId);
+  }
+  return stored();
+}
+
 async function serve(
   ctx: ActionCtx,
   request: Request,
@@ -163,8 +238,18 @@ async function serve(
       body,
       route === "bootstrap"
         ? ["type", "contractVersion", "deviceId"]
-        : ["type", "contractVersion", "deviceId", "operations"],
+        : route === "evidence"
+          ? [
+              "type",
+              "contractVersion",
+              "deviceId",
+              "contentType",
+              "sha256",
+              "dataBase64",
+            ]
+          : ["type", "contractVersion", "deviceId", "operations"],
     ) ||
+    (route === "evidence" && !validEvidence(body)) ||
     (route === "push" &&
       (!Array.isArray(body.operations) ||
         body.operations.length < 1 ||
@@ -209,6 +294,7 @@ async function serve(
     return failure("unauthorized", 401);
   }
   try {
+    if (route === "evidence") return await storeEvidence(ctx, actor, body);
     if (route === "bootstrap")
       return json(
         await ctx.runQuery(internal.van.device.bootstrap, {
@@ -263,4 +349,7 @@ export const bootstrap = httpAction((ctx, request) =>
 );
 export const push = httpAction((ctx, request) =>
   handleVan(ctx, request, "push"),
+);
+export const evidence = httpAction((ctx, request) =>
+  handleVan(ctx, request, "evidence"),
 );

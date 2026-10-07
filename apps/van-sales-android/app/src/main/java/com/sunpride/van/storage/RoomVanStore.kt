@@ -6,6 +6,7 @@ import com.sunpride.van.ledger.StockProjection
 import com.sunpride.van.pos.*
 import com.sunpride.van.sync.VanBootstrapCodec
 import com.sunpride.van.sync.VanWireFailure
+import com.sunpride.van.sync.damagePhotoSha
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
@@ -22,8 +23,9 @@ data class PaymentFacts(val creditUsedMinor: Map<String,Long> = emptyMap(), val 
 private fun CustomerRow.toCustomer() = Customer(outletId,code,name,address,sequence,source,reason,localOnly,
     if (creditTermsDays != null && creditAvailableMinor != null) CustomerCredit(creditTermsDays,creditAvailableMinor) else null)
 
-/** No mutation of operation bytes or movement facts, no DELETE of work/evidence. */
-class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private val clock: () -> Long = System::currentTimeMillis) : com.sunpride.van.sync.VanSyncStore {
+/** Immutable operation bytes, acknowledgements and movement facts; only acked JPEG files are removed. */
+class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private val clock: () -> Long = System::currentTimeMillis,
+    val evidence: com.sunpride.van.evidence.DamageEvidence? = null) : com.sunpride.van.sync.VanSyncStore {
     private val dao = db.rows()
     private val s = scope.fullAuthSubject
     private val d = scope.deviceId
@@ -40,6 +42,10 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
                 VanBootstrapCodec.line(JSONObject(row.json)).copy(pendingActualBase = p?.getString("actualBase")?.toLong(),pendingReason = p?.optString("reason")?.takeIf { it.isNotBlank() })
             },queued != null)
         }
+    }
+    // Damage history travels with this trip's existing encrypted JSON row; no Room schema change.
+    val damageRecords: Flow<List<DamageRecord>> = dao.observeTrip(s,d).map { rows ->
+        rows.singleOrNull()?.let { JSONObject(it.json).optJSONArray("_damageRecords")?.let(VanBootstrapCodec::damageRecords) } ?: emptyList()
     }
     val policy: Flow<VanPolicy?> = dao.observeSyncMeta(s,d).let { flow -> flow.map { it.singleOrNull()?.policyJson?.let { json -> VanBootstrapCodec.policy(JSONObject(json)) } } }
     val seller: Flow<Seller?> = dao.observeSyncMeta(s,d).map { it.singleOrNull()?.sellerJson?.let { json -> JSONObject(json).let { o -> Seller(o.getString("profileId"),o.getString("name")) } } }
@@ -105,14 +111,19 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         enqueue("load.confirm",t.tripId,JSONObject().put("tripId",t.tripId).put("loadId",t.loadId).put("lines",inputs).put("deviceTime",clock()),
             JSONArray(sheet.map { JSONObject().put("lineNumber",it.lineNumber).put("productId",it.productId) }).toString()).clientRequestId
     }
-    suspend fun recordDamage(productId: String, qty: Long, reason: String, note: String?): String = db.withTransaction {
+    suspend fun recordDamage(productId: String, qty: Long, reason: String, note: String?, photoSha256: String? = null): String = db.withTransaction {
         val t = writable()
         check(t.status == "active" || dao.outboxRows(s,d).any { it.tripId == t.tripId && it.kind == "trip.start" && it.status in setOf("pending","sending","done") }) { "Trip not active" }
         val policy = VanBootstrapCodec.policy(JSONObject(dao.meta(s,d)!!.policyJson!!))
         require(reason in policy.damageReasons && qty in 1L..999_999_999_999_999_999L)
+        val product = checkNotNull(dao.productRows(s,d).singleOrNull { it.productId == productId })
+        DamageRules.validate(policy.damagePolicy,qty,product.quantityScale,reason,photoSha256)
+        // Refuse missing, oversized or corrupted local evidence before any outbox/stock write.
+        photoSha256?.let { checkNotNull(evidence).read(it,policy.damagePolicy?.photoMaxBytes ?: 90_000) }
         check(canRemove(productId,qty)) { "Insufficient available truck stock" }
         val p = JSONObject().put("tripId",t.tripId).put("productId",productId).put("quantityBase",qty.toString()).put("reason",reason).put("deviceTime",clock())
         text(note,300)?.let { p.put("note",it) }
+        photoSha256?.let { p.put("photoSha256",it) }
         val row = enqueue("truck.damage",t.tripId,p)
         dao.insertMovement(MovementRow(s,d,row.clientRequestId+":available",t.tripId,productId,"DAMAGE","available",-qty,reason,row.clientRequestId,row.createdAt))
         dao.insertMovement(MovementRow(s,d,row.clientRequestId+":damaged",t.tripId,productId,"DAMAGE","damaged",qty,reason,row.clientRequestId,row.createdAt))
@@ -246,7 +257,19 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
     private fun receiptLine(n: Int, p: Product, quantityBase: Long, unit: Long, total: Long) =
         SaleReceiptLine(n,p.productId,p.name,p.uomCode,p.displayQuantity(quantityBase),unit,total)
 
-    override suspend fun pending(): List<OutboxRow> = if (dao.meta(s,d)?.held == true) emptyList() else dao.pending(s,d)
+    override suspend fun pending(excluding: Set<String>): List<OutboxRow> = if (!canSync()) emptyList() else
+        dao.outboxRows(s,d).filter { it.status == "pending" && it.clientRequestId !in excluding }.sortedWith(compareBy<OutboxRow> { it.createdAt }.thenBy { it.clientRequestId }).take(20)
+    override suspend fun canSync(): Boolean = dao.meta(s,d)?.held == false
+    override suspend fun cleanupAcknowledgedPhotos(): Unit = db.withTransaction {
+        if (!canSync()) return@withTransaction
+        val rows = dao.outboxRows(s,d)
+        val retained = rows.filter { it.status != "done" }.mapNotNull(::damagePhotoSha).toSet()
+        // The transaction serializes this read/delete with enqueue. Do not repeatedly delete a
+        // newly retaken, unuploaded draft with the same digest as a historical acknowledged photo.
+        rows.filter { it.status == "done" }.mapNotNull(::damagePhotoSha).distinct().filterNot { it in retained }.forEach {
+            if (evidence?.uploaded(it) == true) evidence.delete(it)
+        }
+    }
     override suspend fun resetSending() = dao.resetSending(s,d)
     override suspend fun markSending(ids: List<String>) = dao.markSending(s,d,ids)
     override suspend fun hold() = db.withTransaction { val m = dao.meta(s,d) ?: SyncMetaRow(s,d); dao.insertSyncMeta(m.copy(held=true,health="held_for_review")); dao.resetSending(s,d) }
@@ -302,7 +325,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         val previous = dao.meta(s,d)
         check(previous?.lastBootstrapTime == null || b.serverTime >= previous.lastBootstrapTime) { "Stale bootstrap" }
         dao.clearTrip(s,d); dao.clearLoadLine(s,d); dao.clearProduct(s,d); dao.clearServerCustomers(s,d); dao.clearBaseline(s,d)
-        b.trip?.let { t -> dao.insertTrip(TripRow(s,d,t.tripId,t.tripNumber,t.status,t.serviceDate,o.getJSONObject("trip").toString(),b.load?.loadId,b.load?.status)) }
+        b.trip?.let { t -> dao.insertTrip(TripRow(s,d,t.tripId,t.tripNumber,t.status,t.serviceDate,o.getJSONObject("trip").put("_damageRecords",o.optJSONArray("damageRecords") ?: JSONArray()).toString(),b.load?.loadId,b.load?.status)) }
         b.load?.let { l -> VanBootstrapCodec.objects(o.getJSONObject("load").getJSONArray("lines")).forEach { line ->
             val parsed = VanBootstrapCodec.line(line)
             dao.insertLoadLine(LoadLineRow(s,d,l.loadId,parsed.lineNumber,parsed.productId,parsed.expectedBase,parsed.actualBase,line.toString()))

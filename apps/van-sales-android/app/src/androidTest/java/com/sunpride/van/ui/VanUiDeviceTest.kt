@@ -39,10 +39,16 @@ class VanUiDeviceTest {
         rule.waitForIdle()
         repositories.forEach { it.close() }
     }
+    private fun fakeCapture(): com.sunpride.van.evidence.DamageCapture {
+        val bitmap = android.graphics.Bitmap.createBitmap(320,240,android.graphics.Bitmap.Config.ARGB_8888)
+        bitmap.eraseColor(android.graphics.Color.GRAY)
+        val out = java.io.ByteArrayOutputStream(); bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG,85,out); bitmap.recycle()
+        return com.sunpride.van.evidence.DamageCapture(out.toByteArray())
+    }
     private fun newController(mode: String = "ready", fixtureMode: Boolean = true, features: VanFeatures = VanFeatures.ALL): VanController {
         val repo = if (mode == "ready") VanRepository.forWorker(context,true) else VanRepository.create(context,stubMode = mode)
         repositories += repo
-        return VanController(repo,AppEnvironment("",""),fixtureMode,features) {
+        return VanController(repo,AppEnvironment("",""),fixtureMode,features,damagePhotoSource = if (fixtureMode) ({ fakeCapture() }) else null) {
             withContext(Dispatchers.IO) { hex(sha256(KeystoreDeviceKey.loadOrCreate(context,"sunpride-van-stub-device-p256-v1").publicKeySpki)).uppercase().chunked(4).joinToString(" ") }
         }
     }
@@ -130,6 +136,9 @@ class VanUiDeviceTest {
         hideKeyboard()
         rule.onNodeWithTag("damage-reason").performClick()
         rule.onNodeWithTag("damage-reason-crushed").performClick()
+        rule.onNodeWithTag("save-damage").assertIsNotEnabled()
+        rule.onNodeWithTag("damage-photo").performScrollTo().performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("damage-thumbnail").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithTag("save-damage").performClick()
         rule.waitUntil(10_000) { !c.busy && c.message == "Not enough stock on the truck" }
         rule.onNodeWithTag("damage-message").assertTextEquals("Not enough stock on the truck")
@@ -141,6 +150,43 @@ class VanUiDeviceTest {
         sync()
         val stock = runBlocking { c.repository.truckStock.first() }.first { it.productId == c.products.first().productId }
         assertEquals(47L,stock.availableBase); assertEquals(1L,stock.damagedBase)
+    }
+    @Test fun approvalBoundaryRequiresPhotoRetakeAndShowsSupervisorHistory() {
+        mount(); loadAndStart(); open(Page.STOCK)
+        rule.onNodeWithTag("damage-0").performClick()
+        rule.onNodeWithTag("damage-quantity").performTextInput("11"); hideKeyboard()
+        rule.onNodeWithTag("damage-reason").performClick(); rule.onNodeWithTag("damage-reason-expired").performClick()
+        rule.onNodeWithTag("save-damage").assertIsEnabled()
+        rule.onNodeWithTag("damage-approval").performScrollTo().assertTextContains("No supervisor approval needed",substring = true)
+        rule.onNodeWithTag("damage-quantity").performScrollTo().performTextReplacement("12"); hideKeyboard()
+        rule.onNodeWithTag("save-damage").assertIsNotEnabled()
+        rule.onNodeWithTag("damage-photo-required").performScrollTo().assertTextContains("a supervisor must approve",substring = true)
+        rule.onNodeWithTag("damage-photo").performScrollTo().assertTextEquals("Take photo").performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("damage-thumbnail").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("damage-photo").assertTextEquals("Retake").performClick()
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("save-damage").assertIsEnabled() }.isSuccess }
+        captureVanScreenshot(rule,"15a-damage-approval-photo","save-damage")
+        rule.onNodeWithTag("save-damage").performClick()
+        rule.waitUntil(10_000) { !c.busy && c.stock.any { it.availableBase == 36L && it.damagedBase == 12L } }
+        val row = runBlocking { c.repository.fixtureStore().pending().single() }
+        val sha = com.sunpride.van.sync.damagePhotoSha(row)!!
+        val files = c.repository.fixtureStore().evidence!!
+        assertTrue(files.read(sha,90_000).isNotEmpty()); sync()
+        rule.waitUntil(10_000) { c.damageRecords.any { it.clientRequestId == row.clientRequestId && it.status == "pending_approval" } }
+        rule.onNodeWithTag("damage-status-0").performScrollTo().assertTextEquals("Waiting for supervisor")
+        assertTrue(runCatching { files.read(sha,90_000) }.isFailure)
+        // A supervisor decision is learned only from a new server baseline, not by fabricating local reversal movements.
+        val prefs = context.getSharedPreferences("van_fixture_backend",0)
+        val state = JSONObject(prefs.getString("state",null)!!)
+        state.getJSONArray("damageRecords").getJSONObject(0).put("status","rejected").put("decisionNote","Goods are sellable after inspection")
+        state.getJSONArray("truckStock").getJSONObject(0).put("availableBase","48").put("damagedBase","0")
+        state.put("serverTime",state.getLong("serverTime")+100)
+        prefs.edit().putString("state",state.toString()).commit()
+        rule.runOnUiThread { host = Host(newController(),true) }; ready()
+        open(Page.STOCK)
+        rule.onNodeWithTag("damage-status-0").performScrollTo().assertTextEquals("Rejected — returned to sellable stock")
+        rule.onNodeWithTag("damage-decision-0").performScrollTo().assertTextEquals("Goods are sellable after inspection")
+        assertEquals(48L,runBlocking { c.repository.truckStock.first() }.first { it.productId == row.let { JSONObject(it.operationJson).getJSONObject("payload").getString("productId") } }.availableBase)
     }
     @Test fun walkInRequiresReasonAndAppearsWithSourceLabel() {
         mount(); open(Page.CUSTOMERS)
@@ -422,6 +468,8 @@ class VanUiDeviceTest {
         captureVanScreenshot(rule,"15-record-damage","save-damage")
         rule.onNodeWithTag("damage-quantity").performTextInput("49"); hideKeyboard()
         rule.onNodeWithTag("damage-reason").performClick(); rule.onNodeWithTag("damage-reason-crushed").performClick()
+        rule.onNodeWithTag("damage-photo").performScrollTo().performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("damage-thumbnail").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithTag("save-damage").performClick()
         rule.waitUntil(10_000) { !c.busy && c.message == "Not enough stock on the truck" }
         captureVanScreenshot(rule,"16-damage-refused","save-damage")

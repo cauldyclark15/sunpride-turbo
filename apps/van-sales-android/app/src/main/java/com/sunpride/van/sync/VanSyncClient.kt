@@ -17,6 +17,7 @@ import java.io.IOException
 class VanSyncFailure(val code: String, val retryable: Boolean) : Exception("Van sync: $code", null)
 
 interface VanGateway {
+    suspend fun evidence(sha256: String, jpeg: ByteArray) { throw VanSyncFailure("temporarily_unavailable",true) }
     suspend fun bootstrap(): String
     suspend fun push(operations: List<OutboxRow>): List<PushResult>
 }
@@ -45,6 +46,9 @@ class VanSyncClient(private val transport: VanTransport, private val signer: Dev
     }
     override suspend fun push(operations: List<OutboxRow>): List<PushResult> = withContext(Dispatchers.IO) {
         VanBootstrapCodec.pushResults(send("/van/v1/push",VanBootstrapCodec.pushRequest(deviceId,operations.map { it.operationJson })))
+    }
+    override suspend fun evidence(sha256: String, jpeg: ByteArray): Unit = withContext(Dispatchers.IO) {
+        VanEvidenceCodec.response(send("/van/v1/evidence",VanEvidenceCodec.request(deviceId,sha256,jpeg)),sha256)
     }
     private fun send(path: String, body: ByteArray): String {
         for (attempt in 0..1) {

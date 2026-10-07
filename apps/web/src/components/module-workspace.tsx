@@ -34,6 +34,8 @@ import { ExecutionDashboard } from "./analytics/execution-dashboard";
 import { ManagementExceptions } from "./analytics/management-exceptions";
 import { SkuDistribution } from "./analytics/sku-distribution";
 import { TerritoryPerformance } from "./analytics/territory-performance";
+import { PanelErrorBoundary } from "./panel-error-boundary";
+import { VanDamageApprovals } from "./van-damage-approvals";
 
 const modules = {
   dashboard: { title: "Home" },
@@ -507,6 +509,11 @@ function ModuleContent({
             </div>
           }
         />
+        {module === "workflows" ? (
+          <PanelErrorBoundary label="Truck damage">
+            <VanDamageApprovals />
+          </PanelErrorBoundary>
+        ) : null}
       </>
     );
   }

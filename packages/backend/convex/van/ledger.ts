@@ -121,6 +121,48 @@ export async function postTruckDamage(
   });
 }
 
+/**
+ * VAN-020: a supervisor rejected a damage record. The original movement stays as written;
+ * this separate damaged → available movement returns the quantity to sellable stock where
+ * it now sits (the truck, or the depot once leftovers were returned).
+ */
+export async function postDamageReversal(
+  ctx: MutationCtx,
+  args: {
+    record: Doc<"vanDamageRecords">;
+    locationId: Id<"inventoryLocations">;
+    actorSubject: string;
+  },
+) {
+  const reasonCode = `van_damage_rejected:${args.record.reason}`;
+  return postMovement(ctx, {
+    idempotencyKey: `van-damage-reject:${args.record._id}`,
+    payloadHash: hashPayload({
+      damageId: args.record._id,
+      locationId: args.locationId,
+      quantityBase: args.record.quantityBase,
+    }),
+    commandType: "van.truck.damage.reject",
+    movementType: "status_change",
+    sourceType: "van_trip",
+    sourceDocumentId: args.record.tripId,
+    actorSubject: args.actorSubject,
+    reasonCode,
+    lines: [
+      {
+        productId: args.record.productId,
+        quantityBase: args.record.quantityBase,
+        fromLocationId: args.locationId,
+        toLocationId: args.locationId,
+        fromStockStatus: "damaged",
+        toStockStatus: "available",
+        sourceLineId: args.record._id,
+        reasonCode,
+      },
+    ],
+  });
+}
+
 export type TruckBalance = {
   productId: Id<"products">;
   availableBase: bigint;

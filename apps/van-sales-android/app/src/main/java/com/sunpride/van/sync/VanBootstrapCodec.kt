@@ -12,7 +12,8 @@ object VanBootstrapCodec {
     private fun base(o: JSONObject, key: String): Long = o.getString(key).toLong()
     fun policy(o: JSONObject) = VanPolicy(o.getBoolean("allowNegativeStock"), o.getBoolean("loadDiscrepancyRequiresApproval"),
         o.getBoolean("walkInAllowed"), strings(o.getJSONArray("loadDiscrepancyReasons")), strings(o.getJSONArray("damageReasons")),
-        o.optJSONArray("paymentMethods")?.let(::paymentMethods) ?: PaymentMethod.CASH_ONLY)
+        o.optJSONArray("paymentMethods")?.let(::paymentMethods) ?: PaymentMethod.CASH_ONLY,
+        o.optJSONObject("damagePolicy")?.let { DamagePolicy(strings(it.getJSONArray("photoRequiredReasons")),it.getInt("approvalFromUnits"),it.getInt("photoMaxBytes")) })
     /** VAN-012: optional; a policy cached before it (or an older server) allows cash only. */
     fun paymentMethods(a: JSONArray): List<PaymentMethod> {
         val methods = objects(a).map { PaymentMethod(it.getString("code"), it.getString("label"), PaymentKind.of(it.getString("kind")),
@@ -45,6 +46,10 @@ object VanBootstrapCodec {
     fun customer(o: JSONObject) = Customer(o.getString("outletId"), o.getString("code"), o.getString("name"), nullable(o,"address"),
         if (o.isNull("sequence")) null else o.getInt("sequence"), o.getString("source"),
         credit = o.optJSONObject("credit")?.let { CustomerCredit(it.getInt("termsDays").also { d -> require(d in 1..180) }, base(it,"availableMinor")) })
+    fun damageRecords(a: JSONArray): List<DamageRecord> = objects(a).map {
+        DamageRecord(it.getString("damageId"),it.getString("clientRequestId"),it.getString("productId"),base(it,"quantityBase"),
+            it.getString("reason"),it.getString("status"),it.getLong("recordedAt"),nullable(it,"decisionNote"))
+    }
     fun decode(text: String): VanBootstrap = try {
         val o = JSONObject(text)
         VanWireSchema.validate(o)
@@ -61,7 +66,7 @@ object VanBootstrapCodec {
         require(stocks.map { it.productId }.distinct().size == stocks.size)
         require(l == null || l.lines.map { it.lineNumber }.distinct().size == l.lines.size)
         VanBootstrap(o.getLong("serverTime"), day, o.getJSONObject("seller").let { Seller(it.getString("profileId"),it.getString("name")) },
-            policy(o.getJSONObject("policy")),t,l,stocks,ps,cs)
+            policy(o.getJSONObject("policy")),t,l,stocks,ps,cs,o.optJSONArray("damageRecords")?.let(::damageRecords) ?: emptyList())
     } catch (_: Exception) { throw VanWireFailure() }
     fun bootstrapRequest(deviceId: String): ByteArray = JSONObject().put("type","van.bootstrap.request").put("contractVersion",1).put("deviceId",deviceId).toString().toByteArray(Charsets.UTF_8)
     /** Concatenate persisted operation JSON verbatim, never parse/re-serialize queued bytes. */

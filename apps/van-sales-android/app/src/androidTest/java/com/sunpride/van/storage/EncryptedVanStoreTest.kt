@@ -65,20 +65,20 @@ class EncryptedVanStoreTest {
     @Test fun damageAndOutboxInsertAreAtomicWhenSecondLedgerInsertFails() = runBlocking {
         store.replaceBootstrap(fixture())
         db.openHelper.writableDatabase.execSQL("CREATE TRIGGER fail_damage BEFORE INSERT ON stock_movement WHEN NEW.stockStatus='damaged' BEGIN SELECT RAISE(ABORT,'injected'); END")
-        assertTrue(runCatching { store.recordDamage(product,3,"crushed",null) }.isFailure)
+        assertTrue(runCatching { store.recordDamage(product,3,"expired",null) }.isFailure)
         assertTrue(db.rows().outboxRows(scope.fullAuthSubject,scope.deviceId).isEmpty())
         assertTrue(db.rows().stockmovementRows(scope.fullAuthSubject,scope.deviceId).isEmpty())
         assertEquals(10L,store.stock().single().availableBase); Unit
     }
     @Test fun negativeStockRefusesUnlessPolicyExplicitlyAllowsIt() = runBlocking {
         store.replaceBootstrap(fixture())
-        assertFalse(store.canRemove(product,11)); assertTrue(runCatching { store.recordDamage(product,11,"crushed",null) }.isFailure)
+        assertFalse(store.canRemove(product,11)); assertTrue(runCatching { store.recordDamage(product,11,"expired",null) }.isFailure)
         val o=JSONObject(fixture()).put("serverTime",at+1); o.getJSONObject("policy").put("allowNegativeStock",true)
-        store.replaceBootstrap(o.toString()); assertTrue(store.canRemove(product,11)); store.recordDamage(product,11,"crushed",null)
+        store.replaceBootstrap(o.toString()); assertTrue(store.canRemove(product,11)); store.recordDamage(product,11,"expired",null)
         assertEquals(-1L,store.stock().single().availableBase); assertEquals(11L,store.stock().single().damagedBase); Unit
     }
     @Test fun acknowledgementIsDurableBeforeDoneAndSettlementRetainsLedger() = runBlocking {
-        store.replaceBootstrap(fixture()); val id=store.recordDamage(product,3,"crushed",null)
+        store.replaceBootstrap(fixture()); val id=store.recordDamage(product,3,"expired",null)
         val row=store.pending().single(); store.markSending(listOf(id))
         db.rows().markDone(scope.fullAuthSubject,scope.deviceId,id)
         assertEquals("sending",db.rows().outbox(scope.fullAuthSubject,scope.deviceId,id)!!.status)
@@ -113,7 +113,7 @@ class EncryptedVanStoreTest {
         assertEquals(2,db.rows().stockmovementRows(scope.fullAuthSubject,scope.deviceId).size); Unit
     }
     @Test fun bootstrapPreservesOutboxSalesWalkInsAndScopes() = runBlocking {
-        store.replaceBootstrap(fixture()); val id=store.recordDamage(product,1,"crushed",null); store.addWalkInCustomer("Walk in","cash buyer")
+        store.replaceBootstrap(fixture()); val id=store.recordDamage(product,1,"expired",null); store.addWalkInCustomer("Walk in","cash buyer")
         db.rows().insertSale(SaleRow(scope.fullAuthSubject,scope.deviceId,"sale","trip","receipt","key","customer","saved",createdAt=1))
         val before=db.rows().outbox(scope.fullAuthSubject,scope.deviceId,id)!!.operationJson
         store.replaceBootstrap(fixture(serverTime=at+1))
@@ -123,7 +123,7 @@ class EncryptedVanStoreTest {
         assertTrue(RoomVanStore(db,StoreScope(scope.fullAuthSubject,"other-device")).stock().isEmpty()); Unit
     }
     @Test fun processRestartResetsPersistedSendingWithoutChangingOperationBytes() = runBlocking {
-        store.replaceBootstrap(fixture()); val id=store.recordDamage(product,1,"crushed",null)
+        store.replaceBootstrap(fixture()); val id=store.recordDamage(product,1,"expired",null)
         val original=store.pending().single().operationJson; store.markSending(listOf(id))
         db.close(); db=EncryptedVanDatabase.openWithPassphrase(context,key,name); store=RoomVanStore(db,scope)
         assertEquals("sending",db.rows().outbox(scope.fullAuthSubject,scope.deviceId,id)!!.status)
@@ -139,16 +139,16 @@ class EncryptedVanStoreTest {
         assertEquals(7L,store.stock().single().availableBase); assertEquals(1,db.rows().stockmovementRows(scope.fullAuthSubject,scope.deviceId).size); Unit
     }
     @Test fun holdAndReviewNeverAutomaticallyRetry() = runBlocking {
-        store.replaceBootstrap(fixture()); val id=store.recordDamage(product,1,"crushed",null); val row=store.pending().single()
+        store.replaceBootstrap(fixture()); val id=store.recordDamage(product,1,"expired",null); val row=store.pending().single()
         store.recordResult(row,PushResult(row.kind,id,"conflict",code="conflict")); store.resetSending(); assertTrue(store.pending().isEmpty())
-        store.hold(); assertTrue(runCatching { store.recordDamage(product,1,"crushed",null) }.isFailure)
+        store.hold(); assertTrue(runCatching { store.recordDamage(product,1,"expired",null) }.isFailure)
         store.replaceBootstrap(fixture(serverTime=at+1)); assertTrue(store.pending().isEmpty()); assertEquals("conflict",db.rows().outbox(scope.fullAuthSubject,scope.deviceId,id)!!.status); Unit
     }
     @Test fun sqlcipherOutboxReplaysAfterUncertainServerAcceptance() = runBlocking {
         val backend=FakeVanBackend(); store.replaceBootstrap(backend.bootstrap())
         store.confirmLoad(listOf(LoadActual(1,48),LoadActual(2,24))); VanSync(store,backend).syncNow()
         store.startTrip(true,true,null,null,null,null); VanSync(store,backend).syncNow()
-        val id=store.recordDamage(product,2,"crushed",null); val original=store.pending().single().operationJson
+        val id=store.recordDamage(product,2,"expired",null); val original=store.pending().single().operationJson
         var fail=true
         val uncertain=object : VanGateway {
             override suspend fun bootstrap()=backend.bootstrap()

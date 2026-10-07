@@ -14,7 +14,10 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     val fixtureMode: Boolean = false,
     /** SP-0125: what this build shows (unfinished screens are hidden in release/beta). */
     val features: VanFeatures = VanFeatures.ALL,
+    /** Instrumentation can inject actual JPEG bytes; never selected by an intent or available in release. */
+    val damagePhotoSource: (suspend () -> com.sunpride.van.evidence.DamageCapture)? = null,
     private val fingerprintLoader: suspend () -> String = { "Unavailable" }) {
+    init { require(damagePhotoSource == null || fixtureMode && com.sunpride.van.BuildConfig.DEBUG) }
     var page by mutableStateOf(Page.HOME)
         private set
     var session by mutableStateOf(SessionState())
@@ -32,6 +35,8 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     var prices by mutableStateOf(emptyList<PriceLine>())
         private set
     var stock by mutableStateOf(emptyList<TruckStock>())
+        private set
+    var damageRecords by mutableStateOf(emptyList<DamageRecord>())
         private set
     var policy by mutableStateOf<VanPolicy?>(null)
         private set
@@ -70,6 +75,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         launch { repository.priceLines.collect { prices = it } }
         launch { repository.truckStock.collect { stock = it } }
         launch { repository.policy.collect { policy = it } }
+        launch { repository.damageRecords.collect { damageRecords = it } }
         launch { repository.seller.collect { seller = it } }
         launch { repository.syncStatus.collect { sync = it } }
         launch { fingerprint = try { fingerprintLoader() } catch (_: Exception) { "Unavailable. Check again." } }
@@ -121,14 +127,15 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         repository.startTrip(truck,route,driver.takeIf { it.isNotBlank() },helper.takeIf { it.isNotBlank() },odometer,note.takeIf { it.isNotBlank() })
         page = Page.HOME
     }
-    fun damage(product: Product, qty: Long, reason: String, note: String, onSaved: () -> Unit) = command {
+    fun damage(product: Product, qty: Long, reason: String, note: String, photoSha256: String? = null, onSaved: () -> Unit) = command {
         if (!repository.canRemove(product.productId,qty)) {
             message = "Not enough stock on the truck"
         } else {
-            repository.recordDamage(product.productId,qty,reason,note.takeIf { it.isNotBlank() })
+            repository.recordDamage(product.productId,qty,reason,note.takeIf { it.isNotBlank() },photoSha256)
             message = "Damage saved — waiting for sync"; onSaved()
         }
     }
+    fun discardDamagePhoto(sha: String) { scope?.launch { runCatching { repository.discardDamagePhoto(sha) } } }
     fun startSale(customer: Customer) {
         if (!VanRules.canSell(trip)) { message = VanRules.checkoutMessage(CheckoutProblem.TRIP_NOT_SELLING,null); return }
         if (sale?.customer?.outletId != customer.outletId) sale = SaleDraft(CheckoutRules.newSaleId(),customer,emptyList())

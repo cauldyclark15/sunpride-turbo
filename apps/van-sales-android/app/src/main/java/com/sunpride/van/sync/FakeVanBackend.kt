@@ -14,11 +14,18 @@ class FakeVanBackend(fixtureJson: String = FIXTURE, context: Context? = null) : 
     private val prefs = context?.getSharedPreferences("van_fixture_backend",Context.MODE_PRIVATE)
     private var state = JSONObject(prefs?.getString("state",null) ?: fixtureJson)
     private val replies = JSONObject(prefs?.getString("replies",null) ?: "{}")
-    private var time = state.getLong("serverTime")
+    private val photos = JSONObject(prefs?.getString("photos",null) ?: "{}")
+    private var time = maxOf(state.getLong("serverTime"),state.optJSONArray("damageRecords")?.let(VanBootstrapCodec::objects)?.maxOfOrNull { it.getLong("recordedAt") } ?: 0L)
     init { check(BuildConfig.DEBUG); VanBootstrapCodec.decode(state.toString()) }
-    private fun persist() { prefs?.edit()?.putString("state",state.toString())?.putString("replies",replies.toString())?.commit() }
+    private fun persist() { prefs?.edit()?.putString("state",state.toString())?.putString("replies",replies.toString())?.putString("photos",photos.toString())?.commit() }
     @Synchronized private fun snapshot(): String {
         time = maxOf(time+1,state.getLong("serverTime")+1); state.put("serverTime",time); persist(); return state.toString()
+    }
+    override suspend fun evidence(sha256: String, jpeg: ByteArray) { storePhoto(sha256,jpeg) }
+    @Synchronized private fun storePhoto(sha: String, jpeg: ByteArray) {
+        VanEvidenceCodec.request("stub-van-device",sha,jpeg)
+        require(jpeg.size <= (VanBootstrapCodec.policy(state.getJSONObject("policy")).damagePolicy?.photoMaxBytes ?: 90_000))
+        photos.put(sha,true); persist()
     }
     override suspend fun bootstrap(): String = snapshot()
     override suspend fun push(operations: List<OutboxRow>): List<PushResult> = operations.map(::apply)
@@ -55,7 +62,20 @@ class FakeVanBackend(fixtureJson: String = FIXTURE, context: Context? = null) : 
                 val qty = p.getString("quantityBase").toLong(); val product = p.getString("productId")
                 val available = VanBootstrapCodec.objects(state.getJSONArray("truckStock")).firstOrNull { it.getString("productId") == product }?.getString("availableBase")?.toLong() ?: 0L
                 if (!state.getJSONObject("policy").getBoolean("allowNegativeStock") && available < qty) return PushResult(row.kind,row.clientRequestId,"rejected",code="invalid_request")
+                val scale = VanBootstrapCodec.objects(state.getJSONArray("products")).single { it.getString("productId") == product }.getString("quantityScale").toLong()
+                val policy = VanBootstrapCodec.policy(state.getJSONObject("policy"))
+                val requirements = DamageRules.requirements(policy.damagePolicy,qty,scale,p.getString("reason"))
+                val photo = p.optString("photoSha256")
+                if ((requirements.needsPhoto || photo.isNotEmpty()) && (photo.isEmpty() || !photos.has(photo)))
+                    return PushResult(row.kind,row.clientRequestId,"rejected",code="photo_required")
+                entity = "stub-dmg-${row.clientRequestId}"
                 movement = "stub-damage-${row.clientRequestId}"; updateStock(product,-qty,qty)
+                val records = state.optJSONArray("damageRecords") ?: JSONArray()
+                val record = JSONObject().put("damageId",entity).put("clientRequestId",row.clientRequestId).put("productId",product)
+                    .put("quantityBase",qty.toString()).put("reason",p.getString("reason"))
+                    .put("status",if (requirements.needsApproval) "pending_approval" else "recorded").put("recordedAt",time+1).put("decisionNote",JSONObject.NULL)
+                // Newest first, as the server contract promises.
+                state.put("damageRecords",JSONArray().put(record).also { a -> VanBootstrapCodec.objects(records).take(199).forEach(a::put) })
             }
             else -> return PushResult(row.kind,row.clientRequestId,"rejected",code="invalid_request")
         }
@@ -130,7 +150,12 @@ class FakeVanBackend(fixtureJson: String = FIXTURE, context: Context? = null) : 
         "referenceRequired": false,
         "referenceLabel": null
       }
-    ]
+    ],
+    "damagePolicy": {
+      "photoRequiredReasons": ["crushed", "leaking", "spoiled", "other"],
+      "approvalFromUnits": 12,
+      "photoMaxBytes": 90000
+    }
   },
   "trip": {
     "tripId": "k57trip0000000000000000000000001",
@@ -194,8 +219,16 @@ class FakeVanBackend(fixtureJson: String = FIXTURE, context: Context? = null) : 
       "quantityScale": "1",
       "barcodes": ["4800000000017", "14800000000016"],
       "barcodeUnits": [
-        { "barcode": "4800000000017", "uomCode": "PC", "baseQuantity": "1" },
-        { "barcode": "14800000000016", "uomCode": "CS", "baseQuantity": "24" }
+        {
+          "barcode": "4800000000017",
+          "uomCode": "PC",
+          "baseQuantity": "1"
+        },
+        {
+          "barcode": "14800000000016",
+          "uomCode": "CS",
+          "baseQuantity": "24"
+        }
       ]
     },
     {
@@ -215,7 +248,10 @@ class FakeVanBackend(fixtureJson: String = FIXTURE, context: Context? = null) : 
       "address": "A. Soriano Ave, Mandaue",
       "sequence": 1,
       "source": "route",
-      "credit": { "termsDays": 30, "availableMinor": "500000" }
+      "credit": {
+        "termsDays": 30,
+        "availableMinor": "500000"
+      }
     },
     {
       "outletId": "k57out00000000000000000000000002",
@@ -233,6 +269,18 @@ class FakeVanBackend(fixtureJson: String = FIXTURE, context: Context? = null) : 
       "address": null,
       "sequence": null,
       "source": "unplanned"
+    }
+  ],
+  "damageRecords": [
+    {
+      "damageId": "k57dmg00000000000000000000000001",
+      "clientRequestId": "0b6f5e1a-3c2d-4e8f-9a1b-2c3d4e5f6a72",
+      "productId": "k57prod0000000000000000000000001",
+      "quantityBase": "2",
+      "reason": "leaking",
+      "status": "recorded",
+      "recordedAt": 1791345001000,
+      "decisionNote": null
     }
   ]
 }

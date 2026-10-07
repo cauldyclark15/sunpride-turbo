@@ -10,16 +10,45 @@ import kotlinx.coroutines.sync.Mutex
 import java.util.concurrent.ConcurrentHashMap
 
 /** Process-wide partition mutex shared by foreground and WorkManager instances. */
-class VanSync(private val store: VanSyncStore, private val gateway: VanGateway, private val clock: () -> Long = System::currentTimeMillis) {
+class VanSync(private val store: VanSyncStore, private val gateway: VanGateway, private val clock: () -> Long = System::currentTimeMillis,
+    private val evidence: com.sunpride.van.evidence.DamageEvidence? = (store as? RoomVanStore)?.evidence) {
     private val mutex = locks.getOrPut(store.scope) { Mutex() }
     suspend fun syncNow() {
         if (!mutex.tryLock()) return
         try {
             store.resetSending() // recover transient markers after process interruption
-            store.replaceBootstrap(gateway.bootstrap())
+            val bootstrap = store.replaceBootstrap(gateway.bootstrap())
+            store.cleanupAcknowledgedPhotos() // recover a crash after durable ack, before file cleanup
+            val blocked = mutableSetOf<String>()
+            val failedPhotos = mutableSetOf<String>()
             while (true) {
-                val pending = store.pending()
-                if (pending.isEmpty()) break
+                val candidates = store.pending(blocked)
+                if (candidates.isEmpty()) break
+                val pending = mutableListOf<com.sunpride.van.storage.OutboxRow>()
+                for (row in candidates) {
+                    val sha = damagePhotoSha(row)
+                    if (sha != null) {
+                        if (sha in failedPhotos) { blocked += row.clientRequestId; continue }
+                        try {
+                            val photos = checkNotNull(evidence)
+                            if (!photos.uploaded(sha)) {
+                                gateway.evidence(sha,photos.read(sha,bootstrap.policy.damagePolicy?.photoMaxBytes ?: 90_000))
+                                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                                if (!store.canSync()) throw VanSyncFailure("unauthorized",false)
+                                photos.markUploaded(sha) // only a validated 'stored' response permits a marker
+                            }
+                        } catch (e: CancellationException) { throw e }
+                        catch (e: AuthFailure) { throw e }
+                        catch (e: VanSyncFailure) {
+                            if (e.code in setOf("unauthorized","version_unsupported")) throw e
+                            failedPhotos += sha; blocked += row.clientRequestId; continue
+                        } catch (_: Exception) { failedPhotos += sha; blocked += row.clientRequestId; continue }
+                    }
+                    pending += row
+                }
+                if (pending.isEmpty()) continue
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                if (!store.canSync()) throw VanSyncFailure("unauthorized",false)
                 store.markSending(pending.map { it.clientRequestId })
                 try {
                     val results = gateway.push(pending)
@@ -27,7 +56,9 @@ class VanSync(private val store: VanSyncStore, private val gateway: VanGateway, 
                     if (results.size != pending.size || results.map { it.clientRequestId }.toSet() != pending.map { it.clientRequestId }.toSet()) throw VanWireFailure()
                     pending.forEach { row ->
                         kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                        if (!store.canSync()) throw VanSyncFailure("unauthorized",false)
                         store.recordResult(row,results.single { it.clientRequestId == row.clientRequestId })
+                        store.cleanupAcknowledgedPhotos()
                     }
                 } catch (e: VanSyncFailure) {
                     if (!e.retryable && e.code == "invalid_request") pending.forEach {
@@ -37,7 +68,7 @@ class VanSync(private val store: VanSyncStore, private val gateway: VanGateway, 
             }
             // Pull authoritative post-operation trip/load/balance, then settle acked movements.
             store.replaceBootstrap(gateway.bootstrap())
-            store.setHealth("synced",clock())
+            store.setHealth(if (blocked.isEmpty()) "synced" else "retry_pending",clock())
         } catch (e: CancellationException) {
             throw e
         } catch (e: VanSyncFailure) {

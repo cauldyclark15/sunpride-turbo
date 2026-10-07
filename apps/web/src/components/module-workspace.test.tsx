@@ -95,6 +95,9 @@ vi.mock("convex/react", () => ({
     });
   },
 }));
+vi.mock("./van-damage-approvals", () => ({
+  VanDamageApprovals: () => createElement("div", null, "van-damage-approvals"),
+}));
 vi.mock("@heroui/react", async (original) => {
   const actual = await original<typeof import("@heroui/react")>();
   return {
@@ -520,6 +523,7 @@ describe("calm generic modules", () => {
     expect(approvals).not.toContain("SO-002");
     expect(approvals).toContain("Waiting");
     expect(approvals).toContain("<th>Decision</th>");
+    expect(approvals).toContain("van-damage-approvals");
     expect(state.calls).toContainEqual({
       name: "domains/masterData:customers",
       args: "skip",
@@ -545,5 +549,6 @@ describe("calm generic modules", () => {
     expect(empty).toContain("Nothing waiting");
     expect(empty).toContain("border border-border");
     expect(empty).not.toContain("<th>Decision</th>");
+    expect(empty).toContain("van-damage-approvals");
   });
 });
