@@ -41,8 +41,9 @@ function buildHuffman(counts: Uint8Array, values: Uint8Array): Huffman {
       minCode[length] = code;
       code += n;
       k += n;
-      // A code space overflow means the table is not a prefix code.
-      if (code > 1 << length) fail();
+      // A code space overflow means the table is not a prefix code. The all-ones code of a
+      // length is reserved (T.81 Annex C), so a complete table is refused as libjpeg does.
+      if (code >= 1 << length) fail();
       maxCode[length] = code - 1;
     }
     code <<= 1;

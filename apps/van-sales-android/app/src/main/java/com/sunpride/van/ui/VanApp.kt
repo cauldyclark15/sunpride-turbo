@@ -58,6 +58,8 @@ import kotlinx.coroutines.delay
                 Page.SALE -> SaleScreen(controller)
                 Page.CHECKOUT -> CheckoutScreen(controller)
                 Page.SALE_DONE -> SaleDoneScreen(controller)
+                Page.RETURN -> ReturnScreen(controller)
+                Page.RETURN_DONE -> ReturnDoneScreen(controller)
                 Page.RECEIPTS -> ReceiptsScreen(controller)
             }
         }

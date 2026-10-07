@@ -14,6 +14,12 @@ import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
 import { assertNotLockedByApprovedPlan } from "../coverage/lock";
 import { manilaDate } from "../coverage/validation";
 import { requireCapability } from "../lib/capabilities";
+import {
+  assertEffectiveStart,
+  authorizeWrite,
+  USER_ACTOR,
+  type WriteActor,
+} from "../lib/write_actor";
 import { activeAt, audit, interval, prospective } from "../org/validation";
 import schema from "../schema";
 import {
@@ -28,6 +34,7 @@ import {
 import {
   assertActiveOutlet,
   currentRow,
+  outletForWrite,
   outletRows,
   required,
   requireOutletCapability,
@@ -89,6 +96,7 @@ async function destination(
   target: Choice,
   from: number,
   to?: number,
+  actor: WriteActor = USER_ACTOR,
 ) {
   interval(from, to);
   const territory = await ctx.db.get(target.territoryId);
@@ -102,14 +110,15 @@ async function destination(
   )
     throw new ConvexError("Territory does not cover assignment interval");
   // Gate both the persisted current owner and every future owner in the window.
-  await requireTerritoryCapability(ctx, "outlet.assign", target.territoryId);
+  if (actor.kind === "user")
+    await requireTerritoryCapability(ctx, "outlet.assign", target.territoryId);
   const owners = await ownerships(ctx, target.territoryId);
   let cursor = from;
   for (const owner of owners) {
     if (!overlaps(owner, from, to)) continue;
     if (owner.effectiveFrom > cursor)
       throw new ConvexError("Territory ownership gap");
-    await requireCapability(ctx, "outlet.assign", owner.orgUnitId);
+    await authorizeWrite(ctx, actor, "outlet.assign", owner.orgUnitId);
     cursor = Math.max(cursor, owner.effectiveTo ?? Infinity);
   }
   if (cursor < (to ?? Infinity))
@@ -118,7 +127,8 @@ async function destination(
     if (target.sequence === undefined)
       throw new ConvexError("Route requires sequence");
     sequenceValid(target.sequence);
-    await requireRoute(ctx, "route.read", target.routeId);
+    if (actor.kind === "user")
+      await requireRoute(ctx, "route.read", target.routeId);
     const route = await ctx.db.get(target.routeId);
     if (
       !route ||
@@ -150,13 +160,15 @@ async function prepare(
   target: Choice,
   from: number,
   reason: string,
+  actor: WriteActor = USER_ACTOR,
 ) {
-  prospective(from);
+  assertEffectiveStart(actor, from);
   required(reason, "Reason");
-  const access = await requireOutletCapability(
+  const access = await outletForWrite(
     ctx,
-    "outlet.assign",
+    actor,
     target.outletId,
+    "outlet.assign",
   );
   assertActiveOutlet(access.outlet);
   const rows = await outletRows(ctx, "outletAssignments", target.outletId);
@@ -182,7 +194,7 @@ async function prepare(
       Math.max(from, source.effectiveFrom),
     );
     if (!sourceOwner) throw new ConvexError("Source territory owner missing");
-    await requireCapability(ctx, "outlet.assign", sourceOwner.orgUnitId);
+    await authorizeWrite(ctx, actor, "outlet.assign", sourceOwner.orgUnitId);
   }
   if (
     !pending &&
@@ -203,8 +215,8 @@ async function prepare(
     ],
     from,
   });
-  await destination(ctx, target, from);
-  return { previous, pending, actor: access.identity.tokenIdentifier };
+  await destination(ctx, target, from, undefined, actor);
+  return { previous, pending, actor: access.actorSubject };
 }
 async function write(
   ctx: MutationCtx,
@@ -316,21 +328,27 @@ async function checkSequences(
 export const assign = mutation({
   args: { ...choice, effectiveFrom: v.number(), reason: v.string() },
   returns: v.id("outletAssignments"),
-  handler: async (ctx, args) => {
-    const { effectiveFrom, reason, ...target } = args;
-    const prepared = await prepare(ctx, target, effectiveFrom, reason);
-    await checkSequences(ctx, [target], effectiveFrom);
-    return write(
-      ctx,
-      target,
-      effectiveFrom,
-      reason,
-      prepared.previous,
-      prepared.actor,
-      prepared.pending,
-    );
-  },
+  handler: async (ctx, args) => assignOutlet(ctx, args, USER_ACTOR),
 });
+/** The outlet territory/route assignment writer (one outlet; see `batchAssign` for many). */
+export async function assignOutlet(
+  ctx: MutationCtx,
+  args: Choice & { effectiveFrom: number; reason: string },
+  actor: WriteActor,
+) {
+  const { effectiveFrom, reason, ...target } = args;
+  const prepared = await prepare(ctx, target, effectiveFrom, reason, actor);
+  await checkSequences(ctx, [target], effectiveFrom);
+  return write(
+    ctx,
+    target,
+    effectiveFrom,
+    reason,
+    prepared.previous,
+    prepared.actor,
+    prepared.pending,
+  );
+}
 export const batchAssign = mutation({
   args: {
     assignments: v.array(v.object(choice)),

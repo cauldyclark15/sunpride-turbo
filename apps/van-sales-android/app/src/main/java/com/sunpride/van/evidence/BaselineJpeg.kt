@@ -24,7 +24,9 @@ object BaselineJpeg {
                 val n = counts[length - 1]
                 if (n > 0) {
                     valPtr[length] = k; minCode[length] = code; code += n; k += n
-                    if (code > (1 shl length)) fail()
+                    // Overflow is not a prefix code; the all-ones code of a length is reserved
+                    // (T.81 Annex C), so a complete table is refused as libjpeg does.
+                    if (code >= (1 shl length)) fail()
                     maxCode[length] = code - 1
                 }
                 code = code shl 1

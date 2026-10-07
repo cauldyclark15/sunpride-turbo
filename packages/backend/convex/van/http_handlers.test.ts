@@ -404,6 +404,31 @@ describe("van evidence route (VAN-020)", () => {
       (byte) => byte.toString(16).padStart(2, "0"),
     ).join("");
   const base64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes));
+  /**
+   * The fixture with one extra symbol appended to its luminance DC Huffman table at code
+   * length [length] (the scan still decodes identically). At length 9 the table becomes
+   * complete, so its new symbol takes the reserved all-ones code 111111111; at length 10
+   * the table stays incomplete.
+   */
+  function withExtraDcSymbol(length: number) {
+    const at = jpeg.findIndex(
+      (b, i) => b === 0xff && jpeg[i + 1] === 0xc4 && jpeg[i + 4] === 0x00,
+    );
+    const counts = jpeg.slice(at + 5, at + 21);
+    const total = counts.reduce((sum, n) => sum + n, 0);
+    counts[length - 1]! += 1;
+    const segment = (jpeg[at + 2]! << 8) | jpeg[at + 3]!;
+    return new Uint8Array([
+      ...jpeg.slice(0, at + 2),
+      (segment + 1) >> 8,
+      (segment + 1) & 0xff,
+      0x00,
+      ...counts,
+      ...jpeg.slice(at + 21, at + 21 + total),
+      0x00,
+      ...jpeg.slice(at + 21 + total),
+    ]);
+  }
   async function evidenceBody(bytes = jpeg, sha?: string) {
     return {
       type: "van.evidence.request",
@@ -469,6 +494,27 @@ describe("van evidence route (VAN-020)", () => {
       size: jpeg.length,
     });
     expect(h.remove).not.toHaveBeenCalled();
+  });
+
+  it("refuses a JPEG whose Huffman table uses the reserved all-ones code (release check)", async () => {
+    // Control: the same edit that leaves the table incomplete is still a photo.
+    const incomplete = evidenceHarness();
+    const accepted = await handleVan(
+      incomplete.ctx,
+      await send(await evidenceBody(withExtraDcSymbol(10))),
+      "evidence",
+    );
+    expect(accepted.status).toBe(200);
+    expect(incomplete.store).toHaveBeenCalledOnce();
+    const h = evidenceHarness();
+    const response = await handleVan(
+      h.ctx,
+      await send(await evidenceBody(withExtraDcSymbol(9))),
+      "evidence",
+    );
+    expect(response.status).toBe(400);
+    expect(h.store).not.toHaveBeenCalled();
+    expect(h.register).not.toHaveBeenCalled();
   });
 
   it("is idempotent: a known digest stores nothing, a lost race deletes its copy", async () => {

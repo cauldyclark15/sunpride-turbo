@@ -58,7 +58,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         val m = metas.singleOrNull(); val held = m?.held == true
         SyncStatus(if (held) 0 else ops.count { it.status == "pending" },if (held) 0 else ops.count { it.status == "sending" },
             ops.count { it.status in setOf("rejected","conflict") },if (held) ops.count { it.status in setOf("pending","sending") } else 0,m?.lastSyncTime,m?.health ?: "never_synced",
-            ops.count { it.status == SALE_PARKED })
+            ops.count { it.status == SALE_PARKED && it.kind == SALE_KIND },ops.count { it.status == SALE_PARKED && it.kind == RETURN_KIND })
     }
     val truckStock: Flow<List<TruckStock>> = combine(dao.observeBaseline(s,d),dao.observeMovement(s,d),dao.observeSettlement(s,d),dao.observeTrip(s,d)) { b,m,settled,t ->
         val trip = t.singleOrNull()?.tripId
@@ -72,6 +72,8 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         val p = dao.meta(s,d)?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)) } ?: return@withTransaction false
         dao.productRows(s,d).any { it.productId == productId } && StockProjection.canRemove(stock().firstOrNull { it.productId == productId }?.availableBase ?: 0L,qty,p.allowNegativeStock)
     }
+    /** The store's clock, for work saved through companion stores (VAN-019 returns). */
+    internal fun now(): Long = clock()
     private suspend fun writable(): TripRow {
         check(dao.meta(s,d)?.held == false) { "Partition held or not bootstrapped" }
         return checkNotNull(dao.trip(s,d)) { "No trip assigned" }
@@ -380,6 +382,8 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         val previous = dao.meta(s,d)
         check(previous?.lastBootstrapTime == null || b.serverTime >= previous.lastBootstrapTime) { "Stale bootstrap" }
         dao.clearTrip(s,d); dao.clearLoadLine(s,d); dao.clearProduct(s,d); dao.clearServerCustomers(s,d); dao.clearBaseline(s,d)
+        // Prices are part of this authoritative snapshot, including when the feed is omitted.
+        dao.clearPriceListLine(s,d)
         b.trip?.let { t -> dao.insertTrip(TripRow(s,d,t.tripId,t.tripNumber,t.status,t.serviceDate,o.getJSONObject("trip").put("_damageRecords",o.optJSONArray("damageRecords") ?: JSONArray()).toString(),b.load?.loadId,b.load?.status)) }
         b.load?.let { l -> VanBootstrapCodec.objects(o.getJSONObject("load").getJSONArray("lines")).forEach { line ->
             val parsed = VanBootstrapCodec.line(line)
@@ -389,6 +393,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
             dao.insertProduct(ProductRow(s,d,p.productId,p.code,p.name,p.uomCode,p.quantityScale,product.getJSONArray("barcodes").toString(),product.toString())) }
         b.customers.forEach { dao.insertCustomer(CustomerRow(s,d,it.outletId,it.code,it.name,it.address,it.sequence,it.source,
             creditTermsDays = it.credit?.termsDays,creditAvailableMinor = it.credit?.availableMinor)) }
+        b.priceLines.forEach { dao.insertPriceListLine(PriceListLineRow(s,d,it.priceListId,it.productId,it.uomCode,it.unitPriceMinor,it.currency,it.effectiveFrom,it.effectiveTo)) }
         b.trip?.let { t -> b.truckStock.forEach { stock ->
             dao.insertBaseline(BaselineRow(s,d,t.tripId,stock.productId,"available",stock.availableBase,b.serverTime))
             dao.insertBaseline(BaselineRow(s,d,t.tripId,stock.productId,"damaged",stock.damagedBase,b.serverTime))

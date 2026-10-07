@@ -48,6 +48,28 @@ class BaselineJpegTest {
         assertNull(BaselineJpeg.verify(garbage))
     }
 
+    /**
+     * The fixture with one extra symbol appended to its luminance DC Huffman table at code
+     * length [length]; the scan still decodes identically. At length 9 the table becomes
+     * complete and the new symbol takes the reserved all-ones code; at length 10 it does not.
+     */
+    private fun withExtraDcSymbol(length: Int): ByteArray {
+        val jpeg = fixture()
+        val at = (2 until jpeg.size - 4).first { jpeg[it] == 0xff.toByte() && jpeg[it + 1] == 0xc4.toByte() && jpeg[it + 4] == 0.toByte() }
+        val counts = jpeg.copyOfRange(at + 5,at + 21); val total = counts.sumOf { it.toInt() and 0xff }
+        counts[length - 1] = (counts[length - 1] + 1).toByte()
+        val segment = ((jpeg[at + 2].toInt() and 0xff) shl 8 or (jpeg[at + 3].toInt() and 0xff)) + 1
+        return jpeg.copyOfRange(0,at + 2) + byteArrayOf((segment shr 8).toByte(),segment.toByte(),0) + counts +
+            jpeg.copyOfRange(at + 21,at + 21 + total) + byteArrayOf(0) + jpeg.copyOfRange(at + 21 + total,jpeg.size)
+    }
+
+    @Test fun huffmanTableUsingTheReservedAllOnesCodeIsRefused() {
+        // Control: the same edit leaving the table incomplete still decodes.
+        assertEquals(BaselineJpeg.Info(32,24),BaselineJpeg.verify(withExtraDcSymbol(10)))
+        // Release-check counterexample: a complete table, which libjpeg refuses.
+        assertNull(BaselineJpeg.verify(withExtraDcSymbol(9)))
+    }
+
     @Test fun picturesSmallerOrLargerThanTheBoundsAreRefused() {
         assertNull(BaselineJpeg.verify(fixture(),minSide = 25))
         assertNull(BaselineJpeg.verify(fixture(),maxSide = 31))

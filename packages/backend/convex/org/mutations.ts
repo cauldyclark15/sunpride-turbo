@@ -1,7 +1,18 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
-import { internalMutation, mutation } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
+import {
+  internalMutation,
+  mutation,
+  type MutationCtx,
+} from "../_generated/server";
 import { requireCapability } from "../lib/capabilities";
+import {
+  assertEffectiveStart,
+  authorizeWrite,
+  USER_ACTOR,
+  type WriteActor,
+} from "../lib/write_actor";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
 import {
   assertParent,
@@ -22,71 +33,81 @@ export const create = mutation({
     reason: v.string(),
   },
   returns: v.id("orgUnits"),
-  handler: async (ctx, args) => {
-    prospective(args.effectiveFrom);
-    const { identity } = await requireCapability(
-      ctx,
-      "admin.manage",
-      args.parentId,
-    );
-    const parent = await assertParent(
-      ctx,
-      args.typeCode,
-      args.parentId,
-      args.effectiveFrom,
-    );
-    if (!parent) throw new ConvexError("Parent not found");
-    const code = normalizeCode(args.code);
-    if (
-      await ctx.db
-        .query("orgUnits")
-        .withIndex("by_organizationId_and_code", (q) =>
-          q.eq("organizationId", SUNPRIDE_ORGANIZATION_ID).eq("code", code),
-        )
-        .first()
-    )
-      throw new ConvexError("Duplicate organization code");
-    const name = args.name.trim();
-    if (!name) throw new ConvexError("Name required");
-    const reason = args.reason.trim();
-    if (!reason) throw new ConvexError("Reason required");
-    const now = Date.now();
-    const id = await ctx.db.insert("orgUnits", {
-      organizationId: SUNPRIDE_ORGANIZATION_ID,
-      code,
-      name,
-      typeCode: args.typeCode,
-      parentId: args.effectiveFrom <= now ? args.parentId : undefined,
-      status: "active",
-      effectiveFrom: args.effectiveFrom,
-      createdAt: now,
-      updatedAt: now,
-    });
-    await ctx.db.insert("orgUnitParentEdges", {
-      unitId: id,
-      parentId: args.parentId,
-      effectiveFrom: args.effectiveFrom,
-      actorSubject: identity.tokenIdentifier,
-      reason,
-      createdAt: now,
-    });
+  handler: async (ctx, args) =>
+    (await createOrgUnit(ctx, args, USER_ACTOR)).unitId,
+});
+
+/** The org-unit writer: identity row, its first effective parent edge, projection and audit. */
+export async function createOrgUnit(
+  ctx: MutationCtx,
+  args: {
+    code: string;
+    name: string;
+    typeCode: string;
+    parentId: Id<"orgUnits">;
+    effectiveFrom: number;
+    reason: string;
+  },
+  actor: WriteActor,
+) {
+  assertEffectiveStart(actor, args.effectiveFrom);
+  const actorSubject = await authorizeWrite(
+    ctx,
+    actor,
+    "admin.manage",
+    args.parentId,
+  );
+  const parent = await assertParent(
+    ctx,
+    args.typeCode,
+    args.parentId,
+    args.effectiveFrom,
+  );
+  if (!parent) throw new ConvexError("Parent not found");
+  const code = normalizeCode(args.code);
+  if (
+    await ctx.db
+      .query("orgUnits")
+      .withIndex("by_organizationId_and_code", (q) =>
+        q.eq("organizationId", SUNPRIDE_ORGANIZATION_ID).eq("code", code),
+      )
+      .first()
+  )
+    throw new ConvexError("Duplicate organization code");
+  const name = args.name.trim();
+  if (!name) throw new ConvexError("Name required");
+  const reason = args.reason.trim();
+  if (!reason) throw new ConvexError("Reason required");
+  const now = Date.now();
+  const unitId = await ctx.db.insert("orgUnits", {
+    organizationId: SUNPRIDE_ORGANIZATION_ID,
+    code,
+    name,
+    typeCode: args.typeCode,
+    parentId: args.effectiveFrom <= now ? args.parentId : undefined,
+    status: "active",
+    effectiveFrom: args.effectiveFrom,
+    createdAt: now,
+    updatedAt: now,
+  });
+  const edgeId = await ctx.db.insert("orgUnitParentEdges", {
+    unitId,
+    parentId: args.parentId,
+    effectiveFrom: args.effectiveFrom,
+    actorSubject,
+    reason,
+    createdAt: now,
+  });
+  // An already-effective unit carries its parent projection from the start.
+  if (args.effectiveFrom > now)
     await ctx.scheduler.runAt(
       args.effectiveFrom,
       internal.org.mutations.applyProjection,
-      { unitId: id },
+      { unitId },
     );
-    await audit(
-      ctx,
-      identity.tokenIdentifier,
-      "org.created",
-      "orgUnit",
-      id,
-      reason,
-      now,
-    );
-    return id;
-  },
-});
+  await audit(ctx, actorSubject, "org.created", "orgUnit", unitId, reason, now);
+  return { unitId, edgeId };
+}
 
 export const edit = mutation({
   args: { unitId: v.id("orgUnits"), name: v.string(), reason: v.string() },

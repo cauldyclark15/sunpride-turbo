@@ -106,6 +106,9 @@ android {
     )
     sourceSets.getByName("test").resources.srcDir(rootProject.file("../../packages/domain-contracts/schemas"))
     sourceSets.getByName("androidTest").assets.srcDir("schemas")
+    sourceSets.getByName("androidTest").assets.srcDir(
+        rootProject.file("../../packages/domain-contracts/fixtures/van-v1")
+    )
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 }
 
