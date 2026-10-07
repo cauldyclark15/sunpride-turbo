@@ -32,12 +32,6 @@ class ReturnStore(private val store: RoomVanStore) {
         return t.status == "active" || dao.outboxRows(s, d).any { it.tripId == t.tripId && it.kind == "trip.start" && it.status in setOf("pending", "sending", "done") }
     }
 
-<<<<<<< Updated upstream
-    /** Sales saved on this phone (newest first), for linking a return to the receipt it came from. */
-    suspend fun sales(): List<SoldSale> {
-        val lines = dao.salelineRows(s, d).groupBy { it.saleId }
-        return dao.saleRows(s, d).map { sale ->
-=======
     /**
      * Sales saved on this phone (newest first), for linking a return to the receipt it came from. A voided sale
      * (VAN-021) is left out: its goods are already back on the truck, so nothing can be returned against it.
@@ -46,7 +40,6 @@ class ReturnStore(private val store: RoomVanStore) {
         val lines = dao.salelineRows(s, d).groupBy { it.saleId }
         val voided = dao.salevoidRows(s, d).map { it.saleId }.toSet()
         return dao.saleRows(s, d).filter { it.saleId !in voided }.map { sale ->
->>>>>>> Stashed changes
             SoldSale(sale.saleId, sale.receiptNumber, sale.customerId, sale.createdAt,
                 (lines[sale.saleId] ?: emptyList()).groupBy { it.productId }.mapValues { (_, l) -> l.fold(0L) { a, r -> Math.addExact(a, r.quantityBase) } })
         }.sortedByDescending { it.createdAt }
