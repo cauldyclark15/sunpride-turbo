@@ -110,12 +110,12 @@ describe("admin report pack CSV", () => {
     expect(text).toContain(",2,C-1 C-2,1,8,6,75\r\n");
   });
 
-  it("leaves allocation and AR balance blank with the reason", () => {
+  it("points the day's programs and collections to the monthly pack", () => {
     const programs = programsCsv("2026-09-30", [
       { programRef: "PA-9", executed: 3, notExecuted: 1, notApplicable: 0 },
     ]);
-    expect(programs).toContain("awaiting Sunpride's Promo Advice");
-    expect(programs).toContain("PA-9,3,1,0,75,\r\n");
+    expect(programs).toContain("See the monthly pack");
+    expect(programs).toContain("PA-9,3,1,0,75\r\n");
     const collections = collectionsCsv("2026-09-30", [
       {
         id: "c1",

@@ -4,9 +4,8 @@
  *   - Programs utilization (the "utilization" half of Promo Advice vs Allocation), from the
  *     promotion findings recorded on visits;
  *   - Collections, the field side of the KAS Account Receivables reckoning.
- * Allocation (Promo Advice), the Priorities pack, the ADP Claims Summary and AR balances have
- * no source in the system yet; docs/architecture/ADMIN_REPORT_PACK.md lists what Sunpride
- * must provide for each.
+ * Allocation (Promo Advice), the Priorities pack, the ADP Claims Summary and AR balances are
+ * the monthly pack (admin_pack.ts); see docs/architecture/ADMIN_REPORT_PACK.md.
  *
  * Access mirrors the daily execution dashboard (analytics/execution.ts): supervision readers
  * (`people.read` + `visit.read`) who also hold `report.read`, inside their own scope.

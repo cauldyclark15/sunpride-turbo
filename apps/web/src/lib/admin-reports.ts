@@ -142,14 +142,14 @@ export function programUtilizationPct(row: ProgramTally) {
   return ratioPct(row.executed, row.executed + row.notExecuted);
 }
 
-function cell(value: string | number | null | undefined): string {
+export function cell(value: string | number | null | undefined): string {
   const text = String(value ?? "");
   // Spreadsheet formula injection guard (same rule as the coverage export and DSR).
   const safe = /^[\s\uFEFF]*[=+\-@]/u.test(text) ? `'${text}` : text;
   return /[",\r\n]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe;
 }
 
-function csv(lines: Array<Array<string | number | null>>) {
+export function csv(lines: Array<Array<string | number | null>>) {
   return `\uFEFF${lines.map((row) => row.map(cell).join(",")).join("\r\n")}\r\n`;
 }
 
@@ -220,30 +220,22 @@ export function dailyPackCsv(
   ]);
 }
 
-/** Programs utilization as CSV. Allocation stays blank until Promo Advice is loaded. */
+/** The day's programme checks as CSV; allocation is in the monthly pack. */
 export function programsCsv(
   serviceDate: string,
   programs: readonly ProgramTally[],
 ): string {
   return csv([
-    ["Programs utilization vs allocation (Promo Advice)", serviceDate],
-    ["Allocation", "Not in the system yet: awaiting Sunpride's Promo Advice"],
+    ["Programs utilization (day)", serviceDate],
+    ["Allocation", "See the monthly pack: Programs utilization vs allocation"],
     [],
-    [
-      "Program",
-      "Executed",
-      "Not executed",
-      "Not applicable",
-      "Utilization %",
-      "Allocation",
-    ],
+    ["Program", "Executed", "Not executed", "Not applicable", "Utilization %"],
     ...programs.map((row) => [
       row.programRef,
       row.executed,
       row.notExecuted,
       row.notApplicable,
       programUtilizationPct(row),
-      "",
     ]),
   ]);
 }
@@ -258,7 +250,7 @@ export function collectionsCsv(
   const total = lines.reduce((sum, line) => sum + line.amountMinor, 0);
   return csv([
     ["Collections for Account Receivables reckoning", serviceDate],
-    ["AR balance", "Not in the system yet: awaiting the receivables source"],
+    ["AR balance", "See the monthly pack: Account Receivables reckoning"],
     ["Total collected", pesoPlain(total)],
     [],
     [

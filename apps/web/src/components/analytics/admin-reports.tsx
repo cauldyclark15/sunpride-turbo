@@ -30,6 +30,7 @@ import {
 } from "../../lib/admin-reports";
 import { downloadCsv } from "../../lib/import-csv-export";
 import { PanelErrorBoundary } from "../panel-error-boundary";
+import { AdminMonthlyPack } from "./admin-pack-month";
 import {
   formatTime,
   manilaToday,
@@ -40,26 +41,6 @@ type PackPage = FunctionReturnType<typeof api.analytics.admin_reports.day>;
 type PersonRow = AdminPackRow & { id: string };
 type ProgramRow = ProgramTally & { id: string };
 type CollectionRow = CollectionLine & { id: string };
-
-/** Reports in the memo's pack that have no source in the system yet. */
-export const AWAITING_REPORTS = [
-  {
-    report: "Programs allocation (Promo Advice)",
-    needed: "Sunpride's Promo Advice per program: what is allocated, to whom",
-  },
-  {
-    report: "Priorities (D.A. contract, Promo Advice, COA, SASR, BR template)",
-    needed: "The templates and who files each one",
-  },
-  {
-    report: "Claims Summary (ADP)",
-    needed: "The claims template and where ADP claims are recorded today",
-  },
-  {
-    report: "Account Receivables balances (KAS)",
-    needed: "The receivables source and the reckoning template",
-  },
-] as const;
 
 export function AdminReportsView({
   serviceDate,
@@ -187,12 +168,6 @@ export function AdminReportsView({
       align: "right",
       render: (row) => pctText(programUtilizationPct(row)),
     },
-    {
-      key: "allocation",
-      label: "Allocation",
-      align: "right",
-      render: () => <span className="text-muted">Awaiting</span>,
-    },
   ];
 
   const collectionColumns: DataColumn<CollectionRow>[] = [
@@ -315,15 +290,14 @@ export function AdminReportsView({
         </div>
       </Card>
       <Card
-        label="Programs utilization vs allocation"
+        label="Programs utilization (day)"
         count={programRows.length}
         icon={<WorkspaceIcon name="field" />}
       >
         <div className="grid gap-4">
           <p className="text-[13px] text-muted">
             Utilization comes from the program checks recorded at each visit.
-            Allocation is not in the system yet: it needs Sunpride&apos;s Promo
-            Advice.
+            Allocation is in the monthly reports below.
           </p>
           <div>
             <Button
@@ -359,7 +333,7 @@ export function AdminReportsView({
       >
         <div className="grid gap-4">
           <p className="text-[13px] text-muted">
-            {`${pesoText(collected)} collected in the field. Receivable balances are not in the system yet.`}
+            {`${pesoText(collected)} collected in the field. Balances are in the monthly AR reckoning below.`}
           </p>
           {collectionLinesTruncated ? (
             <p className="text-[13px] text-muted">
@@ -393,16 +367,6 @@ export function AdminReportsView({
             <p className="text-[13px] text-muted">No collections today</p>
           )}
         </div>
-      </Card>
-      <Card label="Waiting on Sunpride" icon={<WorkspaceIcon name="queue" />}>
-        <ul className="grid gap-2 text-[13px]">
-          {AWAITING_REPORTS.map((item) => (
-            <li key={item.report} className="flex flex-col">
-              <span className="font-medium text-foreground">{item.report}</span>
-              <span className="text-muted">{item.needed}</span>
-            </li>
-          ))}
-        </ul>
       </Card>
     </div>
   );
@@ -456,7 +420,8 @@ function AdminReportsData({ filters }: { filters: SupervisionFilters }) {
 
 /**
  * SOP-012 admin report pack (memo §V): daily productive calls, UBA, OSA and mandays;
- * programs utilization; collections for AR reckoning; each with a CSV export.
+ * programs utilization; collections; then the monthly pack (allocation, priorities, ADP
+ * claims, KAS AR reckoning); each with a CSV export.
  */
 export function AdminReports() {
   const [serviceDate, setServiceDate] = useState(() => manilaToday());
@@ -531,6 +496,7 @@ export function AdminReports() {
       <PanelErrorBoundary key={key} label="Admin reports">
         <AdminReportsData filters={filters} />
       </PanelErrorBoundary>
+      <AdminMonthlyPack />
     </section>
   );
 }

@@ -1,6 +1,6 @@
 import { convexTest, type TestConvex } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import schema from "../schema";
 import { modules } from "../test.setup";
@@ -9,6 +9,7 @@ import {
   sortedPrograms,
   tallyProgram,
 } from "./admin_reports_model";
+import { MAX_PACK_RECORDS, pickSource } from "./admin_pack_model";
 
 type T = TestConvex<typeof schema>;
 const HOUR = 3_600_000;
@@ -572,6 +573,233 @@ describe("admin report pack", () => {
     await expect(
       as("managerA").query(api.analytics.admin_reports.day, {
         serviceDate: "2026-02-30",
+      }),
+    ).rejects.toThrow();
+  });
+});
+
+const month = "2026-09";
+
+async function office(
+  t: T,
+  orgUnitId: Id<"orgUnits">,
+  record:
+    | {
+        kind: "program_allocation";
+        programRef: string;
+        programName: string;
+        allocatedStores: number;
+        budgetMinor: number;
+      }
+    | {
+        kind: "ar_balance";
+        customerCode: string;
+        customerName: string;
+        asOfDate: string;
+        termsDays: number;
+        currentMinor: number;
+        days1to30Minor: number;
+        days31to60Minor: number;
+        days61to90Minor: number;
+        over90Minor: number;
+      },
+  code: string,
+) {
+  await t.run((ctx) =>
+    ctx.db.insert("adminPackRecords", {
+      ...record,
+      organizationId: "sunpride",
+      orgUnitId,
+      period: month,
+      source: "office",
+      code,
+      createdAt: now,
+    }),
+  );
+}
+
+describe("monthly admin pack (allocation, priorities, claims, AR)", () => {
+  it("keeps office rows over sample rows per kind", () => {
+    expect(pickSource([])).toEqual({ rows: [], source: null });
+    const sample = { source: "sample" as const, n: 1 };
+    const real = { source: "office" as const, n: 2 };
+    expect(pickSource([sample])).toEqual({ rows: [sample], source: "sample" });
+    expect(pickSource([sample, real])).toEqual({
+      rows: [real],
+      source: "office",
+    });
+  });
+
+  it("seeds marked sample data once and shows all four reports", async () => {
+    const { t, as } = await fixture();
+    const first = await t.mutation(internal.analytics.admin_pack_sample.seed, {
+      month,
+    });
+    expect(first.inserted).toBeGreaterThan(0);
+    const again = await t.mutation(internal.analytics.admin_pack_sample.seed, {
+      month,
+    });
+    expect(again).toMatchObject({ inserted: 0, skipped: first.inserted });
+    const pack = await as("managerA").query(api.analytics.admin_pack.month, {
+      month,
+    });
+    expect(pack.sources).toEqual({
+      allocations: "sample",
+      priorities: "sample",
+      claims: "sample",
+      receivables: "sample",
+    });
+    expect(pack.allocations.map((row) => row.programRef)).toEqual([
+      "SAMPLE-PA-01",
+      "SAMPLE-PA-02",
+      "SAMPLE-PA-03",
+      "SAMPLE-PA-04",
+    ]);
+    // Each region gets its own sample set; Region A's manager never sees Region B's.
+    expect(pack.allocations.every((row) => row.code.includes("-A-"))).toBe(
+      true,
+    );
+    expect(pack.priorities.length).toBeGreaterThan(0);
+    expect(pack.claims.length).toBeGreaterThan(0);
+    // No key account in the fixture: the AR sample uses made-up SAMPLE- accounts.
+    expect(pack.receivables.length).toBeGreaterThan(0);
+    for (const row of [
+      ...pack.allocations,
+      ...pack.priorities,
+      ...pack.claims,
+      ...pack.receivables,
+    ]) {
+      expect(row.source).toBe("sample");
+      expect(row.code.startsWith("SAMPLE-")).toBe(true);
+    }
+    expect(pack.receivables.every((row) => !row.customerFound)).toBe(true);
+    expect(Object.values(pack.truncated).every((flag) => !flag)).toBe(true);
+  });
+
+  it("measures allocated programmes and reckons receivables from field records", async () => {
+    const { t, ids, as } = await fixture();
+    await anaDay(t, ids);
+    await t.mutation(internal.analytics.admin_pack_sample.seed, { month });
+    await office(
+      t,
+      ids.regionA,
+      {
+        kind: "program_allocation",
+        programRef: "PA-2026-09",
+        programName: "September sardines promo",
+        allocatedStores: 4,
+        budgetMinor: 50_000_00,
+      },
+      "PA-ALLOC-1",
+    );
+    await office(
+      t,
+      ids.regionA,
+      {
+        kind: "ar_balance",
+        customerCode: "C-1",
+        customerName: "Aling Nena Store",
+        asOfDate: "2026-09-01",
+        termsDays: 30,
+        currentMinor: 5_000_00,
+        days1to30Minor: 2_000_00,
+        days31to60Minor: 0,
+        days61to90Minor: 0,
+        over90Minor: 1_000_00,
+      },
+      "AR-C-1",
+    );
+    const a = await as("managerA").query(api.analytics.admin_pack.month, {
+      month,
+    });
+    // The office loaded allocations and balances: their sample rows disappear.
+    expect(a.sources).toMatchObject({
+      allocations: "office",
+      receivables: "office",
+      priorities: "sample",
+      claims: "sample",
+    });
+    expect(a.allocations).toEqual([
+      expect.objectContaining({
+        programRef: "PA-2026-09",
+        allocatedStores: 4,
+        executedStores: 1,
+        executedChecks: 1,
+        notExecutedChecks: 1,
+      }),
+    ]);
+    expect(a.receivables).toEqual([
+      expect.objectContaining({
+        customerCode: "C-1",
+        customerFound: true,
+        // ₱1,500 recorded; the rejected ₱999 never reduces the balance.
+        collectedMinor: 1_500_00,
+        pendingReviewMinor: 0,
+      }),
+    ]);
+    // Region B sees neither Region A's office rows nor Region A's field figures.
+    const b = await as("managerB").query(api.analytics.admin_pack.month, {
+      month,
+    });
+    expect(b.allocations).toEqual([]);
+    expect(b.receivables).toEqual([]);
+    expect(b.sources.allocations).toBe("office");
+
+    // Reset removes sample rows only.
+    const reset = await t.mutation(
+      internal.analytics.admin_pack_sample.reset,
+      {},
+    );
+    expect(reset.isDone).toBe(true);
+    const after = await as("managerA").query(api.analytics.admin_pack.month, {
+      month,
+    });
+    expect(after.priorities).toEqual([]);
+    expect(after.claims).toEqual([]);
+    expect(after.allocations).toHaveLength(1);
+    expect(after.receivables).toHaveLength(1);
+  });
+
+  it("flags a capped source so its export fails closed", async () => {
+    const { t, ids, as } = await fixture();
+    await t.run(async (ctx) => {
+      for (let i = 0; i <= MAX_PACK_RECORDS; i++)
+        await ctx.db.insert("adminPackRecords", {
+          organizationId: "sunpride",
+          orgUnitId: ids.regionA,
+          period: month,
+          source: "office",
+          code: `CLAIM-${i}`,
+          createdAt: now,
+          kind: "adp_claim",
+          partnerCode: "ADP-1",
+          partnerName: "Partner",
+          claimType: "rebate",
+          claimRef: `CL-${i}`,
+          filedDate: "2026-09-02",
+          claimedMinor: 100,
+          approvedMinor: null,
+          status: "filed",
+        });
+    });
+    const pack = await as("managerA").query(api.analytics.admin_pack.month, {
+      month,
+    });
+    expect(pack.truncated.claims).toBe(true);
+    expect(pack.truncated.priorities).toBe(false);
+  });
+
+  it("refuses field sales, roles without people access and bad months", async () => {
+    const { as } = await fixture();
+    await expect(
+      as("Ana").query(api.analytics.admin_pack.month, { month }),
+    ).rejects.toThrow();
+    await expect(
+      as("opsA").query(api.analytics.admin_pack.month, { month }),
+    ).rejects.toThrow();
+    await expect(
+      as("managerA").query(api.analytics.admin_pack.month, {
+        month: "2026-13",
       }),
     ).rejects.toThrow();
   });

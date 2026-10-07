@@ -51,33 +51,72 @@ One row per field person for a Manila service date, plus scope totals.
 
 Totals sum the parts and then divide; they never average people's percentages.
 
-## 2. Programs utilization vs allocation (Promo Advice) — utilization built, allocation awaited
+## Monthly pack — built on sample data (jc, 7 Oct 2026: do not wait for Sunpride)
 
-Per program reference: how many visits recorded the program as executed, not executed, or not
-applicable (the promotion check recorded at the visit, the same source as the DSR program block).
-Utilization = executed ÷ (executed + not executed). **Allocation** is shown as "Awaiting": the
-system has no Promo Advice data.
+Where: **Reports** → **Admin reports** → **Monthly admin reports**, below the daily reports.
+Endpoint `analytics/admin_pack:month({ month: "YYYY-MM", orgUnitId? })`, same readers and scope
+as the daily pack. Every report shows its data source and has an **Export CSV** (the acronyms
+are defined at the top of each file). A report whose source hit a read cap (300 records of a
+kind per month, 1,500 visits for programme use, 200 collections per account) says so and its
+export is disabled.
 
-## 3. Priorities (D.A. contract, Promo Advice, COA, SASR, BR template) — awaited
+Office inputs live in one table, `adminPackRecords` (`analytics/admin_pack_model.ts`), one row
+per allocation / document / claim / balance, per unit and Manila month. Readers see rows of
+units inside their selected scope.
 
-These are documents, not field records. We have no template or filing rule for any of them.
+**Sample data and the switch to real data.** `source: "sample"` rows are made up (codes
+`SAMPLE-*`, names end in "(sample)"). As soon as one `source: "office"` row of a kind exists for a
+month, every sample row of that kind and month is ignored everywhere. Seed/reset (lead, beta
+deployment, from `packages/backend`):
 
-## 4. Claims Summary (ADP) and Account Receivables Reckoning (KAS) — collections built
+```bash
+bunx convex run analytics/admin_pack_sample:seed '{"month":"2026-10"}'   # each region gets a set; re-run is a no-op
+bunx convex run analytics/admin_pack_sample:reset '{}'                   # removes sample rows only; repeat until isDone
+```
 
-- **Collections** (built): every field collection recorded on the day's visits (rejected ones
-  excluded) with customer, outlet, amount, method, reference and review status. This is the field
-  side of an AR reckoning.
-- **AR balances** (awaited): open receivables per account are not in the system (they live in SAP
-  or the office ledger). Reckoning needs that source.
-- **Claims Summary (ADP)** (awaited): no claims are recorded in the system today.
+The sample uses existing key-account customers (channel "Key Accounts"/"KA"/"Modern Trade") so
+AR reckoning matches their field collections; with none, it invents `SAMPLE-KA-*` accounts.
+Sample programmes are `SAMPLE-PA-01` … `SAMPLE-PA-04`: testers record these references on a
+visit's promotion check to see utilization move.
 
-## What Sunpride must provide
+## 2. Programs utilization vs allocation (Promo Advice)
 
-| Needed                                                                                                                                  | From                                            | Unblocks                      |
-| --------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- | ----------------------------- |
-| Promo Advice: each program's allocation (to which accounts/areas, in what unit — stores, cases or pesos) and its program reference code | Sales / trade marketing                         | Allocation column in report 2 |
-| Templates and owner/frequency for D.A. contract, COA, SASR, BR template                                                                 | Each senior manager via Sir Francis             | Report 3                      |
-| ADP claims template and where claims are recorded today                                                                                 | ADP / sales admin                               | Claims Summary                |
-| Source of receivable balances for KAS accounts and the reckoning template                                                               | Finance / sales admin                           | AR balances                   |
-| The admin report templates (Excel) so columns match what admins use                                                                     | Sir Francis (already promised, call answer #10) | Column layout of all four     |
-| Confirm the meaning of Mandays (one person checked in for a day) and OSA (required assortment basis)                                    | Sir Francis                                     | Report 1 definitions          |
+- **Daily:** per program reference, visits that recorded it executed / not executed / not
+  applicable (the visit promotion check, same source as the DSR program block).
+- **Monthly:** per allocation: allocated stores and budget (Promo Advice) against the stores
+  where the programme was recorded as executed that month inside the allocation's unit subtree
+  (rejected late syncs excluded). Allocation used = stores executed ÷ allocated stores.
+  Assumption: allocation is counted in stores; cases/pesos allocation is a later refinement.
+
+## 3. Priorities (D.A. contract, Promo Advice, COA, SASR, BR template)
+
+One row per document owed: type, title, account, owner, due date, status (pending, submitted,
+approved, returned) and submitted date. Overdue = pending or returned after its due date.
+Assumption: documents are tracked as a checklist with a due date per month; the files
+themselves stay where they are filed today.
+
+## 4. Claims Summary (ADP) and Account Receivables reckoning (KAS)
+
+- **Daily collections:** every field collection recorded on the day's visits (rejected ones
+  excluded) with customer, outlet, amount, method, reference and review status.
+- **Claims Summary (monthly):** per distribution partner: claims, claimed, approved, paid, open
+  (filed or validated) and rejected amounts, then the claim list. Types: display allowance,
+  promo discount, bad order, rebate.
+- **AR reckoning (monthly):** per key account: balance date, terms, aging (current, 1–30,
+  31–60, 61–90, over 90), opening balance, recorded field collections in the reader's scope from
+  the balance date to month end, collections pending review (not deducted) and remaining.
+  Assumption: the balance is loaded once per month as of the 1st.
+
+## What Sunpride's real data replaces
+
+Nothing here blocks release. When Sunpride sends the inputs below, they are loaded as
+`source: "office"` rows (an import screen is a follow-up) and the sample rows of that kind and
+month disappear; their templates may adjust columns.
+
+| Input                                                                | From                                | Replaces                |
+| -------------------------------------------------------------------- | ----------------------------------- | ----------------------- |
+| Promo Advice: allocation per programme (stores/cases/pesos) and code | Sales / trade marketing             | Sample allocations      |
+| D.A. contract, COA, SASR, BR template: owner, frequency, templates   | Each senior manager via Sir Francis | Sample priorities       |
+| ADP claims template and where claims are recorded today              | ADP / sales admin                   | Sample claims           |
+| KAS receivable balances source and reckoning template                | Finance / sales admin               | Sample balances         |
+| Admin report Excel templates; confirm Mandays and OSA meanings       | Sir Francis (call answer #10)       | Column layout, report 1 |

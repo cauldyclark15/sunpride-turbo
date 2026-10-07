@@ -43,6 +43,40 @@ const kim = {
   osaAvailable: 2,
 };
 
+const monthPack = {
+  month: "2026-09",
+  units: [],
+  sources: {
+    allocations: "sample",
+    priorities: "sample",
+    claims: "sample",
+    receivables: "sample",
+  },
+  allocations: [],
+  priorities: [],
+  claims: [
+    {
+      code: "SAMPLE-CLAIM-1",
+      source: "sample",
+      partnerCode: "SAMPLE-ADP-01",
+      partnerName: "Mandaue Distribution Partners (sample)",
+      claimType: "rebate",
+      claimRef: "CL-1",
+      filedDate: "2026-09-02",
+      claimedMinor: 100_00,
+      approvedMinor: null,
+      status: "filed",
+    },
+  ],
+  receivables: [],
+  truncated: {
+    allocations: false,
+    priorities: false,
+    claims: false,
+    receivables: false,
+  },
+};
+
 vi.mock("convex/react", () => {
   const page = (n: number, rows: unknown[], programs: unknown[]) => ({
     serviceDate: "2026-09-30",
@@ -89,6 +123,7 @@ vi.mock("convex/react", () => {
           ],
           channels: ["KAS", "Route"],
         };
+      if (name === "analytics/admin_pack:month") return monthPack;
       if (name === "analytics/admin_reports:day")
         return page(
           0,
@@ -141,13 +176,12 @@ describe("admin report pack", () => {
     expect(html).toContain("80%");
     expect(html).toContain("of 2 people");
     // Programs merged across pages: 3 executed, 1 not executed → 75%.
-    expect(html).toContain("Programs utilization vs allocation");
+    expect(html).toContain("Programs utilization (day)");
     expect(html).toContain("PA-9");
-    expect(html).toContain("Awaiting");
-    // Collections and what is still waiting on Sunpride.
+    // Collections, then the monthly pack below the daily reports.
     expect(html).toContain("Aling Nena Store");
     expect(html).toContain("OR-77");
-    expect(html).toContain("Waiting on Sunpride");
+    expect(html).toContain("Monthly admin reports");
     expect(html).toContain("Claims Summary (ADP)");
     expect(html).toContain("Export CSV");
     expect(html).toContain("Region B");
