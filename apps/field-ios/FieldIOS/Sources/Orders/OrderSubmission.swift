@@ -14,6 +14,10 @@ enum OrderSubmission {
     struct Totals: Equatable {
         let products: Int
         let units: [Unit]
+        let totalMinor: Int64?
+        let unpricedLines: Int
+        var amountText: String { totalMinor.map(OrderSubmission.money) ?? "Amount too large to preview" }
+        var officeText: String? { unpricedLines > 0 ? "+ \(unpricedLines) \(unpricedLines == 1 ? "line" : "lines") priced by the office" : nil }
         struct Unit: Equatable { let uom: String; let quantity: Int }
         /// "3 products · 24 PC · 12 CS"
         var text: String {
@@ -32,7 +36,7 @@ enum OrderSubmission {
             case .queued: "Waiting to send"
             case .sending: "Sending"
             case .held: "Held for review"
-            // The office has the order; it is not yet a priced, posted sales order (no price list yet).
+            // Receipt is not a posted sales order; prices are confirmed by the office.
             case .received: "Received by office · not yet posted"
             case .notSent: "Not sent · call ended"
             case .needsReview: "Not accepted · needs review"
@@ -50,6 +54,7 @@ enum OrderSubmission {
         let problem: String?
         var blocking = true
         var note: String? = nil
+        var warning = false
         var ok: Bool { problem == nil }
     }
 
@@ -60,15 +65,43 @@ enum OrderSubmission {
         return formatter.string(from: NSNumber(value: value)) ?? String(value)
     }
 
-    /// Units summed per UOM in line order; amounts are never computed (no governed price list).
+    /// Exact PHP formatting, including large Int64 values; never rounds through Double.
+    static func money(_ minor: Int64) -> String {
+        let digits = Array(String(minor.magnitude / 100).reversed())
+        let grouped = stride(from: 0, to: digits.count, by: 3).map {
+            String(digits[$0..<min($0 + 3, digits.count)].reversed())
+        }.reversed().joined(separator: ",")
+        let cents = minor.magnitude % 100
+        return "\(minor < 0 ? "−" : "")₱\(grouped).\(cents < 10 ? "0" : "")\(cents)"
+    }
+
+    static func lineAmount(_ line: OrderDraft.Line) -> Int64? {
+        guard let price = line.unitPriceMinor, price >= 0, line.quantity >= 0 else { return nil }
+        let (amount, overflow) = price.multipliedReportingOverflow(by: Int64(line.quantity))
+        return overflow ? nil : amount
+    }
+
+    static func unitPrice(_ price: Int64?, uom: String) -> String {
+        price.map { "\(money($0)) / \(uom)" } ?? "Priced by the office"
+    }
+
+    /// Units summed per UOM, priced amounts in centavos; nil total means arithmetic overflow.
     static func totals(_ draft: OrderDraft) -> Totals {
         var order: [String] = []
         var sums: [String: Int] = [:]
+        var total: Int64? = 0
+        var unpriced = 0
         for line in draft.lines {
             if sums[line.uom] == nil { order.append(line.uom) }
             sums[line.uom, default: 0] += line.quantity
+            if line.unitPriceMinor == nil { unpriced += 1 }
+            else if let amount = lineAmount(line), let sum = total {
+                let (next, overflow) = sum.addingReportingOverflow(amount)
+                total = overflow ? nil : next
+            } else { total = nil }
         }
-        return Totals(products: draft.lines.count, units: order.map { .init(uom: $0, quantity: sums[$0]!) })
+        return Totals(products: draft.lines.count, units: order.map { .init(uom: $0, quantity: sums[$0]!) },
+                      totalMinor: total, unpricedLines: unpriced)
     }
 
     /// The exact v1 activity for `draft`: clientOrderId is the draft ID, so one order is one submission.
@@ -117,20 +150,17 @@ enum OrderSubmission {
     /// Review rules the phone can check offline, in display order. The server re-checks the account
     /// setup, products, units and ownership; the phone never claims more than it can know.
     static func checks(_ context: OrderCallContext, draft: OrderDraft, phoneCanRecord: Bool, held: Bool,
-                       summary: AccountSummary?) -> [Check] {
+                       summary: AccountSummary?, otherOrders: [OrderDraft] = []) -> [Check] {
         var unsent = draft
         unsent.submittedRequestId = nil; unsent.submittedAt = nil
         var ruleProblem: String?
         do { try OrderDraftRules.validate(context, draft: unsent, existing: nil) }
         catch let failure as OrderDraftFailure { ruleProblem = failure.message }
         catch { ruleProblem = "This order no longer matches its call." }
-        let sheet = context.callSheets.first { $0.outletId == draft.outletId }
         let callProblem = [OrderDraftFailure.callEnded.message, OrderDraftFailure.callNotOpen.message]
             .contains(ruleProblem ?? "") ? ruleProblem : nil
-        let catalogProblem: String? = if sheet == nil { OrderDraftFailure.noCatalog.message }
-            else if sheet?.revision != draft.catalogRevision || !OrderDraftRules.staleLines(draft, sheet: sheet).isEmpty {
-                OrderDraftFailure.catalogChanged.message
-            } else { nil }
+        let catalogProblem: String? = [OrderDraftFailure.noCatalog.message, OrderDraftFailure.catalogChanged.message,
+                                      OrderDraftFailure.pricesChanged.message].contains(ruleProblem ?? "") ? ruleProblem : nil
         let quantityProblem: String? = if draft.lines.isEmpty { OrderDraftFailure.empty.message }
             else if draft.lines.count > OrderDraftRules.maxLines ||
                     draft.lines.contains(where: { !(1...OrderDraftRules.maxQuantity).contains($0.quantity) }) {
@@ -150,21 +180,49 @@ enum OrderSubmission {
             list.append(Check(label: "Order matches its call", problem: ruleProblem))
         }
         list.append(Check(label: "Prices", problem: nil, blocking: false,
-                          note: "No price list on the phone yet. The office prices this order."))
-        list.append(Check(label: "Credit", problem: nil, blocking: false, note: creditNote(summary)))
+                          note: draft.priceList == nil ? "Prices: set by the office" : "The office confirms these prices when the order arrives."))
+        list.append(creditCheck(draft, summary: summary, otherOrders: otherOrders))
         return list
     }
 
-    /// Credit is information only: without prices the phone cannot value the order against the limit.
-    static func creditNote(_ summary: AccountSummary?) -> String {
-        guard let summary, summary.isAvailable else {
-            return "No credit figures on this phone for this account. The office checks credit."
+    /// Advisory only: cached office open orders plus OTHER submitted orders on this phone/day/outlet.
+    static func creditCheck(_ draft: OrderDraft, summary: AccountSummary?, otherOrders: [OrderDraft] = []) -> Check {
+        func unknown() -> Check {
+            Check(label: "Credit", problem: nil, blocking: false,
+                  note: "Credit is checked by the office when the order arrives.")
         }
-        let limit = summary.creditLimitMinor.map { "Credit limit \(AccountSummary.peso($0))" } ?? "No credit limit set"
-        let open = summary.openOrders.map { open in
-            open.count == 0 ? "no open orders" : "open orders \(AccountSummary.peso(open.amountMinor))"
-        } ?? "open orders unknown"
-        return "\(limit) · \(open) as of \(summary.asOfDate). The office checks this order against credit when it prices it."
+        guard let summary, summary.outletId == draft.outletId, summary.availability.rawValue == "available" else { return unknown() }
+        guard let limit = summary.creditLimitMinor else {
+            return Check(label: "Credit", problem: nil, blocking: false, note: "No credit limit set for this store")
+        }
+        let own = totals(draft)
+        guard let amount = own.totalMinor else { return unknown() }
+        // An office-priced line has no known amount: the known part can prove "over", never "within".
+        var incomplete = own.unpricedLines > 0
+        var open = summary.openOrders?.amountMinor ?? 0
+        var seen = Set<String>()
+        for other in otherOrders where other.draftId != draft.draftId && other.outletId == draft.outletId &&
+            other.serviceDate == draft.serviceDate && other.submittedRequestId != nil && seen.insert(other.draftId).inserted {
+            let otherTotals = totals(other)
+            guard let total = otherTotals.totalMinor else { return unknown() }
+            if otherTotals.unpricedLines > 0 { incomplete = true }
+            let (next, overflow) = open.addingReportingOverflow(total)
+            guard !overflow else { return unknown() }
+            open = next
+        }
+        let (headroom, overflow) = limit.subtractingReportingOverflow(open)
+        let (left, leftOverflow) = headroom.subtractingReportingOverflow(amount)
+        guard !overflow, !leftOverflow, left != Int64.min else { return unknown() }
+        if left < 0 {
+            return Check(label: "Credit", problem: nil, blocking: false,
+                         note: "Over the store's credit limit by \(incomplete ? "at least " : "")\(money(-left)). You can still send it; the office must approve.", warning: true)
+        }
+        if incomplete {
+            return Check(label: "Credit", problem: nil, blocking: false,
+                         note: "Some lines are priced by the office, so the office checks credit when the order arrives.")
+        }
+        return Check(label: "Within the store's credit limit", problem: nil, blocking: false,
+                     note: "\(money(left)) left after this order")
     }
 
     /// The draft's outbox state → what the person sees. `requestState` is the stored state of

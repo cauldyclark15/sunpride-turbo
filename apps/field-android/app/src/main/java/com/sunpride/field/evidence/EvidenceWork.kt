@@ -12,7 +12,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.sunpride.field.AppEnvironment
 import com.sunpride.field.BuildConfig
-import com.sunpride.field.auth.KeystoreSessionVault
+import com.sunpride.field.auth.SessionVaults
 import com.sunpride.field.device.KeystoreDeviceKey
 import com.sunpride.field.diagnostics.SafeLog
 import com.sunpride.field.ui.LiveFieldBackend
@@ -44,7 +44,7 @@ class EvidenceUploadWorker(context: Context, parameters: WorkerParameters) : Cor
         return try {
             val report = testUpload?.invoke() ?: run {
                 val backend = LiveFieldBackend(AppEnvironment(BuildConfig.CONVEX_SITE_URL, BuildConfig.CONVEX_URL),
-                    KeystoreSessionVault(app), app) { KeystoreDeviceKey.loadOrCreate(app) }
+                    SessionVaults.app(app), app) { KeystoreDeviceKey.loadOrCreate(app) }
                 if (!backend.isSignedIn) return Result.success()
                 backend.uploadEvidence()
             }

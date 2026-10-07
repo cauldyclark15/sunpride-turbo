@@ -194,6 +194,11 @@ export const OFFLINE_AUTHORITY_MATRIX: readonly OfflineAuthorityRule[] = [
     "Cached account figures as of the page's serverTime.",
   ),
   fieldSnapshot(
+    "orderTerms",
+    "server_read_only",
+    "Price list and unit prices per account as of serverTime; a preview, the server re-prices every order.",
+  ),
+  fieldSnapshot(
     "dayTarget",
     "server_read_only",
     "Day target from approved standards.",

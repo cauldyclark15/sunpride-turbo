@@ -12,7 +12,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.sunpride.field.AppEnvironment
 import com.sunpride.field.BuildConfig
-import com.sunpride.field.auth.KeystoreSessionVault
+import com.sunpride.field.auth.SessionVaults
 import com.sunpride.field.device.KeystoreDeviceKey
 import com.sunpride.field.diagnostics.SafeLog
 import com.sunpride.field.ui.LiveFieldBackend
@@ -44,7 +44,7 @@ class VisitSyncWorker(context: Context, parameters: WorkerParameters) : Coroutin
         return try {
             testSync?.let { return outcome(it(), app) }
             val backend = LiveFieldBackend(AppEnvironment(BuildConfig.CONVEX_SITE_URL, BuildConfig.CONVEX_URL),
-                KeystoreSessionVault(app), app) { KeystoreDeviceKey.loadOrCreate(app) }
+                SessionVaults.app(app), app) { KeystoreDeviceKey.loadOrCreate(app) }
             if (!backend.isSignedIn) return Result.success()
             val device = backend.cachedDeviceId ?: return Result.success()
             val before = backend.syncStatus()

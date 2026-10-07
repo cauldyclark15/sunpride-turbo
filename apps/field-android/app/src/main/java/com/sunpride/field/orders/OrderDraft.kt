@@ -2,6 +2,12 @@ package com.sunpride.field.orders
 
 import com.sunpride.field.storage.CallSheet
 import com.sunpride.field.storage.FieldStore
+import com.sunpride.field.storage.OrderTerms
+import com.sunpride.field.storage.OrderUnit
+import com.sunpride.field.storage.OrderPriceList
+import com.sunpride.field.storage.OrderTermsCodec
+import com.sunpride.field.storage.TermsJson
+import com.sunpride.field.storage.orderTerms
 import com.sunpride.field.ui.customers.CustomerDirectory
 import org.json.JSONArray
 import org.json.JSONObject
@@ -13,18 +19,22 @@ import java.util.UUID
  * Authorized catalog: the account's server-owned Annex C product setup that arrived in the scoped
  * bootstrap (call sheet lines). The nationwide product master is never offered on the phone.
  *
- * Price rules: v1 bootstrap sends `priceAvailability: "unavailable"` (no governed price list yet,
- * ADR-008), so a draft carries quantities in the setup UOM only and never an amount or total.
- * The account's free-text pricing note is shown as a reference, never computed.
+ * SP-0088 terms carry selling units and whole-centavo price snapshots. Older servers omit them,
+ * retaining setup-UOM quantities without prices. Free-text pricing notes are never computed.
  *
  * Drafts are local only (encrypted Room) until reviewed and submitted (SP-0060, OrderSubmission).
  */
 data class CatalogItem(val productId: String, val code: String, val name: String, val uom: String,
-    val barcode: String?, val priceNote: String?)
+    val barcode: String?, val priceNote: String?,
+    val units: List<OrderUnit> = listOf(OrderUnit(productId, uom, null))) {
+    fun unit(uom: String): OrderUnit? = units.firstOrNull { it.uom == uom }
+}
 
 object OrderCatalog {
-    fun of(sheet: CallSheet?): List<CatalogItem> = sheet?.lines.orEmpty().map {
-        CatalogItem(it.productId, it.code, it.name, it.uom, it.barcode, it.pricing)
+    fun of(sheet: CallSheet?, terms: OrderTerms? = null): List<CatalogItem> = sheet?.lines.orEmpty().map {
+        val units = terms?.lines?.filter { unit -> unit.productId == it.productId }
+            ?: listOf(OrderUnit(it.productId, it.uom, null))
+        CatalogItem(it.productId, it.code, it.name, units.firstOrNull()?.uom ?: it.uom, it.barcode, it.pricing, units)
     }
 
     /** Every word must appear in code, name or barcode; exact code/barcode first, then setup order. */
@@ -47,7 +57,7 @@ object OrderCatalog {
 }
 
 data class OrderDraftLine(val productId: String, val code: String, val name: String, val uom: String,
-    val quantity: Int)
+    val quantity: Int, val unitPriceMinor: Long? = null)
 
 /** Association is derived from the stored check-in and cached snapshot, never typed by the user. */
 data class OrderDraft(
@@ -58,7 +68,8 @@ data class OrderDraft(
     val createdAt: Long, val updatedAt: Long,
     val priceAvailability: String = OrderDraftRules.PRICE_UNAVAILABLE,
     /** SP-0060: the queued `order_intent` request once submitted; the draft is read-only after that. */
-    val submittedRequestId: String? = null, val submittedAt: Long? = null)
+    val submittedRequestId: String? = null, val submittedAt: Long? = null,
+    val priceList: OrderPriceList? = null)
 
 object OrderDraftCodec {
     private fun JSONObject.nullable(key: String): String? = if (!has(key) || isNull(key)) null else getString(key)
@@ -69,9 +80,10 @@ object OrderDraftCodec {
         .put("territoryId", d.territoryId ?: JSONObject.NULL).put("territoryCode", d.territoryCode ?: JSONObject.NULL)
         .put("routeId", d.routeId ?: JSONObject.NULL).put("catalogRevision", d.catalogRevision)
         .put("priceAvailability", d.priceAvailability)
+        .put("priceList", d.priceList?.let(OrderTermsCodec::encodePriceList) ?: JSONObject.NULL)
         .put("lines", JSONArray().apply { d.lines.forEach { l ->
             put(JSONObject().put("productId", l.productId).put("code", l.code).put("name", l.name)
-                .put("uom", l.uom).put("quantity", l.quantity))
+                .put("uom", l.uom).put("quantity", l.quantity).put("unitPriceMinor", l.unitPriceMinor ?: JSONObject.NULL))
         } })
         .put("createdAt", d.createdAt).put("updatedAt", d.updatedAt)
         .put("submittedRequestId", d.submittedRequestId ?: JSONObject.NULL)
@@ -85,11 +97,13 @@ object OrderDraftCodec {
             o.nullable("routeId"), o.getLong("catalogRevision"),
             (0 until lines.length()).map { i -> lines.getJSONObject(i).let { l ->
                 OrderDraftLine(l.getString("productId"), l.getString("code"), l.getString("name"),
-                    l.getString("uom"), l.getInt("quantity"))
+                    l.getString("uom"), l.getInt("quantity"),
+                    if (!l.has("unitPriceMinor")) null else TermsJson.nullableNumber(l, "unitPriceMinor").also { require(it == null || it >= 0) })
             } },
             o.getLong("createdAt"), o.getLong("updatedAt"), o.getString("priceAvailability"),
             // SP-0061 rows predate submission and omit both keys.
-            o.nullable("submittedRequestId"), if (!o.has("submittedAt") || o.isNull("submittedAt")) null else o.getLong("submittedAt"))
+            o.nullable("submittedRequestId"), if (!o.has("submittedAt") || o.isNull("submittedAt")) null else o.getLong("submittedAt"),
+            if (!o.has("priceList") || o.isNull("priceList")) null else OrderTermsCodec.priceList(o.getJSONObject("priceList")))
     }
 }
 
@@ -99,6 +113,7 @@ class OrderDraftFailure(val code: Code) : IllegalStateException(code.name) {
         CALL_ENDED("This call has ended. The saved draft can no longer be changed."),
         NO_CATALOG("No products set up for this account yet. Ask your office."),
         CATALOG_CHANGED("The office changed this account's products. Check the lines and save again."),
+        PRICES_CHANGED("Prices or units changed for this account. Check the lines and save again."),
         EMPTY("Add at least one product."),
         INVALID_QUANTITY("Use whole numbers from 1 to 99,999."),
         HELD("This phone's work is held for review. Sync and ask your administrator."),
@@ -141,14 +156,19 @@ object OrderDraftRules {
      * outlet/customer rows and the account catalog. Quantities are productId → whole number.
      */
     suspend fun build(store: FieldStore, existing: OrderDraft?, clientVisitId: String, checkInRequestId: String,
-        quantities: List<Pair<String, Int>>, now: Long, uuid: () -> String = { UUID.randomUUID().toString() }): OrderDraft {
+        quantities: List<Pair<String, Int>>, now: Long, uuid: () -> String = { UUID.randomUUID().toString() },
+        units: Map<String, String> = emptyMap()): OrderDraft {
         val checkIn = openCheckIn(store, clientVisitId, checkInRequestId)
         val outletId = checkIn.getString("outletId")
         val sheet = store.callSheet(outletId) ?: throw OrderDraftFailure(OrderDraftFailure.Code.NO_CATALOG)
-        val catalog = OrderCatalog.of(sheet).associateBy { it.productId }
+        val terms = store.orderTerms(outletId)
+        val catalog = OrderCatalog.of(sheet, terms).associateBy { it.productId }
         val lines = quantities.map { (productId, quantity) ->
             val item = catalog[productId] ?: throw OrderDraftFailure(OrderDraftFailure.Code.CATALOG_CHANGED)
-            OrderDraftLine(item.productId, item.code, item.name, item.uom, quantity)
+            val savedUnit = if (terms == null) null else existing?.lines?.firstOrNull { it.productId == productId }?.uom
+            val unit = item.unit(units[productId] ?: savedUnit ?: item.uom)
+                ?: throw OrderDraftFailure(OrderDraftFailure.Code.PRICES_CHANGED)
+            OrderDraftLine(item.productId, item.code, item.name, unit.uom, quantity, unit.unitPriceMinor)
         }
         val outlet = store.outlets().firstOrNull { it.id == outletId }?.let { JSONObject(it.json) }
         val customerId = outlet?.text("customerId")
@@ -159,7 +179,7 @@ object OrderDraftRules {
         val draft = OrderDraft(existing?.draftId ?: uuid().lowercase(), clientVisitId, checkInRequestId,
             checkIn.text("plannedVisitId"), outletId, checkIn.getString("serviceDate"), customerId, customerCode,
             outlet?.text("territoryId"), outlet?.text("territoryCode"), outlet?.text("routeId"), sheet.revision,
-            lines, existing?.createdAt ?: now, now)
+            lines, existing?.createdAt ?: now, now, priceList = terms?.priceList)
         validate(store, draft, existing)
         return draft
     }
@@ -170,7 +190,8 @@ object OrderDraftRules {
         // A sent order is frozen; saves never set or clear the submission marker themselves.
         if (existing?.submittedRequestId != null) throw OrderDraftFailure(OrderDraftFailure.Code.SUBMITTED)
         require(draft.submittedRequestId == null && draft.submittedAt == null) { "Submission is set by the store" }
-        require(draft.priceAvailability == PRICE_UNAVAILABLE) // no governed price list in contract v1
+        // The v1 config marker stays literal; prices are additive snapshots, checked against current terms below.
+        require(draft.priceAvailability == PRICE_UNAVAILABLE)
         if (draft.lines.isEmpty()) throw OrderDraftFailure(OrderDraftFailure.Code.EMPTY)
         if (draft.lines.size > MAX_LINES || draft.lines.any { it.quantity !in 1..MAX_QUANTITY })
             throw OrderDraftFailure(OrderDraftFailure.Code.INVALID_QUANTITY)
@@ -179,10 +200,14 @@ object OrderDraftRules {
         require(checkIn.getString("outletId") == draft.outletId && checkIn.getString("serviceDate") == draft.serviceDate &&
             checkIn.text("plannedVisitId") == draft.plannedVisitId) { "Draft does not match its call" }
         val sheet = store.callSheet(draft.outletId) ?: throw OrderDraftFailure(OrderDraftFailure.Code.NO_CATALOG)
-        val catalog = OrderCatalog.of(sheet).associateBy { it.productId }
+        val terms = store.orderTerms(draft.outletId)
+        val catalog = OrderCatalog.of(sheet, terms).associateBy { it.productId }
         if (sheet.revision != draft.catalogRevision || draft.lines.any { line ->
-                catalog[line.productId]?.let { it.code == line.code && it.name == line.name && it.uom == line.uom } != true
+                catalog[line.productId]?.let { it.code == line.code && it.name == line.name } != true
             }) throw OrderDraftFailure(OrderDraftFailure.Code.CATALOG_CHANGED)
+        if (draft.priceList != terms?.priceList || staleLines(draft, sheet, terms).isNotEmpty())
+            throw OrderDraftFailure(if (terms != null || draft.priceList != null || draft.lines.any { it.unitPriceMinor != null })
+                OrderDraftFailure.Code.PRICES_CHANGED else OrderDraftFailure.Code.CATALOG_CHANGED)
         val outlet = store.outlets().firstOrNull { it.id == draft.outletId }?.let { JSONObject(it.json) }
         require(outlet?.text("customerId") == draft.customerId && outlet?.text("territoryId") == draft.territoryId &&
             outlet?.text("territoryCode") == draft.territoryCode && outlet?.text("routeId") == draft.routeId) {
@@ -193,11 +218,15 @@ object OrderDraftRules {
             existing.createdAt == draft.createdAt && draft.updatedAt >= existing.updatedAt) { "Draft identity is immutable" }
     }
 
-    /** Lines whose product left the account setup or changed UOM/code since the draft was saved. */
-    fun staleLines(draft: OrderDraft, sheet: CallSheet?): List<OrderDraftLine> {
-        val catalog = OrderCatalog.of(sheet).associateBy { it.productId }
+    /** Product, unit or price drift since save. Price-list identity is checked separately. */
+    fun staleLines(draft: OrderDraft, sheet: CallSheet?, terms: OrderTerms? = null): List<OrderDraftLine> {
+        val catalog = OrderCatalog.of(sheet, terms).associateBy { it.productId }
         return draft.lines.filter { line ->
-            catalog[line.productId]?.let { it.code == line.code && it.name == line.name && it.uom == line.uom } != true
+            catalog[line.productId]?.let { item ->
+                item.code == line.code && item.name == line.name && item.unit(line.uom)?.let {
+                    it.unitPriceMinor == line.unitPriceMinor
+                } == true
+            } != true
         }
     }
 }

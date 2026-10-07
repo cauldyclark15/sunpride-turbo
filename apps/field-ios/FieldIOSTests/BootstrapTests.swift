@@ -82,6 +82,41 @@ final class BootstrapTests: XCTestCase {
         }
     }
 
+    func testOrderTermsRepeatedAcrossPagesAgreeAndPersistAtomically() async throws {
+        let first = try altered("bootstrap-order-terms-response") {
+            $0["nextPageCursor"] = "page-2"; $0["syncCursor"] = NSNull()
+        }
+        let second = try altered("bootstrap-order-terms-response") { object in
+            object["page"] = 2
+            var visits = object["plannedVisits"] as! [[String: Any]]
+            visits[0]["id"] = "planned-2"; object["plannedVisits"] = visits
+        }
+        protocolStub(first, next: second)
+        let partition = try await client().run(deviceId: device, subject: subject, store: store)
+        XCTAssertEqual(try store.snapshot(for: partition)?.orderTerms.count, 1)
+        XCTAssertEqual(try store.snapshot(for: partition)?.orderTerms[0].lines[0].unitPriceMinor, 4525)
+        store.close()
+        store = try EncryptedFieldStore(url: directory.appending(path: "field.sqlite"), secrets: secrets, keyAccount: "db")
+        XCTAssertEqual(try store.snapshot(for: partition)?.orderTerms[0].priceList?.sample, true)
+        let conflict = try altered("bootstrap-order-terms-response") { object in
+            object["page"] = 2
+            var visits = object["plannedVisits"] as! [[String: Any]]
+            visits[0]["id"] = "planned-2"; object["plannedVisits"] = visits
+            var terms = object["orderTerms"] as! [[String: Any]]
+            var lines = terms[0]["lines"] as! [[String: Any]]
+            lines[0]["unitPriceMinor"] = 9999; terms[0]["lines"] = lines; object["orderTerms"] = terms
+        }
+        protocolStub(first, next: conflict)
+        do { _ = try await client().run(deviceId: device, subject: subject, store: store); XCTFail("Conflicting terms must refuse promotion") }
+        catch { XCTAssertEqual(error as? BootstrapClient.Failure, .invalidResponse) }
+        XCTAssertEqual(try store.snapshot(for: partition)?.orderTerms[0].lines[0].unitPriceMinor, 4525)
+        XCTAssertEqual(try store.cursor(for: partition), "opaque-start")
+        let other = try StorePartition(subject: "other", deviceId: device, scope: partition.scope)
+        XCTAssertNil(try store.snapshot(for: other))
+        try store.purgeCacheForReview(partition)
+        XCTAssertNil(try store.snapshot(for: partition))
+    }
+
     func testSharedFixturesRoundTripAndStrictNulls() throws {
         let request = try JSONDecoder().decode(BootstrapV1.Request.self, from: fixture("bootstrap-request"))
         XCTAssertEqual(request.deviceId, "device-1")

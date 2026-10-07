@@ -145,6 +145,14 @@ class VanRepository private constructor(private val context: Context, private va
         withContext(Dispatchers.IO) { store().commitSale(request,expectedTotalMinor) }
     /** VAN-012: credit sold here per customer and references already used, so Checkout warns before the store refuses. */
     suspend fun paymentFacts(): com.sunpride.van.storage.PaymentFacts = withContext(Dispatchers.IO) { store().paymentFacts() }
+    /**
+     * VAN-017: print (or, when [explicit] with a reason, reprint) a sale saved on this phone. The attempt is recorded
+     * in the scoped encrypted store before the printer is called; nothing about the sale itself changes.
+     */
+    suspend fun printReceipt(printer: com.sunpride.van.printing.ReceiptPrinter, saleId: String, explicit: Boolean, reasonCode: String? = null): com.sunpride.van.printing.PrintJobResult =
+        withContext(Dispatchers.IO) { val st = store(); com.sunpride.van.printing.ReceiptPrintFlow(printer,RoomReceiptPrintLog(st.db,st.scope)).print(saleId,explicit,reasonCode) }
+    /** VAN-017: sales saved on the current trip with their print history, newest first. */
+    suspend fun savedSales(): List<SavedSale> = withContext(Dispatchers.IO) { val st = store(); RoomReceiptPrintLog(st.db,st.scope).savedSales() }
     /** DEBUG practice data only: the fixture store, so device tests can seed the (still empty) price list. */
     internal fun fixtureStore(): RoomVanStore { check(BuildConfig.DEBUG && stubMode != null); return store() }
     suspend fun syncNow(): Unit = authLock.withLock {

@@ -271,12 +271,12 @@ final class EvidencePhotosTests: XCTestCase {
         XCTAssertEqual(store.schemaVersion, 5)
         store.close()
         store = try EncryptedFieldStore(url: directory.appending(path: "field.sqlite"), secrets: secrets, keyAccount: "db")
-        XCTAssertEqual(store.schemaVersion, 6)
+        XCTAssertEqual(store.schemaVersion, 7)
         XCTAssertEqual(try store.pendingOutbox(for: partition).map(\.intent.requestId), [call])
         try store.savePhoto(row(call), for: partition, now: Date())
         store.close()
         store = try EncryptedFieldStore(url: directory.appending(path: "field.sqlite"), secrets: secrets, keyAccount: "db")
-        XCTAssertEqual(store.schemaVersion, 6)
+        XCTAssertEqual(store.schemaVersion, 7)
         XCTAssertEqual(try store.photos(forCheckIn: call, in: partition).count, 1)
     }
 

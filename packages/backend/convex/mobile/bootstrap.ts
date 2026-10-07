@@ -35,6 +35,7 @@ import {
   callSheetDTO,
   customerDTO,
   dayProjection,
+  orderTermsDTO,
   outletDTO,
   phonePhotoTypes,
   photoTypeDTO,
@@ -241,6 +242,8 @@ export const snapshot = internalQuery({
     activityRules: v.array(activityRuleDTO),
     photoTypes: v.array(photoTypeDTO),
     accountSummaries: v.array(accountSummaryDTO),
+    /** SP-0088: each account's order terms, shipped once with its call sheet. */
+    orderTerms: v.optional(v.array(orderTermsDTO)),
     page: v.number(),
     nextPageCursor: v.union(v.string(), v.null()),
     syncCursor: v.union(v.string(), v.null()),
@@ -353,6 +356,9 @@ export const snapshot = internalQuery({
           jsonBytes(e.value.outlet) +
           (e.value.customer ? jsonBytes(e.value.customer) + 1 : 0) +
           (sheetAt.has(i) ? jsonBytes(e.value.callSheet) + 1 : 0) +
+          (sheetAt.has(i) && e.value.orderTerms
+            ? jsonBytes(e.value.orderTerms) + 1
+            : 0) +
           (summaryAt.has(i) ? ACCOUNT_SUMMARY_MAX_BYTES + 1 : 0) +
           2,
     );
@@ -441,6 +447,8 @@ export const snapshot = internalQuery({
         offlineLeaseExpiresAt: nextDayCloseAt(now),
         cacheExpiresAt: nextDayCloseAt(now),
         orderCaptureEnabled: false,
+        // Contract v1 keeps this literal (native clients require it); per-account prices
+        // travel in the additive `orderTerms` (SP-0088).
         priceAvailability: "unavailable" as const,
         promotionsAvailability: "unavailable" as const,
       },
@@ -459,6 +467,10 @@ export const snapshot = internalQuery({
       activityRules,
       // AND-016: visit photo types, the same small list on every page.
       photoTypes: phonePhotoTypes(),
+      // SP-0088: prices and order units, once per account like its call sheet.
+      orderTerms: visits.flatMap((e) =>
+        e.sheet && e.orderTerms ? [e.orderTerms] : [],
+      ),
       // IOS-011: account figures for this page's newly shipped outlets (as of serverTime).
       accountSummaries,
       page: base.page,
