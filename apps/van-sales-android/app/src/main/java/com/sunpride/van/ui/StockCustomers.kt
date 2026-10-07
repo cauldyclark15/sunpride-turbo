@@ -97,6 +97,9 @@ import com.sunpride.van.data.*
                 it.reason?.let { reason -> Text("Reason: $reason") }
             }
         }
+        // VAN-019: returns are taken from the customer, like a sale.
+        if (customer != null) SecondaryButton(if (c.returnDraft?.customer?.outletId == customer.outletId) "Continue return" else "Record return",
+            { c.startReturn(customer) },Modifier.testTag("start-return"),!c.busy && VanRules.canSell(c.trip))
         if (!VanRules.canSell(c.trip)) Text("Start the trip before selling.",style = MaterialTheme.typography.titleMedium)
         else if (c.sale != null && !continuing) Text("Starting a sale here replaces the unfinished sale for ${c.sale!!.customer.name}.",style = MaterialTheme.typography.bodyMedium)
     }

@@ -132,8 +132,16 @@
       "quantityScale": "1",
       "barcodes": ["4800000000017", "14800000000016"],
       "barcodeUnits": [
-        { "barcode": "4800000000017", "uomCode": "PC", "baseQuantity": "1" },
-        { "barcode": "14800000000016", "uomCode": "CS", "baseQuantity": "24" }
+        {
+          "barcode": "4800000000017",
+          "uomCode": "PC",
+          "baseQuantity": "1"
+        },
+        {
+          "barcode": "14800000000016",
+          "uomCode": "CS",
+          "baseQuantity": "24"
+        }
       ]
     },
     {
@@ -171,6 +179,92 @@
       "address": null,
       "sequence": null,
       "source": "unplanned"
+    }
+  ],
+  "priceLines": [
+    {
+      "priceListId": "k57plst000000000000000000000002",
+      "priceListCode": "PL-ROUTE-SALES",
+      "productId": "k57prod0000000000000000000000001",
+      "uomCode": "PC",
+      "unitPriceMinor": "6850",
+      "currency": "PHP",
+      "effectiveFrom": 1790812800000,
+      "effectiveTo": null
+    },
+    {
+      "priceListId": "k57plst000000000000000000000002",
+      "priceListCode": "PL-ROUTE-SALES",
+      "productId": "k57prod0000000000000000000000002",
+      "uomCode": "PC",
+      "unitPriceMinor": "4275",
+      "currency": "PHP",
+      "effectiveFrom": 1790812800000,
+      "effectiveTo": null
+    }
+  ],
+  "promotions": [
+    {
+      "promotionId": "k57prom000000000000000000000001",
+      "code": "PROMO-PJ-B10G1",
+      "name": "Buy 10 Pineapple Juice 1L, get 1 free",
+      "priceListId": null,
+      "effectiveFrom": 1790812800000,
+      "effectiveTo": null,
+      "rule": {
+        "kind": "buy_x_get_y",
+        "buy": {
+          "productId": "k57prod0000000000000000000000001",
+          "uomCode": "PC",
+          "quantity": 10
+        },
+        "free": {
+          "productId": "k57prod0000000000000000000000001",
+          "uomCode": "PC",
+          "quantity": 1
+        }
+      }
+    },
+    {
+      "promotionId": "k57prom000000000000000000000002",
+      "code": "PROMO-PC-CASE5",
+      "name": "5% off a case of Pineapple Chunks 432g",
+      "priceListId": "k57plst000000000000000000000002",
+      "effectiveFrom": 1790812800000,
+      "effectiveTo": null,
+      "rule": {
+        "kind": "percent_off",
+        "item": {
+          "productId": "k57prod0000000000000000000000002",
+          "uomCode": "CS",
+          "quantity": 1
+        },
+        "percentOffBasisPoints": 500
+      }
+    },
+    {
+      "promotionId": "k57prom000000000000000000000003",
+      "code": "PROMO-BREAKFAST",
+      "name": "Breakfast bundle",
+      "priceListId": null,
+      "effectiveFrom": 1790812800000,
+      "effectiveTo": null,
+      "rule": {
+        "kind": "bundle",
+        "components": [
+          {
+            "productId": "k57prod0000000000000000000000001",
+            "uomCode": "PC",
+            "quantity": 2
+          },
+          {
+            "productId": "k57prod0000000000000000000000002",
+            "uomCode": "PC",
+            "quantity": 2
+          }
+        ],
+        "bundlePriceMinor": "20500"
+      }
     }
   ]
 }

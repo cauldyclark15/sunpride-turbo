@@ -40,13 +40,13 @@ class SaleVoidStoreTest {
         o.put("truckStock",JSONArray().put(JSONObject().put("productId",juice).put("availableBase","10").put("damagedBase","1"))
             .put(JSONObject().put("productId",chunks).put("availableBase","5").put("damagedBase","2")))
         store.replaceBootstrap(o.toString())
-        db.rows().insertPriceListLine(PriceListLineRow(s,d,"PL-TEST",juice,"PC",8500,"PHP",at-1000,null))
-        db.rows().insertPriceListLine(PriceListLineRow(s,d,"PL-TEST",chunks,"PC",4000,"PHP",at-1000,null))
+        // Prices come through the bootstrap feed (SP-0129 fixture: juice ₱68.50, chunks ₱42.75 per PC).
+        Unit
     }
     @After fun cleanup() { db.close(); context.deleteDatabase(name) }
     private suspend fun sale(payment: PaymentInput = PaymentInput("cash",40000), multi: Boolean = true) =
         store.commitSale(CheckoutRequest(UUID.randomUUID().toString(),outlet,
-            if (multi) listOf(CartLine(juice,3),CartLine(chunks,2)) else listOf(CartLine(juice,3)),payment),if (multi) 33500 else 25500)
+            if (multi) listOf(CartLine(juice,3),CartLine(chunks,2)) else listOf(CartLine(juice,3)),payment),if (multi) 29100 else 20550)
     private suspend fun code(receipt: com.sunpride.van.data.SaleReceipt, reason: String = "wrong_items"): String {
         val p = store.policy.first()!!
         val sale = db.rows().saleRows(s,d).single { it.saleId == receipt.saleId }
@@ -101,7 +101,7 @@ class SaleVoidStoreTest {
         val json = JSONObject(op.operationJson); assertEquals(SALE_VOID_KIND,json.getString("kind"))
         val payload = json.getJSONObject("payload")
         assertEquals(receipt.saleId,payload.getString("saleId")); assertEquals(receipt.receiptNumber,payload.getString("receiptNumber"))
-        assertEquals(outbox.clientRequestId,payload.getString("saleClientRequestId")); assertEquals("33500",payload.getString("totalMinor"))
+        assertEquals(outbox.clientRequestId,payload.getString("saleClientRequestId")); assertEquals("29100",payload.getString("totalMinor"))
         assertEquals("PHP",payload.getString("currency")); assertEquals("wrong_items",payload.getString("reasonCode"))
         assertEquals("Wrong order",payload.getString("note")); assertEquals(row.createdAt,payload.getLong("deviceTime"))
         assertEquals("supervisor_code",payload.getJSONObject("approval").getString("method")); assertEquals(code(receipt),payload.getJSONObject("approval").getString("code"))
@@ -165,7 +165,7 @@ class SaleVoidStoreTest {
     }
     @Test fun creditAndPaymentReferenceAreReleasedWithoutChangingPaymentEvidence() = runBlocking {
         val credit = sale(PaymentInput("credit"),multi = false)
-        assertEquals(mapOf(outlet to 25500L),store.paymentFacts().creditUsedMinor)
+        assertEquals(mapOf(outlet to 20550L),store.paymentFacts().creditUsedMinor)
         void(credit); assertTrue(store.paymentFacts().creditUsedMinor.isEmpty())
         val check = sale(PaymentInput("check",null,"BDO 123"),multi = false)
         assertTrue(store.paymentFacts().usedReferences.contains(PaymentReference.key("check","BDO 123")))
@@ -221,5 +221,24 @@ class SaleVoidStoreTest {
         val row = db.rows().salevoidRows(s,d).single()
         assertTrue(runCatching { db.rows().insertSaleVoid(row.copy(voidId = UUID.randomUUID().toString(),idempotencyKey = UUID.randomUUID().toString())) }.isFailure)
         assertEquals(before,snapshot()); Unit
+    }
+    /** VAN-019 x VAN-021: stock can never come back twice through a return plus a void of the same sale. */
+    @Test fun aReturnedSaleCannotBeVoidedAndAVoidedSaleCannotTakeAReturn() = runBlocking {
+        val returns = ReturnStore(store)
+        val returned = sale()
+        returns.commit(ReturnRequest(UUID.randomUUID().toString(),outlet,returned.saleId,
+            listOf(ReturnLineInput(juice,"PC",1,"wrong_item",ReturnDisposition.RESELLABLE)),null))
+        val before = snapshot()
+        refused(VoidProblem.SALE_HAS_RETURNS) { void(returned) }
+        assertEquals(before,snapshot())
+        val voided = sale()
+        void(voided)
+        assertTrue(returns.sales().none { it.saleId == voided.saleId })
+        assertTrue(returns.sales().any { it.saleId == returned.saleId })
+        val failure = runCatching { returns.commit(ReturnRequest(UUID.randomUUID().toString(),outlet,voided.saleId,
+            listOf(ReturnLineInput(juice,"PC",1,"wrong_item",ReturnDisposition.RESELLABLE)),null)) }.exceptionOrNull()
+        assertTrue("expected ReturnRefused, got $failure",failure is ReturnRefused)
+        assertTrue((failure as ReturnRefused).issues.any { it.problem == ReturnProblem.UNKNOWN_SALE })
+        assertTrue(store.saleStockIssues().isEmpty())
     }
 }

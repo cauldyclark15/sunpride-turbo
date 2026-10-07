@@ -135,6 +135,7 @@ interface VanDao {
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertPriceListLine(row: PriceListLineRow)
     @Query("SELECT * FROM price_list_line WHERE fullAuthSubject=:subject AND deviceId=:device") suspend fun pricelistlineRows(subject: String, device: String): List<PriceListLineRow>
     @Query("SELECT * FROM price_list_line WHERE fullAuthSubject=:subject AND deviceId=:device") fun observePriceListLine(subject: String, device: String): Flow<List<PriceListLineRow>>
+    @Query("DELETE FROM price_list_line WHERE fullAuthSubject=:subject AND deviceId=:device") suspend fun clearPriceListLine(subject: String, device: String)
 
     @Query("DELETE FROM customer WHERE fullAuthSubject=:subject AND deviceId=:device AND localOnly=0") suspend fun clearServerCustomers(subject: String, device: String)
     @Query("SELECT * FROM sync_meta WHERE fullAuthSubject=:subject AND deviceId=:device") suspend fun meta(subject: String, device: String): SyncMetaRow?

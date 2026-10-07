@@ -9,6 +9,12 @@ import { internalMutation, mutation, query } from "../_generated/server";
 import type { MutationCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { requireCapability } from "../lib/capabilities";
+import {
+  assertEffectiveStart,
+  authorizeWrite,
+  USER_ACTOR,
+  type WriteActor,
+} from "../lib/write_actor";
 import { collectScopeUnitIds } from "../lib/scope";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
 import {
@@ -65,18 +71,26 @@ async function ownerForWrite(
   territoryId: Id<"territories">,
   from: number,
   to?: number,
+  actor: WriteActor = USER_ACTOR,
 ) {
   const owner = await assertTerritoryWindow(ctx, territoryId, from, to);
-  await requireCapability(ctx, "route.manage", owner.orgUnitId);
+  await authorizeWrite(ctx, actor, "route.manage", owner.orgUnitId);
   return owner;
 }
 async function routeWrite(
   ctx: MutationCtx,
   routeId: Id<"routes">,
   from: number,
+  actor: WriteActor = USER_ACTOR,
 ) {
-  prospective(from);
-  const access = await requireRoute(ctx, "route.manage", routeId);
+  assertEffectiveStart(actor, from);
+  const access =
+    actor.kind === "system"
+      ? {
+          ...(await routeAt(ctx, routeId, Date.now())),
+          identity: { tokenIdentifier: actor.subject },
+        }
+      : await requireRoute(ctx, "route.manage", routeId);
   if (
     access.route.status !== "active" ||
     !activeAt(access.route.effectiveFrom, access.route.effectiveTo, from)
@@ -89,6 +103,7 @@ async function routeWrite(
     association.territoryId,
     from,
     association.effectiveTo,
+    actor,
   );
   return { ...access, association, owner };
 }
@@ -225,68 +240,87 @@ export const create = mutation({
     reason: v.string(),
   },
   returns: v.id("routes"),
-  handler: async (ctx, args) => {
-    prospective(args.effectiveFrom);
-    interval(args.effectiveFrom, args.effectiveTo);
-    const owner = await ownerForWrite(
-      ctx,
-      args.territoryId,
-      args.effectiveFrom,
-      args.effectiveTo,
-    );
-    // Current scope is authoritative even for future intervals.
-    await requireTerritoryCapability(ctx, "route.manage", args.territoryId);
-    const code = normalizeCode(args.code),
-      name = required(args.name, "Name"),
-      reason = required(args.reason, "Reason");
-    template(args.weekdayTemplate, args.cycleDays);
-    await uniqueCode(ctx, code, args.territoryId);
-    const { identity } = await requireCapability(
-      ctx,
-      "route.manage",
-      owner.orgUnitId,
-    );
-    const now = Date.now();
-    const id = await ctx.db.insert("routes", {
-      organizationId: SUNPRIDE_ORGANIZATION_ID,
-      code,
-      name,
-      status: "active",
-      effectiveFrom: args.effectiveFrom,
-      effectiveTo: args.effectiveTo,
-      weekdayTemplate: args.weekdayTemplate,
-      cycleDays: args.cycleDays,
-      createdAt: now,
-      updatedAt: now,
-      createdBy: identity.tokenIdentifier,
-    });
-    await ctx.db.insert("routeTerritories", {
-      routeId: id,
-      territoryId: args.territoryId,
-      effectiveFrom: args.effectiveFrom,
-      effectiveTo: args.effectiveTo,
-      actorSubject: identity.tokenIdentifier,
-      reason,
-      createdAt: now,
-    });
-    if (args.effectiveTo !== undefined)
-      await ctx.scheduler.runAt(
-        args.effectiveTo,
-        internal.territories.routes.applyProjection,
-        { routeId: id },
-      );
-    await audit(
-      ctx,
-      identity.tokenIdentifier,
-      "route.created",
-      "route",
-      id,
-      reason,
-      now,
-    );
-    return id;
-  },
+  handler: async (ctx, args) =>
+    (await createRoute(ctx, args, USER_ACTOR)).routeId,
 });
+/** The route writer: identity row, its first territory association, projection and audit. */
+export async function createRoute(
+  ctx: MutationCtx,
+  args: {
+    territoryId: Id<"territories">;
+    code: string;
+    name: string;
+    effectiveFrom: number;
+    effectiveTo?: number;
+    weekdayTemplate?: number[];
+    cycleDays?: number;
+    reason: string;
+  },
+  actor: WriteActor,
+) {
+  assertEffectiveStart(actor, args.effectiveFrom);
+  interval(args.effectiveFrom, args.effectiveTo);
+  const owner = await ownerForWrite(
+    ctx,
+    args.territoryId,
+    args.effectiveFrom,
+    args.effectiveTo,
+    actor,
+  );
+  // Current scope is authoritative even for future intervals.
+  if (actor.kind === "user")
+    await requireTerritoryCapability(ctx, "route.manage", args.territoryId);
+  const code = normalizeCode(args.code),
+    name = required(args.name, "Name"),
+    reason = required(args.reason, "Reason");
+  template(args.weekdayTemplate, args.cycleDays);
+  await uniqueCode(ctx, code, args.territoryId);
+  const actorSubject = await authorizeWrite(
+    ctx,
+    actor,
+    "route.manage",
+    owner.orgUnitId,
+  );
+  const now = Date.now();
+  const routeId = await ctx.db.insert("routes", {
+    organizationId: SUNPRIDE_ORGANIZATION_ID,
+    code,
+    name,
+    status: "active",
+    effectiveFrom: args.effectiveFrom,
+    effectiveTo: args.effectiveTo,
+    weekdayTemplate: args.weekdayTemplate,
+    cycleDays: args.cycleDays,
+    createdAt: now,
+    updatedAt: now,
+    createdBy: actorSubject,
+  });
+  const associationId = await ctx.db.insert("routeTerritories", {
+    routeId,
+    territoryId: args.territoryId,
+    effectiveFrom: args.effectiveFrom,
+    effectiveTo: args.effectiveTo,
+    actorSubject,
+    reason,
+    createdAt: now,
+  });
+  if (args.effectiveTo !== undefined)
+    await ctx.scheduler.runAt(
+      args.effectiveTo,
+      internal.territories.routes.applyProjection,
+      { routeId },
+    );
+  await audit(
+    ctx,
+    actorSubject,
+    "route.created",
+    "route",
+    routeId,
+    reason,
+    now,
+  );
+  return { routeId, associationId };
+}
 export const edit = mutation({
   args: {
     routeId: v.id("routes"),
@@ -571,73 +605,89 @@ export const assignSalesperson = mutation({
     reason: v.string(),
   },
   returns: v.id("routeSalespeople"),
-  handler: async (ctx, args) => {
-    interval(args.effectiveFrom, args.effectiveTo);
-    const { route, association, identity } = await routeWrite(
-      ctx,
-      args.routeId,
-      args.effectiveFrom,
-    );
-    if (
-      (route.effectiveTo !== undefined &&
-        (args.effectiveTo === undefined ||
-          args.effectiveTo > route.effectiveTo)) ||
-      (association.effectiveTo !== undefined &&
-        (args.effectiveTo === undefined ||
-          args.effectiveTo > association.effectiveTo))
-    )
-      throw new ConvexError("Assignment crosses route territory interval");
-    const owner = await ownerForWrite(
-      ctx,
-      association.territoryId,
-      args.effectiveFrom,
-      args.effectiveTo,
-    );
-    await assertRoutePerson(
-      ctx,
-      args.profileId,
-      owner.orgUnitId,
-      args.effectiveFrom,
-      args.effectiveTo,
-    );
-    await assertNotLockedByApprovedPlan(ctx, {
-      outletIds: [],
-      routeIds: [route._id],
-      from: args.effectiveFrom,
-      to: args.effectiveTo,
-    });
-    if (
-      (await routeSalespeople(ctx, route._id)).some(
-        (row) =>
-          overlaps(row, args.effectiveFrom, args.effectiveTo) &&
-          (row.profileId === args.profileId || (row.primary && args.primary)),
-      )
-    )
-      throw new ConvexError("Overlapping route salesperson assignment");
-    const reason = required(args.reason, "Reason"),
-      now = Date.now();
-    const id = await ctx.db.insert("routeSalespeople", {
-      routeId: route._id,
-      profileId: args.profileId,
-      primary: args.primary,
-      effectiveFrom: args.effectiveFrom,
-      effectiveTo: args.effectiveTo,
-      actorSubject: identity.tokenIdentifier,
-      reason,
-      createdAt: now,
-    });
-    await audit(
-      ctx,
-      identity.tokenIdentifier,
-      "route.salesperson_assigned",
-      "routeSalesperson",
-      id,
-      reason,
-      now,
-    );
-    return id;
-  },
+  handler: async (ctx, args) => assignRouteSalesperson(ctx, args, USER_ACTOR),
 });
+/** The route salesperson writer (route window, person hierarchy, plan lock and overlaps). */
+export async function assignRouteSalesperson(
+  ctx: MutationCtx,
+  args: {
+    routeId: Id<"routes">;
+    profileId: Id<"profiles">;
+    primary: boolean;
+    effectiveFrom: number;
+    effectiveTo?: number;
+    reason: string;
+  },
+  actor: WriteActor,
+) {
+  interval(args.effectiveFrom, args.effectiveTo);
+  const { route, association, identity } = await routeWrite(
+    ctx,
+    args.routeId,
+    args.effectiveFrom,
+    actor,
+  );
+  if (
+    (route.effectiveTo !== undefined &&
+      (args.effectiveTo === undefined ||
+        args.effectiveTo > route.effectiveTo)) ||
+    (association.effectiveTo !== undefined &&
+      (args.effectiveTo === undefined ||
+        args.effectiveTo > association.effectiveTo))
+  )
+    throw new ConvexError("Assignment crosses route territory interval");
+  const owner = await ownerForWrite(
+    ctx,
+    association.territoryId,
+    args.effectiveFrom,
+    args.effectiveTo,
+    actor,
+  );
+  await assertRoutePerson(
+    ctx,
+    args.profileId,
+    owner.orgUnitId,
+    args.effectiveFrom,
+    args.effectiveTo,
+    actor,
+  );
+  await assertNotLockedByApprovedPlan(ctx, {
+    outletIds: [],
+    routeIds: [route._id],
+    from: args.effectiveFrom,
+    to: args.effectiveTo,
+  });
+  if (
+    (await routeSalespeople(ctx, route._id)).some(
+      (row) =>
+        overlaps(row, args.effectiveFrom, args.effectiveTo) &&
+        (row.profileId === args.profileId || (row.primary && args.primary)),
+    )
+  )
+    throw new ConvexError("Overlapping route salesperson assignment");
+  const reason = required(args.reason, "Reason"),
+    now = Date.now();
+  const id = await ctx.db.insert("routeSalespeople", {
+    routeId: route._id,
+    profileId: args.profileId,
+    primary: args.primary,
+    effectiveFrom: args.effectiveFrom,
+    effectiveTo: args.effectiveTo,
+    actorSubject: identity.tokenIdentifier,
+    reason,
+    createdAt: now,
+  });
+  await audit(
+    ctx,
+    identity.tokenIdentifier,
+    "route.salesperson_assigned",
+    "routeSalesperson",
+    id,
+    reason,
+    now,
+  );
+  return id;
+}
 export const endSalespersonAssignment = mutation({
   args: {
     assignmentId: v.id("routeSalespeople"),

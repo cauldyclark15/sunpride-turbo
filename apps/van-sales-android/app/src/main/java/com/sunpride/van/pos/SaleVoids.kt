@@ -38,7 +38,7 @@ object VoidApprovalCodes {
     }
 }
 
-enum class VoidProblem { VOID_UNAVAILABLE, SALE_NOT_FOUND, NOT_THIS_TRIP, HELD, ALREADY_VOIDED, REASON_REQUIRED,
+enum class VoidProblem { VOID_UNAVAILABLE, SALE_NOT_FOUND, NOT_THIS_TRIP, HELD, ALREADY_VOIDED, SALE_HAS_RETURNS, REASON_REQUIRED,
     NOTE_REQUIRED, NOTE_INVALID, APPROVAL_UNAVAILABLE, CODE_REQUIRED, CODE_WRONG }
 class VoidRefused(val problem: VoidProblem) : IllegalStateException(problem.name)
 data class VoidAuthorization(val method: String, val code: String?, val note: String?)

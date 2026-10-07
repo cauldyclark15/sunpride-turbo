@@ -187,6 +187,28 @@ class FakeVanBackend(fixtureJson: String = FIXTURE, context: Context? = null) : 
     ]
   },
   "truckStock": [],
+  "priceLines": [
+    {
+      "priceListId": "k57plst000000000000000000000002",
+      "priceListCode": "PL-ROUTE-SALES",
+      "productId": "k57prod0000000000000000000000001",
+      "uomCode": "PC",
+      "unitPriceMinor": "6850",
+      "currency": "PHP",
+      "effectiveFrom": 0,
+      "effectiveTo": null
+    },
+    {
+      "priceListId": "k57plst000000000000000000000002",
+      "priceListCode": "PL-ROUTE-SALES",
+      "productId": "k57prod0000000000000000000000002",
+      "uomCode": "PC",
+      "unitPriceMinor": "4275",
+      "currency": "PHP",
+      "effectiveFrom": 0,
+      "effectiveTo": null
+    }
+  ],
   "products": [
     {
       "productId": "k57prod0000000000000000000000001",

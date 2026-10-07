@@ -164,19 +164,21 @@ class VanUiDeviceTest {
         rule.onNodeWithTag("open-products").performScrollTo().performClick()
         rule.onNodeWithTag("screen-title").assertTextEquals("Find product")
         rule.onNodeWithTag("product-count").assertTextContains("2 products",substring = true)
-        // Products on the truck come first; no governed price feed yet, so no guessed price.
+        // Products on the truck come first; prices come from the governed bootstrap snapshot.
         val juice = c.products.single { it.code == "SP-PJ-1L" }
-        rule.waitUntil(10_000) { c.stock.any { it.productId == juice.productId && it.availableBase > 0 } }
+        rule.waitUntil(10_000) { c.stock.any { it.productId == juice.productId && it.availableBase > 0 } && c.prices.size == 2 }
         val onTruck = c.stock.single { it.productId == juice.productId }.availableBase
-        rule.onNodeWithTag("product-price-0",useUnmergedTree = true).assertTextEquals("Priced by the office")
+        rule.onNodeWithTag("product-price-0",useUnmergedTree = true).assertTextEquals("₱42.75 / PC")
         captureVanScreenshot(rule,"24-find-product","product-search")
         rule.onNodeWithTag("product-search").performTextInput("chunks")
         rule.onNodeWithTag("product-count").assertTextEquals("1 match")
         rule.onNodeWithTag("product-0").assertTextContains("Pineapple Chunks 432g",substring = true)
+        rule.onNodeWithTag("product-price-0",useUnmergedTree = true).assertTextEquals("₱42.75 / PC")
         rule.onNodeWithTag("product-clear").performClick()
         rule.onNodeWithTag("product-search").performTextInput("sppj1l")
         rule.onNodeWithTag("product-0").assertTextContains("Pineapple Juice 1L",substring = true)
         rule.onNodeWithTag("product-available-0",useUnmergedTree = true).assertTextEquals("${juice.displayQuantity(onTruck)} PC")
+        rule.onNodeWithTag("product-price-0",useUnmergedTree = true).assertTextEquals("₱68.50 / PC")
         captureVanScreenshot(rule,"25-find-product-match","product-search")
         // A hardware scan (vendor broadcast) replaces the query with the exact barcode match.
         context.sendBroadcast(android.content.Intent(com.sunpride.van.scanning.SenraiseScanner.ACTION).putExtra(com.sunpride.van.scanning.SenraiseScanner.RESULT_EXTRA,"4800000000017").setPackage(context.packageName))
@@ -248,10 +250,8 @@ class VanUiDeviceTest {
         val printer = com.sunpride.van.printing.FakeReceiptPrinter()
         mount(printer = printer); loadAndStart()
         val juice = c.products.single { it.code == "SP-PJ-1L" }
+        testPriceFeed(juice.productId)
         val receipt = runBlocking {
-            val st = c.repository.fixtureStore()
-            st.db.rows().insertPriceListLine(com.sunpride.van.storage.PriceListLineRow(st.scope.fullAuthSubject,st.scope.deviceId,
-                "PL-PRACTICE",juice.productId,"PC",8500,"PHP",System.currentTimeMillis()-60000,null))
             c.repository.completeSale(com.sunpride.van.pos.CheckoutRequest(java.util.UUID.randomUUID().toString(),c.customers.first { it.source == "route" }.outletId,
                 listOf(com.sunpride.van.pos.CartLine(juice.productId,1)),com.sunpride.van.pos.PaymentInput("cash",10000)),8500)
         }
@@ -296,9 +296,7 @@ class VanUiDeviceTest {
         mount(printer = printer); loadAndStart()
         val juice = c.products.single { it.code == "SP-PJ-1L" }
         rule.waitUntil(10_000) { c.stock.any { it.productId == juice.productId && it.availableBase > 2 } }
-        runBlocking { c.repository.fixtureStore().let { st -> st.db.rows().insertPriceListLine(com.sunpride.van.storage.PriceListLineRow(
-            st.scope.fullAuthSubject,st.scope.deviceId,"PL-PRACTICE",juice.productId,"PC",8_500,"PHP",System.currentTimeMillis()-60_000,null)) } }
-        rule.waitUntil(10_000) { c.prices.isNotEmpty() }
+        testPriceFeed(juice.productId)
         open(Page.HOME)
         rule.onNodeWithTag("new-sale").performScrollTo().performClick()
         rule.onNodeWithTag("customer-route-1").performClick()
@@ -400,14 +398,21 @@ class VanUiDeviceTest {
         rule.onNodeWithTag("printer-done").performClick()
         rule.onNodeWithTag("sign-in").assertExists()
     }
+    /** Swaps the practice backend's price feed for a test-only one: ₱85.00 per PC for the juice, every other product unpriced. */
+    private fun testPriceFeed(juice: String) {
+        runBlocking { c.repository.fixtureStore().let { st ->
+            st.db.rows().clearPriceListLine(st.scope.fullAuthSubject,st.scope.deviceId)
+            st.db.rows().insertPriceListLine(com.sunpride.van.storage.PriceListLineRow(
+                st.scope.fullAuthSubject,st.scope.deviceId,"PL-PRACTICE",juice,"PC",8_500,"PHP",System.currentTimeMillis()-60_000,null))
+        } }
+        rule.waitUntil(10_000) { c.prices.map { it.priceListId to it.productId } == listOf("PL-PRACTICE" to juice) }
+    }
     @Test fun checkoutValidatesPricesAndCashThenSavesTheSaleOnThisPhone() {
         mount(); loadAndStart()
         val juice = c.products.single { it.code == "SP-PJ-1L" }
         rule.waitUntil(10_000) { c.stock.any { it.productId == juice.productId && it.availableBase > 2 } }
         val before = c.stock.single { it.productId == juice.productId }.availableBase
-        // Practice-data price only (the governed price feed is not delivered yet): ₱85.00 per PC for the juice.
-        runBlocking { c.repository.fixtureStore().let { st -> st.db.rows().insertPriceListLine(com.sunpride.van.storage.PriceListLineRow(
-            st.scope.fullAuthSubject,st.scope.deviceId,"PL-PRACTICE",juice.productId,"PC",8_500,"PHP",System.currentTimeMillis()-60_000,null)) } }
+        testPriceFeed(juice.productId)
         rule.waitUntil(10_000) { c.prices.isNotEmpty() }
         open(Page.HOME)
         rule.onNodeWithTag("new-sale").performScrollTo().performClick()
@@ -466,12 +471,51 @@ class VanUiDeviceTest {
         rule.onNodeWithTag("sale-done").performClick()
         rule.onNodeWithTag("sync-line").assertTextContains("1 sale saved on this phone",substring = true)
     }
+    @Test fun customerReturnCapturesUnitBatchReasonAndDispositionAndHoldsStockForApproval() {
+        mount(); loadAndStart()
+        val juice = c.products.single { it.code == "SP-PJ-1L" }
+        rule.waitUntil(10_000) { c.stock.any { it.productId == juice.productId } }
+        val damagedBefore = c.stock.single { it.productId == juice.productId }.damagedBase
+        val availableBefore = c.stock.single { it.productId == juice.productId }.availableBase
+        open(Page.CUSTOMERS)
+        rule.onNodeWithTag("customer-route-0").performClick()
+        rule.onNodeWithTag("start-return").assertIsEnabled().performClick()
+        rule.waitUntil(5_000) { c.page == Page.RETURN && c.returnFacts != null }
+        rule.onNodeWithTag("save-return").assertIsNotEnabled()
+        rule.onNodeWithTag("return-add-product").performScrollTo().performClick()
+        // The case barcode picks the product counted in cases.
+        rule.onNodeWithTag("return-product-search").performTextInput("14800000000016"); hideKeyboard()
+        rule.onNodeWithTag("return-pick-0").performClick()
+        rule.onNodeWithTag("return-unit-CS").assertIsSelected()
+        rule.onNodeWithTag("return-quantity").performTextInput("1"); hideKeyboard()
+        rule.onNodeWithTag("return-reason-expired").performScrollTo().performClick()
+        rule.onNodeWithTag("return-line-add").assertIsNotEnabled()
+        rule.onNodeWithTag("return-disposition-bad_stock").performScrollTo().performClick()
+        rule.onNodeWithText("${juice.name}: enter the batch or lot number printed on the pack.").assertExists()
+        rule.onNodeWithTag("return-lot").performScrollTo().performTextInput("lot-2026-09"); hideKeyboard()
+        rule.onNodeWithTag("return-expiry").performScrollTo().performTextInput("2026-09-30"); hideKeyboard()
+        captureVanScreenshot(rule,"40-return-line","return-line-add")
+        rule.onNodeWithTag("return-line-add").assertIsEnabled().performClick()
+        rule.onNodeWithTag("return-effect-0",useUnmergedTree = true).assertTextEquals("Held on the truck with damaged stock until approved")
+        rule.onNodeWithTag("return-approval").performScrollTo().assertTextContains("Not bought on a receipt from this phone",substring = true)
+        captureVanScreenshot(rule,"41-return","save-return")
+        rule.onNodeWithTag("save-return").assertIsEnabled().performClick()
+        rule.waitUntil(10_000) { c.page == Page.RETURN_DONE && !c.busy }
+        rule.onNodeWithTag("return-number",useUnmergedTree = true).assertTextContains("TRIP-20261007-V014-1-",substring = true)
+        rule.onNodeWithTag("return-status").assertTextContains("Not bought on a receipt from this phone",substring = true)
+        captureVanScreenshot(rule,"42-return-saved","return-done")
+        // One case = 24 PC into damaged stock (held), none into sellable stock; parked, not queued.
+        rule.waitUntil(10_000) { c.sync.savedReturns == 1 && c.stock.single { it.productId == juice.productId }.damagedBase == damagedBefore+24 }
+        assertEquals(availableBefore,c.stock.single { it.productId == juice.productId }.availableBase)
+        assertEquals(0,c.sync.queued); assertNull(c.returnDraft)
+        rule.onNodeWithTag("return-done").performClick()
+        rule.onNodeWithTag("sync-line").assertTextContains("1 return saved on this phone",substring = true)
+    }
     @Test fun checkPaymentKeepsItsReferenceAndAwaitsTheOfficeWhileTheSaleIsSaved() {
         mount(); loadAndStart()
         val juice = c.products.single { it.code == "SP-PJ-1L" }
         rule.waitUntil(10_000) { c.stock.any { it.productId == juice.productId && it.availableBase > 2 } }
-        runBlocking { c.repository.fixtureStore().let { st -> st.db.rows().insertPriceListLine(com.sunpride.van.storage.PriceListLineRow(
-            st.scope.fullAuthSubject,st.scope.deviceId,"PL-PRACTICE",juice.productId,"PC",8_500,"PHP",System.currentTimeMillis()-60_000,null)) } }
+        testPriceFeed(juice.productId)
         rule.waitUntil(10_000) { c.prices.isNotEmpty() }
         open(Page.HOME)
         rule.onNodeWithTag("new-sale").performScrollTo().performClick()

@@ -2,6 +2,11 @@ import { ConvexError } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { requireCapability } from "../lib/capabilities";
+import {
+  authorizeWrite,
+  USER_ACTOR,
+  type WriteActor,
+} from "../lib/write_actor";
 import { activeAt, interval, topology } from "../org/validation";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
 import { assertActiveUnit, resolveTerritoryOwnerAt } from "./validation";
@@ -178,11 +183,12 @@ export async function assertRoutePerson(
   ownerUnitId: Id<"orgUnits">,
   from: number,
   to?: number,
+  actor: WriteActor = USER_ACTOR,
 ) {
   const person = await ctx.db.get(profileId);
   if (!person?.orgUnitId || person.status !== "active")
     throw new ConvexError("Salesperson has no active unit");
-  await requireCapability(ctx, "route.manage", person.orgUnitId);
+  await authorizeWrite(ctx, actor, "route.manage", person.orgUnitId);
   const assignments = await ctx.db
     .query("employeeAssignments")
     .withIndex("by_profileId_and_effectiveFrom", (q) =>

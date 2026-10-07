@@ -47,12 +47,19 @@ class SaleCheckoutStoreTest {
         }
         o.put("truckStock",JSONArray().put(JSONObject().put("productId",juice).put("availableBase",available.toString()).put("damagedBase","0"))
             .put(JSONObject().put("productId",chunks).put("availableBase","5").put("damagedBase","0")))
+        // Test-only governed feed (replaces the practice prices): ₱85.00 per PC for the juice; the chunks stay
+        // unpriced ("Priced by the office") unless a test prices them. Prices reach the phone only through a bootstrap.
+        val lines = JSONArray().put(priceLine(juice,8_500))
+        chunkPriceMinor?.let { lines.put(priceLine(chunks,it)) }
+        o.put("priceLines",lines)
         return o.toString()
     }
+    private var chunkPriceMinor: Long? = null
+    private fun priceLine(product: String, minor: Long) = JSONObject().put("priceListId","PL-TEST").put("priceListCode","PL-TEST")
+        .put("productId",product).put("uomCode","PC").put("unitPriceMinor",minor.toString()).put("currency","PHP")
+        .put("effectiveFrom",at-1_000).put("effectiveTo",JSONObject.NULL)
     private fun ready(active: Boolean = true) = runBlocking {
         store.replaceBootstrap(fixture(active))
-        // Test-only governed price: ₱85.00 per PC for the juice; the chunks stay unpriced ("Priced by the office").
-        db.rows().insertPriceListLine(PriceListLineRow(s,d,"PL-TEST",juice,"PC",8_500,"PHP",at-1_000,null))
     }
     private fun sale(qty: Long = 3, customer: String = outlet, cash: Long = 30_000, id: String = UUID.randomUUID().toString(), product: String = juice) =
         CheckoutRequest(id,customer,listOf(CartLine(product,qty)),PaymentInput("cash",cash))
@@ -147,7 +154,7 @@ class SaleCheckoutStoreTest {
 
     // ---- VAN-018: truck stock is deducted in the sale's own transaction, never apart from it ----
 
-    private fun priceChunks() = runBlocking { db.rows().insertPriceListLine(PriceListLineRow(s,d,"PL-TEST",chunks,"PC",4_000,"PHP",at-1_000,null)) }
+    private fun priceChunks() = runBlocking { chunkPriceMinor = 4_000; store.replaceBootstrap(fixture()) }
 
     @Test fun multiLineSaleDeductsEveryLineWithTheSaleItself() = runBlocking {
         ready(); priceChunks()
@@ -243,7 +250,7 @@ class SaleCheckoutStoreTest {
         assertEquals("2026-11-06",payload().getString("dueDate"))
         assertEquals(mapOf(outlet to 25_500L),store.paymentFacts().creditUsedMinor)
         // ₱4,745.00 left: a ₱5,100.00 credit sale is refused (cash is unaffected) — counted even after a newer bootstrap.
-        db.rows().insertPriceListLine(PriceListLineRow(s,d,"PL-TEST",chunks,"PC",170_000,"PHP",at-1_000,null))
+        chunkPriceMinor = 170_000
         store.replaceBootstrap(fixture(serverTime = at+50))
         assertEquals(setOf(CheckoutProblem.CREDIT_LIMIT_EXCEEDED),refused { store.commitSale(sale(product = chunks,qty = 3).copy(payment = PaymentInput("credit")),510_000) })
         assertEquals(1,db.rows().saleRows(s,d).size)
