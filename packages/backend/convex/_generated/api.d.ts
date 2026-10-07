@@ -8,6 +8,11 @@
  * @module
  */
 
+import type * as analytics_admin_pack from "../analytics/admin_pack.js";
+import type * as analytics_admin_pack_model from "../analytics/admin_pack_model.js";
+import type * as analytics_admin_pack_sample from "../analytics/admin_pack_sample.js";
+import type * as analytics_admin_reports from "../analytics/admin_reports.js";
+import type * as analytics_admin_reports_model from "../analytics/admin_reports_model.js";
 import type * as analytics_agent_metrics from "../analytics/agent_metrics.js";
 import type * as analytics_agent_metrics_model from "../analytics/agent_metrics_model.js";
 import type * as analytics_compliance from "../analytics/compliance.js";
@@ -206,6 +211,11 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  "analytics/admin_pack": typeof analytics_admin_pack;
+  "analytics/admin_pack_model": typeof analytics_admin_pack_model;
+  "analytics/admin_pack_sample": typeof analytics_admin_pack_sample;
+  "analytics/admin_reports": typeof analytics_admin_reports;
+  "analytics/admin_reports_model": typeof analytics_admin_reports_model;
   "analytics/agent_metrics": typeof analytics_agent_metrics;
   "analytics/agent_metrics_model": typeof analytics_agent_metrics_model;
   "analytics/compliance": typeof analytics_compliance;

@@ -28,6 +28,7 @@ import { CallSheetsWorkspace } from "./call-sheets/call-sheets-workspace";
 import { DailySalesWorkspace } from "./daily-sales/daily-sales-workspace";
 import { TrainingWorkspace } from "./training/trainer-forms";
 import { ActivityReportsWorkspace } from "./activity-reports/activity-reports-workspace";
+import { AdminReports } from "./analytics/admin-reports";
 import { CoverageCompliance } from "./analytics/coverage-compliance";
 import { CustomerExecution } from "./analytics/customer-execution";
 import { ExecutionDashboard } from "./analytics/execution-dashboard";
@@ -256,6 +257,10 @@ function ModuleContent({
         {/* ANA-006: buying stores, gaps and shelf signals by SKU. */}
         {module === "analytics" && canAccessWebModule("supervision", role) ? (
           <SkuDistribution />
+        ) : null}
+        {/* SOP-012: the memo's admin report pack, same readers and scope as above. */}
+        {module === "analytics" && canAccessWebModule("supervision", role) ? (
+          <AdminReports />
         ) : null}
       </>
     );

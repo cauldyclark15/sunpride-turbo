@@ -274,6 +274,9 @@ vi.mock("./analytics/execution-dashboard", () => ({
   ExecutionDashboard: () =>
     createElement("p", null, "Mounted execution dashboard"),
 }));
+vi.mock("./analytics/admin-reports", () => ({
+  AdminReports: () => createElement("p", null, "Mounted admin reports"),
+}));
 vi.mock("./analytics/management-exceptions", () => ({
   ManagementExceptions: () =>
     createElement("p", null, "Mounted management exceptions"),
@@ -363,9 +366,11 @@ describe("calm generic modules", () => {
     expect(render("analytics")).toContain("Mounted customer execution");
     expect(render("analytics")).toContain("Mounted coverage compliance");
     expect(render("analytics")).toContain("Mounted SKU distribution");
+    expect(render("analytics")).toContain("Mounted admin reports");
     state.pathname = "/dashboard";
     expect(render("dashboard")).not.toContain("Mounted execution dashboard");
     expect(render("dashboard")).not.toContain("Mounted customer execution");
+    expect(render("dashboard")).not.toContain("Mounted admin reports");
     expect(render("dashboard")).not.toContain("Mounted management exceptions");
     for (const role of ["operations", "approver", "sales"]) {
       state.profile = { ...state.profile, role };
@@ -377,6 +382,7 @@ describe("calm generic modules", () => {
       expect(html).not.toContain("Mounted customer execution");
       expect(html).not.toContain("Mounted coverage compliance");
       expect(html).not.toContain("Mounted SKU distribution");
+      expect(html).not.toContain("Mounted admin reports");
     }
   });
 

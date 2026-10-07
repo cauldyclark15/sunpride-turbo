@@ -16,6 +16,7 @@ import {
   issuePriorityValidator,
   issueStatusValidator,
 } from "./issues/validators";
+import { adminPackRecord } from "./analytics/admin_pack_model";
 import { employmentTypeValidator, roleValidator } from "./lib/roles";
 import { positionCategoryValidator } from "./sfa/constants";
 import {
@@ -3316,4 +3317,15 @@ export default defineSchema({
   })
     .index("by_batch_and_key", ["batch", "key"])
     .index("by_batch", ["batch"]),
+  // SOP-012 monthly admin pack inputs (analytics/admin_pack_model.ts): programme allocations,
+  // priority documents, ADP claims and KAS receivable balances. `source: "sample"` rows are
+  // beta data that office rows of the same kind and month replace.
+  adminPackRecords: defineTable(adminPackRecord)
+    .index("by_organizationId_and_kind_and_period", [
+      "organizationId",
+      "kind",
+      "period",
+    ])
+    .index("by_organizationId_and_code", ["organizationId", "code"])
+    .index("by_organizationId_and_source", ["organizationId", "source"]),
 });
