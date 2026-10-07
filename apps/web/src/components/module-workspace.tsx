@@ -23,6 +23,7 @@ import { SalesForcePanels } from "./coverage-workspace";
 import { ImportsWorkspace } from "./imports-workspace";
 import { InventoryWorkspace } from "./inventory-workspace";
 import { OutsideCallOrders } from "./outside-call-orders";
+import { VanVoidApproval } from "./van-void-approval";
 import { SupervisionWorkspace } from "./supervision/supervision-workspace";
 import { CallSheetsWorkspace } from "./call-sheets/call-sheets-workspace";
 import { DailySalesWorkspace } from "./daily-sales/daily-sales-workspace";
@@ -512,6 +513,7 @@ function ModuleContent({
             </div>
           }
         />
+        {module === "workflows" ? <VanVoidApproval /> : null}
       </>
     );
   }

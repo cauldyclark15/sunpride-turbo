@@ -11,7 +11,7 @@ import kotlinx.coroutines.CancellationException
  * printed, so the next copy is always marked REPRINT. Only the first copy that may have reached paper is the
  * original; every later copy needs an explicit seller request with a reason and is limited per sale.
  */
-enum class PrintKind(val wire: String) { ORIGINAL("original"), REPRINT("reprint");
+enum class PrintKind(val wire: String) { ORIGINAL("original"), REPRINT("reprint"), VOID("void");
     companion object { fun of(wire: String) = entries.single { it.wire == wire } } }
 
 enum class PrintOutcome(val wire: String) { STARTED("started"), PRINTED("printed"), NOT_PRINTED("not_printed"), MAYBE_PRINTED("maybe_printed");
@@ -55,8 +55,14 @@ object ReprintRules {
     )
     fun reasonLabel(code: String?): String? = REASONS.firstOrNull { it.code == code }?.label
 
-    fun decide(history: List<PrintAttempt>, explicit: Boolean, reasonCode: String?): PrintDecision {
-        val reached = history.filter { it.mayHaveReachedPaper }
+    fun decide(history: List<PrintAttempt>, explicit: Boolean, reasonCode: String?, voided: Boolean = false): PrintDecision {
+        if (voided) {
+            val count = history.count { it.kind == PrintKind.VOID && it.mayHaveReachedPaper }
+            if (count > 0 && !explicit) return PrintDecision.Refused(PrintRefusal.ALREADY_PRINTED)
+            if (count >= MAX_REPRINTS+1) return PrintDecision.Refused(PrintRefusal.LIMIT_REACHED)
+            return PrintDecision.Print(PrintKind.VOID,count+1,null)
+        }
+        val reached = history.filter { it.kind != PrintKind.VOID && it.mayHaveReachedPaper }
         if (reached.isEmpty()) return PrintDecision.Print(PrintKind.ORIGINAL, 0, null)
         if (!explicit) return PrintDecision.Refused(PrintRefusal.ALREADY_PRINTED)
         if (REASONS.none { it.code == reasonCode }) return PrintDecision.Refused(PrintRefusal.REASON_REQUIRED)
@@ -71,8 +77,10 @@ object ReprintRules {
 /** Who sold and on which trip, printed in the receipt header. */
 data class ReceiptHeader(val sellerName: String?, val tripNumber: String?, val truck: String?)
 
+data class SaleVoidInfo(val reasonCode: String, val voidedAt: Long, val approved: Boolean)
+
 sealed interface BeginPrint {
-    data class Go(val attempt: PrintAttempt, val receipt: SaleReceipt, val header: ReceiptHeader) : BeginPrint
+    data class Go(val attempt: PrintAttempt, val receipt: SaleReceipt, val header: ReceiptHeader, val void: SaleVoidInfo? = null) : BeginPrint
     data class Refused(val refusal: PrintRefusal) : BeginPrint
 }
 
@@ -100,7 +108,7 @@ class ReceiptPrintFlow(private val printer: ReceiptPrinter, private val log: Rec
             is BeginPrint.Refused -> return PrintJobResult.Refused(begin.refusal)
             is BeginPrint.Go -> begin
         }
-        val document = SaleReceiptDocuments.build(go.receipt, go.header, go.attempt, clock())
+        val document = SaleReceiptDocuments.build(go.receipt, go.header, go.attempt, clock(), void = go.void)
         // A cancelled job stays `started`, which already counts as maybe printed.
         val result = try { printer.print(document) } catch (e: CancellationException) { throw e } catch (e: Exception) {
             PrintResult.Error(PrinterStatus.Failed(e.javaClass.simpleName), mayHavePrinted = true)

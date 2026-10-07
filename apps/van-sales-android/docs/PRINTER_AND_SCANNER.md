@@ -72,6 +72,22 @@ loaded. An adapter that can sense paper (e.g. VAN-015 ESC/POS) reports `OUT`, an
 refused before anything is recorded. The screen also shows the last receipt print result of the
 session, and Check printer reconnects.
 
+## Void a saved sale (VAN-021)
+
+Open **Receipts → Void sale**, even after the receipt has printed. Choose a reason;
+**Other (explain)** requires a note (300 characters at most). When approval is required,
+call your supervisor and read the receipt number, total and reason. Enter their **8-digit
+code**. Changing the reason clears the code; if approval is not set up, sync and try again.
+
+The sale is **never deleted**. Voiding appends the reason and approval evidence, restores
+exactly the sold quantities to available truck stock, and releases credit/reference usage.
+The original sale, payment, receipt and deductions remain unchanged for audit. The phone
+prints a **VOID - SALE CANCELLED** slip with Manila time, reason and supervisor approval
+when used. It is **not a valid receipt**. After a void, Print/Reprint can only produce a
+void slip, never another valid sale receipt (one void slip plus at most three further copies).
+Printer failure does not undo the void; use **Print void slip** later. Sales and voids stay
+saved/parked on this phone until the gateway supports uploading them.
+
 ## AIDL recovery and compatibility
 
 The installed vendor APK is `/system/priv-app/SRPrinter/SRPrinter.apk`, package

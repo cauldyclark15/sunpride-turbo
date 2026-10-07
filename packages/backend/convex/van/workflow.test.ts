@@ -10,7 +10,8 @@ import type { AuthorizedDevice } from "../mobile/types";
 import schema from "../schema";
 import { modules } from "../test.setup";
 import { handleVan } from "./http_handlers";
-import { VAN_PAYMENT_METHODS } from "./model";
+import { VAN_PAYMENT_METHODS, VOID_REASONS } from "./model";
+import { voidApprovalCode, voidApprovalKey } from "./voids";
 
 // UTC is still October 5 here, but the service day in Manila is October 6.
 const NOW = Date.parse("2026-10-05T16:30:00Z");
@@ -2046,5 +2047,197 @@ describe("van bootstrap projection", () => {
         })
       ).policy.paymentMethods.map((m: { code: string }) => m.code),
     ).toEqual(["cash", "check", "gcash", "bank_transfer", "credit"]);
+  });
+});
+
+// VAN-021: one vector from packages/domain-contracts/fixtures/van-v1/void-approval.json
+// (TEST-ONLY secret); the contracts and Android suites check every vector in that file.
+// Runtime-only Convex secret (not a Turbo build input), read by name like mobile/cursor.ts.
+const SECRET_ENV = "MOBILE_CURSOR_SECRET";
+const VOID_VECTOR = {
+  secret: "test-only-van-void-secret-0123456789abcdef",
+  tripId: "k57trip0000000000000000000000001",
+  key: "6Heg4RirM2SuTt_Pjg5QZwyqg_P-Szkdlxli4UBfz1Y",
+  receiptNumber: "TRIP-20261007-V014-1-1A2B3C4D-0001",
+  totalMinor: 123450n,
+  reasonCode: "wrong_items",
+  code: "30814695",
+};
+
+describe("van sale void approval (VAN-021)", () => {
+  const previous = process.env[SECRET_ENV];
+  afterEach(() => {
+    if (previous === undefined) delete process.env[SECRET_ENV];
+    else process.env[SECRET_ENV] = previous;
+  });
+  const configure = () => {
+    process.env[SECRET_ENV] = VOID_VECTOR.secret;
+  };
+  const receipt = (tripNumber: string, sequence = "0001") =>
+    `${tripNumber}-1A2B3C4D-${sequence}`;
+
+  it("derives the shared cross-language key and code vector", async () => {
+    configure();
+    expect(await voidApprovalKey(VOID_VECTOR.tripId)).toBe(VOID_VECTOR.key);
+    expect(await voidApprovalCode(VOID_VECTOR.key, VOID_VECTOR)).toBe(
+      VOID_VECTOR.code,
+    );
+    // Every bound field changes the code.
+    for (const changed of [
+      { ...VOID_VECTOR, totalMinor: 123451n },
+      { ...VOID_VECTOR, reasonCode: "other" },
+      { ...VOID_VECTOR, receiptNumber: receipt("TRIP-X") },
+      { ...VOID_VECTOR, tripId: "k57trip0000000000000000000000002" },
+    ])
+      expect(await voidApprovalCode(VOID_VECTOR.key, changed)).not.toBe(
+        VOID_VECTOR.code,
+      );
+    delete process.env[SECRET_ENV];
+    expect(await voidApprovalKey(VOID_VECTOR.tripId)).toBeNull();
+  });
+
+  it("sends void reasons, the approval rule and the trip key in the bootstrap; no key without a trip or secret", async () => {
+    configure();
+    const f = await fixture();
+    const empty = await f.t.query(internal.van.device.bootstrap, {
+      actor: f.seller.actor,
+      now: NOW,
+    });
+    expect(empty.policy.voidReasons).toEqual([...VOID_REASONS]);
+    expect(empty.policy.voidApproval).toEqual({
+      required: true,
+      thresholdMinor: "0",
+      key: null,
+    });
+    const { tripId } = await f.loaded();
+    const view = await f.t.query(internal.van.device.bootstrap, {
+      actor: f.seller.actor,
+      now: NOW,
+    });
+    expect(view.policy.voidApproval).toEqual({
+      required: true,
+      thresholdMinor: "0",
+      key: await voidApprovalKey(tripId),
+    });
+    expect(view.policy.voidApproval.key).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    delete process.env[SECRET_ENV];
+    const unconfigured = await f.t.query(internal.van.device.bootstrap, {
+      actor: f.seller.actor,
+      now: NOW,
+    });
+    expect(unconfigured.policy.voidApproval.key).toBeNull();
+  });
+
+  it("issues the code a supervisor in scope reads to the seller, audited without the code", async () => {
+    configure();
+    const f = await fixture();
+    const { tripId, tripNumber } = await f.loaded();
+    const manager = await f.person("manager");
+    const receiptNumber = receipt(tripNumber);
+    const issued = await manager.identity.mutation(
+      api.van.voids.issueApprovalCode,
+      {
+        receiptNumber: ` ${receiptNumber.toLowerCase()} `,
+        totalMinor: "123450",
+        reasonCode: "wrong_items",
+      },
+    );
+    const key = (await voidApprovalKey(tripId))!;
+    expect(issued).toEqual({
+      code: await voidApprovalCode(key, {
+        tripId,
+        receiptNumber,
+        totalMinor: 123450n,
+        reasonCode: "wrong_items",
+      }),
+      tripNumber,
+      receiptNumber,
+      totalMinor: "123450",
+      reasonCode: "wrong_items",
+    });
+    const audits = await f.t.run((ctx) =>
+      ctx.db
+        .query("auditLogs")
+        .withIndex("by_entity", (q) =>
+          q.eq("entityType", "vanTrip").eq("entityId", tripId),
+        )
+        .collect(),
+    );
+    const approval = audits.find(
+      (row) => row.action === "van.void.approval_issued",
+    )!;
+    expect(approval.details).toBe(`${receiptNumber}|123450|wrong_items`);
+    expect(JSON.stringify(audits)).not.toContain(issued.code);
+    // An approver role also qualifies.
+    const approver = await f.person("approver");
+    await expect(
+      approver.identity.mutation(api.van.voids.issueApprovalCode, {
+        receiptNumber,
+        totalMinor: "1",
+        reasonCode: "customer_cancelled",
+      }),
+    ).resolves.toMatchObject({ receiptNumber });
+  });
+
+  it("refuses the seller, roles without the capability, other regions, bad input, trips off the road and a missing secret", async () => {
+    configure();
+    const f = await fixture();
+    const sellerManager = await f.person("manager");
+    const { tripNumber } = await f.loaded();
+    const own = await f.plan(
+      await f.anotherVehicle("VAN-009"),
+      sellerManager.profileId,
+    );
+    const valid = {
+      receiptNumber: receipt(tripNumber),
+      totalMinor: "5000",
+      reasonCode: "wrong_quantity",
+    };
+    const issue = (
+      who: { identity: typeof f.seller.identity },
+      args: Partial<typeof valid> = {},
+    ) =>
+      who.identity.mutation(api.van.voids.issueApprovalCode, {
+        ...valid,
+        ...args,
+      });
+    await expect(issue(f.seller)).rejects.toThrow(/Insufficient permission/);
+    await expect(issue(await f.person("operations"))).rejects.toThrow(
+      /Insufficient permission/,
+    );
+    await expect(issue(await f.person("manager", f.west))).rejects.toThrow(
+      /outside your organizational scope/,
+    );
+    const manager = await f.person("manager");
+    await expect(
+      issue(manager, { receiptNumber: "not-a-receipt" }),
+    ).rejects.toThrow(/not a van receipt/);
+    await expect(
+      issue(manager, { receiptNumber: receipt("TRIP-NOPE") }),
+    ).rejects.toThrow(/No trip matches/);
+    await expect(issue(manager, { totalMinor: "-1" })).rejects.toThrow(
+      /receipt total/,
+    );
+    await expect(issue(manager, { reasonCode: "because" })).rejects.toThrow(
+      /void reason/,
+    );
+    // A planned trip (not loaded) is not on the road yet.
+    await expect(
+      issue(manager, { receiptNumber: receipt(own.tripNumber) }),
+    ).rejects.toThrow(/not on the road/);
+    // A manager who is the trip's seller cannot approve their own void.
+    const ownLoad = await f.sheet(own.tripId);
+    await f.confirm(
+      own.tripId,
+      ownLoad,
+      String(LOADED),
+      undefined,
+      sellerManager.actor,
+    );
+    await expect(
+      issue(sellerManager, { receiptNumber: receipt(own.tripNumber) }),
+    ).rejects.toThrow(/your own sale/);
+    delete process.env[SECRET_ENV];
+    await expect(issue(manager)).rejects.toThrow(/not configured/);
   });
 });

@@ -33,6 +33,29 @@ class VanBootstrapCodecTest {
         assertEquals(PaymentMethod.CASH_ONLY,b.policy.paymentMethods); assertNull(b.customers[0].credit)
         assertEquals(PaymentMethod.CASH_ONLY,VanBootstrapCodec.decode(fixture("bootstrap-no-trip-response.json")).policy.paymentMethods)
     }
+    @Test fun voidPolicyDecodesAndOldCachedPolicyStillWorks() {
+        val b = VanBootstrapCodec.decode(fixture())
+        assertEquals(com.sunpride.van.pos.VoidReasons.ALL.map { it.code },b.policy.voidReasons)
+        assertEquals(VoidApproval(true,0,"6Heg4RirM2SuTt_Pjg5QZwyqg_P-Szkdlxli4UBfz1Y"),b.policy.voidApproval)
+        val o = JSONObject(fixture()).getJSONObject("policy")
+        o.remove("voidReasons"); o.remove("voidApproval")
+        val cached = VanBootstrapCodec.policy(o)
+        assertTrue(cached.voidReasons.isEmpty()); assertNull(cached.voidApproval)
+        val old = VanBootstrapCodec.decode(fixture("bootstrap-no-trip-response.json")).policy
+        assertTrue(old.voidReasons.isEmpty()); assertNull(old.voidApproval)
+        o.put("voidApproval",JSONObject().put("required",true).put("thresholdMinor","9007199254740993").put("key",JSONObject.NULL))
+        assertEquals(VoidApproval(true,9007199254740993L,null),VanBootstrapCodec.policy(o).voidApproval)
+    }
+    @Test fun invalidVoidPolicyIsRejectedByTheMirroredSchema() {
+        val mutations: List<(JSONObject) -> Unit> = listOf(
+            { it.put("voidReasons",org.json.JSONArray()) },
+            { it.put("voidReasons",org.json.JSONArray().put("delete")) },
+            { it.getJSONObject("voidApproval").put("thresholdMinor",0) },
+            { it.getJSONObject("voidApproval").put("key","not-a-key") },
+            { it.getJSONObject("voidApproval").remove("required") })
+        mutations.forEach { mutate -> val o = JSONObject(fixture()); mutate(o.getJSONObject("policy"))
+            assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(o.toString()) } }
+    }
     @Test fun frozenBootstrapIncludesGovernedPricesAndToleratesAllPromotionRules() {
         val o = JSONObject(fixture())
         assertEquals(listOf("buy_x_get_y","percent_off","bundle"),

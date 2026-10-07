@@ -51,6 +51,13 @@ data class SaleRow(val fullAuthSubject: String, val deviceId: String, val saleId
     /** VAN-012 (v2): payment state, separate from [status] (the sale's posting state). Null on v1 rows = paid in cash. */
     val paymentStatus: String? = null)
 
+/** VAN-021: append-only cancellation evidence; one void per scoped sale. */
+@Entity(tableName = "sale_void", primaryKeys = ["fullAuthSubject", "deviceId", "voidId"],
+    indices = [Index(value = ["fullAuthSubject", "deviceId", "saleId"], unique = true)])
+data class SaleVoidRow(val fullAuthSubject: String, val deviceId: String, val voidId: String, val saleId: String,
+    val tripId: String, val idempotencyKey: String, val reasonCode: String, val note: String?,
+    val approvalMethod: String, val approvalCode: String?, val createdAt: Long)
+
 @Entity(tableName = "sale_line", primaryKeys = ["fullAuthSubject", "deviceId", "saleId", "lineNumber"])
 data class SaleLineRow(val fullAuthSubject: String, val deviceId: String, val saleId: String, val lineNumber: Int, val productId: String, val quantityBase: Long, val unitPriceMinor: Long? = null, val totalMinor: Long? = null)
 
@@ -112,6 +119,9 @@ interface VanDao {
     @Query("SELECT * FROM transaction_id WHERE fullAuthSubject=:subject AND deviceId=:device") suspend fun transactionidRows(subject: String, device: String): List<TransactionIdRow>
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertSale(row: SaleRow)
     @Query("SELECT * FROM sale WHERE fullAuthSubject=:subject AND deviceId=:device") suspend fun saleRows(subject: String, device: String): List<SaleRow>
+    @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertSaleVoid(row: SaleVoidRow)
+    @Query("SELECT * FROM sale_void WHERE fullAuthSubject=:subject AND deviceId=:device") suspend fun salevoidRows(subject: String, device: String): List<SaleVoidRow>
+    @Query("SELECT * FROM sale_void WHERE fullAuthSubject=:subject AND deviceId=:device AND saleId=:saleId") suspend fun saleVoid(subject: String, device: String, saleId: String): SaleVoidRow?
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertSaleLine(row: SaleLineRow)
     @Query("SELECT * FROM sale_line WHERE fullAuthSubject=:subject AND deviceId=:device") suspend fun salelineRows(subject: String, device: String): List<SaleLineRow>
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertPayment(row: PaymentRow)
@@ -142,12 +152,19 @@ interface VanDao {
 }
 
 @Database(entities = [TripRow::class,LoadLineRow::class,ProductRow::class,CustomerRow::class,BaselineRow::class,MovementRow::class,SettlementRow::class,OutboxRow::class,AckRow::class,SyncMetaRow::class,SequenceCounterRow::class,TransactionIdRow::class,SaleRow::class,SaleLineRow::class,PaymentRow::class,CustomerReturnRow::class,ReturnLineRow::class,ReconciliationRow::class,PriceListLineRow::class,
-    ReceiptPrintRow::class,SaleReceiptRow::class], version = 4, exportSchema = true)
+    ReceiptPrintRow::class,SaleReceiptRow::class,SaleVoidRow::class], version = 5, exportSchema = true)
 abstract class VanDatabase : RoomDatabase() {
     abstract fun rows(): VanDao
     /** VAN-017 receipt print history (v3). */
     abstract fun receiptPrints(): ReceiptPrintDao
     companion object {
+        /** VAN-021: additive cancellation evidence only, never edit or delete a sale. */
+        val MIGRATION_4_5 = object : androidx.room.migration.Migration(4,5) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `sale_void` (`fullAuthSubject` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `voidId` TEXT NOT NULL, `saleId` TEXT NOT NULL, `tripId` TEXT NOT NULL, `idempotencyKey` TEXT NOT NULL, `reasonCode` TEXT NOT NULL, `note` TEXT, `approvalMethod` TEXT NOT NULL, `approvalCode` TEXT, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`fullAuthSubject`, `deviceId`, `voidId`))")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_sale_void_fullAuthSubject_deviceId_saleId` ON `sale_void` (`fullAuthSubject`, `deviceId`, `saleId`)")
+            }
+        }
         /** VAN-017: one new append-only table of receipts frozen at checkout; sales saved before it have none. */
         val MIGRATION_3_4 = object : androidx.room.migration.Migration(3,4) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {

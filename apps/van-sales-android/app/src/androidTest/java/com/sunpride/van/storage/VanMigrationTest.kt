@@ -51,6 +51,22 @@ class VanMigrationTest {
             database.query("SELECT saleId,kind,outcome FROM receipt_print").use { assertTrue(it.moveToFirst()); assertEquals("s1",it.getString(0)); assertEquals("original",it.getString(1)); assertEquals("printed",it.getString(2)) }
             database.query("SELECT receiptNumber,totalMinor FROM sale").use { assertTrue(it.moveToFirst()); assertEquals("R-1",it.getString(0)); assertEquals(8500L,it.getLong(1)) }
             database.query("SELECT operationJson,status FROM outbox").use { assertTrue(it.moveToFirst()); assertEquals("immutable bytes",it.getString(0)); assertEquals("pending",it.getString(1)) }
+            database.execSQL("INSERT INTO sale_receipt (fullAuthSubject,deviceId,saleId,documentJson) VALUES ('issuer|subject','d','s1','frozen receipt bytes')")
+        }
+        // VAN-021: v4 → v5 adds only empty append-only void evidence and its unique sale index.
+        helper.runMigrationsAndValidate(name,5,true,VanDatabase.MIGRATION_4_5).use { database ->
+            database.query("SELECT COUNT(*) FROM sale_void").use { assertTrue(it.moveToFirst()); assertEquals(0,it.getInt(0)) }
+            database.query("PRAGMA table_info(`sale_void`)").use { cursor -> val columns=mutableListOf<String>(); while(cursor.moveToNext()) columns+=cursor.getString(1)
+                assertEquals(listOf("fullAuthSubject","deviceId","voidId","saleId","tripId","idempotencyKey","reasonCode","note","approvalMethod","approvalCode","createdAt"),columns) }
+            database.query("SELECT saleId,kind,outcome FROM receipt_print").use { assertTrue(it.moveToFirst()); assertEquals("s1",it.getString(0)); assertEquals("original",it.getString(1)); assertEquals("printed",it.getString(2)) }
+            database.query("SELECT receiptNumber,totalMinor,status FROM sale").use { assertTrue(it.moveToFirst()); assertEquals("R-1",it.getString(0)); assertEquals(8500L,it.getLong(1)); assertEquals("saved",it.getString(2)) }
+            database.query("SELECT method,amountMinor FROM payment").use { assertTrue(it.moveToFirst()); assertEquals("cash",it.getString(0)); assertEquals(8500L,it.getLong(1)) }
+            database.query("SELECT quantityBase FROM stock_movement").use { assertTrue(it.moveToFirst()); assertEquals(-1L,it.getLong(0)) }
+            database.query("SELECT operationJson,status FROM outbox").use { assertTrue(it.moveToFirst()); assertEquals("immutable bytes",it.getString(0)); assertEquals("pending",it.getString(1)) }
+            database.query("SELECT documentJson FROM sale_receipt").use { assertTrue(it.moveToFirst()); assertEquals("frozen receipt bytes",it.getString(0)) }
+            database.query("PRAGMA index_list(`sale_void`)").use { cursor -> var unique = false
+                while(cursor.moveToNext()) if(cursor.getString(1) == "index_sale_void_fullAuthSubject_deviceId_saleId") unique = cursor.getInt(2) == 1
+                assertTrue(unique) }
         }
     }
 }
