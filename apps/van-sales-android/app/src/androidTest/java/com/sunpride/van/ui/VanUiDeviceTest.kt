@@ -251,9 +251,7 @@ class VanUiDeviceTest {
         mount(printer = printer); loadAndStart()
         val juice = c.products.single { it.code == "SP-PJ-1L" }
         rule.waitUntil(10_000) { c.stock.any { it.productId == juice.productId && it.availableBase > 2 } }
-        runBlocking { c.repository.fixtureStore().let { st -> st.db.rows().insertPriceListLine(com.sunpride.van.storage.PriceListLineRow(
-            st.scope.fullAuthSubject,st.scope.deviceId,"PL-PRACTICE",juice.productId,"PC",8_500,"PHP",System.currentTimeMillis()-60_000,null)) } }
-        rule.waitUntil(10_000) { c.prices.isNotEmpty() }
+        testPriceFeed(juice.productId)
         open(Page.HOME)
         rule.onNodeWithTag("new-sale").performScrollTo().performClick()
         rule.onNodeWithTag("customer-route-1").performClick()
