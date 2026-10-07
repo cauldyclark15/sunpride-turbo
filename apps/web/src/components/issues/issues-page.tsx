@@ -58,7 +58,7 @@ export function IssuesPage() {
   );
   const move = useMutation(api.issues.mutations.move);
   async function moveIssue(input: IssueMove) {
-    if (!access?.canWrite || busy || filters.archived) return;
+    if (!access?.canTriage || busy || filters.archived) return;
     setBusy(true);
     setError("");
     try {
@@ -243,7 +243,7 @@ export function IssuesPage() {
         <IssuesBoard
           issues={result.issues}
           counts={result.counts}
-          canWrite={Boolean(access?.canWrite)}
+          canWrite={Boolean(access?.canTriage)}
           onMove={moveIssue}
           busy={busy}
         />

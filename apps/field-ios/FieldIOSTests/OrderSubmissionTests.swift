@@ -227,14 +227,15 @@ final class OrderSubmissionTests: XCTestCase {
         let draft = try startAndDraft([("p-corned", 2)])
         let checks = model.orderChecks(draft)
         XCTAssertEqual(checks.filter { !$0.blocking }.map(\.label), ["Prices", "Credit"])
-        XCTAssertTrue(checks.first { $0.label == "Credit" }?.note?.contains("No credit figures") == true)
+        XCTAssertEqual(checks.first { $0.label == "Credit" }?.note, "Credit is checked by the office when the order arrives.")
         let summary = AccountSummary(outletId: "first", asOfDate: day, availability: "available", creditLimitMinor: 5_000_000,
             sales: .init(from: "2026-09-03", to: day, complete: true, orders: 1, amountMinor: 1, recentOrders: 0,
                          recentAmountMinor: 0, lastOrderDate: nil, lastOrderAmountMinor: nil),
             openOrders: .init(count: 1, amountMinor: 410_000))
-        XCTAssertEqual(OrderSubmission.creditNote(summary),
-                       "Credit limit ₱50,000.00 · open orders ₱4,100.00 as of 2026-10-02. The office checks this order against credit when it prices it.")
+        // No price for this draft's line: the amount is unknown, so the phone never claims "within".
+        XCTAssertEqual(OrderSubmission.creditCheck(draft, summary: summary).note,
+                       "Some lines are priced by the office, so the office checks credit when the order arrives.")
         let withheld = AccountSummary(outletId: "first", asOfDate: day, availability: "withheld", creditLimitMinor: nil, sales: nil, openOrders: nil)
-        XCTAssertTrue(OrderSubmission.creditNote(withheld).contains("No credit figures"))
+        XCTAssertEqual(OrderSubmission.creditCheck(draft, summary: withheld).note, "Credit is checked by the office when the order arrives.")
     }
 }

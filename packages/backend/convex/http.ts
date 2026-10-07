@@ -3,6 +3,7 @@ import { env, httpAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { authComponent, createAuth } from "./auth";
 import * as mobileHandlers from "./mobile/http_handlers";
+import * as vanHandlers from "./van/http_handlers";
 
 const http = httpRouter();
 authComponent.registerRoutes(http, createAuth, { cors: true });
@@ -183,6 +184,23 @@ http.route({
   path: "/mobile/v1/push",
   method: "POST",
   handler: mobileHandlers.push,
+});
+// VAN-003: the van-sales POS gateway (VAN_ANDROID devices only).
+http.route({
+  path: "/van/v1/bootstrap",
+  method: "POST",
+  handler: vanHandlers.bootstrap,
+});
+http.route({
+  path: "/van/v1/push",
+  method: "POST",
+  handler: vanHandlers.push,
+});
+// VAN-020: damage photos, uploaded before the push that references them.
+http.route({
+  path: "/van/v1/evidence",
+  method: "POST",
+  handler: vanHandlers.evidence,
 });
 
 export default http;

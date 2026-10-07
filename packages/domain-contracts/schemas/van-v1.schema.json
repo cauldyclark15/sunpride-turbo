@@ -1,0 +1,1225 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sunpride.local/contracts/van-v1.schema.json",
+  "title": "Sunpride van-sales POS wire contract v1 (VAN-003, ADR-010)",
+  "description": "Signed POST bodies for /van/v1/bootstrap, /van/v1/push and /van/v1/evidence. Headers are the field gateway's x-mobile-* proof headers with x-mobile-app = VAN_ANDROID. Integers that can exceed 2^53 (base quantities, scales) are decimal strings.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/bootstrapRequest"
+    },
+    {
+      "$ref": "#/$defs/bootstrapResponse"
+    },
+    {
+      "$ref": "#/$defs/pushRequest"
+    },
+    {
+      "$ref": "#/$defs/pushResponse"
+    },
+    {
+      "$ref": "#/$defs/evidenceRequest"
+    },
+    {
+      "$ref": "#/$defs/evidenceResponse"
+    },
+    {
+      "$ref": "#/$defs/errorResponse"
+    }
+  ],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+    },
+    "base": {
+      "type": "string",
+      "pattern": "^[0-9]{1,18}$"
+    },
+    "date": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "millis": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "nullableText": {
+      "type": ["string", "null"],
+      "maxLength": 300
+    },
+    "tripStatus": {
+      "enum": [
+        "planned",
+        "loading",
+        "loaded",
+        "active",
+        "closing",
+        "reconciling",
+        "closed",
+        "cancelled",
+        "review_required"
+      ]
+    },
+    "loadStatus": {
+      "enum": ["planned", "discrepancy", "posted", "cancelled"]
+    },
+    "discrepancyReason": {
+      "enum": [
+        "short_loaded",
+        "over_loaded",
+        "damaged_at_loading",
+        "wrong_item",
+        "other"
+      ]
+    },
+    "damageReason": {
+      "enum": ["crushed", "leaking", "expired", "spoiled", "other"]
+    },
+    "voidReason": {
+      "enum": [
+        "wrong_items",
+        "wrong_quantity",
+        "wrong_customer",
+        "wrong_payment",
+        "customer_cancelled",
+        "other"
+      ]
+    },
+    "voidApproval": {
+      "description": "VAN-021 void approval. When required and the sale total is at least thresholdMinor, a void needs the 8-digit supervisor code for (trip, receipt, total, reason); key is the trip's base64url HMAC key the handheld checks codes with offline, null when the office cannot issue codes (approval-required voids are then refused).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "thresholdMinor", "key"],
+      "properties": {
+        "required": { "type": "boolean" },
+        "thresholdMinor": { "$ref": "#/$defs/base" },
+        "key": {
+          "type": ["string", "null"],
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        }
+      }
+    },
+    "cashVarianceReason": {
+      "enum": [
+        "counting_error",
+        "change_error",
+        "customer_short_paid",
+        "customer_overpaid",
+        "lost_or_stolen",
+        "counterfeit",
+        "other"
+      ]
+    },
+    "cashReconciliation": {
+      "description": "VAN-022 end-of-trip cash count. Any difference between counted and expected cash needs one of reasons; when approvalRequired and the absolute difference is more than toleranceMinor, it also needs the 8-digit supervisor code for (trip, expected, counted, reason). key is the trip's base64url HMAC key the handheld checks codes with offline, null when the office cannot issue codes (counts above tolerance are then refused).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["approvalRequired", "toleranceMinor", "reasons", "key"],
+      "properties": {
+        "approvalRequired": { "type": "boolean" },
+        "toleranceMinor": { "$ref": "#/$defs/base" },
+        "reasons": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 12,
+          "items": { "$ref": "#/$defs/cashVarianceReason" }
+        },
+        "key": {
+          "type": ["string", "null"],
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        }
+      }
+    },
+    "paymentMethod": {
+      "description": "VAN-012 payment method the office allows. cash gives change; other equals the total and carries a reference when referenceRequired; credit charges the customer's account and needs customer credit terms.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "label",
+        "kind",
+        "referenceRequired",
+        "referenceLabel"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,31}$"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "kind": {
+          "enum": ["cash", "credit", "other"]
+        },
+        "referenceRequired": {
+          "type": "boolean"
+        },
+        "referenceLabel": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 40
+        }
+      }
+    },
+    "customerCredit": {
+      "description": "VAN-012 office credit terms for one customer: days until due and the credit available as of serverTime, in centavos.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["termsDays", "availableMinor"],
+      "properties": {
+        "termsDays": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 180
+        },
+        "availableMinor": {
+          "$ref": "#/$defs/base"
+        }
+      }
+    },
+    "bootstrapRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "contractVersion", "deviceId"],
+      "properties": {
+        "type": {
+          "const": "van.bootstrap.request"
+        },
+        "contractVersion": {
+          "const": 1
+        },
+        "deviceId": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "bootstrapResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "contractVersion",
+        "serverTime",
+        "serviceDate",
+        "seller",
+        "policy",
+        "trip",
+        "load",
+        "truckStock",
+        "products",
+        "customers"
+      ],
+      "properties": {
+        "type": {
+          "const": "van.bootstrap.response"
+        },
+        "contractVersion": {
+          "const": 1
+        },
+        "serverTime": {
+          "$ref": "#/$defs/millis"
+        },
+        "serviceDate": {
+          "$ref": "#/$defs/date"
+        },
+        "seller": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["profileId", "name"],
+          "properties": {
+            "profileId": {
+              "$ref": "#/$defs/id"
+            },
+            "name": {
+              "type": "string"
+            }
+          }
+        },
+        "policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "allowNegativeStock",
+            "loadDiscrepancyRequiresApproval",
+            "walkInAllowed",
+            "loadDiscrepancyReasons",
+            "damageReasons"
+          ],
+          "properties": {
+            "allowNegativeStock": {
+              "type": "boolean"
+            },
+            "loadDiscrepancyRequiresApproval": {
+              "type": "boolean"
+            },
+            "walkInAllowed": {
+              "type": "boolean"
+            },
+            "loadDiscrepancyReasons": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/discrepancyReason"
+              }
+            },
+            "damageReasons": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/damageReason"
+              }
+            },
+            "paymentMethods": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 12,
+              "items": {
+                "$ref": "#/$defs/paymentMethod"
+              }
+            },
+            "damagePolicy": {
+              "$ref": "#/$defs/damagePolicy"
+            },
+            "voidReasons": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 12,
+              "items": { "$ref": "#/$defs/voidReason" }
+            },
+            "voidApproval": { "$ref": "#/$defs/voidApproval" },
+            "cashReconciliation": { "$ref": "#/$defs/cashReconciliation" }
+          }
+        },
+        "trip": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/trip"
+            }
+          ]
+        },
+        "load": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/load"
+            }
+          ]
+        },
+        "truckStock": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["productId", "availableBase", "damagedBase"],
+            "properties": {
+              "productId": {
+                "$ref": "#/$defs/id"
+              },
+              "availableBase": {
+                "type": "string",
+                "pattern": "^-?[0-9]{1,18}$"
+              },
+              "damagedBase": {
+                "$ref": "#/$defs/base"
+              }
+            }
+          }
+        },
+        "products": {
+          "type": "array",
+          "maxItems": 600,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "productId",
+              "code",
+              "name",
+              "uomCode",
+              "quantityScale",
+              "barcodes"
+            ],
+            "properties": {
+              "productId": {
+                "$ref": "#/$defs/id"
+              },
+              "code": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "uomCode": {
+                "type": "string"
+              },
+              "quantityScale": {
+                "$ref": "#/$defs/base"
+              },
+              "barcodes": {
+                "type": "array",
+                "maxItems": 20,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "barcodeUnits": {
+                "description": "VAN-009: the unit each barcode scans into; baseQuantity is the base quantity of one scan, null when no exact conversion exists.",
+                "type": "array",
+                "maxItems": 20,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["barcode", "uomCode", "baseQuantity"],
+                  "properties": {
+                    "barcode": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
+                    "uomCode": {
+                      "type": "string"
+                    },
+                    "baseQuantity": {
+                      "oneOf": [
+                        {
+                          "$ref": "#/$defs/base"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "customers": {
+          "type": "array",
+          "maxItems": 600,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "outletId",
+              "code",
+              "name",
+              "address",
+              "sequence",
+              "source"
+            ],
+            "properties": {
+              "outletId": {
+                "$ref": "#/$defs/id"
+              },
+              "code": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "address": {
+                "type": ["string", "null"]
+              },
+              "sequence": {
+                "type": ["integer", "null"]
+              },
+              "source": {
+                "enum": ["route", "unplanned"]
+              },
+              "credit": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/$defs/customerCredit"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "damageRecords": {
+          "description": "VAN-020: this trip's damage records and their approval state, newest first.",
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "damageId",
+              "clientRequestId",
+              "productId",
+              "uomCode",
+              "quantityScale",
+              "quantityBase",
+              "reason",
+              "status",
+              "recordedAt",
+              "decisionNote"
+            ],
+            "properties": {
+              "damageId": {
+                "$ref": "#/$defs/id"
+              },
+              "clientRequestId": {
+                "$ref": "#/$defs/uuid"
+              },
+              "productId": {
+                "$ref": "#/$defs/id"
+              },
+              "uomCode": {
+                "description": "The selling unit frozen when the damage was recorded; later product changes never relabel it.",
+                "type": "string"
+              },
+              "quantityScale": {
+                "description": "Base units per selling unit, frozen with uomCode.",
+                "$ref": "#/$defs/base"
+              },
+              "quantityBase": {
+                "$ref": "#/$defs/base"
+              },
+              "reason": {
+                "$ref": "#/$defs/damageReason"
+              },
+              "status": {
+                "$ref": "#/$defs/damageStatus"
+              },
+              "recordedAt": {
+                "$ref": "#/$defs/millis"
+              },
+              "decisionNote": {
+                "$ref": "#/$defs/nullableText"
+              }
+            }
+          }
+        },
+        "priceLines": {
+          "description": "SP-0129 / ADR-008: the governed price-list lines for the trip's van selling list (Route Sales / PMOT), one line per product in the product's van unit. Server-resolved; the handheld never defines a price. Absent or empty means 'Priced by the office'.",
+          "type": "array",
+          "maxItems": 600,
+          "items": { "$ref": "#/$defs/priceLine" }
+        },
+        "promotions": {
+          "description": "SP-0129 / ADR-008: governed promotions in force for the van selling list. A rule the handheld cannot evaluate must fail closed (not applied, never approximated).",
+          "type": "array",
+          "maxItems": 50,
+          "items": { "$ref": "#/$defs/promotion" }
+        }
+      }
+    },
+    "minor": { "type": "string", "pattern": "^[0-9]{1,15}$" },
+    "priceLine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "priceListId",
+        "priceListCode",
+        "productId",
+        "uomCode",
+        "unitPriceMinor",
+        "currency",
+        "effectiveFrom",
+        "effectiveTo"
+      ],
+      "properties": {
+        "priceListId": { "$ref": "#/$defs/id" },
+        "priceListCode": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "productId": { "$ref": "#/$defs/id" },
+        "uomCode": { "type": "string", "minLength": 1, "maxLength": 20 },
+        "unitPriceMinor": { "$ref": "#/$defs/minor" },
+        "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+        "effectiveFrom": { "$ref": "#/$defs/millis" },
+        "effectiveTo": {
+          "oneOf": [{ "$ref": "#/$defs/millis" }, { "type": "null" }]
+        }
+      }
+    },
+    "promotionUnit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["productId", "uomCode", "quantity"],
+      "properties": {
+        "productId": { "$ref": "#/$defs/id" },
+        "uomCode": { "type": "string", "minLength": 1, "maxLength": 20 },
+        "quantity": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "promotion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "promotionId",
+        "code",
+        "name",
+        "priceListId",
+        "effectiveFrom",
+        "effectiveTo",
+        "rule"
+      ],
+      "properties": {
+        "promotionId": { "$ref": "#/$defs/id" },
+        "code": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "priceListId": {
+          "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }]
+        },
+        "effectiveFrom": { "$ref": "#/$defs/millis" },
+        "effectiveTo": {
+          "oneOf": [{ "$ref": "#/$defs/millis" }, { "type": "null" }]
+        },
+        "rule": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "buy", "free"],
+              "properties": {
+                "kind": { "const": "buy_x_get_y" },
+                "buy": { "$ref": "#/$defs/promotionUnit" },
+                "free": { "$ref": "#/$defs/promotionUnit" }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "item", "percentOffBasisPoints"],
+              "properties": {
+                "kind": { "const": "percent_off" },
+                "item": { "$ref": "#/$defs/promotionUnit" },
+                "percentOffBasisPoints": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10000
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "components", "bundlePriceMinor"],
+              "properties": {
+                "kind": { "const": "bundle" },
+                "components": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 6,
+                  "items": { "$ref": "#/$defs/promotionUnit" }
+                },
+                "bundlePriceMinor": { "$ref": "#/$defs/minor" }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "trip": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tripId",
+        "tripNumber",
+        "status",
+        "serviceDate",
+        "vehicle",
+        "route",
+        "driverName",
+        "helperName",
+        "truckLocationId",
+        "routeSessionId",
+        "startedAt"
+      ],
+      "properties": {
+        "tripId": {
+          "$ref": "#/$defs/id"
+        },
+        "tripNumber": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/tripStatus"
+        },
+        "serviceDate": {
+          "$ref": "#/$defs/date"
+        },
+        "vehicle": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["vehicleId", "vehicleCode", "plateNumber", "name"],
+              "properties": {
+                "vehicleId": {
+                  "$ref": "#/$defs/id"
+                },
+                "vehicleCode": {
+                  "type": "string"
+                },
+                "plateNumber": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": ["string", "null"]
+                }
+              }
+            }
+          ]
+        },
+        "route": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["routeId", "code", "name"],
+              "properties": {
+                "routeId": {
+                  "$ref": "#/$defs/id"
+                },
+                "code": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "driverName": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "helperName": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "truckLocationId": {
+          "$ref": "#/$defs/id"
+        },
+        "routeSessionId": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/id"
+            }
+          ]
+        },
+        "startedAt": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/millis"
+            }
+          ]
+        }
+      }
+    },
+    "load": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["loadId", "status", "lines"],
+      "properties": {
+        "loadId": {
+          "$ref": "#/$defs/id"
+        },
+        "status": {
+          "$ref": "#/$defs/loadStatus"
+        },
+        "lines": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "lineNumber",
+              "productId",
+              "productCode",
+              "productName",
+              "uomCode",
+              "quantityScale",
+              "lotNumber",
+              "expectedBase",
+              "actualBase",
+              "discrepancyReason"
+            ],
+            "properties": {
+              "lineNumber": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "productId": {
+                "$ref": "#/$defs/id"
+              },
+              "productCode": {
+                "type": "string"
+              },
+              "productName": {
+                "type": "string"
+              },
+              "uomCode": {
+                "type": "string"
+              },
+              "quantityScale": {
+                "$ref": "#/$defs/base"
+              },
+              "lotNumber": {
+                "type": ["string", "null"]
+              },
+              "expectedBase": {
+                "$ref": "#/$defs/base"
+              },
+              "actualBase": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/$defs/base"
+                  }
+                ]
+              },
+              "discrepancyReason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/$defs/discrepancyReason"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "pushRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "contractVersion", "deviceId", "operations"],
+      "properties": {
+        "type": {
+          "const": "van.push.request"
+        },
+        "contractVersion": {
+          "const": 1
+        },
+        "deviceId": {
+          "$ref": "#/$defs/id"
+        },
+        "operations": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/tripStart"
+              },
+              {
+                "$ref": "#/$defs/loadConfirm"
+              },
+              {
+                "$ref": "#/$defs/truckDamage"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "tripStart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "clientRequestId", "payload"],
+      "properties": {
+        "kind": {
+          "const": "trip.start"
+        },
+        "clientRequestId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tripId",
+            "vehicleConfirmed",
+            "routeConfirmed",
+            "deviceTime"
+          ],
+          "properties": {
+            "tripId": {
+              "$ref": "#/$defs/id"
+            },
+            "vehicleConfirmed": {
+              "const": true
+            },
+            "routeConfirmed": {
+              "const": true
+            },
+            "driverName": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "helperName": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "odometerKm": {
+              "type": "number",
+              "minimum": 0
+            },
+            "note": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "deviceTime": {
+              "$ref": "#/$defs/millis"
+            }
+          }
+        }
+      }
+    },
+    "loadConfirm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "clientRequestId", "payload"],
+      "properties": {
+        "kind": {
+          "const": "load.confirm"
+        },
+        "clientRequestId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tripId", "loadId", "lines", "deviceTime"],
+          "properties": {
+            "tripId": {
+              "$ref": "#/$defs/id"
+            },
+            "loadId": {
+              "$ref": "#/$defs/id"
+            },
+            "deviceTime": {
+              "$ref": "#/$defs/millis"
+            },
+            "lines": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 100,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["lineNumber", "actualBase"],
+                "properties": {
+                  "lineNumber": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "actualBase": {
+                    "$ref": "#/$defs/base"
+                  },
+                  "reason": {
+                    "$ref": "#/$defs/discrepancyReason"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "truckDamage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "clientRequestId", "payload"],
+      "properties": {
+        "kind": {
+          "const": "truck.damage"
+        },
+        "clientRequestId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tripId",
+            "productId",
+            "quantityBase",
+            "reason",
+            "deviceTime"
+          ],
+          "properties": {
+            "tripId": {
+              "$ref": "#/$defs/id"
+            },
+            "productId": {
+              "$ref": "#/$defs/id"
+            },
+            "quantityBase": {
+              "$ref": "#/$defs/base"
+            },
+            "reason": {
+              "$ref": "#/$defs/damageReason"
+            },
+            "note": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "deviceTime": {
+              "$ref": "#/$defs/millis"
+            },
+            "photoSha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        }
+      }
+    },
+    "pushResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "contractVersion", "serverTime", "results"],
+      "properties": {
+        "type": {
+          "const": "van.push.response"
+        },
+        "contractVersion": {
+          "const": 1
+        },
+        "serverTime": {
+          "$ref": "#/$defs/millis"
+        },
+        "results": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "clientRequestId", "status", "ack"],
+                "properties": {
+                  "kind": {
+                    "enum": ["trip.start", "load.confirm", "truck.damage"]
+                  },
+                  "clientRequestId": {
+                    "$ref": "#/$defs/uuid"
+                  },
+                  "status": {
+                    "const": "accepted"
+                  },
+                  "ack": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["entityId", "movementId", "serverTime"],
+                    "properties": {
+                      "entityId": {
+                        "$ref": "#/$defs/id"
+                      },
+                      "movementId": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "$ref": "#/$defs/id"
+                          }
+                        ]
+                      },
+                      "serverTime": {
+                        "$ref": "#/$defs/millis"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "clientRequestId", "status", "code"],
+                "properties": {
+                  "kind": {
+                    "enum": ["trip.start", "load.confirm", "truck.damage"]
+                  },
+                  "clientRequestId": {
+                    "$ref": "#/$defs/uuid"
+                  },
+                  "status": {
+                    "enum": ["rejected", "conflict"]
+                  },
+                  "code": {
+                    "enum": [
+                      "invalid_request",
+                      "conflict",
+                      "out_of_scope",
+                      "wrong_date",
+                      "load_not_posted",
+                      "photo_required"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "errorResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "contractVersion",
+        "serverTime",
+        "code",
+        "message",
+        "retryable"
+      ],
+      "properties": {
+        "type": {
+          "const": "error.response"
+        },
+        "contractVersion": {
+          "const": 1
+        },
+        "serverTime": {
+          "$ref": "#/$defs/millis"
+        },
+        "code": {
+          "enum": [
+            "version_unsupported",
+            "unauthorized",
+            "invalid_request",
+            "temporarily_unavailable"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      }
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "damageStatus": {
+      "enum": ["recorded", "pending_approval", "approved", "rejected"]
+    },
+    "damagePolicy": {
+      "description": "VAN-020: a damage record needs a photo when its reason is listed or when it needs approval; it needs a supervisor when its quantity is at least approvalFromUnits whole selling units (quantityBase >= approvalFromUnits * quantityScale). Photos are JPEG of at most photoMaxBytes bytes.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "photoRequiredReasons",
+        "approvalFromUnits",
+        "photoMaxBytes"
+      ],
+      "properties": {
+        "photoRequiredReasons": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/damageReason"
+          }
+        },
+        "approvalFromUnits": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000
+        },
+        "photoMaxBytes": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 96000
+        }
+      }
+    },
+    "evidenceRequest": {
+      "description": "VAN-020: one damage photo, uploaded before the push that references it by photoSha256. Idempotent per seller and digest.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "contractVersion",
+        "deviceId",
+        "contentType",
+        "sha256",
+        "dataBase64"
+      ],
+      "properties": {
+        "type": {
+          "const": "van.evidence.request"
+        },
+        "contractVersion": {
+          "const": 1
+        },
+        "deviceId": {
+          "$ref": "#/$defs/id"
+        },
+        "contentType": {
+          "const": "image/jpeg"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "dataBase64": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128000,
+          "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+        }
+      }
+    },
+    "evidenceResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "contractVersion", "serverTime", "sha256", "status"],
+      "properties": {
+        "type": {
+          "const": "van.evidence.response"
+        },
+        "contractVersion": {
+          "const": 1
+        },
+        "serverTime": {
+          "$ref": "#/$defs/millis"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "status": {
+          "const": "stored"
+        }
+      }
+    }
+  }
+}

@@ -27,8 +27,10 @@ import {
   selectedFileError,
   uploadIssueFiles,
 } from "./attachment-picker";
+import { reportedFromDescription } from "../../config/beta";
 import { IssueStatusPill } from "./issue-pills";
-export function IssueCreatePage() {
+/** `from` is the page the tester was on when they chose "Report an issue". */
+export function IssueCreatePage({ from }: { from?: string } = {}) {
   const { access, canRead, loading } = useIssueAccess();
   const assignees = useQuery(
     api.issues.queries.assignees,
@@ -39,7 +41,7 @@ export function IssueCreatePage() {
   const router = useRouter();
   const [fields, setFields] = useState({
     title: "",
-    description: "",
+    description: reportedFromDescription(from),
     steps: "",
     actual: "",
     expected: "",
@@ -84,8 +86,9 @@ export function IssueCreatePage() {
         expected: fields.expected.trim() || undefined,
         area: fields.area || DEFAULT_ISSUE_AREA,
         priority: fields.priority as IssuePriority,
-        assigneeId: (fields.assignee || undefined) as
-          Id<"profiles"> | undefined,
+        assigneeId: (access.canTriage && fields.assignee
+          ? fields.assignee
+          : undefined) as Id<"profiles"> | undefined,
         externalRef: fields.externalRef.trim() || undefined,
         milestone: fields.milestone.trim() || undefined,
         uploads,
@@ -212,19 +215,21 @@ export function IssueCreatePage() {
                   ))}
                 </select>
               </FormField>
-              <FormField label="Assignee">
-                <select
-                  value={fields.assignee}
-                  onChange={(event) => field("assignee", event.target.value)}
-                >
-                  <option value="">Unassigned</option>
-                  {assignees?.map((person) => (
-                    <option key={person._id} value={person._id}>
-                      {person.name}
-                    </option>
-                  ))}
-                </select>
-              </FormField>
+              {access.canTriage ? (
+                <FormField label="Assignee">
+                  <select
+                    value={fields.assignee}
+                    onChange={(event) => field("assignee", event.target.value)}
+                  >
+                    <option value="">Unassigned</option>
+                    {assignees?.map((person) => (
+                      <option key={person._id} value={person._id}>
+                        {person.name}
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
+              ) : null}
               <FormField label="Reference">
                 <input
                   maxLength={MAX_SHORT_LENGTH}

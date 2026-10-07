@@ -3,6 +3,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { accountFor, usableProduct } from "../callSheets/model";
 import { localDate } from "../coverage/validation";
+import { orderUnits } from "../pricing/model";
 import {
   type FieldOrderLine,
   validateFieldOrderLines,
@@ -56,8 +57,8 @@ async function authorizedProducts(
 /**
  * The outlet must have an office-maintained account setup, each product must have been
  * authorized by it on the service day (see `authorizedProducts`) and still be usable, and
- * the quantity must be in the product's current unit: quantities in a changed unit are
- * never recorded.
+ * the quantity must be in one of the product's current order units (its own unit or an active
+ * selling unit, SP-0088): quantities in a retired unit are never recorded.
  */
 export async function validateFieldOrder(
   ctx: MutationCtx,
@@ -72,7 +73,10 @@ export async function validateFieldOrder(
   for (const line of lines) {
     if (!allowed.has(line.productId)) throw new ConvexError("invalid_request");
     const product = await ctx.db.get(line.productId);
-    if (!usableProduct(product) || product.uom !== line.uom)
+    if (
+      !usableProduct(product) ||
+      !(await orderUnits(ctx, product)).includes(line.uom)
+    )
       throw new ConvexError("invalid_request");
   }
   // One submission per phone order: a second request with a new ID must not double it.

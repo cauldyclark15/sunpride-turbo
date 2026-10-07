@@ -8,6 +8,7 @@ import {
   CAPABILITIES,
   type Capability,
   isReadOnlyCapability,
+  TESTER_FEEDBACK_CAPABILITIES,
 } from "./capabilities";
 import type { AppRole } from "./roles";
 
@@ -72,9 +73,17 @@ const EXPECTED: Record<Capability, string> = {
   "target.manage": "xx-x----",
   "integration.read": "xxx-----",
   "integration.manage": "xx------",
-  "issues.read": "xxxxx-x-",
-  "issues.write": "xxxxx---",
+  "issues.read": "xxxxxxxx",
+  "issues.write": "xxxxxxxx",
+  "issues.triage": "xxxxx---",
   "issues.manage": "xx------",
+  "van.read": "xxxxxxxx",
+  "van.manage": "xxx-----",
+  "van.operate": "x--x-x--",
+  "van.load.approve": "x--xx---",
+  "van.damage.approve": "x--xx---",
+  "van.void.approve": "x--xx---",
+  "van.cash.approve": "x--xx---",
 };
 
 const granted = (capability: Capability, role: AppRole) =>
@@ -177,6 +186,8 @@ describe("role × capability matrix (QSR-006)", () => {
 
   it("keeps every cross-scope analyst grant read-only and viewer write-free", () => {
     for (const capability of capabilities) {
+      // Beta (SP-0123): filing tester feedback is the one listed, unscoped exception.
+      if (TESTER_FEEDBACK_CAPABILITIES.includes(capability)) continue;
       if (granted(capability, "analyst"))
         expect(isReadOnlyCapability(capability), capability).toBe(true);
       if (granted(capability, "viewer"))

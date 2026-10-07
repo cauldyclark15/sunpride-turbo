@@ -136,7 +136,7 @@ function coded(error: unknown): string | null {
   }
   return null;
 }
-async function rawBody(request: Request): Promise<Uint8Array | null> {
+export async function rawBody(request: Request): Promise<Uint8Array | null> {
   const length = request.headers.get("content-length");
   if (length && (!/^\d+$/.test(length) || Number(length) > MAX_BYTES))
     return null;
@@ -166,7 +166,7 @@ async function rawBody(request: Request): Promise<Uint8Array | null> {
   }
   return bytes;
 }
-const hexDigest = async (bytes: Uint8Array): Promise<string> =>
+export const hexDigest = async (bytes: Uint8Array): Promise<string> =>
   Array.from(
     new Uint8Array(
       await crypto.subtle.digest("SHA-256", bytes as BufferSource),

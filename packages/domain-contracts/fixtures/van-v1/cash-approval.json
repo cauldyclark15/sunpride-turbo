@@ -1,0 +1,38 @@
+{
+  "description": "VAN-022 cash reconciliation approval code vectors. TEST-ONLY secret, never a DEV or production value. key = base64url(HMAC-SHA256(secret, 'sunpride/van-cash-approval/v1|' + tripId)) without padding; code = RFC 4226 dynamic truncation of HMAC-SHA256(key bytes, 'CASH|v1|' + tripId + '|' + expectedMinor + '|' + declaredMinor + '|' + reasonCode) mod 10^8, zero-padded to 8 digits.",
+  "secret": "test-only-van-void-secret-0123456789abcdef",
+  "tripId": "k57trip0000000000000000000000001",
+  "key": "PnoIS45xGmCnubWwLVAmPBjjgF-prN3ykOOEvfv5zsY",
+  "cases": [
+    {
+      "expectedMinor": "1234550",
+      "declaredMinor": "1234500",
+      "reasonCode": "counting_error",
+      "code": "93406719"
+    },
+    {
+      "expectedMinor": "1000000",
+      "declaredMinor": "1006000",
+      "reasonCode": "customer_overpaid",
+      "code": "96709943"
+    },
+    {
+      "expectedMinor": "1000000",
+      "declaredMinor": "1006000",
+      "reasonCode": "other",
+      "code": "86515636"
+    },
+    {
+      "expectedMinor": "0",
+      "declaredMinor": "5001",
+      "reasonCode": "change_error",
+      "code": "52173452"
+    },
+    {
+      "expectedMinor": "250075",
+      "declaredMinor": "240075",
+      "reasonCode": "lost_or_stolen",
+      "code": "64049676"
+    }
+  ]
+}

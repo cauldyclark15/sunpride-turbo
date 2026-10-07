@@ -58,6 +58,22 @@ export type ActivityRuleV1 = {
  * centavos; `withheld` carries no figures (account shared outside the person's plan).
  * `openOrders` are submitted orders not yet fulfilled/posted, never a receivables balance.
  */
+/** SP-0088: one account's price list and every orderable unit (whole centavos, null = office prices it). */
+export type OrderTermsV1 = {
+  outletId: string;
+  priceList: {
+    id: string;
+    code: string;
+    name: string;
+    currency: string;
+    sample: boolean;
+  } | null;
+  lines: Array<{
+    productId: string;
+    uom: string;
+    unitPriceMinor: number | null;
+  }>;
+};
 export type AccountSummaryV1 = {
   outletId: string;
   asOfDate: string;
@@ -167,6 +183,8 @@ export type BootstrapResponse = {
   photoTypes?: Array<PhotoTypeV1>;
   /** IOS-011 account summaries. Optional: added after v1 shipped. */
   accountSummaries?: Array<AccountSummaryV1>;
+  /** SP-0088 per-account prices and order units. Optional: added after v1 shipped. */
+  orderTerms?: Array<OrderTermsV1>;
   page: number;
   nextPageCursor: string | null;
   syncCursor: string | null;
@@ -276,7 +294,7 @@ export type PushRequest = {
                 kind: "order_intent";
                 clientOrderId: string;
                 note?: string;
-                /** SP-0060 submitted field order lines; quantities only, never prices. */
+                /** SP-0060 submitted field order lines; quantities only, never prices (the server prices them, SP-0088). */
                 lines?: Array<FieldOrderLineV1>;
               }
             | { kind: "note"; text: string }
@@ -414,3 +432,5 @@ export function decodeResponseEnum<const T extends readonly string[]>(
 ): T[number] | { readonly unknown: string } {
   return known.includes(raw) ? (raw as T[number]) : { unknown: raw };
 }
+
+export * from "./offline-authority";

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12+ SplashScreen API: the client's logo on its own red, no white flash. -->
+    <style name="Theme.SunprideVan" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/sunpride_logo_red</item>
+        <item name="android:windowSplashScreenBackground">@color/sunpride_logo_red</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_logo</item>
+    </style>
+</resources>

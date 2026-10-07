@@ -52,6 +52,7 @@ final class FieldIOSUITests: XCTestCase {
     /// its activity checklist, so cards below it can start off screen).
     private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
         for _ in 0..<5 {
+            if !element.exists { app.swipeUp(); continue }
             let frame = element.frame, window = app.windows.firstMatch.frame
             if element.isHittable && frame.minY > window.minY + 100 && frame.maxY < window.maxY - 140 { return }
             if frame.midY > window.midY { app.swipeUp() } else { app.swipeDown() }
@@ -355,13 +356,27 @@ final class FieldIOSUITests: XCTestCase {
         newOrder.tap()
         let quantity = offline.textFields["orderQty-product-stub-1"]
         XCTAssertTrue(quantity.waitForExistence(timeout: 5))
-        quantity.tap(); quantity.typeText("12")
+        XCTAssertEqual(offline.staticTexts["orderPrice-product-stub-1"].label, "₱189.00 / PC")
+        offline.buttons["orderUnit-product-stub-1"].tap()
+        offline.buttons["CS"].tap()
+        XCTAssertEqual(offline.staticTexts["orderPrice-product-stub-1"].label, "₱1,053.25 / CS")
+        quantity.tap(); quantity.typeText("60")
         offline.buttons["reviewOrder"].tap()
         XCTAssertTrue(offline.staticTexts["orderReviewTitle"].waitForExistence(timeout: 5))
         XCTAssertEqual(offline.staticTexts["orderStatus"].label, "Draft · not sent")
-        XCTAssertTrue(offline.staticTexts["Priced by the office"].exists)
+        XCTAssertTrue(offline.staticTexts["₱63,195.00"].exists)
+        XCTAssertTrue(offline.staticTexts["Sample prices"].exists)
+        capture(offline, "order-priced-total-offline")
+        let credit = offline.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@", "Over the store's credit limit by ₱17,295.00")).firstMatch
+        reveal(credit, in: offline)
+        XCTAssertTrue(credit.exists)
+        XCTAssertTrue(credit.label.contains("You can still send it; the office must approve."))
+        XCTAssertTrue(offline.buttons["orderSubmit"].isEnabled)
         XCTAssertFalse(offline.otherElements["orderCheckProblem"].exists || offline.staticTexts["orderCheckProblem"].exists)
         capture(offline, "order-review-offline")
+        XCTAssertTrue(offline.buttons["orderSubmit"].isEnabled, "Credit warnings never block sending")
+        capture(offline, "order-credit-warning-offline")
         offline.buttons["orderSubmit"].tap()
         let confirm = offline.buttons["Send now"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 5))

@@ -3,6 +3,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { SUNPRIDE_ORGANIZATION_ID } from "../inventory/constants";
 import { requireCapability, type Capability } from "../lib/capabilities";
+import type { WriteActor } from "../lib/write_actor";
 import { activeAt, interval } from "../org/validation";
 import { resolveTerritoryOwnerAt } from "../territories/validation";
 
@@ -200,6 +201,21 @@ export async function requireOutletCapability(
       throw new ConvexError("Outlet outside salesperson assignment");
   }
   return { ...scope, ...access };
+}
+
+/** Outlet write gate: the person's capability on the outlet's current scope, or the trusted system writer. */
+export async function outletForWrite(
+  ctx: MutationCtx,
+  actor: WriteActor,
+  outletId: Id<"outlets">,
+  capability: Capability = "outlet.manage",
+) {
+  if (actor.kind === "system") {
+    const scope = await resolveOutletScopeAt(ctx, outletId, Date.now());
+    return { ...scope, actorSubject: actor.subject };
+  }
+  const access = await requireOutletCapability(ctx, capability, outletId);
+  return { ...access, actorSubject: access.identity.tokenIdentifier };
 }
 
 export function currentRow<

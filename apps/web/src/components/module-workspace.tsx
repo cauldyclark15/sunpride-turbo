@@ -15,6 +15,7 @@ import {
 import { useMutation, useQuery } from "convex/react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { isBetaFeatureOn } from "../config/beta";
 import { getWebModuleTabs, type WebModuleSlug } from "../config/navigation";
 import { canAccessWebModule } from "../lib/module-access";
 import { AdminWorkspace } from "./admin-workspace";
@@ -22,17 +23,22 @@ import { SalesForcePanels } from "./coverage-workspace";
 import { ImportsWorkspace } from "./imports-workspace";
 import { InventoryWorkspace } from "./inventory-workspace";
 import { OutsideCallOrders } from "./outside-call-orders";
+import { VanVoidApproval } from "./van-void-approval";
+import { VanCashApproval } from "./van-cash-approval";
 import { SupervisionWorkspace } from "./supervision/supervision-workspace";
 import { CallSheetsWorkspace } from "./call-sheets/call-sheets-workspace";
 import { DailySalesWorkspace } from "./daily-sales/daily-sales-workspace";
 import { TrainingWorkspace } from "./training/trainer-forms";
 import { ActivityReportsWorkspace } from "./activity-reports/activity-reports-workspace";
+import { AdminReports } from "./analytics/admin-reports";
 import { CoverageCompliance } from "./analytics/coverage-compliance";
 import { CustomerExecution } from "./analytics/customer-execution";
 import { ExecutionDashboard } from "./analytics/execution-dashboard";
 import { ManagementExceptions } from "./analytics/management-exceptions";
 import { SkuDistribution } from "./analytics/sku-distribution";
 import { TerritoryPerformance } from "./analytics/territory-performance";
+import { PanelErrorBoundary } from "./panel-error-boundary";
+import { VanDamageApprovals } from "./van-damage-approvals";
 
 const modules = {
   dashboard: { title: "Home" },
@@ -255,6 +261,10 @@ function ModuleContent({
         {/* ANA-006: buying stores, gaps and shelf signals by SKU. */}
         {module === "analytics" && canAccessWebModule("supervision", role) ? (
           <SkuDistribution />
+        ) : null}
+        {/* SOP-012: the memo's admin report pack, same readers and scope as above. */}
+        {module === "analytics" && canAccessWebModule("supervision", role) ? (
+          <AdminReports />
         ) : null}
       </>
     );
@@ -484,7 +494,8 @@ function ModuleContent({
                 : undefined
           }
           actions={
-            module === "orders" ? (
+            // Beta: the sample-order button is hidden (see config/beta.ts).
+            module === "orders" && isBetaFeatureOn("sample-order") ? (
               <Button
                 variant="primary"
                 isPending={busy}
@@ -505,6 +516,13 @@ function ModuleContent({
             </div>
           }
         />
+        {module === "workflows" ? (
+          <PanelErrorBoundary label="Truck damage">
+            <VanDamageApprovals />
+          </PanelErrorBoundary>
+        ) : null}
+        {module === "workflows" ? <VanVoidApproval /> : null}
+        {module === "workflows" ? <VanCashApproval /> : null}
       </>
     );
   }

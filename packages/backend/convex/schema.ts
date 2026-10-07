@@ -16,6 +16,7 @@ import {
   issuePriorityValidator,
   issueStatusValidator,
 } from "./issues/validators";
+import { adminPackRecord } from "./analytics/admin_pack_model";
 import { employmentTypeValidator, roleValidator } from "./lib/roles";
 import { positionCategoryValidator } from "./sfa/constants";
 import {
@@ -24,6 +25,7 @@ import {
   callSheetTemplateLineValidator,
 } from "./callSheets/validators";
 import { fieldOrderLineValidator } from "./orders/field_order_validators";
+import { promotionRuleValidator } from "./pricing/validators";
 import { productiveCallRuleValidator } from "./sfa/productive_call";
 import {
   contributionFields,
@@ -79,6 +81,15 @@ import {
   trackingModeValidator,
   transferStatusValidator,
 } from "./inventory/validators";
+import {
+  damageReasonValidator,
+  damageStatusValidator,
+  loadDiscrepancyReasonValidator,
+  loadStatusValidator,
+  tripStatusValidator,
+  vanOperationKindValidator,
+  vehicleStatusValidator,
+} from "./van/model";
 
 const role = roleValidator;
 const orderStatus = v.union(
@@ -1010,6 +1021,177 @@ export default defineSchema({
     "organizationId",
     "checkpointId",
   ]),
+  // CVX-027 van sales: vehicle master. The truck itself is an `inventoryLocations` row of
+  // type "truck"; stock never lives here (ADR-003/007).
+  vehicles: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    vehicleCode: v.string(),
+    plateNumber: v.string(),
+    name: v.optional(v.string()),
+    truckLocationId: v.id("inventoryLocations"),
+    homeLocationId: v.id("inventoryLocations"),
+    capacityNote: v.optional(v.string()),
+    status: vehicleStatusValidator,
+    createdBy: v.string(), // full identity.tokenIdentifier
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_vehicleCode", [
+      "organizationId",
+      "vehicleCode",
+    ])
+    .index("by_truckLocationId", ["truckLocationId"])
+    .index("by_orgUnitId_and_status", ["orgUnitId", "status"]),
+  // CVX-027: one truck's selling day. `routeSessionId` links the existing POS sale path.
+  vanTrips: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    tripNumber: v.string(),
+    vehicleId: v.id("vehicles"),
+    truckLocationId: v.id("inventoryLocations"),
+    sourceLocationId: v.id("inventoryLocations"),
+    routeId: v.optional(v.id("routes")),
+    serviceDate: v.string(), // Manila YYYY-MM-DD
+    salespersonProfileId: v.id("profiles"),
+    salespersonSubject: v.string(), // full identity.tokenIdentifier
+    driverName: v.optional(v.string()),
+    helperName: v.optional(v.string()),
+    status: tripStatusValidator,
+    startedAt: v.optional(v.number()),
+    startedDeviceId: v.optional(v.id("registeredDevices")),
+    startOdometerKm: v.optional(v.number()),
+    startNote: v.optional(v.string()),
+    routeSessionId: v.optional(v.id("truckRouteSessions")),
+    closedAt: v.optional(v.number()),
+    cancelledAt: v.optional(v.number()),
+    cancelReason: v.optional(v.string()),
+    createdBy: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_tripNumber", ["organizationId", "tripNumber"])
+    .index("by_salespersonProfileId_and_serviceDate", [
+      "salespersonProfileId",
+      "serviceDate",
+    ])
+    .index("by_vehicleId_and_serviceDate", ["vehicleId", "serviceDate"])
+    .index("by_orgUnitId_and_serviceDate", ["orgUnitId", "serviceDate"]),
+  // CVX-028: a trip's load sheet (expected by the office, actual from the salesman).
+  vanTripLoads: defineTable({
+    organizationId: v.string(),
+    tripId: v.id("vanTrips"),
+    loadNumber: v.number(),
+    status: loadStatusValidator,
+    createdBy: v.string(),
+    confirmedBy: v.optional(v.string()),
+    confirmedAt: v.optional(v.number()),
+    confirmedDeviceId: v.optional(v.id("registeredDevices")),
+    confirmRequestId: v.optional(v.string()),
+    approvedBy: v.optional(v.string()),
+    approvedAt: v.optional(v.number()),
+    approvalNote: v.optional(v.string()),
+    // References to the inventory authority: the posting command and its movement.
+    commandKey: v.optional(v.string()),
+    movementId: v.optional(v.id("inventoryMovements")),
+    stockTransferId: v.optional(v.id("stockTransfers")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_tripId_and_loadNumber", ["tripId", "loadNumber"]),
+  vanTripLoadLines: defineTable({
+    organizationId: v.string(),
+    loadId: v.id("vanTripLoads"),
+    tripId: v.id("vanTrips"),
+    lineNumber: v.number(),
+    productId: v.id("products"),
+    productCode: v.string(),
+    uomCode: v.string(), // base UOM of the product's inventory policy
+    quantityScale: v.int64(),
+    lotId: v.optional(v.id("inventoryLots")),
+    lotNumber: v.optional(v.string()),
+    expectedBase: v.int64(),
+    actualBase: v.optional(v.int64()),
+    discrepancyReason: v.optional(loadDiscrepancyReasonValidator),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_loadId_and_lineNumber", ["loadId", "lineNumber"]),
+  // VAN-003 / VAN-013: idempotent replay of signed van-device operations.
+  vanOperations: defineTable({
+    organizationId: v.string(),
+    deviceId: v.id("registeredDevices"),
+    profileId: v.id("profiles"),
+    kind: vanOperationKindValidator,
+    clientRequestId: v.string(),
+    payloadHash: v.string(),
+    entityId: v.string(),
+    movementId: v.optional(v.id("inventoryMovements")),
+    serverAt: v.number(),
+  })
+    .index("by_profileId_and_clientRequestId", ["profileId", "clientRequestId"])
+    .index("by_deviceId_and_serverAt", ["deviceId", "serverAt"]),
+  // VAN-020: damaged/spoiled stock recorded on the truck, with evidence and approval state.
+  // The stock itself moves only through postMovement (`movementId`, `reversalMovementId`).
+  vanDamageRecords: defineTable({
+    organizationId: v.string(),
+    tripId: v.id("vanTrips"),
+    orgUnitId: v.id("orgUnits"),
+    truckLocationId: v.id("inventoryLocations"),
+    productId: v.id("products"),
+    productCode: v.string(),
+    uomCode: v.string(),
+    quantityScale: v.int64(),
+    quantityBase: v.int64(),
+    reason: damageReasonValidator,
+    note: v.optional(v.string()),
+    photoId: v.optional(v.id("vanDamagePhotos")),
+    needsApproval: v.boolean(),
+    status: damageStatusValidator,
+    recordedBy: v.string(), // full identity.tokenIdentifier
+    recordedProfileId: v.id("profiles"),
+    deviceId: v.id("registeredDevices"),
+    clientRequestId: v.string(),
+    recordedAt: v.number(),
+    movementId: v.id("inventoryMovements"),
+    decidedBy: v.optional(v.string()),
+    decidedAt: v.optional(v.number()),
+    decisionNote: v.optional(v.string()),
+    reversalMovementId: v.optional(v.id("inventoryMovements")),
+    updatedAt: v.number(),
+  })
+    .index("by_tripId_and_recordedAt", ["tripId", "recordedAt"])
+    .index("by_organizationId_and_status_and_recordedAt", [
+      "organizationId",
+      "status",
+      "recordedAt",
+    ])
+    .index("by_organizationId_and_recordedAt", [
+      "organizationId",
+      "recordedAt",
+    ]),
+  // VAN-020: damage photos uploaded by a van device before the push that references them.
+  vanDamagePhotos: defineTable({
+    organizationId: v.string(),
+    profileId: v.id("profiles"),
+    deviceId: v.id("registeredDevices"),
+    sha256: v.string(),
+    storageId: v.id("_storage"),
+    size: v.number(),
+    damageRecordId: v.optional(v.id("vanDamageRecords")),
+    createdAt: v.number(),
+  }).index("by_profileId_and_sha256", ["profileId", "sha256"]),
+  // VAN-012: office-set credit terms per outlet, effective-dated. No row = cash/other only.
+  outletCreditTerms: defineTable({
+    organizationId: v.string(),
+    outletId: v.id("outlets"),
+    termsDays: v.number(),
+    creditLimitMinor: v.int64(),
+    currency: v.string(),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    sourceRef: v.string(),
+    actorSubject: v.string(),
+    createdAt: v.number(),
+  }).index("by_outletId_and_effectiveFrom", ["outletId", "effectiveFrom"]),
   sapInventorySnapshots: defineTable({
     organizationId: v.string(),
     productCode: v.string(),
@@ -3072,4 +3254,130 @@ export default defineSchema({
     "productId",
     "effectiveFrom",
   ]),
+  // PRICING-001 (SP-0088, ADR-008): governed price baseline before SAP pricing. A list applies
+  // to an outlet channel (`channelKey`, trimmed lower case) or is the default list; lines price
+  // one product in one selling unit. `source: "sample"` rows are made-up beta data
+  // (pricing/sample.ts) that real Sunpride lists replace.
+  priceLists: defineTable({
+    organizationId: v.string(),
+    code: v.string(),
+    name: v.string(),
+    channelKey: v.union(v.string(), v.null()),
+    currency: v.string(),
+    status: v.union(v.literal("active"), v.literal("inactive")),
+    source: v.union(v.literal("sample"), v.literal("office")),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_code", ["organizationId", "code"])
+    .index("by_organizationId_and_channelKey", [
+      "organizationId",
+      "channelKey",
+    ]),
+  priceListLines: defineTable({
+    organizationId: v.string(),
+    priceListId: v.id("priceLists"),
+    productId: v.id("products"),
+    uom: v.string(),
+    /** Whole centavos per one unit of `uom`. */
+    unitPriceMinor: v.number(),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_priceListId_and_productId", ["priceListId", "productId"]),
+  /** Server pricing and credit check of a submitted field order (`order_intent` activity). */
+  fieldOrderPricings: defineTable({
+    organizationId: v.string(),
+    orgUnitId: v.id("orgUnits"),
+    visitId: v.id("visitExecutions"),
+    activityId: v.id("visitActivities"),
+    outletId: v.id("outlets"),
+    customerId: v.union(v.id("customers"), v.null()),
+    clientOrderId: v.string(),
+    priceListId: v.union(v.id("priceLists"), v.null()),
+    priceListSource: v.union(
+      v.literal("sample"),
+      v.literal("office"),
+      v.null(),
+    ),
+    currency: v.string(),
+    pricedAt: v.number(),
+    lines: v.array(
+      v.object({
+        productId: v.id("products"),
+        uom: v.string(),
+        quantity: v.number(),
+        unitPriceMinor: v.union(v.number(), v.null()),
+        lineTotalMinor: v.union(v.number(), v.null()),
+      }),
+    ),
+    totalMinor: v.number(),
+    unpricedLines: v.number(),
+    credit: v.object({
+      status: v.union(
+        v.literal("within"),
+        v.literal("over"),
+        v.literal("no_limit"),
+        v.literal("unknown"),
+      ),
+      limitMinor: v.union(v.number(), v.null()),
+      openOrdersMinor: v.union(v.number(), v.null()),
+    }),
+    serverTime: v.number(),
+  })
+    .index("by_activityId", ["activityId"])
+    .index("by_visitId", ["visitId"])
+    .index("by_customerId_and_serverTime", ["customerId", "serverTime"]),
+  /** Beta sample-data marker: a value the sample seed changed, so reset can restore it. */
+  sampleDataChanges: defineTable({
+    organizationId: v.string(),
+    kind: v.literal("customer_credit_limit"),
+    customerId: v.id("customers"),
+    previousValue: v.number(),
+    sampleValue: v.number(),
+    createdAt: v.number(),
+  }).index("by_organizationId_and_customerId", [
+    "organizationId",
+    "customerId",
+  ]),
+  // SP-0129 (ADR-008): governed promotions on the SP-0088 price lists. Units are unit codes
+  // (as on priceListLines); `source` marks beta sample rows. Shipped to the van handheld;
+  // promotions never combine (pricing/promotions.ts).
+  promotions: defineTable({
+    organizationId: v.string(),
+    code: v.string(),
+    name: v.string(),
+    // Absent = applies on every price list.
+    priceListId: v.optional(v.id("priceLists")),
+    rule: promotionRuleValidator,
+    status: v.union(v.literal("active"), v.literal("inactive")),
+    source: v.union(v.literal("sample"), v.literal("office")),
+    effectiveFrom: v.number(),
+    effectiveTo: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_code", ["organizationId", "code"])
+    .index("by_organizationId_and_status", ["organizationId", "status"]),
+  // SP-0129: every row the beta sample seed created (one table to find and remove them).
+  sampleDataRows: defineTable({
+    batch: v.string(),
+    tableName: v.string(),
+    rowId: v.string(),
+    key: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_batch_and_key", ["batch", "key"])
+    .index("by_batch", ["batch"]),
+  // SOP-012 monthly admin pack inputs (analytics/admin_pack_model.ts): programme allocations,
+  // priority documents, ADP claims and KAS receivable balances. `source: "sample"` rows are
+  // beta data that office rows of the same kind and month replace.
+  adminPackRecords: defineTable(adminPackRecord)
+    .index("by_organizationId_and_kind_and_period", [
+      "organizationId",
+      "kind",
+      "period",
+    ])
+    .index("by_organizationId_and_code", ["organizationId", "code"])
+    .index("by_organizationId_and_source", ["organizationId", "source"]),
 });

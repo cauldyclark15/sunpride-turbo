@@ -27,8 +27,8 @@ import com.sunpride.field.ui.SectionCard
 import com.sunpride.field.ui.VisitDisplay
 
 /**
- * SP-0060 review step: the lines, totals (units per UOM; never an amount while prices are
- * unavailable), the rules the phone can check offline, then Send. After sending the same screen
+ * SP-0088 review: line amounts, exact centavo totals and an advisory credit check.
+ * Blocking rules stop Send, warnings never do. After sending the same screen
  * shows the order's sync status from the outbox.
  */
 @Composable
@@ -59,7 +59,12 @@ fun OrderReviewScreen(visit: VisitDisplay, controller: FieldController, modifier
                                 Text(line.code, style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            Text("%,d %s".format(line.quantity, line.uom), style = MaterialTheme.typography.bodyMedium)
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text("%,d %s".format(line.quantity, line.uom), style = MaterialTheme.typography.bodyMedium)
+                                Text(if (line.unitPriceMinor == null) "Priced by the office" else
+                                    OrderSubmission.lineAmount(line)?.let(OrderSubmission::money) ?: "Amount too large to preview",
+                                    style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("order-line-amount-${line.productId}"))
+                            }
                         }
                     }
                 }
@@ -68,20 +73,32 @@ fun OrderReviewScreen(visit: VisitDisplay, controller: FieldController, modifier
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(totals.text, style = MaterialTheme.typography.titleSmall,
                         modifier = Modifier.semantics(mergeDescendants = true) {}.testTag("order-totals"))
-                    Text("Amount: priced by the office", style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("order-amount"))
+                    Text(totals.amountText, style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.testTag("order-amount"))
+                    totals.officeText?.let { Text(it, style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.testTag("order-office-lines")) }
+                    draft.priceList?.let { list ->
+                        Text(list.name, style = MaterialTheme.typography.bodySmall)
+                        if (list.sample) Text("Sample prices", style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.testTag("order-sample-prices"))
+                    } ?: Text("Prices: set by the office", style = MaterialTheme.typography.bodySmall)
                 }
             }
             if (!sent && checks.isNotEmpty()) SectionCard("Checks") {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     checks.forEach { check ->
                         Row(Modifier.fillMaxWidth().semantics(mergeDescendants = true) {}
-                            .testTag(if (check.ok) "order-check-ok" else "order-check-problem"),
+                            .testTag(if (!check.blocking && check.label != "Prices") "order-credit"
+                                else if (check.label == "Prices") "order-price-check"
+                                else if (check.warning) "order-check-warning" else if (check.ok) "order-check-ok" else "order-check-problem"),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(if (check.ok) "✓" else "!", color = if (check.ok) MaterialTheme.colorScheme.onSurfaceVariant
-                                else MaterialTheme.colorScheme.error)
+                            Text(if (check.warning || !check.ok) "!" else if (check.blocking ||
+                                check.label == "Within the store's credit limit") "✓" else "i",
+                                color = if (check.warning || !check.ok) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                             Column(Modifier.weight(1f)) {
+                                if (check.warning) Text("Warning · approval needed", style = MaterialTheme.typography.labelSmall)
                                 Text(check.label, style = MaterialTheme.typography.bodyMedium)
+                                check.note?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                                 check.problem?.let { Text(it, style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.error) }
                             }
@@ -105,7 +122,7 @@ fun OrderReviewScreen(visit: VisitDisplay, controller: FieldController, modifier
                 SecondaryButton("Edit", { controller.closeOrderReview() }, Modifier.weight(1f).testTag("order-edit"),
                     !controller.busy)
                 PrimaryBottomButton("Send order", { controller.submitOrder() }, Modifier.weight(1f).testTag("order-submit"),
-                    !controller.busy && checks.isNotEmpty() && checks.all { it.ok })
+                    !controller.busy && checks.isNotEmpty() && checks.all { it.ok || !it.blocking })
             }
         }
     }

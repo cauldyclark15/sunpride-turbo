@@ -60,6 +60,8 @@ data class BootstrapResponse(
   val photoTypes: OptionalField<List<BootstrapResponsePhotoTypesItem>>,
   // schema-field: bootstrapResponse.accountSummaries
   val accountSummaries: OptionalField<List<BootstrapResponseAccountSummariesItem>>,
+  // schema-field: bootstrapResponse.orderTerms
+  val orderTerms: OptionalField<List<BootstrapResponseOrderTermsItem>>,
   // schema-field: bootstrapResponse.page
   val page: Long,
   // schema-field: bootstrapResponse.nextPageCursor
@@ -815,6 +817,38 @@ data class BootstrapResponsePhotoTypesItem(
   val code: String,
   // schema-field: bootstrapResponse.photoTypes[].label
   val label: String
+)
+// Additive after v1 shipped: per-account prices and order units (SP-0088).
+// schema-object: bootstrapResponse.orderTerms[]
+data class BootstrapResponseOrderTermsItem(
+  // schema-field: bootstrapResponse.orderTerms[].outletId
+  val outletId: String,
+  // schema-field: bootstrapResponse.orderTerms[].priceList
+  val priceList: BootstrapResponseOrderTermsItemPriceListVariant0?,
+  // schema-field: bootstrapResponse.orderTerms[].lines
+  val lines: List<BootstrapResponseOrderTermsItemLinesItem>
+)
+// schema-object: bootstrapResponse.orderTerms[].priceList#0
+data class BootstrapResponseOrderTermsItemPriceListVariant0(
+  // schema-field: bootstrapResponse.orderTerms[].priceList#0.id
+  val id: String,
+  // schema-field: bootstrapResponse.orderTerms[].priceList#0.code
+  val code: String,
+  // schema-field: bootstrapResponse.orderTerms[].priceList#0.name
+  val name: String,
+  // schema-field: bootstrapResponse.orderTerms[].priceList#0.currency
+  val currency: String,
+  // schema-field: bootstrapResponse.orderTerms[].priceList#0.sample
+  val sample: Boolean
+)
+// schema-object: bootstrapResponse.orderTerms[].lines[]
+data class BootstrapResponseOrderTermsItemLinesItem(
+  // schema-field: bootstrapResponse.orderTerms[].lines[].productId
+  val productId: String,
+  // schema-field: bootstrapResponse.orderTerms[].lines[].uom
+  val uom: String,
+  // schema-field: bootstrapResponse.orderTerms[].lines[].unitPriceMinor
+  val unitPriceMinor: Long?
 )
 // Additive after v1 shipped: cached account figures for the outlet detail (IOS-011).
 // schema-object: bootstrapResponse.accountSummaries[]

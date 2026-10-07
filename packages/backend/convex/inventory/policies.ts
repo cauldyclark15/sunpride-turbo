@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values";
-import { mutation, query } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
+import { mutation, query, type MutationCtx } from "../_generated/server";
 import { requireCapability } from "../lib/capabilities";
 import { requireNationalScope } from "../lib/scope";
 import { SUNPRIDE_ORGANIZATION_ID } from "./constants";
@@ -113,36 +114,54 @@ export const addUomConversion = mutation({
   returns: v.id("uomConversions"),
   handler: async (ctx, args) => {
     const { identity } = await requireNationalScope(ctx, ["admin"]);
-    if (
-      args.fromUomId === args.toUomId ||
-      args.numerator <= 0n ||
-      args.denominator <= 0n
-    )
-      throw new ConvexError("Invalid UOM conversion");
-    const [from, to] = await Promise.all([
-      ctx.db.get(args.fromUomId),
-      ctx.db.get(args.toUomId),
-    ]);
-    if (!from || !to || from.dimension !== to.dimension)
-      throw new ConvexError("UOM dimensions must match");
-    const now = Date.now();
-    const id = await ctx.db.insert("uomConversions", {
-      organizationId: SUNPRIDE_ORGANIZATION_ID,
-      ...args,
-      active: true,
-      createdAt: now,
-      updatedAt: now,
-    });
-    await ctx.db.insert("auditLogs", {
-      subject: identity.tokenIdentifier,
-      action: "inventory.uom_conversion.created",
-      entityType: "uomConversion",
-      entityId: id,
-      createdAt: now,
-    });
-    return id;
+    return insertUomConversion(ctx, args, identity.tokenIdentifier);
   },
 });
+
+/** The UOM conversion writer, after the caller's national gate (or a trusted internal writer). */
+export async function insertUomConversion(
+  ctx: MutationCtx,
+  args: {
+    productId?: Id<"products">;
+    fromUomId: Id<"unitsOfMeasure">;
+    toUomId: Id<"unitsOfMeasure">;
+    numerator: bigint;
+    denominator: bigint;
+    roundingMode: "exact" | "half_up" | "floor" | "ceiling";
+    effectiveFrom: number;
+    effectiveTo?: number;
+  },
+  actorSubject: string,
+) {
+  if (
+    args.fromUomId === args.toUomId ||
+    args.numerator <= 0n ||
+    args.denominator <= 0n
+  )
+    throw new ConvexError("Invalid UOM conversion");
+  const [from, to] = await Promise.all([
+    ctx.db.get(args.fromUomId),
+    ctx.db.get(args.toUomId),
+  ]);
+  if (!from || !to || from.dimension !== to.dimension)
+    throw new ConvexError("UOM dimensions must match");
+  const now = Date.now();
+  const id = await ctx.db.insert("uomConversions", {
+    organizationId: SUNPRIDE_ORGANIZATION_ID,
+    ...args,
+    active: true,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await ctx.db.insert("auditLogs", {
+    subject: actorSubject,
+    action: "inventory.uom_conversion.created",
+    entityType: "uomConversion",
+    entityId: id,
+    createdAt: now,
+  });
+  return id;
+}
 
 export const convert = query({
   args: {

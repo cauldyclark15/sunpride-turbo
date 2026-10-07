@@ -95,6 +95,9 @@ vi.mock("convex/react", () => ({
     });
   },
 }));
+vi.mock("./van-damage-approvals", () => ({
+  VanDamageApprovals: () => createElement("div", null, "van-damage-approvals"),
+}));
 vi.mock("@heroui/react", async (original) => {
   const actual = await original<typeof import("@heroui/react")>();
   return {
@@ -274,6 +277,9 @@ vi.mock("./analytics/execution-dashboard", () => ({
   ExecutionDashboard: () =>
     createElement("p", null, "Mounted execution dashboard"),
 }));
+vi.mock("./analytics/admin-reports", () => ({
+  AdminReports: () => createElement("p", null, "Mounted admin reports"),
+}));
 vi.mock("./analytics/management-exceptions", () => ({
   ManagementExceptions: () =>
     createElement("p", null, "Mounted management exceptions"),
@@ -363,9 +369,11 @@ describe("calm generic modules", () => {
     expect(render("analytics")).toContain("Mounted customer execution");
     expect(render("analytics")).toContain("Mounted coverage compliance");
     expect(render("analytics")).toContain("Mounted SKU distribution");
+    expect(render("analytics")).toContain("Mounted admin reports");
     state.pathname = "/dashboard";
     expect(render("dashboard")).not.toContain("Mounted execution dashboard");
     expect(render("dashboard")).not.toContain("Mounted customer execution");
+    expect(render("dashboard")).not.toContain("Mounted admin reports");
     expect(render("dashboard")).not.toContain("Mounted management exceptions");
     for (const role of ["operations", "approver", "sales"]) {
       state.profile = { ...state.profile, role };
@@ -377,11 +385,14 @@ describe("calm generic modules", () => {
       expect(html).not.toContain("Mounted customer execution");
       expect(html).not.toContain("Mounted coverage compliance");
       expect(html).not.toContain("Mounted SKU distribution");
+      expect(html).not.toContain("Mounted admin reports");
     }
   });
 
   it("puts one Commercial header above tabs on every commercial page", () => {
     state.profile.role = "super_admin";
+    // The sample-order button is on the beta hidden list; switch it on to check placement.
+    vi.stubEnv("NEXT_PUBLIC_BETA_ENABLE", "sample-order");
     for (const slug of ["orders", "master-data", "imports"] as const) {
       state.pathname = `/${slug}`;
       const html = render(slug);
@@ -402,6 +413,17 @@ describe("calm generic modules", () => {
     expect(html).toContain('data-label="Products"');
     expect(html).toContain('data-label="Customers"');
     expect(html).not.toContain("idempotent");
+    vi.unstubAllEnvs();
+  });
+
+  it("hides the sample-order button for the beta", () => {
+    state.profile.role = "super_admin";
+    vi.stubEnv("NEXT_PUBLIC_BETA_ENABLE", "");
+    state.pathname = "/orders";
+    const html = render("orders");
+    expect(html).toContain("0 orders");
+    expect(html).not.toContain("New order");
+    vi.unstubAllEnvs();
   });
 
   it("shows names above codes for products, customers, and orders", () => {
@@ -507,6 +529,7 @@ describe("calm generic modules", () => {
     expect(approvals).not.toContain("SO-002");
     expect(approvals).toContain("Waiting");
     expect(approvals).toContain("<th>Decision</th>");
+    expect(approvals).toContain("van-damage-approvals");
     expect(state.calls).toContainEqual({
       name: "domains/masterData:customers",
       args: "skip",
@@ -532,5 +555,6 @@ describe("calm generic modules", () => {
     expect(empty).toContain("Nothing waiting");
     expect(empty).toContain("border border-border");
     expect(empty).not.toContain("<th>Decision</th>");
+    expect(empty).toContain("van-damage-approvals");
   });
 });
