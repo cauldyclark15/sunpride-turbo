@@ -10,6 +10,13 @@ object PrinterWords {
         PrinterStatus.Timeout -> "the printer did not answer"
         PrinterStatus.PaperOut -> "out of paper"
         is PrinterStatus.Failed -> "printer error"
+        is PrinterStatus.NeedsSetup -> setup(status.reason)
+    }
+    fun setup(problem: PrinterSetupProblem): String = when (problem) {
+        PrinterSetupProblem.NO_BLUETOOTH -> "this phone has no Bluetooth"
+        PrinterSetupProblem.BLUETOOTH_OFF -> "Bluetooth is off. Turn it on"
+        PrinterSetupProblem.PERMISSION_DENIED -> "allow Nearby devices for this app"
+        PrinterSetupProblem.NOT_PAIRED -> "the printer is not paired with this phone"
     }
     fun paper(paper: PaperState): String = when (paper) {
         PaperState.OK -> "Paper loaded"

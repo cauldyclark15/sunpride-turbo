@@ -73,9 +73,10 @@ fun PrinterTestScreen(
     var camera by remember { mutableStateOf(false) }
     var paper by remember(printer) { mutableStateOf<PaperState?>(null) }
     var checking by remember { mutableStateOf(false) }
+    var details by remember(printer) { mutableStateOf<List<String>>(emptyList()) }
     suspend fun check() {
         checking = true
-        try { val d = printer.diagnostics(); state = d.status; paper = d.paper } finally { checking = false }
+        try { val d = printer.diagnostics(); state = d.status; paper = d.paper; details = d.details } finally { checking = false }
     }
     LaunchedEffect(printer) { check() }
     LaunchedEffect(scanner) { scanner.scans.collect { scan = it } }
@@ -108,6 +109,7 @@ fun PrinterTestScreen(
                 Text("Connection: ${state.displayText()}", Modifier.testTag("printer-connection"))
                 Text("Paper: ${paper?.let(PrinterWords::paper) ?: "Checking…"}", Modifier.testTag("printer-paper"))
                 Text("Last receipt: ${lastPrint ?: "None printed yet"}", Modifier.testTag("printer-last"))
+                details.forEachIndexed { index, line -> Text(line, Modifier.testTag("printer-detail-$index")) }
                 Text("${printer.capabilities.paperWidthMm} mm paper · ${printer.capabilities.charactersPerLine} characters a line" +
                     if (printer.capabilities.cutter) "" else " · tear the paper by hand")
                 Button(
@@ -115,6 +117,9 @@ fun PrinterTestScreen(
                     enabled = !busy && !checking,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("check-printer"),
                 ) { Text(if (checking) "Checking…" else "Check printer") }
+                if (printer is SelectablePrinter) {
+                    BluetoothPrinterSetup(printer, enabled = !busy && !checking, onChanged = { scope.launch { check() } })
+                }
                 Button(
                     onClick = {
                         scope.launch {
@@ -130,7 +135,7 @@ fun PrinterTestScreen(
                                     is PrintResult.Error -> "Print failed: ${outcome.status.displayText()}" +
                                         if (outcome.mayHavePrinted) " (may have partly printed; check paper)" else ""
                                 }
-                                val d = printer.diagnostics(); state = d.status; paper = d.paper
+                                val d = printer.diagnostics(); state = d.status; paper = d.paper; details = d.details
                             } finally { busy = false }
                         }
                     },
@@ -159,4 +164,5 @@ private fun PrinterStatus.displayText(): String = when (this) {
     PrinterStatus.Timeout -> "Connection timed out"
     PrinterStatus.PaperOut -> "Out of paper"
     is PrinterStatus.Failed -> message
+    is PrinterStatus.NeedsSetup -> PrinterWords.setup(reason).replaceFirstChar { it.uppercase() }
 }

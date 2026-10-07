@@ -240,6 +240,9 @@ class VanUiDeviceTest {
             // The H10P service has no paper query; the check says so instead of claiming paper is loaded.
             rule.onNodeWithTag("printer-paper").assertTextContains("Paper: Not reported by this printer",substring = true)
             rule.onNodeWithTag("printer-last").assertTextEquals("Last receipt: None printed yet")
+            // VAN-015: no Bluetooth printer chosen, so the built-in printer stays in use.
+            rule.onNodeWithTag("printer-in-use").assertTextEquals("This handheld's built-in printer")
+            rule.onNodeWithTag("choose-bluetooth-printer").assertExists()
             rule.onNodeWithTag("check-printer").performClick()
             rule.waitUntil(10_000) { rule.onAllNodesWithText("Check printer").fetchSemanticsNodes().isNotEmpty() }
             captureVanScreenshot(rule,"24-printer-check","printer-done")
