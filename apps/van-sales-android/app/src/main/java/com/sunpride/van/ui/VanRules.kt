@@ -4,7 +4,7 @@ import com.sunpride.van.data.*
 import java.math.BigDecimal
 import java.math.MathContext
 
-enum class Page { HOME, LOAD, START, STOCK, CUSTOMERS, WALK_IN, CUSTOMER, PRINTER, PRODUCTS, SALE, CHECKOUT, SALE_DONE, RETURN, RETURN_DONE }
+enum class Page { HOME, LOAD, START, STOCK, CUSTOMERS, WALK_IN, CUSTOMER, PRINTER, PRODUCTS, SALE, CHECKOUT, SALE_DONE, RECEIPTS, RETURN, RETURN_DONE }
 data class NextAction(val page: Page, val label: String)
 
 /** Display/validation only. The repository repeats every business check transactionally. */
@@ -132,6 +132,26 @@ object VanRules {
         com.sunpride.van.pos.ReturnStockEffect.AVAILABLE -> "Back in truck stock — can be sold"
         com.sunpride.van.pos.ReturnStockEffect.DAMAGED -> if (approvalRequired) "Held on the truck with damaged stock until approved" else "On the truck with damaged stock"
         com.sunpride.van.pos.ReturnStockEffect.NONE -> "Not on the truck"
+    }
+    /** VAN-017: what happened to a print, in plain words. A printer problem never changes the saved sale. */
+    fun printMessage(result: com.sunpride.van.printing.PrintJobResult): String = when (result) {
+        is com.sunpride.van.printing.PrintJobResult.Printed ->
+            if (result.attempt.kind == com.sunpride.van.printing.PrintKind.REPRINT) "Reprint copy ${result.attempt.copyNumber} printed. It is marked REPRINT."
+            else "Receipt printed. Tear it off for the customer."
+        is com.sunpride.van.printing.PrintJobResult.Failed -> when {
+            result.attempt == null -> "Printer not ready: ${com.sunpride.van.printing.PrinterWords.status(result.status)}. The sale is saved. Check the printer, then print again."
+            result.mayHavePrinted -> "The printer stopped during the receipt. Check the paper. Any new copy will be marked REPRINT."
+            else -> "Not printed: ${com.sunpride.van.printing.PrinterWords.status(result.status)}. The sale is saved. Print again."
+        }
+        is com.sunpride.van.printing.PrintJobResult.Refused -> when (result.refusal) {
+            com.sunpride.van.printing.PrintRefusal.ALREADY_PRINTED -> "Receipt already printed. Use Reprint for another copy."
+            com.sunpride.van.printing.PrintRefusal.REASON_REQUIRED -> "Choose why you are reprinting."
+            com.sunpride.van.printing.PrintRefusal.LIMIT_REACHED -> "This receipt was reprinted ${com.sunpride.van.printing.ReprintRules.MAX_REPRINTS} times already. Ask the office for a copy."
+            com.sunpride.van.printing.PrintRefusal.NOT_THIS_TRIP -> "Only receipts from this trip can be printed on the phone. Ask the office for a copy."
+            com.sunpride.van.printing.PrintRefusal.SALE_NOT_FOUND -> "This sale is not on this phone."
+            com.sunpride.van.printing.PrintRefusal.HELD -> "Sign in again to print."
+            com.sunpride.van.printing.PrintRefusal.PAPER_OUT -> "The printer is out of paper. Load paper, then print again."
+        }
     }
     fun sourceLabel(source: String): String = when (source) { "route" -> "Route"; "unplanned" -> "Not on route"; else -> "Walk-in" }
 }

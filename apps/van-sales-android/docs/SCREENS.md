@@ -19,7 +19,8 @@
 - **Customers:** Search by name/code; route rows are ordered/numbered by sequence, with separate other-area and walk-in sections. Each row labels Route, Not on route or Walk-in. Walk-in creation requires name/reason and permission; the new row is read back from the repository flow. Detail explicitly says selling comes later.
 - **Find product (VAN-008):** Opened from Today. Fully offline over the cached product, truck-stock projection and price-list snapshot. The search field and Clear sit in the thumb zone at the bottom, above the navigation bar and keyboard; the best match is the first row. One field searches name, code and barcode: exact barcode or code first, then code prefixes (also without punctuation, so `sppj1l` finds `SP-PJ-1L`), barcode prefixes of 4+ digits, name prefix, every typed word starting a word, then every word contained anywhere; case- and accent-insensitive (`pina` finds Piña). Within a rank, products on the truck come first. Each 72dp row shows name, code · UOM, available quantity in the product's UOM/scale (including saved changes waiting for sync) or Not on truck, and the configured price per UOM. The price shows only when exactly one effective price-list line exists for the product's own UOM; otherwise the row says **Priced by the office** (no price is guessed). Results are capped at 60 rows.
 - **Scanning on Find product (VAN-009):** A hardware scan (any supported vendor broadcast, receiver registered only while the screen is visible), a keyboard-wedge scan ending in Enter, or the **Camera** button (bottom row, shown while the field is empty; Clear replaces it once something is typed) resolves the code offline to product and unit. Found: a **Scanned** card names the product and the unit scanned (`PC`, or `CS · 24 PC` for a case barcode; a unit without an office conversion or from an old cache says so and asks to count by hand), and the list shows that product with its truck quantity and price. Several products with the same barcode: **Check the product** lists them all and asks the seller to tell the office (never guessed). Not found: **Barcode not found** shows the code, likely causes and two actions, **Search by name** (clears and focuses the field) and **Use camera**. The camera page has a system-bar-safe Back to Find product.
-- **Printer & scanner:** Existing dependency-injected PrinterTestScreen, real PrinterRegistry selection and SenraiseScanner. Both are closed on leaving. Existing print/test/wedge/camera behavior is unchanged; the shell provides Back and a pinned Done action. Longer settings content scrolls, with a separate lower-viewport screenshot proving the camera/wedge controls are reachable.
+- **Receipts (VAN-017):** Today → Receipts lists the sales saved on the current trip, newest first: time, customer, total, receipt number and print state (Not printed / Printed · N reprints left). Print receipt prints the original if no copy ever reached paper; afterwards Reprint opens a dialog that requires a reason (radio rows) and names the copy (“Print copy 2”). After the limit the card says to ask the office. Sale saved shows the same Printed receipt card under Payment: the original prints automatically right after the sale is saved, and the card reports the result in plain words.
+- **Printer & scanner:** Dependency-injected PrinterTestScreen with the Activity's shared printer (the same one sale receipts use; the Activity closes it) and SenraiseScanner (closed on leaving). VAN-017 adds a Printer check: Connection, Paper (the H10P reports “Not reported by this printer”), Last receipt result in this session, paper width/characters, and Check printer, above the existing test print. Existing print/test/wedge/camera behavior is unchanged; the shell provides Back and a pinned Done action. Longer settings content scrolls, with a separate lower-viewport screenshot proving the camera/wedge controls are reachable.
 
 ## Automated evidence
 
@@ -31,31 +32,35 @@ Each image is a full-display 720 × 1440 PNG captured on the attached H10P at 32
 
 Local directory: `/Users/jc/.hermes/cache/scratch/sp-lanes/van-pos-shots/van-pos-shots/`.
 
-| File                              | State inspected                                                        | Clearance verdict |
-| --------------------------------- | ---------------------------------------------------------------------- | ----------------- |
-| `01-sign-in.png`                  | Sign-in and missing-configuration warning                              | PASS              |
-| `02-enrollment-unregistered.png`  | Real stub-key fingerprint and Check again                              | PASS              |
-| `03-enrollment-removed.png`       | Removed-phone state                                                    | PASS              |
-| `04-home-loading.png`             | Loading home; scrollable content above footer                          | PASS              |
-| `05-home-actions.png`             | Scrolled home; secondary actions reachable                             | PASS              |
-| `06-check-load.png`               | Expected/actual count sheet                                            | PASS              |
-| `07-load-reason-required.png`     | Changed count with mandatory reason                                    | PASS              |
-| `08-load-waiting-sync.png`        | Saved confirmation awaiting sync; disabled quantities remain readable  | PASS              |
-| `09-load-loaded.png`              | Authoritatively posted load                                            | PASS              |
-| `10-home-loaded.png`              | Loaded home with Start trip primary                                    | PASS              |
-| `11-start-trip-unconfirmed.png`   | Start disabled until both confirmations                                | PASS              |
-| `12-start-trip-confirmed.png`     | Start enabled with both confirmations                                  | PASS              |
-| `13-home-on-route.png`            | Real stub-acknowledged active trip                                     | PASS              |
-| `14-truck-stock.png`              | Projection and Record damage actions                                   | PASS              |
-| `15-record-damage.png`            | Damage dialog and fully clear action buttons                           | PASS              |
-| `16-damage-refused.png`           | Beyond-stock refusal                                                   | PASS              |
-| `17-customers.png`                | Numbered route, other stores and walk-in sections                      | PASS              |
-| `18-add-walk-in.png`              | Required name/reason form                                              | PASS              |
-| `19-customers-walk-in.png`        | Durably saved customer with Walk-in label                              | PASS              |
-| `20-customer-detail.png`          | Customer detail; selling explicitly unavailable                        | PASS              |
-| `21-printer-scanner.png`          | Printer settings upper viewport with pinned Done                       | PASS              |
-| `22-no-trip.png`                  | No-trip empty state and Sync now                                       | PASS              |
-| `23-printer-scanner-controls.png` | Scrolled settings; wedge/camera controls fully reachable               | PASS              |
+| File                              | State inspected                                                       | Clearance verdict |
+| --------------------------------- | --------------------------------------------------------------------- | ----------------- |
+| `01-sign-in.png`                  | Sign-in and missing-configuration warning                             | PASS              |
+| `02-enrollment-unregistered.png`  | Real stub-key fingerprint and Check again                             | PASS              |
+| `03-enrollment-removed.png`       | Removed-phone state                                                   | PASS              |
+| `04-home-loading.png`             | Loading home; scrollable content above footer                         | PASS              |
+| `05-home-actions.png`             | Scrolled home; secondary actions reachable                            | PASS              |
+| `06-check-load.png`               | Expected/actual count sheet                                           | PASS              |
+| `07-load-reason-required.png`     | Changed count with mandatory reason                                   | PASS              |
+| `08-load-waiting-sync.png`        | Saved confirmation awaiting sync; disabled quantities remain readable | PASS              |
+| `09-load-loaded.png`              | Authoritatively posted load                                           | PASS              |
+| `10-home-loaded.png`              | Loaded home with Start trip primary                                   | PASS              |
+| `11-start-trip-unconfirmed.png`   | Start disabled until both confirmations                               | PASS              |
+| `12-start-trip-confirmed.png`     | Start enabled with both confirmations                                 | PASS              |
+| `13-home-on-route.png`            | Real stub-acknowledged active trip                                    | PASS              |
+| `14-truck-stock.png`              | Projection and Record damage actions                                  | PASS              |
+| `15-record-damage.png`            | Damage dialog and fully clear action buttons                          | PASS              |
+| `16-damage-refused.png`           | Beyond-stock refusal                                                  | PASS              |
+| `17-customers.png`                | Numbered route, other stores and walk-in sections                     | PASS              |
+| `18-add-walk-in.png`              | Required name/reason form                                             | PASS              |
+| `19-customers-walk-in.png`        | Durably saved customer with Walk-in label                             | PASS              |
+| `20-customer-detail.png`          | Customer detail; selling explicitly unavailable                       | PASS              |
+| `21-printer-scanner.png`          | Printer settings upper viewport with pinned Done                      | PASS              |
+| `22-no-trip.png`                  | No-trip empty state and Sync now                                      | PASS              |
+| `23-printer-scanner-controls.png` | Scrolled settings; wedge/camera controls fully reachable              | PASS              |
+| `24-printer-check.png`            | VAN-017 printer check: connection, paper not reported, last receipt   | PASS              |
+| `33-sale-printed.png`             | VAN-017 Sale saved after the automatic original print                 | PASS              |
+| `34-reprint-reason.png`           | VAN-017 reprint dialog: reason required, copy number, clear buttons   | PASS              |
+| `35-receipts.png`                 | VAN-017 Receipts list with print state and Reprint                    | PASS              |
 | `40-return-line.png`              | VAN-019 returned-product dialog: case unit, reason, disposition, batch | PASS              |
 | `41-return.png`                   | VAN-019 return with held line and Office approval needed               | PASS              |
 | `42-return-saved.png`             | VAN-019 return saved: number, approval state, items                    | PASS              |

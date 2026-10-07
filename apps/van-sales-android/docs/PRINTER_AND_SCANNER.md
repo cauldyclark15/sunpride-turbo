@@ -25,6 +25,53 @@ Use `ReceiptElement.Feed(3)`/`Feed(4)` and manually tear the paper. ESC/POS Blue
 intentionally not implemented: the registry contains a named `TODO(VAN-015)` selection
 hook for that later lane.
 
+## Sale receipts, reprint and printer check (VAN-017)
+
+**Original and reprint.** After Complete sale saves the sale, the original prints automatically
+(`ReceiptPrintFlow`, persist first). Every attempt is first written to the encrypted, scoped
+`receipt_print` table (DB v3, `MIGRATION_2_3`) as `started`, then finished once as `printed`,
+`not_printed` or `maybe_printed`. Only `not_printed` (printer refused before `beginWork`) leaves the
+original available; `started` (app died mid-print), `maybe_printed` and `printed` all count as on
+paper, so any further copy is a reprint. An automatic print never reprints.
+
+**Frozen receipt.** Complete sale writes the receipt exactly as sold — customer name, product
+names, UOM and quantity labels, prices, payment wording, seller, trip and truck — to the
+`sale_receipt` table (DB v4, `MIGRATION_3_4`) in the same transaction as the sale
+(`FrozenReceipts`). Every print and the replay of Complete sale read that row, so a later bootstrap
+that renames, re-units or removes a product or customer never changes a reprint; a reprint only
+adds its REPRINT marker. Sales saved before v4 (development phones only) have no frozen row and
+fall back to a rebuild from current master data.
+
+**Authorized reprint.** A reprint needs an explicit seller request (Receipts or Sale saved → Reprint)
+with one of the reasons in `ReprintRules.REASONS`, and is allowed only for:
+
+- a sale in the signed-in seller's own store scope (full auth subject + registered device),
+- on the trip the phone is on now (older receipts: ask the office),
+- while the phone's work is not held, and
+- at most `ReprintRules.MAX_REPRINTS` = 3 reprints per sale.
+
+These are our defaults until Sunpride sets its own reprint policy (who may reprint, how many, and
+whether a supervisor must approve); they live in one object so the office policy can replace them.
+
+**Marker.** A reprint prints a `REPRINT` banner first (formatter), `REPRINT - COPY n` in the header,
+and at the end `Reprinted: <Manila time>`, `Reason: <label>` and `** REPRINT - NOT ORIGINAL **`.
+Printing writes only print history: the sale, lines, payment, stock movements and frozen outbox bytes
+are never touched. Print history is local only for now; it travels with the sale upload once the
+van gateway accepts sales.
+
+**Receipt layout** (`SaleReceiptDocuments`, 32 columns): SUNPRIDE VAN SALES / DELIVERY RECEIPT,
+receipt number, sale date (Manila), customer, seller, trip, truck, each item with quantity × unit
+price and line total, TOTAL, cash and change (or method and amount), reference, payment state and
+due date, QR of the receipt number, and the non-BIR disclaimer. Amounts use ASCII `P`.
+
+**Printer check.** `ReceiptPrinter.diagnostics()` returns connection, paper and (H10P) the scanner
+hint. The H10P vendor ABI has **no paper query**: its paper callback (`VersionCallback.paper`) is
+internal to the service (registered on its own `Sendlnterface`), which shows its own "no paper"
+dialog. So the check reports paper as **Not reported by this printer** rather than claiming it is
+loaded. An adapter that can sense paper (e.g. VAN-015 ESC/POS) reports `OUT`, and printing is then
+refused before anything is recorded. The screen also shows the last receipt print result of the
+session, and Check printer reconnects.
+
 ## AIDL recovery and compatibility
 
 The installed vendor APK is `/system/priv-app/SRPrinter/SRPrinter.apk`, package

@@ -6,12 +6,16 @@ import com.sunpride.van.VanFeatures
 import com.sunpride.van.auth.*
 import com.sunpride.van.data.*
 import com.sunpride.van.pos.*
+import com.sunpride.van.printing.*
+import com.sunpride.van.storage.SavedSale
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
 /** One UI lifetime; no Activity, password persistence, identity selection, or raw error text. */
 class VanController(val repository: VanRepository, val environment: AppEnvironment,
     val fixtureMode: Boolean = false,
+    /** VAN-017: the one printer for this UI lifetime; the Activity selects and closes it. Tests inject a fake. */
+    val printer: ReceiptPrinter = NoPrinter(),
     /** SP-0125: what this build shows (unfinished screens are hidden in release/beta). */
     val features: VanFeatures = VanFeatures.ALL,
     private val fingerprintLoader: suspend () -> String = { "Unavailable" }) {
@@ -57,6 +61,18 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         private set
     var lastReceipt by mutableStateOf<SaleReceipt?>(null)
         private set
+    /** VAN-017: a print or reprint is running; Print buttons stay disabled until it finishes. */
+    var printing by mutableStateOf(false)
+        private set
+    /** Plain-words result of the latest print, shown on Sale saved and Receipts. */
+    var printMessage by mutableStateOf<String?>(null)
+        private set
+    /** The latest print outcome in this session, for the printer check screen. */
+    var lastPrint by mutableStateOf<LastPrint?>(null)
+        private set
+    /** Sales saved on the current trip with their print history (Receipts page and Sale saved). */
+    var savedSales by mutableStateOf(emptyList<SavedSale>())
+        private set
     private var scope: CoroutineScope? = null
 
     suspend fun run(restore: Boolean = true): Unit = coroutineScope {
@@ -94,7 +110,10 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
             finally { busy = false }
         }
     }
-    fun open(next: Page) { page = next; message = null }
+    fun open(next: Page) {
+        page = next; message = null
+        if (next == Page.RECEIPTS) { printMessage = null; refreshReceipts() }
+    }
     fun back() {
         val target = when (page) {
             Page.WALK_IN, Page.CUSTOMER -> Page.CUSTOMERS
@@ -112,7 +131,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         repository.signIn(email.trim(),password)
         if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow()
     }
-    fun signOut() = command { repository.signOut(); page = Page.HOME; sale = null; pickingForSale = false; lastReceipt = null; returnDraft = null; lastReturn = null }
+    fun signOut() = command { repository.signOut(); page = Page.HOME; sale = null; pickingForSale = false; lastReceipt = null; savedSales = emptyList(); printMessage = null; returnDraft = null; lastReturn = null }
     fun checkAgain() = command { repository.refreshEnrollment(); if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow() }
     fun syncNow() = command("Sync finished. Check the waiting and review counts.") { repository.syncNow() }
     // Pending state is read from the store (VanRules.status), never from a stale one-off message.
@@ -168,8 +187,10 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     fun completeSale(payment: PaymentInput, expectedTotalMinor: Long) = command {
         val draft = checkNotNull(sale)
         try {
-            lastReceipt = repository.completeSale(CheckoutRequest(draft.saleId,draft.customer.outletId,draft.lines,payment),expectedTotalMinor)
-            sale = null; page = Page.SALE_DONE
+            val receipt = repository.completeSale(CheckoutRequest(draft.saleId,draft.customer.outletId,draft.lines,payment),expectedTotalMinor)
+            lastReceipt = receipt; sale = null; page = Page.SALE_DONE; printMessage = null
+            // VAN-017: the sale is saved first; the receipt prints after, and a printer problem never touches the sale.
+            startPrint(receipt.saleId,explicit = false,reason = null)
         } catch (e: CheckoutRefused) {
             message = e.issues.joinToString("\n") { issue -> VanRules.checkoutMessage(issue.problem,issue.productId?.let { id -> products.firstOrNull { it.productId == id }?.name }) }
         }
@@ -205,11 +226,35 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
             message = e.issues.joinToString("\n") { issue -> VanRules.returnMessage(issue.problem,issue.productId?.let { id -> products.firstOrNull { it.productId == id }?.name }) }
         }
     }
+    /** Print the receipt again: the original if it never reached paper, else a REPRINT copy that needs [reason]. */
+    fun printReceipt(saleId: String, reason: String? = null) = startPrint(saleId,explicit = true,reason = reason)
+    fun refreshReceipts() {
+        scope?.launch { savedSales = runCatching { repository.savedSales() }.getOrElse { if (it is CancellationException) throw it; savedSales } }
+    }
+    private fun startPrint(saleId: String, explicit: Boolean, reason: String?) {
+        if (printing) return
+        val s = scope ?: return
+        printing = true; printMessage = "Printing…"
+        s.launch {
+            try {
+                val result = repository.printReceipt(printer,saleId,explicit,reason)
+                printMessage = VanRules.printMessage(result)
+                lastPrint = LastPrint(System.currentTimeMillis(),printMessage!!,result is PrintJobResult.Printed)
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { printMessage = "Could not print. The sale is saved. Try again." }
+            finally {
+                printing = false
+                savedSales = runCatching { repository.savedSales() }.getOrDefault(savedSales)
+            }
+        }
+    }
     fun walkIn(name: String, reason: String) = command {
         repository.addWalkInCustomer(name.trim(),reason.trim()); page = Page.CUSTOMERS
     }
 }
 /** A return being captured for one customer (VAN-019); [originalSaleId] links it to a sale saved on this phone. */
 data class ReturnDraft(val returnId: String, val customer: Customer, val originalSaleId: String?, val lines: List<ReturnLineInput>)
+/** VAN-017: the latest print result in this session, shown on the printer check. */
+data class LastPrint(val at: Long, val text: String, val printed: Boolean)
 /** A sale being built for one customer (VAN-011). */
 data class SaleDraft(val saleId: String, val customer: Customer, val lines: List<CartLine>)

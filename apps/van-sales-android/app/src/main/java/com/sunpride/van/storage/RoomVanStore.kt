@@ -228,9 +228,12 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
             .put("deviceTime",context.now)
         val op = JSONObject().put("kind",SALE_KIND).put("clientRequestId",id.idempotencyKey).put("payload",payload).toString()
         dao.insertOutbox(OutboxRow(s,d,id.idempotencyKey,t.tripId,SALE_KIND,op,at,null,SALE_PARKED))
-        SaleReceipt(request.saleId,id.receiptNumber,customer.name,quote.lines.map { receiptLine(it.lineNumber,it.product,it.quantityBase,it.unitPriceMinor,it.totalMinor) },
+        val receipt = SaleReceipt(request.saleId,id.receiptNumber,customer.name,quote.lines.map { receiptLine(it.lineNumber,it.product,it.quantityBase,it.unitPriceMinor,it.totalMinor) },
             quote.currency,quote.totalMinor,quote.tenderedMinor,quote.changeMinor,at,false,pay.method.code,pay.method.label,pay.method.kind,
             pay.state.wire,pay.reference,pay.dueDate)
+        // VAN-017: freeze what this receipt says (and seller/trip/truck) in the same transaction as the sale.
+        db.receiptPrints().insertSaleReceipt(SaleReceiptRow(s,d,request.saleId,FrozenReceipts.encode(receipt,currentReceiptHeader(dao,s,d,dao.trip(s,d)))))
+        receipt
     }
     /** One SALE movement per sale line; the available-stock check is repeated against the rows already written in this transaction. */
     private suspend fun deductSale(tripId: String, key: String, productId: String, quantityBase: Long, at: Long, allowNegative: Boolean) {
@@ -281,6 +284,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
     private suspend fun savedReceipt(sale: SaleRow, request: CheckoutRequest): SaleReceipt {
         val lines = dao.salelineRows(s,d).filter { it.saleId == sale.saleId }.sortedBy { it.lineNumber }
         check(sale.customerId == request.customerId && lines.map { it.productId to it.quantityBase } == request.lines.map { it.productId to it.quantityBase }) { "Sale replay conflict" }
+        db.receiptPrints().saleReceipt(s,d,sale.saleId)?.let { return FrozenReceipts.decode(it.documentJson).first }
         val op = JSONObject(checkNotNull(dao.outbox(s,d,sale.idempotencyKey)).operationJson).getJSONObject("payload")
         val payment = op.getJSONObject("payment")
         // A sale saved before VAN-012 has {"terms":"cash"}; the method, kind and state then are cash/paid.

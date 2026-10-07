@@ -225,6 +225,12 @@ class SenraiseEmbeddedPrinter(
         }
     }
 
+    /** The vendor ABI has no paper query: the service shows its own "no paper" dialog instead (VersionCallback is internal). */
+    override suspend fun diagnostics(): PrinterDiagnostics {
+        val state = connect()
+        return PrinterDiagnostics(state, PaperState.NOT_REPORTED, if (state is PrinterStatus.Ready) scannerStatus() else null)
+    }
+
     override suspend fun cut(): PrintResult = PrintResult.Unsupported("H10P has no cutter; use ReceiptElement.Feed")
     override suspend fun openCashDrawer(): PrintResult = PrintResult.Unsupported("H10P has no cash drawer port")
 
