@@ -119,7 +119,9 @@ cd packages/backend
 bunx convex run beta/sample:reset '{"confirm":"remove-beta-sample"}'   # repeat until "isDone": true
 ```
 
-Reset deletes only rows listed in `sampleDataRows` (newest first, 400 per call), and **only
+Reset deletes only rows listed in `sampleDataRows` (up to 400 per call, children before parents:
+a sample row is deleted only once no surviving sample row holds its ID, so the data stays whole
+after every call even if you stop part-way), and **only
 while the sample is unused**. It refuses and removes nothing when any of these exist: a tester
 has signed up with a sample invitation; anyone is or was assigned to a sample unit; stock moved
 at the sample depot or a truck after the opening balance; a sample truck has a trip; a sample

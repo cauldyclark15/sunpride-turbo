@@ -1,7 +1,7 @@
 import { convexTest, type TestConvex } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
-import type { Id } from "../_generated/dataModel";
+import type { Id, TableNames } from "../_generated/dataModel";
 import schema from "../schema";
 import { modules } from "../test.setup";
 import { manilaDate } from "../coverage/validation";
@@ -62,10 +62,34 @@ const SAMPLE_TABLES = [
 
 async function counts(t: T) {
   return t.run(async (ctx) => {
-    const out: Record<string, number> = {};
+    const out = {} as Record<(typeof SAMPLE_TABLES)[number], number>;
     for (const table of SAMPLE_TABLES)
       out[table] = (await ctx.db.query(table).collect()).length;
     return out;
+  });
+}
+
+/** Every schema ID field of every row that does not resolve to an existing row. */
+async function danglingReferences(t: T) {
+  return t.run(async (ctx) => {
+    const dangling: string[] = [];
+    const byTable = new Map<string, ReturnType<typeof schemaReferences>>();
+    for (const reference of schemaReferences())
+      byTable.set(reference.table, [
+        ...(byTable.get(reference.table) ?? []),
+        reference,
+      ]);
+    for (const [table, references] of byTable) {
+      for (const row of await ctx.db.query(table as TableNames).collect())
+        for (const reference of references)
+          for (const value of valuesAt(row, reference.path)) {
+            if (typeof value !== "string") continue;
+            const id = ctx.db.normalizeId(reference.target, value);
+            if (!id || !(await ctx.db.get(id)))
+              dangling.push(`${table}.${reference.path.join(".")} ${value}`);
+          }
+    }
+    return dangling;
   });
 }
 
@@ -426,6 +450,36 @@ describe("beta sample seed (SP-0129)", { timeout: 30_000 }, () => {
     ).toHaveLength(0);
     const again = await t.mutation(internal.beta.sample.seed, {});
     expect(again.created.outlets).toBe(30);
+  });
+
+  it("every reset batch leaves no row pointing at a deleted row (default and small batches)", async () => {
+    for (const limit of [undefined, 37]) {
+      const t = await fresh();
+      await t.mutation(internal.beta.sample.seed, {});
+      expect(await danglingReferences(t)).toEqual([]);
+      let rounds = 0;
+      for (;;) {
+        const result = await t.mutation(internal.beta.sample.reset, {
+          confirm: "remove-beta-sample",
+          ...(limit === undefined ? {} : { limit }),
+        });
+        rounds += 1;
+        // Stopping here (an interrupted reset) must leave the data whole.
+        expect(await danglingReferences(t)).toEqual([]);
+        if (limit !== undefined)
+          expect(result.deleted).toBeLessThanOrEqual(limit);
+        if (result.isDone) break;
+        expect(rounds).toBeLessThan(60);
+      }
+      expect(rounds).toBeGreaterThan(1);
+      expect(
+        await t.run((ctx) => ctx.db.query("sampleDataRows").collect()),
+      ).toHaveLength(0);
+      expect(await t.run((ctx) => ctx.db.query("products").collect())).toEqual(
+        [],
+      );
+      vi.useRealTimers();
+    }
   });
 
   it("reset refuses, removing nothing, once a tester has signed up or is assigned to a sample unit", async () => {

@@ -11,7 +11,13 @@ import { buildOpeningBalanceLine } from "../inventory/setup";
 import { manilaDate } from "../coverage/validation";
 import { insertUomConversion } from "../inventory/policies";
 import type { WriteActor } from "../lib/write_actor";
-import { addSampleId, externalReferences } from "./sample_dependencies";
+import {
+  addSampleId,
+  externalReferences,
+  type Reference,
+  schemaReferences,
+  valuesAt,
+} from "./sample_dependencies";
 import { createOrgUnit } from "../org/mutations";
 import { assignOutlet } from "../outlets/assignments";
 import { changeOutletCustomerLink, createOutlet } from "../outlets/mutations";
@@ -1246,8 +1252,94 @@ export async function resetBlockers(ctx: MutationCtx) {
 }
 
 /**
- * Removes every row the sample seed created, newest first (children before parents), in
- * bounded batches: repeat until `isDone`. Only for an unused sample (a fresh deployment, or
+ * The sample rows one reset batch may delete, children before parents: a row is chosen only
+ * once no other sample row that survives this batch holds its ID (references come from the
+ * schema, as in `sample_dependencies.ts`). So the deployment stays referentially whole after
+ * EVERY batch, also when a reset is stopped part-way. Rows that reference each other in a
+ * cycle are deleted together in one batch. Marker creation order is not used: `ensure`
+ * tracks a parent after its create callback has tracked the children.
+ */
+export async function resetBatch(
+  ctx: MutationCtx,
+  markers: Doc<"sampleDataRows">[],
+  limit: number,
+): Promise<Doc<"sampleDataRows">[]> {
+  const live = new Map<string, Doc<"sampleDataRows">>();
+  const referencesByTable = new Map<string, Reference[]>();
+  for (const reference of schemaReferences()) {
+    const list = referencesByTable.get(reference.table) ?? [];
+    list.push(reference);
+    referencesByTable.set(reference.table, list);
+  }
+  // Markers whose row is already gone are always safe to drop.
+  const gone: Doc<"sampleDataRows">[] = [];
+  const docs = new Map<string, Record<string, unknown>>();
+  for (const marker of markers) {
+    if (gone.length >= limit) break;
+    const id = ctx.db.normalizeId(marker.tableName as TableNames, marker.rowId);
+    const doc = id ? await ctx.db.get(id) : null;
+    if (!doc) gone.push(marker);
+    else if (!live.has(marker.rowId)) {
+      live.set(marker.rowId, marker);
+      docs.set(marker.rowId, doc as Record<string, unknown>);
+    } else gone.push(marker); // duplicate marker for one row
+  }
+  // referrers[x] = sample rows (other than x) holding x's ID.
+  const referrers = new Map<string, Set<string>>();
+  for (const [rowId, doc] of docs) {
+    const table = live.get(rowId)!.tableName;
+    for (const reference of referencesByTable.get(table) ?? []) {
+      for (const value of valuesAt(doc, reference.path)) {
+        if (typeof value !== "string" || value === rowId || !live.has(value))
+          continue;
+        const set = referrers.get(value) ?? new Set<string>();
+        set.add(rowId);
+        referrers.set(value, set);
+      }
+    }
+  }
+  const chosen = new Set<string>();
+  const remaining = new Set(live.keys());
+  const free = (rowId: string) =>
+    [...(referrers.get(rowId) ?? [])].every((r) => chosen.has(r));
+  const budget = Math.max(0, limit - gone.length);
+  while (chosen.size < budget && remaining.size > 0) {
+    // Newest first among the rows nothing surviving points at.
+    let picked = false;
+    for (const rowId of remaining) {
+      if (chosen.size >= budget) break;
+      if (!free(rowId)) continue;
+      chosen.add(rowId);
+      remaining.delete(rowId);
+      picked = true;
+    }
+    if (picked) continue;
+    // Only cycles are left: take the smallest referrer closure of one row as a group.
+    let group: Set<string> | null = null;
+    for (const start of remaining) {
+      const closure = new Set([start]);
+      const stack = [start];
+      while (stack.length > 0) {
+        for (const r of referrers.get(stack.pop()!) ?? [])
+          if (!chosen.has(r) && !closure.has(r)) {
+            closure.add(r);
+            stack.push(r);
+          }
+      }
+      if (!group || closure.size < group.size) group = closure;
+    }
+    if (chosen.size > 0 && chosen.size + group!.size > budget) break;
+    for (const rowId of group!) {
+      chosen.add(rowId);
+      remaining.delete(rowId);
+    }
+  }
+  return [...gone, ...[...chosen].map((rowId) => live.get(rowId)!)];
+}
+
+/**
+ * Removes every row the sample seed created in bounded batches (children before parents,
+ * see `resetBatch`): repeat until `isDone`. Only for an unused sample (a fresh deployment, or
  * before testers sign up): while testers or their work depend on sample rows it refuses and
  * removes nothing (see `resetBlockers`); retire a used beta backend instead of resetting it.
  * A sample price list another seed has since added lines to is kept (its lines would orphan).
@@ -1265,13 +1357,15 @@ export const reset = internalMutation({
         `The beta sample is in use and was not removed: ${blockers.slice(0, 10).join("; ")}`,
       );
     const limit = Math.max(1, Math.min(args.limit ?? 400, 1_000));
-    const rows = await ctx.db
+    // `resetBlockers` already refused more than MAX_SAMPLE_ROWS markers.
+    const markers = await ctx.db
       .query("sampleDataRows")
       .withIndex("by_batch", (q) => q.eq("batch", SAMPLE_BATCH))
       .order("desc")
-      .take(limit + 1);
+      .take(MAX_SAMPLE_ROWS);
+    const batch = await resetBatch(ctx, markers, limit);
     let deleted = 0;
-    for (const row of rows.slice(0, limit)) {
+    for (const row of batch) {
       const id = ctx.db.normalizeId(row.tableName as TableNames, row.rowId);
       const doc = id ? await ctx.db.get(id) : null;
       const shared =
@@ -1289,7 +1383,7 @@ export const reset = internalMutation({
       }
       await ctx.db.delete(row._id);
     }
-    return { deleted, isDone: rows.length <= limit };
+    return { deleted, isDone: batch.length === markers.length };
   },
 });
 
