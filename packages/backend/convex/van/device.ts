@@ -30,6 +30,7 @@ import {
   type VanOperationKind,
   VOID_REASONS,
 } from "./model";
+import { cashReconciliationPolicy } from "./cash";
 import { voidApprovalPolicy } from "./voids";
 
 /**
@@ -402,6 +403,8 @@ async function policyView(
     // VAN-021: reasons for voiding a sale and the supervisor-approval rule + trip key.
     voidReasons: [...VOID_REASONS],
     voidApproval: await voidApprovalPolicy(tripId),
+    // VAN-022: end-of-trip cash count — variance reasons, approval tolerance and trip key.
+    cashReconciliation: await cashReconciliationPolicy(tripId),
   };
 }
 

@@ -73,6 +73,15 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     /** Sales saved on the current trip with their print history (Receipts page and Sale saved). */
     var savedSales by mutableStateOf(emptyList<SavedSale>())
         private set
+    /** VAN-022: the trip's cash is counted on this phone, so selling has stopped. */
+    var cashCounted by mutableStateOf(false)
+        private set
+    /** VAN-022: what Count cash shows; refreshed whenever the page opens or a count is saved. */
+    var cashSummary by mutableStateOf<com.sunpride.van.storage.CashSummary?>(null)
+        private set
+    /** Count cash draft; [CashDraft.reconciliationId] makes Save cash count safe to tap twice. In memory only. */
+    var cashDraft by mutableStateOf(CashDraft(CashReconciliationRules.newReconciliationId()))
+        private set
     private var scope: CoroutineScope? = null
 
     suspend fun run(restore: Boolean = true): Unit = coroutineScope {
@@ -88,6 +97,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         launch { repository.policy.collect { policy = it } }
         launch { repository.seller.collect { seller = it } }
         launch { repository.syncStatus.collect { sync = it } }
+        launch { repository.cashCounted.collect { cashCounted = it } }
         launch { fingerprint = try { fingerprintLoader() } catch (_: Exception) { "Unavailable. Check again." } }
         if (restore) {
             busy = true
@@ -116,6 +126,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     fun open(next: Page) {
         page = next; message = null
         if (next == Page.RECEIPTS) { printMessage = null; refreshReceipts() }
+        if (next == Page.CASH) refreshCash()
     }
     fun back() {
         val target = when (page) {
@@ -134,7 +145,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         repository.signIn(email.trim(),password)
         if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow()
     }
-    fun signOut() = command { repository.signOut(); page = Page.HOME; sale = null; pickingForSale = false; lastReceipt = null; savedSales = emptyList(); printMessage = null; returnDraft = null; lastReturn = null }
+    fun signOut() = command { repository.signOut(); page = Page.HOME; sale = null; pickingForSale = false; lastReceipt = null; savedSales = emptyList(); printMessage = null; returnDraft = null; lastReturn = null; cashSummary = null; cashDraft = CashDraft(CashReconciliationRules.newReconciliationId()) }
     fun checkAgain() = command(failure = { AuthMessages.forFailure(it,AuthMessages.CHECK_FALLBACK) }) { repository.refreshEnrollment(); if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow() }
     fun syncNow() = command("Sync finished. Check the waiting and review counts.") { repository.syncNow() }
     // Pending state is read from the store (VanRules.status), never from a stale one-off message.
@@ -154,6 +165,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     }
     fun startSale(customer: Customer) {
         if (!VanRules.canSell(trip)) { message = VanRules.checkoutMessage(CheckoutProblem.TRIP_NOT_SELLING,null); return }
+        if (cashCounted) { message = VanRules.checkoutMessage(CheckoutProblem.CASH_COUNTED,null); return }
         if (sale?.customer?.outletId != customer.outletId) sale = SaleDraft(CheckoutRules.newSaleId(),customer,emptyList())
         selectedCustomer = customer; open(Page.SALE)
     }
@@ -180,7 +192,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     suspend fun refreshPaymentFacts() { paymentFacts = runCatching { repository.paymentFacts() }.getOrDefault(com.sunpride.van.storage.PaymentFacts()) }
     fun saleContext(now: Long = System.currentTimeMillis()): CheckoutContext =
         CheckoutContext(VanRules.canSell(trip) && session.signedIn,customers,products,stock,prices,policy,now,trip?.serviceDate,
-            paymentFacts.creditUsedMinor,paymentFacts.usedReferences)
+            paymentFacts.creditUsedMinor,paymentFacts.usedReferences,cashCounted)
     fun quote(payment: PaymentInput): CheckoutResult? = sale?.let { CheckoutRules.evaluate(CheckoutRequest(it.saleId,it.customer.outletId,it.lines,payment),saleContext()) }
     /** Lines and total of the cart alone, before a payment is entered. */
     fun cartQuote(): CheckoutQuote? = sale?.let { CheckoutRules.cartQuote(CheckoutRequest(it.saleId,it.customer.outletId,it.lines,PaymentInput(PaymentMethod.CASH.code)),saleContext()) }
@@ -264,6 +276,27 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
             }
         }
     }
+    fun refreshCash() {
+        scope?.launch {
+            cashSummary = try { repository.cashSummary() } catch (e: CancellationException) { throw e }
+                catch (e: CashRefused) { message = VanRules.cashMessage(e.problem); null } catch (_: Exception) { null }
+        }
+    }
+    fun editCash(draft: CashDraft) { cashDraft = draft }
+    /** The store recomputes the expected cash and checks the code in the saving transaction; a refusal keeps the draft. */
+    fun saveCashCount(expectedMinor: Long) = command {
+        val draft = cashDraft
+        val counts = draft.pieces.mapValues { (_, text) -> CashReconciliationRules.parsePieces(text) ?: -1L }
+        try {
+            val result = repository.countCash(CashCountRequest(draft.reconciliationId,counts,draft.reasonCode,draft.note.takeIf { it.isNotBlank() },
+                draft.code.takeIf { it.isNotBlank() },expectedMinor))
+            cashSummary = repository.cashSummary()
+            message = if (result.varianceMinor == 0L) "Cash count saved. It matches." else "Cash count saved: ${VanRules.varianceLabel(result.varianceMinor,result.currency)}."
+        } catch (e: CashRefused) {
+            message = VanRules.cashMessage(e.problem)
+            if (e.problem == CashProblem.EXPECTED_CHANGED || e.problem == CashProblem.ALREADY_COUNTED) cashSummary = repository.cashSummary()
+        }
+    }
     fun walkIn(name: String, reason: String) = command {
         repository.addWalkInCustomer(name.trim(),reason.trim()); page = Page.CUSTOMERS
     }
@@ -272,5 +305,8 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
 data class ReturnDraft(val returnId: String, val customer: Customer, val originalSaleId: String?, val lines: List<ReturnLineInput>)
 /** VAN-017: the latest print result in this session, shown on the printer check. */
 data class LastPrint(val at: Long, val text: String, val printed: Boolean)
+/** VAN-022 Count cash form: pieces typed per denomination (centavos → text), reason, note and supervisor code. */
+data class CashDraft(val reconciliationId: String, val pieces: Map<Long,String> = emptyMap(), val reasonCode: String? = null,
+    val note: String = "", val code: String = "")
 /** A sale being built for one customer (VAN-011). */
 data class SaleDraft(val saleId: String, val customer: Customer, val lines: List<CartLine>)

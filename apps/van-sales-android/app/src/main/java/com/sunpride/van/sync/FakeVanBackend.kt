@@ -96,6 +96,7 @@ class FakeVanBackend(fixtureJson: String = FIXTURE, context: Context? = null) : 
     "damageReasons": ["crushed", "leaking", "expired", "spoiled", "other"],
     "voidReasons": ["wrong_items", "wrong_quantity", "wrong_customer", "wrong_payment", "customer_cancelled", "other"],
     "voidApproval": { "required": true, "thresholdMinor": "0", "key": "6Heg4RirM2SuTt_Pjg5QZwyqg_P-Szkdlxli4UBfz1Y" },
+    "cashReconciliation": { "approvalRequired": true, "toleranceMinor": "5000", "reasons": ["counting_error", "change_error", "customer_short_paid", "customer_overpaid", "lost_or_stolen", "counterfeit", "other"], "key": "PnoIS45xGmCnubWwLVAmPBjjgF-prN3ykOOEvfv5zsY" },
     "paymentMethods": [
       {
         "code": "cash",
