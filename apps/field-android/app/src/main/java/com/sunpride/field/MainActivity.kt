@@ -2,9 +2,11 @@ package com.sunpride.field
 
 import android.content.res.Configuration
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import com.sunpride.field.auth.KeystoreSessionVault
+import androidx.fragment.app.FragmentActivity
+import com.sunpride.field.auth.AndroidBiometricCrypto
+import com.sunpride.field.auth.SessionVaults
+import com.sunpride.field.ui.BiometricGate
 import com.sunpride.field.device.KeystoreDeviceKey
 import com.sunpride.field.ui.DeviceKeyInfo
 import com.sunpride.field.ui.FieldApp
@@ -12,7 +14,8 @@ import com.sunpride.field.ui.LiveFieldBackend
 import com.sunpride.field.ui.applySystemBars
 import java.io.File
 
-class MainActivity : ComponentActivity() {
+// FragmentActivity (a ComponentActivity) because BiometricPrompt needs one (SP-0128).
+class MainActivity : FragmentActivity() {
     // SP-0124: visits, orders, call sheet and photos are product features in every build (beta included);
     // only DEV debug builds add the developer tools. See docs/BETA_FEATURES.md.
     private val features = FieldFeatures.forBuild(BuildConfig.FLAVOR, BuildConfig.DEBUG, BuildConfig.WEB_URL)
@@ -27,10 +30,13 @@ class MainActivity : ComponentActivity() {
         val dark = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
         applySystemBars(dark)
         val app = applicationContext
-        val backend = LiveFieldBackend(environment, KeystoreSessionVault(app), app) { KeystoreDeviceKey.loadOrCreate(app) }
+        val vault = SessionVaults.app(app)
+        // SP-0128: the prompt object is created here so it is bound to this activity instance.
+        val biometrics = BiometricGate(vault, AndroidBiometricCrypto(this))
+        val backend = LiveFieldBackend(environment, vault, app) { KeystoreDeviceKey.loadOrCreate(app) }
         setContent {
             FieldApp(environment, dark = dark, backend = backend, features = features,
-                onKeyLoaded = { exportPublicKeyForDev(it) })
+                onKeyLoaded = { exportPublicKeyForDev(it) }, biometrics = biometrics)
         }
     }
 

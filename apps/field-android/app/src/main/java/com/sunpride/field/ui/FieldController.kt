@@ -38,6 +38,7 @@ import com.sunpride.field.auth.ConvexFunctions
 import com.sunpride.field.auth.Enrollment
 import com.sunpride.field.auth.EnrollmentState
 import com.sunpride.field.auth.SessionVault
+import com.sunpride.field.auth.SessionStorageFailure
 import com.sunpride.field.device.DeviceSigner
 import com.sunpride.field.device.fingerprint
 import kotlinx.coroutines.CoroutineDispatcher
@@ -161,6 +162,16 @@ data class TodayData(val visits: List<VisitDisplay> = emptyList(), val lastSynce
 
 private const val TEAM_CACHE = "local.team"
 private const val SALES_CACHE = "local.daysales"
+
+/**
+ * Sign-out teardown (SP-0128). Every step runs even when an earlier one fails: a cache purge or index
+ * clear that throws must never skip [authSignOut], which wipes the unlocked session, the ordinary and
+ * sealed copies and the biometric key. The first failure is rethrown once everything has run.
+ */
+internal fun signOutTeardown(purgeCache: () -> Unit, clearIndex: () -> Unit, authSignOut: () -> Unit) {
+    val failures = listOf(purgeCache, clearIndex, authSignOut).mapNotNull { step -> runCatching { step() }.exceptionOrNull() }
+    failures.firstOrNull()?.let { throw it }
+}
 
 class LiveFieldBackend(
     environment: AppEnvironment,
@@ -544,16 +555,18 @@ class LiveFieldBackend(
     override val isSignedIn get() = auth.isSignedIn
     override fun loadSigner() = signerLoader()
     override fun signIn(email: String, password: String) = auth.signIn(email, password)
-    override fun signOut() {
+    override fun signOut() = signOutTeardown(
         // QSR-010: sign-out leaves only held, encrypted unsent evidence; no cached plan, customers,
         // prices or session-keyed scope index survive for the next person on this phone.
         // Suggested-order authorization ends before the purge, which can fail (SP-0067).
-        com.sunpride.field.ui.diagnosticvisit.SuggestedOrderRepository.endSession {
-            runBlocking { EncryptedFieldDatabase.purgeExisting(context) }
-        }
-        prefs.edit().clear().commit()
-        auth.signOut()
-    }
+        purgeCache = {
+            com.sunpride.field.ui.diagnosticvisit.SuggestedOrderRepository.endSession {
+                runBlocking { EncryptedFieldDatabase.purgeExisting(context) }
+            }
+        },
+        clearIndex = { if (!prefs.edit().clear().commit()) throw SessionStorageFailure() },
+        authSignOut = { auth.signOut() },
+    )
     override fun refreshEnrollment(signer: DeviceSigner): EnrollmentState {
         val state = try {
             Enrollment(ConvexDeviceApi(functions), signer, vault).refresh()
@@ -984,11 +997,13 @@ class FieldController(
         runCatching { withContext(io) { onKeyLoaded(info) } }
     }
 
-    fun signIn(email: String, password: String) = scope.launch(ui) {
+    /** [onSignedIn] runs on the UI context once the password sign-in succeeded (SP-0128 biometric offer). */
+    fun signIn(email: String, password: String, onSignedIn: () -> Unit = {}) = scope.launch(ui) {
         busy = true; error = null
         try {
             withContext(io) { backend.signIn(email, password) }
             state = EnrollmentState.Unregistered // signed in; device status not yet known
+            runCatching { onSignedIn() }
         } catch (e: Exception) {
             error = userMessage(e)
             busy = false
