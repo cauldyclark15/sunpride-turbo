@@ -65,7 +65,9 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         val m = metas.singleOrNull(); val held = m?.held == true
         SyncStatus(if (held) 0 else ops.count { it.status == "pending" },if (held) 0 else ops.count { it.status == "sending" },
             ops.count { it.status in setOf("rejected","conflict") },if (held) ops.count { it.status in setOf("pending","sending") } else 0,m?.lastSyncTime,m?.health ?: "never_synced",
-            ops.count { it.status == SALE_PARKED && it.kind == SALE_KIND },ops.count { it.status == SALE_PARKED && it.kind == RETURN_KIND })
+            ops.count { it.status == SALE_PARKED && it.kind == SALE_KIND },ops.count { it.status == SALE_PARKED && it.kind == RETURN_KIND },
+            ops.count { it.status == SALE_PARKED },ops.count { it.status == "done" },ops.count { it.kind in com.sunpride.van.sync.SyncHealth.SAP_KINDS },
+            com.sunpride.van.sync.SyncHealth.items(ops.map { com.sunpride.van.sync.OutboxFacts(it.clientRequestId,it.kind,it.status,it.createdAt,it.operationJson,it.rejectionCode) },held))
     }
     /** VAN-022: the current trip's cash is counted on this phone (selling and voiding have stopped). */
     val cashCounted: Flow<Boolean> = combine(dao.observeTrip(s,d),dao.observeCashReconciliation(s,d)) { trips, rows ->

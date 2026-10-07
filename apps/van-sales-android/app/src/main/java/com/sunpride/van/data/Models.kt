@@ -107,9 +107,13 @@ data class LoadActual(val lineNumber: Int, val actualBase: Long, val reason: Str
 /**
  * [savedSales]: VAN-011 sales committed on this phone whose office upload is not available yet (parked, never sent);
  * [savedReturns]: VAN-019 customer returns parked the same way.
+ * VAN-025: [phoneOnly] every parked row (sales, voids, returns, cash counts); [received] rows the office acknowledged;
+ * [sapPending] SAP-relevant rows (none is posted to SAP from the van this phase); [items] newest first, bounded.
  */
 data class SyncStatus(val queued: Int = 0, val sending: Int = 0, val review: Int = 0,
-    val held: Int = 0, val lastSyncTime: Long? = null, val health: String = "never_synced", val savedSales: Int = 0, val savedReturns: Int = 0)
+    val held: Int = 0, val lastSyncTime: Long? = null, val health: String = "never_synced", val savedSales: Int = 0, val savedReturns: Int = 0,
+    val phoneOnly: Int = 0, val received: Int = 0, val sapPending: Int = 0,
+    val items: List<com.sunpride.van.sync.SyncItem> = emptyList())
 /** A completed van sale as saved on this phone (VAN-011). Money is in minor units of [currency]. */
 data class SaleReceiptLine(val lineNumber: Int, val productId: String, val name: String, val uomCode: String,
     val quantityLabel: String, val unitPriceMinor: Long, val totalMinor: Long, val freeBase: Long = 0L,
