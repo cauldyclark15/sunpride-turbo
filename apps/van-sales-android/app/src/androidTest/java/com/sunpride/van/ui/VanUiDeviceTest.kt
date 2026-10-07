@@ -617,6 +617,79 @@ class VanUiDeviceTest {
         assertEquals("awaiting_confirmation",c.lastReceipt!!.paymentStatus)
         rule.waitUntil(10_000) { c.sync.savedSales == 1 }
     }
+    @Test fun cashCountShowsExpectedCashNeedsAReasonAndAboveToleranceTheSupervisorCodeThenStopsSelling() {
+        mount(); loadAndStart()
+        val juice = c.products.single { it.code == "SP-PJ-1L" }
+        rule.waitUntil(10_000) { c.stock.any { it.productId == juice.productId && it.availableBase > 4 } }
+        testPriceFeed(juice.productId)
+        val customers = c.customers.filter { it.source == "route" }
+        // ₱170 cash (₱200 handed over, ₱30 change), ₱85 GCash and a voided ₱85 cash sale.
+        runBlocking {
+            c.repository.completeSale(com.sunpride.van.pos.CheckoutRequest(java.util.UUID.randomUUID().toString(),customers[0].outletId,
+                listOf(com.sunpride.van.pos.CartLine(juice.productId,2)),com.sunpride.van.pos.PaymentInput("cash",20_000)),17_000)
+            c.repository.completeSale(com.sunpride.van.pos.CheckoutRequest(java.util.UUID.randomUUID().toString(),customers[1].outletId,
+                listOf(com.sunpride.van.pos.CartLine(juice.productId,1)),com.sunpride.van.pos.PaymentInput("gcash",null,"GC 778899")),8_500)
+            val voided = c.repository.completeSale(com.sunpride.van.pos.CheckoutRequest(java.util.UUID.randomUUID().toString(),customers[0].outletId,
+                listOf(com.sunpride.van.pos.CartLine(juice.productId,1)),com.sunpride.van.pos.PaymentInput("cash",8_500)),8_500)
+            val p = c.policy!!; val trip = c.trip!!.tripId
+            val sale = c.repository.savedSales().single { it.receipt.saleId == voided.saleId }.receipt
+            c.repository.voidSale(voided.saleId,"customer_cancelled",null,
+                com.sunpride.van.pos.VoidApprovalCodes.code(p.voidApproval!!.key!!,trip,sale.receiptNumber,sale.totalMinor,"customer_cancelled"))
+        }
+        open(Page.HOME)
+        rule.onNodeWithTag("open-cash").performScrollTo().assertIsEnabled().performClick()
+        rule.waitUntil(10_000) { c.page == Page.CASH && c.cashSummary != null }
+        rule.onNodeWithTag("cash-expected").assertTextEquals("₱170.00")
+        rule.onNodeWithTag("cash-other-gcash").assertTextContains("₱85.00",substring = true)
+        rule.onNodeWithTag("save-cash").assertIsNotEnabled()
+        rule.onNodeWithTag("cash-variance").assertTextEquals("₱170.00 short")
+        captureVanScreenshot(rule,"50-cash-count","save-cash")
+        // ₱150 counted: ₱20 short, within the ₱50 tolerance → a reason only.
+        rule.onNodeWithTag("pieces-10000").performScrollTo().performTextInput("1")
+        rule.onNodeWithTag("pieces-5000").performScrollTo().performTextInput("1"); hideKeyboard()
+        rule.onNodeWithTag("cash-variance").performScrollTo().assertTextEquals("₱20.00 short")
+        rule.onNodeWithTag("cash-code").assertDoesNotExist()
+        rule.onNodeWithTag("save-cash").assertIsNotEnabled()
+        rule.onNodeWithTag("cash-reason-change_error").performScrollTo().performClick()
+        rule.onNodeWithTag("save-cash").assertIsEnabled()
+        // ₱100 counted: ₱70 short, above tolerance → the supervisor's code for exactly these facts.
+        rule.onNodeWithTag("pieces-5000").performScrollTo().performTextClearance(); hideKeyboard()
+        rule.onNodeWithTag("cash-variance").performScrollTo().assertTextEquals("₱70.00 short")
+        rule.onNodeWithTag("cash-approval-script").performScrollTo()
+            .assertTextContains("expected ₱170.00, counted ₱100.00, reason Wrong change given",substring = true)
+        rule.onNodeWithTag("save-cash").assertIsNotEnabled()
+        val p = c.policy!!; val trip = c.trip!!.tripId
+        val wrong = com.sunpride.van.pos.CashApprovalCodes.code(p.cashReconciliation!!.key!!,trip,17_000,10_000,"counting_error")
+        rule.onNodeWithTag("cash-code").performScrollTo().performTextInput(wrong); hideKeyboard()
+        captureVanScreenshot(rule,"51-cash-count-approval","save-cash")
+        rule.onNodeWithTag("save-cash").assertIsEnabled().performClick()
+        rule.waitUntil(10_000) { !c.busy && c.message != null }
+        assertEquals(VanRules.cashMessage(com.sunpride.van.pos.CashProblem.CODE_WRONG),c.message)
+        // Changing the reason discards the typed code.
+        rule.onNodeWithTag("cash-reason-counting_error").performScrollTo().performClick()
+        rule.waitUntil(5_000) { c.cashDraft.code.isEmpty() && c.cashDraft.reasonCode == "counting_error" }
+        // The same digits are the right code for the reason now chosen.
+        rule.onNodeWithTag("cash-code").performScrollTo().performTextInput(wrong); hideKeyboard()
+        rule.onNodeWithTag("save-cash").performClick()
+        rule.waitUntil(10_000) { !c.busy && c.cashSummary?.saved != null }
+        rule.onNodeWithTag("cash-saved-variance").assertTextEquals("₱70.00 short")
+        rule.onNodeWithTag("cash-saved-amounts").assertTextEquals("Expected ₱170.00 · counted ₱100.00")
+        rule.onNodeWithTag("cash-saved-approved").assertExists()
+        captureVanScreenshot(rule,"52-cash-count-saved","save-cash")
+        rule.waitUntil(10_000) { c.cashCounted }
+        rule.onNodeWithTag("save-cash").performClick()
+        rule.waitUntil(5_000) { c.page == Page.HOME }
+        rule.onNodeWithTag("new-sale").performScrollTo()
+        rule.onNodeWithText("Cash counted — no more sales on this trip").assertExists()
+        rule.onNodeWithTag("new-sale").performClick(); rule.waitForIdle()
+        assertEquals(Page.HOME,c.page)
+        captureVanScreenshot(rule,"53-home-cash-counted","home-primary")
+        rule.onNodeWithTag("open-cash").performScrollTo().performClick()
+        rule.waitUntil(5_000) { c.page == Page.CASH && c.cashSummary?.saved != null }
+        rule.onNodeWithTag("cash-saved-variance").assertTextEquals("₱70.00 short")
+        // Parked like a sale: saved on this phone, never queued for the gateway.
+        assertEquals(0,c.sync.queued)
+    }
     @Test fun fullScreenScreenshotTour() {
         mount(restore = false,fixtureMode = false)
         rule.onNodeWithTag("configuration-warning").assertExists()

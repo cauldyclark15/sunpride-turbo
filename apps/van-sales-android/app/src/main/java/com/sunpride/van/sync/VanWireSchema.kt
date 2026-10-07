@@ -145,6 +145,37 @@ internal object VanWireSchema {
         }
       }
     },
+    "cashVarianceReason": {
+      "enum": [
+        "counting_error",
+        "change_error",
+        "customer_short_paid",
+        "customer_overpaid",
+        "lost_or_stolen",
+        "counterfeit",
+        "other"
+      ]
+    },
+    "cashReconciliation": {
+      "description": "VAN-022 end-of-trip cash count. Any difference between counted and expected cash needs one of reasons; when approvalRequired and the absolute difference is more than toleranceMinor, it also needs the 8-digit supervisor code for (trip, expected, counted, reason). key is the trip's base64url HMAC key the handheld checks codes with offline, null when the office cannot issue codes (counts above tolerance are then refused).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["approvalRequired", "toleranceMinor", "reasons", "key"],
+      "properties": {
+        "approvalRequired": { "type": "boolean" },
+        "toleranceMinor": { "${'$'}ref": "#/${'$'}defs/base" },
+        "reasons": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 12,
+          "items": { "${'$'}ref": "#/${'$'}defs/cashVarianceReason" }
+        },
+        "key": {
+          "type": ["string", "null"],
+          "pattern": "^[A-Za-z0-9_-]{43}${'$'}"
+        }
+      }
+    },
     "paymentMethod": {
       "description": "VAN-012 payment method the office allows. cash gives change; other equals the total and carries a reference when referenceRequired; credit charges the customer's account and needs customer credit terms.",
       "type": "object",
@@ -302,7 +333,8 @@ internal object VanWireSchema {
               "maxItems": 12,
               "items": { "${'$'}ref": "#/${'$'}defs/voidReason" }
             },
-            "voidApproval": { "${'$'}ref": "#/${'$'}defs/voidApproval" }
+            "voidApproval": { "${'$'}ref": "#/${'$'}defs/voidApproval" },
+            "cashReconciliation": { "${'$'}ref": "#/${'$'}defs/cashReconciliation" }
           }
         },
         "trip": {

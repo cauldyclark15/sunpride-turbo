@@ -199,6 +199,8 @@ export const CAPABILITIES = {
   "van.damage.approve": ["super_admin", "manager", "approver"],
   // VAN-021: a supervisor (never the seller) issues the code that approves a van sale void.
   "van.void.approve": ["super_admin", "manager", "approver"],
+  // VAN-022: a supervisor (never the seller) issues the code that approves a cash difference.
+  "van.cash.approve": ["super_admin", "manager", "approver"],
 } as const satisfies Record<string, readonly AppRole[]>;
 
 export type Capability = keyof typeof CAPABILITIES;

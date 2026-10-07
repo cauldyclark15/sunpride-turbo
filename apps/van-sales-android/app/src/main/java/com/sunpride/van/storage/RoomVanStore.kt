@@ -61,6 +61,10 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
             ops.count { it.status in setOf("rejected","conflict") },if (held) ops.count { it.status in setOf("pending","sending") } else 0,m?.lastSyncTime,m?.health ?: "never_synced",
             ops.count { it.status == SALE_PARKED && it.kind == SALE_KIND },ops.count { it.status == SALE_PARKED && it.kind == RETURN_KIND })
     }
+    /** VAN-022: the current trip's cash is counted on this phone (selling and voiding have stopped). */
+    val cashCounted: Flow<Boolean> = combine(dao.observeTrip(s,d),dao.observeCashReconciliation(s,d)) { trips, rows ->
+        trips.singleOrNull()?.let { t -> rows.any { it.tripId == t.tripId } } ?: false
+    }
     val truckStock: Flow<List<TruckStock>> = combine(dao.observeBaseline(s,d),dao.observeMovement(s,d),dao.observeSettlement(s,d),dao.observeTrip(s,d)) { b,m,settled,t ->
         val trip = t.singleOrNull()?.tripId
         if (trip == null) emptyList() else StockProjection.project(b.filter { it.tripId == trip },m.filter { it.tripId == trip },settled.map { it.movementId }.toSet())
@@ -168,12 +172,13 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
     /** Checkout context read from this scoped partition; inside [commitSale] it is read in the sale's transaction. */
     suspend fun checkoutContext(): CheckoutContext {
         val t = dao.trip(s,d); val meta = dao.meta(s,d); val facts = paymentFacts()
+        val counted = t != null && dao.cashReconciliation(s,d,t.tripId) != null
         return CheckoutContext(t != null && meta?.held == false && selling(t),
             dao.customerRows(s,d).map { it.toCustomer() },
             dao.productRows(s,d).map { VanBootstrapCodec.product(JSONObject(it.json)) }, stock(),
             dao.pricelistlineRows(s,d).map { PriceLine(it.priceListId,it.productId,it.uomCode,it.unitPriceMinor,it.currency,it.effectiveFrom,it.effectiveTo) },
             meta?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)) }, clock(), t?.serviceDate,
-            facts.creditUsedMinor, facts.usedReferences)
+            facts.creditUsedMinor, facts.usedReferences, counted)
     }
 
     /**
@@ -254,6 +259,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         if (dao.meta(s,d)?.held != false) throw VoidRefused(VoidProblem.HELD)
         val sale = dao.saleRows(s,d).singleOrNull { it.saleId == saleId } ?: throw VoidRefused(VoidProblem.SALE_NOT_FOUND)
         if (dao.trip(s,d)?.tripId != sale.tripId) throw VoidRefused(VoidProblem.NOT_THIS_TRIP)
+        if (dao.cashReconciliation(s,d,sale.tripId) != null && dao.saleVoid(s,d,saleId) == null) throw VoidRefused(VoidProblem.CASH_COUNTED)
         dao.saleVoid(s,d,saleId)?.let { prior ->
             if (prior.reasonCode == reasonCode && prior.note == VoidRules.normalizedNote(note))
                 return@withTransaction prior.result(sale.receiptNumber,true)

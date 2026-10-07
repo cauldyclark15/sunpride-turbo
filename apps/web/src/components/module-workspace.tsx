@@ -24,6 +24,7 @@ import { ImportsWorkspace } from "./imports-workspace";
 import { InventoryWorkspace } from "./inventory-workspace";
 import { OutsideCallOrders } from "./outside-call-orders";
 import { VanVoidApproval } from "./van-void-approval";
+import { VanCashApproval } from "./van-cash-approval";
 import { SupervisionWorkspace } from "./supervision/supervision-workspace";
 import { CallSheetsWorkspace } from "./call-sheets/call-sheets-workspace";
 import { DailySalesWorkspace } from "./daily-sales/daily-sales-workspace";
@@ -521,6 +522,7 @@ function ModuleContent({
           </PanelErrorBoundary>
         ) : null}
         {module === "workflows" ? <VanVoidApproval /> : null}
+        {module === "workflows" ? <VanCashApproval /> : null}
       </>
     );
   }

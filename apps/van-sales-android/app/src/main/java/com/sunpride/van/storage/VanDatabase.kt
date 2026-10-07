@@ -58,6 +58,17 @@ data class SaleVoidRow(val fullAuthSubject: String, val deviceId: String, val vo
     val tripId: String, val idempotencyKey: String, val reasonCode: String, val note: String?,
     val approvalMethod: String, val approvalCode: String?, val createdAt: Long)
 
+/**
+ * VAN-022: the trip's end-of-trip cash count, append-only and one per scoped trip. The full capture (denomination
+ * counts, other payments, approval) is also frozen in its parked `cash.reconcile` operation bytes.
+ */
+@Entity(tableName = "cash_reconciliation", primaryKeys = ["fullAuthSubject", "deviceId", "reconciliationId"],
+    indices = [Index(value = ["fullAuthSubject", "deviceId", "tripId"], unique = true)])
+data class CashReconciliationRow(val fullAuthSubject: String, val deviceId: String, val reconciliationId: String, val tripId: String,
+    val idempotencyKey: String, val currency: String, val expectedMinor: Long, val declaredMinor: Long, val varianceMinor: Long,
+    val countsJson: String, val reasonCode: String?, val note: String?, val approvalMethod: String, val approvalCode: String?,
+    val cashSaleCount: Int, val createdAt: Long)
+
 @Entity(tableName = "sale_line", primaryKeys = ["fullAuthSubject", "deviceId", "saleId", "lineNumber"])
 data class SaleLineRow(val fullAuthSubject: String, val deviceId: String, val saleId: String, val lineNumber: Int, val productId: String, val quantityBase: Long, val unitPriceMinor: Long? = null, val totalMinor: Long? = null)
 
@@ -122,6 +133,9 @@ interface VanDao {
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertSaleVoid(row: SaleVoidRow)
     @Query("SELECT * FROM sale_void WHERE fullAuthSubject=:subject AND deviceId=:device") suspend fun salevoidRows(subject: String, device: String): List<SaleVoidRow>
     @Query("SELECT * FROM sale_void WHERE fullAuthSubject=:subject AND deviceId=:device AND saleId=:saleId") suspend fun saleVoid(subject: String, device: String, saleId: String): SaleVoidRow?
+    @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertCashReconciliation(row: CashReconciliationRow)
+    @Query("SELECT * FROM cash_reconciliation WHERE fullAuthSubject=:subject AND deviceId=:device AND tripId=:tripId") suspend fun cashReconciliation(subject: String, device: String, tripId: String): CashReconciliationRow?
+    @Query("SELECT * FROM cash_reconciliation WHERE fullAuthSubject=:subject AND deviceId=:device") fun observeCashReconciliation(subject: String, device: String): Flow<List<CashReconciliationRow>>
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertSaleLine(row: SaleLineRow)
     @Query("SELECT * FROM sale_line WHERE fullAuthSubject=:subject AND deviceId=:device") suspend fun salelineRows(subject: String, device: String): List<SaleLineRow>
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertPayment(row: PaymentRow)
@@ -152,12 +166,19 @@ interface VanDao {
 }
 
 @Database(entities = [TripRow::class,LoadLineRow::class,ProductRow::class,CustomerRow::class,BaselineRow::class,MovementRow::class,SettlementRow::class,OutboxRow::class,AckRow::class,SyncMetaRow::class,SequenceCounterRow::class,TransactionIdRow::class,SaleRow::class,SaleLineRow::class,PaymentRow::class,CustomerReturnRow::class,ReturnLineRow::class,ReconciliationRow::class,PriceListLineRow::class,
-    ReceiptPrintRow::class,SaleReceiptRow::class,SaleVoidRow::class], version = 5, exportSchema = true)
+    ReceiptPrintRow::class,SaleReceiptRow::class,SaleVoidRow::class,CashReconciliationRow::class], version = 6, exportSchema = true)
 abstract class VanDatabase : RoomDatabase() {
     abstract fun rows(): VanDao
     /** VAN-017 receipt print history (v3). */
     abstract fun receiptPrints(): ReceiptPrintDao
     companion object {
+        /** VAN-022: one new append-only table for the end-of-trip cash count; no existing row changes. */
+        val MIGRATION_5_6 = object : androidx.room.migration.Migration(5,6) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `cash_reconciliation` (`fullAuthSubject` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `reconciliationId` TEXT NOT NULL, `tripId` TEXT NOT NULL, `idempotencyKey` TEXT NOT NULL, `currency` TEXT NOT NULL, `expectedMinor` INTEGER NOT NULL, `declaredMinor` INTEGER NOT NULL, `varianceMinor` INTEGER NOT NULL, `countsJson` TEXT NOT NULL, `reasonCode` TEXT, `note` TEXT, `approvalMethod` TEXT NOT NULL, `approvalCode` TEXT, `cashSaleCount` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`fullAuthSubject`, `deviceId`, `reconciliationId`))")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_cash_reconciliation_fullAuthSubject_deviceId_tripId` ON `cash_reconciliation` (`fullAuthSubject`, `deviceId`, `tripId`)")
+            }
+        }
         /** VAN-021: additive cancellation evidence only, never edit or delete a sale. */
         val MIGRATION_4_5 = object : androidx.room.migration.Migration(4,5) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {

@@ -187,6 +187,7 @@ import type * as territories_route_validation from "../territories/route_validat
 import type * as territories_routes from "../territories/routes.js";
 import type * as territories_validation from "../territories/validation.js";
 import type * as van_access from "../van/access.js";
+import type * as van_cash from "../van/cash.js";
 import type * as van_credit from "../van/credit.js";
 import type * as van_damage from "../van/damage.js";
 import type * as van_device from "../van/device.js";
@@ -393,6 +394,7 @@ declare const fullApi: ApiFromModules<{
   "territories/routes": typeof territories_routes;
   "territories/validation": typeof territories_validation;
   "van/access": typeof van_access;
+  "van/cash": typeof van_cash;
   "van/credit": typeof van_credit;
   "van/damage": typeof van_damage;
   "van/device": typeof van_device;

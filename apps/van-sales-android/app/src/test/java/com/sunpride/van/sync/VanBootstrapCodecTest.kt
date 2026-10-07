@@ -83,6 +83,23 @@ class VanBootstrapCodecTest {
         mutations.forEach { mutate -> val o = JSONObject(fixture()); mutate(o.getJSONObject("policy"))
             assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(o.toString()) } }
     }
+    @Test fun cashReconciliationPolicyDecodesIsOptionalAndIsValidatedByTheMirroredSchema() {
+        val b = VanBootstrapCodec.decode(fixture())
+        assertEquals(CashReconciliationPolicy(true,5000,com.sunpride.van.pos.CashVarianceReasons.ALL.map { it.code },
+            "PnoIS45xGmCnubWwLVAmPBjjgF-prN3ykOOEvfv5zsY"),b.policy.cashReconciliation)
+        val o = JSONObject(fixture()); o.getJSONObject("policy").remove("cashReconciliation")
+        assertNull(VanBootstrapCodec.decode(o.toString()).policy.cashReconciliation)
+        assertNull(VanBootstrapCodec.decode(fixture("bootstrap-no-trip-response.json")).policy.cashReconciliation)
+        val mutations: List<(JSONObject) -> Unit> = listOf(
+            { it.put("reasons",org.json.JSONArray()) },
+            { it.put("reasons",org.json.JSONArray().put("shrug")) },
+            { it.put("toleranceMinor",5000) },
+            { it.put("key","not-a-key") },
+            { it.remove("approvalRequired") },
+            { it.put("extra",1) })
+        mutations.forEach { mutate -> val bad = JSONObject(fixture()); mutate(bad.getJSONObject("policy").getJSONObject("cashReconciliation"))
+            assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(bad.toString()) } }
+    }
     @Test fun frozenBootstrapIncludesGovernedPricesAndToleratesAllPromotionRules() {
         val o = JSONObject(fixture())
         assertEquals(listOf("buy_x_get_y","percent_off","bundle"),

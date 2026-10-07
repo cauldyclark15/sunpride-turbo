@@ -30,7 +30,27 @@ export const VAN_POLICY = {
    */
   voidRequiresApproval: true,
   voidApprovalThresholdMinor: 0n,
+  /**
+   * VAN-022 (Q14 plan: "Salesman counts on the phone, cashier confirms; differences go to the
+   * supervisor"): any difference between counted and expected cash needs a reason; a difference
+   * of more than this many centavos (either way) also needs a supervisor's approval code.
+   * Assumed default ₱50.00 until Sunpride sets its tolerance.
+   */
+  cashVarianceRequiresApproval: true,
+  cashVarianceToleranceMinor: 5000n,
 } as const;
+
+/** VAN-022 reasons a seller may give when counted cash differs from the cash the phone expects. */
+export const CASH_VARIANCE_REASONS = [
+  "counting_error",
+  "change_error",
+  "customer_short_paid",
+  "customer_overpaid",
+  "lost_or_stolen",
+  "counterfeit",
+  "other",
+] as const;
+export type CashVarianceReason = (typeof CASH_VARIANCE_REASONS)[number];
 
 /** VAN-021 reasons a seller may give for voiding a whole sale on the handheld. */
 export const VOID_REASONS = [

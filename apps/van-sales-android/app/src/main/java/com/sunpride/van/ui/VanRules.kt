@@ -4,7 +4,7 @@ import com.sunpride.van.data.*
 import java.math.BigDecimal
 import java.math.MathContext
 
-enum class Page { HOME, LOAD, START, STOCK, CUSTOMERS, WALK_IN, CUSTOMER, PRINTER, PRODUCTS, SALE, CHECKOUT, SALE_DONE, RECEIPTS, RETURN, RETURN_DONE }
+enum class Page { HOME, LOAD, START, STOCK, CUSTOMERS, WALK_IN, CUSTOMER, PRINTER, PRODUCTS, SALE, CHECKOUT, SALE_DONE, RECEIPTS, RETURN, RETURN_DONE, CASH }
 data class NextAction(val page: Page, val label: String)
 
 /** Display/validation only. The repository repeats every business check transactionally. */
@@ -54,6 +54,8 @@ object VanRules {
     }
     /** Selling is allowed once the trip is on route or its start is saved on this phone (same rule as damage). */
     fun canSell(trip: Trip?): Boolean = trip?.status == "active" || trip?.startPending == true
+    /** VAN-022: cash can be counted once the trip is on the road (or its start is saved here) and until it closes. */
+    fun canCountCash(trip: Trip?): Boolean = canSell(trip) || trip?.status in setOf("closing","reconciling","review_required")
     /** Cash typed in pesos ("250", "250.50") to centavos; null when blank, negative or more than two decimals. */
     fun parseMoney(text: String): Long? = try {
         if (text.isBlank()) null else BigDecimal(text.trim().removePrefix("₱").replace(",","")).movePointRight(2).longValueExact()
@@ -85,6 +87,7 @@ object VanRules {
             com.sunpride.van.pos.CheckoutProblem.REFERENCE_INVALID -> "The reference number can only have letters, numbers, spaces, - / and . (40 at most)."
             com.sunpride.van.pos.CheckoutProblem.REFERENCE_ALREADY_USED -> "This reference number is already on another sale. Check the number."
             com.sunpride.van.pos.CheckoutProblem.CREDIT_LIMIT_EXCEEDED -> "This sale is more than the customer's credit left. Take cash or another payment, or ask the office."
+            com.sunpride.van.pos.CheckoutProblem.CASH_COUNTED -> "The cash for this trip is already counted. No more sales on this trip."
         }
     }
     /** Payment state in plain words (VAN-012); [dueDate] only for credit. */
@@ -107,6 +110,28 @@ object VanRules {
         com.sunpride.van.pos.VoidProblem.APPROVAL_UNAVAILABLE -> "Supervisor approval is not set up on this phone. Sync, then try again."
         com.sunpride.van.pos.VoidProblem.CODE_REQUIRED -> "Enter the 8-digit code from your supervisor."
         com.sunpride.van.pos.VoidProblem.CODE_WRONG -> "That code does not match. Check the receipt number, total and reason with your supervisor."
+        com.sunpride.van.pos.VoidProblem.CASH_COUNTED -> "The cash for this trip is already counted, so sales can no longer be voided. Ask the office."
+    }
+    /** VAN-022: plain words for each cash count refusal. */
+    fun cashMessage(problem: com.sunpride.van.pos.CashProblem): String = when (problem) {
+        com.sunpride.van.pos.CashProblem.NOT_ON_ROUTE -> "Start the trip before counting cash."
+        com.sunpride.van.pos.CashProblem.HELD -> "Sign in and sync before counting cash."
+        com.sunpride.van.pos.CashProblem.ALREADY_COUNTED -> "The cash for this trip is already counted. Ask the office to correct it."
+        com.sunpride.van.pos.CashProblem.EXPECTED_CHANGED -> "Sales changed while you were counting. Check the expected cash and save again."
+        com.sunpride.van.pos.CashProblem.COUNT_INVALID -> "Enter whole numbers of bills and coins."
+        com.sunpride.van.pos.CashProblem.MIXED_CURRENCY -> "Sales on this trip are in different currencies. Ask the office."
+        com.sunpride.van.pos.CashProblem.REASON_REQUIRED -> "Choose why the cash is different."
+        com.sunpride.van.pos.CashProblem.NOTE_REQUIRED -> "Explain why the cash is different."
+        com.sunpride.van.pos.CashProblem.NOTE_INVALID -> "Use plain text for the note (300 characters at most)."
+        com.sunpride.van.pos.CashProblem.APPROVAL_UNAVAILABLE -> "Supervisor approval is not set up on this phone. Sync, then try again."
+        com.sunpride.van.pos.CashProblem.CODE_REQUIRED -> "Enter the 8-digit code from your supervisor."
+        com.sunpride.van.pos.CashProblem.CODE_WRONG -> "That code does not match. Check the trip number, both amounts and the reason with your supervisor."
+    }
+    /** "Matches", "₱120.00 short" or "₱50.00 over". */
+    fun varianceLabel(varianceMinor: Long, currency: String): String = when {
+        varianceMinor == 0L -> "Matches"
+        varianceMinor < 0 -> "${com.sunpride.van.pos.PosMoney.format(Math.negateExact(varianceMinor),currency)} short"
+        else -> "${com.sunpride.van.pos.PosMoney.format(varianceMinor,currency)} over"
     }
     /** Plain words for each return refusal (VAN-019); [product] names the line when the problem is about one product. */
     fun returnMessage(problem: com.sunpride.van.pos.ReturnProblem, product: String?): String {
