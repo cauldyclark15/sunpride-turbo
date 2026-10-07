@@ -62,6 +62,7 @@ import kotlinx.coroutines.delay
                 Page.RETURN_DONE -> ReturnDoneScreen(controller)
                 Page.RECEIPTS -> ReceiptsScreen(controller)
                 Page.CASH -> CashCountScreen(controller)
+                Page.SYNC -> SyncHealthScreen(controller)
             }
         }
     }

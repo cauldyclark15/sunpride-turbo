@@ -542,6 +542,15 @@ class VanUiDeviceTest {
         assertEquals(0,c.sync.queued); assertNull(c.sale)
         rule.onNodeWithTag("sale-done").performClick()
         rule.onNodeWithTag("sync-line").assertTextContains("1 sale saved on this phone",substring = true)
+        // VAN-025: phone, office and SAP answered separately; the sale is on the phone only and not posted to SAP.
+        rule.onNodeWithTag("sync-line").assertTextContains("SAP: ",substring = true)
+        rule.onNodeWithTag("open-sync").performScrollTo().performClick()
+        rule.waitUntil(5_000) { c.page == Page.SYNC }
+        rule.onNodeWithTag("health-item-office-0",useUnmergedTree = true).assertTextEquals("Office: Saved on this phone — office upload not available yet")
+        rule.onNodeWithTag("health-item-sap-0",useUnmergedTree = true).assertTextEquals("SAP: Not posted to SAP yet")
+        captureVanScreenshot(rule,"33-sync-health","sync-health-now")
+        rule.onNodeWithTag("back").performClick()
+        rule.waitUntil(5_000) { c.page == Page.HOME }
     }
     @Test fun customerReturnCapturesUnitBatchReasonAndDispositionAndHoldsStockForApproval() {
         mount(); loadAndStart()

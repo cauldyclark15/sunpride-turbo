@@ -20,10 +20,8 @@ import java.time.format.DateTimeFormatter
 @Composable fun HomeScreen(c: VanController) {
     val next = VanRules.nextAction(c.trip,c.load)
     val last = c.sync.lastSyncTime?.let { Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("MMM d, h:mm a")) } ?: "Not yet"
-    val pending = c.sync.queued + c.sync.sending
-    val status = "$pending waiting · ${c.sync.review} to review" + (if (c.sync.held > 0) " · ${c.sync.held} paused" else "") +
-        (if (c.sync.savedSales > 0) "\n${c.sync.savedSales} ${if (c.sync.savedSales == 1) "sale" else "sales"} saved on this phone" else "") +
-        (if (c.sync.savedReturns > 0) "\n${c.sync.savedReturns} ${if (c.sync.savedReturns == 1) "return" else "returns"} saved on this phone" else "") + "\nLast sync: $last"
+    // VAN-025: phone, office and SAP stay on separate lines; details on the Sync & posting screen.
+    val status = com.sunpride.van.sync.SyncHealth.footer(c.sync,last)
     ScreenFrame("Today",action = if (c.trip == null) "Sync now" else next.label,actionTag = "home-primary",
         enabled = !c.busy,onAction = { if (c.trip == null) c.syncNow() else c.open(next.page) },footer = status,message = c.message) {
         val trip = c.trip
@@ -52,6 +50,7 @@ import java.time.format.DateTimeFormatter
             ListRow("Count cash",if (c.cashCounted) "Counted — see the result" else if (countable) "End of trip: count the cash you collected" else "Start the trip first",
                 "open-cash",enabled = countable && !c.busy,onClick = { c.open(Page.CASH) })
         }
+        ListRow("Sync & posting","What is on this phone, with the office and in SAP","open-sync",onClick = { c.open(Page.SYNC) })
         val context = LocalContext.current
         c.features.reportIssueUrl?.let { url -> ListRow("Report an issue","Tell the Sunpride team what went wrong","report-issue",onClick = { openLink(context,url) }) }
         SecondaryButton("Sign out",c::signOut,Modifier.testTag("sign-out"),!c.busy)

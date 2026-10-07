@@ -4,7 +4,7 @@ import com.sunpride.van.data.*
 import java.math.BigDecimal
 import java.math.MathContext
 
-enum class Page { HOME, LOAD, START, STOCK, CUSTOMERS, WALK_IN, CUSTOMER, PRINTER, PRODUCTS, SALE, CHECKOUT, SALE_DONE, RECEIPTS, RETURN, RETURN_DONE, CASH }
+enum class Page { HOME, LOAD, START, STOCK, CUSTOMERS, WALK_IN, CUSTOMER, PRINTER, PRODUCTS, SALE, CHECKOUT, SALE_DONE, RECEIPTS, RETURN, RETURN_DONE, CASH, SYNC }
 data class NextAction(val page: Page, val label: String)
 
 /** Display/validation only. The repository repeats every business check transactionally. */
