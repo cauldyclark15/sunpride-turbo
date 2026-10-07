@@ -130,13 +130,16 @@ class EncryptedVanStoreTest {
         store.resetSending(); val recovered=store.pending().single()
         assertEquals(id,recovered.clientRequestId); assertEquals(original,recovered.operationJson); Unit
     }
-    @Test fun localSaleRefusesNegativeAndMovementReplayCannotDoubleDeduct() = runBlocking {
+    @Test fun ledgerRefusesSaleDeductionWithoutASaleAndMovementReplayCannotDoubleCount() = runBlocking {
         store.replaceBootstrap(fixture())
         val ledger=com.sunpride.van.ledger.TruckStockLedger(store); val id=UUID.randomUUID().toString()
-        assertTrue(runCatching { ledger.recordLocalMovement(com.sunpride.van.ledger.MovementType.SALE,product,com.sunpride.van.ledger.StockStatus.available,-11,null,id) }.isFailure)
-        ledger.recordLocalMovement(com.sunpride.van.ledger.MovementType.SALE,product,com.sunpride.van.ledger.StockStatus.available,-3,null,id)
-        ledger.recordLocalMovement(com.sunpride.van.ledger.MovementType.SALE,product,com.sunpride.van.ledger.StockStatus.available,-3,null,id)
-        assertEquals(7L,store.stock().single().availableBase); assertEquals(1,db.rows().stockmovementRows(scope.fullAuthSubject,scope.deviceId).size); Unit
+        // VAN-018: a SALE deduction is written only by checkout, together with its saved sale.
+        assertTrue(runCatching { ledger.recordLocalMovement(com.sunpride.van.ledger.MovementType.SALE,product,com.sunpride.van.ledger.StockStatus.available,-3,null,id) }.isFailure)
+        assertTrue(db.rows().stockmovementRows(scope.fullAuthSubject,scope.deviceId).isEmpty())
+        ledger.recordLocalMovement(com.sunpride.van.ledger.MovementType.RETURN,product,com.sunpride.van.ledger.StockStatus.available,2,"returned",id)
+        ledger.recordLocalMovement(com.sunpride.van.ledger.MovementType.RETURN,product,com.sunpride.van.ledger.StockStatus.available,2,"returned",id)
+        assertEquals(12L,store.stock().single().availableBase); assertEquals(1,db.rows().stockmovementRows(scope.fullAuthSubject,scope.deviceId).size)
+        assertTrue(ledger.saleStockIssues().isEmpty()); Unit
     }
     @Test fun holdAndReviewNeverAutomaticallyRetry() = runBlocking {
         store.replaceBootstrap(fixture()); val id=store.recordDamage(product,1,"crushed",null); val row=store.pending().single()

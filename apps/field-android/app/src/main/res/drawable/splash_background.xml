@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SP-0126: launch window before the first frame (and the whole splash on Android 10/11): the logo's red
+     with the logo centred, so a cold start never flashes white. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/sunpride_red" />
+    <item android:width="160dp" android:height="160dp" android:gravity="center"
+        android:drawable="@drawable/sunpride_logo" />
+</layer-list>

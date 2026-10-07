@@ -15,6 +15,8 @@ import com.sunpride.field.storage.SnapshotItem
 import com.sunpride.field.orders.OrderDraft
 import com.sunpride.field.orders.OrderDraftFailure
 import com.sunpride.field.orders.OrderDraftRules
+import com.sunpride.field.storage.OrderTerms
+import com.sunpride.field.storage.orderTerms
 import com.sunpride.field.storage.VisitCallRules
 import com.sunpride.field.storage.VisitRuleFailure
 import com.sunpride.field.sync.BootstrapClient
@@ -73,6 +75,10 @@ interface FieldBackend {
     /** Builds the association from the stored check-in and cached snapshot, then saves transactionally. */
     fun saveOrderDraft(draftId: String?, clientVisitId: String, checkInRequestId: String,
         quantities: List<Pair<String, Int>>): OrderDraft = error("No local store")
+    fun saveOrderDraft(draftId: String?, clientVisitId: String, checkInRequestId: String,
+        quantities: List<Pair<String, Int>>, units: Map<String, String>): OrderDraft =
+        saveOrderDraft(draftId, clientVisitId, checkInRequestId, quantities)
+    fun orderTerms(outletId: String): OrderTerms? = null
     fun discardOrderDraft(draftId: String) { error("No local store") }
     /** SP-0060: the review screen's locally checkable rules for one draft. */
     fun orderChecks(draftId: String): List<com.sunpride.field.orders.OrderCheck> = emptyList()
@@ -105,9 +111,9 @@ interface FieldBackend {
 
 /** Shared by the live and test backends so both build drafts exactly the same way. */
 suspend fun saveOrderDraftIn(store: com.sunpride.field.storage.FieldStore, draftId: String?, clientVisitId: String,
-    checkInRequestId: String, quantities: List<Pair<String, Int>>, now: Long): OrderDraft {
+    checkInRequestId: String, quantities: List<Pair<String, Int>>, now: Long, units: Map<String, String> = emptyMap()): OrderDraft {
     val existing = draftId?.let { id -> store.orderDrafts().firstOrNull { it.draftId == id } ?: error("Unknown draft") }
-    val draft = OrderDraftRules.build(store, existing, clientVisitId, checkInRequestId, quantities, now)
+    val draft = OrderDraftRules.build(store, existing, clientVisitId, checkInRequestId, quantities, now, units = units)
     store.saveOrderDraft(draft, now)
     return draft
 }
@@ -300,6 +306,11 @@ class LiveFieldBackend(
         quantities: List<Pair<String, Int>>): OrderDraft = withStore {
         saveOrderDraftIn(it, draftId, clientVisitId, checkInRequestId, quantities, System.currentTimeMillis())
     }
+    override fun saveOrderDraft(draftId: String?, clientVisitId: String, checkInRequestId: String,
+        quantities: List<Pair<String, Int>>, units: Map<String, String>): OrderDraft = withStore {
+        saveOrderDraftIn(it, draftId, clientVisitId, checkInRequestId, quantities, System.currentTimeMillis(), units)
+    }
+    override fun orderTerms(outletId: String): OrderTerms? = withStore { it.orderTerms(outletId) }
     override fun discardOrderDraft(draftId: String) = withStore { it.discardOrderDraft(draftId) }
     override fun orderChecks(draftId: String): List<com.sunpride.field.orders.OrderCheck> = withStore { store ->
         val draft = store.orderDrafts().firstOrNull { it.draftId == draftId } ?: return@withStore emptyList()
@@ -581,6 +592,7 @@ class FieldController(
     var diagnosticRows by mutableStateOf<List<Pair<com.sunpride.field.storage.IntentRow, String>>>(emptyList()); private set
     var diagnosticError by mutableStateOf<String?>(null); private set
     var diagnosticCallSheet by mutableStateOf<CallSheet?>(null); private set
+    var diagnosticOrderTerms by mutableStateOf<OrderTerms?>(null); private set
     var callSheetOpen by mutableStateOf(false); private set
     /** Order drafts that belong to this visit's calls (local only, SP-0061). */
     var visitOrderDrafts by mutableStateOf<List<OrderDraft>>(emptyList()); private set
@@ -734,14 +746,14 @@ class FieldController(
     }
     fun openDiagnostic(visit: VisitDisplay) = scope.launch(ui) {
         diagnostic = visit; diagnosticError = null; diagnosticFailure = null
-        callSheetOpen = false; diagnosticCallSheet = null; activityForm = null; selectedIntents = emptyList()
+        callSheetOpen = false; diagnosticCallSheet = null; diagnosticOrderTerms = null; activityForm = null; selectedIntents = emptyList()
         orderOpen = false; orderDraftId = null; visitOrderDrafts = emptyList(); orderReview = false; orderChecks = emptyList()
         endReview = null; photoCaptureOpen = false; diagnosticPhotos = emptyList()
         refreshDiagnostic()
     }
     var diagnosticFailure by mutableStateOf<VisitRuleFailure.Code?>(null); private set
     fun closeDiagnostic() = scope.launch(ui) {
-        diagnostic = null; diagnosticError = null; diagnosticFailure = null; callSheetOpen = false; diagnosticCallSheet = null
+        diagnostic = null; diagnosticError = null; diagnosticFailure = null; callSheetOpen = false; diagnosticCallSheet = null; diagnosticOrderTerms = null
         activityForm = null; selectedIntents = emptyList(); endReview = null
         orderOpen = false; orderDraftId = null; visitOrderDrafts = emptyList(); orderReview = false; orderChecks = emptyList()
         photoCaptureOpen = false; diagnosticPhotos = emptyList()
@@ -802,9 +814,11 @@ class FieldController(
         diagnosticRows = withContext(io) { backend.visitStates() }
         diagnosticRules = withContext(io) { backend.activityRules() }
         val sheet = visit?.outletId?.let { withContext(io) { backend.callSheet(it) } }
+        val terms = visit?.outletId?.let { withContext(io) { backend.orderTerms(it) } }
         val drafts = if (visit == null) emptyList() else withContext(io) { backend.orderDrafts() }
         if (diagnostic == visit) {
             diagnosticCallSheet = sheet
+            diagnosticOrderTerms = terms
             val calls = visit?.let { relatedCall(it) }.orEmpty().map { it.first.clientVisitId }.toSet()
             visitOrderDrafts = drafts.filter { it.clientVisitId in calls }
         }
@@ -815,7 +829,7 @@ class FieldController(
         if (diagnostic == visit) diagnosticPhotos = photos
     }
     /** Save the open draft (or a new one) for the open call. [quantities] = productId → whole number. */
-    fun saveOrderDraft(quantities: List<Pair<String, Int>>, onSaved: () -> Unit = {}) = scope.launch(ui) {
+    fun saveOrderDraft(quantities: List<Pair<String, Int>>, units: Map<String, String> = emptyMap(), onSaved: () -> Unit = {}) = scope.launch(ui) {
         val visit = diagnostic ?: return@launch
         if (busy) return@launch
         busy = true; diagnosticError = null
@@ -824,7 +838,7 @@ class FieldController(
             val checkin = relatedCall(visit).lastOrNull { (row, state) -> row.kind == "visit.checkIn" && state != "review" }
                 ?.first ?: throw OrderDraftFailure(OrderDraftFailure.Code.CALL_NOT_OPEN)
             val saved = withContext(io) {
-                backend.saveOrderDraft(orderDraftId, checkin.clientVisitId, checkin.requestId, quantities)
+                backend.saveOrderDraft(orderDraftId, checkin.clientVisitId, checkin.requestId, quantities, units)
             }
             refreshDiagnostic()
             // Switch the editor to the saved draft only once its row is loaded (the editor re-seeds then).

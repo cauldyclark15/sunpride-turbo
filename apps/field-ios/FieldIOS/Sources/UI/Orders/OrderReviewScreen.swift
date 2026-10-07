@@ -1,7 +1,6 @@
 import SwiftUI
 
-/// SP-0043 (IOS-015) review step: the lines, totals (units per UOM; never an amount while prices are
-/// unavailable), the rules the phone can check offline, then Send. After sending, the same screen
+/// SP-0088 review: priced line amounts, totals and an advisory offline credit check. After sending, the screen
 /// shows the order's sync status from the durable outbox.
 struct OrderReviewScreen: View {
     let model: AppModel
@@ -66,7 +65,7 @@ struct OrderReviewScreen: View {
                 VStack(spacing: 0) {
                     ForEach(draft.lines, id: \.productId) { line in
                         CalmListRow(symbol: "shippingbox", title: line.name,
-                                    meta: "\(line.code) · \(OrderSubmission.grouped(line.quantity)) \(line.uom)")
+                                    meta: "\(line.code) · \(OrderSubmission.grouped(line.quantity)) \(line.uom) · \(line.unitPriceMinor == nil ? "Priced by the office" : OrderSubmission.lineAmount(line).map(OrderSubmission.money) ?? "Amount too large to preview")")
                             .accessibilityIdentifier("orderLine-\(line.productId)")
                     }
                 }
@@ -74,7 +73,12 @@ struct OrderReviewScreen: View {
             SectionCard(title: "Total") {
                 DetailRows {
                     DetailRow(label: "Quantity", value: totals.text)
-                    DetailRow(label: "Amount", value: "Priced by the office")
+                    DetailRow(label: "Amount", value: totals.amountText)
+                    if let office = totals.officeText { DetailRow(label: "Also", value: office) }
+                    if let list = draft.priceList {
+                        DetailRow(label: "Price list", value: list.name)
+                        if list.sample { DetailRow(label: "Preview", value: "Sample prices") }
+                    } else { DetailRow(label: "Prices", value: "Prices: set by the office") }
                 }
                 .accessibilityIdentifier("orderTotals")
             }
@@ -82,9 +86,21 @@ struct OrderReviewScreen: View {
                 SectionCard(title: "Checks") {
                     VStack(spacing: 0) {
                         ForEach(model.orderChecks(draft), id: \.label) { check in
-                            CalmListRow(symbol: check.ok ? (check.blocking ? "checkmark.circle" : "info.circle") : "exclamationmark.triangle",
-                                        title: check.label, meta: check.problem ?? check.note ?? "OK")
-                                .accessibilityIdentifier(check.ok ? "orderCheckOk" : "orderCheckProblem")
+                            VStack(alignment: .leading, spacing: 4) {
+                                if check.warning {
+                                    Label("Warning · approval needed", systemImage: "exclamationmark.triangle")
+                                        .font(SunprideTokens.TypeStyle.caption)
+                                        .padding(8)
+                                        .foregroundStyle(SunprideTokens.warningText)
+                                        .background(SunprideTokens.warning, in: RoundedRectangle(cornerRadius: 8))
+                                        .padding(.horizontal, 16)
+                                }
+                                CalmListRow(symbol: check.warning || !check.ok ? "exclamationmark.triangle" :
+                                                (check.blocking || check.label == "Within the store's credit limit" ? "checkmark.circle" : "info.circle"),
+                                            title: check.label, meta: check.problem ?? check.note ?? "OK")
+                            }
+                            .padding(.vertical, 8)
+                            .accessibilityIdentifier(check.warning ? "orderCheckWarning" : check.ok ? "orderCheckOk" : "orderCheckProblem")
                         }
                     }
                 }

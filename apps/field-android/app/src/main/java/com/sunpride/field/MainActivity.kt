@@ -21,6 +21,9 @@ class MainActivity : FragmentActivity() {
     private val features = FieldFeatures.forBuild(BuildConfig.FLAVOR, BuildConfig.DEBUG, BuildConfig.WEB_URL)
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // SP-0126: the manifest launches on the red logo splash theme; swap to the app theme before the
+        // first frame so the splash ends when content draws.
+        setTheme(R.style.Theme_SunprideField)
         super.onCreate(savedInstanceState)
         com.sunpride.field.diagnostics.CrashBreadcrumbs.install(applicationContext)
         val environment = AppEnvironment(BuildConfig.CONVEX_SITE_URL, BuildConfig.CONVEX_URL)
