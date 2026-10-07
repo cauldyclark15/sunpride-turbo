@@ -111,4 +111,16 @@ class ReturnRulesTest {
         ReturnProblem.entries.forEach { assertTrue(VanRules.returnMessage(it,"Juice").isNotBlank()) }
         ReturnApprovalReason.entries.forEach { assertTrue(VanRules.approvalLabel(it).isNotBlank()) }
     }
+    @Test fun captureComparesEveryDetailAsItIsSaved() {
+        val line = ReturnLineInput("p1","PC",2,"expired",ReturnDisposition.BAD_STOCK," lot  7a ","2027-01-31")
+        val r = ReturnRequest("1b4e28ba-2fa1-41d2-883f-0016d3cca427","o1","s1",listOf(line)," note ")
+        val saved = ReturnCapture("o1","s1","note",listOf(ReturnCapture.Line("p1","PC",2,"expired","bad_stock","LOT 7A","2027-01-31")))
+        assertEquals(saved,ReturnCapture.of(r))
+        assertNotEquals(saved,ReturnCapture.of(r.copy(lines = listOf(line.copy(disposition = ReturnDisposition.DISPOSED_AT_OUTLET)))))
+        assertNotEquals(saved,ReturnCapture.of(r.copy(lines = listOf(line.copy(uomCode = "CS")))))
+        assertNotEquals(saved,ReturnCapture.of(r.copy(lines = listOf(line.copy(lotNumber = null)))))
+        assertNotEquals(saved,ReturnCapture.of(r.copy(lines = listOf(line.copy(expiryDate = "2027-02-01")))))
+        assertNotEquals(saved,ReturnCapture.of(r.copy(originalSaleId = null)))
+        assertNotEquals(saved,ReturnCapture.of(r.copy(note = null)))
+    }
 }

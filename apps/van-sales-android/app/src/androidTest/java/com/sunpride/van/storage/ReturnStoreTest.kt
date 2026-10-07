@@ -138,6 +138,51 @@ class ReturnStoreTest {
         assertTrue(runCatching { returns.commit(r.copy(lines = listOf(line(qty = 3)))) }.isFailure)
         assertEquals(2L,damaged()); Unit
     }
+    @Test fun replayKeepsTheSavedUnitAndProductAfterTheOfficeChangesThem() = runBlocking {
+        ready()
+        val r = request(line(uom = "CS",qty = 48,reason = "overstock",disposition = ReturnDisposition.BAD_STOCK),
+            line(product = chunks,qty = 1,reason = "overstock",disposition = ReturnDisposition.BAD_STOCK))
+        val first = returns.commit(r)
+        // Same trip, new bootstrap: the juice case is now 12 PC and renamed; the chunks are no longer sold.
+        val o = JSONObject(fixture())
+        val products = o.getJSONArray("products")
+        val juiceJson = products.getJSONObject(0).put("name","Pineapple Juice 1L (new pack)")
+        juiceJson.getJSONArray("barcodeUnits").getJSONObject(1).put("baseQuantity","12")
+        products.remove(1)
+        o.getJSONObject("load").getJSONArray("lines").remove(1)
+        o.getJSONArray("truckStock").remove(1)
+        store.replaceBootstrap(o.toString())
+        val again = returns.commit(r)
+        assertTrue(again.replay); assertEquals(first.returnNumber,again.returnNumber)
+        assertEquals(listOf("2","1"),again.lines.map { it.unitQuantity })
+        assertEquals(listOf(24L,1L),again.lines.map { it.unit.baseQuantity })
+        assertEquals(listOf("Pineapple Juice 1L","Pineapple Chunks 432g"),again.lines.map { it.product.name })
+        assertEquals(first.customerName,again.customerName)
+        assertEquals(1,db.rows().customerreturnRows(s,d).size); Unit
+    }
+    @Test fun sameReturnIdWithAnyChangedDetailIsAConflict() = runBlocking {
+        ready()
+        val saleId = sell()
+        val base = ReturnLineInput(juice,"PC",2,"overstock",ReturnDisposition.BAD_STOCK,null,null)
+        val r = request(base,saleId = saleId)
+        returns.commit(r)
+        val variants = mapOf(
+            "disposition" to r.copy(lines = listOf(base.copy(disposition = ReturnDisposition.RESELLABLE))),
+            "reason" to r.copy(lines = listOf(base.copy(reasonCode = "quality_complaint",lotNumber = "LOT-1"))),
+            "unit" to r.copy(lines = listOf(base.copy(uomCode = "CS",quantityBase = 24))),
+            "batch" to r.copy(lines = listOf(base.copy(lotNumber = "LOT-1"))),
+            "expiry" to r.copy(lines = listOf(base.copy(expiryDate = "2027-01-31"))),
+            "sale link" to r.copy(originalSaleId = null),
+            "note" to r.copy(note = "Different note"),
+        )
+        variants.forEach { (field,variant) ->
+            val failure = runCatching { returns.commit(variant) }.exceptionOrNull()
+            assertTrue("$field change must be a conflict, got $failure",failure is ReturnReplayConflict)
+        }
+        // The same capture written with extra spaces is still the same return.
+        assertTrue(returns.commit(r.copy(note = "  Picked up at the store ")).replay)
+        assertEquals(1,db.rows().customerreturnRows(s,d).size); assertEquals(2L,damaged()); Unit
+    }
     @Test fun refusedOrFailedReturnWritesNothing() = runBlocking {
         ready()
         assertEquals(setOf(ReturnProblem.BATCH_MISSING),refused { returns.commit(request(line(reason = "expired"))) })

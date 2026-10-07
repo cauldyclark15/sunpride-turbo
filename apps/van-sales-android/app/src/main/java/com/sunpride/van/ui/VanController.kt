@@ -224,6 +224,8 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
             returnDraft = null; page = Page.RETURN_DONE
         } catch (e: ReturnRefused) {
             message = e.issues.joinToString("\n") { issue -> VanRules.returnMessage(issue.problem,issue.productId?.let { id -> products.firstOrNull { it.productId == id }?.name }) }
+        } catch (_: ReturnReplayConflict) {
+            message = "This return was already saved with different details. Cancel it and record a new return."
         }
     }
     /** Print the receipt again: the original if it never reached paper, else a REPRINT copy that needs [reason]. */

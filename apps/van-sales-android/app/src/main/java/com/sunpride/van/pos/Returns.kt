@@ -122,6 +122,28 @@ data class ReturnContext(val tripOpen: Boolean, val customers: List<Customer>, v
 
 class ReturnRefused(val issues: List<ReturnIssue>) : IllegalStateException("Return refused")
 
+/** The return ID is already saved with different details: refused, never treated as a replay of the saved return. */
+class ReturnReplayConflict : IllegalStateException("Return replay conflict")
+
+/**
+ * Everything the seller captured for a return, normalized the way it is saved. Saving the same return ID again
+ * is a replay only when this whole capture is equal — customer, linked sale, note and every line's product,
+ * unit, base quantity, reason, disposition, batch and expiry, in order.
+ */
+data class ReturnCapture(val customerId: String?, val originalSaleId: String?, val note: String?, val lines: List<Line>) {
+    data class Line(val productId: String, val uomCode: String, val quantityBase: Long, val reasonCode: String?,
+        val disposition: String?, val lotNumber: String?, val expiryDate: String?)
+    companion object {
+        fun of(request: ReturnRequest) = ReturnCapture(request.customerId, request.originalSaleId,
+            request.note?.trim()?.takeIf { it.isNotEmpty() },
+            request.lines.map { l ->
+                Line(l.productId, l.uomCode, l.quantityBase, l.reasonCode, l.disposition?.wire,
+                    l.lotNumber?.takeIf { it.isNotBlank() }?.let { ReturnRules.normalizeLot(it) ?: it.trim() },
+                    l.expiryDate?.takeIf { it.isNotBlank() }?.let { ReturnRules.parseExpiry(it) ?: it.trim() })
+            })
+    }
+}
+
 /** The saved return as shown to the seller. */
 data class ReturnReceipt(val returnId: String, val returnNumber: String, val customerName: String, val saleReceiptNumber: String?,
     val lines: List<QuotedReturnLine>, val approvalReasons: List<ReturnApprovalReason>, val status: String, val createdAt: Long, val replay: Boolean = false)
