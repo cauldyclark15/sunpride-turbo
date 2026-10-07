@@ -201,8 +201,8 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
             dao.productRows(s,d).map { VanBootstrapCodec.product(JSONObject(it.json)) }, stock(),
             dao.pricelistlineRows(s,d).map { PriceLine(it.priceListId,it.productId,it.uomCode,it.unitPriceMinor,it.currency,it.effectiveFrom,it.effectiveTo,it.priceListCode) },
             meta?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)) }, clock(), t?.serviceDate,
-            facts.creditUsedMinor, facts.usedReferences, counted, stockCounted,
-            dao.promotionRows(s,d).map { VanBootstrapCodec.promotion(JSONObject(it.json)) })
+            facts.creditUsedMinor, facts.usedReferences, counted,
+            dao.promotionRows(s,d).map { VanBootstrapCodec.promotion(JSONObject(it.json)) }, stockCounted)
     }
 
     /**

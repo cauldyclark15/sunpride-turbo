@@ -228,7 +228,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     suspend fun refreshPaymentFacts() { paymentFacts = runCatching { repository.paymentFacts() }.getOrDefault(com.sunpride.van.storage.PaymentFacts()) }
     fun saleContext(now: Long = System.currentTimeMillis()): CheckoutContext =
         CheckoutContext(VanRules.canSell(trip) && session.signedIn,customers,products,stock,prices,policy,now,trip?.serviceDate,
-            paymentFacts.creditUsedMinor,paymentFacts.usedReferences,cashCounted,stockCounted,promotions)
+            paymentFacts.creditUsedMinor,paymentFacts.usedReferences,cashCounted,promotions,stockCounted)
     fun quote(payment: PaymentInput): CheckoutResult? = sale?.let { CheckoutRules.evaluate(CheckoutRequest(it.saleId,it.customer.outletId,it.lines,payment),saleContext()) }
     /** Lines and total of the cart alone, before a payment is entered. */
     fun cartQuote(): CheckoutQuote? = sale?.let { CheckoutRules.cartQuote(CheckoutRequest(it.saleId,it.customer.outletId,it.lines,PaymentInput(PaymentMethod.CASH.code)),saleContext()) }

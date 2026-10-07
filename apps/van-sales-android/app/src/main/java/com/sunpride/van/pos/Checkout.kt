@@ -81,8 +81,8 @@ data class CheckoutResult(val quote: CheckoutQuote?, val issues: List<CheckoutIs
 data class CheckoutContext(val tripSelling: Boolean, val customers: List<Customer>, val products: List<Product>,
     val stock: List<TruckStock>, val prices: List<PriceLine>, val policy: VanPolicy?, val now: Long,
     val serviceDate: String? = null, val creditUsedMinor: Map<String,Long> = emptyMap(), val usedReferences: Set<String> = emptySet(),
-    val cashCounted: Boolean = false, val stockCounted: Boolean = false,
-    val promotions: List<com.sunpride.van.data.Promotion> = emptyList())
+    val cashCounted: Boolean = false, val promotions: List<com.sunpride.van.data.Promotion> = emptyList(),
+    val stockCounted: Boolean = false)
 
 class CheckoutRefused(val issues: List<CheckoutIssue>) : IllegalStateException("Checkout refused")
 
