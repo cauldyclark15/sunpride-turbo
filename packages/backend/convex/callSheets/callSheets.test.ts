@@ -189,7 +189,7 @@ async function fixture() {
   };
   const apply = (operation: Parameters<typeof applyVisitOperation>[2]) =>
     as("sales").run((ctx) => applyVisitOperation(ctx, actor, operation));
-  const checkIn = async (n = 1) =>
+  const checkIn = async (n = 1, deviceTime = now) =>
     (
       await apply({
         kind: "visit.checkIn",
@@ -199,13 +199,13 @@ async function fixture() {
           plannedVisitId: null,
           outletId: ids.outlet,
           serviceDate,
-          deviceTime: now,
+          deviceTime,
           location: {
             latitude: 14.6,
             longitude: 121,
             accuracyMeters: 5,
             provider: "gps",
-            fixTime: now,
+            fixTime: deviceTime,
           },
           intents: ["sell"],
           unplannedReason: "urgent_follow_up",
@@ -762,5 +762,379 @@ describe("field order submission (SP-0060)", () => {
     expect(
       await f.t.run((ctx) => ctx.db.query("visitActivities").collect()),
     ).toHaveLength(1);
+  });
+});
+
+describe("field order pricing and credit check (SP-0088)", () => {
+  type F = Awaited<ReturnType<typeof fixture>>;
+  const order = (
+    f: F,
+    n: number,
+    visitId: Id<"visitExecutions">,
+    lines: { productId: Id<"products">; uom: string; quantity: number }[],
+    deviceTime = now,
+  ) =>
+    f.apply({
+      kind: "visit.activity",
+      clientRequestId: uuid(n),
+      payload: {
+        visitId,
+        activity: { kind: "order_intent", clientOrderId: uuid(n + 500), lines },
+        deviceTime,
+      },
+    });
+  const pricings = (f: F) =>
+    f.t.run((ctx) => ctx.db.query("fieldOrderPricings").collect());
+
+  /** Units CAN (the product's own) and CS (24 cans), a store and three price lists. */
+  async function priced(channel = "Key Accounts", creditLimit = 1_000) {
+    const f = await fixture();
+    const more = await f.t.run(async (ctx) => {
+      const unit = (code: string) =>
+        ctx.db.insert("unitsOfMeasure", {
+          organizationId: "sunpride",
+          code,
+          name: code,
+          dimension: "count",
+          decimalPlaces: 0,
+          active: true,
+          createdAt: now,
+          updatedAt: now,
+        });
+      const can = await unit("CAN");
+      const cs = await unit("CS");
+      await ctx.db.patch(f.ids.hotdog, {
+        baseUomId: can,
+        sellingUomIds: [can, cs],
+      });
+      await ctx.db.patch(f.ids.outlet, { channel });
+      const customer = await ctx.db.insert("customers", {
+        code: "C-PG-001",
+        name: "Puregold Example",
+        channel: "Distributor",
+        territory: "T",
+        creditLimit,
+        active: true,
+        updatedAt: now,
+      });
+      await ctx.db.insert("outletCustomerLinks", {
+        outletId: f.ids.outlet,
+        customerId: customer,
+        source: "fixture",
+        effectiveFrom: now - 10e7,
+        actorSubject: "fixture",
+        reason: "fixture",
+        createdAt: now,
+      });
+      const list = (code: string, channelKey: string | null) =>
+        ctx.db.insert("priceLists", {
+          organizationId: "sunpride",
+          code,
+          name: code,
+          channelKey,
+          currency: "PHP",
+          status: "active",
+          source: "sample",
+          effectiveFrom: 0,
+          updatedAt: now,
+        });
+      const ka = await list("SAMPLE-KA", "key accounts");
+      const std = await list("SAMPLE-STD", null);
+      return { customer, ka, std };
+    });
+    const priceLine = (
+      priceListId: Id<"priceLists">,
+      productId: Id<"products">,
+      uom: string,
+      unitPriceMinor: number,
+      effectiveFrom = 0,
+    ) =>
+      f.t.run((ctx) =>
+        ctx.db.insert("priceListLines", {
+          organizationId: "sunpride",
+          priceListId,
+          productId,
+          uom,
+          unitPriceMinor,
+          effectiveFrom,
+          updatedAt: now,
+        }),
+      );
+    await priceLine(more.ka, f.ids.hotdog, "CAN", 4_500);
+    await priceLine(more.ka, f.ids.hotdog, "CS", 104_000);
+    await priceLine(more.std, f.ids.hotdog, "CAN", 5_000);
+    await priceLine(more.std, f.ids.corned, "CAN", 7_525);
+    await f.saveAccount();
+    return { ...f, ...more, priceLine };
+  }
+
+  it("prices the order from the outlet channel's list, in any selling unit, and checks credit", async () => {
+    const f = await priced();
+    const visitId = await f.checkIn();
+    // One line per product: the same product in two units is refused (pick one unit).
+    await expect(
+      order(f, 2, visitId, [
+        { productId: f.ids.hotdog, uom: "CAN", quantity: 12 },
+        { productId: f.ids.hotdog, uom: "CS", quantity: 2 },
+      ]),
+    ).rejects.toThrow("invalid_request");
+    await order(f, 3, visitId, [
+      { productId: f.ids.hotdog, uom: "CS", quantity: 2 },
+      // On the account but not on the Key Accounts list: the office prices it.
+      { productId: f.ids.corned, uom: "CAN", quantity: 3 },
+    ]);
+    const [row] = await pricings(f);
+    expect(row).toMatchObject({
+      visitId,
+      outletId: f.ids.outlet,
+      customerId: f.customer,
+      priceListId: f.ka,
+      priceListSource: "sample",
+      currency: "PHP",
+      pricedAt: now,
+      lines: [
+        {
+          productId: f.ids.hotdog,
+          uom: "CS",
+          quantity: 2,
+          unitPriceMinor: 104_000,
+          lineTotalMinor: 208_000,
+        },
+        {
+          productId: f.ids.corned,
+          uom: "CAN",
+          quantity: 3,
+          unitPriceMinor: null,
+          lineTotalMinor: null,
+        },
+      ],
+      totalMinor: 208_000,
+      unpricedLines: 1,
+      // ₱1,000 limit, nothing open: ₱2,080 is over.
+      credit: { status: "over", limitMinor: 100_000, openOrdersMinor: 0 },
+    });
+    // A unit the product is not sold in is refused, and nothing is priced for it.
+    await expect(
+      order(f, 4, visitId, [
+        { productId: f.ids.hotdog, uom: "PC", quantity: 1 },
+      ]),
+    ).rejects.toThrow("invalid_request");
+    expect(await pricings(f)).toHaveLength(1);
+  });
+
+  it("counts open orders and earlier orders on the call against the credit limit", async () => {
+    const f = await priced("Key Accounts", 2_000);
+    await f.t.run(async (ctx) => {
+      const base = {
+        organizationId: "sunpride",
+        orderNumber: "SO-1",
+        customerCode: "C-PG-001",
+        salespersonSubject: "https://auth.test|someone-else",
+        subtotal: 0,
+        createdAt: now - 10_000,
+        updatedAt: now,
+      };
+      await ctx.db.insert("orders", {
+        ...base,
+        clientRequestId: "a",
+        status: "approved",
+        total: 1_000,
+      });
+      // Already fulfilled: no longer outstanding.
+      await ctx.db.insert("orders", {
+        ...base,
+        clientRequestId: "b",
+        status: "posted",
+        total: 5_000,
+      });
+    });
+    const visitId = await f.checkIn();
+    await order(f, 2, visitId, [
+      { productId: f.ids.hotdog, uom: "CAN", quantity: 10 },
+    ]);
+    await order(f, 3, visitId, [
+      { productId: f.ids.hotdog, uom: "CAN", quantity: 10 },
+    ]);
+    await order(f, 4, visitId, [
+      { productId: f.ids.hotdog, uom: "CS", quantity: 1 },
+    ]);
+    const rows = await pricings(f);
+    expect(rows.map((row) => [row.totalMinor, row.credit])).toEqual([
+      [
+        45_000,
+        { status: "within", limitMinor: 200_000, openOrdersMinor: 100_000 },
+      ],
+      [
+        45_000,
+        { status: "within", limitMinor: 200_000, openOrdersMinor: 145_000 },
+      ],
+      [
+        104_000,
+        { status: "over", limitMinor: 200_000, openOrdersMinor: 190_000 },
+      ],
+    ]);
+  });
+
+  it("uses the default list for other channels, prices at capture time, and never guesses between two lists", async () => {
+    const f = await priced("Sari-sari", 0);
+    const visitId = await f.checkIn(1, now - 180_000);
+    // A new standard price starts after the order was taken offline.
+    await f.t.run(async (ctx) => {
+      const old = (await ctx.db.query("priceListLines").collect()).find(
+        (line) => line.priceListId === f.std && line.productId === f.ids.hotdog,
+      )!;
+      await ctx.db.patch(old._id, { effectiveTo: now - 60_000 });
+    });
+    await f.priceLine(f.std, f.ids.hotdog, "CAN", 5_500, now - 60_000);
+    await order(
+      f,
+      2,
+      visitId,
+      [{ productId: f.ids.hotdog, uom: "CAN", quantity: 2 }],
+      now - 120_000,
+    );
+    await order(f, 3, visitId, [
+      { productId: f.ids.hotdog, uom: "CAN", quantity: 2 },
+    ]);
+    // A second effective Key Accounts list makes Key Accounts outlets unpriced, not defaulted.
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch(f.ids.outlet, { channel: " KEY ACCOUNTS " });
+      await ctx.db.insert("priceLists", {
+        organizationId: "sunpride",
+        code: "KA-2",
+        name: "KA-2",
+        channelKey: "key accounts",
+        currency: "PHP",
+        status: "active",
+        source: "office",
+        effectiveFrom: 0,
+        updatedAt: now,
+      });
+    });
+    await order(f, 4, visitId, [
+      { productId: f.ids.hotdog, uom: "CAN", quantity: 2 },
+    ]);
+    const rows = await pricings(f);
+    expect(
+      rows.map((row) => [row.priceListId, row.totalMinor, row.credit.status]),
+    ).toEqual([
+      [f.std, 10_000, "no_limit"],
+      [f.std, 11_000, "no_limit"],
+      [null, 0, "no_limit"],
+    ]);
+    expect(rows[2]!.unpricedLines).toBe(1);
+  });
+
+  it("refuses an order stamped before the call's check-in instead of pricing it at a retired price", async () => {
+    const f = await priced("Sari-sari", 0);
+    // Yesterday's standard price was ₱1.00; today's is ₱100.00.
+    await f.t.run(async (ctx) => {
+      const old = (await ctx.db.query("priceListLines").collect()).find(
+        (line) => line.priceListId === f.std && line.productId === f.ids.hotdog,
+      )!;
+      await ctx.db.patch(old._id, {
+        unitPriceMinor: 100,
+        effectiveTo: now - 3_600_000,
+      });
+    });
+    await f.priceLine(f.std, f.ids.hotdog, "CAN", 10_000, now - 3_600_000);
+    const visitId = await f.checkIn(1, now - 60_000);
+    await expect(
+      order(
+        f,
+        2,
+        visitId,
+        [{ productId: f.ids.hotdog, uom: "CAN", quantity: 1 }],
+        now - 86_400_000,
+      ),
+    ).rejects.toThrow("invalid_request");
+    expect(await pricings(f)).toHaveLength(0);
+    expect(
+      await f.t.run((ctx) => ctx.db.query("visitActivities").collect()),
+    ).toHaveLength(0);
+    // At (or after) the check-in the current price applies.
+    await order(
+      f,
+      3,
+      visitId,
+      [{ productId: f.ids.hotdog, uom: "CAN", quantity: 1 }],
+      now - 60_000,
+    );
+    const [row] = await pricings(f);
+    expect(row).toMatchObject({ pricedAt: now - 60_000, totalMinor: 10_000 });
+  });
+
+  it("never reports within credit when a line has no price, but a known amount can still be over", async () => {
+    const f = await priced("Key Accounts", 1_000);
+    const visitId = await f.checkIn();
+    // Corned beef is not on the Key Accounts list: the whole order is office-priced.
+    await order(f, 2, visitId, [
+      { productId: f.ids.corned, uom: "CAN", quantity: 9_999 },
+    ]);
+    // A later fully priced order within the limit still cannot be "within": the earlier one
+    // has an unknown amount.
+    await order(f, 3, visitId, [
+      { productId: f.ids.hotdog, uom: "CAN", quantity: 1 },
+    ]);
+    // Known amounts alone over the limit: over.
+    await order(f, 4, visitId, [
+      { productId: f.ids.hotdog, uom: "CS", quantity: 1 },
+      { productId: f.ids.corned, uom: "CAN", quantity: 1 },
+    ]);
+    const rows = await pricings(f);
+    expect(
+      rows.map((row) => [row.totalMinor, row.unpricedLines, row.credit]),
+    ).toEqual([
+      [0, 1, { status: "unknown", limitMinor: 100_000, openOrdersMinor: 0 }],
+      [
+        4_500,
+        0,
+        { status: "unknown", limitMinor: 100_000, openOrdersMinor: 0 },
+      ],
+      [
+        104_000,
+        1,
+        { status: "over", limitMinor: 100_000, openOrdersMinor: 4_500 },
+      ],
+    ]);
+  });
+
+  it("counts field orders sent on earlier calls for the same customer against the limit", async () => {
+    const f = await priced("Key Accounts", 1_000);
+    // Two separate calls, each ₱585 against a ₱1,000 limit: the second is over.
+    const first = await f.checkIn(1);
+    await order(f, 2, first, [
+      { productId: f.ids.hotdog, uom: "CAN", quantity: 13 },
+    ]);
+    await f.apply({
+      kind: "visit.checkOut",
+      clientRequestId: uuid(3),
+      payload: {
+        visitId: first,
+        outcome: "completed",
+        reasonCode: null,
+        location: {
+          latitude: 14.6,
+          longitude: 121,
+          accuracyMeters: 5,
+          provider: "gps",
+          fixTime: now,
+        },
+        deviceTime: now,
+      },
+    });
+    const second = await f.checkIn(4);
+    expect(second).not.toBe(first);
+    await order(f, 5, second, [
+      { productId: f.ids.hotdog, uom: "CAN", quantity: 13 },
+    ]);
+    const rows = await pricings(f);
+    expect(rows.map((row) => [row.visitId, row.credit])).toEqual([
+      [first, { status: "within", limitMinor: 100_000, openOrdersMinor: 0 }],
+      [
+        second,
+        { status: "over", limitMinor: 100_000, openOrdersMinor: 58_500 },
+      ],
+    ]);
   });
 });

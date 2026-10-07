@@ -55,7 +55,7 @@ final class OrderDraftTests: XCTestCase {
                              line("p-sardines", "SP-200", "Sardines in Tomato Sauce", uom: "PC"),
                              line("p-tuna", "SP-210", "Tuna Flakes Niçoise")])
     }
-    private func save(_ sheet: CallSheet?, territory: Bool = true, leaseSeconds: TimeInterval? = nil) throws {
+    private func save(_ sheet: CallSheet?, territory: Bool = true, leaseSeconds: TimeInterval? = nil, terms: [OrderTerms] = []) throws {
         let expiry = Int64((leaseSeconds.map { clock.now.addingTimeInterval($0) } ?? FieldDay.nextClose(after: clock.now)).timeIntervalSince1970 * 1000)
         let outlets: [StoreSnapshot.Outlet] = [
             .init(id: "first", name: "Sto. Niño Mart", routeId: "route-1", code: "O-1", customerId: "cust-1",
@@ -66,13 +66,50 @@ final class OrderDraftTests: XCTestCase {
             visits: [.init(id: "first", outletId: "first", serviceDate: day, planId: "plan", planVersion: 1, intents: ["sell"], sequence: 0),
                      .init(id: "second", outletId: "second", serviceDate: day, planId: "plan", planVersion: 1, intents: ["sell"], sequence: 1)],
             outlets: outlets, customers: [.init(id: "cust-1", code: "C-001")], route: .init(id: "route-1", code: "R-1"), tasks: [],
-            callSheets: sheet.map { [$0] } ?? []),
+            callSheets: sheet.map { [$0] } ?? [], orderTerms: terms),
             cursor: "cursor", leaseExpiresAt: expiry, cacheExpiresAt: expiry, for: partition)
     }
     private func visit(_ id: String = "first") throws -> AppModel.TodayVisit { try XCTUnwrap(model.visits.first { $0.id == id }) }
     private func start(_ id: String = "first") throws { try model.queueCheckIn(try visit(id), unplannedReason: nil, location: nil) }
     private func expect(_ failure: OrderDraftFailure, _ work: () throws -> Void) {
         XCTAssertThrowsError(try work()) { XCTAssertEqual($0 as? OrderDraftFailure, failure, "\($0)") }
+    }
+
+    func testPricesAndSellingUnitsPersistAndStaleDraftCannotSubmit() throws {
+        let list = OrderTerms.PriceList(id: "sample", code: "SAMPLE-GT", name: "General trade", currency: "PHP", sample: true)
+        let original = OrderTerms(outletId: "first", priceList: list, lines: [
+            .init(productId: "p-corned", uom: "CS", unitPriceMinor: 105325),
+            .init(productId: "p-corned", uom: "CAN", unitPriceMinor: 4525)])
+        try save(sheet(), terms: [original]); model.refreshToday(); try start()
+        XCTAssertEqual(model.orderCatalog(for: try visit())[0].units.map(\.uom), ["CS", "CAN"])
+        let draft = try model.saveOrderDraft(draftId: nil, quantities: [("p-corned", 2)], units: ["p-corned": "CAN"], for: try visit())
+        XCTAssertEqual(try store.orderDrafts(for: partition).first, draft)
+        XCTAssertEqual(draft.priceList, list); XCTAssertEqual(draft.lines[0].unitPriceMinor, 4525)
+        let changed = OrderTerms(outletId: "first", priceList: list, lines: [
+            .init(productId: "p-corned", uom: "CS", unitPriceMinor: 105325),
+            .init(productId: "p-corned", uom: "CAN", unitPriceMinor: 4600)])
+        try save(sheet(), terms: [changed]); model.refreshToday()
+        expect(.pricesChanged) { try model.submitOrderDraft(draft.draftId) }
+        XCTAssertEqual(model.orderChecks(draft).first { $0.label == "Products are set up for this account" }?.problem,
+                       "Prices or units changed for this account. Check the lines and save again.")
+        let refreshed = try model.saveOrderDraft(draftId: draft.draftId, quantities: [("p-corned", 2)], for: try visit())
+        XCTAssertEqual(refreshed.lines[0].uom, "CAN"); XCTAssertEqual(refreshed.lines[0].unitPriceMinor, 4600)
+        _ = try model.submitOrderDraft(refreshed.draftId)
+    }
+
+    func testV6MigrationKeepsSavedDraftAndSnapshotAndAddsTerms() throws {
+        try start()
+        let draft = try model.saveOrderDraft(draftId: nil, quantities: [("p-corned", 2)], for: try visit())
+        try store.prepareLegacyV6(); XCTAssertEqual(store.schemaVersion, 6)
+        store.close()
+        store = try EncryptedFieldStore(url: directory.appending(path: "field.sqlite"), secrets: secrets, keyAccount: "db")
+        XCTAssertEqual(store.schemaVersion, 7)
+        XCTAssertEqual(try store.orderDrafts(for: partition), [draft])
+        XCTAssertEqual(try store.snapshot(for: partition)?.callSheets, [sheet()])
+        XCTAssertEqual(try store.snapshot(for: partition)?.orderTerms, [])
+        XCTAssertEqual(try store.intents(for: partition).count, 1)
+        try save(sheet(), terms: [.init(outletId: "first", priceList: nil, lines: [.init(productId: "p-corned", uom: "CS", unitPriceMinor: nil)])])
+        XCTAssertEqual(try store.snapshot(for: partition)?.orderTerms.count, 1)
     }
 
     func testSearchIsAccentAndCaseInsensitiveExactCodeFirst() {
@@ -264,7 +301,7 @@ final class OrderDraftTests: XCTestCase {
         XCTAssertEqual(store.schemaVersion, 3)
         store.close()
         store = try EncryptedFieldStore(url: directory.appending(path: "field.sqlite"), secrets: secrets, keyAccount: "db")
-        XCTAssertEqual(store.schemaVersion, 6)
+        XCTAssertEqual(store.schemaVersion, 7)
         XCTAssertEqual(try store.pendingOutbox(for: partition).map(\.intent), [queued])
         XCTAssertEqual(try store.snapshot(for: partition)?.callSheets.count, 1)
         XCTAssertTrue(try store.orderDrafts(for: partition).isEmpty)
@@ -279,7 +316,7 @@ final class OrderDraftTests: XCTestCase {
         XCTAssertEqual(store.schemaVersion, 4)
         store.close()
         store = try EncryptedFieldStore(url: directory.appending(path: "field.sqlite"), secrets: secrets, keyAccount: "db")
-        XCTAssertEqual(store.schemaVersion, 6)
+        XCTAssertEqual(store.schemaVersion, 7)
         XCTAssertEqual(try store.orderDrafts(for: partition), [draft])
         XCTAssertEqual(try store.pendingOutbox(for: partition).map(\.intent), [queued])
         XCTAssertEqual(try store.snapshot(for: partition)?.callSheets.count, 1)

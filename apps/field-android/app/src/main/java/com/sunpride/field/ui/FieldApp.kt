@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -22,6 +23,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -35,6 +39,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -107,7 +112,7 @@ fun FieldApp(
     val status = controller.today.syncStatus.copy(offline = offline)
     MaterialTheme(colorScheme = if (dark) SunprideTokens.darkColors else SunprideTokens.lightColors,
         shapes = SunprideTokens.shapes, typography = SunprideTokens.typography) {
-        Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
+        Scaffold(contentWindowInsets = WindowInsets.safeDrawing, containerColor = MaterialTheme.colorScheme.background, topBar = {
             Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp, modifier = Modifier.statusBarsPadding()) {
                 Column {
                 Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 20.dp),
@@ -162,7 +167,7 @@ fun FieldApp(
                 }
             }
         }) { padding ->
-            val modifier = Modifier.padding(padding)
+            val modifier = Modifier.padding(padding).consumeWindowInsets(padding)
             when {
                 controller.state == EnrollmentState.SignedOut -> SignInScreen(environment, controller.busy, controller.error,
                     controller::signIn, modifier)
@@ -247,6 +252,13 @@ private object UnconfiguredBackend : FieldBackend {
     override fun refreshEnrollment(signer: DeviceSigner) = EnrollmentState.SignedOut
 }
 
+/** SP-0126: the client's logo exactly as supplied (packages/ui/assets/sunpride-logo.jpg), never recoloured. */
+@Composable
+fun SunprideLogo(modifier: Modifier = Modifier) {
+    androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(com.sunpride.field.R.drawable.sunpride_logo),
+        contentDescription = "Sunpride", modifier = modifier.size(96.dp).clip(MaterialTheme.shapes.large))
+}
+
 @Composable
 private fun SignInScreen(environment: AppEnvironment, busy: Boolean, error: String?,
     onSignIn: (String, String) -> Unit, modifier: Modifier = Modifier) {
@@ -255,6 +267,7 @@ private fun SignInScreen(environment: AppEnvironment, busy: Boolean, error: Stri
     Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            SunprideLogo(Modifier.padding(top = 8.dp).testTag("sign-in-logo"))
             Text("Sign in", style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.testTag("shell-title"))
             if (!environment.isReady) SectionCard("Configuration required", Modifier.testTag("environment-error")) {

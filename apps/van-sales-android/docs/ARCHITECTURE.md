@@ -103,9 +103,15 @@ Sale/payment prices and totals are nullable, not zero: UI wording is **Priced by
 - **Price:** each line needs exactly one effective price for the product's own UOM (`PriceResolver`); otherwise the line is **Priced by the office** and the sale cannot complete (ADR-008: the handheld never defines a price). Line total = unit price × base ÷ quantity scale and must be a whole number of centavos; mixed currencies and totals above ₱10 billion refuse. Each line records the agreeing price-list IDs as its price source.
 - **Payment:** one of the office's configured methods (VAN-012, below).
 
-`RoomVanStore.commitSale(request, expectedTotalMinor)` (repository `completeSale`) runs the same rules again inside **one** Room transaction against the stored trip, customers, stock projection and price list, refuses `PRICES_CHANGED` if the total differs from what the seller showed the customer, then writes: the receipt number/idempotency pair (`TransactionIds`), `sale` (`saved`), `sale_line`s, one cash `payment`, a SALE movement per line through the ledger hook (stock re-checked), and the `sale.record` outbox operation. Any failure rolls everything back, including the receipt number. The cart's UUID-v4 `saleId` makes a repeated Complete return the saved sale (`replay = true`) instead of selling twice.
+`RoomVanStore.commitSale(request, expectedTotalMinor)` (repository `completeSale`) runs the same rules again inside **one** Room transaction against the stored trip, customers, stock projection and price list, refuses `PRICES_CHANGED` if the total differs from what the seller showed the customer, then writes: the receipt number/idempotency pair (`TransactionIds`), `sale` (`saved`), `sale_line`s, one `payment` (method per VAN-012), a SALE movement per line (see below), and the `sale.record` outbox operation. Any failure rolls everything back, including the receipt number. The cart's UUID-v4 `saleId` makes a repeated Complete return the saved sale (`replay = true`) instead of selling twice.
 
 The van gateway (`/van/v1/push`) has no sale operation yet and the server has no governed price list to re-price a sale, so the outbox row is written with status `parked` (`SALE_PARKED`): it holds the frozen operation bytes, is never selected by the sync engine, is counted as `SyncStatus.savedSales`, and its stock stays deducted across later bootstraps (an unacknowledged movement never settles). A later gateway lane adds `sale.record` to the van-v1 contract and promotes parked rows to `pending`; parked bytes have not been sent, so that lane may still adjust the payload shape. Receipt printing of the sale, credit terms and server posting are separate issues.
+
+### Truck stock deduction on sale (VAN-018)
+
+The deduction is part of the sale, never a separate step. Inside the same `commitSale` transaction, each line writes exactly one SALE movement (`<idempotencyKey>:<productId>:available:SALE`, available stock only, `-quantityBase`, the sale's trip and `createdAt`) after re-checking available stock against the rows already written in that transaction; a shortfall throws `CheckoutRefused(INSUFFICIENT_STOCK)`. Before commit the store re-reads the sale and its movements (`saleStockIssues(saleId)`) and throws on any disagreement, so a failure at any step (stock, outbox, invariant, SQLite) rolls back the receipt number, sale, lines, payment and every deduction together; the cart stays on screen for a retry with the same `saleId`. Room serialises write transactions, so two sales (or a sale and a damage) racing for the last stock sell it once and never go below zero.
+
+SALE movements cannot be written any other way: `recordLocalMovement` refuses SALE, so no deduction exists without its saved sale. `RoomVanStore.saleStockIssues()` / `TruckStockLedger.saleStockIssues()` audit the whole partition and return `missing_deduction`, `wrong_deduction`, `unexpected_deduction`, `duplicate_product`, `no_lines` or `deduction_without_sale`; empty means sales and truck stock agree.
 
 ## Payment methods (VAN-012)
 
@@ -141,7 +147,7 @@ No Room schema change: `return_line.stockStatus` holds the stock effect (`availa
 
 `TruckStockLedger(store, afterEnqueue)` exposes `projection()`, `canRemove(productId, qty)` and `recordDamage(productId, qty, reason, note = null)`. Damage transfers a positive quantity from available to damaged and inserts both immutable movements and the unchanged `truck.damage` outbox JSON in **one** Room transaction. Negative-stock policy defaults off; a sale/damage removal is checked again inside the transaction. A damaged-stock sale is not allowed.
 
-The next sale/return lane can call:
+The next return lane can call:
 
 ```kotlin
 suspend fun TruckStockLedger.recordLocalMovement(
@@ -154,7 +160,7 @@ suspend fun TruckStockLedger.recordLocalMovement(
 ): String
 ```
 
-This hook supports SALE, RETURN, TRANSFER and ADJUSTMENT, with deterministic movement IDs and exact replay/conflict checks. It can participate in a caller's Room transaction. It does not fabricate unsupported gateway operations. LOAD cannot be supplied through this hook, and DAMAGE must use its atomic damage/outbox command. Stock movement kinds are LOAD, SALE, RETURN, DAMAGE, TRANSFER, ADJUSTMENT; signed quantities apply separately to available/damaged. Arithmetic overflow refuses instead of wrapping.
+This hook supports RETURN, TRANSFER and ADJUSTMENT (SALE is written only by checkout, VAN-018), with deterministic movement IDs and exact replay/conflict checks. It can participate in a caller's Room transaction. It does not fabricate unsupported gateway operations. LOAD cannot be supplied through this hook, and DAMAGE must use its atomic damage/outbox command. Stock movement kinds are LOAD, SALE, RETURN, DAMAGE, TRANSFER, ADJUSTMENT; signed quantities apply separately to available/damaged. Arithmetic overflow refuses instead of wrapping.
 
 Projection is current-trip server baseline plus every same-trip local movement without a settlement marker. A movement settles only when its operation has a durable ack **and** a replaced authoritative bootstrap has `serverTime > ack.serverTime`. Settlement inserts a marker; it never deletes or mutates the movement. Rejected damage remains conservatively deducted and visible for review; there is no automatic reversal or re-recording.
 

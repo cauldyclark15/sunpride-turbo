@@ -17,6 +17,8 @@ import java.util.UUID
 const val SALE_KIND = "sale.record"
 const val SALE_PARKED = "parked"
 
+/** A disagreement between a saved sale and its truck-stock deduction (VAN-018); a healthy phone has none. */
+data class SaleStockIssue(val saleId: String?, val movementId: String?, val code: String)
 /** VAN-012 credit sold here per customer (not yet acknowledged by the office) and `method|REFERENCE` keys already used. */
 data class PaymentFacts(val creditUsedMinor: Map<String,Long> = emptyMap(), val usedReferences: Set<String> = emptySet())
 private fun CustomerRow.toCustomer() = Customer(outletId,code,name,address,sequence,source,reason,localOnly,
@@ -122,11 +124,12 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
     }
     internal suspend fun recordLocalMovement(type: com.sunpride.van.ledger.MovementType, productId: String,
         stockStatus: com.sunpride.van.ledger.StockStatus, quantityBase: Long, reason: String?, clientRequestId: String): String = db.withTransaction {
-        require(type !in setOf(com.sunpride.van.ledger.MovementType.LOAD,com.sunpride.van.ledger.MovementType.DAMAGE)) { "Load and damage use their atomic server operation paths" }
+        // VAN-018: a SALE deduction exists only together with its saved sale, so it is written by [commitSale] alone.
+        require(type !in setOf(com.sunpride.van.ledger.MovementType.LOAD,com.sunpride.van.ledger.MovementType.DAMAGE,com.sunpride.van.ledger.MovementType.SALE)) {
+            "Load, damage and sale use their atomic paths" }
         require(Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$").matches(clientRequestId) && quantityBase != 0L)
         val t = writable()
         require(dao.productRows(s,d).any { it.productId == productId })
-        if (type == com.sunpride.van.ledger.MovementType.SALE) require(stockStatus == com.sunpride.van.ledger.StockStatus.available && quantityBase < 0)
         if (type == com.sunpride.van.ledger.MovementType.RETURN) require(quantityBase > 0)
         val id = "$clientRequestId:$productId:${stockStatus.name}:${type.name}"
         val prior = dao.stockmovementRows(s,d).singleOrNull { it.movementId == id }
@@ -205,9 +208,11 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         quote.lines.forEach { dao.insertSaleLine(SaleLineRow(s,d,request.saleId,it.lineNumber,it.product.productId,it.quantityBase,it.unitPriceMinor,it.totalMinor)) }
         dao.insertPayment(PaymentRow(s,d,UUID.randomUUID().toString(),request.saleId,pay.method.code,pay.amountMinor,at,
             pay.reference,pay.state.wire,pay.tenderedMinor,pay.dueDate))
-        // Stock check repeated by the ledger hook in this same transaction; deterministic movement IDs per line.
-        quote.lines.forEach { recordLocalMovement(com.sunpride.van.ledger.MovementType.SALE,it.product.productId,com.sunpride.van.ledger.StockStatus.available,
-            Math.negateExact(it.quantityBase),null,id.idempotencyKey) }
+        // VAN-018: deduct every line from available truck stock in this same transaction, then prove the sale and
+        // its deductions agree before commit. Any refusal or mismatch throws and rolls the whole sale back.
+        val allowNegative = checkNotNull(context.policy).allowNegativeStock
+        quote.lines.forEach { deductSale(t.tripId,id.idempotencyKey,it.product.productId,it.quantityBase,at,allowNegative) }
+        check(saleStockIssues(request.saleId).isEmpty()) { "Sale and truck stock disagree" }
         val customerJson = if (customer.localOnly) JSONObject().put("walkIn",JSONObject().put("name",customer.name).put("reason",customer.reason))
             else JSONObject().put("outletId",customer.outletId)
         val payload = JSONObject().put("tripId",t.tripId).put("saleId",request.saleId).put("receiptNumber",id.receiptNumber)
@@ -227,6 +232,52 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
             quote.currency,quote.totalMinor,quote.tenderedMinor,quote.changeMinor,at,false,pay.method.code,pay.method.label,pay.method.kind,
             pay.state.wire,pay.reference,pay.dueDate)
     }
+    /** One SALE movement per sale line; the available-stock check is repeated against the rows already written in this transaction. */
+    private suspend fun deductSale(tripId: String, key: String, productId: String, quantityBase: Long, at: Long, allowNegative: Boolean) {
+        val movementId = saleMovementId(key,productId)
+        check(dao.stockmovementRows(s,d).none { it.movementId == movementId }) { "Sale already deducted" }
+        val available = stock().firstOrNull { it.productId == productId }?.availableBase ?: 0L
+        if (!com.sunpride.van.ledger.StockProjection.canRemove(available,quantityBase,allowNegative))
+            throw CheckoutRefused(listOf(CheckoutIssue(CheckoutProblem.INSUFFICIENT_STOCK,productId)))
+        dao.insertMovement(MovementRow(s,d,movementId,tripId,productId,com.sunpride.van.ledger.MovementType.SALE.name,
+            com.sunpride.van.ledger.StockStatus.available.name,Math.negateExact(quantityBase),null,key,at))
+    }
+
+    /**
+     * VAN-018 invariant: every saved sale has exactly one available-stock SALE deduction per line, for the line's
+     * quantity, on the sale's trip and at the sale's time, and no SALE deduction exists without a saved sale.
+     * Empty means the sales and truck stock on this phone agree. [saleId] narrows the check to one sale.
+     */
+    suspend fun saleStockIssues(saleId: String? = null): List<SaleStockIssue> = db.withTransaction {
+        val sales = dao.saleRows(s,d).filter { saleId == null || it.saleId == saleId }
+        val lines = dao.salelineRows(s,d).groupBy { it.saleId }
+        val movements = dao.stockmovementRows(s,d).filter { it.type == com.sunpride.van.ledger.MovementType.SALE.name }
+        val issues = mutableListOf<SaleStockIssue>()
+        sales.forEach { sale ->
+            val saleLines = lines[sale.saleId] ?: emptyList()
+            val expected = saleLines.associate { saleMovementId(sale.idempotencyKey,it.productId) to it.quantityBase }
+            val actual = movements.filter { it.clientRequestId == sale.idempotencyKey }
+            if (saleLines.isEmpty()) issues += SaleStockIssue(sale.saleId,null,"no_lines")
+            if (expected.size != saleLines.size) issues += SaleStockIssue(sale.saleId,null,"duplicate_product")
+            actual.filter { it.movementId !in expected }.forEach { issues += SaleStockIssue(sale.saleId,it.movementId,"unexpected_deduction") }
+            expected.forEach { (movementId, qty) ->
+                val m = actual.singleOrNull { it.movementId == movementId }
+                when {
+                    m == null -> issues += SaleStockIssue(sale.saleId,movementId,"missing_deduction")
+                    m.quantityBase != Math.negateExact(qty) || m.stockStatus != com.sunpride.van.ledger.StockStatus.available.name ||
+                        m.tripId != sale.tripId || m.createdAt != sale.createdAt -> issues += SaleStockIssue(sale.saleId,movementId,"wrong_deduction")
+                }
+            }
+        }
+        if (saleId == null) {
+            val keys = dao.saleRows(s,d).map { it.idempotencyKey }.toSet()
+            movements.filter { it.clientRequestId !in keys }.forEach { issues += SaleStockIssue(null,it.movementId,"deduction_without_sale") }
+        }
+        issues
+    }
+    private fun saleMovementId(key: String, productId: String) =
+        "$key:$productId:${com.sunpride.van.ledger.StockStatus.available.name}:${com.sunpride.van.ledger.MovementType.SALE.name}"
+
     private suspend fun savedReceipt(sale: SaleRow, request: CheckoutRequest): SaleReceipt {
         val lines = dao.salelineRows(s,d).filter { it.saleId == sale.saleId }.sortedBy { it.lineNumber }
         check(sale.customerId == request.customerId && lines.map { it.productId to it.quantityBase } == request.lines.map { it.productId to it.quantityBase }) { "Sale replay conflict" }

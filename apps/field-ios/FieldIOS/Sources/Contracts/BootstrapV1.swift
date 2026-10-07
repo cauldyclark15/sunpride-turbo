@@ -122,6 +122,7 @@ enum BootstrapV1 {
         let productCatalog: [Product]
         let inventoryAvailability: [InventoryAvailability]
         let callSheets: [CallSheet]
+        let orderTerms: [OrderTerms]
         /// IOS-011 additive field: cached account figures for this page's newly shipped outlets.
         let accountSummaries: [AccountSummary]
         let page: Int
@@ -139,7 +140,7 @@ enum BootstrapV1 {
         enum CodingKeys: String, CodingKey {
             case type, contractVersion, serverTime, permissions, employee, scope, appConfig,
                  plannedVisits, outlets, localCustomers, route, tasks, productCatalog, page,
-                 nextPageCursor, syncCursor, callSheets, inventoryAvailability, accountSummaries, dayTarget, daySales, activityRules, photoTypes
+                 nextPageCursor, syncCursor, callSheets, orderTerms, inventoryAvailability, accountSummaries, dayTarget, daySales, activityRules, photoTypes
         }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -173,6 +174,14 @@ enum BootstrapV1 {
             if c.contains(.callSheets) {
                 callSheets = try c.decode([CallSheet].self, forKey: .callSheets)
             } else { callSheets = [] } // Old servers omit the additive field.
+            if c.contains(.orderTerms) {
+                orderTerms = try c.decode([OrderTerms].self, forKey: .orderTerms)
+            } else { orderTerms = [] }
+            let termOutlets = Set(plannedVisits.map(\.outletId))
+            guard orderTerms.count <= 200, Set(orderTerms.map(\.outletId)).count == orderTerms.count,
+                  orderTerms.allSatisfy({ termOutlets.contains($0.outletId) }) else {
+                throw WireError.unsafeValue
+            }
             if c.contains(.accountSummaries) {
                 accountSummaries = try c.decode([AccountSummary].self, forKey: .accountSummaries)
             } else { accountSummaries = [] } // Old servers omit the additive field.
@@ -228,6 +237,7 @@ enum BootstrapV1 {
             try c.encode(productCatalog, forKey: .productCatalog); try c.encode(page, forKey: .page)
             try c.encode(nextPageCursor, forKey: .nextPageCursor); try c.encode(syncCursor, forKey: .syncCursor)
             try c.encode(callSheets, forKey: .callSheets)
+            try c.encode(orderTerms, forKey: .orderTerms)
             try c.encode(inventoryAvailability, forKey: .inventoryAvailability)
             try c.encode(accountSummaries, forKey: .accountSummaries)
             try c.encodeIfPresent(dayTarget, forKey: .dayTarget)

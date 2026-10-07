@@ -21,6 +21,7 @@
     "native:ios": "bash scripts/native-ios-check.sh",
     "native:android": "bash scripts/native-android-check.sh",
     "native:van": "bash scripts/native-van-check.sh",
+    "apk:van-beta": "bash apps/van-sales-android/scripts/build-beta-apk.sh",
     "apk:field-beta": "bash apps/field-android/scripts/build-beta-apk.sh",
     "check": "turbo run lint typecheck test build && bun test ./scripts && bun scripts/secret-audit.ts",
     "audit:secrets": "bun scripts/secret-audit.ts",

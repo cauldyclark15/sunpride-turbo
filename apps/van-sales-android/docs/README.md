@@ -8,6 +8,7 @@ Separate native app for truck sellers (PMOT, PMOT Extruck, RDS) per ADR-010 and 
 | [ARCHITECTURE.md](ARCHITECTURE.md)               | Packages, `VanRepository` API, encrypted Room DB, truck-stock ledger, transaction ids, sync engine |
 | [PRINTER_AND_SCANNER.md](PRINTER_AND_SCANNER.md) | Recovered Senraise printer AIDL, printer abstraction, scanner modes, camera fallback               |
 | [SCREENS.md](SCREENS.md)                         | Screens and screenshot verdicts                                                                    |
+| [beta.md](beta.md)                               | Beta APK: hidden features, signing key, `bun run apk:van-beta`, logo/splash, install and proof     |
 
 Root check: `bun run native:van` (assemble, JVM tests and lint, then device tests on the H10P through the lock-guarded runner; skips the device step when the handheld is absent).
 
@@ -28,7 +29,7 @@ From `_handoffs/sunpride-van-sales-questions.md`, "What we plan today":
 
 ## What is stubbed or not built yet
 
-- **Selling, payments and customer returns** are captured on the phone (VAN-011/012/019, see `ARCHITECTURE.md`) but not uploaded yet: the van gateway has no sale/return operation. Voids and end-of-day cash/stock count are later lanes.
+- **Selling, payments and customer returns** are captured on the phone (VAN-011/012/019, see `ARCHITECTURE.md`) but not uploaded yet: the van gateway has no sale/return operation; the beta build shows them too ([beta.md](beta.md)). Voids and end-of-day cash/stock count are later lanes.
 - **Prices**: no price lists from Sunpride yet; `price_list_line` is empty and totals stay "Priced by the office".
 - **Live backend**: the van functions are not deployed to the shared DEV deployment (the lead deploys after merge). Device tests and screenshots use the DEBUG-only practice backend (`VAN_STUB_BACKEND`) serving `fixtures/van-v1`; no live sign-in → bootstrap → push run has been made.
 - **Office screens**: no web UI for vehicles/trips/load sheets/approval; use the Convex functions `van/vehicles:create`, `van/trips:plan`, `van/loads:plan`, `van/loads:approve`, `van/trips:returnLeftover`, `van/trips:close`.

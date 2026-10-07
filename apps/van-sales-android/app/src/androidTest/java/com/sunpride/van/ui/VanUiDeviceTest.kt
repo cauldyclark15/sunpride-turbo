@@ -8,6 +8,9 @@ import androidx.test.espresso.Espresso
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.work.WorkManager
 import com.sunpride.van.AppEnvironment
+import com.sunpride.van.VanFeature
+import com.sunpride.van.VanFeatures
+import androidx.lifecycle.Lifecycle
 import com.sunpride.van.data.*
 import com.sunpride.van.device.*
 import com.sunpride.van.sync.FakeVanBackend
@@ -36,15 +39,15 @@ class VanUiDeviceTest {
         rule.waitForIdle()
         repositories.forEach { it.close() }
     }
-    private fun newController(mode: String = "ready", fixtureMode: Boolean = true): VanController {
+    private fun newController(mode: String = "ready", fixtureMode: Boolean = true, features: VanFeatures = VanFeatures.ALL): VanController {
         val repo = if (mode == "ready") VanRepository.forWorker(context,true) else VanRepository.create(context,stubMode = mode)
         repositories += repo
-        return VanController(repo,AppEnvironment("",""),fixtureMode) {
+        return VanController(repo,AppEnvironment("",""),fixtureMode,features) {
             withContext(Dispatchers.IO) { hex(sha256(KeystoreDeviceKey.loadOrCreate(context,"sunpride-van-stub-device-p256-v1").publicKeySpki)).uppercase().chunked(4).joinToString(" ") }
         }
     }
-    private fun mount(restore: Boolean = true, fixtureMode: Boolean = true) {
-        host = Host(newController(fixtureMode = fixtureMode),restore)
+    private fun mount(restore: Boolean = true, fixtureMode: Boolean = true, features: VanFeatures = VanFeatures.ALL) {
+        host = Host(newController(fixtureMode = fixtureMode,features = features),restore)
         rule.setContent { host?.let { VanApp(it.controller,restore = it.restore) } }
         if (restore) ready() else rule.waitUntil(10_000) { c.initialized }
     }
@@ -225,6 +228,61 @@ class VanUiDeviceTest {
         rule.onNodeWithText("Print test receipt").assertExists()
         rule.onNodeWithText("Scan with camera").assertExists()
         // The existing printer device suite, not this UI smoke test, prints the real receipt.
+    }
+    // SP-0125 password eye: hidden by default, accessible label, re-hidden when the app is left or the form is sent.
+    @Test fun passwordEyeShowsAndHidesAndReHidesWhenTheAppIsLeft() {
+        mount(restore = false)
+        // What the field actually draws (the password transformation applies to the layout, not EditableText).
+        val hidden = SemanticsMatcher("password drawn as dots") { node ->
+            val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+            node.config[androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult].action!!(layouts)
+            layouts.first().layoutInput.text.text.let { it.isNotEmpty() && it.none { ch -> ch.isLetterOrDigit() } }
+        }
+        rule.onNodeWithTag("sign-in-logo").assertIsDisplayed()
+        rule.onNodeWithTag("password").performTextInput("practice")
+        rule.onNodeWithTag("password").assert(hidden)
+        rule.onNodeWithContentDescription("Show password").assertIsDisplayed().performClick()
+        rule.onNodeWithTag("password").assert(!hidden)
+        rule.onNodeWithTag("password").assertTextContains("practice")
+        rule.onNodeWithContentDescription("Hide password").assertIsDisplayed()
+        // Leaving the app (Home, Recents, screen off) stops the activity: the password is hidden again.
+        rule.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
+        rule.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+        rule.waitForIdle()
+        rule.onNodeWithTag("password").assert(hidden)
+        rule.onNodeWithContentDescription("Show password").assertIsDisplayed()
+        // Shown again, then sent: the field clears and goes back to hidden.
+        rule.onNodeWithContentDescription("Show password").performClick()
+        rule.onNodeWithTag("email").performTextInput("seller@fixture.invalid"); hideKeyboard()
+        rule.onNodeWithTag("sign-in").performClick()
+        ready()
+        rule.runOnUiThread { c.signOut() }
+        rule.waitUntil(10_000) { !c.busy && !c.session.signedIn }
+        // Back on Sign in: a new password starts hidden.
+        rule.onNodeWithTag("password").performTextInput("again")
+        rule.onNodeWithTag("password").assert(hidden)
+        rule.onNodeWithContentDescription("Show password").assertIsDisplayed()
+    }
+    @Test fun betaBuildKeepsSellingHidesDeveloperToolsAndShowsReportAnIssue() {
+        mount(features = VanFeatures.forBuild(debug = false,webUrl = "https://beta.sunpride.example"))
+        assertFalse(VanFeature.DEVELOPER_TOOLS in c.features)
+        rule.onNodeWithTag("new-sale").performScrollTo().assertExists()
+        rule.onNodeWithTag("report-issue").performScrollTo().assertIsDisplayed()
+        captureVanScreenshot(rule,"40-beta-home","home-primary")
+    }
+    @Test fun devBuildHidesReportWithoutWebUrl() {
+        mount()
+        rule.onNodeWithTag("new-sale").performScrollTo().assertExists()
+        rule.onAllNodesWithTag("report-issue").assertCountEquals(0)
+    }
+    @Test fun printerTestOpensBeforeSignInAndReturnsToSignIn() {
+        mount(restore = false,features = VanFeatures.forBuild(debug = false,webUrl = "https://beta.sunpride.example"))
+        rule.onNodeWithTag("report-issue").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithTag("sign-in-printer").performScrollTo().performClick()
+        rule.onNodeWithText("Print test receipt").assertExists()
+        assertPrimaryClearance(rule,"printer-done")
+        rule.onNodeWithTag("printer-done").performClick()
+        rule.onNodeWithTag("sign-in").assertExists()
     }
     @Test fun checkoutValidatesPricesAndCashThenSavesTheSaleOnThisPhone() {
         mount(); loadAndStart()
