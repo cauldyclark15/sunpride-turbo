@@ -195,6 +195,8 @@ export const CAPABILITIES = {
   "van.manage": ["super_admin", "admin", "operations"],
   "van.operate": ["super_admin", "manager", "sales"],
   "van.load.approve": ["super_admin", "manager", "approver"],
+  // VAN-020: a supervisor (never the recorder) approves or rejects large damage records.
+  "van.damage.approve": ["super_admin", "manager", "approver"],
   // VAN-021: a supervisor (never the seller) issues the code that approves a van sale void.
   "van.void.approve": ["super_admin", "manager", "approver"],
   // VAN-022: a supervisor (never the seller) issues the code that approves a cash difference.

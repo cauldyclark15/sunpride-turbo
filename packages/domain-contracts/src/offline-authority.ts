@@ -434,6 +434,11 @@ export const OFFLINE_AUTHORITY_MATRIX: readonly OfflineAuthorityRule[] = [
     "Route and unplanned customers.",
   ),
   vanSnapshot(
+    "damageRecords",
+    "server_workflow",
+    "VAN-020: this trip's damage records and their supervisor approval state.",
+  ),
+  vanSnapshot(
     "priceLines",
     "server_read_only",
     "Governed Route Sales prices as of serverTime (SP-0129); replaced by the next bootstrap.",
@@ -485,7 +490,7 @@ export const OFFLINE_AUTHORITY_MATRIX: readonly OfflineAuthorityRule[] = [
     idempotency:
       "(profile, clientRequestId) + payload hash in vanOperations; posting keyed van-damage:<profile>:<clientRequestId> in postMovement.",
     implementation: "implemented",
-    note: "Available → damaged on the truck; never decrements below the server balance.",
+    note: "Available → damaged on the truck; never decrements below the server balance. VAN-020: a required photo is uploaded first (/van/v1/evidence, idempotent per seller + SHA-256) and named by photoSha256; large records wait for a supervisor, whose rejection posts a separate reversal movement.",
   },
   {
     surface: "van-v1",
@@ -632,6 +637,17 @@ export const OFFLINE_OUTCOMES: readonly OutcomeRule[] = [
     userMessage: "Needs review: the load has not been approved yet.",
     remediation:
       "Warehouse approves the load discrepancy, then the same entry is resent unchanged.",
+  },
+  {
+    code: "photo_required",
+    surfaces: van,
+    level: "result",
+    deviceAction: "freeze_for_review",
+    resendSameBytes: "never",
+    userMessage:
+      "Needs review: this damage needs a photo the office did not receive.",
+    remediation:
+      "Record the damage again with a photo; the handheld uploads photos before sending damage.",
   },
   {
     // Emitted by the current backend as a result code although the frozen v1 enum lacks it (ADR-022 open item).

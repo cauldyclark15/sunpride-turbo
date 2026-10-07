@@ -82,6 +82,8 @@ import {
   transferStatusValidator,
 } from "./inventory/validators";
 import {
+  damageReasonValidator,
+  damageStatusValidator,
   loadDiscrepancyReasonValidator,
   loadStatusValidator,
   tripStatusValidator,
@@ -1127,6 +1129,56 @@ export default defineSchema({
   })
     .index("by_profileId_and_clientRequestId", ["profileId", "clientRequestId"])
     .index("by_deviceId_and_serverAt", ["deviceId", "serverAt"]),
+  // VAN-020: damaged/spoiled stock recorded on the truck, with evidence and approval state.
+  // The stock itself moves only through postMovement (`movementId`, `reversalMovementId`).
+  vanDamageRecords: defineTable({
+    organizationId: v.string(),
+    tripId: v.id("vanTrips"),
+    orgUnitId: v.id("orgUnits"),
+    truckLocationId: v.id("inventoryLocations"),
+    productId: v.id("products"),
+    productCode: v.string(),
+    uomCode: v.string(),
+    quantityScale: v.int64(),
+    quantityBase: v.int64(),
+    reason: damageReasonValidator,
+    note: v.optional(v.string()),
+    photoId: v.optional(v.id("vanDamagePhotos")),
+    needsApproval: v.boolean(),
+    status: damageStatusValidator,
+    recordedBy: v.string(), // full identity.tokenIdentifier
+    recordedProfileId: v.id("profiles"),
+    deviceId: v.id("registeredDevices"),
+    clientRequestId: v.string(),
+    recordedAt: v.number(),
+    movementId: v.id("inventoryMovements"),
+    decidedBy: v.optional(v.string()),
+    decidedAt: v.optional(v.number()),
+    decisionNote: v.optional(v.string()),
+    reversalMovementId: v.optional(v.id("inventoryMovements")),
+    updatedAt: v.number(),
+  })
+    .index("by_tripId_and_recordedAt", ["tripId", "recordedAt"])
+    .index("by_organizationId_and_status_and_recordedAt", [
+      "organizationId",
+      "status",
+      "recordedAt",
+    ])
+    .index("by_organizationId_and_recordedAt", [
+      "organizationId",
+      "recordedAt",
+    ]),
+  // VAN-020: damage photos uploaded by a van device before the push that references them.
+  vanDamagePhotos: defineTable({
+    organizationId: v.string(),
+    profileId: v.id("profiles"),
+    deviceId: v.id("registeredDevices"),
+    sha256: v.string(),
+    storageId: v.id("_storage"),
+    size: v.number(),
+    damageRecordId: v.optional(v.id("vanDamageRecords")),
+    createdAt: v.number(),
+  }).index("by_profileId_and_sha256", ["profileId", "sha256"]),
   // VAN-012: office-set credit terms per outlet, effective-dated. No row = cash/other only.
   outletCreditTerms: defineTable({
     organizationId: v.string(),

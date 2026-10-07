@@ -208,7 +208,7 @@ export const authorize = internalMutation({
       // Field apps sign only field sync paths; the van POS signs only van paths (ADR-010).
       !(
         args.app === "VAN_ANDROID"
-          ? /^\/van\/v1\/(bootstrap|push)$/
+          ? /^\/van\/v1\/(bootstrap|push|evidence)$/
           : /^\/mobile\/v1\/(bootstrap|pull|push)$/
       ).test(args.path) ||
       !/^[0-9a-f]{64}$/.test(args.bodyDigest)

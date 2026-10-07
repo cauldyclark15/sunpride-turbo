@@ -17,12 +17,16 @@ import {
   requireDeviceTrip,
   tripLoad,
 } from "./access";
+import { photoFor, SHA256_HEX, tripDamageRecords } from "./damage";
 import { postTruckDamage, truckBalances } from "./ledger";
 import { creditFor } from "./credit";
-import { finishLoad } from "./loads";
+import { finishLoad, productUnit } from "./loads";
 import {
+  actorValidator,
   boundedText,
   DAMAGE_REASONS,
+  damageRules,
+  VAN_DAMAGE_POLICY,
   LOAD_DISCREPANCY_REASONS,
   OPEN_TRIP_STATUSES,
   VAN_PAYMENT_METHODS,
@@ -40,23 +44,7 @@ import { voidApprovalPolicy } from "./voids";
  * device. Wire integers that may exceed 2^53 (`*Base`, `quantityScale`) travel as decimal
  * strings; see `packages/domain-contracts/schemas/van-v1.schema.json`.
  */
-export const actorValidator = v.object({
-  deviceId: v.id("registeredDevices"),
-  profileId: v.id("profiles"),
-  subject: v.string(),
-  orgUnitId: v.id("orgUnits"),
-  role: v.union(
-    v.literal("super_admin"),
-    v.literal("admin"),
-    v.literal("operations"),
-    v.literal("manager"),
-    v.literal("approver"),
-    v.literal("sales"),
-    v.literal("analyst"),
-    v.literal("viewer"),
-  ),
-  scopeFingerprint: v.string(),
-});
+export { actorValidator };
 
 const TRIP_PRIORITY: Record<string, number> = {
   active: 0,
@@ -298,6 +286,7 @@ export const bootstrap = internalQuery({
         truckStock: [],
         products: [],
         customers: [],
+        damageRecords: [],
       };
     const vehicle = await ctx.db.get(trip.vehicleId);
     const route = trip.routeId ? await ctx.db.get(trip.routeId) : null;
@@ -379,6 +368,7 @@ export const bootstrap = internalQuery({
       })),
       products,
       customers: await customersFor(ctx, trip, actor, now),
+      damageRecords: await tripDamageRecords(ctx, trip._id),
       // SP-0129 / ADR-008: governed Route Sales prices for the products on this truck;
       // omitted when nothing is priced (the handheld then shows "Priced by the office").
       ...(await vanPricing(ctx, products, now).then((pricing) =>
@@ -401,6 +391,11 @@ async function policyView(
     loadDiscrepancyReasons: [...LOAD_DISCREPANCY_REASONS],
     damageReasons: [...DAMAGE_REASONS],
     paymentMethods: VAN_PAYMENT_METHODS.map((method) => ({ ...method })),
+    damagePolicy: {
+      photoRequiredReasons: [...VAN_DAMAGE_POLICY.photoRequiredReasons],
+      approvalFromUnits: VAN_DAMAGE_POLICY.approvalFromUnits,
+      photoMaxBytes: VAN_DAMAGE_POLICY.photoMaxBytes,
+    },
     // VAN-021: reasons for voiding a sale and the supervisor-approval rule + trip key.
     voidReasons: [...VOID_REASONS],
     voidApproval: await voidApprovalPolicy(tripId),
@@ -498,7 +493,14 @@ export const applyOne = internalMutation({
               operation.clientRequestId,
               now,
             )
-          : await recordDamage(ctx, actor, trip, p, operation.clientRequestId);
+          : await recordDamage(
+              ctx,
+              actor,
+              trip,
+              p,
+              operation.clientRequestId,
+              now,
+            );
     await ctx.db.insert("vanOperations", {
       organizationId: SUNPRIDE_ORGANIZATION_ID,
       deviceId: actor.deviceId,
@@ -688,36 +690,82 @@ async function confirmLoad(
   return { entityId: load._id, movementId };
 }
 
-/** VAN-006 server half: damaged stock found on the truck during the trip. */
+/**
+ * VAN-006 server half, VAN-020 evidence and approval: damaged stock found on the truck
+ * during the trip moves available → damaged at once. A required photo must already be
+ * uploaded through /van/v1/evidence by this seller; a record at or above the approval
+ * threshold waits for a supervisor (van/damage.ts `decide`).
+ */
 async function recordDamage(
   ctx: MutationCtx,
   actor: AuthorizedDevice,
   trip: Doc<"vanTrips">,
   p: Record<string, unknown>,
   clientRequestId: string,
+  now: number,
 ): Promise<Outcome> {
   if (trip.status !== "active") throw new ConvexError("conflict");
   if (
     typeof p.productId !== "string" ||
     typeof p.reason !== "string" ||
-    !(DAMAGE_REASONS as readonly string[]).includes(p.reason)
+    !(DAMAGE_REASONS as readonly string[]).includes(p.reason) ||
+    (p.photoSha256 !== undefined &&
+      (typeof p.photoSha256 !== "string" || !SHA256_HEX.test(p.photoSha256)))
   )
     throw new ConvexError("invalid_request");
+  const reason = p.reason as (typeof DAMAGE_REASONS)[number];
   const productId = ctx.db.normalizeId("products", p.productId);
   if (!productId) throw new ConvexError("invalid_request");
+  const product = await ctx.db.get(productId);
+  if (!product) throw new ConvexError("invalid_request");
   const note = boundedText(
     typeof p.note === "string" ? p.note : undefined,
     300,
   );
+  const quantityBase = bigintText(p.quantityBase, "positive");
+  const unit = await productUnit(ctx, product);
+  const rules = damageRules(reason, quantityBase, unit.quantityScale);
+  const photo =
+    typeof p.photoSha256 === "string"
+      ? await photoFor(ctx, actor.profileId, p.photoSha256)
+      : null;
+  // A named photo must have been uploaded by this seller and not used for another record.
+  if ((rules.photoRequired || p.photoSha256 !== undefined) && !photo)
+    throw new ConvexError("photo_required");
+  if (photo?.damageRecordId) throw new ConvexError("invalid_request");
   const movement = await postTruckDamage(ctx, {
     trip,
     productId,
-    quantityBase: bigintText(p.quantityBase, "positive"),
-    reason: p.reason,
+    quantityBase,
+    reason,
     ...(note ? { note } : {}),
     actorSubject: actor.subject,
     deviceId: actor.deviceId,
     idempotencyKey: `van-damage:${actor.profileId}:${clientRequestId}`,
   });
-  return { entityId: trip._id, movementId: movement.movementId };
+  const damageId = await ctx.db.insert("vanDamageRecords", {
+    organizationId: SUNPRIDE_ORGANIZATION_ID,
+    tripId: trip._id,
+    orgUnitId: trip.orgUnitId,
+    truckLocationId: trip.truckLocationId,
+    productId,
+    productCode: product.code,
+    uomCode: unit.uomCode,
+    quantityScale: unit.quantityScale,
+    quantityBase,
+    reason,
+    ...(note ? { note } : {}),
+    ...(photo ? { photoId: photo._id } : {}),
+    needsApproval: rules.needsApproval,
+    status: rules.needsApproval ? "pending_approval" : "recorded",
+    recordedBy: actor.subject,
+    recordedProfileId: actor.profileId,
+    deviceId: actor.deviceId,
+    clientRequestId,
+    recordedAt: now,
+    movementId: movement.movementId,
+    updatedAt: now,
+  });
+  if (photo) await ctx.db.patch(photo._id, { damageRecordId: damageId });
+  return { entityId: damageId, movementId: movement.movementId };
 }

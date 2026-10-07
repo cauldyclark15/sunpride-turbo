@@ -32,8 +32,8 @@ class TruckStockLedger(private val store: RoomVanStore, private val afterEnqueue
     /** VAN-018: empty when every saved sale and its truck-stock deduction agree. */
     suspend fun saleStockIssues(): List<SaleStockIssue> = store.saleStockIssues()
     /** Available → damaged transfer plus immutable operation bytes in ONE Room transaction. */
-    suspend fun recordDamage(productId: String, qty: Long, reason: String, note: String? = null): String {
-        val id = store.recordDamage(productId,qty,reason,note)
+    suspend fun recordDamage(productId: String, qty: Long, reason: String, note: String? = null, photoSha256: String? = null): String {
+        val id = store.recordDamage(productId,qty,reason,note,photoSha256)
         afterEnqueue()
         return id
     }

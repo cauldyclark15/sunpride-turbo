@@ -27,6 +27,33 @@ class VanBootstrapCodecTest {
         assertEquals(PaymentMethod("check","Check",PaymentKind.OTHER,true,"Check number"),b.policy.paymentMethods[1])
         assertEquals(CustomerCredit(30,500_000),b.customers[0].credit); assertNull(b.customers[1].credit); assertNull(b.customers[2].credit)
     }
+    @Test fun frozenDamagePolicyHistoryAndEvidenceEnvelopesDecode() {
+        val b = VanBootstrapCodec.decode(fixture())
+        assertEquals(DamagePolicy(listOf("crushed","leaking","spoiled","other"),12,90_000),b.policy.damagePolicy)
+        val record = b.damageRecords.single()
+        assertEquals("recorded",record.status); assertEquals(2L,record.quantityBase); assertNull(record.decisionNote)
+        assertEquals("PC",record.uomCode); assertEquals(1L,record.quantityScale); assertEquals("2 PC",record.quantityLabel)
+        // Release-check counterexample: the product's unit later changes; history keeps the recorded unit.
+        val renewed = JSONObject(fixture())
+        VanBootstrapCodec.objects(renewed.getJSONArray("products")).first().put("uomCode","EACH").put("quantityScale","1000")
+        renewed.getJSONArray("damageRecords").getJSONObject(0).put("uomCode","CASE").put("quantityScale","1000").put("quantityBase","12000")
+        assertEquals("12 CASE",VanBootstrapCodec.decode(renewed.toString()).damageRecords.single().quantityLabel)
+        // A record without its frozen unit is not accepted.
+        val unfrozen = JSONObject(fixture()); unfrozen.getJSONArray("damageRecords").getJSONObject(0).remove("uomCode")
+        assertTrue(runCatching { VanBootstrapCodec.decode(unfrozen.toString()) }.isFailure)
+        val request = JSONObject(fixture("evidence-request.json")); VanWireSchema.validate(request)
+        val jpeg = java.util.Base64.getDecoder().decode(request.getString("dataBase64"))
+        val encoded = VanEvidenceCodec.request(request.getString("deviceId"),request.getString("sha256"),jpeg)
+        assertEquals(request.toString(),JSONObject(String(encoded)).toString())
+        VanEvidenceCodec.response(fixture("evidence-response.json"),request.getString("sha256"))
+    }
+    @Test fun oldBootstrapHasNoDamagePhotoOrApprovalRequirement() {
+        val o = JSONObject(fixture()); o.getJSONObject("policy").remove("damagePolicy"); o.remove("damageRecords")
+        val b = VanBootstrapCodec.decode(o.toString()); assertNull(b.policy.damagePolicy); assertTrue(b.damageRecords.isEmpty())
+    }
+    @Test fun wireCopyMatchesCommittedAuthority() {
+        assertEquals(JSONObject(fixture("van-v1.schema.json")).toString(),JSONObject(VanWireSchema.SCHEMA).toString())
+    }
     @Test fun policyAndCustomersWithoutPaymentFieldsAllowCashOnly() {
         val o = JSONObject(fixture()); o.getJSONObject("policy").remove("paymentMethods"); o.getJSONArray("customers").getJSONObject(0).remove("credit")
         val b = VanBootstrapCodec.decode(o.toString())
@@ -192,7 +219,12 @@ class VanBootstrapCodecTest {
             { it.getJSONObject("policy").getJSONArray("paymentMethods").getJSONObject(0).put("referenceRequired",true) },
             { it.getJSONArray("customers").getJSONObject(0).getJSONObject("credit").put("termsDays",0) },
             { it.getJSONArray("customers").getJSONObject(0).getJSONObject("credit").put("termsDays",181) },
-            { it.getJSONArray("customers").getJSONObject(0).getJSONObject("credit").put("availableMinor","10.5") }
+            { it.getJSONArray("customers").getJSONObject(0).getJSONObject("credit").put("availableMinor","10.5") },
+            { it.getJSONObject("policy").getJSONObject("damagePolicy").put("approvalFromUnits",0) },
+            { it.getJSONObject("policy").getJSONObject("damagePolicy").put("approvalFromUnits",1_000_001) },
+            { it.getJSONObject("policy").getJSONObject("damagePolicy").put("photoMaxBytes",96_001) },
+            { it.getJSONObject("policy").getJSONObject("damagePolicy").put("photoRequiredReasons",org.json.JSONArray().put("unknown")) },
+            { it.getJSONArray("damageRecords").getJSONObject(0).put("status","lost") }
         )
         mutations.forEach { change -> val o = JSONObject(fixture()); change(o); assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(o.toString()) } }
     }

@@ -7,7 +7,9 @@ import com.sunpride.van.storage.StoreScope
 
 interface VanSyncStore {
     val scope: StoreScope
-    suspend fun pending(): List<OutboxRow>
+    suspend fun pending(excluding: Set<String> = emptySet()): List<OutboxRow>
+    suspend fun canSync(): Boolean = true
+    suspend fun cleanupAcknowledgedPhotos() {}
     suspend fun resetSending()
     suspend fun markSending(ids: List<String>)
     suspend fun hold()

@@ -6,7 +6,7 @@ import java.math.BigDecimal
 data class VanPolicy(val allowNegativeStock: Boolean = false,
     val loadDiscrepancyRequiresApproval: Boolean = true, val walkInAllowed: Boolean = false,
     val loadDiscrepancyReasons: List<String> = emptyList(), val damageReasons: List<String> = emptyList(),
-    val paymentMethods: List<PaymentMethod> = PaymentMethod.CASH_ONLY,
+    val paymentMethods: List<PaymentMethod> = PaymentMethod.CASH_ONLY, val damagePolicy: DamagePolicy? = null,
     val voidReasons: List<String> = emptyList(), val voidApproval: VoidApproval? = null,
     val cashReconciliation: CashReconciliationPolicy? = null,
     val stockReconciliation: StockReconciliationPolicy? = null)
@@ -64,7 +64,7 @@ data class PriceLine(val priceListId: String, val productId: String, val uomCode
     val currency: String, val effectiveFrom: Long, val effectiveTo: Long?)
 data class VanBootstrap(val serverTime: Long, val serviceDate: String, val seller: Seller, val policy: VanPolicy,
     val trip: Trip?, val load: Load?, val truckStock: List<TruckStock>, val products: List<Product>, val customers: List<Customer>,
-    val priceLines: List<PriceLine> = emptyList())
+    val priceLines: List<PriceLine> = emptyList(), val damageRecords: List<DamageRecord> = emptyList())
 data class LoadActual(val lineNumber: Int, val actualBase: Long, val reason: String? = null)
 /**
  * [savedSales]: VAN-011 sales committed on this phone whose office upload is not available yet (parked, never sent);

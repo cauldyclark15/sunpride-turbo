@@ -2,6 +2,7 @@ package com.sunpride.van.data
 
 import android.content.Context
 import android.content.Intent
+import androidx.room.withTransaction
 import com.sunpride.van.AppEnvironment
 import com.sunpride.van.BuildConfig
 import com.sunpride.van.auth.*
@@ -38,6 +39,7 @@ class VanRepository private constructor(private val context: Context, private va
     val seller: Flow<Seller?> = current.flatMapLatest { it?.seller ?: flowOf(null) }
     val policy: Flow<VanPolicy?> = current.flatMapLatest { it?.policy ?: flowOf(null) }
     val truckStock: Flow<List<TruckStock>> = current.flatMapLatest { it?.truckStock ?: flowOf(emptyList()) }
+    val damageRecords: Flow<List<DamageRecord>> = current.flatMapLatest { it?.damageRecords ?: flowOf(emptyList()) }
     val products: Flow<List<Product>> = current.flatMapLatest { it?.products ?: flowOf(emptyList()) }
     val customers: Flow<List<Customer>> = current.flatMapLatest { it?.customers ?: flowOf(emptyList()) }
     val priceLines: Flow<List<PriceLine>> = current.flatMapLatest { it?.priceLines ?: flowOf(emptyList()) }
@@ -52,7 +54,21 @@ class VanRepository private constructor(private val context: Context, private va
     private fun sessionKey(): String? = vault.readSession()?.let { hex(sha256(it.toByteArray(Charsets.UTF_8))) }
     private fun attach(scope: StoreScope) {
         val db = database ?: (if(stubMode != null) EncryptedVanDatabase.openStub(context) else EncryptedVanDatabase.open(context)).also { database = it }
-        if (current.value?.scope != scope) current.value = RoomVanStore(db,scope)
+        if (current.value?.scope != scope) current.value = RoomVanStore(db,scope,evidence=photoFiles(scope))
+    }
+    private fun photoFiles(scope: StoreScope) = com.sunpride.van.evidence.DamagePhotoFiles(
+        if (stubMode != null) java.io.File(context.noBackupFilesDir,"van-stub") else context.noBackupFilesDir,scope)
+    suspend fun saveDamagePhoto(capture: com.sunpride.van.evidence.DamageCapture): com.sunpride.van.evidence.DamagePhoto = withContext(Dispatchers.IO) {
+        val st = store(); val policy = checkNotNull(st.policy.first())
+        val bytes = com.sunpride.van.evidence.DamagePhotoEncoder.compress(capture,policy.damagePolicy?.photoMaxBytes ?: 90_000)
+        check(st === current.value && st.canSync())
+        photoFiles(st.scope).save(bytes,policy.damagePolicy?.photoMaxBytes ?: 90_000)
+    }
+    suspend fun discardDamagePhoto(sha: String) = withContext(Dispatchers.IO) {
+        val st = store()
+        st.db.withTransaction {
+            if (st === current.value && st.canSync() && st.db.rows().outboxRows(st.scope.fullAuthSubject,st.scope.deviceId).none { damagePhotoSha(it) == sha }) photoFiles(st.scope).delete(sha)
+        }
     }
     private fun loadSigner(): DeviceSigner = signer ?: KeystoreDeviceKey.loadOrCreate(context,if(stubMode != null) "sunpride-van-stub-device-p256-v1" else KeystoreDeviceKey.DEFAULT_ALIAS).also { signer = it }
     private suspend fun enroll(): EnrollmentState {
@@ -124,7 +140,7 @@ class VanRepository private constructor(private val context: Context, private va
         val id = store().startTrip(vehicleConfirmed,routeConfirmed,driverName,helperName,odometerKm,note); schedule(); return id
     }
     suspend fun confirmLoad(lines: List<LoadActual>): String { val id = store().confirmLoad(lines); schedule(); return id }
-    suspend fun recordDamage(productId: String, qty: Long, reason: String, note: String? = null): String = TruckStockLedger(store(),::schedule).recordDamage(productId,qty,reason,note)
+    suspend fun recordDamage(productId: String, qty: Long, reason: String, note: String? = null, photoSha256: String? = null): String = TruckStockLedger(store(),::schedule).recordDamage(productId,qty,reason,note,photoSha256)
     suspend fun canRemove(productId: String, qty: Long): Boolean = store().canRemove(productId,qty)
     suspend fun addWalkInCustomer(name: String, reason: String): Customer = store().addWalkInCustomer(name,reason)
     suspend fun issueTransactionId(): com.sunpride.van.ids.TransactionIdentity {
@@ -175,7 +191,7 @@ class VanRepository private constructor(private val context: Context, private va
     internal fun fixtureStore(): RoomVanStore { check(BuildConfig.DEBUG && stubMode != null); return store() }
     suspend fun syncNow(): Unit = authLock.withLock {
         val st = store()
-        try { VanSync(st,checkNotNull(gateway)).syncNow(); session.value = SessionState(true) }
+        try { VanSync(st,checkNotNull(gateway),evidence=st.evidence).syncNow(); session.value = SessionState(true) }
         catch (e: AuthFailure) {
             if (!auth.isSignedIn) { session.value = SessionState(); enrollment.value = EnrollmentState.SignedOut; current.value = null; gateway = null }
             throw e

@@ -14,7 +14,7 @@ class VanSyncTest {
         override val scope = StoreScope("issuer|test","d")
         val rows = linkedMapOf<String,OutboxRow>(); val acks = linkedMapOf<String,PushAck>(); val events = mutableListOf<String>(); var held=false; var health="never_synced"
         fun enqueue(i: Int) { val id=UUID.randomUUID().toString(); rows[id]=OutboxRow(scope.fullAuthSubject,"d",id,"t","trip.start",JSONObject().put("kind","trip.start").put("clientRequestId",id).put("payload",JSONObject().put("tripId","t").put("deviceTime",i)).toString(),i.toLong()) }
-        override suspend fun pending() = if(held) emptyList() else rows.values.filter { it.status=="pending" }.sortedBy { it.createdAt }.take(20)
+        override suspend fun pending(excluding: Set<String>) = if(held) emptyList() else rows.values.filter { it.status=="pending" && it.clientRequestId !in excluding }.sortedBy { it.createdAt }.take(20)
         override suspend fun resetSending() { rows.replaceAll { _,r -> r.copy(status=OutboxRules.interrupted(r.status)) } }
         override suspend fun markSending(ids: List<String>) { ids.forEach { rows[it]=rows.getValue(it).copy(status="sending") } }
         override suspend fun hold() { held=true }

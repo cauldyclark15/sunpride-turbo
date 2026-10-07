@@ -9,6 +9,8 @@ import type { AppRole } from "../lib/roles";
 import type { AuthorizedDevice } from "../mobile/types";
 import schema from "../schema";
 import { modules } from "../test.setup";
+import { postMovement, hashPayload } from "../inventory/posting";
+import { productValues, row } from "../imports/test_helpers";
 import { handleVan } from "./http_handlers";
 import { cashApprovalCode, cashApprovalKey } from "./cash";
 import {
@@ -281,7 +283,7 @@ async function fixture(lotTracked = false) {
       tripId,
       productId: state.product._id,
       quantityBase: "3000",
-      reason: "crushed",
+      reason: "expired",
       ...extra,
     });
   const detail = (tripId: Id<"vanTrips">) =>
@@ -1249,7 +1251,7 @@ describe("van signed operations, POS and reconciliation", () => {
     const payload = {
       tripId,
       productId: f.product._id,
-      reason: "crushed",
+      reason: "expired",
       quantityBase: "3000",
     };
     const damaged = await f.apply(
@@ -2058,6 +2060,564 @@ describe("van bootstrap projection", () => {
         })
       ).policy.paymentMethods.map((m: { code: string }) => m.code),
     ).toEqual(["cash", "check", "gcash", "bank_transfer", "credit"]);
+  });
+});
+
+describe("van damage evidence and approval (VAN-020)", () => {
+  const sha = (n: number) => n.toString(16).padStart(64, "0");
+  async function photo(
+    f: Awaited<ReturnType<typeof fixture>>,
+    n: number,
+    actor = f.seller.actor,
+  ) {
+    const storageId = await f.t.run((ctx) =>
+      ctx.storage.store(new Blob([new Uint8Array([0xff, 0xd8, n])])),
+    );
+    expect(
+      await f.t.mutation(internal.van.damage.registerPhoto, {
+        actor,
+        sha256: sha(n),
+        storageId,
+        size: 3,
+      }),
+    ).toBe(true);
+    return sha(n);
+  }
+  async function active(f: Awaited<ReturnType<typeof fixture>>) {
+    const trip = await f.loaded();
+    await f.start(trip.tripId);
+    return trip;
+  }
+  const records = (f: Awaited<ReturnType<typeof fixture>>) =>
+    f.t.run((ctx) => ctx.db.query("vanDamageRecords").collect());
+
+  it("requires an uploaded photo of the same seller for visible-damage reasons", async () => {
+    const f = await fixture();
+    const { tripId } = await active(f);
+    await expect(f.damage(tripId, { reason: "crushed" })).rejects.toThrow(
+      /photo_required/,
+    );
+    await expect(
+      f.damage(tripId, { reason: "crushed", photoSha256: sha(1) }),
+    ).rejects.toThrow(/photo_required/);
+    await expect(
+      f.damage(tripId, { reason: "expired", photoSha256: "XYZ" }),
+    ).rejects.toThrow(/invalid_request/);
+    const other = await f.person();
+    await photo(f, 2, other.actor);
+    await expect(
+      f.damage(tripId, { reason: "crushed", photoSha256: sha(2) }),
+    ).rejects.toThrow(/photo_required/);
+    expect(await f.movements()).toHaveLength(1);
+
+    const own = await photo(f, 3);
+    // A repeated upload of the same digest is a no-op for the same seller.
+    await f.t.run(async (ctx) => {
+      const storageId = await ctx.storage.store(new Blob([new Uint8Array(1)]));
+      expect(
+        await ctx.runMutation(internal.van.damage.registerPhoto, {
+          actor: f.seller.actor,
+          sha256: own,
+          storageId,
+          size: 1,
+        }),
+      ).toBe(false);
+    });
+    const ack = await f.damage(tripId, { reason: "crushed", photoSha256: own });
+    const [record] = await records(f);
+    expect(ack.ack.entityId).toBe(record!._id);
+    expect(record).toMatchObject({
+      tripId,
+      reason: "crushed",
+      quantityBase: 3000n,
+      quantityScale: 1000n,
+      status: "recorded",
+      needsApproval: false,
+      movementId: ack.ack.movementId,
+      recordedBy: f.seller.actor.subject,
+    });
+    const stored = await f.t.run((ctx) => ctx.db.get(record!.photoId!));
+    expect(stored).toMatchObject({ sha256: own, damageRecordId: record!._id });
+    // One photo proves one record.
+    await expect(
+      f.damage(tripId, { reason: "leaking", photoSha256: own }),
+    ).rejects.toThrow(/invalid_request/);
+    expect(await f.balance(f.truck._id)).toMatchObject({
+      availableStockBase: LOADED - 3000n,
+      damagedBase: 3000n,
+    });
+  });
+
+  it("holds records at the approval threshold for a supervisor, with a photo, and shows them on the device", async () => {
+    const f = await fixture();
+    const { tripId } = await active(f);
+    await f.damage(tripId, { quantityBase: "11999" });
+    // 12 whole units (scale 1000) or more needs a supervisor, and so a photo.
+    await expect(f.damage(tripId, { quantityBase: "12000" })).rejects.toThrow(
+      /photo_required/,
+    );
+    await expect(
+      f.damage(tripId, { quantityBase: "1", reason: "other" }),
+    ).rejects.toThrow(/photo_required/);
+    expect((await records(f)).map((r) => [r.quantityBase, r.status])).toEqual([
+      [11_999n, "recorded"],
+    ]);
+    expect(await f.balance(f.truck._id)).toMatchObject({
+      availableStockBase: LOADED - 11_999n,
+      damagedBase: 11_999n,
+    });
+  });
+
+  async function pendingRecord(lotTracked = false) {
+    const f = await fixture(lotTracked);
+    const trip = await active(f);
+    const shot = await photo(f, 7);
+    const ack = await f.damage(trip.tripId, {
+      quantityBase: "12000",
+      reason: "spoiled",
+      note: "Sour smell",
+      photoSha256: shot,
+    });
+    const damageId = ack.ack.entityId as Id<"vanDamageRecords">;
+    const approver = await f.person("approver");
+    return { f, trip, damageId, approver, movementId: ack.ack.movementId };
+  }
+
+  it("bootstraps the damage policy and the trip's records", async () => {
+    const { f, damageId } = await pendingRecord();
+    const boot = await f.t.query(internal.van.device.bootstrap, {
+      actor: f.seller.actor,
+      now: NOW,
+    });
+    expect(boot.policy.damagePolicy).toEqual({
+      photoRequiredReasons: ["crushed", "leaking", "spoiled", "other"],
+      approvalFromUnits: 12,
+      photoMaxBytes: 90_000,
+    });
+    expect(boot.damageRecords).toEqual([
+      {
+        damageId,
+        clientRequestId: expect.any(String),
+        productId: f.product._id,
+        uomCode: "CASE",
+        quantityScale: "1000",
+        quantityBase: "12000",
+        reason: "spoiled",
+        status: "pending_approval",
+        recordedAt: NOW,
+        decisionNote: null,
+      },
+    ]);
+  });
+
+  it("lets only an in-scope supervisor who is not the recorder decide", async () => {
+    const { f, damageId, approver } = await pendingRecord();
+    const decide = (
+      who: { identity: typeof f.root },
+      decision: "approve" | "reject",
+      note?: string,
+    ) =>
+      who.identity.mutation(api.van.damage.decide, {
+        damageId,
+        decision,
+        ...(note ? { note } : {}),
+      });
+    await expect(decide(f.seller, "approve")).rejects.toThrow(
+      /Insufficient permission/,
+    );
+    await expect(decide(f.admin, "approve")).rejects.toThrow(
+      /Insufficient permission/,
+    );
+    const west = await f.person("manager", f.west);
+    await expect(decide(west, "approve")).rejects.toThrow(/outside your/);
+    await f.t.run(async (ctx) => {
+      const profile = (await ctx.db.get(approver.profileId))!;
+      await ctx.db.patch(damageId, { recordedBy: profile.authSubject! });
+    });
+    await expect(decide(approver, "approve")).rejects.toThrow(
+      /recorded the damage cannot decide/,
+    );
+    await f.t.run((ctx) =>
+      ctx.db.patch(damageId, { recordedBy: f.seller.actor.subject }),
+    );
+    const before = await f.balance(f.truck._id);
+    await decide(approver, "approve", "Seen the photo");
+    expect(await f.t.run((ctx) => ctx.db.get(damageId))).toMatchObject({
+      status: "approved",
+      decisionNote: "Seen the photo",
+      decidedAt: NOW,
+    });
+    expect(await f.balance(f.truck._id)).toEqual(before);
+    await expect(decide(approver, "reject", "late")).rejects.toThrow(
+      /not waiting for approval/,
+    );
+  });
+
+  it("rejects with a reason through a separate reversal movement, never editing the original", async () => {
+    const { f, damageId, approver, movementId } = await pendingRecord();
+    await expect(
+      approver.identity.mutation(api.van.damage.decide, {
+        damageId,
+        decision: "reject",
+      }),
+    ).rejects.toThrow(/Say why/);
+    const original = await f.t.run((ctx) =>
+      ctx.db.get(movementId as Id<"inventoryMovements">),
+    );
+    await approver.identity.mutation(api.van.damage.decide, {
+      damageId,
+      decision: "reject",
+      note: "Only the label is torn",
+    });
+    const record = (await f.t.run((ctx) => ctx.db.get(damageId)))!;
+    expect(record.status).toBe("rejected");
+    expect(record.reversalMovementId).toBeDefined();
+    expect(
+      await f.t.run((ctx) =>
+        ctx.db.get(movementId as Id<"inventoryMovements">),
+      ),
+    ).toEqual(original);
+    expect(await f.entries(record.reversalMovementId!)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          locationId: f.truck._id,
+          stockStatus: "damaged",
+          quantityDeltaBase: -12_000n,
+        }),
+        expect.objectContaining({
+          locationId: f.truck._id,
+          stockStatus: "available",
+          quantityDeltaBase: 12_000n,
+        }),
+      ]),
+    );
+    expect(await f.balance(f.truck._id)).toMatchObject({
+      availableStockBase: LOADED,
+      damagedBase: 0n,
+      physicalBase: LOADED,
+    });
+    const boot = await f.t.query(internal.van.device.bootstrap, {
+      actor: f.seller.actor,
+      now: NOW,
+    });
+    expect(boot.damageRecords[0]).toMatchObject({
+      status: "rejected",
+      decisionNote: "Only the label is torn",
+    });
+  });
+
+  it("reverses at the depot once the truck's damaged stock went back", async () => {
+    const { f, trip, damageId, approver } = await pendingRecord();
+    await f.admin.identity.mutation(api.van.trips.returnLeftover, {
+      tripId: trip.tripId,
+      idempotencyKey: "evening",
+    });
+    const depotBefore = (await f.balance(f.depot._id))!;
+    await approver.identity.mutation(api.van.damage.decide, {
+      damageId,
+      decision: "reject",
+      note: "Fine on recount",
+    });
+    expect(await f.balance(f.depot._id)).toMatchObject({
+      availableStockBase: depotBefore.availableStockBase! + 12_000n,
+      damagedBase: depotBefore.damagedBase! - 12_000n,
+    });
+  });
+
+  it("lists records for review within scope, with photo links and decide rights", async () => {
+    const { f, damageId, approver } = await pendingRecord();
+    const list = (
+      who: { identity: typeof f.root },
+      status?: "pending_approval",
+    ) =>
+      who.identity.query(api.van.damage.listForReview, {
+        ...(status ? { status } : {}),
+        paginationOpts: { numItems: 20, cursor: null },
+      });
+    const mine = await list(approver, "pending_approval");
+    expect(mine.page).toHaveLength(1);
+    expect(mine.page[0]).toMatchObject({
+      damageId,
+      productCode: "SP-PJ-1L",
+      quantityBase: 12_000n,
+      reason: "spoiled",
+      note: "Sour smell",
+      status: "pending_approval",
+      canDecide: true,
+    });
+    expect(mine.page[0]!.photoUrl).toEqual(expect.any(String));
+    expect((await list(f.seller)).page[0]).toMatchObject({
+      damageId,
+      canDecide: false,
+    });
+    const otherSeller = await f.person();
+    expect((await list(otherSeller)).page).toEqual([]);
+    const west = await f.person("manager", f.west);
+    expect((await list(west)).page).toEqual([]);
+    expect((await list({ identity: f.root })).page).toHaveLength(1);
+  });
+  const lotNamed = (
+    f: Awaited<ReturnType<typeof fixture>>,
+    lotNumber: string,
+  ) =>
+    f.t.run((ctx) =>
+      ctx.db
+        .query("inventoryLots")
+        .withIndex(
+          "by_organizationId_and_productId_and_normalizedLotNumber",
+          (q) =>
+            q
+              .eq("organizationId", "sunpride")
+              .eq("productId", f.product._id)
+              .eq("normalizedLotNumber", lotNumber),
+        )
+        .unique(),
+    );
+  const allocationsOf = (
+    f: Awaited<ReturnType<typeof fixture>>,
+    movementId: Id<"inventoryMovements">,
+  ) =>
+    f.t.run(async (ctx) =>
+      (await ctx.db.query("inventoryAllocations").collect()).filter(
+        (a) => a.movementId === movementId,
+      ),
+    );
+
+  it("never restores another trip's damage when rejecting a returned record", async () => {
+    // Release-check counterexample: yesterday's record went back to the depot; today the
+    // same truck carries a different trip's damaged stock.
+    const { f, trip, damageId, approver } = await pendingRecord();
+    await f.admin.identity.mutation(api.van.trips.returnLeftover, {
+      tripId: trip.tripId,
+      idempotencyKey: "day-1-unload",
+    });
+    await f.admin.identity.mutation(api.van.trips.close, {
+      tripId: trip.tripId,
+    });
+    const day1 = (await f.t.run((ctx) => ctx.db.get(trip.tripId)))!;
+    vi.setSystemTime(NOW + 86_400_000);
+    const next = await f.plan(day1.vehicleId, f.seller.profileId, "2026-10-07");
+    await f.confirm(next.tripId, await f.sheet(next.tripId));
+    await f.start(next.tripId);
+    const today = await f.damage(next.tripId, {
+      quantityBase: "12000",
+      reason: "spoiled",
+      photoSha256: await photo(f, 8),
+    });
+    const truckBefore = await f.balance(f.truck._id);
+    const depotBefore = (await f.balance(f.depot._id))!;
+    expect(truckBefore).toMatchObject({
+      availableStockBase: LOADED - 12_000n,
+      damagedBase: 12_000n,
+    });
+    await approver.identity.mutation(api.van.damage.decide, {
+      damageId,
+      decision: "reject",
+      note: "Old batch found intact",
+    });
+    expect(await f.balance(f.truck._id)).toEqual(truckBefore);
+    expect(await f.balance(f.depot._id)).toMatchObject({
+      availableStockBase: depotBefore.availableStockBase! + 12_000n,
+      damagedBase: depotBefore.damagedBase! - 12_000n,
+    });
+    const record = (await f.t.run((ctx) => ctx.db.get(damageId)))!;
+    expect(
+      (await f.entries(record.reversalMovementId!)).every(
+        (e) => e.locationId === f.depot._id,
+      ),
+    ).toBe(true);
+    expect(
+      (await f.t.run((ctx) =>
+        ctx.db.get(today.ack.entityId as Id<"vanDamageRecords">),
+      ))!.status,
+    ).toBe("pending_approval");
+  });
+
+  it("reverses exactly the record's own lots, on the truck and at the depot", async () => {
+    // Release-check counterexample: an unrelated, earlier-expiring damaged lot at the depot.
+    const { f, trip, damageId, approver, movementId } =
+      await pendingRecord(true);
+    await f.root.mutation(api.inventory.setup.postOpeningBalances, {
+      idempotencyKey: "other-lot-opening",
+      sourceReference: "OTHER-LOT",
+      lines: [
+        {
+          productId: f.product._id,
+          locationId: f.depot._id,
+          quantityBase: 12_000n,
+          lotNumber: "EARLIER-UNRELATED",
+          manufacturedAt: NOW - 86_400_000,
+          expiresAt: NOW + 100 * 86_400_000,
+        },
+      ],
+    });
+    const other = (await lotNamed(f, "EARLIER-UNRELATED"))!;
+    await f.t.run((ctx) =>
+      postMovement(ctx, {
+        idempotencyKey: "other-lot-damage",
+        payloadHash: hashPayload({ other: other._id }),
+        commandType: "test.fixture",
+        movementType: "status_change",
+        sourceType: "test_fixture",
+        actorSubject: f.admin.actor.subject,
+        lines: [
+          {
+            productId: f.product._id,
+            quantityBase: 12_000n,
+            fromLocationId: f.depot._id,
+            toLocationId: f.depot._id,
+            fromStockStatus: "available",
+            toStockStatus: "damaged",
+            allocations: [
+              { lotId: other._id, quantityBase: 12_000n, userSelected: true },
+            ],
+          },
+        ],
+      }),
+    );
+    const unload = await f.admin.identity.mutation(
+      api.van.trips.returnLeftover,
+      {
+        tripId: trip.tripId,
+        idempotencyKey: "lot-unload",
+      },
+    );
+    // The return keeps the truck's lots, so the record's lot is findable at the depot.
+    expect(
+      (await allocationsOf(f, unload!)).map((a) => [
+        a.lotId,
+        a.fromStockStatus,
+        a.quantityBase,
+      ]),
+    ).toEqual(
+      expect.arrayContaining([
+        [f.lot!._id, "available", LOADED - 12_000n],
+        [f.lot!._id, "damaged", 12_000n],
+      ]),
+    );
+    await approver.identity.mutation(api.van.damage.decide, {
+      damageId,
+      decision: "reject",
+      note: "Recorded lot found intact",
+    });
+    const record = (await f.t.run((ctx) => ctx.db.get(damageId)))!;
+    const original = await allocationsOf(
+      f,
+      movementId as Id<"inventoryMovements">,
+    );
+    const reversal = await allocationsOf(f, record.reversalMovementId!);
+    expect(original.map((a) => a.lotId)).toEqual([f.lot!._id]);
+    expect(
+      reversal.map((a) => [a.lotId, a.quantityBase, a.reversesAllocationId]),
+    ).toEqual([[f.lot!._id, 12_000n, original[0]!._id]]);
+    const otherDamaged = await f.t.run((ctx) =>
+      ctx.db
+        .query("inventoryLotBalances")
+        .withIndex(
+          "by_organizationId_and_lotId_and_locationId_and_stockStatus",
+          (q) =>
+            q
+              .eq("organizationId", "sunpride")
+              .eq("lotId", other._id)
+              .eq("locationId", f.depot._id)
+              .eq("stockStatus", "damaged"),
+        )
+        .unique(),
+    );
+    expect(otherDamaged!.physicalBase).toBe(12_000n);
+  });
+
+  it("records an actually expired lot as expired, expired lots first, and returns it", async () => {
+    // Release-check counterexample: generic FEFO skipped the expired lot and refused.
+    const f = await fixture(true);
+    await f.root.mutation(api.inventory.setup.postOpeningBalances, {
+      idempotencyKey: "expiring-opening",
+      sourceReference: "SOON-EXPIRY",
+      lines: [
+        {
+          productId: f.product._id,
+          locationId: f.depot._id,
+          quantityBase: 20_000n,
+          lotNumber: "EXPIRING-TODAY",
+          manufacturedAt: NOW - 86_400_000,
+          expiresAt: NOW + 60_000,
+        },
+      ],
+    });
+    const lot = (await lotNamed(f, "EXPIRING-TODAY"))!;
+    const trip = await f.plan();
+    const load = await f.admin.identity.mutation(api.van.loads.plan, {
+      tripId: trip.tripId,
+      lines: [
+        { productId: f.product._id, expectedBase: 20_000n, lotId: lot._id },
+      ],
+    });
+    await f.confirm(trip.tripId, load);
+    await f.start(trip.tripId);
+    vi.setSystemTime(NOW + 120_000);
+    const ack = await f.damage(trip.tripId, {
+      quantityBase: "1000",
+      reason: "expired",
+    });
+    expect(
+      (
+        await allocationsOf(f, ack.ack.movementId as Id<"inventoryMovements">)
+      ).map((a) => [a.lotId, a.quantityBase]),
+    ).toEqual([[lot._id, 1000n]]);
+    expect(await f.balance(f.truck._id)).toMatchObject({
+      availableStockBase: 19_000n,
+      damagedBase: 1000n,
+    });
+    // The expired lot (sellable and damaged) still goes back to the depot at day end.
+    await f.admin.identity.mutation(api.van.trips.returnLeftover, {
+      tripId: trip.tripId,
+      idempotencyKey: "expired-unload",
+    });
+    expect(await f.balance(f.truck._id)).toMatchObject({ physicalBase: 0n });
+  });
+
+  it("keeps the recorded selling unit on history after the product's unit changes", async () => {
+    // Release-check counterexample: 12 CASE became 12 EACH after a product import.
+    const { f } = await pendingRecord();
+    const result = await f.root.mutation(api.imports.products.commitProducts, {
+      runKey: "uom-change",
+      chunkIndex: 0,
+      idempotencyKey: "products:uom-change:0",
+      fileHash: "fixture-uom",
+      rows: [
+        row(
+          productValues({
+            product_code: f.product.code,
+            name: f.product.name,
+            base_uom: "EACH",
+            selling_uoms: "EACH",
+            barcode: "",
+            tracking_mode: "none",
+            allocation_policy: "fifo",
+            shelf_life_days: "",
+            expiry_required: "N",
+            manufacture_date_required: "N",
+            minimum_remaining_shelf_life_days: "0",
+            external_id: "",
+          }),
+        ),
+      ],
+    });
+    expect(result.failed).toBe(0);
+    const boot = await f.t.query(internal.van.device.bootstrap, {
+      actor: f.seller.actor,
+      now: NOW,
+    });
+    expect(
+      boot.products.find(
+        (p: { productId: string }) => p.productId === f.product._id,
+      )?.uomCode,
+    ).toBe("EACH");
+    expect(boot.damageRecords[0]).toMatchObject({
+      uomCode: "CASE",
+      quantityScale: "1000",
+      quantityBase: "12000",
+    });
   });
 });
 

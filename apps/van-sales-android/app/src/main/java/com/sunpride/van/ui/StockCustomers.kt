@@ -1,5 +1,11 @@
 package com.sunpride.van.ui
 
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import com.sunpride.van.evidence.*
+import kotlinx.coroutines.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -28,6 +34,17 @@ import com.sunpride.van.data.*
                 SecondaryButton("Record damage",{ damageProduct = product },Modifier.testTag("damage-$index"),!c.busy)
             }
         }
+        SectionCard("This trip's damage records") {
+            if (c.damageRecords.isEmpty()) Text("No damage records synced yet.")
+            c.damageRecords.forEachIndexed { index,record ->
+                val product = c.products.firstOrNull { it.productId == record.productId }
+                Text(product?.name ?: "Product",style = MaterialTheme.typography.titleMedium)
+                // The unit frozen on the record, not the product's current unit.
+                Text("${record.quantityLabel} · ${VanRules.reasonLabel(record.reason)}",Modifier.testTag("damage-quantity-$index"))
+                Text(record.statusLabel,Modifier.testTag("damage-status-$index"))
+                record.decisionNote?.takeIf { it.isNotBlank() }?.let { Text(it,Modifier.testTag("damage-decision-$index")) }
+            }
+        }
     }
     damageProduct?.let { product -> DamageDialog(c,product) { damageProduct = null } }
 }
@@ -35,9 +52,30 @@ import com.sunpride.van.data.*
     var quantity by remember { mutableStateOf("") }
     var reason by remember { mutableStateOf<String?>(null) }
     var note by remember { mutableStateOf("") }
+    var photo by remember { mutableStateOf<DamagePhoto?>(null) }
+    var camera by remember { mutableStateOf(false) }
+    var processing by remember { mutableStateOf(false) }
+    var photoMessage by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
     val base = VanRules.parseQuantity(quantity,product.quantityScale)
-    Dialog(onDismissRequest = { if (!c.busy) onClose() },properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(Modifier.fillMaxWidth().padding(16.dp).imePadding().heightIn(max = 560.dp),shape = SunprideTokens.shapes.large) {
+    val rules = DamageRules.requirements(c.policy?.damagePolicy,base ?: 0,product.quantityScale,reason)
+    val thumbnail by produceState<android.graphics.Bitmap?>(null,photo) {
+        value = photo?.let { withContext(Dispatchers.IO) { BitmapFactory.decodeFile(it.file.path) } }
+    }
+    DisposableEffect(photo) { val old = photo; onDispose { old?.let { c.discardDamagePhoto(it.sha256) } } }
+    fun captured(capture: DamageCapture) {
+        camera = false; processing = true; photoMessage = null
+        scope.launch {
+            try { photo = c.repository.saveDamagePhoto(capture) }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { photoMessage = "Could not save photo. Retake and try again." }
+            finally { processing = false }
+        }
+    }
+    Dialog(onDismissRequest = { if (!c.busy && !processing) { if (camera) camera = false else onClose() } },
+        properties = DialogProperties(usePlatformDefaultWidth = false,decorFitsSystemWindows = false)) {
+        if (camera) Surface(Modifier.fillMaxSize()) { DamageCameraScreen(::captured,{ camera = false }) }
+        else Surface(Modifier.fillMaxWidth().safeDrawingPadding().padding(16.dp).imePadding().heightIn(max = 560.dp),shape = SunprideTokens.shapes.large) {
             Column(Modifier.padding(16.dp),verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Record damage",style = MaterialTheme.typography.titleLarge)
                 Column(Modifier.weight(1f,false).verticalScroll(rememberScrollState()),verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -46,11 +84,27 @@ import com.sunpride.van.data.*
                     LabeledField("Quantity ${product.uomCode}",quantity,{ quantity = it },"damage-quantity",numeric = true,maxLength = 24)
                     ReasonPicker(c.policy?.damageReasons ?: emptyList(),reason,{ reason = it },"damage-reason")
                     LabeledField("Note (optional)",note,{ note = it },"damage-note")
+                    if (rules.needsApproval) Text("${c.policy!!.damagePolicy!!.approvalFromUnits} units or more: a supervisor must approve this damage — photo required",Modifier.testTag("damage-photo-required"))
+                    else if (rules.needsPhoto) Text("A photo is required for this reason",Modifier.testTag("damage-photo-required"))
+                    if (!rules.needsApproval) Text("No supervisor approval needed for this damage.",Modifier.testTag("damage-approval"))
+                    thumbnail?.let { Image(it.asImageBitmap(),"Damage photo",Modifier.fillMaxWidth().height(112.dp).testTag("damage-thumbnail"),contentScale = ContentScale.Fit) }
+                    photoMessage?.let { Text(it) }
+                    if (processing) Text("Preparing photo…")
+                    SecondaryButton(if (photo == null) "Take photo" else "Retake",{
+                        if (c.damagePhotoSource == null) camera = true else {
+                            processing = true
+                            scope.launch {
+                                try { captured(c.damagePhotoSource.invoke()) }
+                                catch (e: CancellationException) { throw e }
+                                catch (_: Exception) { processing = false; photoMessage = "Could not take photo. Try again." }
+                            }
+                        }
+                    },Modifier.testTag("damage-photo"),!c.busy && !processing)
                     if (c.trip?.status != "active" && c.trip?.startPending != true) Text("Start the trip before recording damage.")
                 }
-                PrimaryBottomButton("Save damage",{ c.damage(product,base!!,reason!!,note,onClose) },
-                    !c.busy && base != null && base > 0 && reason in (c.policy?.damageReasons ?: emptyList()) && (c.trip?.status == "active" || c.trip?.startPending == true),"save-damage")
-                SecondaryButton("Cancel",onClose,Modifier.testTag("cancel-damage"),!c.busy)
+                PrimaryBottomButton("Save damage",{ c.damage(product,base!!,reason!!,note,photo?.sha256,onClose) },
+                    !c.busy && !processing && (!rules.needsPhoto || photo != null) && base != null && base > 0 && reason in (c.policy?.damageReasons ?: emptyList()) && (c.trip?.status == "active" || c.trip?.startPending == true),"save-damage")
+                SecondaryButton("Cancel",onClose,Modifier.testTag("cancel-damage"),!c.busy && !processing)
             }
         }
     }
