@@ -27,7 +27,7 @@ class DamagePhotoFiles(noBackupRoot: File, scope: StoreScope) : DamageEvidence {
         return DamagePhoto(sha,file)
     }
     override fun read(sha256: String, maxBytes: Int): ByteArray {
-        val file = photo(sha256); require(file.length() in 4L..maxBytes.toLong())
+        val file = photo(sha256); require(file.length() in 1L..maxBytes.toLong())
         return file.readBytes().also { require(isJpeg(it) && hex(sha256(it)) == sha256) }
     }
     override fun uploaded(sha256: String): Boolean = marker(sha256).let { it.isFile && it.readText() == sha256 }
@@ -46,7 +46,7 @@ class DamagePhotoFiles(noBackupRoot: File, scope: StoreScope) : DamageEvidence {
         } finally { temporary.delete() }
     }
     companion object {
-        fun isJpeg(bytes: ByteArray) = bytes.size >= 4 && bytes[0] == 0xff.toByte() && bytes[1] == 0xd8.toByte() &&
-            bytes[bytes.lastIndex-1] == 0xff.toByte() && bytes.last() == 0xd9.toByte()
+        /** A complete, bounded baseline JPEG ([BaselineJpeg]); a bare signature is not a photo. */
+        fun isJpeg(bytes: ByteArray) = BaselineJpeg.verify(bytes) != null
     }
 }

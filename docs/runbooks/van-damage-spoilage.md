@@ -20,7 +20,7 @@ approved. Issue: SP-0114 (tracker VAN-020).
 | ------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------- |
 | Photo required      | Crushed, Leaking, Spoiled, Other; and every record that needs approval                          | `VAN_DAMAGE_POLICY.photoRequiredReasons` |
 | Supervisor approval | One record of 12 or more whole selling units (about one case)                                   | `VAN_DAMAGE_POLICY.approvalFromUnits`    |
-| Photo size          | JPEG, at most 90 KB after the handheld compresses it                                            | `VAN_DAMAGE_POLICY.photoMaxBytes`        |
+| Photo size          | A complete baseline JPEG, 16–4096 px a side, at most 90 KB after the handheld compresses it     | `VAN_DAMAGE_POLICY.photoMaxBytes`        |
 | Who approves        | Manager or approver in the trip's unit (super admin anywhere); never the person who recorded it | capability `van.damage.approve`          |
 
 All four sit in `packages/backend/convex/van/model.ts` and reach the handheld in the bootstrap
@@ -30,12 +30,19 @@ policy, so a change needs no app release.
 
 - Every record posts one immutable movement on the truck: available → damaged
   (`van.truck.damage`, reason `van_damage:<reason>`). Damaged stock is never sellable and goes
-  back to the depot as damaged with the evening leftover return.
+  back to the depot as damaged with the evening leftover return, lot by lot.
+- **Expired** on a lot-tracked product takes the truck's lots that are past expiry first
+  (normal selling never picks them), then the nearest-expiry lots.
+- The record keeps the selling unit (e.g. CASE) it was recorded in; a later product change
+  does not relabel its history on the handheld or the web.
+- A photo is checked on upload: every block of the picture must decode. A file that only
+  looks like a JPEG is refused, so a required photo cannot be skipped.
 - A record waiting for approval has already moved (the goods cannot be sold either way).
 - **Approve**: nothing moves; the original movement stands as the write-off.
 - **Reject** (a note is required): a separate damaged → available movement
-  (`van.truck.damage.reject`) at the truck, or at the depot if the leftovers were already
-  returned. The original movement is never edited.
+  (`van.truck.damage.reject`) of exactly the record's own lots: on the truck while that trip
+  still holds them, at the trip's depot once that trip's leftovers were returned. Another
+  trip's damage on the same truck is never touched. The original movement is never edited.
 - Every decision writes an audit log entry (`van.damage.approved` / `van.damage.rejected`).
 
 ## What the supervisor does (web)

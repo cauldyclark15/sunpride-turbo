@@ -374,7 +374,28 @@ describe("van HTTP gateway", () => {
 });
 
 describe("van evidence route (VAN-020)", () => {
-  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 0xff, 0xd9]);
+  // The van-v1 evidence fixture (fixtures/van-v1/evidence-request.json): a real 32x24
+  // baseline JPEG with restart markers.
+  const jpeg = Uint8Array.from(
+    atob(
+      "/9j/4AAQSkZJRgABAQAASABIAAD/wAARCAAYACADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAA" +
+        "AAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKB" +
+        "kaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZn" +
+        "aGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT" +
+        "1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcI" +
+        "CQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAV" +
+        "YnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6" +
+        "goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk" +
+        "5ebn6Onq8vP09fb3+Pn6/9sAQwACAgICAgIEAgIEBgQEBAYIBgYGBggKCAgICAgKDAoKCgoKCgwM" +
+        "DAwMDAwMDg4ODg4OEBAQEBASEhISEhISEhIS/9sAQwEDAwMFBAUIBAQIEw0LDRMTExMTExMTExMT" +
+        "ExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMT/90ABAAC/9oADAMBAAIRAxEA" +
+        "PwD2DSfiH0+evTdJ+IfT56/MfSfiH0+evTdJ+IfT95X4nwzwZt7p89lOV7aH6caT8Q+n7yuxvfEG" +
+        "leKtKfR9Y+eJ+QQcMjDoynnDD/6xyCRX5x6T8Q+n7yvTdJ+IfT56/onhXhCVOUZwVmj9HweQUcXR" +
+        "lhsVTUoSVmmrpp7po//Q/IjSfiH0/eV6bpPxD6fvP1r5L0ntXpuk9q+q4Zyuhp7p7mU4eGmh9aaT" +
+        "8Q+nz16bpPxD6fvK+S9J7V6bpPav6G4Zyuh7vun6flGHhpof/9k=",
+    ),
+    (char) => char.charCodeAt(0),
+  );
   const hex = async (bytes: Uint8Array) =>
     Array.from(
       new Uint8Array(
@@ -465,13 +486,18 @@ describe("van evidence route (VAN-020)", () => {
     expect(raced.remove).toHaveBeenCalledExactlyOnceWith("storage-1");
   });
 
-  it("refuses a digest mismatch, a non-JPEG, an oversized photo and unknown fields", async () => {
+  it("refuses a digest mismatch, a non-JPEG, a signature-only or truncated JPEG, an oversized photo and unknown fields", async () => {
     const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2]);
+    // Release-check counterexample: a JPEG signature with no picture.
+    const signatureOnly = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+    const truncated = new Uint8Array([...jpeg.slice(0, -40), 0xff, 0xd9]);
     const big = new Uint8Array(90_001);
     big.set([0xff, 0xd8]);
     for (const value of [
       await evidenceBody(jpeg, "0".repeat(64)),
       await evidenceBody(png),
+      await evidenceBody(signatureOnly),
+      await evidenceBody(truncated),
       await evidenceBody(big),
       { ...(await evidenceBody()), contentType: "image/png" },
       { ...(await evidenceBody()), extra: true },

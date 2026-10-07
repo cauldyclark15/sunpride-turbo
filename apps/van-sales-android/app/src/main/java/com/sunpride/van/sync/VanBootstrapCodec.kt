@@ -47,7 +47,8 @@ object VanBootstrapCodec {
         if (o.isNull("sequence")) null else o.getInt("sequence"), o.getString("source"),
         credit = o.optJSONObject("credit")?.let { CustomerCredit(it.getInt("termsDays").also { d -> require(d in 1..180) }, base(it,"availableMinor")) })
     fun damageRecords(a: JSONArray): List<DamageRecord> = objects(a).map {
-        DamageRecord(it.getString("damageId"),it.getString("clientRequestId"),it.getString("productId"),base(it,"quantityBase"),
+        DamageRecord(it.getString("damageId"),it.getString("clientRequestId"),it.getString("productId"),
+            it.getString("uomCode"),base(it,"quantityScale"),base(it,"quantityBase"),
             it.getString("reason"),it.getString("status"),it.getLong("recordedAt"),nullable(it,"decisionNote"))
     }
     fun decode(text: String): VanBootstrap = try {

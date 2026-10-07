@@ -442,6 +442,8 @@ internal object VanWireSchema {
               "damageId",
               "clientRequestId",
               "productId",
+              "uomCode",
+              "quantityScale",
               "quantityBase",
               "reason",
               "status",
@@ -457,6 +459,14 @@ internal object VanWireSchema {
               },
               "productId": {
                 "${'$'}ref": "#/${'$'}defs/id"
+              },
+              "uomCode": {
+                "description": "The selling unit frozen when the damage was recorded; later product changes never relabel it.",
+                "type": "string"
+              },
+              "quantityScale": {
+                "description": "Base units per selling unit, frozen with uomCode.",
+                "${'$'}ref": "#/${'$'}defs/base"
               },
               "quantityBase": {
                 "${'$'}ref": "#/${'$'}defs/base"

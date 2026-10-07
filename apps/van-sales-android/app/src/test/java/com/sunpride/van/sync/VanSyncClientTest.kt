@@ -55,7 +55,8 @@ class VanSyncClientTest {
         Unit
     }
     @Test fun maximumPhotoBodyIsBelow128KiBAndBase64HasNoLineBreaks() {
-        val jpeg = ByteArray(96_000).apply { this[0] = 0xff.toByte(); this[1] = 0xd8.toByte(); this[lastIndex-1] = 0xff.toByte(); this[lastIndex] = 0xd9.toByte() }
+        val jpeg = com.sunpride.van.evidence.BaselineJpegTest.padded(com.sunpride.van.evidence.BaselineJpegTest.fixture(),96_000)
+        assertEquals(96_000,jpeg.size)
         val body = VanEvidenceCodec.request("d".repeat(64),hex(sha256(jpeg)),jpeg)
         assertTrue(body.size < 128*1024); assertFalse(JSONObject(String(body)).getString("dataBase64").contains('\n'))
     }

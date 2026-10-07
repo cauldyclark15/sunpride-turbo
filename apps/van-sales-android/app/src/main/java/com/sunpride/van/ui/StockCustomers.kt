@@ -39,7 +39,8 @@ import com.sunpride.van.data.*
             c.damageRecords.forEachIndexed { index,record ->
                 val product = c.products.firstOrNull { it.productId == record.productId }
                 Text(product?.name ?: "Product",style = MaterialTheme.typography.titleMedium)
-                Text(if (product != null) "${product.displayQuantity(record.quantityBase)} ${product.uomCode} · ${VanRules.reasonLabel(record.reason)}" else "${record.quantityBase} base units · ${VanRules.reasonLabel(record.reason)}")
+                // The unit frozen on the record, not the product's current unit.
+                Text("${record.quantityLabel} · ${VanRules.reasonLabel(record.reason)}",Modifier.testTag("damage-quantity-$index"))
                 Text(record.statusLabel,Modifier.testTag("damage-status-$index"))
                 record.decisionNote?.takeIf { it.isNotBlank() }?.let { Text(it,Modifier.testTag("damage-decision-$index")) }
             }

@@ -1,6 +1,6 @@
 import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
-import type { Doc, Id } from "../_generated/dataModel";
+import type { Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import {
   internalMutation,
@@ -14,7 +14,7 @@ import type { AppRole } from "../lib/roles";
 import { collectScopeUnitIds } from "../lib/scope";
 import { audit } from "../org/validation";
 import { requireCurrentDeviceActor } from "./access";
-import { postDamageReversal, truckBalances } from "./ledger";
+import { postDamageReversal } from "./ledger";
 import {
   actorValidator,
   boundedText,
@@ -107,6 +107,9 @@ export async function tripDamageRecords(ctx: QueryCtx, tripId: Id<"vanTrips">) {
     damageId: row._id,
     clientRequestId: row.clientRequestId,
     productId: row.productId,
+    // Frozen when recorded: a later product unit change never relabels history.
+    uomCode: row.uomCode,
+    quantityScale: String(row.quantityScale),
     quantityBase: String(row.quantityBase),
     reason: row.reason,
     status: row.status,
@@ -228,20 +231,6 @@ export const listForReview = query({
   },
 });
 
-/** Where the damaged quantity of a record sits now: the truck, else the trip's depot. */
-async function damagedLocation(
-  ctx: QueryCtx,
-  record: Doc<"vanDamageRecords">,
-  trip: Doc<"vanTrips">,
-) {
-  const onTruck = (await truckBalances(ctx, record.truckLocationId)).find(
-    (balance) => balance.productId === record.productId,
-  );
-  if ((onTruck?.damagedBase ?? 0n) >= record.quantityBase)
-    return record.truckLocationId;
-  return trip.sourceLocationId;
-}
-
 /**
  * VAN-020: a supervisor in scope approves or rejects a damage record waiting for approval.
  * The recorder can never decide his own record. Rejecting needs a note and posts a
@@ -279,7 +268,7 @@ export const decide = mutation({
     if (args.decision === "reject") {
       const movement = await postDamageReversal(ctx, {
         record,
-        locationId: await damagedLocation(ctx, record, trip),
+        trip,
         actorSubject: identity.tokenIdentifier,
       });
       reversalMovementId = movement.movementId;

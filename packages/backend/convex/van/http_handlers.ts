@@ -6,6 +6,7 @@ import type { AuthorizedDevice } from "../mobile/types";
 import { MOBILE_LIMITS } from "../mobile/rate_limits";
 import { hexDigest, rawBody } from "../mobile/http_handlers";
 import { SHA256_HEX } from "./damage";
+import { verifyBaselineJpeg } from "./jpeg";
 import { VAN_DAMAGE_POLICY } from "./model";
 
 /**
@@ -163,8 +164,9 @@ function decodeBase64(text: string): Uint8Array | null {
 }
 
 /**
- * Stores one damage photo for the proven seller. The decoded bytes must be a JPEG within
- * the policy size whose SHA-256 equals the declared digest; a repeat upload is a no-op.
+ * Stores one damage photo for the proven seller. The decoded bytes must be a complete
+ * baseline JPEG (every block decodes, 16-4096 px a side) within the policy size whose
+ * SHA-256 equals the declared digest; a repeat upload is a no-op.
  */
 async function storeEvidence(
   ctx: ActionCtx,
@@ -175,10 +177,9 @@ async function storeEvidence(
   const bytes = decodeBase64(body.dataBase64 as string);
   if (
     !bytes ||
-    bytes.length < 4 ||
     bytes.length > VAN_DAMAGE_POLICY.photoMaxBytes ||
-    bytes[0] !== 0xff ||
-    bytes[1] !== 0xd8 ||
+    // A real, bounded baseline picture: a JPEG signature alone is not evidence.
+    !verifyBaselineJpeg(bytes) ||
     (await hexDigest(bytes)) !== sha256
   )
     return failure("invalid_request", 400);

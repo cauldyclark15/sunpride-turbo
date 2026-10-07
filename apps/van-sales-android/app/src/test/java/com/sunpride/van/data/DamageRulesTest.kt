@@ -35,7 +35,7 @@ class DamageRulesTest {
         assertThrows(IllegalArgumentException::class.java) { DamageRules.requirements(policy,1,0,"expired") }
     }
     @Test fun supervisorStatusLabelsArePlainAndRejectionExplainsStock() {
-        val record = DamageRecord("d","r","p",1,"expired","recorded",1,null)
+        val record = DamageRecord("d","r","p","PC",1,1,"expired","recorded",1,null)
         assertEquals("Recorded",record.statusLabel)
         assertEquals("Waiting for supervisor",record.copy(status="pending_approval").statusLabel)
         assertEquals("Approved",record.copy(status="approved").statusLabel)

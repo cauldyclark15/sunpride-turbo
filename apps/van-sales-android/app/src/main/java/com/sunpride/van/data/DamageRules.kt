@@ -22,8 +22,13 @@ object DamageRules {
         require(!requirements(policy,quantityBase,quantityScale,reason).needsPhoto || photoSha256 != null) { "Photo required" }
     }
 }
+/** [uomCode]/[quantityScale] are frozen when recorded; a later product change never relabels history. */
 data class DamageRecord(val damageId: String, val clientRequestId: String, val productId: String,
+    val uomCode: String, val quantityScale: Long,
     val quantityBase: Long, val reason: String, val status: String, val recordedAt: Long, val decisionNote: String?) {
+    init { require(quantityScale > 0 && uomCode.isNotBlank()) }
+    val quantityLabel: String get() = java.math.BigDecimal.valueOf(quantityBase)
+        .divide(java.math.BigDecimal.valueOf(quantityScale),java.math.MathContext.DECIMAL128).stripTrailingZeros().toPlainString() + " " + uomCode
     val statusLabel: String get() = when(status) {
         "recorded" -> "Recorded"
         "pending_approval" -> "Waiting for supervisor"

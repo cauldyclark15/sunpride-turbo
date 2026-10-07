@@ -181,6 +181,8 @@
       "damageId": "k57dmg00000000000000000000000001",
       "clientRequestId": "0b6f5e1a-3c2d-4e8f-9a1b-2c3d4e5f6a72",
       "productId": "k57prod0000000000000000000000001",
+      "uomCode": "PC",
+      "quantityScale": "1",
       "quantityBase": "2",
       "reason": "leaking",
       "status": "recorded",

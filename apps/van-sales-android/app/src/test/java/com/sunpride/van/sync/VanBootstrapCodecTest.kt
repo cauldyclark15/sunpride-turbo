@@ -26,6 +26,15 @@ class VanBootstrapCodecTest {
         assertEquals(DamagePolicy(listOf("crushed","leaking","spoiled","other"),12,90_000),b.policy.damagePolicy)
         val record = b.damageRecords.single()
         assertEquals("recorded",record.status); assertEquals(2L,record.quantityBase); assertNull(record.decisionNote)
+        assertEquals("PC",record.uomCode); assertEquals(1L,record.quantityScale); assertEquals("2 PC",record.quantityLabel)
+        // Release-check counterexample: the product's unit later changes; history keeps the recorded unit.
+        val renewed = JSONObject(fixture())
+        VanBootstrapCodec.objects(renewed.getJSONArray("products")).first().put("uomCode","EACH").put("quantityScale","1000")
+        renewed.getJSONArray("damageRecords").getJSONObject(0).put("uomCode","CASE").put("quantityScale","1000").put("quantityBase","12000")
+        assertEquals("12 CASE",VanBootstrapCodec.decode(renewed.toString()).damageRecords.single().quantityLabel)
+        // A record without its frozen unit is not accepted.
+        val unfrozen = JSONObject(fixture()); unfrozen.getJSONArray("damageRecords").getJSONObject(0).remove("uomCode")
+        assertTrue(runCatching { VanBootstrapCodec.decode(unfrozen.toString()) }.isFailure)
         val request = JSONObject(fixture("evidence-request.json")); VanWireSchema.validate(request)
         val jpeg = java.util.Base64.getDecoder().decode(request.getString("dataBase64"))
         val encoded = VanEvidenceCodec.request(request.getString("deviceId"),request.getString("sha256"),jpeg)

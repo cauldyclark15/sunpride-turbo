@@ -67,7 +67,8 @@ class FakeVanBackend(fixtureJson: String = FIXTURE, context: Context? = null) : 
                 val qty = p.getString("quantityBase").toLong(); val product = p.getString("productId")
                 val available = VanBootstrapCodec.objects(state.getJSONArray("truckStock")).firstOrNull { it.getString("productId") == product }?.getString("availableBase")?.toLong() ?: 0L
                 if (!state.getJSONObject("policy").getBoolean("allowNegativeStock") && available < qty) return PushResult(row.kind,row.clientRequestId,"rejected",code="invalid_request")
-                val scale = VanBootstrapCodec.objects(state.getJSONArray("products")).single { it.getString("productId") == product }.getString("quantityScale").toLong()
+                val productRow = VanBootstrapCodec.objects(state.getJSONArray("products")).single { it.getString("productId") == product }
+                val scale = productRow.getString("quantityScale").toLong()
                 val policy = VanBootstrapCodec.policy(state.getJSONObject("policy"))
                 val requirements = DamageRules.requirements(policy.damagePolicy,qty,scale,p.getString("reason"))
                 val photo = p.optString("photoSha256")
@@ -77,7 +78,7 @@ class FakeVanBackend(fixtureJson: String = FIXTURE, context: Context? = null) : 
                 movement = "stub-damage-${row.clientRequestId}"; updateStock(product,-qty,qty)
                 val records = state.optJSONArray("damageRecords") ?: JSONArray()
                 val record = JSONObject().put("damageId",entity).put("clientRequestId",row.clientRequestId).put("productId",product)
-                    .put("quantityBase",qty.toString()).put("reason",p.getString("reason"))
+                    .put("uomCode",productRow.getString("uomCode")).put("quantityScale",scale.toString()).put("quantityBase",qty.toString()).put("reason",p.getString("reason"))
                     .put("status",if (requirements.needsApproval) "pending_approval" else "recorded").put("recordedAt",time+1).put("decisionNote",JSONObject.NULL)
                 // Newest first, as the server contract promises.
                 state.put("damageRecords",JSONArray().put(record).also { a -> VanBootstrapCodec.objects(records).take(199).forEach(a::put) })
@@ -281,6 +282,8 @@ class FakeVanBackend(fixtureJson: String = FIXTURE, context: Context? = null) : 
       "damageId": "k57dmg00000000000000000000000001",
       "clientRequestId": "0b6f5e1a-3c2d-4e8f-9a1b-2c3d4e5f6a72",
       "productId": "k57prod0000000000000000000000001",
+      "uomCode": "PC",
+      "quantityScale": "1",
       "quantityBase": "2",
       "reason": "leaking",
       "status": "recorded",

@@ -11,7 +11,8 @@ import java.io.File
 
 class DamagePhotoFilesTest {
     @get:Rule val temporary = TemporaryFolder(File(System.getenv("TMPDIR") ?: System.getProperty("java.io.tmpdir")))
-    private val bytes = byteArrayOf(0xff.toByte(),0xd8.toByte(),1,2,0xff.toByte(),0xd9.toByte())
+    private val bytes: ByteArray = java.util.Base64.getDecoder().decode(org.json.JSONObject(javaClass.classLoader!!
+        .getResourceAsStream("evidence-request.json")!!.bufferedReader().readText()).getString("dataBase64"))
     @Test fun exactBytesDigestMarkerAndDeletionSurviveReopen() {
         val root = temporary.newFolder(); val scope = StoreScope("issuer|seller","device")
         val photos = DamagePhotoFiles(root,scope); val saved = photos.save(bytes,90_000)
@@ -34,5 +35,7 @@ class DamagePhotoFilesTest {
         assertThrows(IllegalArgumentException::class.java) { photos.read(saved.sha256,90_000) }
         assertThrows(IllegalArgumentException::class.java) { photos.read("../private",90_000) }
         assertThrows(IllegalArgumentException::class.java) { photos.save(ByteArray(90_001),90_000) }
+        // A JPEG signature with no picture is not evidence (release check counterexample).
+        assertThrows(IllegalArgumentException::class.java) { photos.save(byteArrayOf(0xff.toByte(),0xd8.toByte(),0xff.toByte(),0xd9.toByte()),90_000) }
     }
 }
