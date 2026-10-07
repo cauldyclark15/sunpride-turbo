@@ -1,0 +1,32 @@
+{
+  "description": "VAN-021 void approval code vectors. TEST-ONLY secret, never a DEV or production value. key = base64url(HMAC-SHA256(secret, 'sunpride/van-void-approval/v1|' + tripId)) without padding; code = RFC 4226 dynamic truncation of HMAC-SHA256(key bytes, 'VOID|v1|' + tripId + '|' + receiptNumber + '|' + totalMinor + '|' + reasonCode) mod 10^8, zero-padded to 8 digits.",
+  "secret": "test-only-van-void-secret-0123456789abcdef",
+  "tripId": "k57trip0000000000000000000000001",
+  "key": "6Heg4RirM2SuTt_Pjg5QZwyqg_P-Szkdlxli4UBfz1Y",
+  "cases": [
+    {
+      "receiptNumber": "TRIP-20261007-V014-1-1A2B3C4D-0001",
+      "totalMinor": "123450",
+      "reasonCode": "wrong_items",
+      "code": "30814695"
+    },
+    {
+      "receiptNumber": "TRIP-20261007-V014-1-1A2B3C4D-0002",
+      "totalMinor": "1",
+      "reasonCode": "customer_cancelled",
+      "code": "80661610"
+    },
+    {
+      "receiptNumber": "TRIP-20261007-V014-1-1A2B3C4D-0002",
+      "totalMinor": "1",
+      "reasonCode": "wrong_items",
+      "code": "96325203"
+    },
+    {
+      "receiptNumber": "TRIP-20261007-V014-1-1A2B3C4D-0002",
+      "totalMinor": "10",
+      "reasonCode": "customer_cancelled",
+      "code": "06858215"
+    }
+  ]
+}

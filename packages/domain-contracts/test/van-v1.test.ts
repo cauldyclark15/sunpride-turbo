@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createHmac } from "node:crypto";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import schema from "../schemas/van-v1.schema.json";
@@ -14,11 +15,15 @@ const validate = ajv.compile(schema);
 const fixtureDir = new URL("../fixtures/van-v1/", import.meta.url);
 const read = async (name: string): Promise<Record<string, unknown>> =>
   Bun.file(new URL(name, fixtureDir)).json();
+/** Wire envelopes; `void-approval.json` holds VAN-021 code vectors, not an envelope. */
+const VOID_VECTORS = "void-approval.json";
 const names = (
   await Array.fromAsync(
     new Bun.Glob("*.json").scan({ cwd: fixtureDir.pathname }),
   )
-).sort();
+)
+  .filter((name) => name !== VOID_VECTORS)
+  .sort();
 
 describe("van v1 contract fixtures", () => {
   test("covers every envelope type", async () => {
@@ -192,5 +197,63 @@ describe("van v1 contract fixtures", () => {
     expect(validate({ ...evidence, contentType: "image/png" })).toBe(false);
     expect(validate({ ...evidence, dataBase64: "not base64!" })).toBe(false);
     expect(validate({ ...evidence, extra: 1 })).toBe(false);
+  });
+
+  test("void reasons and the void approval rule are optional and bounded (VAN-021)", async () => {
+    const boot = await read("bootstrap-response.json");
+    const policy = boot.policy as Record<string, unknown>;
+    const approval = policy.voidApproval as Record<string, unknown>;
+    const withPolicy = (extra: Record<string, unknown>) =>
+      validate({ ...boot, policy: { ...policy, ...extra } });
+    const legacy = { ...policy };
+    delete legacy.voidReasons;
+    delete legacy.voidApproval;
+    expect(validate({ ...boot, policy: legacy })).toBe(true);
+    expect(withPolicy({ voidApproval: { ...approval, key: null } })).toBe(true);
+    expect(withPolicy({ voidReasons: [] })).toBe(false);
+    expect(withPolicy({ voidReasons: ["mistake"] })).toBe(false);
+    expect(withPolicy({ voidApproval: { ...approval, key: "short" } })).toBe(
+      false,
+    );
+    expect(
+      withPolicy({ voidApproval: { ...approval, thresholdMinor: 0 } }),
+    ).toBe(false);
+    const { key: _key, ...keyless } = approval;
+    void _key;
+    expect(withPolicy({ voidApproval: keyless })).toBe(false);
+    expect(withPolicy({ voidApproval: { ...approval, extra: 1 } })).toBe(false);
+  });
+
+  test("void approval vectors match an independent HMAC implementation (VAN-021)", async () => {
+    const vectors = (await read(VOID_VECTORS)) as {
+      secret: string;
+      tripId: string;
+      key: string;
+      cases: {
+        receiptNumber: string;
+        totalMinor: string;
+        reasonCode: string;
+        code: string;
+      }[];
+    };
+    const key = createHmac("sha256", vectors.secret)
+      .update(`sunpride/van-void-approval/v1|${vectors.tripId}`)
+      .digest();
+    expect(key.toString("base64url")).toBe(vectors.key);
+    const boot = await read("bootstrap-response.json");
+    expect(
+      (boot.policy as { voidApproval: { key: string } }).voidApproval.key,
+    ).toBe(vectors.key);
+    expect(vectors.cases.length).toBeGreaterThanOrEqual(3);
+    for (const vector of vectors.cases) {
+      const mac = createHmac("sha256", key)
+        .update(
+          `VOID|v1|${vectors.tripId}|${vector.receiptNumber}|${vector.totalMinor}|${vector.reasonCode}`,
+        )
+        .digest();
+      const offset = mac[31]! & 0x0f;
+      const binary = mac.readUInt32BE(offset) & 0x7fffffff;
+      expect(String(binary % 100_000_000).padStart(8, "0")).toBe(vector.code);
+    }
   });
 });

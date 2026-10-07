@@ -16,6 +16,7 @@ import java.util.UUID
 
 /** VAN-011 sale operation kind and the outbox status of a sale saved on this phone that is never sent (no gateway operation yet). */
 const val SALE_KIND = "sale.record"
+const val SALE_VOID_KIND = "sale.void"
 const val SALE_PARKED = "parked"
 
 /** A disagreement between a saved sale and its truck-stock deduction (VAN-018); a healthy phone has none. */
@@ -136,8 +137,8 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
     internal suspend fun recordLocalMovement(type: com.sunpride.van.ledger.MovementType, productId: String,
         stockStatus: com.sunpride.van.ledger.StockStatus, quantityBase: Long, reason: String?, clientRequestId: String): String = db.withTransaction {
         // VAN-018: a SALE deduction exists only together with its saved sale, so it is written by [commitSale] alone.
-        require(type !in setOf(com.sunpride.van.ledger.MovementType.LOAD,com.sunpride.van.ledger.MovementType.DAMAGE,com.sunpride.van.ledger.MovementType.SALE)) {
-            "Load, damage and sale use their atomic paths" }
+        require(type !in setOf(com.sunpride.van.ledger.MovementType.LOAD,com.sunpride.van.ledger.MovementType.DAMAGE,com.sunpride.van.ledger.MovementType.SALE,com.sunpride.van.ledger.MovementType.VOID)) {
+            "Load, damage, sale and void use their atomic paths" }
         require(Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$").matches(clientRequestId) && quantityBase != 0L)
         val t = writable()
         require(dao.productRows(s,d).any { it.productId == productId })
@@ -182,8 +183,10 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
     suspend fun paymentFacts(): PaymentFacts {
         val acked = dao.outboxRows(s,d).filter { it.status == "done" }.map { it.clientRequestId }.toSet()
         val sales = dao.saleRows(s,d).associateBy { it.saleId }
+        val voided = dao.salevoidRows(s,d).map { it.saleId }.toSet()
         val credit = mutableMapOf<String,Long>(); val references = mutableSetOf<String>()
         dao.paymentRows(s,d).forEach { p ->
+            if (p.saleId in voided) return@forEach
             p.reference?.let { references += PaymentReference.key(p.method,it) }
             val sale = sales[p.saleId] ?: return@forEach
             if (p.status == PaymentState.ON_ACCOUNT.wire && sale.idempotencyKey !in acked)
@@ -246,6 +249,48 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         db.receiptPrints().insertSaleReceipt(SaleReceiptRow(s,d,request.saleId,FrozenReceipts.encode(receipt,currentReceiptHeader(dao,s,d,dao.trip(s,d)))))
         receipt
     }
+    /** The original sale, payment, deductions and receipt stay intact. Only compensating facts are appended. */
+    suspend fun voidSale(saleId: String, reasonCode: String?, note: String?, approvalCode: String?): SaleVoidResult = db.withTransaction {
+        if (dao.meta(s,d)?.held != false) throw VoidRefused(VoidProblem.HELD)
+        val sale = dao.saleRows(s,d).singleOrNull { it.saleId == saleId } ?: throw VoidRefused(VoidProblem.SALE_NOT_FOUND)
+        if (dao.trip(s,d)?.tripId != sale.tripId) throw VoidRefused(VoidProblem.NOT_THIS_TRIP)
+        dao.saleVoid(s,d,saleId)?.let { prior ->
+            if (prior.reasonCode == reasonCode && prior.note == VoidRules.normalizedNote(note))
+                return@withTransaction prior.result(sale.receiptNumber,true)
+            throw VoidRefused(VoidProblem.ALREADY_VOIDED)
+        }
+        // VAN-019 x VAN-021: goods already returned against this sale are back on the truck; voiding the whole sale
+        // would put them back a second time. The rest goes through a return instead.
+        if (dao.outboxRows(s,d).any { it.kind == RETURN_KIND &&
+                JSONObject(it.operationJson).getJSONObject("payload").optJSONObject("originalSale")?.optString("saleId") == saleId })
+            throw VoidRefused(VoidProblem.SALE_HAS_RETURNS)
+        val policy = dao.meta(s,d)?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)) } ?: VanPolicy()
+        val total = checkNotNull(sale.totalMinor)
+        val authorized = VoidRules.authorize(policy,sale.tripId,sale.receiptNumber,total,reasonCode,note,approvalCode)
+        val voidKey = UUID.randomUUID().toString()
+        val at = maxOf(clock(),Math.addExact(dao.latestCreatedAt(s,d) ?: 0L,1L))
+        val row = SaleVoidRow(s,d,UUID.randomUUID().toString(),saleId,sale.tripId,voidKey,reasonCode!!,authorized.note,
+            authorized.method,authorized.code,at)
+        dao.insertSaleVoid(row)
+        dao.salelineRows(s,d).filter { it.saleId == saleId }.forEach { line ->
+            dao.insertMovement(MovementRow(s,d,voidMovementId(voidKey,line.productId),sale.tripId,line.productId,
+                com.sunpride.van.ledger.MovementType.VOID.name,"available",line.quantityBase,reasonCode,voidKey,at))
+        }
+        val currency = JSONObject(checkNotNull(dao.outbox(s,d,sale.idempotencyKey)).operationJson).getJSONObject("payload").getString("currency")
+        val payload = JSONObject().put("tripId",sale.tripId).put("saleId",saleId).put("receiptNumber",sale.receiptNumber)
+            .put("saleClientRequestId",sale.idempotencyKey).put("totalMinor",total.toString()).put("currency",currency)
+            .put("reasonCode",reasonCode).put("approval",JSONObject().put("method",authorized.method)
+                .apply { authorized.code?.let { put("code",it) } }).put("deviceTime",at)
+            .apply { authorized.note?.let { put("note",it) } }
+        val op = JSONObject().put("kind",SALE_VOID_KIND).put("clientRequestId",voidKey).put("payload",payload).toString()
+        dao.insertOutbox(OutboxRow(s,d,voidKey,sale.tripId,SALE_VOID_KIND,op,at,null,SALE_PARKED))
+        check(saleStockIssues(saleId).isEmpty()) { "Sale void and truck stock disagree" }
+        row.result(sale.receiptNumber,false)
+    }
+    private fun SaleVoidRow.result(receiptNumber: String, replay: Boolean) =
+        SaleVoidResult(saleId,voidId,receiptNumber,reasonCode,approvalMethod == "supervisor_code",createdAt,replay)
+    private fun voidMovementId(key: String, productId: String) = "$key:$productId:available:VOID"
+
     /** One SALE movement per sale line; the available-stock check is repeated against the rows already written in this transaction. */
     private suspend fun deductSale(tripId: String, key: String, productId: String, quantityBase: Long, at: Long, allowNegative: Boolean) {
         val movementId = saleMovementId(key,productId)
@@ -286,6 +331,27 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         if (saleId == null) {
             val keys = dao.saleRows(s,d).map { it.idempotencyKey }.toSet()
             movements.filter { it.clientRequestId !in keys }.forEach { issues += SaleStockIssue(null,it.movementId,"deduction_without_sale") }
+        }
+        val voids = dao.salevoidRows(s,d)
+        val reversals = dao.stockmovementRows(s,d).filter { it.type == com.sunpride.van.ledger.MovementType.VOID.name }
+        voids.filter { saleId == null || it.saleId == saleId }.forEach { void ->
+            val sale = sales.singleOrNull { it.saleId == void.saleId }
+            val expected = lines[void.saleId].orEmpty().associate { voidMovementId(void.idempotencyKey,it.productId) to it.quantityBase }
+            val actual = reversals.filter { it.clientRequestId == void.idempotencyKey }
+            if (sale == null || expected.isEmpty()) issues += SaleStockIssue(void.saleId,null,"wrong_reversal")
+            actual.filter { it.movementId !in expected }.forEach { issues += SaleStockIssue(void.saleId,it.movementId,"wrong_reversal") }
+            expected.forEach { (id,qty) ->
+                val m = actual.singleOrNull { it.movementId == id }
+                when {
+                    m == null -> issues += SaleStockIssue(void.saleId,id,"missing_reversal")
+                    m.quantityBase != qty || m.stockStatus != "available" || m.tripId != sale?.tripId ||
+                        void.tripId != sale?.tripId || m.createdAt != void.createdAt -> issues += SaleStockIssue(void.saleId,id,"wrong_reversal")
+                }
+            }
+        }
+        if (saleId == null) {
+            val keys = voids.map { it.idempotencyKey }.toSet()
+            reversals.filter { it.clientRequestId !in keys }.forEach { issues += SaleStockIssue(null,it.movementId,"reversal_without_void") }
         }
         issues
     }

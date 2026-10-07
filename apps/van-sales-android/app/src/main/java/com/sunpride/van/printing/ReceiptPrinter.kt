@@ -10,7 +10,12 @@ sealed interface PrinterStatus {
     /** Only from an adapter whose hardware reports paper (VAN-017); the H10P service does not. */
     data object PaperOut : PrinterStatus
     data class Failed(val message: String) : PrinterStatus
+    /** VAN-015: a Bluetooth printer is chosen but the phone cannot reach it until the seller fixes [reason]. */
+    data class NeedsSetup(val reason: PrinterSetupProblem) : PrinterStatus
 }
+
+/** VAN-015: phone-side problems a seller can fix (never printer faults). */
+enum class PrinterSetupProblem { NO_BLUETOOTH, BLUETOOTH_OFF, PERMISSION_DENIED, NOT_PAIRED }
 
 /** VAN-017: what the printer says about its paper. [NOT_REPORTED] is honest "unknown", never "OK". */
 enum class PaperState { OK, OUT, NOT_REPORTED }
@@ -21,6 +26,8 @@ data class PrinterDiagnostics(
     val paper: PaperState = PaperState.NOT_REPORTED,
     /** H10P scanner availability hint (transaction 21); null when unknown. */
     val scannerHint: Boolean? = null,
+    /** VAN-015: plain-word facts for the printer check (which printer, connection tries, last problem). */
+    val details: List<String> = emptyList(),
 )
 
 data class PrinterCapabilities(

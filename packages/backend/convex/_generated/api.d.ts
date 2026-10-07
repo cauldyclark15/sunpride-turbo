@@ -8,6 +8,11 @@
  * @module
  */
 
+import type * as analytics_admin_pack from "../analytics/admin_pack.js";
+import type * as analytics_admin_pack_model from "../analytics/admin_pack_model.js";
+import type * as analytics_admin_pack_sample from "../analytics/admin_pack_sample.js";
+import type * as analytics_admin_reports from "../analytics/admin_reports.js";
+import type * as analytics_admin_reports_model from "../analytics/admin_reports_model.js";
 import type * as analytics_agent_metrics from "../analytics/agent_metrics.js";
 import type * as analytics_agent_metrics_model from "../analytics/agent_metrics_model.js";
 import type * as analytics_compliance from "../analytics/compliance.js";
@@ -192,6 +197,7 @@ import type * as van_loads from "../van/loads.js";
 import type * as van_model from "../van/model.js";
 import type * as van_trips from "../van/trips.js";
 import type * as van_vehicles from "../van/vehicles.js";
+import type * as van_voids from "../van/voids.js";
 import type * as visits_activity_rules from "../visits/activity_rules.js";
 import type * as visits_commands from "../visits/commands.js";
 import type * as visits_events from "../visits/events.js";
@@ -208,6 +214,11 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  "analytics/admin_pack": typeof analytics_admin_pack;
+  "analytics/admin_pack_model": typeof analytics_admin_pack_model;
+  "analytics/admin_pack_sample": typeof analytics_admin_pack_sample;
+  "analytics/admin_reports": typeof analytics_admin_reports;
+  "analytics/admin_reports_model": typeof analytics_admin_reports_model;
   "analytics/agent_metrics": typeof analytics_agent_metrics;
   "analytics/agent_metrics_model": typeof analytics_agent_metrics_model;
   "analytics/compliance": typeof analytics_compliance;
@@ -392,6 +403,7 @@ declare const fullApi: ApiFromModules<{
   "van/model": typeof van_model;
   "van/trips": typeof van_trips;
   "van/vehicles": typeof van_vehicles;
+  "van/voids": typeof van_voids;
   "visits/activity_rules": typeof visits_activity_rules;
   "visits/commands": typeof visits_commands;
   "visits/events": typeof visits_events;

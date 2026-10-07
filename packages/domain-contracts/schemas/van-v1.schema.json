@@ -80,6 +80,30 @@
     "damageReason": {
       "enum": ["crushed", "leaking", "expired", "spoiled", "other"]
     },
+    "voidReason": {
+      "enum": [
+        "wrong_items",
+        "wrong_quantity",
+        "wrong_customer",
+        "wrong_payment",
+        "customer_cancelled",
+        "other"
+      ]
+    },
+    "voidApproval": {
+      "description": "VAN-021 void approval. When required and the sale total is at least thresholdMinor, a void needs the 8-digit supervisor code for (trip, receipt, total, reason); key is the trip's base64url HMAC key the handheld checks codes with offline, null when the office cannot issue codes (approval-required voids are then refused).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "thresholdMinor", "key"],
+      "properties": {
+        "required": { "type": "boolean" },
+        "thresholdMinor": { "$ref": "#/$defs/base" },
+        "key": {
+          "type": ["string", "null"],
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        }
+      }
+    },
     "paymentMethod": {
       "description": "VAN-012 payment method the office allows. cash gives change; other equals the total and carries a reference when referenceRequired; credit charges the customer's account and needs customer credit terms.",
       "type": "object",
@@ -230,7 +254,14 @@
             },
             "damagePolicy": {
               "$ref": "#/$defs/damagePolicy"
-            }
+            },
+            "voidReasons": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 12,
+              "items": { "$ref": "#/$defs/voidReason" }
+            },
+            "voidApproval": { "$ref": "#/$defs/voidApproval" }
           }
         },
         "trip": {

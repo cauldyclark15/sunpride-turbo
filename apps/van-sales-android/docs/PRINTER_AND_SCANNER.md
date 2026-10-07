@@ -1,10 +1,12 @@
-# H10P printer and scanner (VAN-014 / VAN-016)
+# H10P printer and scanner (VAN-014 / VAN-016), Bluetooth ESC/POS printer (VAN-015)
 
 ## Integration contract
 
-`ReceiptPrinter` is vendor-neutral. `PrinterRegistry.select(context)` selects
-`SenraiseEmbeddedPrinter` only when `recieptservice.com.recieptservice` is installed;
-otherwise it returns `NoPrinter` (`Unavailable`), **not** a silently successful fake.
+`ReceiptPrinter` is vendor-neutral. `PrinterRegistry.select(context)` returns one
+`SelectablePrinter` for the Activity lifetime. It uses a Bluetooth ESC/POS printer when the seller
+explicitly chose one (VAN-015, below); otherwise `SenraiseEmbeddedPrinter` when
+`recieptservice.com.recieptservice` is installed; otherwise `NoPrinter` (`Unavailable`),
+**not** a silently successful fake.
 `FakeReceiptPrinter` is explicitly injectable for tests. The lifecycle owner closes the
 printer; close is terminal. A new adapter can reconnect after closing. Binder death or
 service disconnect makes status `Disconnected`; an explicit connect rebinds.
@@ -21,9 +23,72 @@ saved sale or submits it twice. Explicit `reprint` adds a prominent `REPRINT` ba
 never saves a second sale. An error with `mayHavePrinted=true` must not be auto-retried.
 
 The H10P has **no cutter and no cash-drawer port**. Both operations return `Unsupported`.
-Use `ReceiptElement.Feed(3)`/`Feed(4)` and manually tear the paper. ESC/POS Bluetooth is
-intentionally not implemented: the registry contains a named `TODO(VAN-015)` selection
-hook for that later lane.
+Use `ReceiptElement.Feed(3)`/`Feed(4)` and manually tear the paper.
+
+## Generic ESC/POS Bluetooth printer (VAN-015)
+
+For phones without a built-in printer (or a van that carries its own mobile printer). The H10P
+beta does not need it: with no Bluetooth printer chosen the built-in printer is used as before.
+
+**Supported printers.** Any classic-Bluetooth (SPP/RFCOMM, UUID `00001101-…-00805F9B34FB`)
+thermal printer that accepts the Epson-compatible ESC/POS subset: `ESC @`, `ESC t 0` (PC437),
+`ESC a`, `ESC E`, `GS !`, `ESC d`, native QR `GS ( k` (model 2), 1D barcodes `GS k` (format B)
+and, optionally, `DLE EOT 4` paper status. That covers the common 58mm and 80mm mobile printers
+(Xprinter, Goojprt/MPT-II, Rongta, Zjiang and similar). BLE-only printers are not supported.
+**58 mm** prints 32 characters a line, **80 mm** prints 48; the sale receipt layout is the same
+Sunpride receipt (`SaleReceiptDocuments`), wrapped to the chosen width. These printers have no
+cutter or cash drawer here: `cut()`/`openCashDrawer()` return `Unsupported`; tear by hand.
+
+**Pair and choose.** Pair the printer once in Android's Bluetooth settings (usual PIN `0000` or
+`1234`). Then **Settings → Test printer & scanner → Use a Bluetooth printer**: allow _Nearby
+devices_ when asked (Android 12+), pick the paper width, and tap the printer in the paired list
+(printers first; other paired devices are marked "not marked as a printer"). **Pair or turn on
+Bluetooth** opens the system screen. The choice (address, name, width — not secret) is kept in app
+preferences and used for sale receipts, reprints, void slips and the test receipt immediately,
+without restarting. **Use the built-in printer** switches back. The switch waits for any print in
+progress; the old printer is closed.
+
+**Text.** Bytes are code page PC437: ASCII as is, `ñ Ñ á é í ó ú ü` and a few more are mapped,
+other accents are stripped (`ã` → `a`), anything else prints `?`, and control characters can never
+reach the printer as commands. Amounts stay ASCII `P`. Barcodes/QR are validated and sized before
+anything is sent (EAN/UPC check digits, Code 128 printable ASCII, quiet zones within the paper
+width, QR ≤ 700 bytes); an invalid receipt fails with nothing printed.
+
+**Connect, disconnect and retry.**
+
+- Connect tries 3 times with a growing pause, each on a fresh socket (secure RFCOMM, then the
+  insecure fallback many cheap printers need), each bounded to 10 s; a hanging connect is aborted
+  by closing the socket.
+- Before every job the printer is asked for its paper sensor. If the link turns out dead there
+  (printer switched off, out of range), it reconnects once — nothing has been sent, so this can
+  never print a receipt twice.
+- If the link drops after receipt bytes were sent, the result is `mayHavePrinted = true`, the
+  attempt is recorded as maybe printed (VAN-017) and nothing is resent automatically: the seller
+  checks the paper and uses Reprint. The next request reconnects.
+- Bluetooth off, the _Nearby devices_ permission missing, or the printer no longer paired are
+  reported as `PrinterStatus.NeedsSetup` in plain words before any connection attempt.
+
+**Paper and diagnostics.** `DLE EOT 4` answers OK / OUT (near-end still prints). Paper OUT refuses
+the print before anything is recorded. A printer that does not answer reports **Not reported by
+this printer**, never OK. The printer check shows connection, paper, the chosen printer and width,
+connection tries last time, whether the paper sensor answers, and the last problem.
+
+**Permissions.** `BLUETOOTH_CONNECT` (Android 12+, runtime) and legacy `BLUETOOTH`
+(`maxSdkVersion 30`); no scanning or location permissions — the app only lists already paired
+devices. `android.hardware.bluetooth` is optional.
+
+**Code.** `printing/escpos/EscPosEncoder.kt` (pure byte encoder), `EscPosPrinter.kt`
+(`ReceiptPrinter` over any `EscPosTransport`), `BluetoothPrinters.kt` (SPP transport, paired
+devices, `PrinterChoice`), `printing/SelectablePrinter.kt` (switching + saved choice),
+`printing/BluetoothPrinterSetup.kt` (UI). Unit tests: `EscPosEncoderTest`, `EscPosPrinterTest`
+(scripted link: retries, timeout, stale link, mid-job drop, paper out, silent sensor, flow
+outcome), `SelectablePrinterTest`.
+
+**Assumptions until Sunpride names a printer model.** 58mm default, PC437, no cutter, three
+connect tries. No physical Bluetooth printer was available to this lane: the byte stream and
+recovery logic are unit-tested, not proven on paper. Before relying on a model, pair it, print
+the test receipt and a sale receipt, check QR/barcode and `ñ` on paper, and pull the battery
+mid-print to see the maybe-printed path.
 
 ## Sale receipts, reprint and printer check (VAN-017)
 
@@ -71,6 +136,22 @@ dialog. So the check reports paper as **Not reported by this printer** rather th
 loaded. An adapter that can sense paper (e.g. VAN-015 ESC/POS) reports `OUT`, and printing is then
 refused before anything is recorded. The screen also shows the last receipt print result of the
 session, and Check printer reconnects.
+
+## Void a saved sale (VAN-021)
+
+Open **Receipts → Void sale**, even after the receipt has printed. Choose a reason;
+**Other (explain)** requires a note (300 characters at most). When approval is required,
+call your supervisor and read the receipt number, total and reason. Enter their **8-digit
+code**. Changing the reason clears the code; if approval is not set up, sync and try again.
+
+The sale is **never deleted**. Voiding appends the reason and approval evidence, restores
+exactly the sold quantities to available truck stock, and releases credit/reference usage.
+The original sale, payment, receipt and deductions remain unchanged for audit. The phone
+prints a **VOID - SALE CANCELLED** slip with Manila time, reason and supervisor approval
+when used. It is **not a valid receipt**. After a void, Print/Reprint can only produce a
+void slip, never another valid sale receipt (one void slip plus at most three further copies).
+Printer failure does not undo the void; use **Print void slip** later. Sales and voids stay
+saved/parked on this phone until the gateway supports uploading them.
 
 ## AIDL recovery and compatibility
 
@@ -138,7 +219,7 @@ The existing AndroidManifest `<queries><package
 android:name="recieptservice.com.recieptservice"/></queries>` is necessary for Android 11+
 visibility. CAMERA permission and optional camera feature were already present; this
 lane did not add manifest entries. No Bluetooth permissions are needed for the embedded
-printer.
+printer (VAN-015 adds `BLUETOOTH_CONNECT` only for the optional Bluetooth printer).
 
 All AIDL calls, binder liveness/version checks, death linking/unlinking and print commands
 run on `Dispatchers.IO`. A five-second bind timeout returns `Timeout`. Missing packages

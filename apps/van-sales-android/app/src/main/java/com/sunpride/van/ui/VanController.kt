@@ -101,18 +101,21 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
                 repository.restoreSession()
                 if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow()
             } catch (e: CancellationException) { throw e }
-            catch (_: Exception) { message = "Could not connect. Saved work stays on this phone. Try again." }
+            catch (e: Exception) { message = AuthMessages.forFailure(e,"Could not connect. Saved work stays on this phone. Try again.") }
             finally { busy = false; initialized = true }
         } else initialized = true
         awaitCancellation()
     }
-    private fun command(success: String? = null, block: suspend () -> Unit) {
+    private fun command(success: String? = null,
+        /** SP-0130: sign-in and registration pass [AuthMessages] so a wrong password reads as one. */
+        failure: (Exception) -> String = { "Could not save this change. Check the details and try again." },
+        block: suspend () -> Unit) {
         if (busy) return
         scope?.launch {
             busy = true; message = null
             try { block(); if (success != null) message = success }
             catch (e: CancellationException) { throw e }
-            catch (_: Exception) { message = "Could not save this change. Check the details and try again." }
+            catch (e: Exception) { message = failure(e) }
             finally { busy = false }
         }
     }
@@ -133,12 +136,12 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         open(target)
     }
     fun select(customer: Customer) { selectedCustomer = customer; open(Page.CUSTOMER) }
-    fun signIn(email: String, password: String) = command {
+    fun signIn(email: String, password: String) = command(failure = { AuthMessages.forFailure(it,AuthMessages.SIGN_IN_FALLBACK) }) {
         repository.signIn(email.trim(),password)
         if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow()
     }
     fun signOut() = command { repository.signOut(); page = Page.HOME; sale = null; pickingForSale = false; lastReceipt = null; savedSales = emptyList(); printMessage = null; returnDraft = null; lastReturn = null }
-    fun checkAgain() = command { repository.refreshEnrollment(); if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow() }
+    fun checkAgain() = command(failure = { AuthMessages.forFailure(it,AuthMessages.CHECK_FALLBACK) }) { repository.refreshEnrollment(); if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow() }
     fun syncNow() = command("Sync finished. Check the waiting and review counts.") { repository.syncNow() }
     // Pending state is read from the store (VanRules.status), never from a stale one-off message.
     fun confirmLoad(lines: List<LoadActual>) = command { repository.confirmLoad(lines) }
@@ -201,6 +204,17 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         } catch (e: CheckoutRefused) {
             message = e.issues.joinToString("\n") { issue -> VanRules.checkoutMessage(issue.problem,issue.productId?.let { id -> products.firstOrNull { it.productId == id }?.name }) }
         }
+    }
+    /** [onVoided] runs only after the void is saved, so a refused code keeps the dialog (and what was typed) open. */
+    fun voidSale(saleId: String, reason: String?, note: String?, code: String?, onVoided: () -> Unit = {}) = command {
+        try {
+            repository.voidSale(saleId,reason,note,code)
+            onVoided()
+            message = "Sale voided. The stock is back on the truck."
+            savedSales = repository.savedSales()
+            refreshPaymentFacts()
+            startPrint(saleId,explicit = false,reason = null)
+        } catch (e: VoidRefused) { message = VanRules.voidMessage(e.problem) }
     }
     /** VAN-019: the return being captured. In memory only; [ReturnDraft.returnId] makes Save return safe to repeat. */
     var returnDraft by mutableStateOf<ReturnDraft?>(null)

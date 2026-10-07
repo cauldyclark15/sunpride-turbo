@@ -82,10 +82,14 @@ interface ReceiptPrintDao {
 }
 
 /** A saved sale on the current trip, for the Receipts list. */
-data class SavedSale(val receipt: SaleReceipt, val prints: List<PrintAttempt>) {
+data class SavedSale(val receipt: SaleReceipt, val prints: List<PrintAttempt>, val void: SaleVoidInfo? = null) {
+    val voidSlipPrinted: Boolean get() = prints.any { it.kind == PrintKind.VOID && it.mayHaveReachedPaper }
+    val voidSlipsLeft: Int get() = maxOf(0,ReprintRules.MAX_REPRINTS+1 - prints.count { it.kind == PrintKind.VOID && it.mayHaveReachedPaper })
     val printed: Boolean get() = prints.any { it.mayHaveReachedPaper }
     val reprintsLeft: Int get() = ReprintRules.remaining(prints)
 }
+
+private fun SaleVoidRow.info() = SaleVoidInfo(reasonCode,createdAt,approvalMethod == "supervisor_code")
 
 private fun ReceiptPrintRow.attempt() = PrintAttempt(printId, saleId, PrintKind.of(kind), copyNumber, reason, PrintOutcome.of(outcome), startedAt, finishedAt)
 
@@ -105,7 +109,8 @@ class RoomReceiptPrintLog(private val db: VanDatabase, private val scope: StoreS
         val trip = dao.trip(s, d)
         if (trip?.tripId != sale.tripId) return@withTransaction BeginPrint.Refused(PrintRefusal.NOT_THIS_TRIP)
         val history = prints.forSale(s, d, saleId).map { it.attempt() }
-        when (val decision = ReprintRules.decide(history, explicit, reasonCode)) {
+        val void = dao.saleVoid(s,d,saleId)?.info()
+        when (val decision = ReprintRules.decide(history, explicit, reasonCode,voided = void != null)) {
             is PrintDecision.Refused -> BeginPrint.Refused(decision.refusal)
             is PrintDecision.Print -> {
                 // Strictly increasing per sale, so the history reads in print order even within one millisecond.
@@ -114,7 +119,7 @@ class RoomReceiptPrintLog(private val db: VanDatabase, private val scope: StoreS
                     decision.reason, PrintOutcome.STARTED.wire, at)
                 prints.insert(row)
                 val (receipt, header) = frozen(sale, trip)
-                BeginPrint.Go(row.attempt(), receipt, header)
+                BeginPrint.Go(row.attempt(), receipt, header, void)
             }
         }
     }
@@ -128,8 +133,9 @@ class RoomReceiptPrintLog(private val db: VanDatabase, private val scope: StoreS
     suspend fun savedSales(): List<SavedSale> = db.withTransaction {
         val tripId = dao.trip(s, d)?.tripId ?: return@withTransaction emptyList()
         val history = prints.all(s, d).groupBy { it.saleId }
+        val voids = dao.salevoidRows(s,d).associateBy { it.saleId }
         dao.saleRows(s, d).filter { it.tripId == tripId }.sortedWith(compareByDescending<SaleRow> { it.createdAt }.thenByDescending { it.receiptNumber })
-            .map { SavedSale(frozen(it, null).first, history[it.saleId].orEmpty().map { row -> row.attempt() }) }
+            .map { SavedSale(frozen(it, null).first, history[it.saleId].orEmpty().map { row -> row.attempt() },voids[it.saleId]?.info()) }
     }
 
     suspend fun history(saleId: String): List<PrintAttempt> = prints.forSale(s, d, saleId).map { it.attempt() }

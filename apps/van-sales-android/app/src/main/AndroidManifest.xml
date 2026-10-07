@@ -5,6 +5,10 @@
     <!-- Camera barcode fallback when the handheld has no built-in scanner. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <!-- VAN-015: optional Bluetooth ESC/POS printer (already paired in system settings; no scanning). -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
 
     <!-- Android 11+ package visibility: the Senraise built-in printer service (VAN-016). -->
     <queries>

@@ -3,7 +3,7 @@ package com.sunpride.van.ledger
 import com.sunpride.van.data.TruckStock
 import com.sunpride.van.storage.*
 
-enum class MovementType { LOAD, SALE, RETURN, DAMAGE, TRANSFER, ADJUSTMENT }
+enum class MovementType { LOAD, SALE, VOID, RETURN, DAMAGE, TRANSFER, ADJUSTMENT }
 enum class StockStatus { available, damaged }
 
 /** Math is shared by Room reads and JVM tests; overflow refuses instead of wrapping stock. */

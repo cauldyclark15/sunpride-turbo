@@ -32,7 +32,9 @@ import {
   VAN_PAYMENT_METHODS,
   VAN_POLICY,
   type VanOperationKind,
+  VOID_REASONS,
 } from "./model";
+import { voidApprovalPolicy } from "./voids";
 
 /**
  * VAN-003: the van device's view of its day and its signed operations. Reached only from
@@ -276,7 +278,7 @@ export const bootstrap = internalQuery({
     if (!trip)
       return {
         ...base,
-        policy: policyView(false),
+        policy: await policyView(false, null),
         trip: null,
         load: null,
         truckStock: [],
@@ -310,10 +312,11 @@ export const bootstrap = internalQuery({
       .unique();
     return {
       ...base,
-      policy: policyView(
+      policy: await policyView(
         Boolean(
           negative?.active && negative.movementTypes.includes("pos_sale"),
         ),
+        trip._id,
       ),
       trip: {
         tripId: trip._id,
@@ -375,7 +378,10 @@ export const bootstrap = internalQuery({
   },
 });
 
-function policyView(allowNegativeStock: boolean) {
+async function policyView(
+  allowNegativeStock: boolean,
+  tripId: Id<"vanTrips"> | null,
+) {
   return {
     allowNegativeStock,
     loadDiscrepancyRequiresApproval: VAN_POLICY.loadDiscrepancyRequiresApproval,
@@ -388,6 +394,9 @@ function policyView(allowNegativeStock: boolean) {
       approvalFromUnits: VAN_DAMAGE_POLICY.approvalFromUnits,
       photoMaxBytes: VAN_DAMAGE_POLICY.photoMaxBytes,
     },
+    // VAN-021: reasons for voiding a sale and the supervisor-approval rule + trip key.
+    voidReasons: [...VOID_REASONS],
+    voidApproval: await voidApprovalPolicy(tripId),
   };
 }
 

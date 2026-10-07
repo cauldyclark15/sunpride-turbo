@@ -81,7 +81,7 @@ fun passwordToggleLabel(revealed: Boolean): String = if (revealed) "Hide passwor
 /** [onToggleReveal] adds the eye button to a password field; the caller owns [revealed] (never saved). */
 @Composable fun LabeledField(label: String, value: String, onChange: (String) -> Unit, tag: String,
     numeric: Boolean = false, password: Boolean = false, enabled: Boolean = true, maxLength: Int = 300,
-    revealed: Boolean = false, onToggleReveal: (() -> Unit)? = null) {
+    revealed: Boolean = false, onToggleReveal: (() -> Unit)? = null, keyboardType: KeyboardType? = null) {
     OutlinedTextField(value, { if (it.length <= maxLength) onChange(it) }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag(tag),
         label = { Text(label) }, singleLine = true, enabled = enabled,
         visualTransformation = if (password && !revealed) PasswordVisualTransformation() else VisualTransformation.None,
@@ -91,7 +91,7 @@ fun passwordToggleLabel(revealed: Boolean): String = if (revealed) "Hide passwor
                 EyeGlyph(crossed = revealed)
             }
         }) else null,
-        keyboardOptions = KeyboardOptions(keyboardType = when { password -> KeyboardType.Password; numeric -> KeyboardType.Decimal; tag == "email" -> KeyboardType.Email; else -> KeyboardType.Text }),
+        keyboardOptions = KeyboardOptions(keyboardType = keyboardType ?: when { password -> KeyboardType.Password; numeric -> KeyboardType.Decimal; tag == "email" -> KeyboardType.Email; else -> KeyboardType.Text }),
         shape = SunprideTokens.shapes.small, textStyle = MaterialTheme.typography.bodyLarge,
         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = MaterialTheme.colorScheme.onSurface,
             focusedLabelColor = MaterialTheme.colorScheme.onSurface,

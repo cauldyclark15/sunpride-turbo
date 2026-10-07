@@ -89,6 +89,28 @@ class VanUiDeviceTest {
         ready()
         rule.onNodeWithTag("trip-number").assertTextEquals("TRIP-20261007-V014-1")
     }
+    // SP-0130: a wrong password or no connection reads as plain words, and the seller stays on Sign in.
+    @Test fun wrongPasswordAndOfflineShowPlainSignInMessages() {
+        mount(restore = false)
+        fun attempt(password: String, expected: String) {
+            rule.onNodeWithTag("email").performTextClearance()
+            rule.onNodeWithTag("email").performTextInput("seller@fixture.invalid")
+            rule.onNodeWithTag("password").performTextInput(password)
+            hideKeyboard()
+            rule.onNodeWithTag("sign-in").performClick()
+            rule.waitUntil(10_000) { !c.busy && c.message == expected }
+            rule.onNodeWithTag("message").assertTextEquals(expected)
+            assertFalse(c.session.signedIn)
+            rule.onNodeWithTag("sign-in").assertExists()
+        }
+        attempt(VanRepository.STUB_WRONG_PASSWORD,"Incorrect email or password.")
+        captureVanScreenshot(rule,"sp-0130-wrong-password","sign-in")
+        attempt(VanRepository.STUB_OFFLINE_PASSWORD,"You're offline. Check your connection and try again.")
+        // The right password still signs in afterwards.
+        rule.onNodeWithTag("password").performTextInput("practice"); hideKeyboard()
+        rule.onNodeWithTag("sign-in").performClick()
+        ready()
+    }
     @Test fun homeRendersFixtureAndSafePrimaryBounds() {
         mount()
         rule.onNodeWithTag("trip-number").assertTextEquals("TRIP-20261007-V014-1")
@@ -287,11 +309,59 @@ class VanUiDeviceTest {
             // The H10P service has no paper query; the check says so instead of claiming paper is loaded.
             rule.onNodeWithTag("printer-paper").assertTextContains("Paper: Not reported by this printer",substring = true)
             rule.onNodeWithTag("printer-last").assertTextEquals("Last receipt: None printed yet")
+            // VAN-015: no Bluetooth printer chosen, so the built-in printer stays in use.
+            rule.onNodeWithTag("printer-in-use").assertTextEquals("This handheld's built-in printer")
+            rule.onNodeWithTag("choose-bluetooth-printer").assertExists()
             rule.onNodeWithTag("check-printer").performClick()
             rule.waitUntil(10_000) { rule.onAllNodesWithText("Check printer").fetchSemanticsNodes().isNotEmpty() }
             captureVanScreenshot(rule,"24-printer-check","printer-done")
             // The existing printer device suite, not this UI smoke test, prints the real receipt.
         } finally { rule.runOnUiThread { host = null }; rule.waitForIdle(); printer.close() }
+    }
+    @Test fun voidDialogRequiresSupervisorCodeClearsItOnReasonChangeAndPrintsOnlyVoidSlips() {
+        val printer = com.sunpride.van.printing.FakeReceiptPrinter()
+        mount(printer = printer); loadAndStart()
+        val juice = c.products.single { it.code == "SP-PJ-1L" }
+        testPriceFeed(juice.productId)
+        val receipt = runBlocking {
+            c.repository.completeSale(com.sunpride.van.pos.CheckoutRequest(java.util.UUID.randomUUID().toString(),c.customers.first { it.source == "route" }.outletId,
+                listOf(com.sunpride.van.pos.CartLine(juice.productId,1)),com.sunpride.van.pos.PaymentInput("cash",10000)),8500)
+        }
+        open(Page.RECEIPTS)
+        rule.waitUntil(10000) { c.savedSales.size == 1 }
+        rule.onNodeWithTag("receipt-0-print").performScrollTo().performClick()
+        rule.waitUntil(10000) { !c.printing && c.savedSales.single().printed && printer.documents.size == 1 }
+        rule.onNodeWithTag("receipt-0-void-sale").performScrollTo().performClick()
+        rule.onNodeWithTag("confirm-void").assertIsNotEnabled()
+        rule.onNodeWithTag("void-reason-wrong_items").performScrollTo().performClick()
+        val p = c.policy!!; val trip = c.trip!!.tripId
+        val firstCode = com.sunpride.van.pos.VoidApprovalCodes.code(p.voidApproval!!.key!!,trip,receipt.receiptNumber,receipt.totalMinor,"wrong_items")
+        rule.onNodeWithTag("void-code").performScrollTo().performTextInput(firstCode); hideKeyboard()
+        rule.onNodeWithTag("confirm-void").assertIsEnabled()
+        rule.onNodeWithTag("void-reason-other").performScrollTo().performClick()
+        rule.onNodeWithTag("confirm-void").assertIsNotEnabled()
+        rule.onNodeWithTag("void-note").performScrollTo().performTextInput("Customer changed the order"); hideKeyboard()
+        rule.onNodeWithTag("confirm-void").assertIsNotEnabled() // selecting Other discarded the old code.
+        val code = com.sunpride.van.pos.VoidApprovalCodes.code(p.voidApproval.key!!,trip,receipt.receiptNumber,receipt.totalMinor,"other")
+        // A wrong code is refused, nothing is voided, and the dialog stays open with what was typed.
+        val wrong = if (code == "00000000") "11111111" else "00000000"
+        rule.onNodeWithTag("void-code").performScrollTo().performTextInput(wrong); hideKeyboard()
+        rule.onNodeWithTag("confirm-void").assertIsEnabled().performClick()
+        rule.waitUntil(10000) { !c.busy }
+        rule.onNodeWithTag("void-error").assertExists()
+        assertTrue(c.savedSales.single().void == null)
+        rule.onNodeWithTag("void-code").performScrollTo().performTextClearance()
+        rule.onNodeWithTag("void-code").performTextInput(code); hideKeyboard()
+        assertPrimaryClearance(rule,"confirm-void")
+        rule.onNodeWithTag("confirm-void").assertIsEnabled().performClick()
+        rule.waitUntil(10000) { !c.busy && !c.printing && c.savedSales.single().voidSlipPrinted && printer.documents.size == 2 }
+        rule.onNodeWithTag("receipt-0-void").performScrollTo().assertTextEquals("VOIDED · Other (explain)")
+        rule.onNodeWithTag("receipt-0-void-sale").assertDoesNotExist()
+        rule.onNodeWithTag("receipt-0-reprint").performScrollTo().assertTextEquals("Reprint void slip").performClick()
+        rule.waitUntil(10000) { !c.printing && printer.documents.size == 3 }
+        assertFalse(printer.documents[1].isReprint); assertFalse(printer.documents[2].isReprint)
+        assertTrue(printer.documents.drop(1).all { doc -> doc.elements.filterIsInstance<com.sunpride.van.printing.ReceiptElement.Text>().any { it.text == "VOID - SALE CANCELLED" } })
+        assertTrue(runBlocking { c.repository.fixtureStore().saleStockIssues() }.isEmpty())
     }
     @Test fun saleReceiptPrintsOnceThenReprintsOnlyWithAReasonAndMarker() {
         val printer = com.sunpride.van.printing.FakeReceiptPrinter()
