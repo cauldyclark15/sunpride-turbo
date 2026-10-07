@@ -24,5 +24,6 @@
   "load": null,
   "truckStock": [],
   "products": [],
-  "customers": []
+  "customers": [],
+  "damageRecords": []
 }

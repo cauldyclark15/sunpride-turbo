@@ -28,6 +28,8 @@ describe("van v1 contract fixtures", () => {
       "error.response",
       "van.bootstrap.request",
       "van.bootstrap.response",
+      "van.evidence.request",
+      "van.evidence.response",
       "van.push.request",
       "van.push.response",
     ]);
@@ -143,5 +145,52 @@ describe("van v1 contract fixtures", () => {
     expect(withCredit({ termsDays: 181, availableMinor: "1" })).toBe(false);
     expect(withCredit({ termsDays: 30, availableMinor: "12.50" })).toBe(false);
     expect(withCredit({ termsDays: 30 })).toBe(false);
+  });
+
+  test("damage photo, approval policy and damage records are bounded (VAN-020)", async () => {
+    const boot = await read("bootstrap-response.json");
+    const policy = boot.policy as Record<string, unknown>;
+    const damagePolicy = policy.damagePolicy as Record<string, unknown>;
+    const records = boot.damageRecords as Record<string, unknown>[];
+    const legacy = { ...boot, policy: { ...policy } };
+    delete (legacy.policy as Record<string, unknown>).damagePolicy;
+    delete (legacy as Record<string, unknown>).damageRecords;
+    expect(validate(legacy)).toBe(true);
+    const withPolicy = (next: unknown) =>
+      validate({ ...boot, policy: { ...policy, damagePolicy: next } });
+    expect(withPolicy({ ...damagePolicy, approvalFromUnits: 0 })).toBe(false);
+    expect(withPolicy({ ...damagePolicy, photoMaxBytes: 200000 })).toBe(false);
+    expect(
+      withPolicy({ ...damagePolicy, photoRequiredReasons: ["dented"] }),
+    ).toBe(false);
+    const withRecord = (patch: Record<string, unknown>) =>
+      validate({ ...boot, damageRecords: [{ ...records[0]!, ...patch }] });
+    expect(withRecord({ status: "pending_approval" })).toBe(true);
+    expect(
+      withRecord({ status: "rejected", decisionNote: "Not damaged" }),
+    ).toBe(true);
+    expect(withRecord({ status: "waiting" })).toBe(false);
+    expect(withRecord({ quantityBase: "1.5" })).toBe(false);
+
+    const push = await read("push-request.json");
+    const damage = (push.operations as Record<string, unknown>[])[2]!;
+    const payload = damage.payload as Record<string, unknown>;
+    const withPhoto = (photoSha256: unknown) =>
+      validate({
+        ...push,
+        operations: [{ ...damage, payload: { ...payload, photoSha256 } }],
+      });
+    expect(withPhoto("A".repeat(64))).toBe(false);
+    expect(withPhoto("ab")).toBe(false);
+    const noPhoto = { ...payload };
+    delete noPhoto.photoSha256;
+    expect(
+      validate({ ...push, operations: [{ ...damage, payload: noPhoto }] }),
+    ).toBe(true);
+
+    const evidence = await read("evidence-request.json");
+    expect(validate({ ...evidence, contentType: "image/png" })).toBe(false);
+    expect(validate({ ...evidence, dataBase64: "not base64!" })).toBe(false);
+    expect(validate({ ...evidence, extra: 1 })).toBe(false);
   });
 });

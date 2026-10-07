@@ -44,7 +44,8 @@
         "quantityBase": "2",
         "reason": "leaking",
         "note": "Cap cracked",
-        "deviceTime": 1791345000000
+        "deviceTime": 1791345000000,
+        "photoSha256": "d20f6ffd523b78a86cd2f916fa34af5d1918d75f7b142237c752ad6b254213ab"
       }
     }
   ]

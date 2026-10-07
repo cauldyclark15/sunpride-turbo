@@ -55,7 +55,12 @@
         "referenceRequired": false,
         "referenceLabel": null
       }
-    ]
+    ],
+    "damagePolicy": {
+      "photoRequiredReasons": ["crushed", "leaking", "spoiled", "other"],
+      "approvalFromUnits": 12,
+      "photoMaxBytes": 90000
+    }
   },
   "trip": {
     "tripId": "k57trip0000000000000000000000001",
@@ -119,8 +124,16 @@
       "quantityScale": "1",
       "barcodes": ["4800000000017", "14800000000016"],
       "barcodeUnits": [
-        { "barcode": "4800000000017", "uomCode": "PC", "baseQuantity": "1" },
-        { "barcode": "14800000000016", "uomCode": "CS", "baseQuantity": "24" }
+        {
+          "barcode": "4800000000017",
+          "uomCode": "PC",
+          "baseQuantity": "1"
+        },
+        {
+          "barcode": "14800000000016",
+          "uomCode": "CS",
+          "baseQuantity": "24"
+        }
       ]
     },
     {
@@ -140,7 +153,10 @@
       "address": "A. Soriano Ave, Mandaue",
       "sequence": 1,
       "source": "route",
-      "credit": { "termsDays": 30, "availableMinor": "500000" }
+      "credit": {
+        "termsDays": 30,
+        "availableMinor": "500000"
+      }
     },
     {
       "outletId": "k57out00000000000000000000000002",
@@ -158,6 +174,18 @@
       "address": null,
       "sequence": null,
       "source": "unplanned"
+    }
+  ],
+  "damageRecords": [
+    {
+      "damageId": "k57dmg00000000000000000000000001",
+      "clientRequestId": "0b6f5e1a-3c2d-4e8f-9a1b-2c3d4e5f6a72",
+      "productId": "k57prod0000000000000000000000001",
+      "quantityBase": "2",
+      "reason": "leaking",
+      "status": "recorded",
+      "recordedAt": 1791345001000,
+      "decisionNote": null
     }
   ]
 }
