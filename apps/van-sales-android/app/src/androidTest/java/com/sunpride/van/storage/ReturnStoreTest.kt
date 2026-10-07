@@ -48,13 +48,13 @@ class ReturnStoreTest {
             .put(JSONObject().put("productId",chunks).put("availableBase","5").put("damagedBase","0")))
         return o.toString()
     }
-    private fun ready(active: Boolean = true) = runBlocking {
-        store.replaceBootstrap(fixture(active))
-        db.rows().insertPriceListLine(PriceListLineRow(s,d,"PL-TEST",juice,"PC",8_500,"PHP",at-1_000,null))
-    }
+    // Prices come only through the bootstrap feed (SP-0129 fixture: juice ₱68.50 per PC). A second, disagreeing price
+    // line for the same product makes the price ambiguous, and checkout rightly refuses it as UNPRICED.
+    private val juicePriceMinor = 6_850L
+    private fun ready(active: Boolean = true) = runBlocking { store.replaceBootstrap(fixture(active)) }
     private suspend fun sell(qty: Long = 6): String {
         val id = UUID.randomUUID().toString()
-        store.commitSale(CheckoutRequest(id,outlet,listOf(CartLine(juice,qty)),PaymentInput("cash",1_000_000)),8_500*qty)
+        store.commitSale(CheckoutRequest(id,outlet,listOf(CartLine(juice,qty)),PaymentInput("cash",1_000_000)),juicePriceMinor*qty)
         return id
     }
     private fun line(product: String = juice, qty: Long = 2, reason: String = "damaged", disposition: ReturnDisposition = ReturnDisposition.BAD_STOCK,
@@ -149,6 +149,9 @@ class ReturnStoreTest {
         val juiceJson = products.getJSONObject(0).put("name","Pineapple Juice 1L (new pack)")
         juiceJson.getJSONArray("barcodeUnits").getJSONObject(1).put("baseQuantity","12")
         products.remove(1)
+        // A bootstrap never prices a product it does not carry (the codec refuses it), so the chunks price goes too.
+        val prices = o.getJSONArray("priceLines")
+        (prices.length() - 1 downTo 0).filter { prices.getJSONObject(it).getString("productId") == chunks }.forEach { prices.remove(it) }
         o.getJSONObject("load").getJSONArray("lines").remove(1)
         o.getJSONArray("truckStock").remove(1)
         store.replaceBootstrap(o.toString())
