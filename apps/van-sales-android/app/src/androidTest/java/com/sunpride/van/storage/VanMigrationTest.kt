@@ -67,6 +67,21 @@ class VanMigrationTest {
             database.query("PRAGMA index_list(`sale_void`)").use { cursor -> var unique = false
                 while(cursor.moveToNext()) if(cursor.getString(1) == "index_sale_void_fullAuthSubject_deviceId_saleId") unique = cursor.getInt(2) == 1
                 assertTrue(unique) }
+            database.execSQL("INSERT INTO sale_void (fullAuthSubject,deviceId,voidId,saleId,tripId,idempotencyKey,reasonCode,note,approvalMethod,approvalCode,createdAt) VALUES ('issuer|subject','d','v1','s1','t','k','wrong_items',NULL,'none',NULL,2)")
+        }
+        // VAN-022: v5 → v6 adds only the empty append-only cash count table and its one-per-trip index.
+        helper.runMigrationsAndValidate(name,6,true,VanDatabase.MIGRATION_5_6).use { database ->
+            database.query("SELECT COUNT(*) FROM cash_reconciliation").use { assertTrue(it.moveToFirst()); assertEquals(0,it.getInt(0)) }
+            database.query("PRAGMA table_info(`cash_reconciliation`)").use { cursor -> val columns=mutableListOf<String>(); while(cursor.moveToNext()) columns+=cursor.getString(1)
+                assertEquals(listOf("fullAuthSubject","deviceId","reconciliationId","tripId","idempotencyKey","currency","expectedMinor","declaredMinor",
+                    "varianceMinor","countsJson","reasonCode","note","approvalMethod","approvalCode","cashSaleCount","createdAt"),columns) }
+            database.query("SELECT receiptNumber,totalMinor,status FROM sale").use { assertTrue(it.moveToFirst()); assertEquals("R-1",it.getString(0)); assertEquals(8500L,it.getLong(1)); assertEquals("saved",it.getString(2)) }
+            database.query("SELECT method,amountMinor FROM payment").use { assertTrue(it.moveToFirst()); assertEquals("cash",it.getString(0)); assertEquals(8500L,it.getLong(1)) }
+            database.query("SELECT saleId,reasonCode FROM sale_void").use { assertTrue(it.moveToFirst()); assertEquals("s1",it.getString(0)); assertEquals("wrong_items",it.getString(1)) }
+            database.query("SELECT operationJson,status FROM outbox").use { assertTrue(it.moveToFirst()); assertEquals("immutable bytes",it.getString(0)); assertEquals("pending",it.getString(1)) }
+            database.query("PRAGMA index_list(`cash_reconciliation`)").use { cursor -> var unique = false
+                while(cursor.moveToNext()) if(cursor.getString(1) == "index_cash_reconciliation_fullAuthSubject_deviceId_tripId") unique = cursor.getInt(2) == 1
+                assertTrue(unique) }
         }
     }
 }

@@ -14,7 +14,9 @@ object VanBootstrapCodec {
         o.getBoolean("walkInAllowed"), strings(o.getJSONArray("loadDiscrepancyReasons")), strings(o.getJSONArray("damageReasons")),
         o.optJSONArray("paymentMethods")?.let(::paymentMethods) ?: PaymentMethod.CASH_ONLY,
         o.optJSONArray("voidReasons")?.let(::strings) ?: emptyList(),
-        o.optJSONObject("voidApproval")?.let { VoidApproval(it.getBoolean("required"),base(it,"thresholdMinor"),nullable(it,"key")) })
+        o.optJSONObject("voidApproval")?.let { VoidApproval(it.getBoolean("required"),base(it,"thresholdMinor"),nullable(it,"key")) },
+        o.optJSONObject("cashReconciliation")?.let { CashReconciliationPolicy(it.getBoolean("approvalRequired"),base(it,"toleranceMinor"),
+            strings(it.getJSONArray("reasons")),nullable(it,"key")) })
     /** VAN-012: optional; a policy cached before it (or an older server) allows cash only. */
     fun paymentMethods(a: JSONArray): List<PaymentMethod> {
         val methods = objects(a).map { PaymentMethod(it.getString("code"), it.getString("label"), PaymentKind.of(it.getString("kind")),

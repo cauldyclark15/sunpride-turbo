@@ -43,9 +43,14 @@ import java.time.format.DateTimeFormatter
             ListRow("Receipts","Print or reprint a receipt from this trip","open-receipts",onClick = { c.open(Page.RECEIPTS) })
             ListRow("Printer & scanner","Check the printer and paper","open-printer",onClick = { c.open(Page.PRINTER) })
             ListRow("Sync now","Send saved work and check for changes","sync-now",onClick = c::syncNow,enabled = !c.busy)
-            val selling = VanRules.canSell(trip)
-            if (c.sale != null) ListRow("Continue sale",c.sale!!.customer.name,"new-sale",enabled = !c.busy,onClick = c::continueSale)
-            else ListRow("New sale",if (selling) "Choose the customer, then add products" else "Start the trip to sell","new-sale",enabled = selling && !c.busy,onClick = { c.open(Page.CUSTOMERS) })
+            val selling = VanRules.canSell(trip) && !c.cashCounted
+            if (c.sale != null && selling) ListRow("Continue sale",c.sale!!.customer.name,"new-sale",enabled = !c.busy,onClick = c::continueSale)
+            else ListRow("New sale",when { c.cashCounted -> "Cash counted — no more sales on this trip"; selling -> "Choose the customer, then add products"; else -> "Start the trip to sell" },
+                "new-sale",enabled = selling && !c.busy,onClick = { c.open(Page.CUSTOMERS) })
+            // VAN-022: end of trip. Open once the trip is on the road; after saving it shows the count.
+            val countable = c.cashCounted || VanRules.canCountCash(trip)
+            ListRow("Count cash",if (c.cashCounted) "Counted — see the result" else if (countable) "End of trip: count the cash you collected" else "Start the trip first",
+                "open-cash",enabled = countable && !c.busy,onClick = { c.open(Page.CASH) })
         }
         val context = LocalContext.current
         c.features.reportIssueUrl?.let { url -> ListRow("Report an issue","Tell the Sunpride team what went wrong","report-issue",onClick = { openLink(context,url) }) }

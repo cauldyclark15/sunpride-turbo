@@ -42,6 +42,8 @@ class VanRepository private constructor(private val context: Context, private va
     val customers: Flow<List<Customer>> = current.flatMapLatest { it?.customers ?: flowOf(emptyList()) }
     val priceLines: Flow<List<PriceLine>> = current.flatMapLatest { it?.priceLines ?: flowOf(emptyList()) }
     val syncStatus: Flow<SyncStatus> = current.flatMapLatest { it?.syncStatus ?: flowOf(SyncStatus()) }
+    /** VAN-022: the current trip's cash is counted on this phone. */
+    val cashCounted: Flow<Boolean> = current.flatMapLatest { it?.cashCounted ?: flowOf(false) }
     private var database: VanDatabase? = null
     private var signer: DeviceSigner? = null
     private var gateway: VanGateway? = null
@@ -145,6 +147,14 @@ class VanRepository private constructor(private val context: Context, private va
      */
     suspend fun printReceipt(printer: com.sunpride.van.printing.ReceiptPrinter, saleId: String, explicit: Boolean, reasonCode: String? = null): com.sunpride.van.printing.PrintJobResult =
         withContext(Dispatchers.IO) { val st = store(); com.sunpride.van.printing.ReceiptPrintFlow(printer,RoomReceiptPrintLog(st.db,st.scope)).print(saleId,explicit,reasonCode) }
+    /** VAN-022: expected cash from this trip's saved sales and payments, and the saved count once there is one. */
+    suspend fun cashSummary(): CashSummary? = withContext(Dispatchers.IO) { CashReconciliationStore(store()).summary() }
+    /**
+     * VAN-022: save the end-of-trip cash count in one encrypted transaction (see `CashReconciliationStore.commit`).
+     * Throws [com.sunpride.van.pos.CashRefused]; never needs the network. Parked like a sale; no upload is scheduled.
+     */
+    suspend fun countCash(request: com.sunpride.van.pos.CashCountRequest): com.sunpride.van.pos.CashCountResult =
+        withContext(Dispatchers.IO) { CashReconciliationStore(store()).commit(request) }
     /** VAN-017: sales saved on the current trip with their print history, newest first. */
     suspend fun savedSales(): List<SavedSale> = withContext(Dispatchers.IO) { val st = store(); RoomReceiptPrintLog(st.db,st.scope).savedSales() }
     /** DEBUG practice data only: the fixture store, so device tests can seed the (still empty) price list. */

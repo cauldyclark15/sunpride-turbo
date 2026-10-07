@@ -40,7 +40,9 @@ enum class CheckoutProblem {
     TRIP_NOT_SELLING, NO_CUSTOMER, UNKNOWN_CUSTOMER, EMPTY_CART, TOO_MANY_LINES, DUPLICATE_PRODUCT,
     UNKNOWN_PRODUCT, BAD_QUANTITY, INSUFFICIENT_STOCK, UNPRICED, PRICE_NOT_EXACT, MIXED_CURRENCY,
     TOTAL_TOO_LARGE, CREDIT_TERMS_UNAVAILABLE, CASH_MISSING, CASH_SHORT, PRICES_CHANGED,
-    UNKNOWN_PAYMENT_METHOD, REFERENCE_MISSING, REFERENCE_INVALID, REFERENCE_ALREADY_USED, CREDIT_LIMIT_EXCEEDED
+    UNKNOWN_PAYMENT_METHOD, REFERENCE_MISSING, REFERENCE_INVALID, REFERENCE_ALREADY_USED, CREDIT_LIMIT_EXCEEDED,
+    /** VAN-022: the trip's cash is already counted, so it sells nothing more. */
+    CASH_COUNTED
 }
 
 /** A problem, optionally tied to a product line. */
@@ -65,7 +67,8 @@ data class CheckoutResult(val quote: CheckoutQuote?, val issues: List<CheckoutIs
  */
 data class CheckoutContext(val tripSelling: Boolean, val customers: List<Customer>, val products: List<Product>,
     val stock: List<TruckStock>, val prices: List<PriceLine>, val policy: VanPolicy?, val now: Long,
-    val serviceDate: String? = null, val creditUsedMinor: Map<String,Long> = emptyMap(), val usedReferences: Set<String> = emptySet())
+    val serviceDate: String? = null, val creditUsedMinor: Map<String,Long> = emptyMap(), val usedReferences: Set<String> = emptySet(),
+    val cashCounted: Boolean = false)
 
 class CheckoutRefused(val issues: List<CheckoutIssue>) : IllegalStateException("Checkout refused")
 
@@ -82,6 +85,7 @@ object CheckoutRules {
         require(uuidV4.matches(request.saleId)) { "Sale ID must be a UUID-v4" }
         val issues = mutableListOf<CheckoutIssue>()
         if (!context.tripSelling || context.policy == null) issues += CheckoutIssue(CheckoutProblem.TRIP_NOT_SELLING)
+        if (context.cashCounted) issues += CheckoutIssue(CheckoutProblem.CASH_COUNTED)
         when {
             request.customerId.isNullOrBlank() -> issues += CheckoutIssue(CheckoutProblem.NO_CUSTOMER)
             context.customers.none { it.outletId == request.customerId } -> issues += CheckoutIssue(CheckoutProblem.UNKNOWN_CUSTOMER)
