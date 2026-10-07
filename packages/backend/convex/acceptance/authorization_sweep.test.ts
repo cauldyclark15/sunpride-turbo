@@ -481,18 +481,24 @@ const INSIDERS = [
  * control proving the fixture rows are reachable at all.
  */
 describe("authorization sweep (QSR-006)", () => {
-  it("refuses every public function to signed-out and unprovisioned callers", async () => {
-    for (const caller of ["anonymous", "unprovisioned"] as const) {
-      const answered = (await sweep(caller)).filter((o) => o.ok);
-      expect([...new Set(answered.map((o) => o.path))].sort(), caller).toEqual(
-        [...ANONYMOUS_NULL_QUERIES].sort(),
-      );
-      expect(
-        answered.every((o) => !o.anyMarker),
-        caller,
-      ).toBe(true);
-    }
-  });
+  // The sweep grows with every public function; same bound as the per-role sweeps below.
+  it(
+    "refuses every public function to signed-out and unprovisioned callers",
+    { timeout: 120_000 },
+    async () => {
+      for (const caller of ["anonymous", "unprovisioned"] as const) {
+        const answered = (await sweep(caller)).filter((o) => o.ok);
+        expect(
+          [...new Set(answered.map((o) => o.path))].sort(),
+          caller,
+        ).toEqual([...ANONYMOUS_NULL_QUERIES].sort());
+        expect(
+          answered.every((o) => !o.anyMarker),
+          caller,
+        ).toBe(true);
+      }
+    },
+  );
 
   it.each(OUTSIDERS)(
     "%s never reads another region's rows",

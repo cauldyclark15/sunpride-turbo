@@ -65,6 +65,10 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
     val cashCounted: Flow<Boolean> = combine(dao.observeTrip(s,d),dao.observeCashReconciliation(s,d)) { trips, rows ->
         trips.singleOrNull()?.let { t -> rows.any { it.tripId == t.tripId } } ?: false
     }
+    /** VAN-023: the current trip's physical truck stock is counted on this phone (all stock changes have stopped). */
+    val stockCounted: Flow<Boolean> = combine(dao.observeTrip(s,d),dao.observeStockReconciliation(s,d)) { trips, rows ->
+        trips.singleOrNull()?.let { t -> rows.any { it.tripId == t.tripId } } ?: false
+    }
     val truckStock: Flow<List<TruckStock>> = combine(dao.observeBaseline(s,d),dao.observeMovement(s,d),dao.observeSettlement(s,d),dao.observeTrip(s,d)) { b,m,settled,t ->
         val trip = t.singleOrNull()?.tripId
         if (trip == null) emptyList() else StockProjection.project(b.filter { it.tripId == trip },m.filter { it.tripId == trip },settled.map { it.movementId }.toSet())
@@ -75,6 +79,8 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
     }
     suspend fun canRemove(productId: String, qty: Long): Boolean = db.withTransaction {
         val p = dao.meta(s,d)?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)) } ?: return@withTransaction false
+        val trip = dao.trip(s,d) ?: return@withTransaction false
+        if (dao.stockReconciliation(s,d,trip.tripId) != null) return@withTransaction false
         dao.productRows(s,d).any { it.productId == productId } && StockProjection.canRemove(stock().firstOrNull { it.productId == productId }?.availableBase ?: 0L,qty,p.allowNegativeStock)
     }
     /** The store's clock, for work saved through companion stores (VAN-019 returns). */
@@ -122,6 +128,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
     }
     suspend fun recordDamage(productId: String, qty: Long, reason: String, note: String?, photoSha256: String? = null): String = db.withTransaction {
         val t = writable()
+        if (dao.stockReconciliation(s,d,t.tripId) != null) throw StockRefused(StockProblem.STOCK_COUNTED)
         check(t.status == "active" || dao.outboxRows(s,d).any { it.tripId == t.tripId && it.kind == "trip.start" && it.status in setOf("pending","sending","done") }) { "Trip not active" }
         val policy = VanBootstrapCodec.policy(JSONObject(dao.meta(s,d)!!.policyJson!!))
         require(reason in policy.damageReasons && qty in 1L..999_999_999_999_999_999L)
@@ -145,6 +152,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
             "Load, damage, sale and void use their atomic paths" }
         require(Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$").matches(clientRequestId) && quantityBase != 0L)
         val t = writable()
+        if (dao.stockReconciliation(s,d,t.tripId) != null) throw StockRefused(StockProblem.STOCK_COUNTED)
         require(dao.productRows(s,d).any { it.productId == productId })
         if (type == com.sunpride.van.ledger.MovementType.RETURN) require(quantityBase > 0)
         val id = "$clientRequestId:$productId:${stockStatus.name}:${type.name}"
@@ -173,12 +181,13 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
     suspend fun checkoutContext(): CheckoutContext {
         val t = dao.trip(s,d); val meta = dao.meta(s,d); val facts = paymentFacts()
         val counted = t != null && dao.cashReconciliation(s,d,t.tripId) != null
+        val stockCounted = t != null && dao.stockReconciliation(s,d,t.tripId) != null
         return CheckoutContext(t != null && meta?.held == false && selling(t),
             dao.customerRows(s,d).map { it.toCustomer() },
             dao.productRows(s,d).map { VanBootstrapCodec.product(JSONObject(it.json)) }, stock(),
             dao.pricelistlineRows(s,d).map { PriceLine(it.priceListId,it.productId,it.uomCode,it.unitPriceMinor,it.currency,it.effectiveFrom,it.effectiveTo) },
             meta?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)) }, clock(), t?.serviceDate,
-            facts.creditUsedMinor, facts.usedReferences, counted)
+            facts.creditUsedMinor, facts.usedReferences, counted, stockCounted)
     }
 
     /**
@@ -259,6 +268,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         if (dao.meta(s,d)?.held != false) throw VoidRefused(VoidProblem.HELD)
         val sale = dao.saleRows(s,d).singleOrNull { it.saleId == saleId } ?: throw VoidRefused(VoidProblem.SALE_NOT_FOUND)
         if (dao.trip(s,d)?.tripId != sale.tripId) throw VoidRefused(VoidProblem.NOT_THIS_TRIP)
+        if (dao.stockReconciliation(s,d,sale.tripId) != null && dao.saleVoid(s,d,saleId) == null) throw VoidRefused(VoidProblem.STOCK_COUNTED)
         if (dao.cashReconciliation(s,d,sale.tripId) != null && dao.saleVoid(s,d,saleId) == null) throw VoidRefused(VoidProblem.CASH_COUNTED)
         dao.saleVoid(s,d,saleId)?.let { prior ->
             if (prior.reasonCode == reasonCode && prior.note == VoidRules.normalizedNote(note))

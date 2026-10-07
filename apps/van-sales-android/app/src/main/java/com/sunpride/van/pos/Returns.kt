@@ -89,7 +89,9 @@ data class SoldSale(val saleId: String, val receiptNumber: String, val customerI
 enum class ReturnProblem {
     TRIP_NOT_OPEN, NO_CUSTOMER, UNKNOWN_CUSTOMER, EMPTY, TOO_MANY_LINES, DUPLICATE_LINE, UNKNOWN_PRODUCT, UNKNOWN_UNIT,
     BAD_QUANTITY, NO_REASON, NO_DISPOSITION, DISPOSITION_NOT_ALLOWED, BATCH_MISSING, BATCH_INVALID, EXPIRY_INVALID,
-    UNKNOWN_SALE, SALE_OTHER_CUSTOMER, NOT_ON_SALE, MORE_THAN_SOLD, NOTE_INVALID
+    UNKNOWN_SALE, SALE_OTHER_CUSTOMER, NOT_ON_SALE, MORE_THAN_SOLD, NOTE_INVALID,
+    /** VAN-023: a saved stock count freezes returns as well as sales. */
+    STOCK_COUNTED
 }
 
 data class ReturnIssue(val problem: ReturnProblem, val productId: String? = null)
@@ -118,7 +120,8 @@ data class ReturnResult(val quote: ReturnQuote?, val issues: List<ReturnIssue>) 
  * this phone, the base quantity per product already returned against it.
  */
 data class ReturnContext(val tripOpen: Boolean, val customers: List<Customer>, val products: List<Product>,
-    val sales: List<SoldSale>, val returnedBase: Map<String, Map<String, Long>>, val policy: ReturnPolicy = ReturnPolicy.DEFAULT)
+    val sales: List<SoldSale>, val returnedBase: Map<String, Map<String, Long>>, val policy: ReturnPolicy = ReturnPolicy.DEFAULT,
+    val stockCounted: Boolean = false)
 
 class ReturnRefused(val issues: List<ReturnIssue>) : IllegalStateException("Return refused")
 
@@ -186,6 +189,7 @@ object ReturnRules {
         val issues = mutableListOf<ReturnIssue>()
         val policy = context.policy
         if (!context.tripOpen) issues += ReturnIssue(ReturnProblem.TRIP_NOT_OPEN)
+        if (context.stockCounted) issues += ReturnIssue(ReturnProblem.STOCK_COUNTED)
         val customer = context.customers.firstOrNull { it.outletId == request.customerId }
         when {
             request.customerId.isNullOrBlank() -> issues += ReturnIssue(ReturnProblem.NO_CUSTOMER)

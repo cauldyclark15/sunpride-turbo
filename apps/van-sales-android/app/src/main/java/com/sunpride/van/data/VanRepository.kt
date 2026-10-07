@@ -46,6 +46,8 @@ class VanRepository private constructor(private val context: Context, private va
     val syncStatus: Flow<SyncStatus> = current.flatMapLatest { it?.syncStatus ?: flowOf(SyncStatus()) }
     /** VAN-022: the current trip's cash is counted on this phone. */
     val cashCounted: Flow<Boolean> = current.flatMapLatest { it?.cashCounted ?: flowOf(false) }
+    /** VAN-023: the current trip's physical stock is counted on this phone. */
+    val stockCounted: Flow<Boolean> = current.flatMapLatest { it?.stockCounted ?: flowOf(false) }
     private var database: VanDatabase? = null
     private var signer: DeviceSigner? = null
     private var gateway: VanGateway? = null
@@ -178,6 +180,11 @@ class VanRepository private constructor(private val context: Context, private va
      */
     suspend fun countCash(request: com.sunpride.van.pos.CashCountRequest): com.sunpride.van.pos.CashCountResult =
         withContext(Dispatchers.IO) { CashReconciliationStore(store()).commit(request) }
+    /** VAN-023: expected truck stock and the saved physical count. */
+    suspend fun stockSummary(): com.sunpride.van.pos.StockSummary? = withContext(Dispatchers.IO) { StockReconciliationStore(store()).summary() }
+    /** VAN-023: save the physical stock count; it remains parked until the gateway supports it. */
+    suspend fun countStock(request: com.sunpride.van.pos.StockCountRequest): com.sunpride.van.pos.StockCountResult =
+        withContext(Dispatchers.IO) { StockReconciliationStore(store()).commit(request) }
     /** VAN-017: sales saved on the current trip with their print history, newest first. */
     suspend fun savedSales(): List<SavedSale> = withContext(Dispatchers.IO) { val st = store(); RoomReceiptPrintLog(st.db,st.scope).savedSales() }
     /** DEBUG practice data only: the fixture store, so device tests can seed the (still empty) price list. */

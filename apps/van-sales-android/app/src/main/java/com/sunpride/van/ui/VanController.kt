@@ -81,11 +81,19 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     /** VAN-022: the trip's cash is counted on this phone, so selling has stopped. */
     var cashCounted by mutableStateOf(false)
         private set
+    /** VAN-023: the trip's physical stock is counted on this phone, so stock changes have stopped. */
+    var stockCounted by mutableStateOf(false)
+        private set
     /** VAN-022: what Count cash shows; refreshed whenever the page opens or a count is saved. */
     var cashSummary by mutableStateOf<com.sunpride.van.storage.CashSummary?>(null)
         private set
     /** Count cash draft; [CashDraft.reconciliationId] makes Save cash count safe to tap twice. In memory only. */
     var cashDraft by mutableStateOf(CashDraft(CashReconciliationRules.newReconciliationId()))
+        private set
+    /** Count stock draft; [StockDraft.reconciliationId] makes Save count safe to tap twice. In memory only. */
+    var stockSummary by mutableStateOf<com.sunpride.van.pos.StockSummary?>(null)
+        private set
+    var stockDraft by mutableStateOf(StockDraft(StockReconciliationRules.newCountId()))
         private set
     private var scope: CoroutineScope? = null
 
@@ -104,6 +112,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         launch { repository.seller.collect { seller = it } }
         launch { repository.syncStatus.collect { sync = it } }
         launch { repository.cashCounted.collect { cashCounted = it } }
+        launch { repository.stockCounted.collect { stockCounted = it } }
         launch { fingerprint = try { fingerprintLoader() } catch (_: Exception) { "Unavailable. Check again." } }
         if (restore) {
             busy = true
@@ -133,6 +142,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         page = next; message = null
         if (next == Page.RECEIPTS) { printMessage = null; refreshReceipts() }
         if (next == Page.CASH) refreshCash()
+        if (next == Page.STOCK_COUNT) refreshStock()
     }
     fun back() {
         val target = when (page) {
@@ -140,6 +150,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
             Page.CHECKOUT -> Page.SALE
             Page.SALE -> Page.CUSTOMER
             Page.RETURN -> Page.CUSTOMER
+            Page.STOCK_COUNT -> Page.HOME
             Page.PRODUCTS -> if (pickingForSale && sale != null) Page.SALE else Page.HOME
             else -> Page.HOME
         }
@@ -151,7 +162,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         repository.signIn(email.trim(),password)
         if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow()
     }
-    fun signOut() = command { repository.signOut(); page = Page.HOME; sale = null; pickingForSale = false; lastReceipt = null; savedSales = emptyList(); printMessage = null; returnDraft = null; lastReturn = null; cashSummary = null; cashDraft = CashDraft(CashReconciliationRules.newReconciliationId()) }
+    fun signOut() = command { repository.signOut(); page = Page.HOME; sale = null; pickingForSale = false; lastReceipt = null; savedSales = emptyList(); printMessage = null; returnDraft = null; lastReturn = null; cashSummary = null; cashDraft = CashDraft(CashReconciliationRules.newReconciliationId()); stockSummary = null; stockDraft = StockDraft(StockReconciliationRules.newCountId()) }
     fun checkAgain() = command(failure = { AuthMessages.forFailure(it,AuthMessages.CHECK_FALLBACK) }) { repository.refreshEnrollment(); if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow() }
     fun syncNow() = command("Sync finished. Check the waiting and review counts.") { repository.syncNow() }
     // Pending state is read from the store (VanRules.status), never from a stale one-off message.
@@ -162,17 +173,20 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         page = Page.HOME
     }
     fun damage(product: Product, qty: Long, reason: String, note: String, photoSha256: String? = null, onSaved: () -> Unit) = command {
-        if (!repository.canRemove(product.productId,qty)) {
-            message = "Not enough stock on the truck"
-        } else {
-            repository.recordDamage(product.productId,qty,reason,note.takeIf { it.isNotBlank() },photoSha256)
-            message = "Damage saved — waiting for sync"; onSaved()
-        }
+        try {
+            if (!repository.canRemove(product.productId,qty)) {
+                message = if (stockCounted) VanRules.stockMessage(StockProblem.STOCK_COUNTED) else "Not enough stock on the truck"
+            } else {
+                repository.recordDamage(product.productId,qty,reason,note.takeIf { it.isNotBlank() },photoSha256)
+                message = "Damage saved — waiting for sync"; onSaved()
+            }
+        } catch (e: StockRefused) { message = VanRules.stockMessage(e.problem) }
     }
     fun discardDamagePhoto(sha: String) { scope?.launch { runCatching { repository.discardDamagePhoto(sha) } } }
     fun startSale(customer: Customer) {
         if (!VanRules.canSell(trip)) { message = VanRules.checkoutMessage(CheckoutProblem.TRIP_NOT_SELLING,null); return }
         if (cashCounted) { message = VanRules.checkoutMessage(CheckoutProblem.CASH_COUNTED,null); return }
+        if (stockCounted) { message = VanRules.checkoutMessage(CheckoutProblem.STOCK_COUNTED,null); return }
         if (sale?.customer?.outletId != customer.outletId) sale = SaleDraft(CheckoutRules.newSaleId(),customer,emptyList())
         selectedCustomer = customer; open(Page.SALE)
     }
@@ -199,7 +213,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     suspend fun refreshPaymentFacts() { paymentFacts = runCatching { repository.paymentFacts() }.getOrDefault(com.sunpride.van.storage.PaymentFacts()) }
     fun saleContext(now: Long = System.currentTimeMillis()): CheckoutContext =
         CheckoutContext(VanRules.canSell(trip) && session.signedIn,customers,products,stock,prices,policy,now,trip?.serviceDate,
-            paymentFacts.creditUsedMinor,paymentFacts.usedReferences,cashCounted)
+        paymentFacts.creditUsedMinor,paymentFacts.usedReferences,cashCounted,stockCounted)
     fun quote(payment: PaymentInput): CheckoutResult? = sale?.let { CheckoutRules.evaluate(CheckoutRequest(it.saleId,it.customer.outletId,it.lines,payment),saleContext()) }
     /** Lines and total of the cart alone, before a payment is entered. */
     fun cartQuote(): CheckoutQuote? = sale?.let { CheckoutRules.cartQuote(CheckoutRequest(it.saleId,it.customer.outletId,it.lines,PaymentInput(PaymentMethod.CASH.code)),saleContext()) }
@@ -238,6 +252,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         private set
     fun startReturn(customer: Customer) {
         if (!VanRules.canSell(trip)) { message = VanRules.returnMessage(ReturnProblem.TRIP_NOT_OPEN,null); return }
+        if (stockCounted) { message = VanRules.returnMessage(ReturnProblem.STOCK_COUNTED,null); return }
         if (returnDraft?.customer?.outletId != customer.outletId) returnDraft = ReturnDraft(ReturnRules.newReturnId(),customer,null,emptyList())
         selectedCustomer = customer; open(Page.RETURN)
         scope?.launch { returnFacts = runCatching { repository.returnContext() }.getOrNull() }
@@ -289,6 +304,12 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
                 catch (e: CashRefused) { message = VanRules.cashMessage(e.problem); null } catch (_: Exception) { null }
         }
     }
+    fun refreshStock() {
+        scope?.launch {
+            stockSummary = try { repository.stockSummary() } catch (e: CancellationException) { throw e }
+                catch (e: StockRefused) { message = VanRules.stockMessage(e.problem); null } catch (_: Exception) { null }
+        }
+    }
     fun editCash(draft: CashDraft) { cashDraft = draft }
     /** The store recomputes the expected cash and checks the code in the saving transaction; a refusal keeps the draft. */
     fun saveCashCount(expectedMinor: Long) = command {
@@ -304,6 +325,25 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
             if (e.problem == CashProblem.EXPECTED_CHANGED || e.problem == CashProblem.ALREADY_COUNTED) cashSummary = repository.cashSummary()
         }
     }
+    fun editStock(draft: StockDraft) { stockDraft = draft }
+    /** The store rechecks the expected projection and every rule in its transaction. */
+    fun saveStockCount() = command {
+        val summary = checkNotNull(stockSummary)
+        val lines = summary.lines.map { line ->
+            val text = stockDraft.counts[line.productId to line.status] ?: ""
+            StockCountLine(line.productId,line.status,line.expectedBase,VanRules.parseQuantity(text,line.quantityScale) ?: -1L,
+                stockDraft.reasons[line.productId to line.status])
+        }
+        try {
+            val result = repository.countStock(StockCountRequest(stockDraft.reconciliationId,lines,
+                stockDraft.note.takeIf { it.isNotBlank() },stockDraft.code.takeIf { it.isNotBlank() }))
+            stockSummary = repository.stockSummary()
+            message = if (result.varianceLines == 0) "Stock count saved. It matches." else "Stock count saved. Truck stock now matches your count."
+        } catch (e: StockRefused) {
+            message = VanRules.stockMessage(e.problem)
+            if (e.problem == StockProblem.EXPECTED_CHANGED || e.problem == StockProblem.ALREADY_COUNTED) stockSummary = repository.stockSummary()
+        }
+    }
     fun walkIn(name: String, reason: String) = command {
         repository.addWalkInCustomer(name.trim(),reason.trim()); page = Page.CUSTOMERS
     }
@@ -315,5 +355,8 @@ data class LastPrint(val at: Long, val text: String, val printed: Boolean)
 /** VAN-022 Count cash form: pieces typed per denomination (centavos → text), reason, note and supervisor code. */
 data class CashDraft(val reconciliationId: String, val pieces: Map<Long,String> = emptyMap(), val reasonCode: String? = null,
     val note: String = "", val code: String = "")
+/** VAN-023 Count stock form: decimal quantities are kept as text until parsed against each product scale. */
+data class StockDraft(val reconciliationId: String, val counts: Map<Pair<String,String>,String> = emptyMap(),
+    val reasons: Map<Pair<String,String>,String?> = emptyMap(), val note: String = "", val code: String = "")
 /** A sale being built for one customer (VAN-011). */
 data class SaleDraft(val saleId: String, val customer: Customer, val lines: List<CartLine>)
