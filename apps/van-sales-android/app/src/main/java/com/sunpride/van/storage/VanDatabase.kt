@@ -140,10 +140,26 @@ interface VanDao {
     @Query("SELECT * FROM sequence_counter WHERE fullAuthSubject=:subject AND deviceId=:device AND tripId=:tripId") suspend fun counter(subject: String, device: String, tripId: String): SequenceCounterRow?
 }
 
-@Database(entities = [TripRow::class,LoadLineRow::class,ProductRow::class,CustomerRow::class,BaselineRow::class,MovementRow::class,SettlementRow::class,OutboxRow::class,AckRow::class,SyncMetaRow::class,SequenceCounterRow::class,TransactionIdRow::class,SaleRow::class,SaleLineRow::class,PaymentRow::class,CustomerReturnRow::class,ReturnLineRow::class,ReconciliationRow::class,PriceListLineRow::class], version = 2, exportSchema = true)
+@Database(entities = [TripRow::class,LoadLineRow::class,ProductRow::class,CustomerRow::class,BaselineRow::class,MovementRow::class,SettlementRow::class,OutboxRow::class,AckRow::class,SyncMetaRow::class,SequenceCounterRow::class,TransactionIdRow::class,SaleRow::class,SaleLineRow::class,PaymentRow::class,CustomerReturnRow::class,ReturnLineRow::class,ReconciliationRow::class,PriceListLineRow::class,
+    ReceiptPrintRow::class,SaleReceiptRow::class], version = 4, exportSchema = true)
 abstract class VanDatabase : RoomDatabase() {
     abstract fun rows(): VanDao
+    /** VAN-017 receipt print history (v3). */
+    abstract fun receiptPrints(): ReceiptPrintDao
     companion object {
+        /** VAN-017: one new append-only table of receipts frozen at checkout; sales saved before it have none. */
+        val MIGRATION_3_4 = object : androidx.room.migration.Migration(3,4) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `sale_receipt` (`fullAuthSubject` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `saleId` TEXT NOT NULL, `documentJson` TEXT NOT NULL, PRIMARY KEY(`fullAuthSubject`, `deviceId`, `saleId`))")
+            }
+        }
+        /** VAN-017: one new append-only table; no existing row, operation byte or movement changes. */
+        val MIGRATION_2_3 = object : androidx.room.migration.Migration(2,3) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `receipt_print` (`fullAuthSubject` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `printId` TEXT NOT NULL, `saleId` TEXT NOT NULL, `kind` TEXT NOT NULL, `copyNumber` INTEGER NOT NULL, `reason` TEXT, `outcome` TEXT NOT NULL, `startedAt` INTEGER NOT NULL, `finishedAt` INTEGER, PRIMARY KEY(`fullAuthSubject`, `deviceId`, `printId`))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_receipt_print_fullAuthSubject_deviceId_saleId` ON `receipt_print` (`fullAuthSubject`, `deviceId`, `saleId`)")
+            }
+        }
         /** VAN-012: additive nullable columns only; no saved row, operation byte or movement changes. */
         val MIGRATION_1_2 = object : androidx.room.migration.Migration(1,2) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
