@@ -28,7 +28,7 @@
 
 ## Automated evidence
 
-JVM: full `testDevDebugUnitTest` suite **273 passed** (VAN-024). Device (H10P): **118 passed, 6 failed** out of 124; the failures are the five existing `ReturnStoreTest` cases (checkout/fixture failures, same on other lanes) and `VanRepositoryTest` opening a v8 database another lane left on the handheld; the VAN-024 store (6), v7→v8 migration and Close trip UI tests passed. Existing core/printer/scanner suites remain included.
+JVM: full `testDevDebugUnitTest` suite **273 passed** (VAN-024). Device (H10P): **118 passed, 6 failed** out of 124; the failures are the five existing `ReturnStoreTest` cases (checkout/fixture failures, same on other lanes) and `VanRepositoryTest` opening a v8 database another lane left on the handheld; the VAN-024 store (6), v7→v8 migration and Close trip UI tests passed. Existing core/printer/scanner suites remain included. SP-0131 fixed those `ReturnStoreTest` failures (the test added a second, disagreeing juice price beside the bootstrap feed, so checkout correctly refused it as unpriced; its replay case dropped a product but kept that product's price line, which the bootstrap codec correctly refuses): H10P **125 passed, 0 failed** (printer receipt test skipped by the runner unless `PRINT_RECEIPT=1`). A failing device test is a defect, not a baseline.
 
 ## Screenshot clearance review
 
