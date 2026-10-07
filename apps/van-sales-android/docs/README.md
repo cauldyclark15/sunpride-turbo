@@ -11,6 +11,8 @@ Separate native app for truck sellers (PMOT, PMOT Extruck, RDS) per ADR-010 and 
 | [beta.md](beta.md)                                     | Beta APK: hidden features, signing key, `bun run apk:van-beta`, logo/splash, install and proof     |
 | [Van UAT](../../../docs/qa/VAN_SALES_UAT_SCENARIOS.md) | Van-sales UAT scenarios and sign-off sheet for the Cebu van pilot (QSR-002)                        |
 
+Seller, supervisor and office procedures for the selling day (load, POS, printer, returns, counts, close): [`docs/guides/VAN_SALES_OPERATING_GUIDE.md`](../../../docs/guides/VAN_SALES_OPERATING_GUIDE.md). Its screen words and numbers are checked against this app by `scripts/van-guide.test.ts`; rename a button and update the guide together.
+
 Root check: `bun run native:van` (assemble, JVM tests and lint, then device tests on the H10P through the lock-guarded runner; skips the device step when the handheld is absent).
 
 ## Backend it talks to
