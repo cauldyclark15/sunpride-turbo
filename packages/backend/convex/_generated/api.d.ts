@@ -194,6 +194,7 @@ import type * as van_http_handlers from "../van/http_handlers.js";
 import type * as van_ledger from "../van/ledger.js";
 import type * as van_loads from "../van/loads.js";
 import type * as van_model from "../van/model.js";
+import type * as van_stock_count from "../van/stock_count.js";
 import type * as van_trips from "../van/trips.js";
 import type * as van_vehicles from "../van/vehicles.js";
 import type * as van_voids from "../van/voids.js";
@@ -399,6 +400,7 @@ declare const fullApi: ApiFromModules<{
   "van/ledger": typeof van_ledger;
   "van/loads": typeof van_loads;
   "van/model": typeof van_model;
+  "van/stock_count": typeof van_stock_count;
   "van/trips": typeof van_trips;
   "van/vehicles": typeof van_vehicles;
   "van/voids": typeof van_voids;

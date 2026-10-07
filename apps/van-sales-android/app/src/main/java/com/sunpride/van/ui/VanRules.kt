@@ -4,7 +4,7 @@ import com.sunpride.van.data.*
 import java.math.BigDecimal
 import java.math.MathContext
 
-enum class Page { HOME, LOAD, START, STOCK, CUSTOMERS, WALK_IN, CUSTOMER, PRINTER, PRODUCTS, SALE, CHECKOUT, SALE_DONE, RECEIPTS, RETURN, RETURN_DONE, CASH }
+enum class Page { HOME, LOAD, START, STOCK, STOCK_COUNT, CUSTOMERS, WALK_IN, CUSTOMER, PRINTER, PRODUCTS, SALE, CHECKOUT, SALE_DONE, RECEIPTS, RETURN, RETURN_DONE, CASH }
 data class NextAction(val page: Page, val label: String)
 
 /** Display/validation only. The repository repeats every business check transactionally. */
@@ -56,6 +56,8 @@ object VanRules {
     fun canSell(trip: Trip?): Boolean = trip?.status == "active" || trip?.startPending == true
     /** VAN-022: cash can be counted once the trip is on the road (or its start is saved here) and until it closes. */
     fun canCountCash(trip: Trip?): Boolean = canSell(trip) || trip?.status in setOf("closing","reconciling","review_required")
+    /** VAN-023 uses the same countable trip states as cash. */
+    fun canCountStock(trip: Trip?): Boolean = canCountCash(trip)
     /** Cash typed in pesos ("250", "250.50") to centavos; null when blank, negative or more than two decimals. */
     fun parseMoney(text: String): Long? = try {
         if (text.isBlank()) null else BigDecimal(text.trim().removePrefix("₱").replace(",","")).movePointRight(2).longValueExact()
@@ -88,6 +90,7 @@ object VanRules {
             com.sunpride.van.pos.CheckoutProblem.REFERENCE_ALREADY_USED -> "This reference number is already on another sale. Check the number."
             com.sunpride.van.pos.CheckoutProblem.CREDIT_LIMIT_EXCEEDED -> "This sale is more than the customer's credit left. Take cash or another payment, or ask the office."
             com.sunpride.van.pos.CheckoutProblem.CASH_COUNTED -> "The cash for this trip is already counted. No more sales on this trip."
+            com.sunpride.van.pos.CheckoutProblem.STOCK_COUNTED -> "Truck stock is already counted. No more stock changes on this trip."
         }
     }
     /** Payment state in plain words (VAN-012); [dueDate] only for credit. */
@@ -111,6 +114,7 @@ object VanRules {
         com.sunpride.van.pos.VoidProblem.CODE_REQUIRED -> "Enter the 8-digit code from your supervisor."
         com.sunpride.van.pos.VoidProblem.CODE_WRONG -> "That code does not match. Check the receipt number, total and reason with your supervisor."
         com.sunpride.van.pos.VoidProblem.CASH_COUNTED -> "The cash for this trip is already counted, so sales can no longer be voided. Ask the office."
+        com.sunpride.van.pos.VoidProblem.STOCK_COUNTED -> "Truck stock is already counted, so sales can no longer be voided. Ask the office."
     }
     /** VAN-022: plain words for each cash count refusal. */
     fun cashMessage(problem: com.sunpride.van.pos.CashProblem): String = when (problem) {
@@ -126,6 +130,22 @@ object VanRules {
         com.sunpride.van.pos.CashProblem.APPROVAL_UNAVAILABLE -> "Supervisor approval is not set up on this phone. Sync, then try again."
         com.sunpride.van.pos.CashProblem.CODE_REQUIRED -> "Enter the 8-digit code from your supervisor."
         com.sunpride.van.pos.CashProblem.CODE_WRONG -> "That code does not match. Check the trip number, both amounts and the reason with your supervisor."
+    }
+    /** VAN-023: plain words for each stock count refusal. */
+    fun stockMessage(problem: com.sunpride.van.pos.StockProblem): String = when (problem) {
+        com.sunpride.van.pos.StockProblem.NOT_ON_ROUTE -> "Start the trip before counting stock."
+        com.sunpride.van.pos.StockProblem.HELD -> "Sign in and sync before counting stock."
+        com.sunpride.van.pos.StockProblem.ALREADY_COUNTED -> "Truck stock is already counted. Ask the office to correct it."
+        com.sunpride.van.pos.StockProblem.EXPECTED_CHANGED -> "Truck stock changed while you were counting. Check expected stock and save again."
+        com.sunpride.van.pos.StockProblem.COUNT_INVALID -> "Enter a valid non-negative quantity for every stock line."
+        com.sunpride.van.pos.StockProblem.TOO_MANY_LINES -> "There are too many stock lines for one count. Ask the office."
+        com.sunpride.van.pos.StockProblem.REASON_REQUIRED -> "Choose a reason for every stock difference."
+        com.sunpride.van.pos.StockProblem.NOTE_REQUIRED -> "Explain the stock difference marked Other."
+        com.sunpride.van.pos.StockProblem.NOTE_INVALID -> "Use plain text for the note (300 characters at most)."
+        com.sunpride.van.pos.StockProblem.APPROVAL_UNAVAILABLE -> "Supervisor approval is not set up on this phone. Sync, then try again."
+        com.sunpride.van.pos.StockProblem.CODE_REQUIRED -> "Enter the 8-digit code from your supervisor."
+        com.sunpride.van.pos.StockProblem.CODE_WRONG -> "That code does not match. Check the trip, count code and stock totals with your supervisor."
+        com.sunpride.van.pos.StockProblem.STOCK_COUNTED -> "Truck stock is already counted. No more stock changes on this trip."
     }
     /** "Matches", "₱120.00 short" or "₱50.00 over". */
     fun varianceLabel(varianceMinor: Long, currency: String): String = when {
@@ -157,6 +177,7 @@ object VanRules {
             com.sunpride.van.pos.ReturnProblem.NOT_ON_SALE -> "$p is not on that receipt."
             com.sunpride.van.pos.ReturnProblem.MORE_THAN_SOLD -> "$p: more than was sold on that receipt (earlier returns count)."
             com.sunpride.van.pos.ReturnProblem.NOTE_INVALID -> "The note is too long (300 characters at most)."
+            com.sunpride.van.pos.ReturnProblem.STOCK_COUNTED -> "Truck stock is already counted. No more returns on this trip."
         }
     }
     /** Why the office must approve a return, in plain words. */

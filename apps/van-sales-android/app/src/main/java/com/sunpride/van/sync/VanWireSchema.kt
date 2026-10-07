@@ -144,6 +144,36 @@ internal object VanWireSchema {
         }
       }
     },
+    "stockVarianceReason": {
+      "enum": [
+        "missing",
+        "extra_found",
+        "damaged_not_recorded",
+        "sale_or_return_not_recorded",
+        "free_goods_or_sample",
+        "loading_error",
+        "other"
+      ]
+    },
+    "stockReconciliation": {
+      "description": "VAN-023 end-of-trip stock count. Every counted product line (sellable and damaged apart) whose count differs from the stock the handheld expects needs one of reasons; when approvalRequired any difference also needs the 8-digit supervisor code for (trip, count code, lines that differ, units short, units over). key is the trip's base64url HMAC key the handheld checks codes with offline, null when the office cannot issue codes (counts with a difference are then refused).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["approvalRequired", "reasons", "key"],
+      "properties": {
+        "approvalRequired": { "type": "boolean" },
+        "reasons": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 12,
+          "items": { "${'$'}ref": "#/${'$'}defs/stockVarianceReason" }
+        },
+        "key": {
+          "type": ["string", "null"],
+          "pattern": "^[A-Za-z0-9_-]{43}${'$'}"
+        }
+      }
+    },
     "paymentMethod": {
       "description": "VAN-012 payment method the office allows. cash gives change; other equals the total and carries a reference when referenceRequired; credit charges the customer's account and needs customer credit terms.",
       "type": "object",
@@ -252,7 +282,8 @@ internal object VanWireSchema {
               "items": { "${'$'}ref": "#/${'$'}defs/voidReason" }
             },
             "voidApproval": { "${'$'}ref": "#/${'$'}defs/voidApproval" },
-            "cashReconciliation": { "${'$'}ref": "#/${'$'}defs/cashReconciliation" }
+            "cashReconciliation": { "${'$'}ref": "#/${'$'}defs/cashReconciliation" },
+            "stockReconciliation": { "${'$'}ref": "#/${'$'}defs/stockReconciliation" }
           }
         },
         "trip": {

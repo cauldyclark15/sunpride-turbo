@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import schema from "../schemas/van-v1.schema.json";
@@ -19,12 +19,17 @@ const read = async (name: string): Promise<Record<string, unknown>> =>
 const VOID_VECTORS = "void-approval.json";
 /** VAN-022 cash approval code vectors, not an envelope. */
 const CASH_VECTORS = "cash-approval.json";
+/** VAN-023 stock count fingerprint and approval code vectors, not an envelope. */
+const STOCK_VECTORS = "stock-approval.json";
 const names = (
   await Array.fromAsync(
     new Bun.Glob("*.json").scan({ cwd: fixtureDir.pathname }),
   )
 )
-  .filter((name) => name !== VOID_VECTORS && name !== CASH_VECTORS)
+  .filter(
+    (name) =>
+      name !== VOID_VECTORS && name !== CASH_VECTORS && name !== STOCK_VECTORS,
+  )
   .sort();
 
 describe("van v1 contract fixtures", () => {
@@ -259,6 +264,116 @@ describe("van v1 contract fixtures", () => {
       const mac = createHmac("sha256", key)
         .update(
           `CASH|v1|${vectors.tripId}|${vector.expectedMinor}|${vector.declaredMinor}|${vector.reasonCode}`,
+        )
+        .digest();
+      const offset = mac[31]! & 0x0f;
+      const binary = mac.readUInt32BE(offset) & 0x7fffffff;
+      expect(String(binary % 100_000_000).padStart(8, "0")).toBe(vector.code);
+    }
+  });
+
+  test("the stock reconciliation rule is optional and bounded (VAN-023)", async () => {
+    const boot = await read("bootstrap-response.json");
+    const policy = boot.policy as Record<string, unknown>;
+    const stock = policy.stockReconciliation as Record<string, unknown>;
+    const withStock = (extra: Record<string, unknown>) =>
+      validate({ ...boot, policy: { ...policy, stockReconciliation: extra } });
+    const legacy = { ...policy };
+    delete legacy.stockReconciliation;
+    expect(validate({ ...boot, policy: legacy })).toBe(true);
+    expect(withStock({ ...stock, key: null })).toBe(true);
+    expect(withStock({ ...stock, approvalRequired: false })).toBe(true);
+    expect(withStock({ ...stock, reasons: [] })).toBe(false);
+    expect(withStock({ ...stock, reasons: ["counting_error"] })).toBe(false);
+    expect(withStock({ ...stock, key: "short" })).toBe(false);
+    const { reasons: _reasons, ...partial } = stock;
+    void _reasons;
+    expect(withStock(partial)).toBe(false);
+    expect(withStock({ ...stock, toleranceBase: "0" })).toBe(false);
+  });
+
+  test("stock count codes and approval vectors match an independent implementation (VAN-023)", async () => {
+    const vectors = (await read(STOCK_VECTORS)) as {
+      secret: string;
+      tripId: string;
+      key: string;
+      cases: {
+        countId: string;
+        lines: {
+          productId: string;
+          status: string;
+          expectedBase: string;
+          countedBase: string;
+          reasonCode: string | null;
+        }[];
+        canonical: string;
+        countCode: string;
+        varianceLines: number;
+        shortBase: string;
+        overBase: string;
+        code: string;
+      }[];
+    };
+    const key = createHmac("sha256", vectors.secret)
+      .update(`sunpride/van-stock-approval/v1|${vectors.tripId}`)
+      .digest();
+    expect(key.toString("base64url")).toBe(vectors.key);
+    const boot = await read("bootstrap-response.json");
+    const policy = boot.policy as {
+      stockReconciliation: { key: string };
+      cashReconciliation: { key: string };
+      voidApproval: { key: string };
+    };
+    expect(policy.stockReconciliation.key).toBe(vectors.key);
+    // Domain-separated from the void and cash keys.
+    expect(policy.stockReconciliation.key).not.toBe(policy.voidApproval.key);
+    expect(policy.stockReconciliation.key).not.toBe(
+      policy.cashReconciliation.key,
+    );
+    expect(vectors.cases.length).toBeGreaterThanOrEqual(2);
+    for (const vector of vectors.cases) {
+      // Lines are listed unsorted in the vector; the canonical text sorts them.
+      const sorted = [...vector.lines].sort((a, b) =>
+        a.productId === b.productId
+          ? a.status < b.status
+            ? -1
+            : 1
+          : a.productId < b.productId
+            ? -1
+            : 1,
+      );
+      const canonical = [
+        `STOCKCOUNT|v1|${vectors.tripId}|${vector.countId}`,
+        ...sorted.map(
+          (line) =>
+            `${line.productId}|${line.status}|${line.expectedBase}|${line.countedBase}|${line.reasonCode ?? ""}`,
+        ),
+      ].join("\n");
+      expect(canonical).toBe(vector.canonical);
+      expect(
+        createHash("sha256")
+          .update(canonical)
+          .digest("hex")
+          .slice(0, 12)
+          .toUpperCase(),
+      ).toBe(vector.countCode);
+      let lines = 0;
+      let short = 0n;
+      let over = 0n;
+      for (const line of vector.lines) {
+        const difference = BigInt(line.countedBase) - BigInt(line.expectedBase);
+        if (difference !== 0n) lines += 1;
+        if (difference < 0n) short -= difference;
+        else over += difference;
+      }
+      expect([lines, String(short), String(over)]).toEqual([
+        vector.varianceLines,
+        vector.shortBase,
+        vector.overBase,
+      ]);
+      const mac = createHmac("sha256", key)
+        .update(
+          `STOCK|v1|${vectors.tripId}|${vector.countCode}|${vector.varianceLines}|${vector.shortBase}|${vector.overBase}`,
         )
         .digest();
       const offset = mac[31]! & 0x0f;

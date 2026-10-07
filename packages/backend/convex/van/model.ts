@@ -38,7 +38,28 @@ export const VAN_POLICY = {
    */
   cashVarianceRequiresApproval: true,
   cashVarianceToleranceMinor: 5000n,
+  /**
+   * VAN-023 end-of-trip stock count: every counted line that differs from the stock the handheld
+   * expects needs a reason, and any difference at all needs a supervisor's approval code before the
+   * handheld writes its reconciliation movements. Assumed default (no tolerance) until Sunpride
+   * sets one; stock is counted in each product's own unit, so one tolerance would mix units.
+   */
+  stockVarianceRequiresApproval: true,
+  /** Products a count may cover (the van bootstrap carries at most this many on a truck). */
+  maxStockCountProducts: 500,
 } as const;
+
+/** VAN-023 reasons a seller may give when counted truck stock differs from the expected stock. */
+export const STOCK_VARIANCE_REASONS = [
+  "missing",
+  "extra_found",
+  "damaged_not_recorded",
+  "sale_or_return_not_recorded",
+  "free_goods_or_sample",
+  "loading_error",
+  "other",
+] as const;
+export type StockVarianceReason = (typeof STOCK_VARIANCE_REASONS)[number];
 
 /** VAN-022 reasons a seller may give when counted cash differs from the cash the phone expects. */
 export const CASH_VARIANCE_REASONS = [

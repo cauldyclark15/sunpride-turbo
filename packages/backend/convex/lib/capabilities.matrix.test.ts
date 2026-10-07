@@ -83,6 +83,7 @@ const EXPECTED: Record<Capability, string> = {
   "van.load.approve": "x--xx---",
   "van.void.approve": "x--xx---",
   "van.cash.approve": "x--xx---",
+  "van.stock.approve": "x--xx---",
 };
 
 const granted = (capability: Capability, role: AppRole) =>

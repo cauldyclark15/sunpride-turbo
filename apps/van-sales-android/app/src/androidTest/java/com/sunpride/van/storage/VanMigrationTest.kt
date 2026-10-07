@@ -84,4 +84,23 @@ class VanMigrationTest {
                 assertTrue(unique) }
         }
     }
+    @Test fun exportedV6MigratesToTheAppendOnlyStockReconciliationTable() {
+        val name = "van-migration-stock-v6.db"
+        helper.createDatabase(name,6).apply {
+            execSQL("INSERT INTO cash_reconciliation (fullAuthSubject,deviceId,reconciliationId,tripId,idempotencyKey,currency,expectedMinor,declaredMinor,varianceMinor,countsJson,approvalMethod,cashSaleCount,createdAt) VALUES ('issuer|subject','d','cash-id','trip','cash-key','PHP',100,100,0,'[]','none',1,1)")
+            close()
+        }
+        helper.runMigrationsAndValidate(name,7,true,VanDatabase.MIGRATION_6_7).use { database ->
+            database.query("SELECT COUNT(*) FROM stock_reconciliation").use { assertTrue(it.moveToFirst()); assertEquals(0,it.getInt(0)) }
+            database.query("PRAGMA table_info(`stock_reconciliation`)").use { cursor ->
+                val columns = mutableListOf<String>(); while (cursor.moveToNext()) columns += cursor.getString(1)
+                assertEquals(listOf("fullAuthSubject","deviceId","reconciliationId","tripId","idempotencyKey","linesJson","countCode","varianceLines","shortBase","overBase","note","approvalMethod","approvalCode","createdAt"),columns)
+            }
+            database.query("SELECT tripId,declaredMinor,countsJson FROM cash_reconciliation").use { assertTrue(it.moveToFirst()); assertEquals("trip",it.getString(0)); assertEquals(100L,it.getLong(1)); assertEquals("[]",it.getString(2)) }
+            database.query("PRAGMA index_list(`stock_reconciliation`)").use { cursor -> var unique = false
+                while (cursor.moveToNext()) if (cursor.getString(1) == "index_stock_reconciliation_fullAuthSubject_deviceId_tripId") unique = cursor.getInt(2) == 1
+                assertTrue(unique)
+            }
+        }
+    }
 }

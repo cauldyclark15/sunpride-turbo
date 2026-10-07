@@ -12,7 +12,13 @@ import { modules } from "../test.setup";
 import { handleVan } from "./http_handlers";
 import { cashApprovalCode, cashApprovalKey } from "./cash";
 import {
+  normalizeCountCode,
+  stockApprovalCode,
+  stockApprovalKey,
+} from "./stock_count";
+import {
   CASH_VARIANCE_REASONS,
+  STOCK_VARIANCE_REASONS,
   VAN_PAYMENT_METHODS,
   VOID_REASONS,
 } from "./model";
@@ -2434,6 +2440,214 @@ describe("van end-of-trip cash reconciliation approval (VAN-022)", () => {
     await expect(
       issue(sellerManager, { tripNumber: own.tripNumber }),
     ).rejects.toThrow(/your own cash count/);
+    delete process.env[SECRET_ENV];
+    await expect(issue(manager)).rejects.toThrow(/not configured/);
+  });
+});
+
+// VAN-023: the first vector from packages/domain-contracts/fixtures/van-v1/stock-approval.json
+// (TEST-ONLY secret); the contracts and Android suites check every vector in that file.
+const STOCK_VECTOR = {
+  secret: "test-only-van-void-secret-0123456789abcdef",
+  tripId: "k57trip0000000000000000000000001",
+  key: "ftgd8nUKPhvNhRTGW3T2lRGvsHPZ_3xpnUU3FN3kvLA",
+  countCode: "7ACD2B0FA14F",
+  varianceLines: 2,
+  shortBase: 2n,
+  overBase: 3n,
+  code: "87972425",
+};
+
+describe("van end-of-trip stock reconciliation approval (VAN-023)", () => {
+  const previous = process.env[SECRET_ENV];
+  afterEach(() => {
+    if (previous === undefined) delete process.env[SECRET_ENV];
+    else process.env[SECRET_ENV] = previous;
+  });
+  const configure = () => {
+    process.env[SECRET_ENV] = STOCK_VECTOR.secret;
+  };
+
+  it("derives the shared cross-language key and code, separate from the void and cash keys", async () => {
+    configure();
+    const key = await stockApprovalKey(STOCK_VECTOR.tripId);
+    expect(key).toBe(STOCK_VECTOR.key);
+    expect(key).not.toBe(await voidApprovalKey(STOCK_VECTOR.tripId));
+    expect(key).not.toBe(await cashApprovalKey(STOCK_VECTOR.tripId));
+    expect(await stockApprovalCode(STOCK_VECTOR.key, STOCK_VECTOR)).toBe(
+      STOCK_VECTOR.code,
+    );
+    for (const changed of [
+      { ...STOCK_VECTOR, countCode: "000000000000" },
+      { ...STOCK_VECTOR, varianceLines: 3 },
+      { ...STOCK_VECTOR, shortBase: 3n },
+      { ...STOCK_VECTOR, overBase: 2n },
+      { ...STOCK_VECTOR, tripId: "k57trip0000000000000000000000002" },
+    ])
+      expect(await stockApprovalCode(STOCK_VECTOR.key, changed)).not.toBe(
+        STOCK_VECTOR.code,
+      );
+    expect(normalizeCountCode(" abcd-ef12 3456 ")).toBe("ABCDEF123456");
+    expect(normalizeCountCode("ABCD-EF12-345")).toBeNull();
+    expect(normalizeCountCode("ABCD-EF12-345G")).toBeNull();
+    delete process.env[SECRET_ENV];
+    expect(await stockApprovalKey(STOCK_VECTOR.tripId)).toBeNull();
+  });
+
+  it("sends the variance reasons, approval rule and trip key in the bootstrap; no key without a trip or secret", async () => {
+    configure();
+    const f = await fixture();
+    const empty = await f.t.query(internal.van.device.bootstrap, {
+      actor: f.seller.actor,
+      now: NOW,
+    });
+    expect(empty.policy.stockReconciliation).toEqual({
+      approvalRequired: true,
+      reasons: [...STOCK_VARIANCE_REASONS],
+      key: null,
+    });
+    const { tripId } = await f.loaded();
+    const view = await f.t.query(internal.van.device.bootstrap, {
+      actor: f.seller.actor,
+      now: NOW,
+    });
+    expect(view.policy.stockReconciliation.key).toBe(
+      await stockApprovalKey(tripId),
+    );
+    expect(view.policy.stockReconciliation.key).not.toBe(
+      view.policy.cashReconciliation.key,
+    );
+    delete process.env[SECRET_ENV];
+    const unconfigured = await f.t.query(internal.van.device.bootstrap, {
+      actor: f.seller.actor,
+      now: NOW,
+    });
+    expect(unconfigured.policy.stockReconciliation.key).toBeNull();
+  });
+
+  it("issues the code a supervisor in scope reads to the seller, audited without the code", async () => {
+    configure();
+    const f = await fixture();
+    const { tripId, tripNumber } = await f.loaded();
+    await f.start(tripId);
+    const manager = await f.person("manager");
+    const issued = await manager.identity.mutation(
+      api.van.stock_count.issueApprovalCode,
+      {
+        tripNumber: ` ${tripNumber.toLowerCase()} `,
+        countCode: "1a2b-3c4d-5e6f",
+        varianceLines: 2,
+        shortBase: "5",
+        overBase: "1",
+      },
+    );
+    const key = (await stockApprovalKey(tripId))!;
+    expect(issued).toEqual({
+      code: await stockApprovalCode(key, {
+        tripId,
+        countCode: "1A2B3C4D5E6F",
+        varianceLines: 2,
+        shortBase: 5n,
+        overBase: 1n,
+      }),
+      tripNumber,
+      countCode: "1A2B3C4D5E6F",
+      varianceLines: 2,
+      shortBase: "5",
+      overBase: "1",
+    });
+    const audits = await f.t.run((ctx) =>
+      ctx.db
+        .query("auditLogs")
+        .withIndex("by_entity", (q) =>
+          q.eq("entityType", "vanTrip").eq("entityId", tripId),
+        )
+        .collect(),
+    );
+    const approval = audits.find(
+      (row) => row.action === "van.stock.approval_issued",
+    )!;
+    expect(approval.details).toBe("1A2B3C4D5E6F|2|5|1");
+    expect(JSON.stringify(audits)).not.toContain(issued.code);
+    // An approver also qualifies; an over-only count is approved the same way.
+    const approver = await f.person("approver");
+    await expect(
+      approver.identity.mutation(api.van.stock_count.issueApprovalCode, {
+        tripNumber,
+        countCode: "FFFFFFFFFFFF",
+        varianceLines: 1,
+        shortBase: "0",
+        overBase: "4",
+      }),
+    ).resolves.toMatchObject({ overBase: "4", shortBase: "0" });
+  });
+
+  it("refuses the seller, roles without the capability, other regions, bad input, trips not on the road and a missing secret", async () => {
+    configure();
+    const f = await fixture();
+    const sellerManager = await f.person("manager");
+    const { tripId, tripNumber } = await f.loaded();
+    const valid = {
+      tripNumber,
+      countCode: "ABCDEF123456",
+      varianceLines: 1,
+      shortBase: "2",
+      overBase: "0",
+    };
+    const issue = (
+      who: { identity: typeof f.seller.identity },
+      args: Partial<typeof valid> = {},
+    ) =>
+      who.identity.mutation(api.van.stock_count.issueApprovalCode, {
+        ...valid,
+        ...args,
+      });
+    const manager = await f.person("manager");
+    // Loaded but not started: nothing sold yet, so nothing to reconcile.
+    await expect(issue(manager)).rejects.toThrow(/not on the road/);
+    await f.start(tripId);
+    await expect(issue(f.seller)).rejects.toThrow(/Insufficient permission/);
+    await expect(issue(await f.person("operations"))).rejects.toThrow(
+      /Insufficient permission/,
+    );
+    await expect(issue(await f.person("manager", f.west))).rejects.toThrow(
+      /outside your organizational scope/,
+    );
+    await expect(issue(manager, { tripNumber: " " })).rejects.toThrow(
+      /trip number/,
+    );
+    await expect(issue(manager, { tripNumber: "TRIP-NOPE" })).rejects.toThrow(
+      /No trip matches/,
+    );
+    await expect(issue(manager, { countCode: "ABCDEF12345" })).rejects.toThrow(
+      /count code/,
+    );
+    await expect(issue(manager, { varianceLines: 0 })).rejects.toThrow(
+      /lines differ/,
+    );
+    await expect(issue(manager, { varianceLines: 1.5 })).rejects.toThrow(
+      /lines differ/,
+    );
+    await expect(issue(manager, { shortBase: "-1" })).rejects.toThrow(
+      /units short/,
+    );
+    await expect(issue(manager, { overBase: "1.5" })).rejects.toThrow(
+      /units over/,
+    );
+    await expect(
+      issue(manager, { shortBase: "0", overBase: "0" }),
+    ).rejects.toThrow(/no approval is needed/);
+    // A manager who is the trip's seller cannot approve their own count.
+    const own = await f.plan(
+      await f.anotherVehicle("VAN-009"),
+      sellerManager.profileId,
+    );
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch(own.tripId, { status: "active" });
+    });
+    await expect(
+      issue(sellerManager, { tripNumber: own.tripNumber }),
+    ).rejects.toThrow(/your own stock count/);
     delete process.env[SECRET_ENV];
     await expect(issue(manager)).rejects.toThrow(/not configured/);
   });

@@ -643,6 +643,41 @@ class VanUiDeviceTest {
         // Parked like a sale: saved on this phone, never queued for the gateway.
         assertEquals(0,c.sync.queued)
     }
+    @Test fun stockCountShowsPerStatusVarianceNeedsApprovalAndSavesTheApprovedCount() {
+        mount(); loadAndStart()
+        open(Page.STOCK_COUNT)
+        rule.waitUntil(10_000) { c.stockSummary != null }
+        val summary = c.stockSummary!!; val juice = c.products.single { it.code == "SP-PJ-1L" }
+        summary.lines.forEach { line ->
+            rule.onNodeWithTag("stock-count-${line.productId}-${line.status}").performScrollTo().performTextInput(VanRules.quantity(line.expectedBase,line.quantityScale))
+        }
+        val juiceAvailable = summary.lines.single { it.productId == juice.productId && it.status == com.sunpride.van.pos.StockCountLine.AVAILABLE }
+        val juiceDamaged = summary.lines.single { it.productId == juice.productId && it.status == com.sunpride.van.pos.StockCountLine.DAMAGED }
+        rule.onNodeWithTag("stock-count-${juiceAvailable.productId}-${juiceAvailable.status}").performTextClearance(); rule.onNodeWithTag("stock-count-${juiceAvailable.productId}-${juiceAvailable.status}").performTextInput(VanRules.quantity(juiceAvailable.expectedBase - 2,juiceAvailable.quantityScale))
+        rule.onNodeWithTag("stock-count-${juiceDamaged.productId}-${juiceDamaged.status}").performTextClearance(); rule.onNodeWithTag("stock-count-${juiceDamaged.productId}-${juiceDamaged.status}").performTextInput(VanRules.quantity(juiceDamaged.expectedBase + 1,juiceDamaged.quantityScale)); hideKeyboard()
+        rule.onNodeWithTag("stock-reason-${juiceAvailable.productId}-${juiceAvailable.status}-missing").performScrollTo().performClick()
+        rule.onNodeWithTag("stock-reason-${juiceDamaged.productId}-${juiceDamaged.status}-damaged_not_recorded").performScrollTo().performClick()
+        rule.onNodeWithTag("stock-variance").performScrollTo().assertTextContains("2 lines differ",substring = true)
+        rule.onNodeWithTag("stock-approval-script").performScrollTo().assertTextContains("count code",substring = true)
+        val lines = summary.lines.map { line -> when {
+            line.productId == juiceAvailable.productId && line.status == juiceAvailable.status -> com.sunpride.van.pos.StockCountLine(line.productId,line.status,line.expectedBase,juiceAvailable.expectedBase - 2,"missing")
+            line.productId == juiceDamaged.productId && line.status == juiceDamaged.status -> com.sunpride.van.pos.StockCountLine(line.productId,line.status,line.expectedBase,juiceDamaged.expectedBase + 1,"damaged_not_recorded")
+            else -> com.sunpride.van.pos.StockCountLine(line.productId,line.status,line.expectedBase,line.expectedBase)
+        } }
+        val totals = com.sunpride.van.pos.StockReconciliationRules.summary(lines)
+        val countCode = com.sunpride.van.pos.StockReconciliationRules.countCode(c.trip!!.tripId,c.stockDraft.reconciliationId,lines)
+        val approval = com.sunpride.van.pos.StockApprovalCodes.code(c.policy!!.stockReconciliation!!.key!!,c.trip!!.tripId,countCode,totals.varianceLines,totals.shortBase,totals.overBase)
+        rule.onNodeWithTag("stock-count-code").performScrollTo().performTextInput(approval); hideKeyboard()
+        rule.onNodeWithTag("save-stock").assertIsEnabled()
+        assertPrimaryClearance(rule,"save-stock")
+        captureVanScreenshot(rule,"54-stock-count-approval","save-stock")
+        rule.onNodeWithTag("save-stock").performClick()
+        rule.waitUntil(10_000) { !c.busy && c.stockSummary?.saved != null }
+        rule.onNodeWithTag("stock-saved").assertTextEquals("Truck stock now matches your count")
+        rule.onNodeWithTag("stock-saved-approved").assertExists()
+        captureVanScreenshot(rule,"55-stock-count-saved","save-stock")
+        assertPrimaryClearance(rule,"save-stock")
+    }
     @Test fun fullScreenScreenshotTour() {
         mount(restore = false,fixtureMode = false)
         rule.onNodeWithTag("configuration-warning").assertExists()
