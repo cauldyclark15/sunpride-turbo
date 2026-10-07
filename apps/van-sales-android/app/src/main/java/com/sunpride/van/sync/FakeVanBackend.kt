@@ -11,7 +11,12 @@ import org.json.JSONObject
 
 /** DEBUG in-process gateway, fixture-only state. Never uses live auth, URLs or the live DB. */
 class FakeVanBackend(fixtureJson: String = FIXTURE, context: Context? = null) : VanGateway {
-    private val prefs = context?.getSharedPreferences("van_fixture_backend",Context.MODE_PRIVATE)
+    private val prefs = context?.getSharedPreferences("van_fixture_backend",Context.MODE_PRIVATE)?.also { p ->
+        // Fake state saved by an older/other build of this app may not match this build's wire
+        // schema (the handheld is shared between branches): start again from the fixture.
+        val saved = p.getString("state",null)
+        if (saved != null && runCatching { VanBootstrapCodec.decode(saved) }.isFailure) p.edit().clear().commit()
+    }
     private var state = JSONObject(prefs?.getString("state",null) ?: fixtureJson)
     private val replies = JSONObject(prefs?.getString("replies",null) ?: "{}")
     private val photos = JSONObject(prefs?.getString("photos",null) ?: "{}")
