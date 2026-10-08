@@ -43,6 +43,7 @@ final class StubBackend: URLProtocol {
             try? plain.delete(LockableSessionStore.lockAccount)
             try? plain.delete(StubBiometricCrypto.sealedAccount)
             try? KeychainBiometricCrypto.deleteItems(service: service)
+            UserDefaults(suiteName: consentSuite)?.removePersistentDomain(forName: consentSuite)
         }
         // SP-0133: `FIELD_STUB_BIOMETRIC=available|cancel|changed|slow|real` (unset = no Face ID on this
         // "phone", so other UI tests never see the offer). `real` uses the system prompt and Keychain.
@@ -56,12 +57,21 @@ final class StubBackend: URLProtocol {
         let http = HTTPClient(session: URLSession(configuration: HTTPClient.makeConfiguration(protocolClasses: [StubBackend.self])))
         let auth = AuthClient(site: environment.siteURL, store: store, http: http)
         let functions = ConvexFunctions(url: environment.convexURL, auth: auth, http: http)
-        return AppModel(auth: auth, registry: ConvexDeviceRegistry(functions: functions), store: store,
+        // SP-0138: `FIELD_STUB_LIVE=1` shows the location consent notice on Start day / first call;
+        // other UI tests see an already-declined notice so no sheet interrupts their flows.
+        let consents = StubConsentStore(defaults: UserDefaults(suiteName: consentSuite) ?? .standard,
+                                        ask: ProcessInfo.processInfo.environment["FIELD_STUB_LIVE"] == "1")
+        let model = AppModel(auth: auth, registry: ConvexDeviceRegistry(functions: functions), store: store,
                         pollInterval: .seconds(2), site: environment.siteURL, functions: functions, http: http,
-                        biometrics: BiometricGate(vault: store, crypto: crypto)) {
+                        biometrics: BiometricGate(vault: store, crypto: crypto),
+                        liveSource: StubLocationSource(), consentStore: consents) {
             try DeviceKeys.loadOrCreate(store: store)
         }
+        // UI tests run at any hour; the real 5 AM–10 PM rule is covered by unit tests.
+        model.liveLocation.withinHours = { _ in true }
+        return model
     }
+    static let consentSuite = "com.sunpride.field.stub.consent"
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -201,7 +211,7 @@ final class StubBackend: URLProtocol {
             // IOS-016: the signed storage URL; the stub only checks that JPEG bytes arrived.
             guard EvidencePhotos.isJpeg(body), headers["Content-Type"] == EvidencePhotos.mime else { return (400, [:], Data()) }
             return (200, [:], json(["storageId": "stub-storage-\(UUID().uuidString.lowercased())"]))
-        case "/mobile/v1/push", "/mobile/v1/pull":
+        case "/mobile/v1/push", "/mobile/v1/pull", "/mobile/v1/location":
             let h = Dictionary(uniqueKeysWithValues: headers.map { ($0.key.lowercased(), $0.value) })
             let nonce = h["x-mobile-nonce"] ?? "", timestamp = h["x-mobile-timestamp"] ?? ""
             let digest = RequestSigner.bodyDigest(body)
@@ -221,6 +231,15 @@ final class StubBackend: URLProtocol {
                     "changes": [], "nextCursor": "stub-cursor-next", "hasMore": false]))
             }
             let envelope = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
+            if path == "/mobile/v1/location" {
+                // SP-0138: every well-formed ping is accepted (the real server re-checks hours and spacing).
+                let pings = envelope?["pings"] as? [[String: Any]] ?? []
+                guard envelope?["type"] as? String == "location.request", (1...100).contains(pings.count) else {
+                    return (400, [:], json(["code": "invalid_request"]))
+                }
+                return (200, [:], json(["type": "location.response", "contractVersion": 1, "serverTime": now,
+                    "results": pings.map { ["clientPingId": $0["clientPingId"] ?? "", "status": "accepted"] }]))
+            }
             let operations = envelope?["operations"] as? [[String: Any]] ?? []
             guard !operations.isEmpty, operations.count <= 20 else { return (400, [:], Data()) }
             let results = operations.map { op -> [String: Any] in
@@ -328,6 +347,19 @@ final class StubBackend: URLProtocol {
             }
         }
     }
+}
+
+/// DEBUG UI-test consent store (SP-0138): unanswered reads as declined unless the test asks for the notice.
+@MainActor
+final class StubConsentStore: LocationConsentStore {
+    private let inner: DefaultsLocationConsentStore
+    private let ask: Bool
+    init(defaults: UserDefaults, ask: Bool) { inner = DefaultsLocationConsentStore(defaults: defaults); self.ask = ask }
+    func consent(subject: String) -> LocationConsent {
+        let saved = inner.consent(subject: subject)
+        return saved == .unanswered && !ask ? .declined : saved
+    }
+    func setConsent(_ consent: LocationConsent, subject: String, at: Date) { inner.setConsent(consent, subject: subject, at: at) }
 }
 
 /// DEBUG UI-test stand-in for the system prompt (SP-0133). The "sealed" token sits in the stub Keychain

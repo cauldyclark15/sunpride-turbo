@@ -20,6 +20,9 @@ struct SignInShell: View {
                     HStack(spacing: 8) {
                         Spacer()
                         if model.signedIn {
+                            if case .sharing = model.liveLocation.status {
+                                LocationSharingPill().accessibilityIdentifier("locationSharingPill")
+                            }
                             if model.enrollment.state.isReady {
                                 Button { showSyncStatus = true } label: { StatusPill(label: compactSyncLabel) }
                                     .accessibilityIdentifier("outboxStatus")
@@ -115,6 +118,10 @@ struct SignInShell: View {
             }
             .sheet(isPresented: $showSyncStatus) { SyncStatusDetail(model: model) }
             .sheet(isPresented: $showAccount) { AccountScreen(model: model) }
+            .sheet(isPresented: Binding(get: { model.liveLocation.consentRequested && model.signedIn },
+                                        set: { if !$0 { model.liveLocation.consentRequested = false } })) {
+                LocationConsentScreen(model: model)
+            }
             .alert("Use \(model.biometrics?.name ?? "Face ID") to sign in next time?", isPresented: offerShown) {
                 Button("Not now", role: .cancel) { model.biometrics?.decline() }
                     .accessibilityIdentifier("biometricOfferNotNow")

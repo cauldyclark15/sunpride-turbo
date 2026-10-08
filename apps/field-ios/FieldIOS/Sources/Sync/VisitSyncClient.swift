@@ -170,4 +170,40 @@ final class VisitSyncClient {
         }
         throw Failure.retryable
     }
+
+    private struct LocationResult: Decodable { let clientPingId: String; let status: String; let code: String? }
+    private struct LocationResponse: Decodable {
+        let type: String; let contractVersion: Int; let serverTime: Int64; let results: [LocationResult]
+    }
+    /// SP-0138: upload buffered live-location pings (`/mobile/v1/location`, at most 100 per signed batch).
+    /// Every per-ping answer is final — `accepted` and `duplicate` are stored, a `rejected` ping is one the
+    /// server will never take (outside hours, too old, too frequent…) — so each answered ping leaves the
+    /// buffer. A transport failure or refused proof keeps the whole batch for the next try, same IDs.
+    /// Returns the rejection codes seen (for status only).
+    @discardableResult
+    func pushLocation(store: any LiveLocationStore, partition: StorePartition, now: Date = Date()) async throws -> [String] {
+        guard try !store.isHeld(partition) else { return [] }
+        try store.dropPings(recordedBefore: Int64((now.timeIntervalSince1970 - LiveLocationPolicy.maxAge) * 1000), for: partition)
+        var rejected: [String] = []
+        for _ in 0..<20 {
+            try Task.checkCancellation()
+            let batch = try store.pendingPings(for: partition, limit: LiveLocationPolicy.maxBatch)
+            guard !batch.isEmpty else { return rejected }
+            let bytes = try JSONSerialization.data(withJSONObject: ["type": "location.request", "contractVersion": 1,
+                "deviceId": partition.deviceId, "pings": batch.map(\.wireObject)], options: [.sortedKeys])
+            let data = try await withBackoff { try await self.post(path: "/mobile/v1/location", body: bytes, deviceId: partition.deviceId) }
+            try Task.checkCancellation()
+            let response: LocationResponse
+            do { response = try JSONDecoder().decode(LocationResponse.self, from: data) }
+            catch { throw Failure.invalidResponse }
+            guard response.type == "location.response", response.contractVersion == 1,
+                  response.results.count == batch.count,
+                  zip(batch, response.results).allSatisfy({ $0.clientPingId.uuidString.lowercased() == $1.clientPingId }),
+                  response.results.allSatisfy({ ["accepted", "duplicate", "rejected"].contains($0.status) })
+            else { throw Failure.invalidResponse }
+            rejected += response.results.filter { $0.status == "rejected" }.map { $0.code ?? "unknown_code" }
+            try store.removePings(batch.map(\.clientPingId), for: partition)
+        }
+        throw Failure.retryable // bounded; the rest goes on the next upload
+    }
 }

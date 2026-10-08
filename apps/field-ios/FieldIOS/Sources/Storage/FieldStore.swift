@@ -456,8 +456,8 @@ final class EncryptedFieldStore: FieldLocalStore {
           PRIMARY KEY(subject,device,scope,entity,id));
         """
     private func migrate() throws {
-        guard let raw = try scalar("PRAGMA user_version"), let version = Int(raw), version <= 7 else { throw StoreError.unsupportedVersion }
-        if version == 7 { return }
+        guard let raw = try scalar("PRAGMA user_version"), let version = Int(raw), version <= 8 else { throw StoreError.unsupportedVersion }
+        if version == 8 { return }
         try transaction {
             if version < 3 { try migrateToV3(from: version) }
             if version < 4 {
@@ -492,8 +492,21 @@ final class EncryptedFieldStore: FieldLocalStore {
                   PRIMARY KEY(subject,device,scope,generation,outlet_id));
                 PRAGMA user_version=7;
                 """)
+            // v8 (SP-0138): buffered live-location pings and the local work day; no existing table changes.
+            try exec(Self.createLiveLocation + "PRAGMA user_version=8;")
         }
     }
+    private static let createLiveLocation = """
+        CREATE TABLE IF NOT EXISTS location_pings (
+          subject TEXT NOT NULL, device TEXT NOT NULL, scope TEXT NOT NULL,
+          client_ping_id TEXT NOT NULL, recorded_at INTEGER NOT NULL, body BLOB NOT NULL,
+          PRIMARY KEY(subject,device,scope,client_ping_id));
+        CREATE INDEX IF NOT EXISTS location_pings_time ON location_pings(subject,device,scope,recorded_at);
+        CREATE TABLE IF NOT EXISTS work_days (
+          subject TEXT NOT NULL, device TEXT NOT NULL, scope TEXT NOT NULL,
+          service_date TEXT NOT NULL, started_at INTEGER NOT NULL, ended_at INTEGER, end_reason TEXT,
+          PRIMARY KEY(subject,device,scope,service_date));
+        """
     private static let createPhotos = """
         CREATE TABLE IF NOT EXISTS evidence_photos (
           subject TEXT NOT NULL, device TEXT NOT NULL, scope TEXT NOT NULL,
@@ -1167,6 +1180,77 @@ final class EncryptedFieldStore: FieldLocalStore {
             return "rejected:" + (sqlite3_column_type(row, 1) == SQLITE_NULL ? "unknown_code" : Self.text(row, 1))
         }.first
     }
+
+    // MARK: SP-0138 live-location buffer and work day
+
+    func enqueuePing(_ ping: LivePing, for partition: StorePartition) throws {
+        let body = try encode(ping)
+        try transaction {
+            try ensure(partition)
+            guard try state(partition)?.1 == false else { throw StoreError.heldForReview }
+            try run("INSERT OR IGNORE INTO location_pings(subject,device,scope,client_ping_id,recorded_at,body) VALUES (?,?,?,?,?,?)",
+                    p(partition) + [.text(ping.clientPingId.uuidString.lowercased()), .integer(ping.recordedAt), body])
+            // Bounded buffer: a phone offline for weeks keeps the newest pings, never grows without limit.
+            try run("""
+                DELETE FROM location_pings WHERE \(Self.predicate) AND client_ping_id IN (
+                  SELECT client_ping_id FROM location_pings WHERE \(Self.predicate)
+                  ORDER BY recorded_at DESC, client_ping_id DESC LIMIT -1 OFFSET ?)
+                """, p(partition) + p(partition) + [.integer(Int64(LiveLocationPolicy.maxBuffered))])
+        }
+        try protectFiles()
+    }
+    func pendingPings(for partition: StorePartition, limit: Int) throws -> [LivePing] {
+        try query("SELECT body FROM location_pings WHERE \(Self.predicate) ORDER BY recorded_at, client_ping_id LIMIT ?",
+                  p(partition) + [.integer(Int64(max(0, limit)))]) { try decode(LivePing.self, Self.data($0, 0)) }
+    }
+    func pingCount(for partition: StorePartition) throws -> Int {
+        Int(try query("SELECT count(*) FROM location_pings WHERE \(Self.predicate)", p(partition)) { sqlite3_column_int64($0, 0) }.first ?? 0)
+    }
+    func removePings(_ ids: [UUID], for partition: StorePartition) throws {
+        guard !ids.isEmpty else { return }
+        try transaction {
+            for id in ids {
+                try run("DELETE FROM location_pings WHERE \(Self.predicate) AND client_ping_id=?",
+                        p(partition) + [.text(id.uuidString.lowercased())])
+            }
+        }
+    }
+    func dropPings(recordedBefore cutoff: Int64, for partition: StorePartition) throws {
+        try run("DELETE FROM location_pings WHERE \(Self.predicate) AND recorded_at<?", p(partition) + [.integer(cutoff)])
+    }
+    func workDay(_ serviceDate: String, for partition: StorePartition) throws -> WorkDay? {
+        try query("SELECT service_date,started_at,ended_at,end_reason FROM work_days WHERE \(Self.predicate) AND service_date=?",
+                  p(partition) + [.text(serviceDate)]) { row in
+            WorkDay(serviceDate: Self.text(row, 0), startedAt: sqlite3_column_int64(row, 1),
+                    endedAt: sqlite3_column_type(row, 2) == SQLITE_NULL ? nil : sqlite3_column_int64(row, 2),
+                    endReason: sqlite3_column_type(row, 3) == SQLITE_NULL ? nil : WorkDay.EndReason(rawValue: Self.text(row, 3)))
+        }.first
+    }
+    /// Opens the day; a Start day after End day on the same date reopens it.
+    @discardableResult
+    func startWorkDay(_ serviceDate: String, at: Int64, for partition: StorePartition) throws -> WorkDay {
+        try transaction {
+            try ensure(partition)
+            guard try state(partition)?.1 == false else { throw StoreError.heldForReview }
+            try run("INSERT OR IGNORE INTO work_days(subject,device,scope,service_date,started_at) VALUES (?,?,?,?,?)",
+                    p(partition) + [.text(serviceDate), .integer(at)])
+            try run("UPDATE work_days SET ended_at=NULL,end_reason=NULL WHERE \(Self.predicate) AND service_date=?",
+                    p(partition) + [.text(serviceDate)])
+        }
+        guard let day = try workDay(serviceDate, for: partition) else { throw StoreError.database }
+        return day
+    }
+    func endWorkDay(_ serviceDate: String, at: Int64, reason: WorkDay.EndReason, for partition: StorePartition) throws {
+        try run("UPDATE work_days SET ended_at=?,end_reason=? WHERE \(Self.predicate) AND service_date=? AND ended_at IS NULL",
+                [.integer(at), .text(reason.rawValue)] + p(partition) + [.text(serviceDate)])
+    }
+
+    #if DEBUG
+    /// The v7 schema with its data, only the v8 live-location tables removed.
+    func prepareLegacyV7() throws {
+        try transaction { try exec("DROP TABLE location_pings; DROP TABLE work_days; PRAGMA user_version=7") }
+    }
+    #endif
 
     #if DEBUG
     /// Downgrade harness: preserve actual v2 snapshot/outbox/acks while removing the v3, v4 and v5 additions.

@@ -110,6 +110,11 @@ targets:
         buildPhase: resources
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/pull-response.json
         buildPhase: resources
+      # SP-0138 live-location batch envelopes.
+      - path: ../../packages/domain-contracts/fixtures/mobile-v1/location-request.json
+        buildPhase: resources
+      - path: ../../packages/domain-contracts/fixtures/mobile-v1/location-response.json
+        buildPhase: resources
     dependencies:
       - target: FieldIOS
     settings:

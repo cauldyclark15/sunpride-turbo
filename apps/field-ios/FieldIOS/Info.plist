@@ -9,12 +9,13 @@
 <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
 <key>UILaunchScreen</key><dict><key>UIColorName</key><string>LaunchBackground</string><key>UIImageName</key><string>SunprideLogo</string><key>UIImageRespectsSafeAreaInsets</key><true/></dict>
 <key>LSApplicationQueriesSchemes</key><array><string>comgooglemaps</string><string>waze</string></array>
-<key>NSLocationWhenInUseUsageDescription</key><string>Show how far today's stores are and record a location fix when you start and end a call. Call locations are sent to the server only when you sync.</string>
+<key>NSLocationWhenInUseUsageDescription</key><string>Show how far today's stores are, record a location fix when you start and end a call, and share your location with your supervisor during your work day (from Start day or your first call until End day, sign-out or 10 PM).</string>
+<key>NSLocationAlwaysAndWhenInUseUsageDescription</key><string>Keep sharing your work-day location with your supervisor while the phone is locked or in your pocket. Sharing runs only from Start day or your first call until End day, sign-out or 10 PM — never outside work.</string>
 <key>NSLocationTemporaryUsageDescriptionDictionary</key><dict><key>VisitCheckIn</key><string>Precise location shows your supervisor you were at the store when you started or ended the visit.</string></dict>
 <key>NSCameraUsageDescription</key><string>Take visit photos (store front, shelf, price tags) as evidence for your supervisor. Photos stay locked in this app until they upload; they are never saved to your photo library.</string>
 <key>NSFaceIDUsageDescription</key><string>Open Sunpride Field with Face ID instead of typing your password. Your password is never saved on this phone.</string>
 <key>BGTaskSchedulerPermittedIdentifiers</key><array><string>com.sunpride.field.dev.sync-refresh</string></array>
-<key>UIBackgroundModes</key><array><string>fetch</string></array>
+<key>UIBackgroundModes</key><array><string>fetch</string><string>location</string></array>
 <key>CONVEX_SITE_URL</key><string>$(CONVEX_SITE_URL)</string>
 <key>CONVEX_URL</key><string>$(CONVEX_URL)</string>
 <key>FIELD_WEB_URL</key><string>$(FIELD_WEB_URL)</string>

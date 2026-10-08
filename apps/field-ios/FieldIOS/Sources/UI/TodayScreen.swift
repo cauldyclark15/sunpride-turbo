@@ -20,6 +20,8 @@ struct TodayScreen: View {
         VStack(alignment: .leading, spacing: 16) {
             summaryCard(dashboard)
             nextCard(dashboard)
+            // SP-0138: Start day / End day and the location-sharing state.
+            WorkDayCard(model: model)
             if !dashboard.route.isEmpty {
                 SectionCard(title: "Route") {
                     NavigationLink { RouteScreen(model: model) } label: {
