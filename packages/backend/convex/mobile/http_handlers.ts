@@ -14,6 +14,7 @@ import {
   MAX_FIELD_ORDER_UOM,
 } from "../orders/field_order_validators";
 import { acceptsGzip, GZIP_MIN_BYTES, WORKING_SET_TOO_LARGE } from "./budget";
+import { LOCATION_POLICY, validWirePing } from "../location/model";
 
 const MAX_BYTES = MOBILE_LIMITS.maxBodyBytes;
 const kinds = new Set([
@@ -35,7 +36,7 @@ const businessCodes = new Set([
 /** Field-day rules (client call 2 Oct 2026). v1 `code` values are frozen, so these go out
  * as code `invalid_request` with the specific rule in the additive optional `reason`. */
 const reasonCodes = new Set(["call_open", "mcp_order", "wrong_date"]);
-type Route = "bootstrap" | "pull" | "push";
+type Route = "bootstrap" | "pull" | "push" | "location";
 type RecordValue = Record<string, unknown>;
 const record = (value: unknown): value is RecordValue =>
   value !== null && typeof value === "object" && !Array.isArray(value);
@@ -495,7 +496,9 @@ async function serve(
         ]
       : route === "pull"
         ? ["type", "contractVersion", "deviceId", "cursor", "limit"]
-        : ["type", "contractVersion", "deviceId", "operations"];
+        : route === "location"
+          ? ["type", "contractVersion", "deviceId", "pings"]
+          : ["type", "contractVersion", "deviceId", "operations"];
   if (
     !exact(body, allowed) ||
     (route === "bootstrap" &&
@@ -520,7 +523,12 @@ async function serve(
       (!Array.isArray(body.operations) ||
         body.operations.length < 1 ||
         body.operations.length > MOBILE_LIMITS.maxPushOperations ||
-        !body.operations.every(validOperation)))
+        !body.operations.every(validOperation))) ||
+    (route === "location" &&
+      (!Array.isArray(body.pings) ||
+        body.pings.length < 1 ||
+        body.pings.length > LOCATION_POLICY.maxBatch ||
+        !body.pings.every((ping: unknown) => validWirePing(ping, "field"))))
   )
     return failure("invalid_request", 400);
   const deviceId = request.headers.get("x-mobile-device-id");
@@ -560,6 +568,25 @@ async function serve(
     return failure("unauthorized", 401);
   }
   try {
+    if (route === "location") {
+      // SP-0135: buffered location pings; one result per ping.
+      const results = await ctx.runMutation(
+        internal.location.ingest.applyBatch,
+        {
+          actor,
+          kind: "field",
+          pings: body.pings as Parameters<
+            typeof ctx.runMutation<typeof internal.location.ingest.applyBatch>
+          >[1]["pings"],
+        },
+      );
+      return json({
+        type: "location.response",
+        contractVersion: 1,
+        serverTime: Date.now(),
+        results,
+      });
+    }
     if (route === "bootstrap") {
       const value = await ctx.runQuery(internal.mobile.bootstrap.snapshot, {
         actor,
@@ -653,6 +680,14 @@ async function serve(
       results,
     });
   } catch (error) {
+    // The location writer's per-transaction recheck refused the device or person.
+    if (
+      route === "location" &&
+      /(?:^|[:\s])unauthorized(?:$|[\s\n])/.test(
+        error instanceof Error ? error.message : "",
+      )
+    )
+      return failure("unauthorized", 401);
     const code = coded(error);
     if (code === "rebootstrap_required" || code === "invalid_cursor")
       return failure(code, 409);
@@ -674,4 +709,7 @@ export const pull = httpAction((ctx, request) =>
 );
 export const push = httpAction((ctx, request) =>
   handleMobile(ctx, request, "push"),
+);
+export const location = httpAction((ctx, request) =>
+  handleMobile(ctx, request, "location"),
 );

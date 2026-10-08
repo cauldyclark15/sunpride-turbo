@@ -960,3 +960,114 @@ struct BootstrapResponseInventoryAvailabilityItem {
   // schema-field: bootstrapResponse.inventoryAvailability[].asOf
   let asOf: Int64
 }
+// Additive after v1 shipped: buffered live-location batches (SP-0135).
+// schema-object: locationPing
+struct LocationPingV1 {
+  // schema-field: locationPing.clientPingId
+  let clientPingId: String
+  // schema-field: locationPing.recordedAt
+  let recordedAt: Int64
+  // schema-field: locationPing.latitude
+  let latitude: Double
+  // schema-field: locationPing.longitude
+  let longitude: Double
+  // schema-field: locationPing.accuracyMeters
+  let accuracyMeters: Double
+  // schema-field: locationPing.speedMetersPerSecond
+  let speedMetersPerSecond: Double?
+  // schema-field: locationPing.headingDegrees
+  let headingDegrees: Double?
+  // schema-field: locationPing.batteryPercent
+  let batteryPercent: Int64?
+  // schema-field: locationPing.mockLocation
+  let mockLocation: Bool
+  // schema-field: locationPing.provider
+  let provider: LocationPingProviderEnum
+  // schema-field: locationPing.trigger
+  let trigger: LocationPingTriggerEnum
+  // schema-field: locationPing.visitId
+  let visitId: OptionalField<String>
+}
+// schema-object: locationRequest
+struct LocationRequest {
+  // schema-field: locationRequest.type
+  let type: String
+  // schema-field: locationRequest.contractVersion
+  let contractVersion: Int64
+  // schema-field: locationRequest.deviceId
+  let deviceId: String
+  // schema-field: locationRequest.pings
+  let pings: [LocationPingV1]
+}
+// schema-object: locationResponse
+struct LocationResponse {
+  // schema-field: locationResponse.type
+  let type: String
+  // schema-field: locationResponse.contractVersion
+  let contractVersion: Int64
+  // schema-field: locationResponse.serverTime
+  let serverTime: Int64
+  // schema-field: locationResponse.results
+  let results: [LocationResponseResultsItem]
+}
+// schema-object: locationResponse.results[]
+struct LocationResponseResultsItem {
+  // schema-field: locationResponse.results[].clientPingId
+  let clientPingId: String
+  // schema-field: locationResponse.results[].status
+  let status: LocationResponseResultsItemStatusEnum
+  // schema-field: locationResponse.results[].code
+  let code: OptionalField<LocationResponseResultsItemCodeEnum>
+}
+// schema-enum: locationRequest.type
+// schema-enum-value: locationRequest.type = location.request
+// schema-enum: locationPing.provider
+// schema-enum-value: locationPing.provider = gps
+// schema-enum-value: locationPing.provider = network
+// schema-enum-value: locationPing.provider = fused
+// schema-enum-value: locationPing.provider = unknown
+struct LocationPingProviderEnum: Codable { let rawValue: String
+  static let gps = LocationPingProviderEnum(rawValue: "gps")
+  static let network = LocationPingProviderEnum(rawValue: "network")
+  static let fused = LocationPingProviderEnum(rawValue: "fused")
+  static let unknown = LocationPingProviderEnum(rawValue: "unknown")
+}
+// schema-enum: locationPing.trigger
+// schema-enum-value: locationPing.trigger = start
+// schema-enum-value: locationPing.trigger = moving
+// schema-enum-value: locationPing.trigger = still
+// schema-enum-value: locationPing.trigger = stop
+struct LocationPingTriggerEnum: Codable { let rawValue: String
+  static let start = LocationPingTriggerEnum(rawValue: "start")
+  static let moving = LocationPingTriggerEnum(rawValue: "moving")
+  static let still = LocationPingTriggerEnum(rawValue: "still")
+  static let stop = LocationPingTriggerEnum(rawValue: "stop")
+}
+// schema-enum: locationResponse.type
+// schema-enum-value: locationResponse.type = location.response
+// schema-enum: locationResponse.results[].status
+// schema-enum-value: locationResponse.results[].status = accepted
+// schema-enum-value: locationResponse.results[].status = duplicate
+// schema-enum-value: locationResponse.results[].status = rejected
+struct LocationResponseResultsItemStatusEnum: Codable { let rawValue: String
+  static let accepted = LocationResponseResultsItemStatusEnum(rawValue: "accepted")
+  static let duplicate = LocationResponseResultsItemStatusEnum(rawValue: "duplicate")
+  static let rejected = LocationResponseResultsItemStatusEnum(rawValue: "rejected")
+}
+// schema-enum: locationResponse.results[].code
+// schema-enum-value: locationResponse.results[].code = invalid_request
+// schema-enum-value: locationResponse.results[].code = out_of_scope
+// schema-enum-value: locationResponse.results[].code = conflict
+// schema-enum-value: locationResponse.results[].code = outside_work_hours
+// schema-enum-value: locationResponse.results[].code = too_frequent
+// schema-enum-value: locationResponse.results[].code = too_old
+// schema-enum-value: locationResponse.results[].code = trip_not_active
+struct LocationResponseResultsItemCodeEnum: Codable { let rawValue: String
+  static let invalid_request = LocationResponseResultsItemCodeEnum(rawValue: "invalid_request")
+  static let out_of_scope = LocationResponseResultsItemCodeEnum(rawValue: "out_of_scope")
+  static let conflict = LocationResponseResultsItemCodeEnum(rawValue: "conflict")
+  static let outside_work_hours = LocationResponseResultsItemCodeEnum(rawValue: "outside_work_hours")
+  static let too_frequent = LocationResponseResultsItemCodeEnum(rawValue: "too_frequent")
+  static let too_old = LocationResponseResultsItemCodeEnum(rawValue: "too_old")
+  static let trip_not_active = LocationResponseResultsItemCodeEnum(rawValue: "trip_not_active")
+}

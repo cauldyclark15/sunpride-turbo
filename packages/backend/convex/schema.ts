@@ -17,6 +17,7 @@ import {
   issueStatusValidator,
 } from "./issues/validators";
 import { adminPackRecord } from "./analytics/admin_pack_model";
+import { liveLocation, locationPing } from "./location/model";
 import { employmentTypeValidator, roleValidator } from "./lib/roles";
 import { positionCategoryValidator } from "./sfa/constants";
 import {
@@ -3380,4 +3381,24 @@ export default defineSchema({
     ])
     .index("by_organizationId_and_code", ["organizationId", "code"])
     .index("by_organizationId_and_source", ["organizationId", "source"]),
+  // SP-0135 live map (location/model.ts): append-only pings, 90-day retention.
+  locationPings: defineTable(locationPing)
+    .index("by_deviceId_and_clientPingId", ["deviceId", "clientPingId"])
+    .index("by_profileId_and_kind_and_recordedAt", [
+      "profileId",
+      "kind",
+      "recordedAt",
+    ])
+    // orgUnitId/vehicleId indexes also keep the beta sample reset check off full scans.
+    .index("by_orgUnitId_and_recordedAt", ["orgUnitId", "recordedAt"])
+    .index("by_vehicleId_and_recordedAt", ["vehicleId", "recordedAt"])
+    .index("by_recordedAt", ["recordedAt"])
+    .index("by_sample_and_recordedAt", ["sample", "recordedAt"]),
+  // SP-0135: the latest position per person (field) or per truck (van).
+  liveLocations: defineTable(liveLocation)
+    .index("by_subjectKey", ["subjectKey"])
+    .index("by_orgUnitId_and_recordedAt", ["orgUnitId", "recordedAt"])
+    .index("by_profileId_and_recordedAt", ["profileId", "recordedAt"])
+    .index("by_vehicleId", ["vehicleId"])
+    .index("by_recordedAt", ["recordedAt"]),
 });

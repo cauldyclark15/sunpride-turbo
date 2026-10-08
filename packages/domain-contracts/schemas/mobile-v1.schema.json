@@ -24,6 +24,12 @@
     },
     {
       "$ref": "#/$defs/errorResponse"
+    },
+    {
+      "$ref": "#/$defs/locationRequest"
+    },
+    {
+      "$ref": "#/$defs/locationResponse"
     }
   ],
   "$defs": {
@@ -1863,6 +1869,172 @@
         }
       },
       "required": ["type", "contractVersion", "serverTime", "error"],
+      "additionalProperties": false
+    },
+    "locationPing": {
+      "description": "One buffered live-location ping. Field tracking runs only during work, from the first check-in or Start day until End day or sign-out, and stops automatically at the 10 PM Manila close. The device records approximately every 60 seconds or 50 metres while moving and every 5 minutes while still, then uploads batches from the encrypted outbox. Pings are idempotent by clientPingId per device and are retained for 90 days.",
+      "type": "object",
+      "properties": {
+        "clientPingId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "recordedAt": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "latitude": {
+          "type": "number",
+          "minimum": -90,
+          "maximum": 90
+        },
+        "longitude": {
+          "type": "number",
+          "minimum": -180,
+          "maximum": 180
+        },
+        "accuracyMeters": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "speedMetersPerSecond": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "headingDegrees": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 360
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "batteryPercent": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mockLocation": {
+          "type": "boolean"
+        },
+        "provider": {
+          "enum": ["gps", "network", "fused", "unknown"]
+        },
+        "trigger": {
+          "enum": ["start", "moving", "still", "stop"]
+        },
+        "visitId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "clientPingId",
+        "recordedAt",
+        "latitude",
+        "longitude",
+        "accuracyMeters",
+        "speedMetersPerSecond",
+        "headingDegrees",
+        "batteryPercent",
+        "mockLocation",
+        "provider",
+        "trigger"
+      ],
+      "additionalProperties": false
+    },
+    "locationRequest": {
+      "description": "Field live-location batches are tracked only during work, from the first check-in or Start day until End day or sign-out, with automatic stop at the 10 PM Manila close. The device records approximately every 60 seconds or 50 metres while moving and every 5 minutes while still, then uploads the batch from the encrypted outbox. Pings are idempotent by clientPingId per device and retained for 90 days.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "location.request"
+        },
+        "contractVersion": {
+          "const": 1
+        },
+        "deviceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "pings": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/locationPing"
+          }
+        }
+      },
+      "required": ["type", "contractVersion", "deviceId", "pings"],
+      "additionalProperties": false
+    },
+    "locationResponse": {
+      "description": "The server reports one result per ping. A duplicate means the ping was already stored for that device and clientPingId; clients must treat duplicate as done. Location records are retained for 90 days.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "location.response"
+        },
+        "contractVersion": {
+          "const": 1
+        },
+        "serverTime": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "results": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "properties": {
+              "clientPingId": {
+                "type": "string"
+              },
+              "status": {
+                "enum": ["accepted", "duplicate", "rejected"]
+              },
+              "code": {
+                "enum": [
+                  "invalid_request",
+                  "out_of_scope",
+                  "conflict",
+                  "outside_work_hours",
+                  "too_frequent",
+                  "too_old",
+                  "trip_not_active"
+                ]
+              }
+            },
+            "required": ["clientPingId", "status"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["type", "contractVersion", "serverTime", "results"],
       "additionalProperties": false
     }
   }

@@ -8,6 +8,7 @@ import { hexDigest, rawBody } from "../mobile/http_handlers";
 import { SHA256_HEX } from "./damage";
 import { verifyBaselineJpeg } from "./jpeg";
 import { VAN_DAMAGE_POLICY } from "./model";
+import { LOCATION_POLICY, validWirePing } from "../location/model";
 
 /**
  * VAN-003 sync gateway for the separate van-sales app (ADR-010): `/van/v1/bootstrap` and
@@ -16,7 +17,7 @@ import { VAN_DAMAGE_POLICY } from "./model";
  * whose proofs `mobile/device_auth.authorize` accepts on van paths only.
  * Contract: `packages/domain-contracts/schemas/van-v1.schema.json`.
  */
-type Route = "bootstrap" | "push" | "evidence";
+type Route = "bootstrap" | "push" | "evidence" | "location";
 type RecordValue = Record<string, unknown>;
 const record = (value: unknown): value is RecordValue =>
   value !== null && typeof value === "object" && !Array.isArray(value);
@@ -248,8 +249,15 @@ async function serve(
               "sha256",
               "dataBase64",
             ]
-          : ["type", "contractVersion", "deviceId", "operations"],
+          : route === "location"
+            ? ["type", "contractVersion", "deviceId", "pings"]
+            : ["type", "contractVersion", "deviceId", "operations"],
     ) ||
+    (route === "location" &&
+      (!Array.isArray(body.pings) ||
+        body.pings.length < 1 ||
+        body.pings.length > LOCATION_POLICY.maxBatch ||
+        !body.pings.every((ping: unknown) => validWirePing(ping, "van")))) ||
     (route === "evidence" && !validEvidence(body)) ||
     (route === "push" &&
       (!Array.isArray(body.operations) ||
@@ -296,6 +304,20 @@ async function serve(
   }
   try {
     if (route === "evidence") return await storeEvidence(ctx, actor, body);
+    if (route === "location")
+      // SP-0135: pings while the trip is active; one result per ping.
+      return json({
+        type: "van.location.response",
+        contractVersion: 1,
+        serverTime: Date.now(),
+        results: await ctx.runMutation(internal.location.ingest.applyBatch, {
+          actor,
+          kind: "van",
+          pings: body.pings as Parameters<
+            typeof ctx.runMutation<typeof internal.location.ingest.applyBatch>
+          >[1]["pings"],
+        }),
+      });
     if (route === "bootstrap")
       return json(
         await ctx.runQuery(internal.van.device.bootstrap, {
@@ -353,4 +375,7 @@ export const push = httpAction((ctx, request) =>
 );
 export const evidence = httpAction((ctx, request) =>
   handleVan(ctx, request, "evidence"),
+);
+export const location = httpAction((ctx, request) =>
+  handleVan(ctx, request, "location"),
 );

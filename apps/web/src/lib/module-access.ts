@@ -75,6 +75,15 @@ const activityReportReaders = [
   "analyst",
   "viewer",
 ] as const satisfies readonly AppRole[];
+// SP-0135 location.read: supervisors see their scope, sales only themselves.
+const locationReaders = [
+  "super_admin",
+  "admin",
+  "operations",
+  "manager",
+  "sales",
+  "analyst",
+] as const satisfies readonly AppRole[];
 const integrationReaders = [
   "super_admin",
   "admin",
@@ -133,6 +142,7 @@ export const MODULE_ROLES = {
   "daily-sales": allReaders, // report.read; sales read only their own sheet
   training: allReaders, // visit.read; each person sees only their own trainer forms
   "activity-reports": activityReportReaders, // visit.record (file) or people.read (team)
+  "live-map": locationReaders, // location.read; the server limits sales to themselves
   orders: orderActors, // union of order.create and order.approve
   "outside-calls": outsideCallActors, // union of order.encode and visit.record
   "sap-integration": integrationReaders, // integration.read

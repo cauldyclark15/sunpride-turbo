@@ -31,6 +31,7 @@ import { CallSheetsWorkspace } from "./call-sheets/call-sheets-workspace";
 import { DailySalesWorkspace } from "./daily-sales/daily-sales-workspace";
 import { TrainingWorkspace } from "./training/trainer-forms";
 import { ActivityReportsWorkspace } from "./activity-reports/activity-reports-workspace";
+import { LiveMapWorkspace } from "./live-map/live-map-workspace";
 import { AdminReports } from "./analytics/admin-reports";
 import { CoverageCompliance } from "./analytics/coverage-compliance";
 import { CustomerExecution } from "./analytics/customer-execution";
@@ -52,6 +53,7 @@ const modules = {
   "daily-sales": { title: "Daily sales report" },
   training: { title: "Training" },
   "activity-reports": { title: "DAR / ROAR" },
+  "live-map": { title: "Live map" },
   orders: { title: "Orders" },
   "outside-calls": { title: "Commercial" },
   "sap-integration": { title: "Integration" },
@@ -536,6 +538,12 @@ function ModuleContent({
   if (module === "daily-sales") return <DailySalesWorkspace />;
   if (module === "training") return <TrainingWorkspace />;
   if (module === "activity-reports") return <ActivityReportsWorkspace />;
+  if (module === "live-map")
+    return (
+      <PanelErrorBoundary label="Live map">
+        <LiveMapWorkspace />
+      </PanelErrorBoundary>
+    );
   if (module === "outside-calls") return <OutsideCallOrders />;
 
   return (

@@ -63,6 +63,7 @@ const EXPECTED: Record<Capability, string> = {
   "visit.locationException.approve": "x--x----",
   "visit.read": "xxxxxxxx",
   "order.create": "x--x-x--",
+  "location.read": "xxxx-xx-",
   "order.approve": "x--xx---",
   "order.encode": "xxx-----",
   "deliverable.submit": "x--x-x--",

@@ -123,6 +123,15 @@ export const CAPABILITIES = {
     "viewer",
   ],
   "order.create": ["super_admin", "manager", "sales"],
+  // SP-0135 live map: positions/trails inside the caller's scope; `sales` see only themselves.
+  "location.read": [
+    "super_admin",
+    "admin",
+    "operations",
+    "manager",
+    "sales",
+    "analyst",
+  ],
   "order.approve": ["super_admin", "manager", "approver"],
   // CALL-09: the sales admin (office) encodes a PO a store sent outside its MCP day.
   "order.encode": ["super_admin", "admin", "operations"],
