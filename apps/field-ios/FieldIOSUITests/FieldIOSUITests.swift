@@ -873,6 +873,15 @@ final class FieldIOSUITests: XCTestCase {
         XCTAssertLessThan(element.frame.maxY, window.maxY - 20, "above the home indicator", file: file, line: line)
     }
 
+    /// Opens Account once the offer alert has fully gone (a tap during its dismissal is dropped).
+    private func openAccount(_ app: XCUIApplication) {
+        for _ in 0..<3 {
+            app.buttons["accountButton"].tap()
+            if app.staticTexts["Account"].waitForExistence(timeout: 3) { return }
+        }
+        XCTFail("Account did not open")
+    }
+
     func testFaceIDOfferLockCancelChangedAndAccountToggle() {
         for dark in [false, true] {
             let mode = dark ? "dark" : "light"
@@ -883,8 +892,9 @@ final class FieldIOSUITests: XCTestCase {
             XCTAssertTrue(offer.waitForExistence(timeout: 20))
             capture(first, "\(mode)-face-id-offer")
             offer.buttons["Turn on"].firstMatch.tap()
+            XCTAssertTrue(offer.waitForNonExistence(timeout: 5))
             XCTAssertTrue(first.staticTexts["todayTitle"].waitForExistence(timeout: 20))
-            first.buttons["accountButton"].tap()
+            openAccount(first)
             let toggle = first.switches["biometricToggle"].firstMatch
             XCTAssertTrue(toggle.waitForExistence(timeout: 5))
             XCTAssertEqual(toggle.value as? String, "1")
@@ -925,9 +935,10 @@ final class FieldIOSUITests: XCTestCase {
             let offerAgain = again.alerts["Use Face ID to sign in next time?"]
             XCTAssertTrue(offerAgain.waitForExistence(timeout: 20))
             offerAgain.buttons["Turn on"].firstMatch.tap()
+            XCTAssertTrue(offerAgain.waitForNonExistence(timeout: 5))
             XCTAssertTrue(again.staticTexts["todayTitle"].waitForExistence(timeout: 20))
             // Account toggle off: next launch opens without any prompt.
-            again.buttons["accountButton"].tap()
+            openAccount(again)
             let toggleAgain = again.switches["biometricToggle"].firstMatch
             XCTAssertTrue(toggleAgain.waitForExistence(timeout: 5))
             toggleAgain.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
@@ -953,22 +964,27 @@ final class FieldIOSUITests: XCTestCase {
         guard offer.waitForExistence(timeout: 20) else { throw XCTSkip("No Face ID / Touch ID enrolled on this device.") }
         captureScreen("phone-face-id-offer")
         offer.buttons["Turn on"].firstMatch.tap()
+        // The system sheet (first-use permission, then the Face ID prompt) is short-lived: capture a burst.
+        for (index, delay) in [0.3, 0.7, 1.0, 1.5].enumerated() {
+            Thread.sleep(forTimeInterval: delay)
+            captureScreen("phone-face-id-prompt-\(index)")
+        }
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        // First use asks permission (NSFaceIDUsageDescription).
+        // First use asks permission (NSFaceIDUsageDescription); allow it, then catch the prompt again.
         for owner in [app, springboard] {
-            let allow = owner.alerts.buttons["OK"].exists ? owner.alerts.buttons["OK"] : owner.alerts.buttons["Allow"]
-            if allow.waitForExistence(timeout: 3) {
+            for label in ["OK", "Allow"] where owner.alerts.buttons[label].exists {
                 captureScreen("phone-face-id-permission")
-                allow.tap()
-                break
+                owner.alerts.buttons[label].firstMatch.tap()
+                for (index, delay) in [0.3, 0.7, 1.0].enumerated() {
+                    Thread.sleep(forTimeInterval: delay)
+                    captureScreen("phone-face-id-prompt-after-permission-\(index)")
+                }
             }
         }
-        Thread.sleep(forTimeInterval: 0.8)
-        captureScreen("phone-face-id-prompt")
         let usePassword = springboard.buttons["Use password"]
-        if usePassword.waitForExistence(timeout: 8) {
+        if usePassword.waitForExistence(timeout: 6) {
             captureScreen("phone-face-id-prompt-retry")
-            usePassword.tap()
+            usePassword.firstMatch.tap()
         }
         XCTAssertTrue(app.staticTexts["todayTitle"].waitForExistence(timeout: 20))
         captureScreen("phone-face-id-after-prompt")
