@@ -326,6 +326,78 @@ final class FieldIOSUITests: XCTestCase {
         }
     }
 
+    // MARK: SP-0138 live location
+
+    func testLiveLocationConsentStartDayIndicatorAndEndDay() {
+        for mode in ["light", "dark"] {
+            let app = XCUIApplication()
+            app.launchEnvironment["FIELD_STUB_BACKEND"] = "registers"
+            app.launchEnvironment["FIELD_STUB_LIVE"] = "1"
+            app.launchArguments += [mode == "dark" ? "-calmDarkMode" : "-calmLightMode"]
+            app.launch()
+            signIn(app, password: "correct-horse")
+            XCTAssertTrue(app.staticTexts["Stub Outlet"].waitForExistence(timeout: 20))
+            XCTAssertFalse(app.otherElements["locationSharingPill"].exists, "nothing is shared before the day starts")
+            let start = app.buttons["startDayButton"]
+            reveal(start, in: app)
+            XCTAssertTrue(start.isHittable)
+            capture(app, "\(mode)-live-before-start-day")
+            start.tap()
+            // The one-time notice: what, when, who, and a real choice.
+            XCTAssertTrue(app.staticTexts["liveConsentTitle"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.staticTexts["WHEN"].exists)
+            XCTAssertTrue(app.staticTexts["WHO SEES IT"].exists)
+            XCTAssertTrue(app.buttons["liveConsentDecline"].isHittable)
+            let accept = app.buttons["liveConsentAccept"]
+            XCTAssertTrue(accept.isHittable)
+            let window = app.windows.firstMatch.frame
+            XCTAssertLessThanOrEqual(accept.frame.maxY, window.maxY - 20, "the pinned button clears the home indicator")
+            capture(app, "\(mode)-live-consent")
+            accept.tap()
+            // Sharing on: the top-bar indicator and the Work day card.
+            let status = app.descendants(matching: .any)["liveLocationStatus"]
+            XCTAssertTrue(status.waitForExistence(timeout: 5))
+            XCTAssertTrue(app.descendants(matching: .any)["locationSharingPill"].waitForExistence(timeout: 5))
+            XCTAssertTrue(status.label.contains("Location sharing on"), status.label)
+            // The first ping is recorded (its time shows) and the batch uploads to the stub backend.
+            let pinged = expectation(for: NSPredicate(format: "label CONTAINS 'last ' AND NOT (label CONTAINS 'waiting to send')"),
+                                     evaluatedWith: status)
+            wait(for: [pinged], timeout: 20)
+            let end = app.buttons["endDayButton"]
+            reveal(end, in: app)
+            capture(app, "\(mode)-live-sharing-on")
+            end.tap()
+            XCTAssertTrue(app.buttons["startDayButton"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.descendants(matching: .any)["liveLocationStatus"].label.contains("Day ended"))
+            XCTAssertFalse(app.descendants(matching: .any)["locationSharingPill"].exists, "End day turns sharing off")
+            capture(app, "\(mode)-live-day-ended")
+            app.terminate()
+        }
+    }
+
+    func testLiveLocationDeclinedKeepsTheAppWorking() {
+        let app = launchStub("registers", environment: ["FIELD_STUB_LIVE": "1"])
+        signIn(app, password: "correct-horse")
+        XCTAssertTrue(app.staticTexts["Stub Outlet"].waitForExistence(timeout: 20))
+        let start = app.buttons["startDayButton"]
+        reveal(start, in: app)
+        start.tap()
+        XCTAssertTrue(app.buttons["liveConsentDecline"].waitForExistence(timeout: 5))
+        app.buttons["liveConsentDecline"].tap()
+        let status = app.descendants(matching: .any)["liveLocationStatus"]
+        XCTAssertTrue(status.waitForExistence(timeout: 5))
+        XCTAssertTrue(status.label.contains("Location sharing off"), status.label)
+        XCTAssertFalse(app.descendants(matching: .any)["locationSharingPill"].exists)
+        // The visit flow still works without sharing.
+        let row = app.buttons["visit-planned-stub-1"]
+        reveal(row, in: app)
+        row.tap()
+        XCTAssertTrue(app.buttons["diagnosticCheckIn"].waitForExistence(timeout: 5))
+        app.buttons["diagnosticCheckIn"].tap()
+        XCTAssertTrue(app.buttons["diagnosticCheckOut"].waitForExistence(timeout: 20))
+        XCTAssertFalse(app.staticTexts["liveConsentTitle"].exists, "a declined notice is not shown again on a call Start")
+    }
+
     func testWrongPasswordShowsClearError() {
         let app = launchStub("unregistered")
         signIn(app, password: "wrong-stub-password")

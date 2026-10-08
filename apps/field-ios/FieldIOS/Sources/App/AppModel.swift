@@ -52,6 +52,9 @@ final class AppModel {
     let suggestedOrders: SuggestedOrderLoader
     /// SP-0133 Face ID / Touch ID sign-in; nil where the session store is not lockable (unit tests).
     let biometrics: BiometricGate?
+    /// SP-0138 live map: work-day location sharing (consent, Start/End day, buffered pings).
+    let liveLocation: LiveLocationController
+    @ObservationIgnored private var uploadingLocation = false
     /// Today's summary (date, target, calls, completion, next outlet, ordered route), store-derived.
     private(set) var daySales: StoreSnapshot.DaySales?
     /// IOS-020: offer the Team page (role hint from the verified snapshot; the server decides access).
@@ -185,6 +188,7 @@ final class AppModel {
          pollInterval: Duration = .seconds(10), site: URL? = nil, functions: ConvexFunctions? = nil,
          http: HTTPClient? = nil, localStore: EncryptedFieldStore? = nil,
          photoFiles: PhotoFiles? = nil, evidenceAPI: EvidenceAPI? = nil, biometrics: BiometricGate? = nil,
+         liveSource: (any LiveLocationSource)? = nil, consentStore: (any LocationConsentStore)? = nil,
          now: @escaping () -> Date = { Date() }, loadKey: @escaping () throws -> any DeviceSigningKey) {
         self.auth = auth
         self.biometrics = biometrics
@@ -203,9 +207,13 @@ final class AppModel {
             return try await functions.query("analytics/suggested_orders:forOutlet", request, as: SuggestedOrder.self)
         }
         enrollment = Enrollment(registry: registry, store: store, pollInterval: pollInterval)
+        liveLocation = LiveLocationController(source: liveSource ?? CoreLocationSource(),
+                                              consents: consentStore ?? DefaultsLocationConsentStore(), now: now)
         enrollment.onSessionEnded = { [weak self] in
             Task { @MainActor in await self?.sessionEnded() }
         }
+        liveLocation.upload = { [weak self] in await self?.uploadLocation() }
+        liveLocation.openVisitId = { [weak self] in self?.openCallVisitId() }
     }
 
     /// Real wiring: Keychain session, ephemeral cookie-less URLSession, Secure Enclave (or simulator) key.
@@ -346,6 +354,7 @@ final class AppModel {
     }
 
     func refreshToday() {
+        syncLiveLocation()
         guard let partition = activeStoragePartition, let store = try? storage(for: partition) else { return }
         do {
             callSheets = try store.snapshot(for: partition)?.callSheets ?? []
@@ -496,6 +505,8 @@ final class AppModel {
             reason: visit.planned ? nil : unplannedReason, location: location, now: timestamp)
         try store.enqueue(intent, for: partition, now: timestamp)
         didQueueWork()
+        // SP-0138: the day's first call Start opens the work day (and location sharing, with consent).
+        liveLocation.callStarted()
     }
     func queueNote(_ note: String, for visit: TodayVisit) throws {
         let (initial, store, partition) = try checkIn(for: visit)
@@ -835,6 +846,7 @@ final class AppModel {
                 succeeded = true
                 if syncMessage?.hasPrefix("Scope changed") != true { syncMessage = nil }
                 await uploadPhotos()
+                await uploadLocation()
                 return
             } catch VisitSyncClient.Failure.rebootstrap {
                 try? store.holdForReview(current)
@@ -892,6 +904,7 @@ final class AppModel {
                 breadcrumb(.syncSucceeded)
                 succeeded = true
                 await uploadPhotos()
+                await uploadLocation()
             } catch VisitSyncClient.Failure.rebootstrap {
                 try store.holdForReview(partition)
                 syncMessage = "Plan or cursor changed again — unsent work held for review."
@@ -943,6 +956,40 @@ final class AppModel {
     }
 
     private struct EmptyArgs: Encodable {}
+
+    // MARK: SP-0138 live location
+
+    /// Hands the controller the current account, phone state and partition (it starts/stops sharing).
+    /// An offline relaunch (phone still `checking` with the last verified partition) keeps sharing; a phone
+    /// that is not registered or was removed never does. Uploads still wait for a verified phone.
+    func syncLiveLocation() {
+        let phoneOK: Bool
+        switch enrollment.state {
+        case .ready: phoneOK = true
+        case .checking, .unverified: phoneOK = activeStoragePartition != nil
+        default: phoneOK = false
+        }
+        liveLocation.update(.init(signedIn: signedIn, ready: phoneOK,
+                                  partition: signedIn ? activeStoragePartition : nil, store: signedIn ? fieldStore : nil))
+    }
+    /// Signed batch upload of buffered pings; single-flight, never while offline or before the phone is verified.
+    func uploadLocation() async {
+        guard !uploadingLocation, signedIn, !isOffline, case .ready(let deviceId) = enrollment.state,
+              let key = enrollment.key, let site, let http, let partition = activeStoragePartition,
+              partition.deviceId == deviceId, let store = fieldStore,
+              (try? store.pingCount(for: partition)).map({ $0 > 0 }) == true else { return }
+        uploadingLocation = true
+        defer { uploadingLocation = false; liveLocation.refreshCount() }
+        let client = VisitSyncClient(site: site, auth: auth, registry: registry, http: http, key: key)
+        // Failures keep the buffer (same ping IDs) for the next upload; visit sync reports phone state.
+        _ = try? await client.pushLocation(store: store, partition: partition, now: now())
+    }
+    /// The server visit ID of the call open on this phone (its Start accepted), for pings during the call.
+    private func openCallVisitId() -> String? {
+        guard let visit = visits.first(where: { $0.startedAt != nil && $0.endedAt == nil }),
+              let (initial, store, partition) = try? checkIn(for: visit) else { return nil }
+        return (try? store.ack(for: initial.requestId, in: partition))?.entityId
+    }
     private var storeFolder: String {
         #if DEBUG
         StubBackend.scenario == nil ? "FieldStore" : "FieldStoreStub"
@@ -972,6 +1019,7 @@ final class AppModel {
     }
 
     func phoneStateChanged(_ state: Enrollment.State) async {
+        syncLiveLocation()
         switch state {
         case .ready: if !freshThisLaunch { await syncNow() }
         case .removed: holdActive()
@@ -980,6 +1028,8 @@ final class AppModel {
     }
 
     func signOut() async {
+        // SP-0138: sharing stops before the session goes (a final stop ping stays buffered, encrypted).
+        await liveLocation.signingOut()
         enrollment.signedOut()
         signInError = nil
         withdrawTeam()

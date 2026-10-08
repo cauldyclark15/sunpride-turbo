@@ -10,7 +10,7 @@ import Foundation
 struct RequestSigner: Sendable {
     static let contractVersion = "1"
     static let app = "IOS"
-    static let signedPaths: Set<String> = ["/mobile/v1/bootstrap", "/mobile/v1/pull", "/mobile/v1/push"]
+    static let signedPaths: Set<String> = ["/mobile/v1/bootstrap", "/mobile/v1/pull", "/mobile/v1/push", "/mobile/v1/location"]
 
     struct SignedHeaders: Equatable, Sendable {
         let bodyDigest: String
