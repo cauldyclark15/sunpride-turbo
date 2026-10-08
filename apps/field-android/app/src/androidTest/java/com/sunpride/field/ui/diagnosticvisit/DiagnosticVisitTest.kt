@@ -690,10 +690,14 @@ class DiagnosticVisitTest {
         rule.waitForIdle()
         Thread.sleep(350)
         com.sunpride.field.captureCalmScreenshot("${if (dark) "dark" else "light"}-visit-queued")
+        // End call is held while the queued note's encrypted re-read finishes; on a busy phone that outlasts
+        // the screenshots, and a tap on a disabled button is dropped. Wait like the other call-sheet steps.
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("diagnostic-checkout").assertIsEnabled() }.isSuccess }
         rule.onNodeWithTag("diagnostic-checkout").performClick()
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-confirm-end").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithTag("end-review-back").performClick() // Back keeps the call open and queues nothing
         rule.onNodeWithTag("end-review").assertDoesNotExist()
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("diagnostic-checkout").assertIsEnabled() }.isSuccess }
         rule.onNodeWithTag("diagnostic-checkout").performClick()
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-confirm-end").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithTag("diagnostic-confirm-end").performClick()
