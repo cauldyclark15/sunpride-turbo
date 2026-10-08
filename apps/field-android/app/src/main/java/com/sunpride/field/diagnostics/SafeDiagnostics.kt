@@ -25,8 +25,10 @@ object Redactor {
 
 /** Only known codes are admitted. No Throwable, request text or user strings in Logcat. */
 object SafeLog {
-    private val codes = setOf("sync_started", "sync_retry", "sync_complete", "sync_held", "worker_stopped", "crash",
-        "photo_saved", "photo_retry", "photo_complete")
+    // SP-0136 location events carry no position, only that sharing started/stopped/uploaded.
+    val codes = setOf("sync_started", "sync_retry", "sync_complete", "sync_held", "worker_stopped", "crash",
+        "photo_saved", "photo_retry", "photo_complete", "location_started", "location_stopped",
+        "location_start_refused", "location_uploaded", "location_retry")
     fun event(code: String) {
         if (BuildConfig.DEBUG && code in codes) Log.i("SunprideField", Redactor.mask(code))
     }
@@ -41,8 +43,7 @@ class Breadcrumbs(private val directory: File) {
     companion object { private val lock = Any() }
     private val file get() = File(directory, "field-breadcrumbs")
     fun add(code: String) = synchronized(lock) {
-        val safe = if (code in setOf("sync_started", "sync_retry", "sync_complete", "sync_held", "worker_stopped", "crash",
-                "photo_saved", "photo_retry", "photo_complete")) code else "event_redacted"
+        val safe = if (code in SafeLog.codes) code else "event_redacted"
         val lines = read().takeLast(49) + Redactor.mask(safe)
         directory.mkdirs()
         val staged = File(directory, "field-breadcrumbs.new")

@@ -84,8 +84,27 @@ data class EvidencePhotoRow(val account: String, val deviceId: String, val scope
     val capturedAt: Long, val createdAt: Long, val state: String = "pending", val attempts: Int = 0,
     val evidenceId: String? = null, val reviewCode: String? = null, val uploadedAt: Long? = null)
 
+/**
+ * SP-0136 live-map ping buffered on the phone until `/mobile/v1/location` answers for it. [json] is
+ * the immutable wire ping (same bytes on every retry); the row is removed once the server accepted,
+ * de-duplicated or refused it. Lives in the same SQLCipher database as the visit outbox.
+ */
+@Entity(tableName = "location_pings", primaryKeys = ["account", "deviceId", "scope", "clientPingId"],
+    indices = [Index(value = ["account", "deviceId", "scope", "recordedAt"])])
+data class LocationPingRow(val account: String, val deviceId: String, val scope: String,
+    val clientPingId: String, val recordedAt: Long, val json: String)
+
 @Dao
 interface StoreDao {
+    @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertPing(row: LocationPingRow)
+    @Query("SELECT * FROM location_pings WHERE account=:account AND deviceId=:device AND scope=:scope ORDER BY recordedAt, clientPingId LIMIT :limit")
+    suspend fun pendingPings(account: String, device: String, scope: String, limit: Int): List<LocationPingRow>
+    @Query("SELECT COUNT(*) FROM location_pings WHERE account=:account AND deviceId=:device AND scope=:scope")
+    suspend fun pendingPingCount(account: String, device: String, scope: String): Int
+    @Query("DELETE FROM location_pings WHERE account=:account AND deviceId=:device AND scope=:scope AND clientPingId=:id")
+    suspend fun deletePing(account: String, device: String, scope: String, id: String): Int
+    @Query("DELETE FROM location_pings WHERE account=:account AND deviceId=:device AND scope=:scope AND recordedAt<:before")
+    suspend fun deleteOldPings(account: String, device: String, scope: String, before: Long): Int
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertPhoto(row: EvidencePhotoRow)
     @Query("SELECT * FROM evidence_photos WHERE account=:account AND deviceId=:device AND scope=:scope AND clientVisitId=:clientVisitId ORDER BY createdAt, localId")
     suspend fun visitPhotos(account: String, device: String, scope: String, clientVisitId: String): List<EvidencePhotoRow>
@@ -207,8 +226,8 @@ interface StoreDao {
     suspend fun ack(account: String, device: String, scope: String, requestId: String): AckRow?
 }
 
-@Database(entities = [SnapshotRow::class, PartitionRow::class, IntentRow::class, OutboxRow::class, AckRow::class, DeltaRow::class, CallSheetRow::class, CallSheetLineRow::class, EvidencePhotoRow::class, OrderDraftRow::class, CatalogProductRow::class, InventoryAvailabilityRow::class],
-    version = 8, exportSchema = true)
+@Database(entities = [SnapshotRow::class, PartitionRow::class, IntentRow::class, OutboxRow::class, AckRow::class, DeltaRow::class, CallSheetRow::class, CallSheetLineRow::class, EvidencePhotoRow::class, OrderDraftRow::class, CatalogProductRow::class, InventoryAvailabilityRow::class, LocationPingRow::class],
+    version = 9, exportSchema = true)
 abstract class StoreDatabase : RoomDatabase() {
     abstract fun rows(): StoreDao
 }

@@ -16,6 +16,7 @@ and tests stay, and one list switches it back on.
 | `PHONE_KEY_DETAILS` | Key storage and fingerprint rows on Account (technical)                      | Hidden   | Remove it from `HIDDEN_IN_BETA`                       |
 | `DEVELOPER_TOOLS`   | Writes the phone's public key to a file for `adb pull`                       | Dev only | Never in a release build (`DEVELOPER_ONLY`)           |
 | "Report an issue"   | Account → opens the web tracker at `<web>/issues/new`                        | On       | Set `SUNPRIDE_BETA_WEB_URL`; hidden while it is empty |
+| Live location       | Work-day card (Start / End day), consent, location sharing (SP-0136)         | **On**   | (always on; `docs/LIVE_LOCATION.md`)                  |
 
 To switch a hidden feature back on: delete its entry from `FieldFeatures.HIDDEN_IN_BETA`, rebuild with
 `bun run apk:field-beta` (bump `SUNPRIDE_BETA_BUILD`), and hand out the new APK. `FieldFeaturesTest`

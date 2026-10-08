@@ -60,6 +60,7 @@ import com.sunpride.field.device.DeviceSigner
 import com.sunpride.field.ui.syncstatus.SyncDetails
 import com.sunpride.field.ui.syncstatus.SupportDetails
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 // Legacy pure mapping retained for compatibility tests; non-ready states never render a pill.
 enum class StatusPill(val label: String) {
@@ -129,6 +130,47 @@ fun FieldApp(
     LaunchedEffect(Unit) { while (true) { delay(1_000); now = System.currentTimeMillis() } }
     val ready = controller.state is EnrollmentState.Ready
     val status = controller.today.syncStatus.copy(offline = offline)
+    // SP-0136 live map: the work day that bounds location sharing (consent, Start/End day, indicator).
+    val workDayHost = remember(backend) { backend?.workDay }
+    // Read off the main thread (it resolves the signed-in account through the encrypted session).
+    var dayState by remember { mutableStateOf<com.sunpride.field.location.WorkDayView?>(null) }
+    var dayRefresh by remember { mutableStateOf(0) }
+    LaunchedEffect(workDayHost, ready, dayRefresh) {
+        while (true) {
+            dayState = if (!ready || workDayHost == null) null else runCatching {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { workDayHost.view(System.currentTimeMillis()) }
+            }.getOrNull()
+            delay(5_000)
+        }
+    }
+    val dayView = dayState.takeIf { ready }
+    var dayBusy by remember { mutableStateOf(false) }
+    var askedLocation by rememberSaveable { mutableStateOf(false) }
+    fun dayAction(after: () -> Unit = {}, block: (com.sunpride.field.location.WorkDayHost, Long) -> Unit) {
+        val host = workDayHost ?: return
+        scope.launch {
+            dayBusy = true
+            runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { block(host, System.currentTimeMillis()) } }
+            dayBusy = false; dayRefresh++
+            after()
+        }
+    }
+    val backgroundLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { page = "home"; dayAction { h, t -> h.resume(t) } }
+    val locationLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()) {
+        askedLocation = true
+        // The day starts either way: without permission the card and indicator say "Location off".
+        dayAction(after = {
+            val perms = com.sunpride.field.location.LocationShare.permissions(context)
+            page = if (perms.location && !perms.background && Build.VERSION.SDK_INT >= 29) "location-background" else "home"
+        }) { h, t -> h.startDay(t) }
+    }
+    val requestLocation = { locationLauncher.launch(com.sunpride.field.ui.location.LocationPermissionRequest.permissions()) }
+    // Opening the app (or coming back from Settings with permission) restarts a running day's service.
+    LaunchedEffect(workDayHost, dayView?.started, dayView?.locationAllowed) {
+        if (dayView?.started == true && dayView.locationAllowed) dayAction { h, t -> h.resume(t) }
+    }
     MaterialTheme(colorScheme = if (dark) SunprideTokens.darkColors else SunprideTokens.lightColors,
         shapes = SunprideTokens.shapes, typography = SunprideTokens.typography) {
         Scaffold(contentWindowInsets = WindowInsets.safeDrawing, containerColor = MaterialTheme.colorScheme.background, topBar = {
@@ -181,8 +223,12 @@ fun FieldApp(
                         }
                     }
                 }
-                if (ready) StatusPill(status.label(now), Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp)
-                    .testTag("sync-status"), onClick = { page = "sync" })
+                // FlowRow: a long sync label pushes the location pill to its own line instead of squeezing it.
+                if (ready) androidx.compose.foundation.layout.FlowRow(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    StatusPill(status.label(now), Modifier.testTag("sync-status"), onClick = { page = "sync" })
+                    if (dayView != null) com.sunpride.field.ui.location.LocationIndicator(dayView)
+                }
                 }
             }
         }) { padding ->
@@ -200,6 +246,12 @@ fun FieldApp(
                     onReportIssue = features.reportIssueUrl?.let { url -> { openLink(context, url) } },
                     biometrics = biometrics)
                 page == "support" -> SupportDetails(status, { page = "account" }, modifier)
+                ready && page == "location-consent" -> com.sunpride.field.ui.location.LocationConsentScreen(
+                    onAgree = { dayAction(after = requestLocation) { h, t -> h.consent(t) } },
+                    onDecline = { page = "home" }, modifier = modifier)
+                ready && page == "location-background" -> com.sunpride.field.ui.location.BackgroundLocationScreen(
+                    onOpenSettings = { backgroundLauncher.launch(android.Manifest.permission.ACCESS_BACKGROUND_LOCATION) },
+                    onSkip = { page = "home" }, modifier = modifier)
                 ready && page == "sync" -> SyncDetails(status, onDismiss = { page = "home" },
                     onSync = controller::syncNow, busy = controller.busy, modifier = modifier)
                 controller.diagnostic != null && visits && ready && controller.photoCaptureOpen ->
@@ -235,7 +287,23 @@ fun FieldApp(
                     onVisit = controller::openDiagnostic, diagnosticEnabled = visits, modifier = modifier, offline = offline,
                     unplannedEnabled = FieldFeature.UNPLANNED_VISITS in features,
                     onRoute = { page = "route" }, onCustomers = { page = "customers" },
-                    onTeam = if (FieldFeature.TEAM in features) ({ page = "team" }) else null)
+                    onTeam = if (FieldFeature.TEAM in features) ({ page = "team" }) else null,
+                    workDay = dayView?.let { view -> {
+                        com.sunpride.field.ui.location.WorkDayCard(view, dayBusy,
+                            onStart = {
+                                when {
+                                    !view.consented -> page = "location-consent"
+                                    !view.locationAllowed -> requestLocation()
+                                    else -> dayAction { h, t -> h.startDay(t) }
+                                }
+                            },
+                            onEnd = { dayAction { h, t -> h.endDay(t) } },
+                            onAllowLocation = {
+                                if (!askedLocation) requestLocation()
+                                else openLink(context, "package:${context.packageName}",
+                                    android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                            })
+                    } })
                 else -> EnrollmentScreen(controller.state, controller.key, controller.busy, controller.error,
                     onCheck = { controller.checkAgain() }, onSignOut = signOut, modifier = modifier,
                     unsent = status.queued + status.sending + status.review + status.held)
@@ -279,8 +347,8 @@ private fun UnlockScreen(busy: Boolean, onUnlock: () -> Unit, onPassword: () -> 
 }
 
 /** Opens a web page (the issue tracker) in the browser; false when nothing can open it. */
-private fun openLink(context: Context, url: String): Boolean = try {
-    context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, url.toUri())
+private fun openLink(context: Context, url: String, action: String = android.content.Intent.ACTION_VIEW): Boolean = try {
+    context.startActivity(android.content.Intent(action, url.toUri())
         .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
     true
 } catch (_: android.content.ActivityNotFoundException) { false }
@@ -372,7 +440,9 @@ private fun SignInScreen(environment: AppEnvironment, busy: Boolean, error: Stri
 fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: () -> Unit,
     modifier: Modifier = Modifier, onVisit: (VisitDisplay) -> Unit = {}, diagnosticEnabled: Boolean = false,
     offline: Boolean = false, onRoute: (() -> Unit)? = null, onCustomers: (() -> Unit)? = null,
-    onTeam: (() -> Unit)? = null, unplannedEnabled: Boolean = diagnosticEnabled) {
+    onTeam: (() -> Unit)? = null, unplannedEnabled: Boolean = diagnosticEnabled,
+    /** SP-0136 work-day card (Start day / End day, location sharing status). */
+    workDay: (@Composable () -> Unit)? = null) {
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())
         .padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Today", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.testTag("today-title"))
@@ -380,6 +450,7 @@ fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: (
             java.time.format.DateTimeFormatter.ofPattern("EEE, MMM d", java.util.Locale.ENGLISH)),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
+        workDay?.invoke()
         val summary = com.sunpride.field.ui.today.TodaySummary.of(data)
         if (summary.planned > 0) com.sunpride.field.ui.today.CallProgressCard(summary)
         if (summary.planned > 0) com.sunpride.field.ui.today.NextStoreCard(summary,

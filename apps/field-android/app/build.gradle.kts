@@ -127,6 +127,8 @@ dependencies {
     implementation(libs.camera.view)
     // SP-0128 fingerprint/face sign-in: BiometricPrompt (needs a FragmentActivity).
     implementation(libs.biometric)
+    // SP-0136 live map: FusedLocationProviderClient in the work-day location service.
+    implementation(libs.play.services.location)
     kapt(libs.room.compiler)
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.test.manifest)

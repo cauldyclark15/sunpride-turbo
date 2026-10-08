@@ -150,6 +150,36 @@ class StoreMigrationTest {
                 EncryptedFieldDatabase.MIGRATION_6_7, EncryptedFieldDatabase.MIGRATION_7_8).close()
         }
     }
+    /** SP-0136: the ping buffer is a new table; outbox, photos, drafts and the cursor are untouched. */
+    @Test fun v8ToV9KeepsWorkAndAddsTheScopedPingBuffer() {
+        val name = "migration-pings-v8.db"
+        helper.createDatabase(name, 8).apply {
+            execSQL("INSERT INTO partitions (account,deviceId,scope,activeGeneration,cursor,syncHealth,held,lastSuccessfulSync) VALUES ('a','d','s','g','cursor','synced',0,123)")
+            execSQL("INSERT INTO intents (account,deviceId,scope,requestId,clientVisitId,kind,serializedOperation,createdAt) VALUES ('a','d','s','r','v','visit.checkIn','immutable',1)")
+            execSQL("INSERT INTO outbox (account,deviceId,scope,requestId,createdAt,state) VALUES ('a','d','s','r',1,'pending')")
+            execSQL("INSERT INTO catalog_products (account,deviceId,scope,generation,id,code,revision,json) VALUES ('a','d','s','g','p','SKU',1,'{}')")
+            close()
+        }
+        helper.runMigrationsAndValidate(name, 9, true, EncryptedFieldDatabase.MIGRATION_8_9).use { db ->
+            db.query("SELECT serializedOperation,state FROM intents JOIN outbox USING (account,deviceId,scope,requestId)").use { c ->
+                c.moveToFirst(); assertEquals("immutable", c.getString(0)); assertEquals("pending", c.getString(1))
+            }
+            db.query("SELECT cursor FROM partitions").use { c -> c.moveToFirst(); assertEquals("cursor", c.getString(0)) }
+            db.query("SELECT COUNT(*) FROM catalog_products").use { c -> c.moveToFirst(); assertEquals(1, c.getInt(0)) }
+            for (scope in listOf("s", "other"))
+                db.execSQL("INSERT INTO location_pings (account,deviceId,scope,clientPingId,recordedAt,json) VALUES ('a','d',?,'ping',1,'{}')", arrayOf(scope))
+            db.query("SELECT COUNT(*) FROM location_pings").use { c -> c.moveToFirst(); assertEquals(2, c.getInt(0)) }
+        }
+    }
+    @Test fun completeV1ToV9ChainValidates() {
+        val name = "migration-pings-v1.db"
+        helper.createDatabase(name, 1).close()
+        helper.runMigrationsAndValidate(name, 9, true, EncryptedFieldDatabase.MIGRATION_1_2,
+            EncryptedFieldDatabase.MIGRATION_2_3, EncryptedFieldDatabase.MIGRATION_3_4,
+            EncryptedFieldDatabase.MIGRATION_4_5, EncryptedFieldDatabase.MIGRATION_5_6,
+            EncryptedFieldDatabase.MIGRATION_6_7, EncryptedFieldDatabase.MIGRATION_7_8,
+            EncryptedFieldDatabase.MIGRATION_8_9).close()
+    }
     @Test fun completeV1ToV5ChainValidates() {
         val name = "migration-call-sheet-v1.db"
         helper.createDatabase(name, 1).close()

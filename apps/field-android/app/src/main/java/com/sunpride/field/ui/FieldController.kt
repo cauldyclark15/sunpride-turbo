@@ -108,6 +108,8 @@ interface FieldBackend {
     val authorizationEpoch: Long get() = com.sunpride.field.ui.diagnosticvisit.SuggestedOrderRepository.epoch()
     /** The call sheet closed: an in-flight suggested-order answer must not be saved. */
     fun abandonSuggestedOrders() { com.sunpride.field.ui.diagnosticvisit.SuggestedOrderRepository.abandon() }
+    /** SP-0136 live map: the work day that bounds location sharing; null where the host has none (previews). */
+    val workDay: com.sunpride.field.location.WorkDayHost? get() = null
 }
 
 /** Shared by the live and test backends so both build drafts exactly the same way. */
@@ -551,11 +553,42 @@ class LiveFieldBackend(
         if (scope != suggestionScope) { suggestionScope = scope; retireSuggestions() }
     }
     private fun retireSuggestions() = com.sunpride.field.ui.diagnosticvisit.SuggestedOrderRepository.retire()
+    /** SP-0136: the signed-in person's verified account (keys their consent and work day), or null. */
+    fun locationAccount(): String? = storedScope()?.account
+    override val workDay: com.sunpride.field.location.WorkDayHost by lazy {
+        com.sunpride.field.location.LocationShare.workDay(context) { locationAccount() }
+    }
+    /** Buffer one live-map ping in the encrypted store; false when there is no usable partition. */
+    fun recordLocation(fix: com.sunpride.field.location.Fix, trigger: String, battery: Int?, now: Long): Boolean {
+        val scope = storedScope() ?: return false
+        val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+        return try { runBlocking {
+            val open = com.sunpride.field.location.OpenVisit.checkInRequestId(store.history().map { it.first to it.second.state })
+            val visitId = com.sunpride.field.location.OpenVisit.serverId(open?.let { store.ack(it)?.entityId })
+            val ping = com.sunpride.field.location.PingCodec.ping(fix, trigger, battery, visitId)
+            store.addPing(ping.getString("clientPingId"), fix.time, ping.toString(), now)
+        } } finally { store.close() }
+    }
+    /** Upload buffered pings through the signed device gateway (`/mobile/v1/location`). */
+    fun uploadLocation(): com.sunpride.field.location.PingUpload {
+        val scope = storedScope() ?: return com.sunpride.field.location.PingUpload()
+        val device = vault.deviceId?.takeIf { it == scope.deviceId } ?: return com.sunpride.field.location.PingUpload()
+        val gateway = com.sunpride.field.sync.SignedVisitGateway(visitTransport, loadSigner(), device)
+        val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+        return try { runBlocking {
+            com.sunpride.field.location.LocationUploader(store, device) { path, bytes -> gateway.post(path, bytes) }.run()
+        } } finally { store.close() }
+    }
     override val cachedDeviceId get() = vault.deviceId
     override val isSignedIn get() = auth.isSignedIn
     override fun loadSigner() = signerLoader()
     override fun signIn(email: String, password: String) = auth.signIn(email, password)
-    override fun signOut() = signOutTeardown(
+    override fun signOut() {
+        // SP-0136: sharing stops before anything else (the account key is still readable here).
+        runCatching { workDay.signOut(System.currentTimeMillis()) }
+        signOutNow()
+    }
+    private fun signOutNow() = signOutTeardown(
         // QSR-010: sign-out leaves only held, encrypted unsent evidence; no cached plan, customers,
         // prices or session-keyed scope index survive for the next person on this phone.
         // Suggested-order authorization ends before the purge, which can fail (SP-0067).
@@ -951,6 +984,8 @@ class FieldController(
                     reason, note, outcome, if (outcome == "nonproductive") reason?.trim() else null, location)
             }
             if (kind == "visit.checkOut") endReview = null
+            // SP-0136: the day's first Start begins location sharing (if this person consented).
+            if (kind == "visit.checkIn") runCatching { withContext(io) { backend.workDay?.onCheckIn(now()) } }
             refreshDiagnostic()
             loadToday(sync = false)
         } catch (e: VisitRuleFailure) { diagnosticFailure = e.code; diagnosticError = e.code.text }

@@ -77,7 +77,8 @@ Rules (our defaults, `packages/backend/convex/location/model.ts`):
 - Kept 90 days; a daily job (03:40 Manila) deletes older positions.
 
 The phone side (consent screen, "Location sharing on" indicator, background location) is
-separate app work; this issue ships the backend, contract and web map.
+separate app work; this issue ships the backend, contract and web map. The Android field app
+does it in SP-0136: `apps/field-android/docs/LIVE_LOCATION.md`.
 
 ## Sample data (beta)
 

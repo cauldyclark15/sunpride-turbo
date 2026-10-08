@@ -118,6 +118,15 @@ interface FieldStore {
      * partition is held.
      */
     suspend fun blockLocalCache(entity: String, key: String, reason: String, at: Long) {}
+    /** SP-0136: buffer one live-map ping (wire JSON); false when the partition is held or never synced. */
+    suspend fun addPing(clientPingId: String, recordedAt: Long, json: String, now: Long): Boolean = false
+    /** Oldest buffered pings first, at most [limit]. */
+    suspend fun pendingPings(limit: Int): List<LocationPingRow> = emptyList()
+    suspend fun pendingPingCount(): Int = 0
+    /** The server answered for these pings (accepted, duplicate or refused): drop them. */
+    suspend fun removePings(ids: List<String>) {}
+    /** A held partition sends nothing until a verified bootstrap releases it. */
+    suspend fun isHeld(): Boolean = false
     fun close() {}
 }
 
@@ -168,12 +177,19 @@ object EncryptedFieldDatabase {
             db.execSQL("CREATE INDEX IF NOT EXISTS `index_inventory_availability_account_deviceId_scope_generation_productId` ON `inventory_availability` (`account`, `deviceId`, `scope`, `generation`, `productId`)")
         }
     }
+    /** SP-0136 live-map ping buffer, layered on main's v8 catalog/inventory tables. */
+    val MIGRATION_8_9 = object : Migration(8, 9) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `location_pings` (`account` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `scope` TEXT NOT NULL, `clientPingId` TEXT NOT NULL, `recordedAt` INTEGER NOT NULL, `json` TEXT NOT NULL, PRIMARY KEY(`account`, `deviceId`, `scope`, `clientPingId`))")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_location_pings_account_deviceId_scope_recordedAt` ON `location_pings` (`account`, `deviceId`, `scope`, `recordedAt`)")
+        }
+    }
     fun open(context: Context): StoreDatabase {
         System.loadLibrary("sqlcipher")
         val passphrase = PassphraseVault(context).passphrase()
         return Room.databaseBuilder(context.applicationContext, StoreDatabase::class.java, PassphraseVault.DB_NAME)
             .openHelperFactory(SupportOpenHelperFactory(passphrase))
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
             .build()
     }
 
@@ -212,6 +228,9 @@ object EncryptedFieldDatabase {
         runCatching { db.openHelper.writableDatabase.query("PRAGMA wal_checkpoint(TRUNCATE)").use { it.moveToFirst() } }
     }
 }
+
+/** Mirrors the server's LOCATION_POLICY.maxAgeMs. */
+const val PING_MAX_AGE_MS = 7 * 24 * 3_600_000L
 
 class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreScope) : FieldStore {
     private val dao = db.rows()
@@ -552,6 +571,22 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             dao.putDelta(DeltaRow(a, d, s, entity, key, at, reason, true))
         }
     }
+    override suspend fun addPing(clientPingId: String, recordedAt: Long, json: String, now: Long): Boolean =
+        db.withTransaction {
+            val meta = metadata()
+            if (meta.held || meta.activeGeneration == null) return@withTransaction false
+            // The server refuses pings older than 7 days (`too_old`); never let the buffer grow past that.
+            dao.deleteOldPings(a, d, s, now - PING_MAX_AGE_MS)
+            if (recordedAt < now - PING_MAX_AGE_MS) return@withTransaction false
+            dao.insertPing(LocationPingRow(a, d, s, clientPingId, recordedAt, json))
+            true
+        }
+    override suspend fun pendingPings(limit: Int): List<LocationPingRow> = dao.pendingPings(a, d, s, limit)
+    override suspend fun pendingPingCount(): Int = dao.pendingPingCount(a, d, s)
+    override suspend fun removePings(ids: List<String>) {
+        db.withTransaction { ids.forEach { dao.deletePing(a, d, s, it) } }
+    }
+    override suspend fun isHeld(): Boolean = metadata().held
     override suspend fun holdForReview() {
         db.withTransaction {
             dao.putPartition(metadata().copy(held = true, cursor = null, syncHealth = "held_for_review"))
