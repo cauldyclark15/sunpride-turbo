@@ -185,6 +185,12 @@ http.route({
   method: "POST",
   handler: mobileHandlers.push,
 });
+// SP-0135: buffered live-map location pings from the field apps.
+http.route({
+  path: "/mobile/v1/location",
+  method: "POST",
+  handler: mobileHandlers.location,
+});
 // VAN-003: the van-sales POS gateway (VAN_ANDROID devices only).
 http.route({
   path: "/van/v1/bootstrap",
@@ -201,6 +207,12 @@ http.route({
   path: "/van/v1/evidence",
   method: "POST",
   handler: vanHandlers.evidence,
+});
+// SP-0135: live-map pings from the truck while its trip is active.
+http.route({
+  path: "/van/v1/location",
+  method: "POST",
+  handler: vanHandlers.location,
 });
 
 export default http;

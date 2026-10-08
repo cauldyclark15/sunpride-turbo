@@ -1,0 +1,49 @@
+{
+  "type": "van.location.request",
+  "contractVersion": 1,
+  "deviceId": "van-device-cebu-01",
+  "pings": [
+    {
+      "clientPingId": "44444444-4444-4444-8444-444444444444",
+      "recordedAt": 1760000000000,
+      "latitude": 10.3157,
+      "longitude": 123.8854,
+      "accuracyMeters": 10,
+      "speedMetersPerSecond": 4.5,
+      "headingDegrees": 85,
+      "batteryPercent": 76,
+      "mockLocation": false,
+      "provider": "gps",
+      "trigger": "start",
+      "tripId": "trip-cebu-20261008"
+    },
+    {
+      "clientPingId": "55555555-5555-4555-8555-555555555555",
+      "recordedAt": 1760000060000,
+      "latitude": 10.3164,
+      "longitude": 123.8863,
+      "accuracyMeters": 16,
+      "speedMetersPerSecond": null,
+      "headingDegrees": null,
+      "batteryPercent": 75,
+      "mockLocation": false,
+      "provider": "fused",
+      "trigger": "still",
+      "tripId": "trip-cebu-20261008"
+    },
+    {
+      "clientPingId": "66666666-6666-4666-8666-666666666666",
+      "recordedAt": 1760000120000,
+      "latitude": 10.3172,
+      "longitude": 123.8871,
+      "accuracyMeters": 22,
+      "speedMetersPerSecond": 7.8,
+      "headingDegrees": 115,
+      "batteryPercent": null,
+      "mockLocation": false,
+      "provider": "network",
+      "trigger": "moving",
+      "tripId": "trip-cebu-20261008"
+    }
+  ]
+}

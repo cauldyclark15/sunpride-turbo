@@ -312,4 +312,33 @@ describe("mobile v1 canonical contract", () => {
     expect(validate(withOutlet({ ...outlet, latitude: 91 }))).toBe(false);
     expect(validate(withOutlet({ ...outlet, address: "" }))).toBe(false);
   });
+
+  test("validates live-location batches and rejects out-of-contract pings", async () => {
+    const request = await Bun.file(
+      new URL("../fixtures/mobile-v1/location-request.json", import.meta.url),
+    ).json();
+    const response = await Bun.file(
+      new URL("../fixtures/mobile-v1/location-response.json", import.meta.url),
+    ).json();
+    expect(validate(request), JSON.stringify(validate.errors)).toBe(true);
+    expect(validate(response), JSON.stringify(validate.errors)).toBe(true);
+
+    const withPing = (patch: Record<string, unknown>) => {
+      const altered = structuredClone(request);
+      Object.assign(altered.pings[0], patch);
+      return altered;
+    };
+    expect(
+      validate({
+        ...request,
+        pings: Array.from({ length: 101 }, () => request.pings[0]),
+      }),
+    ).toBe(false);
+    expect(validate({ ...request, pings: [] })).toBe(false);
+    expect(validate(withPing({ latitude: 91 }))).toBe(false);
+    expect(validate(withPing({ batteryPercent: 101 }))).toBe(false);
+    expect(validate(withPing({ trigger: "unknown" }))).toBe(false);
+    expect(validate(withPing({ extra: true }))).toBe(false);
+    expect(validate(withPing({ tripId: "trip-not-allowed" }))).toBe(false);
+  });
 });

@@ -384,9 +384,52 @@ export type ErrorResponse = {
   };
 };
 
-export type MobileV1Request = BootstrapRequest | PullRequest | PushRequest;
+export type LocationPingV1 = {
+  clientPingId: string;
+  recordedAt: number;
+  latitude: number;
+  longitude: number;
+  accuracyMeters: number;
+  speedMetersPerSecond: number | null;
+  headingDegrees: number | null;
+  batteryPercent: number | null;
+  mockLocation: boolean;
+  provider: "gps" | "network" | "fused" | "unknown";
+  trigger: "start" | "moving" | "still" | "stop";
+  visitId?: string;
+};
+export type LocationRequest = {
+  type: "location.request";
+  contractVersion: 1;
+  deviceId: string;
+  pings: Array<LocationPingV1>;
+};
+export type LocationResponse = {
+  type: "location.response";
+  contractVersion: 1;
+  serverTime: number;
+  results: Array<{
+    clientPingId: string;
+    status: "accepted" | "duplicate" | "rejected";
+    code?:
+      | "invalid_request"
+      | "out_of_scope"
+      | "conflict"
+      | "outside_work_hours"
+      | "too_frequent"
+      | "too_old"
+      | "trip_not_active";
+  }>;
+};
+
+export type MobileV1Request =
+  BootstrapRequest | PullRequest | PushRequest | LocationRequest;
 export type MobileV1Response =
-  BootstrapResponse | PullResponse | PushResponse | ErrorResponse;
+  | BootstrapResponse
+  | PullResponse
+  | PushResponse
+  | ErrorResponse
+  | LocationResponse;
 export type MobileV1Envelope = MobileV1Request | MobileV1Response;
 export type PushOperation = PushRequest["operations"][number];
 export type PushActivity = Extract<

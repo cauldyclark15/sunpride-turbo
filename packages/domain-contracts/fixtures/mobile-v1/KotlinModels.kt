@@ -983,3 +983,122 @@ data class BootstrapResponseInventoryAvailabilityItem(
   // schema-field: bootstrapResponse.inventoryAvailability[].asOf
   val asOf: Long
 )
+// Additive after v1 shipped: buffered live-location batches (SP-0135).
+// schema-object: locationPing
+data class LocationPingV1(
+  // schema-field: locationPing.clientPingId
+  val clientPingId: String,
+  // schema-field: locationPing.recordedAt
+  val recordedAt: Long,
+  // schema-field: locationPing.latitude
+  val latitude: Double,
+  // schema-field: locationPing.longitude
+  val longitude: Double,
+  // schema-field: locationPing.accuracyMeters
+  val accuracyMeters: Double,
+  // schema-field: locationPing.speedMetersPerSecond
+  val speedMetersPerSecond: Double?,
+  // schema-field: locationPing.headingDegrees
+  val headingDegrees: Double?,
+  // schema-field: locationPing.batteryPercent
+  val batteryPercent: Long?,
+  // schema-field: locationPing.mockLocation
+  val mockLocation: Boolean,
+  // schema-field: locationPing.provider
+  val provider: LocationPingProviderEnum,
+  // schema-field: locationPing.trigger
+  val trigger: LocationPingTriggerEnum,
+  // schema-field: locationPing.visitId
+  val visitId: OptionalField<String>
+)
+// schema-object: locationRequest
+data class LocationRequest(
+  // schema-field: locationRequest.type
+  val type: String,
+  // schema-field: locationRequest.contractVersion
+  val contractVersion: Long,
+  // schema-field: locationRequest.deviceId
+  val deviceId: String,
+  // schema-field: locationRequest.pings
+  val pings: List<LocationPingV1>
+)
+// schema-object: locationResponse
+data class LocationResponse(
+  // schema-field: locationResponse.type
+  val type: String,
+  // schema-field: locationResponse.contractVersion
+  val contractVersion: Long,
+  // schema-field: locationResponse.serverTime
+  val serverTime: Long,
+  // schema-field: locationResponse.results
+  val results: List<LocationResponseResultsItem>
+)
+// schema-object: locationResponse.results[]
+data class LocationResponseResultsItem(
+  // schema-field: locationResponse.results[].clientPingId
+  val clientPingId: String,
+  // schema-field: locationResponse.results[].status
+  val status: LocationResponseResultsItemStatusEnum,
+  // schema-field: locationResponse.results[].code
+  val code: OptionalField<LocationResponseResultsItemCodeEnum>
+)
+// schema-enum: locationRequest.type
+// schema-enum-value: locationRequest.type = location.request
+// schema-enum: locationPing.provider
+// schema-enum-value: locationPing.provider = gps
+// schema-enum-value: locationPing.provider = network
+// schema-enum-value: locationPing.provider = fused
+// schema-enum-value: locationPing.provider = unknown
+data class LocationPingProviderEnum(val rawValue: String) {
+  companion object {
+    val gps = LocationPingProviderEnum("gps")
+    val network = LocationPingProviderEnum("network")
+    val fused = LocationPingProviderEnum("fused")
+    val unknown = LocationPingProviderEnum("unknown")
+  }
+}
+// schema-enum: locationPing.trigger
+// schema-enum-value: locationPing.trigger = start
+// schema-enum-value: locationPing.trigger = moving
+// schema-enum-value: locationPing.trigger = still
+// schema-enum-value: locationPing.trigger = stop
+data class LocationPingTriggerEnum(val rawValue: String) {
+  companion object {
+    val start = LocationPingTriggerEnum("start")
+    val moving = LocationPingTriggerEnum("moving")
+    val still = LocationPingTriggerEnum("still")
+    val stop = LocationPingTriggerEnum("stop")
+  }
+}
+// schema-enum: locationResponse.type
+// schema-enum-value: locationResponse.type = location.response
+// schema-enum: locationResponse.results[].status
+// schema-enum-value: locationResponse.results[].status = accepted
+// schema-enum-value: locationResponse.results[].status = duplicate
+// schema-enum-value: locationResponse.results[].status = rejected
+data class LocationResponseResultsItemStatusEnum(val rawValue: String) {
+  companion object {
+    val accepted = LocationResponseResultsItemStatusEnum("accepted")
+    val duplicate = LocationResponseResultsItemStatusEnum("duplicate")
+    val rejected = LocationResponseResultsItemStatusEnum("rejected")
+  }
+}
+// schema-enum: locationResponse.results[].code
+// schema-enum-value: locationResponse.results[].code = invalid_request
+// schema-enum-value: locationResponse.results[].code = out_of_scope
+// schema-enum-value: locationResponse.results[].code = conflict
+// schema-enum-value: locationResponse.results[].code = outside_work_hours
+// schema-enum-value: locationResponse.results[].code = too_frequent
+// schema-enum-value: locationResponse.results[].code = too_old
+// schema-enum-value: locationResponse.results[].code = trip_not_active
+data class LocationResponseResultsItemCodeEnum(val rawValue: String) {
+  companion object {
+    val invalid_request = LocationResponseResultsItemCodeEnum("invalid_request")
+    val out_of_scope = LocationResponseResultsItemCodeEnum("out_of_scope")
+    val conflict = LocationResponseResultsItemCodeEnum("conflict")
+    val outside_work_hours = LocationResponseResultsItemCodeEnum("outside_work_hours")
+    val too_frequent = LocationResponseResultsItemCodeEnum("too_frequent")
+    val too_old = LocationResponseResultsItemCodeEnum("too_old")
+    val trip_not_active = LocationResponseResultsItemCodeEnum("trip_not_active")
+  }
+}

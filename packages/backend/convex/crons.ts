@@ -14,4 +14,11 @@ crons.cron(
   internal.inventory.quality.expireDueLots,
   { now: 0 },
 );
+// SP-0135: live-map pings are kept 90 days.
+crons.cron(
+  "purge expired location pings",
+  "40 19 * * *",
+  internal.location.ingest.purgeExpired,
+  {},
+);
 export default crons;
