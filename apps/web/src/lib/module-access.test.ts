@@ -41,6 +41,8 @@ const expectedCapabilities = {
   training: ["visit.read"],
   // DAR/ROAR: filers hold visit.record, supervisors people.read.
   "activity-reports": ["visit.record", "people.read"],
+  // Live map: location.read (the server shows sales only themselves).
+  "live-map": ["location.read"],
   orders: ["order.create", "order.approve"],
   "outside-calls": ["order.encode", "visit.record"],
   "sap-integration": ["integration.read"],
@@ -62,6 +64,7 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
     "daily-sales",
     "training",
     "activity-reports",
+    "live-map",
     "outside-calls",
     "sap-integration",
     "admin",
@@ -76,6 +79,7 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
     "call-sheets",
     "daily-sales",
     "training",
+    "live-map",
     "outside-calls",
     "sap-integration",
     "analytics",
@@ -90,6 +94,7 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
     "daily-sales",
     "training",
     "activity-reports",
+    "live-map",
     "orders",
     "outside-calls",
     "workflows",
@@ -114,6 +119,7 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
     "daily-sales",
     "training",
     "activity-reports",
+    "live-map",
     "orders",
     "orders",
     "outside-calls",
@@ -128,6 +134,7 @@ const expectedModulesByRole: Record<(typeof roles)[number], string[]> = {
     "daily-sales",
     "training",
     "activity-reports",
+    "live-map",
     "analytics",
   ],
   viewer: [

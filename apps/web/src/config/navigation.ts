@@ -14,6 +14,7 @@ const routeToPrimary = {
   "/daily-sales": "field",
   "/training": "field",
   "/activity-reports": "field",
+  "/live-map": "field",
   "/sap-integration": "operations",
   "/workflows": "approvals",
   "/analytics": "reports",
@@ -88,6 +89,7 @@ const moduleTabs: Partial<Record<string, WorkspaceModuleTab[]>> = {
       label: "DAR / ROAR",
       href: "/activity-reports",
     },
+    { id: "live-map", label: "Live map", href: "/live-map" },
   ],
 };
 

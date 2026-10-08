@@ -106,6 +106,9 @@ The functions are internal; run them with the deployment's admin key after the n
    the van seller's trip on `SMP-TRK-01` / `SMP-R-CBS-1` with a 10-line load sheet (idempotent per
    day). The handheld then downloads the trip, load, customers and prices; stock moves from the
    depot to the truck only when the seller confirms the load on the handheld.
+6. Live map (SP-0135, optional): `bunx convex run beta/sample_live_map:seed` writes made-up,
+   flagged trails for today for the signed-up sales tester and the van tester's truck, so the
+   web Live map shows movement before real phones send positions (`apps/web/docs/LIVE_MAP.md`).
 
 Field testers still need a Master Coverage Plan (prepared by the salesperson, approved by the
 supervisor) before planned visits reach the phone; unplanned calls work immediately.
@@ -116,6 +119,7 @@ When Sunpride's real products, prices and stores are imported:
 
 ```bash
 cd packages/backend
+bunx convex run beta/sample_live_map:clear     # first: the live-map sample pings (repeat until "isDone": true)
 bunx convex run beta/sample:reset '{"confirm":"remove-beta-sample"}'   # repeat until "isDone": true
 ```
 

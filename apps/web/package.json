@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@convex-dev/better-auth": "^0.12.0",
+    "@googlemaps/js-api-loader": "^2.1.3",
     "@heroui/react": ">=3.2.2",
     "@sunpride/backend": "workspace:*",
     "@sunpride/ui": "workspace:*",
@@ -27,11 +28,12 @@
   "devDependencies": {
     "@sunpride/eslint-config": "workspace:*",
     "@sunpride/typescript-config": "workspace:*",
+    "@tailwindcss/postcss": "^4.1.14",
+    "@types/google.maps": "^3.66.5",
     "@types/leaflet": "^1.9.21",
     "@types/node": "26.3.0",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.5",
-    "@tailwindcss/postcss": "^4.1.14",
     "eslint": "9.39.1",
     "typescript": "5.9.3",
     "vitest": "^4.1.0"
