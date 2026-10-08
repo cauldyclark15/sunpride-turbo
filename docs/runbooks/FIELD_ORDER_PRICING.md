@@ -43,6 +43,19 @@ pricing scope (SP-0033) replace the sample rows later without code changes.
   overrun the phone says the office checks credit. When the summary is withheld (shared account)
   the phone says the office checks credit.
 
+## iOS and Android parity (SP-0134)
+
+Both field apps read the same `orderTerms` and `accountSummaries` bootstrap sections (no iOS-only
+contract). Each order line shows the unit price for the chosen selling unit (a picker on iOS, chips
+on Android; only units in the account's terms), the line amount, and the review shows the PHP total,
+office-priced lines, the price list name with "Sample prices" for beta sample lists, and the advisory
+credit check (over-limit warns, Send stays enabled). Neither app shows a "1 CS = N PC" caption yet:
+the conversions reach the phone in the reference products (`sellingUoms[].toBase`), but whether
+`toBase` counts scaled base quantity (`quantityScale`, as stock posting uses it) or plain pieces (as
+the sample price seed uses it) must be settled first, or the caption could be off by 1,000. Each
+unit's own price already reflects its conversion. Neither app applies promotions to field orders
+(out of scope, see below). iOS screenshots, light and dark: UI test `testOrderPricingScreenshots`.
+
 ## Beta sample data (made up, clearly marked)
 
 `convex/pricing/sample.ts` (internal functions only):
