@@ -149,6 +149,66 @@ final class FieldIOSUITests: XCTestCase {
         }
     }
 
+    /// SP-0134: priced order screens (unit price per selling unit, line amounts, PHP total, sample-price
+    /// note, advisory credit warning), light and dark; pinned buttons clear the home indicator.
+    func testOrderPricingScreenshots() {
+        let app = launchStub("registers")
+        signIn(app, password: "correct-horse")
+        XCTAssertTrue(app.staticTexts["Stub Outlet"].waitForExistence(timeout: 20))
+        app.terminate()
+        for mode in ["light", "dark"] {
+            let offline = XCUIApplication()
+            offline.launchEnvironment["FIELD_STUB_BACKEND"] = "offline"
+            offline.launchArguments += [mode == "dark" ? "-calmDarkMode" : "-calmLightMode"]
+            offline.launch()
+            XCTAssertTrue(offline.buttons["visit-planned-stub-1"].waitForExistence(timeout: 15))
+            offline.buttons["visit-planned-stub-1"].tap()
+            if offline.buttons["diagnosticCheckIn"].waitForExistence(timeout: 5) { offline.buttons["diagnosticCheckIn"].tap() }
+            // Light starts the call and a new order; dark reopens the draft that light saved on Review.
+            let order = offline.buttons[mode == "light" ? "newOrder" : "orderDraft"]
+            XCTAssertTrue(order.waitForExistence(timeout: 10))
+            offline.swipeUp()
+            order.tap()
+            let quantity = offline.textFields["orderQty-product-stub-1"]
+            XCTAssertTrue(quantity.waitForExistence(timeout: 5))
+            if mode == "light" {
+                XCTAssertEqual(offline.staticTexts["orderPrice-product-stub-1"].label, "₱189.00 / PC")
+                offline.buttons["orderUnit-product-stub-1"].tap()
+                offline.buttons["CS"].tap()
+                quantity.tap(); quantity.typeText("60")
+            }
+            XCTAssertEqual(offline.staticTexts["orderPrice-product-stub-1"].label, "₱1,053.25 / CS")
+            dismissKeyboard(offline)
+            let window = offline.windows.firstMatch.frame
+            let review = offline.buttons["reviewOrder"]
+            XCTAssertTrue(review.isHittable)
+            XCTAssertLessThanOrEqual(review.frame.maxY, window.maxY - 34, "Review clears the home indicator")
+            capture(offline, "\(mode)-sp0134-order-draft-priced")
+            review.tap()
+            XCTAssertTrue(offline.staticTexts["orderReviewTitle"].waitForExistence(timeout: 5))
+            XCTAssertTrue(offline.staticTexts["₱63,195.00"].exists)
+            XCTAssertTrue(offline.staticTexts["Sample prices"].exists)
+            XCTAssertGreaterThanOrEqual(offline.staticTexts["orderReviewTitle"].frame.minY, window.minY + 44,
+                                        "title sits below the notch")
+            capture(offline, "\(mode)-sp0134-order-review-total")
+            let credit = offline.descendants(matching: .any)
+                .matching(NSPredicate(format: "label CONTAINS %@", "Over the store's credit limit by ₱17,295.00")).firstMatch
+            reveal(credit, in: offline)
+            XCTAssertTrue(credit.exists)
+            let send = offline.buttons["orderSubmit"]
+            XCTAssertTrue(send.isEnabled, "credit warnings never block sending")
+            XCTAssertLessThanOrEqual(send.frame.maxY, window.maxY - 34, "Send clears the home indicator")
+            capture(offline, "\(mode)-sp0134-order-review-credit-warning")
+            offline.terminate()
+        }
+    }
+
+    private func dismissKeyboard(_ app: XCUIApplication) {
+        guard app.keyboards.firstMatch.exists else { return }
+        app.staticTexts["orderDraftState"].tap()
+        _ = app.keyboards.firstMatch.waitForNonExistence(timeout: 3)
+    }
+
     // MARK: Stubbed backend (DEBUG `FIELD_STUB_BACKEND`; no network, no real account)
 
     private func launchStub(_ scenario: String, environment: [String: String] = [:]) -> XCUIApplication {
