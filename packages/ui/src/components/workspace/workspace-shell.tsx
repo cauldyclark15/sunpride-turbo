@@ -181,7 +181,9 @@ export function WorkspaceShell({
         Skip to content
       </a>
       <div className="flex min-h-svh lg:min-h-[calc(100svh-24px)] lg:p-3">
-        <div className="flex min-h-svh w-full overflow-hidden bg-surface lg:min-h-[calc(100svh-24px)] lg:rounded-3xl lg:border lg:border-border">
+        {/* overflow-clip (not hidden): rounds the frame without becoming a scroll container, so the
+            sticky sidebar stays pinned while the page scrolls. */}
+        <div className="flex min-h-svh w-full overflow-clip bg-surface lg:min-h-[calc(100svh-24px)] lg:rounded-3xl lg:border lg:border-border">
           <Sidebar
             className="!sticky !top-0 !h-svh border-r border-separator bg-surface lg:!h-[calc(100svh-26px)]"
             style={
