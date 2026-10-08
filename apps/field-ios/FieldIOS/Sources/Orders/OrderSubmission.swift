@@ -37,7 +37,7 @@ enum OrderSubmission {
             case .sending: "Sending"
             case .held: "Held for review"
             // Receipt is not a posted sales order; prices are confirmed by the office.
-            case .received: "Received by office · not yet posted"
+            case .received: "Received by office"
             case .notSent: "Not sent · call ended"
             case .needsReview: "Not accepted · needs review"
             }

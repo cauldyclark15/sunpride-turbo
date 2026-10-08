@@ -1,0 +1,13 @@
+// SP-0132 beta build ("Sunpride Field (Beta)", com.sunpride.field.beta). Public endpoints only, never
+// tokens or credentials. scripts/build-beta.sh overrides each value from SUNPRIDE_BETA_CONVEX_SITE_URL,
+// SUNPRIDE_BETA_CONVEX_URL, SUNPRIDE_BETA_WEB_URL and SUNPRIDE_BETA_BUILD when they are set.
+// Xcode config uses $() to escape `//`.
+CONVEX_SITE_URL = https:/$()/impartial-canary-155.convex.site
+CONVEX_URL = https:/$()/impartial-canary-155.convex.cloud
+// "Report an issue" opens $(FIELD_WEB_URL)/issues/new; empty hides the link.
+FIELD_WEB_URL = https:/$()/sunpride.keepr.im
+SUNPRIDE_BETA_BUILD = 1
+MARKETING_VERSION = 1.0.0
+CURRENT_PROJECT_VERSION = $(SUNPRIDE_BETA_BUILD)
+FIELD_VERSION_LABEL = 1.0.0-beta.$(SUNPRIDE_BETA_BUILD)
+FIELD_DISPLAY_NAME = Sunpride Field (Beta)

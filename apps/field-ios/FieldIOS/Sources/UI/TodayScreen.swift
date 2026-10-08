@@ -9,7 +9,11 @@ extension Enrollment.State {
 struct TodayScreen: View {
     let model: AppModel
     private var dashboard: TodayDashboard { model.dashboard }
-    private var unplanned: [AppModel.TodayVisit] { model.visits.filter { !$0.planned } }
+    private let features = FieldFeatures.current
+    /// Off-plan outlets; hidden in the beta (`FieldFeature.unplannedVisits`).
+    private var unplanned: [AppModel.TodayVisit] {
+        features.contains(.unplannedVisits) ? model.visits.filter { !$0.planned } : []
+    }
 
     var body: some View {
         let dashboard = dashboard
@@ -26,7 +30,7 @@ struct TodayScreen: View {
                 }
             }
             // IOS-020: supervisors (role hint; the server decides access) see their team.
-            if model.supervisor {
+            if model.supervisor && features.contains(.team) {
                 SectionCard(title: "Team") {
                     NavigationLink { TeamScreen(model: model) } label: {
                         CalmListRow(symbol: "person.2", title: "Your team today",
@@ -130,16 +134,16 @@ struct TodayScreen: View {
     static func orderSymbol(_ position: Int) -> String { (1...50).contains(position) ? "\(position).circle" : "storefront" }
 
     @ViewBuilder private func visitLink(_ visit: AppModel.TodayVisit, symbol: String, title: String? = nil, meta: String) -> some View {
-        #if DEBUG
-        NavigationLink {
-            DiagnosticVisitScreen(model: model, visit: visit)
-        } label: {
+        if features.contains(.visits) {
+            NavigationLink {
+                DiagnosticVisitScreen(model: model, visit: visit)
+            } label: {
+                CalmListRow(symbol: symbol, title: title ?? visit.outlet, meta: meta, trailing: "chevron.right")
+            }
+            .buttonStyle(.plain)
+        } else {
             CalmListRow(symbol: symbol, title: title ?? visit.outlet, meta: meta, trailing: "chevron.right")
         }
-        .buttonStyle(.plain)
-        #else
-        CalmListRow(symbol: symbol, title: title ?? visit.outlet, meta: meta, trailing: "chevron.right")
-        #endif
     }
 
     private func stopMeta(_ stop: TodayDashboard.Stop, _ visit: AppModel.TodayVisit) -> String {

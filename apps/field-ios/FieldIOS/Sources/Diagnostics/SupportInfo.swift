@@ -70,10 +70,7 @@ final class SupportInfo {
         return value
     }
     func text(status: FieldSyncStatus?) -> String {
-        let info = Bundle.main.infoDictionary ?? [:]
-        let version = info["CFBundleShortVersionString"] as? String ?? "unknown"
-        let build = info["CFBundleVersion"] as? String ?? "unknown"
-        let value = "App \(version) (\(build))\nOS iOS \(UIDevice.current.systemVersion)\nSupport handle \(handle)\nQueued \(status?.queued ?? 0), sending \(status?.sending ?? 0), review \(status?.needsReview ?? 0), held \(status?.held ?? 0)\nLast outcome \(status?.lastErrorCode.flatMap { Self.safeCode($0) } ?? "none")"
+        let value = "App \(AppVersion.label(info: Bundle.main.infoDictionary))\nOS iOS \(UIDevice.current.systemVersion)\nSupport handle \(handle)\nQueued \(status?.queued ?? 0), sending \(status?.sending ?? 0), review \(status?.needsReview ?? 0), held \(status?.held ?? 0)\nLast outcome \(status?.lastErrorCode.flatMap { Self.safeCode($0) } ?? "none")"
         return DiagnosticRedactor.redact(value)
     }
     private static func safeCode(_ code: String) -> String? {

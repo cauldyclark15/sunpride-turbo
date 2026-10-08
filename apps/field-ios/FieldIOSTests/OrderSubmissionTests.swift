@@ -154,7 +154,7 @@ final class OrderSubmissionTests: XCTestCase {
         XCTAssertEqual(model.orderStatus(sentFirst), .queued)
         try store.recordAck(ServerAck(entityId: "activity-1", eventIds: ["e2"], serverTime: 2), for: firstId, in: partition)
         XCTAssertEqual(model.orderStatus(sentFirst), .received)
-        XCTAssertEqual(model.orderStatus(sentFirst).label, "Received by office · not yet posted")
+        XCTAssertEqual(model.orderStatus(sentFirst).label, "Received by office")
 
         // After the check-in ack a new order is queued ready to send, with the real visit ID.
         let second = try model.saveOrderDraft(draftId: nil, quantities: [("p-tuna", 1)], for: try visit())

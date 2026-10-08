@@ -3,6 +3,8 @@ import SwiftUI
 struct AccountScreen: View {
     let model: AppModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
+    private let features = FieldFeatures.current
 
     var body: some View {
         NavigationStack {
@@ -14,10 +16,14 @@ struct AccountScreen: View {
                         DetailRow(label: "Model", value: diagnostics.model)
                         DetailRow(label: "OS", value: diagnostics.osVersion)
                         DetailRow(label: "App version", value: diagnostics.appVersion)
-                        DetailRow(label: "Key storage", value: diagnostics.keyStorage)
-                            .accessibilityIdentifier("keyStorage")
-                        if let key = model.enrollment.key {
-                            DetailRow(label: "Fingerprint", value: key.fingerprint)
+                        // Technical phone-key rows: hidden in the beta (`FieldFeature.phoneKeyDetails`). The phone code
+                        // the admin needs stays on "Register phone" and in Support info.
+                        if features.contains(.phoneKeyDetails) {
+                            DetailRow(label: "Key storage", value: diagnostics.keyStorage)
+                                .accessibilityIdentifier("keyStorage")
+                            if let key = model.enrollment.key {
+                                DetailRow(label: "Fingerprint", value: key.fingerprint)
+                            }
                         }
                     }
                     SectionCard(title: "Help") {
@@ -26,6 +32,15 @@ struct AccountScreen: View {
                         }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("supportInfoLink")
+                        // SP-0132: opens the Sunpride web tracker (`<web>/issues/new`); hidden without a web URL.
+                        if let url = features.reportIssueURL {
+                            Button { openURL(url) } label: {
+                                CalmListRow(symbol: "exclamationmark.bubble", title: "Report an issue",
+                                            meta: "Tell the Sunpride team what went wrong", trailing: "arrow.up.right")
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("reportIssueLink")
+                        }
                     }
                 }
                 .padding(16)

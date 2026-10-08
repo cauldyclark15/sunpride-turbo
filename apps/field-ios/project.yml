@@ -8,6 +8,8 @@ configs:
   Debug: debug
   Debug-Dev: debug
   Release: release
+  # SP-0132: the hand-out beta ("Sunpride Field (Beta)", com.sunpride.field.beta, signed by jc's team).
+  Beta: release
 packages:
   SQLCipher:
     url: https://github.com/sqlcipher/SQLCipher.swift.git
@@ -39,6 +41,7 @@ targets:
       Debug: Config/Dev.xcconfig
       Debug-Dev: Config/Dev.xcconfig
       Release: Config/Dev.xcconfig
+      Beta: Config/Beta.xcconfig
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sunpride.field.dev
@@ -47,6 +50,15 @@ targets:
         PRODUCT_MODULE_NAME: FieldIOS
         GENERATE_INFOPLIST_FILE: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      configs:
+        Beta:
+          PRODUCT_BUNDLE_IDENTIFIER: com.sunpride.field.beta
+          PRODUCT_NAME: Sunpride Field (Beta)
+          # Device builds are signed by jc's own paid team (no App Store / TestFlight upload).
+          CODE_SIGNING_ALLOWED: 'YES'
+          CODE_SIGN_STYLE: Automatic
+          DEVELOPMENT_TEAM: FV2R5JV6YD
+          CODE_SIGN_IDENTITY: Apple Development
   FieldIOSTests:
     type: bundle.unit-test
     platform: iOS
@@ -130,3 +142,15 @@ schemes:
         - FieldIOSUITests
     run:
       config: Debug
+  FieldIOS-Beta:
+    build:
+      targets:
+        FieldIOS: all
+    run:
+      config: Beta
+    archive:
+      config: Beta
+    profile:
+      config: Beta
+    analyze:
+      config: Beta

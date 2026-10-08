@@ -25,6 +25,130 @@ final class FieldIOSUITests: XCTestCase {
         XCTAssertFalse(app.buttons["designTokensLink"].exists)
     }
 
+    // MARK: SP-0132 beta parity (logo, password eye, Report an issue, beta feature list)
+
+    func testPasswordEyeShowsAndHidesThenSignsIn() {
+        let app = launchStub("unregistered")
+        XCTAssertTrue(app.images["sunprideLogo"].waitForExistence(timeout: 5), "logo above Sign in")
+        let email = app.textFields["emailField"]
+        email.tap()
+        email.typeText("seller@example.test")
+        let secure = app.secureTextFields["passwordField"]
+        secure.tap()
+        secure.typeText("correct-horse")
+        let eye = app.buttons["passwordVisibility"]
+        XCTAssertEqual(eye.label, "Show password")
+        eye.tap()
+        let plain = app.textFields["passwordField"]
+        XCTAssertTrue(plain.waitForExistence(timeout: 3))
+        XCTAssertEqual(plain.value as? String, "correct-horse", "the typed password is shown")
+        XCTAssertEqual(app.buttons["passwordVisibility"].label, "Hide password")
+        app.buttons["passwordVisibility"].tap()
+        XCTAssertTrue(app.secureTextFields["passwordField"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.textFields["passwordField"].exists, "hidden again")
+        app.buttons["passwordVisibility"].tap()
+        XCTAssertTrue(app.textFields["passwordField"].waitForExistence(timeout: 3))
+        app.buttons["signInButton"].tap()
+        XCTAssertTrue(app.staticTexts["deviceFingerprint"].waitForExistence(timeout: 10), "signs in with the shown password")
+    }
+
+    func testAccountReportAnIssueIsShownWithTheTrackerLink() {
+        let app = launchStub("registers")
+        signIn(app, password: "correct-horse")
+        XCTAssertTrue(app.staticTexts["todayTitle"].waitForExistence(timeout: 20))
+        app.buttons["accountButton"].tap()
+        let report = app.buttons["reportIssueLink"]
+        XCTAssertTrue(report.waitForExistence(timeout: 5))
+        XCTAssertTrue(report.label.contains("Report an issue"), report.label)
+        XCTAssertTrue(report.isHittable)
+        // DEV (DEBUG) shows the technical key rows; the beta hides them (see the beta test below).
+        XCTAssertTrue(app.staticTexts["Key storage"].exists)
+    }
+
+    func testBetaFeatureListHidesUnplannedVisitsAndKeyRowsButKeepsVisits() {
+        let setup = launchStub("registers")
+        signIn(setup, password: "correct-horse")
+        XCTAssertTrue(setup.staticTexts["Stub Outlet"].waitForExistence(timeout: 20))
+        setup.terminate()
+
+        let beta = XCUIApplication()
+        beta.launchEnvironment["FIELD_STUB_BACKEND"] = "offline"
+        beta.launchArguments += ["-fieldBetaFeatures"]
+        beta.launch()
+        let planned = beta.buttons["visit-planned-stub-1"]
+        XCTAssertTrue(planned.waitForExistence(timeout: 15))
+        XCTAssertFalse(beta.buttons["visit-unplanned-outlet-stub-extra"].exists, "unplanned visits hidden in the beta")
+        XCTAssertFalse(beta.staticTexts["OTHER OUTLETS"].exists)
+
+        beta.buttons["accountButton"].tap()
+        XCTAssertTrue(beta.buttons["reportIssueLink"].waitForExistence(timeout: 5))
+        XCTAssertFalse(beta.staticTexts["Key storage"].exists, "phone-key rows hidden in the beta")
+        XCTAssertFalse(beta.staticTexts["Fingerprint"].exists)
+        beta.buttons["Done"].tap()
+
+        // Off-plan outlet: no visit button. Planned stop: the visit flow is a real beta feature.
+        beta.buttons["openCustomers"].tap()
+        let search = beta.textFields["customerSearch"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap()
+        search.typeText("extra")
+        let extra = beta.buttons["customerResult-outlet-stub-extra"]
+        XCTAssertTrue(extra.waitForExistence(timeout: 5))
+        extra.tap()
+        XCTAssertTrue(beta.staticTexts["customerTitle"].waitForExistence(timeout: 5))
+        XCTAssertFalse(beta.buttons["customerVisit"].exists, "no unplanned visit in the beta")
+        beta.terminate()
+
+        beta.launch()
+        XCTAssertTrue(beta.buttons["visit-planned-stub-1"].waitForExistence(timeout: 15))
+        beta.buttons["visit-planned-stub-1"].tap()
+        XCTAssertTrue(beta.buttons["diagnosticCheckIn"].waitForExistence(timeout: 5), "visits open in the beta")
+    }
+
+    /// Screenshots of every screen SP-0132 changed, light and dark (safe areas: notch, home indicator).
+    func testBetaScreenshots() {
+        for mode in ["light", "dark"] {
+            let flag = mode == "dark" ? "-calmDarkMode" : "-calmLightMode"
+            let signIn = XCUIApplication()
+            signIn.launchEnvironment["FIELD_STUB_BACKEND"] = "registers"
+            signIn.launchArguments += [flag]
+            signIn.launch()
+            XCTAssertTrue(signIn.images["sunprideLogo"].waitForExistence(timeout: 5))
+            XCTAssertTrue(signIn.buttons["signInButton"].isHittable)
+            capture(signIn, "\(mode)-sp0132-sign-in")
+            let email = signIn.textFields["emailField"]
+            email.tap()
+            email.typeText("seller@example.test")
+            let password = signIn.secureTextFields["passwordField"]
+            password.tap()
+            password.typeText("correct-horse")
+            signIn.buttons["passwordVisibility"].tap()
+            XCTAssertTrue(signIn.textFields["passwordField"].waitForExistence(timeout: 3))
+            capture(signIn, "\(mode)-sp0132-sign-in-password-shown")
+            signIn.buttons["signInButton"].tap()
+            XCTAssertTrue(signIn.staticTexts["Stub Outlet"].waitForExistence(timeout: 20))
+            signIn.terminate()
+
+            let beta = XCUIApplication()
+            beta.launchEnvironment["FIELD_STUB_BACKEND"] = "offline"
+            beta.launchArguments += [flag, "-fieldBetaFeatures"]
+            beta.launch()
+            XCTAssertTrue(beta.buttons["visit-planned-stub-1"].waitForExistence(timeout: 15))
+            capture(beta, "\(mode)-sp0132-beta-today")
+            beta.buttons["accountButton"].tap()
+            let report = beta.buttons["reportIssueLink"]
+            XCTAssertTrue(report.waitForExistence(timeout: 5))
+            XCTAssertTrue(beta.buttons["signOutButton"].isHittable)
+            capture(beta, "\(mode)-sp0132-beta-account")
+            beta.buttons["Done"].tap()
+            beta.buttons["visit-planned-stub-1"].tap()
+            XCTAssertTrue(beta.buttons["diagnosticCheckIn"].waitForExistence(timeout: 5))
+            XCTAssertTrue(beta.buttons["diagnosticCheckIn"].isHittable)
+            capture(beta, "\(mode)-sp0132-beta-visit")
+            beta.terminate()
+        }
+    }
+
     // MARK: Stubbed backend (DEBUG `FIELD_STUB_BACKEND`; no network, no real account)
 
     private func launchStub(_ scenario: String, environment: [String: String] = [:]) -> XCUIApplication {
@@ -395,7 +519,7 @@ final class FieldIOSUITests: XCTestCase {
         XCTAssertTrue(received.waitForExistence(timeout: 20))
         online.swipeUp()
         order.tap()
-        XCTAssertTrue(online.staticTexts["Received by office · not yet posted"].waitForExistence(timeout: 5))
+        XCTAssertTrue(online.staticTexts["Received by office"].waitForExistence(timeout: 5))
         capture(online, "order-received")
     }
 

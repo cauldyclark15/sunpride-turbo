@@ -153,8 +153,7 @@ struct CustomerDetailScreen: View {
             }
             .accessibilityIdentifier("customerCall")
         }
-        #if DEBUG
-        if let visit = record.today ?? model.visits.first(where: { !$0.planned && $0.outletId == record.outletId }) {
+        if let visit = visitTarget(record) {
             NavigationLink { DiagnosticVisitScreen(model: model, visit: visit) } label: {
                 Text(visitTitle(record)).font(SunprideTokens.TypeStyle.row)
                     .frame(maxWidth: .infinity, minHeight: 48)
@@ -163,7 +162,6 @@ struct CustomerDetailScreen: View {
             }
             .accessibilityIdentifier("customerVisit")
         }
-        #endif
         if let message = actionError ?? directions.failure {
             Text(message).font(SunprideTokens.TypeStyle.meta).foregroundStyle(SunprideTokens.dangerText)
                 .accessibilityIdentifier("customerActionError")
@@ -276,6 +274,14 @@ struct CustomerDetailScreen: View {
         }
     }
 
+    /// Today's planned stop, or (only while `FieldFeature.unplannedVisits` is on) an off-plan visit.
+    private func visitTarget(_ record: CustomerRecord) -> AppModel.TodayVisit? {
+        let features = FieldFeatures.current
+        guard features.contains(.visits) else { return nil }
+        if let today = record.today { return today }
+        guard features.contains(.unplannedVisits) else { return nil }
+        return model.visits.first(where: { !$0.planned && $0.outletId == record.outletId })
+    }
     private func visitTitle(_ record: CustomerRecord) -> String {
         guard let today = record.today else { return "Unplanned visit" }
         return DailyRoute.baseState(today) == .inProgress ? "Continue visit" : "Open visit"

@@ -17,12 +17,9 @@ struct DeviceDiagnostics: Equatable, Sendable {
         }
         let simulatorModel = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"]
         let identifier = simulatorModel.map { "\($0) (Simulator)" } ?? machine
-        let info = Bundle.main.infoDictionary
-        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
-        let build = info?["CFBundleVersion"] as? String ?? "?"
         return DeviceDiagnostics(model: identifier,
                                  osVersion: UIDevice.current.systemVersion,
-                                 appVersion: "\(version) (\(build))",
+                                 appVersion: AppVersion.label(info: Bundle.main.infoDictionary),
                                  keyStorage: keyStorage?.rawValue ?? "Unavailable")
     }
 }

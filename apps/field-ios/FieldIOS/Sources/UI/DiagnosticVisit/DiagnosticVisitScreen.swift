@@ -1,7 +1,7 @@
 import SwiftUI
 
-#if DEBUG
-/// Diagnostic only: local work is queued, never credited as a productive call.
+/// The visit (call) screen: Start/End call, activities, call sheet, order and photos. Product feature
+/// `FieldFeature.visits` (SP-0132: no longer DEBUG-only). Local work is queued until it syncs.
 struct DiagnosticVisitScreen: View {
     let model: AppModel
     let visit: AppModel.TodayVisit
@@ -463,4 +463,3 @@ struct DiagnosticVisitScreen: View {
         Rectangle().fill(SunprideTokens.secondaryText.opacity(0.2)).frame(height: 1).padding(.leading, 16)
     }
 }
-#endif

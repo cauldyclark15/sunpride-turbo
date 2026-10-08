@@ -5,6 +5,9 @@ struct SignInShell: View {
     let model: AppModel
     @State private var email = ""
     @State private var password = ""
+    @State private var showPassword = false
+    private enum PasswordFocus { case secure, plain }
+    @FocusState private var passwordFocus: PasswordFocus?
     @State private var showSyncStatus = false
     @State private var showAccount = false
     @State private var copiedCode = false
@@ -146,7 +149,24 @@ struct SignInShell: View {
     private var canSubmit: Bool {
         !model.busy && !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !password.isEmpty
     }
+    /// The client's logo (packages/ui/assets/sunpride-logo.jpg, resized only) above the sign-in form.
+    private var brandLogo: some View {
+        Image("SunprideLogo")
+            .resizable()
+            .interpolation(.high)
+            .scaledToFit()
+            .frame(width: 96, height: 96)
+            .clipShape(RoundedRectangle(cornerRadius: SunprideTokens.Radius.card))
+            .accessibilityLabel("Sunpride")
+            .accessibilityIdentifier("sunprideLogo")
+    }
     private var signInCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            brandLogo
+            credentialsCard
+        }
+    }
+    private var credentialsCard: some View {
         SectionCard(title: "Credentials") {
             VStack(alignment: .leading, spacing: 16) {
                 CalmField(label: "Email") {
@@ -156,10 +176,44 @@ struct SignInShell: View {
                         .accessibilityIdentifier("emailField")
                 }
                 CalmField(label: "Password") {
-                    SecureField("", text: $password)
-                        .textContentType(.password)
-                        .onSubmit(submit)
-                        .accessibilityIdentifier("passwordField")
+                    HStack(spacing: 8) {
+                        // Both fields stay on screen (one transparent) so toggling never removes the secure
+                        // field: iOS treats a secure field leaving the window as a submitted form and pops
+                        // "Save Password?" (seen on jc's iPhone). AutoFill targets the secure field only.
+                        ZStack {
+                            SecureField("", text: $password)
+                                .textContentType(.password)
+                                .focused($passwordFocus, equals: .secure)
+                                .opacity(showPassword ? 0 : 1)
+                                .allowsHitTesting(!showPassword)
+                                .accessibilityHidden(showPassword)
+                                .onSubmit(submit)
+                                .accessibilityIdentifier("passwordField")
+                            TextField("", text: $password)
+                                .textInputAutocapitalization(.never).autocorrectionDisabled()
+                                .focused($passwordFocus, equals: .plain)
+                                .opacity(showPassword ? 1 : 0)
+                                .allowsHitTesting(showPassword)
+                                .accessibilityHidden(!showPassword)
+                                .onSubmit(submit)
+                                .accessibilityIdentifier("passwordField")
+                        }
+                        // SP-0132: show/hide the typed password (same as Android's eye button).
+                        Button {
+                            let typing = passwordFocus != nil
+                            showPassword.toggle()
+                            if typing { passwordFocus = showPassword ? .plain : .secure }
+                        } label: {
+                            Image(systemName: showPassword ? "eye.slash" : "eye")
+                                .font(.system(size: 17))
+                                .foregroundStyle(SunprideTokens.secondaryText)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(showPassword ? "Hide password" : "Show password")
+                        .accessibilityIdentifier("passwordVisibility")
+                    }
                 }
                 if let error = model.signInError {
                     Text(error).font(SunprideTokens.TypeStyle.meta)
@@ -173,6 +227,7 @@ struct SignInShell: View {
         guard canSubmit else { return }
         let submittedPassword = password
         password = ""
+        showPassword = false
         Task { await model.signIn(email: email.trimmingCharacters(in: .whitespacesAndNewlines), password: submittedPassword) }
     }
 }

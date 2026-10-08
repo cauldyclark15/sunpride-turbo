@@ -186,18 +186,18 @@ struct RouteStopSheet: View {
                             .foregroundStyle(SunprideTokens.secondaryText)
                             .accessibilityIdentifier("routeNoDirections")
                     }
-                    #if DEBUG
-                    NavigationLink {
-                        DiagnosticVisitScreen(model: model, visit: stop.visit)
-                    } label: {
-                        Text("Open visit").font(SunprideTokens.TypeStyle.row)
-                            .frame(maxWidth: .infinity, minHeight: 48)
-                            .foregroundStyle(SunprideTokens.actionText)
-                            .background(SunprideTokens.actionBackground,
-                                        in: RoundedRectangle(cornerRadius: SunprideTokens.Radius.control))
+                    if FieldFeatures.current.contains(.visits) {
+                        NavigationLink {
+                            DiagnosticVisitScreen(model: model, visit: stop.visit)
+                        } label: {
+                            Text("Open visit").font(SunprideTokens.TypeStyle.row)
+                                .frame(maxWidth: .infinity, minHeight: 48)
+                                .foregroundStyle(SunprideTokens.actionText)
+                                .background(SunprideTokens.actionBackground,
+                                            in: RoundedRectangle(cornerRadius: SunprideTokens.Radius.control))
+                        }
+                        .accessibilityIdentifier("routeOpenVisit")
                     }
-                    .accessibilityIdentifier("routeOpenVisit")
-                    #endif
                 }
                 .padding(16)
             }
