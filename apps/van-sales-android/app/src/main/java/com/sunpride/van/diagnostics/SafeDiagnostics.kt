@@ -26,7 +26,7 @@ object Redactor {
 /** Only known codes are admitted. No Throwable, request text or user strings in Logcat. */
 object SafeLog {
     private val codes = setOf("sync_started", "sync_retry", "sync_complete", "sync_held", "worker_stopped", "crash",
-        "photo_saved", "photo_retry", "photo_complete")
+        "photo_saved", "photo_retry", "photo_complete", "location_on", "location_off", "location_service_refused")
     fun event(code: String) {
         if (BuildConfig.DEBUG && code in codes) Log.i("SunprideVan", Redactor.mask(code))
     }
@@ -42,7 +42,7 @@ class Breadcrumbs(private val directory: File) {
     private val file get() = File(directory, "van-breadcrumbs")
     fun add(code: String) = synchronized(lock) {
         val safe = if (code in setOf("sync_started", "sync_retry", "sync_complete", "sync_held", "worker_stopped", "crash",
-                "photo_saved", "photo_retry", "photo_complete")) code else "event_redacted"
+                "photo_saved", "photo_retry", "photo_complete", "location_on", "location_off", "location_service_refused")) code else "event_redacted"
         val lines = read().takeLast(49) + Redactor.mask(safe)
         directory.mkdirs()
         val staged = File(directory, "van-breadcrumbs.new")

@@ -68,7 +68,9 @@ class VanSync(private val store: VanSyncStore, private val gateway: VanGateway, 
             }
             // Pull authoritative post-operation trip/load/balance, then settle acked movements.
             store.replaceBootstrap(gateway.bootstrap())
-            store.setHealth(if (blocked.isEmpty()) "synced" else "retry_pending",clock())
+            // SP-0137: after the trip's start is acknowledged, so the server accepts the truck's pings.
+            val pingsSent = uploadPings()
+            store.setHealth(if (blocked.isEmpty() && pingsSent) "synced" else "retry_pending",clock())
         } catch (e: CancellationException) {
             throw e
         } catch (e: VanSyncFailure) {
@@ -84,5 +86,34 @@ class VanSync(private val store: VanSyncStore, private val gateway: VanGateway, 
             finally { mutex.unlock() }
         }
     }
-    companion object { private val locks = ConcurrentHashMap<com.sunpride.van.storage.StoreScope,Mutex>() }
+    /**
+     * Uploads buffered live-location pings in batches. Accepted/duplicate are done, rejected are dropped (never
+     * retried). A transport failure leaves the rest waiting and returns false; it never fails the sales sync.
+     */
+    private suspend fun uploadPings(): Boolean {
+        store.prunePings()
+        repeat(MAX_PING_BATCHES) {
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            // A held partition has nothing to send (pendingPings is empty), exactly like the operations.
+            val batch = if (store.canSync()) store.pendingPings() else emptyList()
+            if (batch.isEmpty()) return true
+            val results = try { gateway.location(batch.map { it.pingJson }) }
+                catch (e: CancellationException) { throw e }
+                catch (e: AuthFailure) { throw e }
+                catch (e: VanSyncFailure) {
+                    if (e.code in setOf("unauthorized","version_unsupported")) throw e
+                    // A batch the server calls malformed would never succeed: drop it rather than retry forever.
+                    if (!e.retryable && e.code == "invalid_request") { store.recordPingResults(batch.map { it to com.sunpride.van.location.LocationPingCodec.Result(it.clientPingId,"rejected","invalid_request") }); return@repeat }
+                    return false
+                }
+                catch (_: VanWireFailure) { return false }
+            if (!store.canSync()) throw VanSyncFailure("unauthorized",false)
+            store.recordPingResults(batch.zip(results))
+        }
+        return store.pendingPings().isEmpty()
+    }
+    companion object {
+        /** Ten batches of 100 = ~16 hours of pings per sync; the rest waits for the next one. */
+        private const val MAX_PING_BATCHES = 10
+        private val locks = ConcurrentHashMap<com.sunpride.van.storage.StoreScope,Mutex>() }
 }

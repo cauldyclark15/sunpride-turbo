@@ -20,6 +20,8 @@ interface VanGateway {
     suspend fun evidence(sha256: String, jpeg: ByteArray) { throw VanSyncFailure("temporarily_unavailable",true) }
     suspend fun bootstrap(): String
     suspend fun push(operations: List<OutboxRow>): List<PushResult>
+    /** SP-0137: one batch of frozen ping JSON to `/van/v1/location`; one result per ping, in order. */
+    suspend fun location(pings: List<String>): List<com.sunpride.van.location.LocationPingCodec.Result> { throw VanSyncFailure("temporarily_unavailable",true) }
 }
 interface VanTransport {
     fun token(refresh: Boolean): String
@@ -46,6 +48,10 @@ class VanSyncClient(private val transport: VanTransport, private val signer: Dev
     }
     override suspend fun push(operations: List<OutboxRow>): List<PushResult> = withContext(Dispatchers.IO) {
         VanBootstrapCodec.pushResults(send("/van/v1/push",VanBootstrapCodec.pushRequest(deviceId,operations.map { it.operationJson })))
+    }
+    override suspend fun location(pings: List<String>): List<com.sunpride.van.location.LocationPingCodec.Result> = withContext(Dispatchers.IO) {
+        com.sunpride.van.location.LocationPingCodec.results(send("/van/v1/location",com.sunpride.van.location.LocationPingCodec.request(deviceId,pings)),
+            pings.map { org.json.JSONObject(it).getString("clientPingId") })
     }
     override suspend fun evidence(sha256: String, jpeg: ByteArray): Unit = withContext(Dispatchers.IO) {
         VanEvidenceCodec.response(send("/van/v1/evidence",VanEvidenceCodec.request(deviceId,sha256,jpeg)),sha256)

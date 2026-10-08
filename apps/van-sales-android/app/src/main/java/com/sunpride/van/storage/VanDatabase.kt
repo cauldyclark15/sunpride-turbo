@@ -36,6 +36,17 @@ data class SettlementRow(val fullAuthSubject: String, val deviceId: String, val 
 @Entity(tableName = "outbox", primaryKeys = ["fullAuthSubject", "deviceId", "clientRequestId"], indices = [Index(value = ["fullAuthSubject", "deviceId", "createdAt"])])
 data class OutboxRow(val fullAuthSubject: String, val deviceId: String, val clientRequestId: String, val tripId: String, val kind: String, val operationJson: String, val createdAt: Long, val metadataJson: String? = null, val status: String = "pending", val rejectionCode: String? = null)
 
+/**
+ * SP-0137: one buffered live-location ping of the truck, frozen at capture ([pingJson] is sent byte-identical on
+ * every retry). Kept apart from the operation outbox (its own endpoint, never blocks or reorders sales).
+ * Acknowledged rows are deleted at once; nothing here outlives 7 days on the phone.
+ */
+@Entity(tableName = "location_ping", primaryKeys = ["fullAuthSubject", "deviceId", "clientPingId"],
+    indices = [Index(value = ["fullAuthSubject", "deviceId", "tripId", "recordedAt"])])
+data class LocationPingRow(val fullAuthSubject: String, val deviceId: String, val clientPingId: String, val tripId: String,
+    val recordedAt: Long, val latitude: Double, val longitude: Double, val pingTrigger: String, val pingJson: String,
+    val status: String = "pending", val rejectionCode: String? = null)
+
 @Entity(tableName = "ack", primaryKeys = ["fullAuthSubject", "deviceId", "clientRequestId"])
 data class AckRow(val fullAuthSubject: String, val deviceId: String, val clientRequestId: String, val entityId: String, val movementId: String?, val serverTime: Long)
 
@@ -186,6 +197,16 @@ interface VanDao {
     @Query("SELECT * FROM promotion WHERE fullAuthSubject=:subject AND deviceId=:device") fun observePromotion(subject: String, device: String): Flow<List<PromotionRow>>
     @Query("DELETE FROM promotion WHERE fullAuthSubject=:subject AND deviceId=:device") suspend fun clearPromotion(subject: String, device: String)
 
+    // SP-0137 live-location pings.
+    @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertLocationPing(row: LocationPingRow)
+    @Query("SELECT * FROM location_ping WHERE fullAuthSubject=:subject AND deviceId=:device") suspend fun locationPingRows(subject: String, device: String): List<LocationPingRow>
+    @Query("SELECT * FROM location_ping WHERE fullAuthSubject=:subject AND deviceId=:device AND tripId=:tripId ORDER BY recordedAt DESC LIMIT 1") suspend fun latestLocationPing(subject: String, device: String, tripId: String): LocationPingRow?
+    @Query("SELECT * FROM location_ping WHERE fullAuthSubject=:subject AND deviceId=:device AND status='pending' AND tripId IN (:tripIds) ORDER BY recordedAt,clientPingId LIMIT :limit") suspend fun pendingLocationPings(subject: String, device: String, tripIds: List<String>, limit: Int): List<LocationPingRow>
+    @Query("SELECT COUNT(*) FROM location_ping WHERE fullAuthSubject=:subject AND deviceId=:device AND status='pending'") fun observePendingLocationPings(subject: String, device: String): Flow<Int>
+    @Query("DELETE FROM location_ping WHERE fullAuthSubject=:subject AND deviceId=:device AND clientPingId=:id AND status='pending'") suspend fun deleteLocationPing(subject: String, device: String, id: String)
+    @Query("UPDATE location_ping SET status='rejected',rejectionCode=:code WHERE fullAuthSubject=:subject AND deviceId=:device AND clientPingId=:id AND status='pending'") suspend fun rejectLocationPing(subject: String, device: String, id: String, code: String)
+    @Query("DELETE FROM location_ping WHERE fullAuthSubject=:subject AND deviceId=:device AND (recordedAt < :before OR status='rejected')") suspend fun pruneLocationPings(subject: String, device: String, before: Long)
+
     @Query("DELETE FROM customer WHERE fullAuthSubject=:subject AND deviceId=:device AND localOnly=0") suspend fun clearServerCustomers(subject: String, device: String)
     @Query("SELECT * FROM sync_meta WHERE fullAuthSubject=:subject AND deviceId=:device") suspend fun meta(subject: String, device: String): SyncMetaRow?
     @Query("SELECT * FROM trip WHERE fullAuthSubject=:subject AND deviceId=:device LIMIT 1") suspend fun trip(subject: String, device: String): TripRow?
@@ -201,7 +222,7 @@ interface VanDao {
 }
 
 @Database(entities = [TripRow::class,LoadLineRow::class,ProductRow::class,CustomerRow::class,BaselineRow::class,MovementRow::class,SettlementRow::class,OutboxRow::class,AckRow::class,SyncMetaRow::class,SequenceCounterRow::class,TransactionIdRow::class,SaleRow::class,SaleLineRow::class,PaymentRow::class,CustomerReturnRow::class,ReturnLineRow::class,ReconciliationRow::class,PriceListLineRow::class,PromotionRow::class,
-    ReceiptPrintRow::class,SaleReceiptRow::class,SaleVoidRow::class,CashReconciliationRow::class,StockReconciliationRow::class,TripCloseRow::class], version = 8, exportSchema = true)
+    ReceiptPrintRow::class,SaleReceiptRow::class,SaleVoidRow::class,CashReconciliationRow::class,StockReconciliationRow::class,TripCloseRow::class,LocationPingRow::class], version = 9, exportSchema = true)
 abstract class VanDatabase : RoomDatabase() {
     abstract fun rows(): VanDao
     /** VAN-017 receipt print history (v3). */
@@ -225,6 +246,13 @@ abstract class VanDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE sale_line ADD COLUMN discountMinor INTEGER")
                 db.execSQL("CREATE TABLE IF NOT EXISTS `stock_reconciliation` (`fullAuthSubject` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `reconciliationId` TEXT NOT NULL, `tripId` TEXT NOT NULL, `idempotencyKey` TEXT NOT NULL, `linesJson` TEXT NOT NULL, `countCode` TEXT NOT NULL, `varianceLines` INTEGER NOT NULL, `shortBase` INTEGER NOT NULL, `overBase` INTEGER NOT NULL, `note` TEXT, `approvalMethod` TEXT NOT NULL, `approvalCode` TEXT, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`fullAuthSubject`, `deviceId`, `reconciliationId`))")
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_stock_reconciliation_fullAuthSubject_deviceId_tripId` ON `stock_reconciliation` (`fullAuthSubject`, `deviceId`, `tripId`)")
+            }
+        }
+        /** SP-0137: one new table of buffered live-location pings; no existing row changes. */
+        val MIGRATION_8_9 = object : androidx.room.migration.Migration(8,9) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `location_ping` (`fullAuthSubject` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `clientPingId` TEXT NOT NULL, `tripId` TEXT NOT NULL, `recordedAt` INTEGER NOT NULL, `latitude` REAL NOT NULL, `longitude` REAL NOT NULL, `pingTrigger` TEXT NOT NULL, `pingJson` TEXT NOT NULL, `status` TEXT NOT NULL, `rejectionCode` TEXT, PRIMARY KEY(`fullAuthSubject`, `deviceId`, `clientPingId`))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_location_ping_fullAuthSubject_deviceId_tripId_recordedAt` ON `location_ping` (`fullAuthSubject`, `deviceId`, `tripId`, `recordedAt`)")
             }
         }
         /** VAN-024: add the trip-close table after the pricing and stock-reconciliation v7 schema. */

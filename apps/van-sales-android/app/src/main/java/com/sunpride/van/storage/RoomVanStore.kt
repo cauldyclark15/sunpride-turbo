@@ -424,6 +424,11 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
     override suspend fun pending(excluding: Set<String>): List<OutboxRow> = if (!canSync()) emptyList() else
         dao.outboxRows(s,d).filter { it.status == "pending" && it.clientRequestId !in excluding }.sortedWith(compareBy<OutboxRow> { it.createdAt }.thenBy { it.clientRequestId }).take(20)
     override suspend fun canSync(): Boolean = dao.meta(s,d)?.held == false
+    /** SP-0137 live-location pings of this scope. */
+    val locations = LocationPingStore(db,scope,clock)
+    override suspend fun pendingPings(): List<LocationPingRow> = locations.pending()
+    override suspend fun recordPingResults(results: List<Pair<LocationPingRow,com.sunpride.van.location.LocationPingCodec.Result>>) = locations.recordResults(results)
+    override suspend fun prunePings() = locations.prune()
     override suspend fun cleanupAcknowledgedPhotos(): Unit = db.withTransaction {
         if (!canSync()) return@withTransaction
         val rows = dao.outboxRows(s,d)

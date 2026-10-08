@@ -35,6 +35,12 @@ import kotlinx.coroutines.delay
             if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) controller.checkAgain()
         }
     }
+    // SP-0137: permission or the location switch may have changed in Settings while the app was away.
+    DisposableEffect(lifecycle,controller) {
+        val observer = LifecycleEventObserver { _,event -> if (event == Lifecycle.Event.ON_RESUME) controller.refreshSharing() }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
     MaterialTheme(colorScheme = if (dark) SunprideTokens.darkColors else SunprideTokens.lightColors,
         typography = SunprideTokens.typography, shapes = SunprideTokens.shapes) {
         BackHandler(controller.page != Page.HOME) { controller.back() }
@@ -65,6 +71,7 @@ import kotlinx.coroutines.delay
                 Page.CASH -> CashCountScreen(controller)
                 Page.CLOSE_TRIP -> CloseTripScreen(controller)
                 Page.SYNC -> SyncHealthScreen(controller)
+                Page.LOCATION_CONSENT -> LocationConsentScreen(controller)
             }
         }
     }

@@ -51,6 +51,10 @@ class VanRepository private constructor(private val context: Context, private va
     val stockCounted: Flow<Boolean> = current.flatMapLatest { it?.stockCounted ?: flowOf(false) }
     /** VAN-024: the current trip is closed on this phone. */
     val tripClosed: Flow<Boolean> = current.flatMapLatest { it?.tripClosed ?: flowOf(false) }
+    /** SP-0137: the signed-in scope (person + registered phone) location sharing is recorded under. */
+    val storeScope: Flow<StoreScope?> = current.map { it?.scope }
+    /** SP-0137: live-location pings waiting on this phone for upload. */
+    val pendingPings: Flow<Int> = current.flatMapLatest { it?.locations?.pendingCount ?: flowOf(0) }
     private var database: VanDatabase? = null
     private var signer: DeviceSigner? = null
     private var gateway: VanGateway? = null

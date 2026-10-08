@@ -20,6 +20,8 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     val features: VanFeatures = VanFeatures.ALL,
     /** Instrumentation can inject actual JPEG bytes; never selected by an intent or available in release. */
     val damagePhotoSource: (suspend () -> com.sunpride.van.evidence.DamageCapture)? = null,
+    /** SP-0137: live-location sharing during a trip; [LocationSharing.Disabled] shows nothing and never tracks. */
+    val locationSharing: com.sunpride.van.location.LocationSharing = com.sunpride.van.location.LocationSharing.Disabled,
     private val fingerprintLoader: suspend () -> String = { "Unavailable" }) {
     init { require(damagePhotoSource == null || fixtureMode && com.sunpride.van.BuildConfig.DEBUG) }
     var page by mutableStateOf(Page.HOME)
@@ -107,12 +109,24 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     var closeDraft by mutableStateOf(CloseDraft(TripCloseRules.newCloseId()))
         private set
     private var scope: CoroutineScope? = null
+    /** SP-0137: what the seller sees about location sharing (Today indicator, consent page). */
+    var sharing by mutableStateOf(com.sunpride.van.location.SharingState.NOT_ON_TRIP)
+        private set
+    /** SP-0137: the seller agreed to location sharing on this phone. */
+    var locationConsented by mutableStateOf(false)
+        private set
+    /** SP-0137: live-location pings waiting on this phone. */
+    var pendingPings by mutableIntStateOf(0)
+        private set
+    private var storeScope: com.sunpride.van.storage.StoreScope? = null
+    /** Start trip waiting for the consent page to be answered. */
+    private var pendingStart: (suspend () -> Unit)? = null
 
     suspend fun run(restore: Boolean = true): Unit = coroutineScope {
         scope = this
-        launch { repository.sessionState.collect { session = it } }
-        launch { repository.enrollmentState.collect { enrollment = it } }
-        launch { repository.currentTrip.collect { trip = it } }
+        launch { repository.sessionState.collect { session = it; refreshSharing() } }
+        launch { repository.enrollmentState.collect { enrollment = it; refreshSharing() } }
+        launch { repository.currentTrip.collect { trip = it; refreshSharing() } }
         launch { repository.load.collect { load = it } }
         launch { repository.products.collect { products = it } }
         launch { repository.customers.collect { customers = it } }
@@ -125,7 +139,9 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         launch { repository.syncStatus.collect { sync = it } }
         launch { repository.cashCounted.collect { cashCounted = it } }
         launch { repository.stockCounted.collect { stockCounted = it } }
-        launch { repository.tripClosed.collect { tripClosed = it } }
+        launch { repository.tripClosed.collect { tripClosed = it; refreshSharing() } }
+        launch { repository.storeScope.collect { storeScope = it; refreshSharing() } }
+        launch { repository.pendingPings.collect { pendingPings = it } }
         launch { fingerprint = try { fingerprintLoader() } catch (_: Exception) { "Unavailable. Check again." } }
         if (restore) {
             busy = true
@@ -134,8 +150,8 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
                 if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow()
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { message = AuthMessages.forFailure(e,"Could not connect. Saved work stays on this phone. Try again.") }
-            finally { busy = false; initialized = true }
-        } else initialized = true
+            finally { busy = false; initialized = true; refreshSharing() }
+        } else { initialized = true; refreshSharing() }
         awaitCancellation()
     }
     private fun command(success: String? = null,
@@ -165,10 +181,12 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
             Page.SALE -> Page.CUSTOMER
             Page.RETURN -> Page.CUSTOMER
             Page.STOCK_COUNT -> Page.HOME
+            Page.LOCATION_CONSENT -> if (pendingStart != null) Page.START else Page.HOME
             Page.PRODUCTS -> if (pickingForSale && sale != null) Page.SALE else Page.HOME
             else -> Page.HOME
         }
         if (page == Page.PRODUCTS) pickingForSale = false
+        if (page == Page.LOCATION_CONSENT) pendingStart = null
         open(target)
     }
     fun select(customer: Customer) { selectedCustomer = customer; open(Page.CUSTOMER) }
@@ -176,15 +194,52 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         repository.signIn(email.trim(),password)
         if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow()
     }
-    fun signOut() = command { repository.signOut(); page = Page.HOME; sale = null; pickingForSale = false; lastReceipt = null; savedSales = emptyList(); printMessage = null; returnDraft = null; lastReturn = null; cashSummary = null; cashDraft = CashDraft(CashReconciliationRules.newReconciliationId()); stockSummary = null; stockDraft = StockDraft(StockReconciliationRules.newCountId()); closeSummary = null; closeDraft = CloseDraft(TripCloseRules.newCloseId()) }
+    fun signOut() = command { stopSharing(); repository.signOut(); page = Page.HOME; sale = null; pickingForSale = false; lastReceipt = null; savedSales = emptyList(); printMessage = null; returnDraft = null; lastReturn = null; cashSummary = null; cashDraft = CashDraft(CashReconciliationRules.newReconciliationId()); stockSummary = null; stockDraft = StockDraft(StockReconciliationRules.newCountId()); closeSummary = null; closeDraft = CloseDraft(TripCloseRules.newCloseId()) }
     fun checkAgain() = command(failure = { AuthMessages.forFailure(it,AuthMessages.CHECK_FALLBACK) }) { repository.refreshEnrollment(); if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow() }
     fun syncNow() = command("Sync finished. Check the waiting and review counts.") { repository.syncNow() }
     // Pending state is read from the store (VanRules.status), never from a stale one-off message.
     fun confirmLoad(lines: List<LoadActual>) = command { repository.confirmLoad(lines) }
-    fun startTrip(truck: Boolean, route: Boolean, driver: String, helper: String, odometer: Double?, note: String) = command {
-        check(VanRules.canStart(trip,truck,route))
-        repository.startTrip(truck,route,driver.takeIf { it.isNotBlank() },helper.takeIf { it.isNotBlank() },odometer,note.takeIf { it.isNotBlank() })
-        page = Page.HOME
+    fun startTrip(truck: Boolean, route: Boolean, driver: String, helper: String, odometer: Double?, note: String) {
+        val start: suspend () -> Unit = {
+            check(VanRules.canStart(trip,truck,route))
+            repository.startTrip(truck,route,driver.takeIf { it.isNotBlank() },helper.takeIf { it.isNotBlank() },odometer,note.takeIf { it.isNotBlank() })
+            page = Page.HOME
+            refreshSharing()
+        }
+        // SP-0137: the one-time location consent comes first; the trip starts whatever the answer.
+        if (locationSharing.enabled && storeScope != null && !(locationConsented && locationSharing.permitted())) {
+            if (busy) return
+            pendingStart = start; open(Page.LOCATION_CONSENT)
+        } else command { start() }
+    }
+    /**
+     * SP-0137: recompute location sharing from the trip, consent and Android permission, and start or stop the
+     * service. Tracking happens only while signed in on a registered phone with the trip on the road.
+     */
+    fun refreshSharing() {
+        val sc = storeScope
+        val ready = session.signedIn && enrollment is EnrollmentState.Ready && sc != null
+        locationConsented = sc != null && locationSharing.enabled && locationSharing.consented(sc)
+        val permitted = locationSharing.enabled && locationSharing.permitted()
+        sharing = if (!locationSharing.enabled || !ready) com.sunpride.van.location.SharingState.NOT_ON_TRIP
+            else com.sunpride.van.location.SharingRules.state(trip,tripClosed,locationConsented,permitted)
+        // Never decide before the saved trip and session are read: a stale "no trip" would end sharing.
+        if (!initialized || !locationSharing.enabled) return
+        locationSharing.update(sc,ready && com.sunpride.van.location.TripTracking.shouldTrack(true,trip,tripClosed,locationConsented,permitted))
+    }
+    private fun stopSharing() { if (locationSharing.enabled) locationSharing.update(storeScope,false) }
+    /** Today's "Location sharing" row: the consent page (also to turn it off). */
+    fun openLocationSharing() { pendingStart = null; open(Page.LOCATION_CONSENT) }
+    /** The seller agreed; the screen then asks Android for the location permission and calls [finishLocationConsent]. */
+    fun acceptLocationSharing() { storeScope?.let { locationSharing.setConsent(it,true) }; refreshSharing() }
+    /** The seller turned it off (consent withdrawn): sharing stops at once and the `stop` ping is recorded. */
+    fun withdrawLocationSharing() { storeScope?.let { locationSharing.setConsent(it,false) }; refreshSharing(); finishLocationConsent() }
+    /** After the consent page: run a waiting Start trip, else back to Today. */
+    fun finishLocationConsent() {
+        refreshSharing()
+        val start = pendingStart; pendingStart = null
+        if (start != null) { page = Page.START; command { start() } }
+        else { open(Page.HOME); if (locationConsented && !locationSharing.permitted()) message = LOCATION_OFF_MESSAGE }
     }
     fun damage(product: Product, qty: Long, reason: String, note: String, photoSha256: String? = null, onSaved: () -> Unit) = command {
         try {
@@ -402,6 +457,7 @@ data class StockDraft(val reconciliationId: String, val counts: Map<Pair<String,
     val reasons: Map<Pair<String,String>,String?> = emptyMap(), val note: String = "", val code: String = "")
 /** VAN-024 Close trip form: the seller ticked "I have checked these", end odometer text and note. */
 data class CloseDraft(val closeId: String, val reviewed: Boolean = false, val odometer: String = "", val note: String = "")
+const val LOCATION_OFF_MESSAGE = "Location sharing is off. Allow location for Sunpride Van (and turn location on), then check Today."
 const val TRIP_CLOSED_MESSAGE = "This trip is closed on this phone. Nothing more can be recorded on it."
 /** A sale being built for one customer (VAN-011). */
 data class SaleDraft(val saleId: String, val customer: Customer, val lines: List<CartLine>)

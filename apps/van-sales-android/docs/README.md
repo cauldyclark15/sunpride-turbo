@@ -9,6 +9,7 @@ Separate native app for truck sellers (PMOT, PMOT Extruck, RDS) per ADR-010 and 
 | [PRINTER_AND_SCANNER.md](PRINTER_AND_SCANNER.md)       | Recovered Senraise printer AIDL, printer abstraction, scanner modes, camera fallback               |
 | [SCREENS.md](SCREENS.md)                               | Screens and screenshot verdicts                                                                    |
 | [beta.md](beta.md)                                     | Beta APK: hidden features, signing key, `bun run apk:van-beta`, logo/splash, install and proof     |
+| [LOCATION_SHARING.md](LOCATION_SHARING.md)             | Live map: truck location during an active trip — consent, service, cadence, buffer, upload         |
 | [Van UAT](../../../docs/qa/VAN_SALES_UAT_SCENARIOS.md) | Van-sales UAT scenarios and sign-off sheet for the Cebu van pilot (QSR-002)                        |
 
 Seller, supervisor and office procedures for the selling day (load, POS, printer, returns, counts, close): [`docs/guides/VAN_SALES_OPERATING_GUIDE.md`](../../../docs/guides/VAN_SALES_OPERATING_GUIDE.md). Its screen words and numbers are checked against this app by `scripts/van-guide.test.ts`; rename a button and update the guide together.
