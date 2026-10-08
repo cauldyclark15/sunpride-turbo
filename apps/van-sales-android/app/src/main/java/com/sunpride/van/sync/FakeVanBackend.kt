@@ -33,6 +33,16 @@ class FakeVanBackend(fixtureJson: String = FIXTURE, context: Context? = null) : 
         photos.put(sha,true); persist()
     }
     override suspend fun bootstrap(): String = snapshot()
+    /** SP-0137: practice pings are validated like the real request and accepted while the fixture trip is on the road. */
+    override suspend fun location(pings: List<String>): List<com.sunpride.van.location.LocationPingCodec.Result> = acceptPings(pings)
+    @Synchronized private fun acceptPings(pings: List<String>): List<com.sunpride.van.location.LocationPingCodec.Result> {
+        com.sunpride.van.location.LocationPingCodec.request("stub-van-device",pings)
+        val trip = state.optJSONObject("trip")
+        return pings.map { JSONObject(it) }.map { p ->
+            val onRoad = trip != null && trip.getString("tripId") == p.getString("tripId") && trip.getString("status") in com.sunpride.van.storage.LocationPingStore.SERVER_ON_ROAD
+            com.sunpride.van.location.LocationPingCodec.Result(p.getString("clientPingId"),if (onRoad) "accepted" else "rejected",if (onRoad) null else "trip_not_active")
+        }
+    }
     override suspend fun push(operations: List<OutboxRow>): List<PushResult> = operations.map(::apply)
     @Synchronized private fun apply(row: OutboxRow): PushResult {
         val hash = hex(sha256(row.operationJson.toByteArray(Charsets.UTF_8)))

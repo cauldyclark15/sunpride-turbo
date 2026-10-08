@@ -136,4 +136,22 @@ class VanMigrationTest {
             }
         }
     }
+    /** SP-0137: the buffered location-ping table is new; every saved row and operation byte stays as it was. */
+    @Test fun exportedV8MigratesToTheLocationPingTable() {
+        val name = "van-migration-location-v8.db"
+        helper.createDatabase(name,8).apply {
+            execSQL("INSERT INTO trip_close (fullAuthSubject,deviceId,closeId,tripId,idempotencyKey,exceptionsJson,reviewed,operationCount,createdAt) VALUES ('issuer|subject','d','close-id','trip','close-key','[]',1,0,1)")
+            execSQL("INSERT INTO outbox (fullAuthSubject,deviceId,clientRequestId,tripId,kind,operationJson,createdAt,status) VALUES ('issuer|subject','d','start-key','trip','trip.start','immutable bytes',1,'done')")
+            close()
+        }
+        helper.runMigrationsAndValidate(name,9,true,VanDatabase.MIGRATION_8_9).use { database ->
+            database.query("SELECT COUNT(*) FROM location_ping").use { assertTrue(it.moveToFirst()); assertEquals(0,it.getInt(0)) }
+            database.query("PRAGMA table_info(`location_ping`)").use { cursor ->
+                val columns = mutableListOf<String>(); while (cursor.moveToNext()) columns += cursor.getString(1)
+                assertEquals(listOf("fullAuthSubject","deviceId","clientPingId","tripId","recordedAt","latitude","longitude","pingTrigger","pingJson","status","rejectionCode"),columns)
+            }
+            database.query("SELECT closeId FROM trip_close").use { assertTrue(it.moveToFirst()); assertEquals("close-id",it.getString(0)) }
+            database.query("SELECT operationJson,status FROM outbox").use { assertTrue(it.moveToFirst()); assertEquals("immutable bytes",it.getString(0)); assertEquals("done",it.getString(1)) }
+        }
+    }
 }

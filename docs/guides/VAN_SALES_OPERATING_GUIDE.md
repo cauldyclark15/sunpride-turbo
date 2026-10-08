@@ -83,6 +83,8 @@ Fix a wrong load at the depot, before you leave. Once confirmed, the load cannot
 2. Tick both confirmations: **This is truck …** and **This is the … route**.
 3. Fill in the **Driver**, the **Helper (optional)**, the **Odometer km (optional)** and a **Note (optional)**.
 4. Tap **Start trip**. The trip is **On route** (or **Starting… waiting for sync** without signal; you can already sell).
+5. The first time, the handheld explains **Sharing the truck's location** (what is shared, only during the trip, who sees it, kept 90 days). Tap **Turn on location sharing** and allow location, or **Not now** — the trip starts either way.
+6. While the trip is on the road, Today shows **Location sharing on** and Android shows a notification. It stops by itself when you close the trip or sign out. If Today shows **Location sharing off**, tap it to turn it on (or **Turn off location sharing** to stop).
 
 ## 6. Customers
 

@@ -1,13 +1,13 @@
 package com.sunpride.van.device
 
 /**
- * Proof for `POST {CONVEX_SITE_URL}/van/v1/{bootstrap,push,evidence}`, exactly as
+ * Proof for `POST {CONVEX_SITE_URL}/van/v1/{bootstrap,push,evidence,location}`, exactly as
  * the van gateway verifies it:
  * `POST|<path>|<lowercase sha256 hex of raw body>|<nonce>|<timestamp ms>`, P1363 base64.
  * Callers must send the very [body] bytes that were signed.
  */
 object RequestSigner {
-    val PATHS = setOf("/van/v1/bootstrap", "/van/v1/push", "/van/v1/evidence")
+    val PATHS = setOf("/van/v1/bootstrap", "/van/v1/push", "/van/v1/evidence", "/van/v1/location")
     private val NONCE = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
     fun bodyDigest(body: ByteArray): String = hex(sha256(body))

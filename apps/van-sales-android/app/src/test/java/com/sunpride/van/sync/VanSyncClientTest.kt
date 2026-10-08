@@ -85,4 +85,16 @@ class VanSyncClientTest {
             val request = server.takeRequest(); assertNull(request.getHeader("Cookie")); assertNull(request.getHeader("Origin")); assertEquals("gzip",request.getHeader("Accept-Encoding"))
         } finally { server.shutdown() }; Unit
     }
+    /** SP-0137: pings go to /van/v1/location with the same per-attempt proof, sent byte-identical. */
+    @Test fun locationSignsTheLocationRouteAndReadsOneResultPerPing() = runBlocking {
+        val request = JSONObject(javaClass.classLoader!!.getResourceAsStream("location-request.json")!!.bufferedReader().readText())
+        val pings = request.getJSONArray("pings").let { a -> (0 until a.length()).map { a.getJSONObject(it).toString() } }
+        val response = javaClass.classLoader!!.getResourceAsStream("location-response.json")!!.bufferedReader().readText()
+        val t = Transport(ArrayDeque(listOf(401 to "",200 to response)))
+        val results = VanSyncClient(t,signer,"van-device-cebu-01").location(pings)
+        assertEquals(listOf("accepted","duplicate","rejected"),results.map { it.status })
+        assertArrayEquals(t.bodies[0],t.bodies[1]); assertEquals(request.toString(),JSONObject(String(t.bodies[1],Charsets.UTF_8)).toString())
+        t.headers.forEachIndexed { i,h -> assertTrue(CryptoVectors.verifyP1363(CryptoVectors.publicKey,RequestSigner.canonical("POST","/van/v1/location",t.bodies[i],h.getValue("x-mobile-nonce"),h.getValue("x-mobile-timestamp").toLong()).toByteArray(),h.getValue("x-mobile-signature"))) }
+        Unit
+    }
 }

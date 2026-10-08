@@ -16,4 +16,8 @@ interface VanSyncStore {
     suspend fun setHealth(health: String, successTime: Long? = null)
     suspend fun recordResult(row: OutboxRow, result: PushResult)
     suspend fun replaceBootstrap(text: String): VanBootstrap
+    /** SP-0137 live-location pings ready to upload (none by default). */
+    suspend fun pendingPings(): List<com.sunpride.van.storage.LocationPingRow> = emptyList()
+    suspend fun recordPingResults(results: List<Pair<com.sunpride.van.storage.LocationPingRow,com.sunpride.van.location.LocationPingCodec.Result>>) {}
+    suspend fun prunePings() {}
 }

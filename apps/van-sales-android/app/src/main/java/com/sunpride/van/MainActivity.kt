@@ -30,7 +30,8 @@ class MainActivity : ComponentActivity() {
         val repo = VanRepository.create(applicationContext,stubMode = mode,environment = environment).also { repository = it }
         // VAN-017: one printer for the Activity lifetime, shared by sale receipts and the printer check.
         val receiptPrinter = com.sunpride.van.printing.PrinterRegistry.select(applicationContext).also { printer = it }
-        val controller = VanController(repo,environment,fixtureMode = mode != null,printer = receiptPrinter,features = features) {
+        val controller = VanController(repo,environment,fixtureMode = mode != null,printer = receiptPrinter,features = features,
+            locationSharing = com.sunpride.van.location.AndroidLocationSharing(applicationContext,stub = mode != null)) {
             withContext(Dispatchers.IO) {
                 val alias = if (mode != null) "sunpride-van-stub-device-p256-v1" else KeystoreDeviceKey.DEFAULT_ALIAS
                 hex(sha256(KeystoreDeviceKey.loadOrCreate(applicationContext,alias).publicKeySpki)).uppercase().chunked(4).joinToString(" ")

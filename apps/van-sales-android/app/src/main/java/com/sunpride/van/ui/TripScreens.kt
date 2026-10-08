@@ -35,6 +35,8 @@ import java.time.format.DateTimeFormatter
                 Text(trip.route?.let { "Route · ${it.name}" } ?: "Route not assigned")
                 Text(listOfNotNull(c.seller?.name,trip.driverName?.let { "Driver: $it" },trip.helperName?.let { "Helper: $it" }).joinToString("\n"),style = MaterialTheme.typography.bodyMedium)
             }
+            // SP-0137: visible while the trip is on the road.
+            LocationSharingRow(c)
             ListRow("Find product","Search or scan · stock and price","open-products",onClick = { c.open(Page.PRODUCTS) })
             ListRow("Truck stock","Available and damaged","open-stock",onClick = { c.open(Page.STOCK) })
             ListRow("Customers","Your route and nearby stores","open-customers",onClick = { c.open(Page.CUSTOMERS) })
@@ -171,5 +173,8 @@ private data class LoadDraft(val quantity: String, val reason: String?)
         LabeledField("Odometer km (optional)",odometer,{ odometer = it },"odometer",numeric = true,maxLength = 20)
         if (!validKm) Text("Enter an odometer reading between 0 and 10,000,000 km.")
         LabeledField("Note (optional)",note,{ note = it },"start-note")
+        // SP-0137: say it before the trip starts, not after.
+        if (c.locationSharing.enabled) Text("Starting the trip shares the truck's location with your supervisors until you close the trip.",
+            style = MaterialTheme.typography.bodyMedium,modifier = Modifier.testTag("start-location-note"))
     }
 }

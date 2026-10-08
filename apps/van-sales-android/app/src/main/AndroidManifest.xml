@@ -9,6 +9,14 @@
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+    <!-- SP-0137 live map: the truck's location ONLY while a trip is active, in a foreground service
+         with a notification (no background-location permission). -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
     <!-- Android 11+ package visibility: the Senraise built-in printer service (VAN-016). -->
     <queries>
@@ -33,5 +41,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <service android:name=".location.TripLocationService" android:exported="false"
+            android:foregroundServiceType="location" />
     </application>
 </manifest>

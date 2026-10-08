@@ -65,6 +65,12 @@ internal object VanWireSchema {
     },
     {
       "${'$'}ref": "#/${'$'}defs/errorResponse"
+    },
+    {
+      "${'$'}ref": "#/${'$'}defs/locationRequest"
+    },
+    {
+      "${'$'}ref": "#/${'$'}defs/locationResponse"
     }
   ],
   "${'$'}defs": {
@@ -210,7 +216,12 @@ internal object VanWireSchema {
       "description": "VAN-024 what the handheld checks before the seller closes the trip on the phone. requireCashCount / requireStockCount: the end-of-trip cash (VAN-022) and stock (VAN-023) counts must be saved. requireUploadsSent: no operation the gateway accepts may still be waiting or sending (work without a van upload yet stays parked and is listed in the close record). exceptionsNeedReview: the seller must confirm the open exceptions (receipts not printed, operations the office refused, cash or stock differences) shown at close.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["requireCashCount", "requireStockCount", "requireUploadsSent", "exceptionsNeedReview"],
+      "required": [
+        "requireCashCount",
+        "requireStockCount",
+        "requireUploadsSent",
+        "exceptionsNeedReview"
+      ],
       "properties": {
         "requireCashCount": { "type": "boolean" },
         "requireStockCount": { "type": "boolean" },
@@ -537,10 +548,7 @@ internal object VanWireSchema {
               },
               "priceListId": {
                 "description": "SP-0105 / ADR-008: the price list that prices this customer (its outlet channel's list, else the van Route Sales list); its lines are in priceLines. Null: no single governed list (ambiguous or none), so nothing sells at a price for this customer. Absent (older servers): every shipped line applies.",
-                "oneOf": [
-                  { "${'$'}ref": "#/${'$'}defs/id" },
-                  { "type": "null" }
-                ]
+                "oneOf": [{ "${'$'}ref": "#/${'$'}defs/id" }, { "type": "null" }]
               }
             }
           }
@@ -1310,6 +1318,168 @@ internal object VanWireSchema {
         },
         "status": {
           "const": "stored"
+        }
+      }
+    },
+    "locationPing": {
+      "description": "One buffered van live-location ping. Van tracking runs only while a trip is active. The device records approximately every 60 seconds or 50 metres while moving and every 5 minutes while still, then uploads batches from the encrypted outbox. Pings are idempotent by clientPingId per device and are retained for 90 days.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clientPingId",
+        "recordedAt",
+        "latitude",
+        "longitude",
+        "accuracyMeters",
+        "speedMetersPerSecond",
+        "headingDegrees",
+        "batteryPercent",
+        "mockLocation",
+        "provider",
+        "trigger",
+        "tripId"
+      ],
+      "properties": {
+        "clientPingId": {
+          "${'$'}ref": "#/${'$'}defs/uuid"
+        },
+        "recordedAt": {
+          "${'$'}ref": "#/${'$'}defs/millis"
+        },
+        "latitude": {
+          "type": "number",
+          "minimum": -90,
+          "maximum": 90
+        },
+        "longitude": {
+          "type": "number",
+          "minimum": -180,
+          "maximum": 180
+        },
+        "accuracyMeters": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "speedMetersPerSecond": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "headingDegrees": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 360
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "batteryPercent": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mockLocation": {
+          "type": "boolean"
+        },
+        "provider": {
+          "enum": ["gps", "network", "fused", "unknown"]
+        },
+        "trigger": {
+          "enum": ["start", "moving", "still", "stop"]
+        },
+        "tripId": {
+          "${'$'}ref": "#/${'$'}defs/id"
+        }
+      }
+    },
+    "locationRequest": {
+      "description": "Van live-location batches are tracked only while a trip is active. The device records approximately every 60 seconds or 50 metres while moving and every 5 minutes while still, then uploads the batch from the encrypted outbox. Pings are idempotent by clientPingId per device and retained for 90 days.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "contractVersion", "deviceId", "pings"],
+      "properties": {
+        "type": {
+          "const": "van.location.request"
+        },
+        "contractVersion": {
+          "const": 1
+        },
+        "deviceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "pings": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": {
+            "${'$'}ref": "#/${'$'}defs/locationPing"
+          }
+        }
+      }
+    },
+    "locationResponse": {
+      "description": "The server reports one result per ping. A duplicate means the ping was already stored for that device and clientPingId; clients must treat duplicate as done. Location records are retained for 90 days.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "contractVersion", "serverTime", "results"],
+      "properties": {
+        "type": {
+          "const": "van.location.response"
+        },
+        "contractVersion": {
+          "const": 1
+        },
+        "serverTime": {
+          "${'$'}ref": "#/${'$'}defs/millis"
+        },
+        "results": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["clientPingId", "status"],
+            "properties": {
+              "clientPingId": {
+                "type": "string"
+              },
+              "status": {
+                "enum": ["accepted", "duplicate", "rejected"]
+              },
+              "code": {
+                "enum": [
+                  "invalid_request",
+                  "out_of_scope",
+                  "conflict",
+                  "outside_work_hours",
+                  "too_frequent",
+                  "too_old",
+                  "trip_not_active"
+                ]
+              }
+            }
+          }
         }
       }
     }

@@ -20,7 +20,7 @@ object EncryptedVanDatabase {
         System.loadLibrary("sqlcipher")
         val db = Room.databaseBuilder(context.applicationContext, VanDatabase::class.java, name)
             .openHelperFactory(SupportOpenHelperFactory(passphrase.copyOf()))
-            .addMigrations(VanDatabase.MIGRATION_1_2,VanDatabase.MIGRATION_2_3,VanDatabase.MIGRATION_3_4,VanDatabase.MIGRATION_4_5,VanDatabase.MIGRATION_5_6,VanDatabase.MIGRATION_6_7,VanDatabase.MIGRATION_7_8)
+            .addMigrations(VanDatabase.MIGRATION_1_2,VanDatabase.MIGRATION_2_3,VanDatabase.MIGRATION_3_4,VanDatabase.MIGRATION_4_5,VanDatabase.MIGRATION_5_6,VanDatabase.MIGRATION_6_7,VanDatabase.MIGRATION_7_8,VanDatabase.MIGRATION_8_9)
             .build()
         try { db.openHelper.writableDatabase; return db }
         catch (e: Exception) { db.close(); throw e }
