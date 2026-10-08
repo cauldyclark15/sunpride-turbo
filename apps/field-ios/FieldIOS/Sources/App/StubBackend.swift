@@ -26,25 +26,39 @@ final class StubBackend: URLProtocol {
     @MainActor
     static func makeModel(environment: AppEnvironment, scenario: String) -> AppModel {
         configure(scenario: scenario)
-        let store = KeychainStore(service: "com.sunpride.field.stub.ui")
+        let service = "com.sunpride.field.stub.ui"
+        let plain = KeychainStore(service: service)
         if scenario != "offline" && scenario != "online" {
             // A fresh UI-test scenario starts from an empty encrypted stub partition. Only
             // offline/online relaunch scenarios deliberately preserve the prior outbox.
             let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
                 .appending(path: "FieldStoreStub", directoryHint: .isDirectory)
             try? FileManager.default.removeItem(at: directory)
-            try? store.delete("storage.sqlcipher.v1")
-            try? store.delete(SealedPhotoFiles.keyAccount)
-            try? store.delete(StoreAccount.session)
-            try? store.delete(StoreAccount.deviceId)
-            try? store.delete(StoreAccount.credentialId)
-            try? store.delete("field.lastVerifiedPartition")
+            try? plain.delete("storage.sqlcipher.v1")
+            try? plain.delete(SealedPhotoFiles.keyAccount)
+            try? plain.delete(StoreAccount.session)
+            try? plain.delete(StoreAccount.deviceId)
+            try? plain.delete(StoreAccount.credentialId)
+            try? plain.delete("field.lastVerifiedPartition")
+            try? plain.delete(LockableSessionStore.lockAccount)
+            try? plain.delete(StubBiometricCrypto.sealedAccount)
+            try? KeychainBiometricCrypto.deleteItems(service: service)
+        }
+        // SP-0133: `FIELD_STUB_BIOMETRIC=available|cancel|changed|slow|real` (unset = no Face ID on this
+        // "phone", so other UI tests never see the offer). `real` uses the system prompt and Keychain.
+        let mode = ProcessInfo.processInfo.environment[StubBiometricCrypto.environmentKey]
+        let crypto: any BiometricCrypto = mode == "real" ? KeychainBiometricCrypto(service: service)
+            : StubBiometricCrypto(mode: mode, store: plain)
+        let store = LockableSessionStore(plain: plain, memory: SessionMemory()) {
+            try plain.delete(StubBiometricCrypto.sealedAccount)
+            try KeychainBiometricCrypto.deleteItems(service: service)
         }
         let http = HTTPClient(session: URLSession(configuration: HTTPClient.makeConfiguration(protocolClasses: [StubBackend.self])))
         let auth = AuthClient(site: environment.siteURL, store: store, http: http)
         let functions = ConvexFunctions(url: environment.convexURL, auth: auth, http: http)
         return AppModel(auth: auth, registry: ConvexDeviceRegistry(functions: functions), store: store,
-                        pollInterval: .seconds(2), site: environment.siteURL, functions: functions, http: http) {
+                        pollInterval: .seconds(2), site: environment.siteURL, functions: functions, http: http,
+                        biometrics: BiometricGate(vault: store, crypto: crypto)) {
             try DeviceKeys.loadOrCreate(store: store)
         }
     }
@@ -314,5 +328,34 @@ final class StubBackend: URLProtocol {
             }
         }
     }
+}
+
+/// DEBUG UI-test stand-in for the system prompt (SP-0133). The "sealed" token sits in the stub Keychain
+/// service without biometric protection; it never holds a real session.
+@MainActor
+final class StubBiometricCrypto: BiometricCrypto {
+    nonisolated static let environmentKey = "FIELD_STUB_BIOMETRIC"
+    nonisolated static let sealedAccount = "stub.biometric.sealed"
+    private let mode: String?
+    private let store: SecretStore
+    init(mode: String?, store: SecretStore) { self.mode = mode; self.store = store }
+
+    var kind: BiometryKind { .faceID }
+    func availability() -> BiometricAvailability { mode == nil ? .unavailable : .available }
+    func authenticate(reason: String) async -> BiometricPromptOutcome {
+        switch mode {
+        case "cancel": return .cancelled
+        case "slow": try? await Task.sleep(for: .seconds(4)); return .done(BiometricContext(nil))
+        case nil: return .failed
+        default: return .done(BiometricContext(nil))
+        }
+    }
+    func write(_ token: Data, context: BiometricContext) throws { try store.save(token, for: Self.sealedAccount) }
+    func read(context: BiometricContext) -> BiometricReadOutcome {
+        if mode == "changed" { return .invalidated }
+        guard let data = (try? store.read(Self.sealedAccount)) ?? nil else { return .invalidated }
+        return .done(data)
+    }
+    func deleteSealed() throws { try store.delete(Self.sealedAccount) }
 }
 #endif

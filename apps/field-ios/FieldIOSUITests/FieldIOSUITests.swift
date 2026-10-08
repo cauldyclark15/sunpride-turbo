@@ -847,4 +847,130 @@ final class FieldIOSUITests: XCTestCase {
         XCTAssertTrue(offline.staticTexts["customerSalesNote"].waitForExistence(timeout: 5), "cached figures offline")
         XCTAssertTrue(offline.staticTexts["1 order · ₱4,100.00"].exists)
     }
+
+    // MARK: SP-0133 Face ID / Touch ID sign-in (stub prompt: FIELD_STUB_BIOMETRIC)
+
+    private func captureScreen(_ name: String) {
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    private func launchFaceID(_ scenario: String, _ mode: String, dark: Bool) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchEnvironment["FIELD_STUB_BACKEND"] = scenario
+        app.launchEnvironment["FIELD_STUB_BIOMETRIC"] = mode
+        app.launchArguments += [dark ? "-calmDarkMode" : "-calmLightMode"]
+        app.launch()
+        return app
+    }
+
+    /// Asserts a pinned control sits above the home indicator and below the notch.
+    private func assertInSafeArea(_ element: XCUIElement, _ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        let window = app.windows.firstMatch.frame
+        XCTAssertGreaterThan(element.frame.minY, window.minY + 44, "below the status bar", file: file, line: line)
+        XCTAssertLessThan(element.frame.maxY, window.maxY - 20, "above the home indicator", file: file, line: line)
+    }
+
+    func testFaceIDOfferLockCancelChangedAndAccountToggle() {
+        for dark in [false, true] {
+            let mode = dark ? "dark" : "light"
+            // Password sign-in → offer → Turn on.
+            let first = launchFaceID("registers", "available", dark: dark)
+            signIn(first, password: "correct-horse")
+            let offer = first.alerts["Use Face ID to sign in next time?"]
+            XCTAssertTrue(offer.waitForExistence(timeout: 20))
+            capture(first, "\(mode)-face-id-offer")
+            offer.buttons["Turn on"].firstMatch.tap()
+            XCTAssertTrue(first.staticTexts["todayTitle"].waitForExistence(timeout: 20))
+            first.buttons["accountButton"].tap()
+            let toggle = first.switches["biometricToggle"].firstMatch
+            XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+            XCTAssertEqual(toggle.value as? String, "1")
+            capture(first, "\(mode)-face-id-account-on")
+            first.terminate()
+
+            // Next launch: locked until the prompt answers, then Today.
+            let locked = launchFaceID("online", "slow", dark: dark)
+            XCTAssertTrue(locked.staticTexts["biometricLocked"].waitForExistence(timeout: 10))
+            XCTAssertFalse(locked.textFields["emailField"].exists)
+            assertInSafeArea(locked.buttons["biometricUnlock"], locked)
+            assertInSafeArea(locked.buttons["biometricUsePassword"], locked)
+            capture(locked, "\(mode)-face-id-locked")
+            XCTAssertTrue(locked.staticTexts["todayTitle"].waitForExistence(timeout: 20))
+            locked.terminate()
+
+            // Cancel → password screen, which keeps "Use Face ID".
+            let cancelled = launchFaceID("online", "cancel", dark: dark)
+            XCTAssertTrue(cancelled.textFields["emailField"].waitForExistence(timeout: 10))
+            XCTAssertTrue(cancelled.buttons["biometricRetry"].exists)
+            XCTAssertFalse(cancelled.staticTexts["todayTitle"].exists)
+            capture(cancelled, "\(mode)-face-id-cancelled-password")
+            cancelled.terminate()
+
+            // Changed face/finger → clear message, password only.
+            let changed = launchFaceID("online", "changed", dark: dark)
+            XCTAssertTrue(changed.staticTexts["biometricMessage"].waitForExistence(timeout: 10))
+            XCTAssertTrue(changed.staticTexts["biometricMessage"].label.hasPrefix("Face ID on this phone changed."))
+            XCTAssertFalse(changed.buttons["biometricRetry"].exists)
+            capture(changed, "\(mode)-face-id-changed")
+            changed.terminate()
+
+            // The changed key forgot the session: the password signs in again; Not now keeps it off.
+            let again = launchFaceID("online", "available", dark: dark)
+            XCTAssertTrue(again.textFields["emailField"].waitForExistence(timeout: 10))
+            XCTAssertFalse(again.staticTexts["biometricLocked"].exists)
+            signIn(again, password: "correct-horse")
+            let offerAgain = again.alerts["Use Face ID to sign in next time?"]
+            XCTAssertTrue(offerAgain.waitForExistence(timeout: 20))
+            offerAgain.buttons["Turn on"].firstMatch.tap()
+            XCTAssertTrue(again.staticTexts["todayTitle"].waitForExistence(timeout: 20))
+            // Account toggle off: next launch opens without any prompt.
+            again.buttons["accountButton"].tap()
+            let toggleAgain = again.switches["biometricToggle"].firstMatch
+            XCTAssertTrue(toggleAgain.waitForExistence(timeout: 5))
+            toggleAgain.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+            XCTAssertEqual(toggleAgain.value as? String, "0")
+            again.terminate()
+            let open = launchFaceID("online", "cancel", dark: dark)
+            XCTAssertTrue(open.staticTexts["todayTitle"].waitForExistence(timeout: 20))
+            XCTAssertFalse(open.staticTexts["biometricLocked"].exists)
+            open.terminate()
+        }
+    }
+
+    /// The real system prompt on a phone with Face ID enrolled (skipped on the simulator). Captures the
+    /// whole screen (the prompt is drawn by the system) and leaves via "Use password" if the face is not
+    /// recognized; the stub backend stays offline from any real account.
+    func testRealFaceIDPromptOnPhone() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["FIELD_STUB_BACKEND"] = "registers"
+        app.launchEnvironment["FIELD_STUB_BIOMETRIC"] = "real"
+        app.launch()
+        signIn(app, password: "correct-horse")
+        let offer = app.alerts["Use Face ID to sign in next time?"]
+        guard offer.waitForExistence(timeout: 20) else { throw XCTSkip("No Face ID / Touch ID enrolled on this device.") }
+        captureScreen("phone-face-id-offer")
+        offer.buttons["Turn on"].firstMatch.tap()
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        // First use asks permission (NSFaceIDUsageDescription).
+        for owner in [app, springboard] {
+            let allow = owner.alerts.buttons["OK"].exists ? owner.alerts.buttons["OK"] : owner.alerts.buttons["Allow"]
+            if allow.waitForExistence(timeout: 3) {
+                captureScreen("phone-face-id-permission")
+                allow.tap()
+                break
+            }
+        }
+        Thread.sleep(forTimeInterval: 0.8)
+        captureScreen("phone-face-id-prompt")
+        let usePassword = springboard.buttons["Use password"]
+        if usePassword.waitForExistence(timeout: 8) {
+            captureScreen("phone-face-id-prompt-retry")
+            usePassword.tap()
+        }
+        XCTAssertTrue(app.staticTexts["todayTitle"].waitForExistence(timeout: 20))
+        captureScreen("phone-face-id-after-prompt")
+    }
 }

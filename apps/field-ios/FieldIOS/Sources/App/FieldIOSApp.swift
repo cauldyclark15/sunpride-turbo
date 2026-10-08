@@ -56,7 +56,10 @@ struct RootView: View {
                 BackgroundRetry.shared.scheduleIfNeeded()
             }
             .onChange(of: scenePhase) { _, phase in
-                if phase == .active { Task { await model.syncNow() } }
+                guard phase == .active else { return }
+                // SP-0133: a launch that could not prompt (background) asks for Face ID once the app is open.
+                if let gate = model.biometrics, gate.step == .locked, !gate.busy { Task { await model.launch() } }
+                Task { await model.syncNow() }
             }
     }
 }

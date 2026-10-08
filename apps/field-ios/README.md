@@ -68,6 +68,10 @@ The last good summary per filter is saved in the SQLCipher `delta` table under t
 
 Tests: `TeamSummaryTests` (wire decode and malformed answers, role hint, live/offline/refused/ended-session/wrong-day loading, wording, encrypted cache partitioning, day pruning, held partition, purge) and the UI test `testSupervisorTeamShowsDirectReportsWholeAreaAndSavedCopyOffline` (DEBUG stub scenario `FIELD_STUB_BACKEND=supervisor`, a registered manager; the stub refuses the team read for the seller scenarios, whose Today has no Team card).
 
+## Face ID / Touch ID sign-in (SP-0133)
+
+After a password sign-in the app offers "Use Face ID to sign in next time?". Turning it on moves the Better Auth session into a Keychain item protected by `.biometryCurrentSet` + `WhenUnlockedThisDeviceOnly` (a new face or finger forces the password; no passcode fallback); the password is never stored. Cancel goes to the password screen; sign-out and the Account switch clear it. Details, failure rules and tests: [`docs/BIOMETRIC_SIGN_IN.md`](docs/BIOMETRIC_SIGN_IN.md).
+
 ## Live DEV sign-in and enrollment (manual)
 
 1. Create gitignored `apps/field-ios/Config/Local.xcconfig`:
