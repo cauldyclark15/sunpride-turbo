@@ -57,7 +57,7 @@ struct SignInShell: View {
                         }
                     }
                     if !model.signedIn {
-                        signInCard
+                        if locked { lockCard } else { signInCard }
                     } else if model.enrollment.state != .removed {
                         if model.enrollment.state.isReady || !model.visits.isEmpty {
                             TodayScreen(model: model)
@@ -75,7 +75,16 @@ struct SignInShell: View {
             .safeAreaInset(edge: .bottom) {
                 if pinnedAction {
                     Group {
-                        if !model.signedIn {
+                        if !model.signedIn && locked, let gate = model.biometrics {
+                            VStack(spacing: 8) {
+                                SecondaryButton(title: "Use password", fullWidth: true) { gate.usePassword() }
+                                    .accessibilityIdentifier("biometricUsePassword")
+                                PrimaryBottomButton(title: "Use \(gate.name)", disabled: gate.busy) {
+                                    Task { await model.unlockWithBiometrics() }
+                                }
+                                .accessibilityIdentifier("biometricUnlock")
+                            }
+                        } else if !model.signedIn {
                             PrimaryBottomButton(title: model.busy ? "Signing in…" : "Sign in", disabled: !canSubmit, action: submit)
                                 .accessibilityIdentifier("signInButton")
                         } else if model.enrollment.state == .removed {
@@ -106,6 +115,14 @@ struct SignInShell: View {
             }
             .sheet(isPresented: $showSyncStatus) { SyncStatusDetail(model: model) }
             .sheet(isPresented: $showAccount) { AccountScreen(model: model) }
+            .alert("Use \(model.biometrics?.name ?? "Face ID") to sign in next time?", isPresented: offerShown) {
+                Button("Not now", role: .cancel) { model.biometrics?.decline() }
+                    .accessibilityIdentifier("biometricOfferNotNow")
+                Button("Turn on") { Task { await model.biometrics?.enable() } }
+                    .accessibilityIdentifier("biometricOfferTurnOn")
+            } message: {
+                Text("Your password is never saved. If a face or finger is added to this phone, you'll sign in with your password again.")
+            }
             .refreshable { if model.signedIn { await model.syncNow() } }
             .onChange(of: model.enrollment.state) { _, state in
                 Task { await model.phoneStateChanged(state) }
@@ -115,6 +132,26 @@ struct SignInShell: View {
         .preferredColorScheme(ProcessInfo.processInfo.arguments.contains("-calmDarkMode") ? .dark :
                               ProcessInfo.processInfo.arguments.contains("-calmLightMode") ? .light : nil)
         #endif
+    }
+
+    /// SP-0133: a Face ID-protected session waits for the system prompt.
+    private var locked: Bool { model.biometrics?.step == .locked }
+    private var offerShown: Binding<Bool> {
+        Binding(get: { model.signedIn && model.biometrics?.offer == true },
+                set: { if !$0 { model.biometrics?.decline() } })
+    }
+    private var lockCard: some View {
+        SectionCard(title: "Signed in") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Unlock with \(model.biometrics?.name ?? "Face ID") to open today's work.")
+                    .font(SunprideTokens.TypeStyle.body)
+                    .foregroundStyle(SunprideTokens.text)
+                    .accessibilityIdentifier("biometricLocked")
+                Text("Or sign in with your password.")
+                    .font(SunprideTokens.TypeStyle.meta)
+                    .foregroundStyle(SunprideTokens.secondaryText)
+            }.padding(16)
+        }
     }
 
     private var pinnedAction: Bool {
@@ -219,6 +256,17 @@ struct SignInShell: View {
                     Text(error).font(SunprideTokens.TypeStyle.meta)
                         .foregroundStyle(SunprideTokens.dangerText)
                         .accessibilityIdentifier("signInError")
+                }
+                if let gate = model.biometrics, let message = gate.message {
+                    Text(message).font(SunprideTokens.TypeStyle.meta)
+                        .foregroundStyle(SunprideTokens.dangerText)
+                        .accessibilityIdentifier("biometricMessage")
+                }
+                if let gate = model.biometrics, gate.canRetry {
+                    SecondaryButton(title: "Use \(gate.name)", disabled: gate.busy, fullWidth: true) {
+                        Task { await model.unlockWithBiometrics() }
+                    }
+                    .accessibilityIdentifier("biometricRetry")
                 }
             }.padding(16)
         }

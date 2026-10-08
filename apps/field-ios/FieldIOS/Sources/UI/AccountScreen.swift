@@ -26,6 +26,31 @@ struct AccountScreen: View {
                             }
                         }
                     }
+                    if let gate = model.biometrics, gate.enabled || gate.availability() == .available {
+                        SectionCard(title: "Sign-in") {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Toggle(isOn: Binding(get: { gate.enabled }, set: { on in
+                                    if on { Task { await gate.enable() } } else { gate.disable() }
+                                })) {
+                                    Text("\(gate.name) sign-in").font(SunprideTokens.TypeStyle.row)
+                                        .foregroundStyle(SunprideTokens.text)
+                                }
+                                .disabled(gate.busy)
+                                .tint(SunprideTokens.actionBackground)
+                                .frame(minHeight: 48)
+                                .accessibilityIdentifier("biometricToggle")
+                                Text(gate.enabled ? "Opens the app with \(gate.name). Your password is never saved."
+                                                  : "Sign in with \(gate.name) instead of your password next time.")
+                                    .font(SunprideTokens.TypeStyle.meta)
+                                    .foregroundStyle(SunprideTokens.secondaryText)
+                                if let message = gate.message {
+                                    Text(message).font(SunprideTokens.TypeStyle.meta)
+                                        .foregroundStyle(SunprideTokens.dangerText)
+                                        .accessibilityIdentifier("biometricMessage")
+                                }
+                            }.padding(16)
+                        }
+                    }
                     SectionCard(title: "Help") {
                         NavigationLink(destination: SupportInfoScreen(model: model)) {
                             CalmListRow(symbol: "questionmark.circle", title: "Support info", meta: "", trailing: "chevron.right")

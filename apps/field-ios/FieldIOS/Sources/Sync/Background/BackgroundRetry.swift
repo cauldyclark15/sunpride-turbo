@@ -54,7 +54,7 @@ final class BackgroundRetry {
         }
         let work = Task { @MainActor in
             if model.signedIn { await model.syncNow() }
-            else { await model.launch() } // Cold background launch restores the verified partition first.
+            else { await model.launch(interactive: false) } // Cold background launch restores the verified partition first; never prompts for Face ID.
             scheduleIfNeeded()
             task.setTaskCompleted(success: !Task.isCancelled)
         }

@@ -50,6 +50,8 @@ final class AppModel {
     private(set) var dayTarget: StoreSnapshot.DayTarget?
     let enrollment: Enrollment
     let suggestedOrders: SuggestedOrderLoader
+    /// SP-0133 Face ID / Touch ID sign-in; nil where the session store is not lockable (unit tests).
+    let biometrics: BiometricGate?
     /// Today's summary (date, target, calls, completion, next outlet, ordered route), store-derived.
     private(set) var daySales: StoreSnapshot.DaySales?
     /// IOS-020: offer the Team page (role hint from the verified snapshot; the server decides access).
@@ -182,9 +184,10 @@ final class AppModel {
     init(auth: AuthClient, registry: DeviceRegistry, store: SecretStore,
          pollInterval: Duration = .seconds(10), site: URL? = nil, functions: ConvexFunctions? = nil,
          http: HTTPClient? = nil, localStore: EncryptedFieldStore? = nil,
-         photoFiles: PhotoFiles? = nil, evidenceAPI: EvidenceAPI? = nil,
+         photoFiles: PhotoFiles? = nil, evidenceAPI: EvidenceAPI? = nil, biometrics: BiometricGate? = nil,
          now: @escaping () -> Date = { Date() }, loadKey: @escaping () throws -> any DeviceSigningKey) {
         self.auth = auth
+        self.biometrics = biometrics
         self.registry = registry
         self.secrets = store
         self.site = site
@@ -206,13 +209,19 @@ final class AppModel {
     }
 
     /// Real wiring: Keychain session, ephemeral cookie-less URLSession, Secure Enclave (or simulator) key.
+    /// SP-0133: the session goes through the lockable vault (Face ID / Touch ID sign-in).
     static func live(environment: AppEnvironment) -> AppModel {
-        let store = KeychainStore()
+        let service = "com.sunpride.field.dev"
+        let crypto = KeychainBiometricCrypto(service: service)
+        let store = LockableSessionStore(plain: KeychainStore(service: service)) {
+            try KeychainBiometricCrypto.deleteItems(service: service)
+        }
         let http = HTTPClient()
         let auth = AuthClient(site: environment.siteURL, store: store, http: http)
         let functions = ConvexFunctions(url: environment.convexURL, auth: auth, http: http)
         return AppModel(auth: auth, registry: ConvexDeviceRegistry(functions: functions), store: store,
-                        site: environment.siteURL, functions: functions, http: http) {
+                        site: environment.siteURL, functions: functions, http: http,
+                        biometrics: BiometricGate(vault: store, crypto: crypto)) {
             try DeviceKeys.loadOrCreate(store: store)
         }
     }
@@ -229,7 +238,14 @@ final class AppModel {
     }
 
     /// Launch: a stored session is re-verified against the server (never trusted as "ready" offline).
-    func launch() async {
+    /// SP-0133: a Face ID-locked session is opened by the system prompt first; `interactive: false`
+    /// (cold background refresh) never prompts and does nothing while the session is locked.
+    func launch(interactive: Bool = true) async {
+        if let biometrics, biometrics.step == .locked {
+            guard interactive else { return }
+            await biometrics.unlock()
+            guard biometrics.step == .open else { return }
+        }
         guard auth.hasSession, !signedIn else { return }
         signedIn = true
         loadCachedPartition()
@@ -250,6 +266,7 @@ final class AppModel {
             suggestedOrders.clear()
             freshThisLaunch = false
             try await auth.signIn(email: email, password: password)
+            biometrics?.passwordSignedIn()
             signInError = nil
             signedIn = true
             await enrollment.start(loadKey: loadKey)
@@ -983,6 +1000,14 @@ final class AppModel {
         syncMessage = nil
         signedIn = false
         await auth.signOut()
+        biometrics?.signedOut()
+    }
+
+    /// SP-0133 password screen → "Use Face ID": the prompt, then the normal launch with the opened session.
+    func unlockWithBiometrics() async {
+        guard let biometrics, !signedIn else { return }
+        await biometrics.unlock()
+        if biometrics.step == .open { await launch() }
     }
 
     private func sessionEnded() async {

@@ -18,6 +18,8 @@
 		1167A98DE3A1CC939D58A4DD /* push-conflict-response.json in Resources */ = {isa = PBXBuildFile; fileRef = 8F2766DD96A50C448B76C465 /* push-conflict-response.json */; };
 		14D792C34C2B214F50CF3E5E /* bootstrap-photo-types-response.json in Resources */ = {isa = PBXBuildFile; fileRef = 9C7055842C1563800F5877C4 /* bootstrap-photo-types-response.json */; };
 		15D1F33EEC52A6403144B4D7 /* EvidencePhotosTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 899109121F5460C8B58B9B8E /* EvidencePhotosTests.swift */; };
+		16DBA2A7BFE691CBD3C886B7 /* KeychainBiometricCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3CF82D38EC8EC88514A5D79 /* KeychainBiometricCrypto.swift */; };
+		171531F31AF24FEAD2530970 /* bootstrap-response.json in Resources */ = {isa = PBXBuildFile; fileRef = 32824B6D50460C1181FF20D6 /* bootstrap-response.json */; };
 		175FED769643F1295AF5F3CB /* BootstrapClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77AFFDE129DFE26E3DDA21E /* BootstrapClient.swift */; };
 		18A3D64B33FCA7069A8CA097 /* request-proof.json in Resources */ = {isa = PBXBuildFile; fileRef = 7D5900677E6C2A5A588D21F8 /* request-proof.json */; };
 		1A31FB31DA2821804428C5D8 /* FieldDayCallTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 935415C15AFDBF5B04EEF4B6 /* FieldDayCallTests.swift */; };
@@ -25,6 +27,7 @@
 		1DAC6BDA3CA11057321C149D /* FieldIOSTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AD00CE0DB5536F7ED709072 /* FieldIOSTests.swift */; };
 		202ACDE9965B8233D862F667 /* EnrollmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0608947B65A82B5F8B21C25E /* EnrollmentTests.swift */; };
 		2105A5A953023683EA6E77F6 /* OrderDraftScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBD705E267441E239AD86BB8 /* OrderDraftScreen.swift */; };
+		217BEC3467657F6FFBFBFF2B /* BiometricGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E685772F0949EAE80DB7D32 /* BiometricGate.swift */; };
 		21B5FF7A7CE9A4FEDF769461 /* SuggestedOrderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CB6C99227CFEC3013BC36D8 /* SuggestedOrderTests.swift */; };
 		244F57CC63B49B95384DA412 /* CustomerDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3754A93F3B24E554D1DA1A76 /* CustomerDirectory.swift */; };
 		2829545B0F64608A87B314DD /* SuggestedOrder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AFCBFADBB76F8CF1DBB9935 /* SuggestedOrder.swift */; };
@@ -33,6 +36,7 @@
 		2CAB0F976A1EA4DCB75E004C /* for-outlet.json in Resources */ = {isa = PBXBuildFile; fileRef = BD5A8759A9A42DA92BD3D721 /* for-outlet.json */; };
 		2CD16D3ACE5DE7C6A97838A3 /* OrderTerms.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8C971B1683E91AA45EED32C /* OrderTerms.swift */; };
 		2D2AF89E1DE8A888F5B8C173 /* DailyRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCFDE73882F9D934C843B5EE /* DailyRoute.swift */; };
+		2F379174EE9686A0D901E4B4 /* BiometricSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0AE4946DEA6AE60241C1247 /* BiometricSession.swift */; };
 		304EF591D286998ACDE79FD6 /* SyncStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55F4CAC5815B97242F3EC921 /* SyncStatus.swift */; };
 		32BB51EE622444D7DC7DB739 /* error-device-revoked.json in Resources */ = {isa = PBXBuildFile; fileRef = E5092D99141BF3AF2DA1A3B2 /* error-device-revoked.json */; };
 		3328CBD5A0BBE753C7787ED4 /* error-version-unsupported.json in Resources */ = {isa = PBXBuildFile; fileRef = D74AD94F4D4CF469ED228832 /* error-version-unsupported.json */; };
@@ -107,6 +111,7 @@
 		D0ECAFE17CE94651ED173031 /* SunprideTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2692CA1C06F882E746AF973 /* SunprideTokens.swift */; };
 		D548B74509FAC835582D41A0 /* TeamAuthorizationEpochTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA05324F47DE966F1F35C492 /* TeamAuthorizationEpochTests.swift */; };
 		D54F577162984015C518208A /* PhotoFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA2EA3F55ED332E61CE66DDA /* PhotoFiles.swift */; };
+		D623AA666E445B70F06E4286 /* BiometricSignInTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5187E18BDD8D04525DE88E5D /* BiometricSignInTests.swift */; };
 		D8CA5082EEAA88C235A1B4AD /* SyncStatusDiagnosticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA4C96C1D58520ED598A16FB /* SyncStatusDiagnosticsTests.swift */; };
 		DC1B6727F5D883AC9A4E241C /* ConvexFunctionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26021CCFB0A859FEF974770E /* ConvexFunctionsTests.swift */; };
 		E1792D6CFC59D318579A3A50 /* DiagnosticVisitScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0D318C2DF743A813CFFBD3F /* DiagnosticVisitScreen.swift */; };
@@ -177,6 +182,7 @@
 		4A505BCF5D8A39218B2AA94E /* ChaosSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChaosSyncTests.swift; sourceTree = "<group>"; };
 		4DB5C91CB702257E69CAEEE0 /* AuthClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthClient.swift; sourceTree = "<group>"; };
 		4F11A6D0B6266CF3FDEB9ECA /* StubURLProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StubURLProtocol.swift; sourceTree = "<group>"; };
+		5187E18BDD8D04525DE88E5D /* BiometricSignInTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricSignInTests.swift; sourceTree = "<group>"; };
 		52C033E08AECBD47AD2DDE91 /* TodayDashboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayDashboard.swift; sourceTree = "<group>"; };
 		5346E87A86751D4CA1ADD0EE /* RequestSigner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RequestSigner.swift; sourceTree = "<group>"; };
 		54742B2DBE31DC7171035695 /* pull-response.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "pull-response.json"; sourceTree = "<group>"; };
@@ -189,6 +195,8 @@
 		6AD00CE0DB5536F7ED709072 /* FieldIOSTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FieldIOSTests.swift; sourceTree = "<group>"; };
 		6CA2DCA5A37DF0C8CF9229BF /* bootstrap-call-sheet-response.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "bootstrap-call-sheet-response.json"; sourceTree = "<group>"; };
 		6E57017428527439DC95AE4E /* EvidencePhotos.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EvidencePhotos.swift; sourceTree = "<group>"; };
+		6E685772F0949EAE80DB7D32 /* BiometricGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricGate.swift; sourceTree = "<group>"; };
+		733EBE0BBDDB64004F6D6E5F /* push-request.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "push-request.json"; sourceTree = "<group>"; };
 		768EE84295679AB410817800 /* VisitSyncClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitSyncClient.swift; sourceTree = "<group>"; };
 		770ABB24A61E17AE7FC352FC /* StubBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StubBackend.swift; sourceTree = "<group>"; };
 		7D5900677E6C2A5A588D21F8 /* request-proof.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = "request-proof.json"; path = "../../../packages/domain-contracts/fixtures/mobile-v1/crypto/request-proof.json"; sourceTree = "<group>"; };
@@ -232,9 +240,11 @@
 		CB35C09814D6360660C64B8D /* FieldIOSTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = FieldIOSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CBD705E267441E239AD86BB8 /* OrderDraftScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrderDraftScreen.swift; sourceTree = "<group>"; };
 		CCFDE73882F9D934C843B5EE /* DailyRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyRoute.swift; sourceTree = "<group>"; };
+		D0AE4946DEA6AE60241C1247 /* BiometricSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricSession.swift; sourceTree = "<group>"; };
 		D39063EF6CE3A5BE2190F4F2 /* ActivityForms.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityForms.swift; sourceTree = "<group>"; };
 		D4EBB387E6477AD30DD519B6 /* error-rebootstrap-required.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "error-rebootstrap-required.json"; sourceTree = "<group>"; };
 		D74AD94F4D4CF469ED228832 /* error-version-unsupported.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "error-version-unsupported.json"; sourceTree = "<group>"; };
+		D3CF82D38EC8EC88514A5D79 /* KeychainBiometricCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainBiometricCrypto.swift; sourceTree = "<group>"; };
 		D753F93483B737E31248F64A /* FieldIOSUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = FieldIOSUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		D9096C036A0AF31336E412AC /* BootstrapV1.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BootstrapV1.swift; sourceTree = "<group>"; };
 		D9530FB485D2C32608387B37 /* bootstrap-response.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "bootstrap-response.json"; sourceTree = "<group>"; };
@@ -277,6 +287,7 @@
 				EDE9BD20A693C17022A70C2E /* AppEnvironment.swift */,
 				15325CBFB42A9920A73076CC /* AppModel.swift */,
 				9494D7899E8B8864178C6D09 /* FieldFeatures.swift */,
+				6E685772F0949EAE80DB7D32 /* BiometricGate.swift */,
 				643649FC187291287C83F0BA /* FieldIOSApp.swift */,
 				770ABB24A61E17AE7FC352FC /* StubBackend.swift */,
 				BBEC99ED2ADDBB03F9B6CDEB /* SuggestedOrderLoader.swift */,
@@ -288,8 +299,10 @@
 			isa = PBXGroup;
 			children = (
 				4DB5C91CB702257E69CAEEE0 /* AuthClient.swift */,
+				D0AE4946DEA6AE60241C1247 /* BiometricSession.swift */,
 				893C59F3DA031CA5D0C2B141 /* ConvexFunctions.swift */,
 				329AC521CDFBA9C961E9A8BB /* HTTPClient.swift */,
+				D3CF82D38EC8EC88514A5D79 /* KeychainBiometricCrypto.swift */,
 				15846A7B74058B323F108CB7 /* Redaction.swift */,
 				A0ABFC89807D314D2B62A458 /* SecureStore.swift */,
 			);
@@ -361,6 +374,7 @@
 			children = (
 				469730AD0708443FF010DB2B /* ActivityRulesTests.swift */,
 				3ED3ADFB05AAF26B358710EC /* AuthClientTests.swift */,
+				5187E18BDD8D04525DE88E5D /* BiometricSignInTests.swift */,
 				A6AEF2385449EF460EF630E8 /* BootstrapTests.swift */,
 				6212BDC1724FBEC20D95D50E /* CallSheetTests.swift */,
 				4A505BCF5D8A39218B2AA94E /* ChaosSyncTests.swift */,
@@ -827,6 +841,7 @@
 			files = (
 				73822FBBD3552646DD513D2C /* ActivityRulesTests.swift in Sources */,
 				7A3DB86936D018D089DA9D55 /* AuthClientTests.swift in Sources */,
+				D623AA666E445B70F06E4286 /* BiometricSignInTests.swift in Sources */,
 				B9CB1F9595BF18411447620E /* BootstrapTests.swift in Sources */,
 				484419BBDF9801E380B47DBC /* CallSheetTests.swift in Sources */,
 				571B178147B6E3E104BA9303 /* ChaosSyncTests.swift in Sources */,
@@ -871,6 +886,8 @@
 				C38C66CA66E225B0964FBD37 /* AppModel.swift in Sources */,
 				7A245815BC1605BD4C8609F4 /* AuthClient.swift in Sources */,
 				7C05447D9086CD072D7D1C77 /* BackgroundRetry.swift in Sources */,
+				217BEC3467657F6FFBFBFF2B /* BiometricGate.swift in Sources */,
+				2F379174EE9686A0D901E4B4 /* BiometricSession.swift in Sources */,
 				175FED769643F1295AF5F3CB /* BootstrapClient.swift in Sources */,
 				B7E270651827014478F190BE /* BootstrapV1.swift in Sources */,
 				296F893B61E8A5BD4F7DCE75 /* CallSheet.swift in Sources */,
@@ -892,6 +909,7 @@
 				733E9950FCD06E634516E78E /* FieldIOSApp.swift in Sources */,
 				FDB32474097B7BE3233DD03B /* FieldStore.swift in Sources */,
 				A729B975C7C31FA68373F2A0 /* HTTPClient.swift in Sources */,
+				16DBA2A7BFE691CBD3C886B7 /* KeychainBiometricCrypto.swift in Sources */,
 				ACDA87F0B694E9C5EB111761 /* LocationCapture.swift in Sources */,
 				C3B4DAC4A6906D261B137AA7 /* OrderDraft.swift in Sources */,
 				2105A5A953023683EA6E77F6 /* OrderDraftScreen.swift in Sources */,
