@@ -57,6 +57,14 @@ class RequestSignerTest {
         }
     }
 
+    /** SP-0140: every path the app posts through the signed gateway must be signable (location was not). */
+    @Test fun signsEveryGatewayPathTheAppUses() {
+        listOf("/mobile/v1/bootstrap", "/mobile/v1/pull", "/mobile/v1/push", com.sunpride.field.location.PingCodec.PATH).forEach {
+            val headers = RequestSigner.headers(signer, "d", it, byteArrayOf(1), "10000000-0000-4000-8000-000000000001", 1)
+            assertTrue(it, headers.getValue("x-mobile-signature").isNotBlank())
+        }
+    }
+
     @Test fun fingerprintIsShortAndStable() {
         val spki = unbase64(CryptoVectors.json.getString("publicKeySpkiBase64"))
         assertTrue(Regex("^[0-9a-f]{4}( [0-9a-f]{4}){3}$").matches(fingerprint(spki)))

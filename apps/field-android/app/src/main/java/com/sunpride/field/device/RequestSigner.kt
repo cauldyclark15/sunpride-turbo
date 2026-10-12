@@ -7,7 +7,9 @@ package com.sunpride.field.device
  * Callers must send the very [body] bytes that were signed.
  */
 object RequestSigner {
-    val PATHS = setOf("/mobile/v1/bootstrap", "/mobile/v1/pull", "/mobile/v1/push")
+    // SP-0140: `/mobile/v1/location` (SP-0136 live-map pings) was missing, so every location upload
+    // failed here before reaching the server and the worker retried forever.
+    val PATHS = setOf("/mobile/v1/bootstrap", "/mobile/v1/pull", "/mobile/v1/push", "/mobile/v1/location")
     private val NONCE = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
     fun bodyDigest(body: ByteArray): String = hex(sha256(body))

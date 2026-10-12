@@ -1008,20 +1008,31 @@ class FieldController(
 
     /** On launch: restore a stored session and re-verify the device with the server. */
     fun start(configured: Boolean = true) = scope.launch(ui) {
-        runCatching { ensureKey() } // create the device key on first launch; failures surface on refresh
-        if (!configured) return@launch
-        val signedIn = runCatching { withContext(io) { backend.isSignedIn } }.getOrDefault(false)
-        if (signedIn) {
-            val cached = runCatching { withContext(io) { backend.cachedDeviceId } }.getOrNull()
-            if (cached != null) {
-                state = EnrollmentState.Ready(cached)
-                loadToday(sync = false)
-                runCatching { withContext(io) { backend.schedulePendingWork() } }
-                today = today.copy(stale = true, warning = "Offline verification pending")
+        try {
+            runCatching { ensureKey() } // create the device key on first launch; failures surface on refresh
+            if (!configured) return@launch
+            val signedIn = runCatching { withContext(io) { backend.isSignedIn } }.getOrDefault(false)
+            if (signedIn) {
+                val cached = runCatching { withContext(io) { backend.cachedDeviceId } }.getOrNull()
+                if (cached != null) {
+                    state = EnrollmentState.Ready(cached)
+                    loadToday(sync = false)
+                    runCatching { withContext(io) { backend.schedulePendingWork() } }
+                    today = today.copy(stale = true, warning = "Offline verification pending")
+                    // SP-0140: the saved Today is on screen and usable; the server check below runs behind it.
+                    launchSettled = true
+                }
+                refresh()
             }
-            refresh()
-        }
+        } finally { launchSettled = true }
     }
+
+    /**
+     * SP-0140: true once the launch shows a screen the person can use (saved Today, sign-in, or the
+     * device status). The activity reports "fully drawn" then, so `measure-performance.sh` can time
+     * cold start to a usable home, not only the first frame.
+     */
+    var launchSettled by mutableStateOf(false); private set
 
     private suspend fun ensureKey(): DeviceSigner = signer ?: withContext(io) { backend.loadSigner() }.also { s ->
         signer = s

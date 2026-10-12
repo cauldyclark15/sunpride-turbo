@@ -99,6 +99,9 @@ fun FieldApp(
     val location = remember(visitLocation) { visitLocation ?: com.sunpride.field.ui.diagnosticvisit.AndroidVisitLocation(context) }
     val offline = com.sunpride.field.ui.syncstatus.rememberOffline()
     val controller = remember(backend) { FieldController(backend ?: UnconfiguredBackend, scope, onKeyLoaded = onKeyLoaded) }
+    // SP-0140: "fully drawn" = the launch reached a usable screen (logcat `Fully drawn`, timed by
+    // scripts/measure-performance.sh); a no-op where the host reports nothing (tests, previews).
+    androidx.activity.compose.ReportDrawnWhen { controller.launchSettled }
     var page by rememberSaveable { mutableStateOf("home") }
     var customerId by rememberSaveable { mutableStateOf<String?>(null) }
     val customer = customerId?.let { id -> controller.today.customers.firstOrNull { it.outletId == id } }

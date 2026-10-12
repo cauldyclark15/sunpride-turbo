@@ -18,7 +18,8 @@ import java.io.File
 class MainActivity : FragmentActivity() {
     // SP-0124: visits, orders, call sheet and photos are product features in every build (beta included);
     // only DEV debug builds add the developer tools. See docs/BETA_FEATURES.md.
-    private val features = FieldFeatures.forBuild(BuildConfig.FLAVOR, BuildConfig.DEBUG, BuildConfig.WEB_URL)
+    private val features = FieldFeatures.forBuild(BuildConfig.FLAVOR, BuildConfig.DEBUG, BuildConfig.WEB_URL,
+        perf = BuildConfig.BUILD_TYPE == "perf")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // SP-0126: the manifest launches on the red logo splash theme; swap to the app theme before the

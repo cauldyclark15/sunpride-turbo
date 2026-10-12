@@ -38,11 +38,17 @@ data class FieldFeatures(val enabled: Set<FieldFeature>, val reportIssueUrl: Str
         /** Visits and their screens hidden: the old non-DEV behaviour, kept for existing tests. */
         val READ_ONLY = FieldFeatures(setOf(FieldFeature.TEAM, FieldFeature.PHONE_KEY_DETAILS))
 
-        /** What a build of [flavor] shows; [webUrl] is the web app the "Report an issue" link opens. */
-        fun forBuild(flavor: String, debug: Boolean, webUrl: String): FieldFeatures {
+        /**
+         * What a build of [flavor] shows; [webUrl] is the web app the "Report an issue" link opens.
+         * SP-0140: the never-shipped `perf` build is the beta list plus [FieldFeature.UNPLANNED_VISITS],
+         * so the release-build smoke can open a visit with a freshly signed-up sample account that
+         * has no approved plan for today yet (a plan cannot start before the person's first day).
+         */
+        fun forBuild(flavor: String, debug: Boolean, webUrl: String, perf: Boolean = false): FieldFeatures {
             val developer = debug && flavor == "dev"
             val enabled = if (developer) FieldFeature.entries.toSet()
-            else FieldFeature.entries.toSet() - DEVELOPER_ONLY - HIDDEN_IN_BETA
+            else FieldFeature.entries.toSet() - DEVELOPER_ONLY - HIDDEN_IN_BETA +
+                (if (perf) setOf(FieldFeature.UNPLANNED_VISITS) else emptySet())
             return FieldFeatures(enabled, reportIssueUrl(webUrl))
         }
 

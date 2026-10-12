@@ -32,6 +32,16 @@ class FieldFeaturesTest {
         assertFalse(FieldFeature.TEAM in FieldFeatures.HIDDEN_IN_BETA)
     }
 
+    /** SP-0140: the never-shipped perf build is the beta list plus unplanned visits (release smoke). */
+    @Test fun perfBuildIsTheBetaListPlusUnplannedVisits() {
+        val perf = FieldFeatures.forBuild("dev", debug = false, webUrl = "", perf = true)
+        assertEquals(FieldFeatures.forBuild("dev", debug = false, webUrl = "").enabled + FieldFeature.UNPLANNED_VISITS,
+            perf.enabled)
+        assertFalse(FieldFeature.DEVELOPER_TOOLS in perf)
+        assertFalse(FieldFeature.PHONE_KEY_DETAILS in perf)
+        assertFalse(FieldFeature.UNPLANNED_VISITS in FieldFeatures.forBuild("beta", debug = false, webUrl = ""))
+    }
+
     @Test fun reportAnIssueOpensTheWebTrackerOrIsHidden() {
         assertEquals("https://sfa.example.ph/issues/new", FieldFeatures.reportIssueUrl("https://sfa.example.ph"))
         assertEquals("https://sfa.example.ph/issues/new", FieldFeatures.reportIssueUrl(" https://sfa.example.ph/ "))
