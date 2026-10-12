@@ -31,6 +31,25 @@ class EncryptedFieldStoreTest {
     @Before fun open() { db = EncryptedFieldDatabase.open(context) }
     @After fun close() { db.close() }
 
+    /** SP-0139: app stores share one open connection; closing a store must not close it (no key re-derivation). */
+    @Test fun appStoresShareOneOpenConnectionThatStoreCloseLeavesOpen() = runBlocking {
+        val shared = EncryptedFieldDatabase.shared(context)
+        val first = EncryptedFieldDatabase.store(context, scope)
+        ready(first)
+        first.enqueue(intent(), 1000)
+        first.close()
+        assertTrue(shared.isOpen)
+        assertSame(shared, EncryptedFieldDatabase.shared(context))
+        val second = EncryptedFieldDatabase.store(context, scope)
+        assertEquals(1, second.history().size)
+        second.close()
+        assertTrue(shared.isOpen)
+        // A store over its own connection still closes it, as tests and clean-up rely on.
+        val own = EncryptedFieldDatabase.open(context)
+        RoomFieldStore(own, scope).apply { history() }.close()
+        assertFalse(own.isOpen)
+    }
+
     private fun callSheet(revision: Long = 1) = CallSheet("outlet-1", revision,
         CallSheetHeader("Account", "Address", null, null, null, null, null, null, null, "SRP"),
         listOf(CallSheetProduct("product-1", "SKU", "Product", "PC", null, "₱10")))

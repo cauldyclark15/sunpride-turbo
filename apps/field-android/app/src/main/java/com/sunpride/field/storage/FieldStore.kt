@@ -193,6 +193,20 @@ object EncryptedFieldDatabase {
             .build()
     }
 
+    private var shared: StoreDatabase? = null
+
+    /**
+     * SP-0139: the app's one long-lived connection. SQLCipher derives the page key from the passphrase on
+     * every open (about half a second on the mid-spec Redmi test phone, ~3 ms per query once open), so
+     * opening per call made each visit action, sync and location ping take seconds and burn battery.
+     * Stores from [store] never close it; rare sign-out/revocation clean-up still uses its own [open].
+     */
+    @Synchronized fun shared(context: Context): StoreDatabase =
+        shared?.takeIf { it.isOpen } ?: open(context).also { shared = it }
+
+    /** A scoped store on the shared connection; its [RoomFieldStore.close] leaves the connection open. */
+    fun store(context: Context, scope: StoreScope) = RoomFieldStore(shared(context), scope, closesDatabase = false)
+
     /** A logout/revocation may happen before a scope is available; hold every local partition. */
     suspend fun holdExisting(context: Context) {
         if (!context.databaseList().contains(PassphraseVault.DB_NAME)) return
@@ -232,9 +246,10 @@ object EncryptedFieldDatabase {
 /** Mirrors the server's LOCATION_POLICY.maxAgeMs. */
 const val PING_MAX_AGE_MS = 7 * 24 * 3_600_000L
 
-class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreScope) : FieldStore {
+class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreScope,
+    private val closesDatabase: Boolean = true) : FieldStore {
     private val dao = db.rows()
-    override fun close() = db.close()
+    override fun close() { if (closesDatabase) db.close() }
     private val a get() = identity.account
     private val d get() = identity.deviceId
     private val s get() = identity.fingerprint
