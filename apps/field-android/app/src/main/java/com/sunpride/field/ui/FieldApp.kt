@@ -167,6 +167,25 @@ fun FieldApp(
         }) { h, t -> h.startDay(t) }
     }
     val requestLocation = { locationLauncher.launch(com.sunpride.field.ui.location.LocationPermissionRequest.permissions()) }
+    // SP-0141: the phone's Back key and the on-screen ‹ take the same one step up; only Today (and the
+    // sign-in / unlock / waiting screens) hand Back to the system, which leaves the app.
+    val backStep = BackNavigation.step(BackState(locked = locked, signedIn = controller.state != EnrollmentState.SignedOut,
+        ready = ready, page = page, visitOpen = controller.diagnostic != null, visitsEnabled = visits,
+        photoCaptureOpen = controller.photoCaptureOpen, activityFormOpen = controller.activityForm != null,
+        orderOpen = controller.orderOpen, orderReview = controller.orderReview, callSheetOpen = controller.callSheetOpen))
+    val goBack: () -> Unit = {
+        when (val step = backStep) {
+            BackStep.ClosePhoto -> controller.closePhotoCapture()
+            BackStep.CloseActivityForm -> controller.closeActivityForm()
+            BackStep.CloseOrderReview -> controller.closeOrderReview()
+            BackStep.CloseOrder -> controller.closeOrder()
+            BackStep.CloseCallSheet -> controller.closeCallSheet()
+            BackStep.CloseVisit -> controller.closeDiagnostic()
+            is BackStep.ToPage -> page = step.page
+            BackStep.Exit -> Unit
+        }
+    }
+    androidx.activity.compose.BackHandler(enabled = backStep != BackStep.Exit, onBack = goBack)
     // Opening the app (or coming back from Settings with permission) restarts a running day's service.
     LaunchedEffect(workDayHost, dayView?.started, dayView?.locationAllowed) {
         if (dayView?.started == true && dayView.locationAllowed) dayAction { h, t -> h.resume(t) }
@@ -179,16 +198,7 @@ fun FieldApp(
                 Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 20.dp),
                     horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     if (controller.diagnostic != null && ready && (page == "home" || page == "route" || page == "customers" || page == "customer")) Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = {
-                            when {
-                                controller.photoCaptureOpen -> controller.closePhotoCapture()
-                                controller.activityForm != null -> controller.closeActivityForm()
-                                controller.orderOpen && controller.orderReview -> controller.closeOrderReview()
-                                controller.orderOpen -> controller.closeOrder()
-                                controller.callSheetOpen -> controller.closeCallSheet()
-                                else -> controller.closeDiagnostic()
-                            }
-                        }, modifier = Modifier.height(48.dp).testTag("visit-back")) {
+                        IconButton(onClick = goBack, modifier = Modifier.height(48.dp).testTag("visit-back")) {
                             Text("‹", style = MaterialTheme.typography.titleLarge)
                         }
                         Text(if (controller.photoCaptureOpen) "Photo" else controller.activityForm?.let {
@@ -197,7 +207,7 @@ fun FieldApp(
                             else if (controller.callSheetOpen) "Call sheet" else "Visit", style = MaterialTheme.typography.titleMedium)
                     } else if (page == "account" || page == "sync" || page == "support" ||
                         (ready && (page == "route" || page == "customers" || page == "customer" || page == "team"))) Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { page = when (page) { "support" -> "account"; "customer" -> "customers"; else -> "home" } },
+                        IconButton(onClick = goBack,
                             modifier = Modifier.height(48.dp).testTag(when (page) {
                                 "sync" -> "sync-back"; "support" -> "support-back"; "route" -> "route-back"
                                 "customers" -> "customers-back"; "customer" -> "customer-back"; "team" -> "team-back"

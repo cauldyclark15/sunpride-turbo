@@ -13,6 +13,7 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import com.sunpride.field.AppEnvironment
 import com.sunpride.field.auth.EnrollmentState
@@ -36,7 +37,8 @@ class DiagnosticVisitTest {
     private fun scoped(): RoomFieldStore = EncryptedFieldDatabase.store(context, identity)
     private inner class Backend(private val plans: List<VisitDisplay> = listOf(
         VisitDisplay("Test outlet", "Planned", "Scheduled", "outlet-1", "planned-1")),
-        private val unplanned: List<VisitDisplay> = emptyList()) : FieldBackend {
+        private val unplanned: List<VisitDisplay> = emptyList(),
+        private val customers: List<com.sunpride.field.ui.customers.CustomerRecord> = emptyList()) : FieldBackend {
         override val isSignedIn = true
         override val cachedDeviceId = identity.deviceId
         override fun loadSigner(): DeviceSigner = KeystoreDeviceKey.loadOrCreate(context, alias)
@@ -46,6 +48,7 @@ class DiagnosticVisitTest {
         override fun today(deviceId: String, signer: DeviceSigner, sync: Boolean) = TodayData(
             plans,
             stale = true, queuedCount = visitStates().count { it.second == "pending" }, unplannedOutlets = unplanned,
+            customers = customers,
             syncStatus = com.sunpride.field.ui.syncstatus.SyncStatus(queued = visitStates().count { it.second == "pending" }))
         override fun visitStates(): List<Pair<IntentRow, String>> {
             val store = scoped()
@@ -146,6 +149,49 @@ class DiagnosticVisitTest {
             } } finally { store.close() }
         }
     }
+    // SP-0141: the phone's Back key walks the same steps as the on-screen ‹ and never closes the app mid-visit.
+    @Test fun phoneBackStepsFromCallSheetToVisitCustomerCustomersAndToday() {
+        val sheet = CallSheet("outlet-1", 1, CallSheetHeader("Test account", "Sample address", "Buyer",
+            "Contact", "Account lead", null, "Distributor", "Tuesday", null, "SRP"),
+            listOf(CallSheetProduct("product-1", "SKU-1", "Test product", "PC", null, "₱10")))
+        val store = scoped()
+        runBlocking {
+            store.swap(store.stage(ScopedSnapshot("{\"id\":\"test\"}", null, emptyList(), emptyList(),
+                emptyList(), emptyList(), listOf(sheet))), "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
+        }
+        store.close()
+        val plan = VisitDisplay("Test outlet", "Planned", "Scheduled", "outlet-1", "planned-1")
+        val backend = Backend(customers = listOf(com.sunpride.field.ui.customers.CustomerRecord("outlet-1", "Test outlet",
+            "OUT-1", today = plan)))
+        backend.queueVisit("visit.checkIn", null, null, null, "planned-1", "outlet-1", emptyList(), null, null, null, null, null)
+        val location = object : VisitLocation {
+            override val requiresPermission = false
+            override suspend fun fix(): JSONObject? = null
+        }
+        rule.setContent { FieldApp(AppEnvironment("https://team.convex.site", "https://team.convex.cloud"),
+            dark = false, debug = true, backend = backend, visitLocation = location) }
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("customers-open").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("customers-open").performScrollTo().performClick()
+        rule.onNodeWithTag("customer-result").performClick()
+        rule.onNodeWithTag("customer-visit").performScrollTo().performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("call-sheet-open").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("call-sheet-open").performScrollTo().performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("call-sheet-products").fetchSemanticsNodes().isNotEmpty() }
+        androidx.test.espresso.Espresso.pressBack() // call sheet -> visit
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("call-sheet-open").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("call-sheet-products").assertDoesNotExist()
+        rule.onNodeWithTag("visit-back").assertIsDisplayed()
+        androidx.test.espresso.Espresso.pressBack() // visit -> customer
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("customer-title").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("visit-back").assertDoesNotExist()
+        androidx.test.espresso.Espresso.pressBack() // customer -> customers
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("customers-title").fetchSemanticsNodes().isNotEmpty() }
+        androidx.test.espresso.Espresso.pressBack() // customers -> Today
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("today-title").fetchSemanticsNodes().isNotEmpty() }
+        // Nothing was lost on the way out: the check-in is still the only queued work.
+        assertEquals(listOf("visit.checkIn"), backend.visitStates().map { it.first.kind })
+    }
+
     @Test fun enterAndSaveCallSheetOfflineAndSaveAgain() {
         val sheet = CallSheet("outlet-1", 1, CallSheetHeader("Test account", "Sample address", "Buyer",
             "Contact", "Account lead", null, "Distributor", "Tuesday", null, "SRP"),
@@ -178,7 +224,7 @@ class DiagnosticVisitTest {
         rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("call-sheet-product-1-order").assertIsEnabled() }.isSuccess }
         rule.onNodeWithTag("call-sheet-product-1-order").performTextInput("24")
         rule.onNodeWithTag("call-sheet-product-1-beginningInventory").performTextInput("0")
-        androidx.test.espresso.Espresso.pressBack()
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
         rule.onNodeWithTag("call-sheet-save").assertIsEnabled().performClick()
         rule.waitUntil(10_000) { backend.visitStates().count { it.first.kind == "visit.activity" } == 1 }
         rule.onNodeWithTag("call-sheet-products").performScrollToNode(hasTestTag("call-sheet-status"))
@@ -197,7 +243,7 @@ class DiagnosticVisitTest {
         // Inputs re-enable once the save finishes re-reading the call (busy covers the whole save).
         rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("call-sheet-product-1-order").assertIsEnabled() }.isSuccess }
         rule.onNodeWithTag("call-sheet-product-1-order").performTextInput("5")
-        androidx.test.espresso.Espresso.pressBack()
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
         rule.onNodeWithTag("call-sheet-save").performClick()
         rule.waitUntil(10_000) { backend.visitStates().count { it.first.kind == "visit.activity" } == 2 }
     }
@@ -248,7 +294,7 @@ class DiagnosticVisitTest {
         assertEquals(listOf("visit.checkIn"), backend.visitStates().map { it.first.kind })
         rule.onNodeWithTag("call-sheet-product-1-order").performTextClearance()
         rule.onNodeWithTag("call-sheet-product-1-order").performTextInput("6")
-        androidx.test.espresso.Espresso.pressBack()
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
         assertEquals(listOf("visit.checkIn"), backend.visitStates().map { it.first.kind })
         rule.onNodeWithTag("call-sheet-save").assertIsEnabled().performClick()
         rule.waitUntil(10_000) { backend.visitStates().count { it.first.kind == "visit.activity" } == 1 }
@@ -291,11 +337,11 @@ class DiagnosticVisitTest {
         com.sunpride.field.captureCalmScreenshot("light-order-new")
         rule.onNodeWithTag("order-search").performTextInput("corned")
         rule.waitUntil(5_000) { rule.onAllNodesWithTag("order-qty-product-1").fetchSemanticsNodes().isEmpty() }
-        androidx.test.espresso.Espresso.pressBack() // hide the keyboard so the list stops relaying out
+        androidx.test.espresso.Espresso.closeSoftKeyboard() // hide the keyboard so the list stops relaying out
         rule.waitForIdle()
         rule.onNodeWithTag("order-products").performScrollToNode(hasTestTag("order-qty-product-2"))
         rule.onNodeWithTag("order-qty-product-2").performTextInput("12")
-        androidx.test.espresso.Espresso.pressBack()
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
         rule.onNodeWithTag("order-count").assertTextContains("1 of 2 products", substring = true)
         rule.onNodeWithTag("order-save").assertIsEnabled().performClick()
         rule.waitUntil(10_000) { backend.orderDrafts().size == 1 }
@@ -319,7 +365,7 @@ class DiagnosticVisitTest {
         rule.onNodeWithTag("order-title").assertTextContains("Order draft")
         rule.onNodeWithTag("order-products").performScrollToNode(hasTestTag("order-qty-product-1"))
         rule.onNodeWithTag("order-qty-product-1").performTextInput("3")
-        androidx.test.espresso.Espresso.pressBack()
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
         rule.onNodeWithTag("order-save").performClick()
         rule.waitUntil(10_000) { backend.orderDrafts().single().lines.size == 2 }
         assertEquals(draft.draftId, backend.orderDrafts().single().draftId)
@@ -526,7 +572,7 @@ class DiagnosticVisitTest {
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("unplanned-open").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithTag("unplanned-open").performScrollTo().performClick()
         rule.onNodeWithTag("unplanned-reason").performScrollTo().performTextInput("Buyer called")
-        androidx.test.espresso.Espresso.pressBack()
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
         rule.onNodeWithTag("diagnostic-checkin").assertIsNotEnabled() // no purpose chosen yet
         rule.onNodeWithTag("intent-merchandise").performScrollTo().performClick()
         rule.onNodeWithTag("intent-complaint").performScrollTo().performClick()
@@ -552,7 +598,7 @@ class DiagnosticVisitTest {
         }.isSuccess }
         rule.onNodeWithTag("activity-display-needs_action").performScrollTo().performClick()
         rule.onNodeWithTag("activity-text").performScrollTo().performTextInput("Re-faced shelf")
-        androidx.test.espresso.Espresso.pressBack()
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
         rule.onNodeWithTag("activity-save").assertIsEnabled().performClick()
         rule.waitUntil(10_000) { backend.visitStates().size == 2 }
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-note").fetchSemanticsNodes().isNotEmpty() }
@@ -623,7 +669,7 @@ class DiagnosticVisitTest {
         rule.onNodeWithTag("diagnostic-outcome").performClick() // nonproductive
         rule.onNodeWithTag("diagnostic-checkout").assertIsNotEnabled()
         rule.onNodeWithTag("diagnostic-reason").performScrollTo().performTextInput("other")
-        androidx.test.espresso.Espresso.pressBack()
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
         rule.onNodeWithTag("diagnostic-checkout").performClick()
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-confirm-end").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithTag("end-review-outcome").performScrollTo().assertTextContains("Not productive · other", substring = true)
@@ -680,7 +726,7 @@ class DiagnosticVisitTest {
         rule.onNodeWithTag("diagnostic-note").performTextInput("Stock checked")
         rule.onNodeWithTag("diagnostic-add-note").performClick()
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-operation").fetchSemanticsNodes().size == 2 }
-        androidx.test.espresso.Espresso.pressBack()
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
         rule.waitForIdle()
         Thread.sleep(350)
         com.sunpride.field.captureCalmScreenshot("${if (dark) "dark" else "light"}-visit-queued-top")
