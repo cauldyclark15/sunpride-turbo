@@ -43,4 +43,11 @@ DEST="$OUT_ROOT/$VERSION"
 mkdir -p "$DEST"
 cp "$APK" "$DEST/sunpride-field-$VERSION.apk"
 (cd "$DEST" && shasum -a 256 "sunpride-field-$VERSION.apk" > "sunpride-field-$VERSION.apk.sha256")
+# SP-0140: the release build is shrunk/obfuscated by R8; keep its mapping (gzipped, OUTSIDE the
+# folder testers download) so crash stack traces can be read back. Never shipped to phones.
+MAPPING="$PROJECT/app/build/outputs/mapping/betaRelease/mapping.txt"
+if [[ -f "$MAPPING" ]]; then
+  mkdir -p "$OUT_ROOT/mappings"
+  gzip -c "$MAPPING" > "$OUT_ROOT/mappings/sunpride-field-$VERSION-mapping.txt.gz"
+fi
 printf 'Beta APK %s\n  %s\n' "$VERSION" "$DEST/sunpride-field-$VERSION.apk"

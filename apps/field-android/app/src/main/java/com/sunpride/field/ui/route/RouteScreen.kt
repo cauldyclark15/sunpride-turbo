@@ -89,7 +89,7 @@ fun RouteScreen(
     }
     // Never prompt on open: distance is a convenience. Use a fix silently when already allowed.
     LaunchedEffect(Unit) { if (permitted()) locate() }
-    val route = DailyRoutes.build(data.visits, position)
+    val route = remember(data.visits, position) { DailyRoutes.build(data.visits, position) }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())
         .padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(listOfNotNull(

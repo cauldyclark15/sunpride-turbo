@@ -42,6 +42,20 @@ class SyncWorkTest {
         WorkManager.getInstance(context).cancelUniqueWork(SyncWork.NAME).result.get(10, TimeUnit.SECONDS)
     }
 
+    /** SP-0140: offline, every new visit row asks for a sync; only one run may wait for the network. */
+    @Test fun repeatedOfflineAsksKeepOneQueuedRun() {
+        WorkManagerTestInitHelper.initializeTestWorkManager(context,
+            Configuration.Builder().setMinimumLoggingLevel(Log.ERROR).build())
+        val manager = WorkManager.getInstance(context)
+        try {
+            repeat(12) { SyncWork.enqueue(context) }
+            val infos = manager.getWorkInfosForUniqueWork(SyncWork.NAME).get(10, TimeUnit.SECONDS)
+            assertEquals(1, infos.count { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.BLOCKED })
+        } finally {
+            manager.cancelUniqueWork(SyncWork.NAME).result.get(10, TimeUnit.SECONDS)
+        }
+    }
+
     // Isolated worker uses a test delegate; no real account, network or credentials.
     @Test fun workerReturnsSuccessRetryAndPropagatesStop() = runBlocking {
         val worker = TestListenableWorkerBuilder<VisitSyncWorker>(context).build()

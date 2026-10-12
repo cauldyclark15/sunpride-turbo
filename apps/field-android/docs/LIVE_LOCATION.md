@@ -31,6 +31,11 @@ The field app shares the salesperson's position with the office live map (SP-013
 - **Ongoing notification** "Sunpride is sharing your location for work" for the whole time the
   foreground service (type `location`) runs. It cannot be swiped away while sharing.
 
+- **Battery guide** (SP-0140, once per phone after Start day, and from the Today card's "Keep sharing
+  on all day" while Android still restricts the app): cheap phones' battery savers (Xiaomi first)
+  stop location apps mid-day. It opens the brand's battery page ("No restrictions") and Autostart
+  list. See `docs/PERFORMANCE.md`.
+
 Denied permission: the app keeps working; the card offers "Allow location" (second tap opens the
 app's Settings page). The office map shows the person with no recent position.
 

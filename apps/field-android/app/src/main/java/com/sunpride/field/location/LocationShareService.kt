@@ -23,10 +23,8 @@ import androidx.core.content.ContextCompat
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
-import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
@@ -268,11 +266,13 @@ class LocationShareService : Service() {
 object LocationUploadWork {
     const val NAME = "field-location-upload"
     fun enqueue(context: Context) {
-        WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(NAME, ExistingWorkPolicy.APPEND_OR_REPLACE,
+        // SP-0140: offline, one queued upload carries every buffered ping (no chain of wake-ups).
+        com.sunpride.field.sync.work.CoalescedWork.enqueue(context, NAME) {
             OneTimeWorkRequestBuilder<LocationUploadWorker>()
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
-                .build())
+                .build()
+        }
     }
 }
 

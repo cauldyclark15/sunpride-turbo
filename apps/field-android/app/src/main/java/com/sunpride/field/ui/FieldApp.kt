@@ -90,6 +90,8 @@ fun FieldApp(
     features: FieldFeatures = if (debug) FieldFeatures.ALL else FieldFeatures.READ_ONLY,
     // SP-0128: fingerprint/face sign-in; null where the host has no FragmentActivity (tests, previews).
     biometrics: BiometricGate? = null,
+    // SP-0140: the one-time battery/autostart guide for location sharing; null in tests that don't cover it.
+    batteryGuide: com.sunpride.field.location.BatteryGuideHost? = null,
 ) {
     val visits = FieldFeature.VISITS in features
     val scope = rememberCoroutineScope()
@@ -128,6 +130,9 @@ fun FieldApp(
     }
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { delay(1_000); now = System.currentTimeMillis() } }
+    // SP-0140: list screens only need minute precision; re-rendering every outlet row each second costs
+    // CPU and battery on an entry-level phone. The sync pill keeps the 1-second clock.
+    val minuteNow by remember { androidx.compose.runtime.derivedStateOf { now / 60_000 * 60_000 } }
     val ready = controller.state is EnrollmentState.Ready
     val status = controller.today.syncStatus.copy(offline = offline)
     // SP-0136 live map: the work day that bounds location sharing (consent, Start/End day, indicator).
@@ -144,6 +149,32 @@ fun FieldApp(
         }
     }
     val dayView = dayState.takeIf { ready }
+    // SP-0140: the phone's battery restriction, re-read with the day state (and after returning from Settings).
+    var guideView by remember { mutableStateOf<com.sunpride.field.location.BatteryGuideView?>(null) }
+    var resumes by remember { mutableStateOf(0) }
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) resumes++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(batteryGuide, ready, dayRefresh, dayState, page, resumes) {
+        guideView = if (!ready || batteryGuide == null) null else runCatching {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { batteryGuide.view() }
+        }.getOrNull()
+    }
+    /** After location is set up: the battery guide once per phone where it matters, else home. */
+    fun afterLocationSetup() {
+        val guide = batteryGuide ?: run { page = "home"; return }
+        scope.launch {
+            val show = runCatching {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { guide.shouldShow() }
+            }.getOrDefault(false)
+            page = if (show) "location-battery" else "home"
+        }
+    }
     var dayBusy by remember { mutableStateOf(false) }
     var askedLocation by rememberSaveable { mutableStateOf(false) }
     fun dayAction(after: () -> Unit = {}, block: (com.sunpride.field.location.WorkDayHost, Long) -> Unit) {
@@ -156,14 +187,15 @@ fun FieldApp(
         }
     }
     val backgroundLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { page = "home"; dayAction { h, t -> h.resume(t) } }
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { afterLocationSetup(); dayAction { h, t -> h.resume(t) } }
     val locationLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()) {
         askedLocation = true
         // The day starts either way: without permission the card and indicator say "Location off".
         dayAction(after = {
             val perms = com.sunpride.field.location.LocationShare.permissions(context)
-            page = if (perms.location && !perms.background && Build.VERSION.SDK_INT >= 29) "location-background" else "home"
+            if (perms.location && !perms.background && Build.VERSION.SDK_INT >= 29) page = "location-background"
+            else if (perms.location) afterLocationSetup() else page = "home"
         }) { h, t -> h.startDay(t) }
     }
     val requestLocation = { locationLauncher.launch(com.sunpride.field.ui.location.LocationPermissionRequest.permissions()) }
@@ -251,7 +283,16 @@ fun FieldApp(
                     onDecline = { page = "home" }, modifier = modifier)
                 ready && page == "location-background" -> com.sunpride.field.ui.location.BackgroundLocationScreen(
                     onOpenSettings = { backgroundLauncher.launch(android.Manifest.permission.ACCESS_BACKGROUND_LOCATION) },
-                    onSkip = { page = "home" }, modifier = modifier)
+                    onSkip = { afterLocationSetup() }, modifier = modifier)
+                ready && page == "location-battery" && batteryGuide != null && guideView != null -> {
+                    LaunchedEffect(Unit) {
+                        runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { batteryGuide.markShown() } }
+                    }
+                    com.sunpride.field.ui.location.BatteryGuideScreen(guideView!!,
+                        onBattery = { batteryGuide.openBattery(context) },
+                        onAutostart = { batteryGuide.openAutostart(context) },
+                        onDone = { page = "home" }, modifier = modifier)
+                }
                 ready && page == "sync" -> SyncDetails(status, onDismiss = { page = "home" },
                     onSync = controller::syncNow, busy = controller.busy, modifier = modifier)
                 controller.diagnostic != null && visits && ready && controller.photoCaptureOpen ->
@@ -271,16 +312,16 @@ fun FieldApp(
                     onNavigate = { uri -> openMaps(context, uri) }, modifier = modifier,
                     onVisit = controller::openDiagnostic, visitEnabled = visits, offline = offline)
                 ready && page == "customers" -> com.sunpride.field.ui.customers.CustomerSearchScreen(controller.today,
-                    onOpen = { id -> customerId = id; page = "customer" }, modifier = modifier, offline = offline, now = now)
+                    onOpen = { id -> customerId = id; page = "customer" }, modifier = modifier, offline = offline, now = minuteNow)
                 ready && page == "customer" && customer != null -> com.sunpride.field.ui.customers.CustomerDetailScreen(
                     customer, controller.today, onNavigate = { uri -> openMaps(context, uri) },
                     onDial = { uri -> openDialer(context, uri) }, modifier = modifier,
-                    onVisit = controller::openDiagnostic, visitEnabled = visits, now = now,
+                    onVisit = controller::openDiagnostic, visitEnabled = visits, now = minuteNow,
                     unplannedEnabled = FieldFeature.UNPLANNED_VISITS in features)
                 ready && page == "customer" -> com.sunpride.field.ui.customers.CustomerSearchScreen(controller.today,
-                    onOpen = { id -> customerId = id; page = "customer" }, modifier = modifier, offline = offline, now = now)
+                    onOpen = { id -> customerId = id; page = "customer" }, modifier = modifier, offline = offline, now = minuteNow)
                 ready && page == "team" -> com.sunpride.field.ui.team.TeamScreen(controller.team,
-                    controller.teamDirectOnly, controller.teamLoading, now,
+                    controller.teamDirectOnly, controller.teamLoading, minuteNow,
                     onFilter = { controller.loadTeam(it) }, onRefresh = { controller.loadTeam() }, modifier = modifier)
                 ready -> TodayScreen(controller.today, controller.busy,
                     onSync = controller::syncNow, onSignOut = signOut,
@@ -294,9 +335,12 @@ fun FieldApp(
                                 when {
                                     !view.consented -> page = "location-consent"
                                     !view.locationAllowed -> requestLocation()
-                                    else -> dayAction { h, t -> h.startDay(t) }
+                                    else -> dayAction(after = { afterLocationSetup() }) { h, t -> h.startDay(t) }
                                 }
                             },
+                            onKeepSharing = guideView?.takeIf {
+                                com.sunpride.field.location.BatteryGuideRules.offerAgain(view.sharing, it.unrestricted)
+                            }?.let { { page = "location-battery" } },
                             onEnd = { dayAction { h, t -> h.endDay(t) } },
                             onAllowLocation = {
                                 if (!askedLocation) requestLocation()
@@ -451,12 +495,12 @@ fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: (
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         workDay?.invoke()
-        val summary = com.sunpride.field.ui.today.TodaySummary.of(data)
+        val summary = remember(data) { com.sunpride.field.ui.today.TodaySummary.of(data) }
         if (summary.planned > 0) com.sunpride.field.ui.today.CallProgressCard(summary)
         if (summary.planned > 0) com.sunpride.field.ui.today.NextStoreCard(summary,
             onOpen = if (diagnosticEnabled) onVisit else null)
         if (onRoute != null && data.visits.isNotEmpty()) SectionCard("Route") {
-            val next = com.sunpride.field.ui.route.DailyRoutes.build(data.visits, null).next
+            val next = remember(data.visits) { com.sunpride.field.ui.route.DailyRoutes.build(data.visits, null).next }
             ListRow(next?.let { "Next: ${it.visit.outlet}" } ?: "All stops done",
                 "${data.visits.size} stops · distance and directions", "route", Modifier.testTag("route-open"),
                 onClick = onRoute)

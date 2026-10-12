@@ -63,7 +63,9 @@ fun LocationIndicator(view: WorkDayView, modifier: Modifier = Modifier) {
 
 @Composable
 fun WorkDayCard(view: WorkDayView, busy: Boolean, onStart: () -> Unit, onEnd: () -> Unit,
-    onAllowLocation: () -> Unit, modifier: Modifier = Modifier) {
+    onAllowLocation: () -> Unit, modifier: Modifier = Modifier,
+    /** SP-0140: shown while sharing and the phone's battery saver can still stop it. */
+    onKeepSharing: (() -> Unit)? = null) {
     if (!view.available) return
     SectionCard("Work day", modifier.testTag("work-day")) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -75,6 +77,8 @@ fun WorkDayCard(view: WorkDayView, busy: Boolean, onStart: () -> Unit, onEnd: ()
                 view.started -> {
                     if (!view.locationAllowed) SecondaryButton("Allow location", onAllowLocation,
                         Modifier.fillMaxWidth().testTag("work-day-allow"), !busy)
+                    if (onKeepSharing != null) SecondaryButton("Keep sharing on all day", onKeepSharing,
+                        Modifier.fillMaxWidth().testTag("work-day-battery"), !busy)
                     SecondaryButton("End day", onEnd, Modifier.fillMaxWidth().testTag("work-day-end"), !busy)
                 }
                 else -> PrimaryBottomButton("Start day", onStart, Modifier.testTag("work-day-start"),
@@ -142,5 +146,49 @@ fun BackgroundLocationScreen(onOpenSettings: () -> Unit, onSkip: () -> Unit, mod
         SecondaryButton("Not now", onSkip, Modifier.fillMaxWidth().testTag("location-background-skip"))
         Spacer(Modifier.height(8.dp))
         PrimaryBottomButton("Open settings", onOpenSettings, Modifier.testTag("location-background-settings"))
+    }
+}
+
+/**
+ * SP-0140: one-time guide (also reachable from the Today card while the phone still restricts the
+ * app) so cheap phones' battery savers do not stop location sharing in the middle of the day.
+ */
+@Composable
+fun BatteryGuideScreen(view: com.sunpride.field.location.BatteryGuideView, onBattery: () -> Unit,
+    onAutostart: () -> Unit, onDone: () -> Unit, modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text("Keep sharing on all day", style = MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.testTag("battery-guide-title"))
+            Text("Phones like yours close apps to save battery. That can stop location sharing in the middle " +
+                "of your day without telling you. Change these settings once and sharing keeps running until End day.",
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            SectionCard("1. Battery", Modifier.testTag("battery-guide-battery-step")) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(view.batteryStep, style = MaterialTheme.typography.bodyMedium)
+                    Text(if (view.unrestricted) "Done — this phone no longer restricts Sunpride Field"
+                        else "Not set yet", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.testTag("battery-guide-battery-state"))
+                    SecondaryButton("Open battery settings", onBattery,
+                        Modifier.fillMaxWidth().testTag("battery-guide-battery"))
+                }
+            }
+            if (view.autostart) SectionCard("2. Autostart", Modifier.testTag("battery-guide-autostart-step")) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(view.autostartStep, style = MaterialTheme.typography.bodyMedium)
+                    Text("Lets the phone restart sharing if it closed the app.", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    SecondaryButton("Open autostart settings", onAutostart,
+                        Modifier.fillMaxWidth().testTag("battery-guide-autostart"))
+                }
+            }
+            Text("Battery use stays low: the app checks your position about once a minute and sends it in batches. " +
+                "Nothing is shared outside your work day.", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Spacer(Modifier.height(12.dp))
+        PrimaryBottomButton("Done", onDone, Modifier.testTag("battery-guide-done"))
     }
 }

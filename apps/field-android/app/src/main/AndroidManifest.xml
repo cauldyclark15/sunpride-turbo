@@ -11,6 +11,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- SP-0140: the one-time battery guide asks Android to stop restricting the app, so cheap phones'
+         battery savers (Xiaomi first) do not stop work-day location sharing. Side-loaded work app. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- AND-016 visit photos. Optional hardware: the rest of the app works on a phone without a camera. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />

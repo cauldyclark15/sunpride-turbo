@@ -80,7 +80,25 @@ android {
     // Only betaRelease takes the beta key (the debug build type keeps the debug key).
     productFlavors.getByName("beta").signingConfig = signingConfigs.findByName("beta")
     buildTypes {
-        release { isMinifyEnabled = false }
+        // SP-0140: release builds (beta APKs, perf) are shrunk for cheap phones: R8 full mode
+        // (code shrink + optimise), unused resources removed, and only the ARM libraries phones use
+        // (x86 is emulator-only and was ~13 MB of SQLCipher). Debug builds and device tests are unchanged.
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
+        }
+        // SP-0140: the release build, debug-signed under its own package (`<app>.perf`) so
+        // `scripts/measure-performance.sh` can measure it on the reference phone without
+        // replacing the installed dev app. Never shipped.
+        create("perf") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".perf"
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+            resValue("string", "app_name", "Sunpride Field (Perf)")
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

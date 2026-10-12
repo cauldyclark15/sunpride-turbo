@@ -1,6 +1,8 @@
 package com.sunpride.field.ui.customers
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -28,6 +30,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.sunpride.field.ui.LabeledField
 import com.sunpride.field.ui.ListRow
+import com.sunpride.field.ui.lazySectionCard
 import com.sunpride.field.ui.SecondaryButton
 import com.sunpride.field.ui.SectionCard
 import com.sunpride.field.ui.TodayData
@@ -43,33 +46,39 @@ fun CustomerSearchScreen(data: TodayData, onOpen: (String) -> Unit, modifier: Mo
     offline: Boolean = false, now: Long = System.currentTimeMillis()) {
     var query by rememberSaveable { mutableStateOf("") }
     val results = remember(data.customers, query) { CustomerDirectory.search(data.customers, query) }
-    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())
-        .padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        LabeledField("Search name, code or address", query, { query = it.take(80) },
-            Modifier.fillMaxWidth().testTag("customer-search"),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search))
-        Text(listOfNotNull(
-            when {
-                data.customers.isEmpty() -> "No outlets on this phone"
-                query.isBlank() -> "${data.customers.size} outlets"
-                else -> "${results.size} of ${data.customers.size} outlets"
-            },
-            "Saved on this phone".takeIf { offline || data.stale },
-        ).joinToString(" · "), style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("customer-count"))
+    // SP-0140: a lazy list, so a scope with hundreds of outlets composes only the rows on screen.
+    LazyColumn(modifier.fillMaxSize().testTag("customer-list"),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 32.dp)) {
+        item(key = "search") {
+            LabeledField("Search name, code or address", query, { query = it.take(80) },
+                Modifier.fillMaxWidth().padding(bottom = 12.dp).testTag("customer-search"),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search))
+        }
+        item(key = "count") {
+            Text(listOfNotNull(
+                when {
+                    data.customers.isEmpty() -> "No outlets on this phone"
+                    query.isBlank() -> "${data.customers.size} outlets"
+                    else -> "${results.size} of ${data.customers.size} outlets"
+                },
+                "Saved on this phone".takeIf { offline || data.stale },
+            ).joinToString(" · "), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 12.dp).testTag("customer-count"))
+        }
         when {
-            data.customers.isEmpty() -> Text("Sync to download the outlets on your plan",
-                style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("customer-empty"))
-            results.isEmpty() -> Text("No outlet matches \"${query.trim()}\". Only outlets on your plan are on this phone.",
-                style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("customer-no-match"))
-            else -> SectionCard("Outlets") {
-                results.forEach { record ->
-                    ListRow(record.name, resultMeta(record, now), "store",
-                        Modifier.testTag("customer-result"), onClick = { onOpen(record.outletId) })
-                }
+            data.customers.isEmpty() -> item(key = "empty") {
+                Text("Sync to download the outlets on your plan",
+                    style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("customer-empty"))
+            }
+            results.isEmpty() -> item(key = "no-match") {
+                Text("No outlet matches \"${query.trim()}\". Only outlets on your plan are on this phone.",
+                    style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("customer-no-match"))
+            }
+            else -> lazySectionCard("Outlets", results, key = { it.outletId }) { record ->
+                ListRow(record.name, resultMeta(record, now), "store",
+                    Modifier.testTag("customer-result"), onClick = { onOpen(record.outletId) })
             }
         }
-        Spacer(Modifier.height(16.dp))
     }
 }
 

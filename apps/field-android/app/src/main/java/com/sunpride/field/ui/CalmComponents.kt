@@ -25,6 +25,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.foundation.background
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.StrokeCap
@@ -78,6 +82,56 @@ fun SectionCard(label: String, modifier: Modifier = Modifier, content: @Composab
             content()
         }
     }
+}
+
+/**
+ * SP-0140: [SectionCard] for long lists inside a LazyColumn. The card is drawn in slices (header,
+ * one slice per row, closing slice), so only the rows on screen are composed while it looks the
+ * same as a [SectionCard]. Each row gets a stable [key] so scrolling and filtering reuse rows.
+ */
+fun <T> androidx.compose.foundation.lazy.LazyListScope.lazySectionCard(label: String, items: List<T>,
+    key: (T) -> Any, headerModifier: Modifier = Modifier, row: @Composable (T) -> Unit) {
+    item(key = "section-header:$label") {
+        Column(headerModifier.fillMaxWidth().cardSlice(CardSlice.TOP)) {
+            Text(label.uppercase(), style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.22f))
+        }
+    }
+    items(items.size, key = { key(items[it]) }) { index ->
+        Box(Modifier.fillMaxWidth().cardSlice(if (index == items.lastIndex) CardSlice.BOTTOM else CardSlice.MIDDLE)) {
+            row(items[index])
+        }
+    }
+}
+
+private enum class CardSlice { TOP, MIDDLE, BOTTOM }
+
+/** Fill + 1dp outline of one slice: the outline's edges that belong to a neighbouring slice are clipped off. */
+@Composable
+private fun Modifier.cardSlice(slice: CardSlice): Modifier {
+    val fill = MaterialTheme.colorScheme.surface
+    val line = MaterialTheme.colorScheme.outline.copy(alpha = 0.28f)
+    val radius = 16.dp
+    val shape = when (slice) {
+        CardSlice.TOP -> androidx.compose.foundation.shape.RoundedCornerShape(topStart = radius, topEnd = radius)
+        CardSlice.MIDDLE -> androidx.compose.ui.graphics.RectangleShape
+        CardSlice.BOTTOM -> androidx.compose.foundation.shape.RoundedCornerShape(bottomStart = radius, bottomEnd = radius)
+    }
+    return this
+        .clip(shape)
+        .background(fill)
+        .drawWithContent {
+            drawContent() // the outline sits on top of the rows, as Surface's border does in SectionCard
+            val stroke = 1.dp.toPx()
+            val r = radius.toPx()
+            // Draw the whole card outline, shifted so only this slice's part falls inside its bounds.
+            val top = if (slice == CardSlice.TOP) stroke / 2 else -2 * r
+            val bottom = if (slice == CardSlice.BOTTOM) size.height - stroke / 2 else size.height + 2 * r
+            drawRoundRect(line, topLeft = Offset(stroke / 2, top), size = Size(size.width - stroke, bottom - top),
+                cornerRadius = CornerRadius(r - stroke / 2), style = Stroke(stroke))
+        }
 }
 
 // No Compose material-icons artifact is on this module's compile classpath. Use Android's

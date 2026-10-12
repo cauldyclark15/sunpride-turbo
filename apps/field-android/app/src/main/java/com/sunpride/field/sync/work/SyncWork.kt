@@ -8,7 +8,6 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.sunpride.field.AppEnvironment
 import com.sunpride.field.BuildConfig
@@ -30,7 +29,8 @@ object SyncWork {
     fun enqueue(context: Context) {
         // APPEND_OR_REPLACE ensures a wake-up after an already-running flight finishes;
         // KEEP could discard the only wake-up for a row committed during that flight.
-        WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(NAME, policy, request())
+        // SP-0140: but never more than one queued run behind it (CoalescedWork).
+        CoalescedWork.enqueue(context, NAME, ::request)
     }
 }
 

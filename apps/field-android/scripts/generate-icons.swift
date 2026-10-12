@@ -39,17 +39,30 @@ func write(_ image: CGImage, _ path: URL) {
     print("\(image.width)x\(image.height) \(path.path.replacingOccurrences(of: repo.path + "/", with: ""))")
 }
 
+// SP-0140: in-app bitmaps ship as LOSSLESS WebP (same pixels, ~40% smaller). Needs `cwebp`
+// (`brew install webp`); the PNG is removed so Android never sees two copies of one resource.
+func writeWebP(_ image: CGImage, _ path: URL) {
+    let png = path.deletingPathExtension().appendingPathExtension("png")
+    write(image, png)
+    let task = Process()
+    task.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    task.arguments = ["cwebp", "-quiet", "-lossless", "-z", "9", "-m", "6", png.path, "-o", path.path]
+    try! task.run(); task.waitUntilExit()
+    guard task.terminationStatus == 0 else { fatalError("cwebp failed for \(png.path); install it with brew install webp") }
+    try! FileManager.default.removeItem(at: png)
+}
+
 // density → scale factor against mdpi (1dp = 1px).
 let densities: [(String, Double)] = [("mdpi", 1), ("hdpi", 1.5), ("xhdpi", 2), ("xxhdpi", 3), ("xxxhdpi", 4)]
 for (name, scale) in densities {
     // Legacy launcher icons: 48dp, square and round.
     let legacy = Int(48 * scale)
-    write(render(legacy), res.appendingPathComponent("mipmap-\(name)/ic_launcher.png"))
-    write(render(legacy, round: true), res.appendingPathComponent("mipmap-\(name)/ic_launcher_round.png"))
+    writeWebP(render(legacy), res.appendingPathComponent("mipmap-\(name)/ic_launcher.webp"))
+    writeWebP(render(legacy, round: true), res.appendingPathComponent("mipmap-\(name)/ic_launcher_round.webp"))
     // Adaptive-icon/splash logo layer: 72dp, i.e. the visible viewport of the 108dp adaptive canvas.
-    write(render(Int(72 * scale)), res.appendingPathComponent("drawable-\(name)/sunpride_logo_icon.png"))
+    writeWebP(render(Int(72 * scale)), res.appendingPathComponent("drawable-\(name)/sunpride_logo_icon.webp"))
 }
 // Sign-in screen logo (shown at up to 120dp; 480px covers xxxhdpi).
-write(render(480), res.appendingPathComponent("drawable-nodpi/sunpride_logo.png"))
-// Store / listing icon.
+writeWebP(render(480), res.appendingPathComponent("drawable-nodpi/sunpride_logo.webp"))
+// Store / listing icon (not packaged into the app; stores expect PNG).
 write(render(512), repo.appendingPathComponent("apps/field-android/app/src/main/ic_launcher-playstore.png"))

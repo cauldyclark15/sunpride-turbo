@@ -8,7 +8,6 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.sunpride.field.AppEnvironment
 import com.sunpride.field.BuildConfig
@@ -30,7 +29,7 @@ object EvidenceWork {
         .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
         .build()
     fun enqueue(context: Context) {
-        WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(NAME, policy, request())
+        com.sunpride.field.sync.work.CoalescedWork.enqueue(context, NAME, ::request) // SP-0140: one queued run
     }
 }
 

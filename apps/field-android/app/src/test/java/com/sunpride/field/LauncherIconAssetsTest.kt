@@ -20,19 +20,35 @@ class LauncherIconAssetsTest {
         input.readInt() to input.readInt()
     }
 
+    /**
+     * SP-0140: in-app bitmaps ship as LOSSLESS WebP (identical pixels to the client's logo, smaller).
+     * Width/height from the VP8L header; a lossy (VP8) file fails here so the logo is never degraded.
+     */
+    private fun webpSize(file: File): Pair<Int, Int> {
+        val b = file.readBytes()
+        assertTrue("${file.path} is not a WebP", String(b, 0, 4, Charsets.US_ASCII) == "RIFF" &&
+            String(b, 8, 4, Charsets.US_ASCII) == "WEBP")
+        assertEquals("${file.path} must be lossless WebP (VP8L)", "VP8L", String(b, 12, 4, Charsets.US_ASCII))
+        assertEquals(0x2f, b[20].toInt() and 0xff)
+        val bits = (b[21].toLong() and 0xff) or ((b[22].toLong() and 0xff) shl 8) or
+            ((b[23].toLong() and 0xff) shl 16) or ((b[24].toLong() and 0xff) shl 24)
+        return ((bits and 0x3fff) + 1).toInt() to (((bits shr 14) and 0x3fff) + 1).toInt()
+    }
+
     private val densities = mapOf("mdpi" to 1.0, "hdpi" to 1.5, "xhdpi" to 2.0, "xxhdpi" to 3.0, "xxxhdpi" to 4.0)
 
     @Test fun legacyLauncherIconsExistForEveryDensity() {
         densities.forEach { (density, scale) ->
             val px = (48 * scale).toInt()
             listOf("ic_launcher", "ic_launcher_round").forEach { name ->
-                assertEquals("$density/$name", px to px, pngSize(File(res, "mipmap-$density/$name.png")))
+                assertEquals("$density/$name", px to px, webpSize(File(res, "mipmap-$density/$name.webp")))
             }
             val logo = (72 * scale).toInt()
-            assertEquals("$density logo layer", logo to logo, pngSize(File(res, "drawable-$density/sunpride_logo_icon.png")))
+            assertEquals("$density logo layer", logo to logo, webpSize(File(res, "drawable-$density/sunpride_logo_icon.webp")))
         }
-        assertEquals(480 to 480, pngSize(File(res, "drawable-nodpi/sunpride_logo.png")))
+        assertEquals(480 to 480, webpSize(File(res, "drawable-nodpi/sunpride_logo.webp")))
         assertEquals(512 to 512, pngSize(File(main, "ic_launcher-playstore.png")))
+        assertTrue("no PNG copy left beside a WebP", res.walkTopDown().none { it.extension == "png" })
     }
 
     @Test fun adaptiveIconIsTheLogoBackgroundWithAnEmptyForeground() {

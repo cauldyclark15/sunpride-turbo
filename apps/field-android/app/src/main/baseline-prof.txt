@@ -1,0 +1,18 @@
+# SP-0140 Baseline Profile (human-readable ART profile rules; AGP compiles them into the APK and
+# androidx.profileinstaller hands them to ART on first launch). The listed code is compiled ahead
+# of time instead of being interpreted/JIT-compiled on every cold start, which matters most on a
+# slow entry-level CPU. Libraries (Compose, Activity, Room...) ship their own profiles; these rules
+# add this app's start-up path: the activity, the Compose screens and the controller, the
+# encrypted store opened at launch, and the sync/location code that runs during the day.
+HSPLcom/sunpride/field/MainActivity;->**(**)**
+HSPLcom/sunpride/field/AppEnvironment;->**(**)**
+HSPLcom/sunpride/field/FieldFeatures;->**(**)**
+HSPLcom/sunpride/field/FieldFeature;->**(**)**
+HSPLcom/sunpride/field/ui/**;->**(**)**
+HSPLcom/sunpride/field/auth/**;->**(**)**
+HSPLcom/sunpride/field/device/**;->**(**)**
+HSPLcom/sunpride/field/storage/**;->**(**)**
+HSPLcom/sunpride/field/sync/**;->**(**)**
+HSPLcom/sunpride/field/location/**;->**(**)**
+HSPLcom/sunpride/field/diagnostics/**;->**(**)**
+Lcom/sunpride/field/**;
