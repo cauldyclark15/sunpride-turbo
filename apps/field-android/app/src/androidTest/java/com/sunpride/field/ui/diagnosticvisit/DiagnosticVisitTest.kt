@@ -33,7 +33,7 @@ class DiagnosticVisitTest {
     private val identity = StoreScope("test|${UUID.randomUUID()}", "test-device", "test-scope")
     private val alias = "diagnostic-visit-ui-test"
     private val context get() = rule.activity
-    private fun scoped(): RoomFieldStore = RoomFieldStore(EncryptedFieldDatabase.open(context), identity)
+    private fun scoped(): RoomFieldStore = EncryptedFieldDatabase.store(context, identity)
     private inner class Backend(private val plans: List<VisitDisplay> = listOf(
         VisitDisplay("Test outlet", "Planned", "Scheduled", "outlet-1", "planned-1")),
         private val unplanned: List<VisitDisplay> = emptyList()) : FieldBackend {
@@ -608,6 +608,8 @@ class DiagnosticVisitTest {
         rule.onNodeWithTag("start-blocked").assertTextContains("Visit stores in plan order")
         rule.onNodeWithTag("visit-back").performClick()
         rule.onAllNodesWithTag("diagnostic-open")[0].performScrollTo().performClick()
+        // Start stays disabled while the launch sync is still running; a tap on a disabled button is dropped.
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("diagnostic-checkin").assertIsEnabled() }.isSuccess }
         rule.onNodeWithTag("diagnostic-checkin").performClick()
         rule.waitUntil(10_000) { backend.visitStates().size == 1 }
         rule.onNodeWithTag("visit-back").performClick()

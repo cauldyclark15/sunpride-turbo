@@ -81,7 +81,7 @@ class FieldSalesGuideScreenshotsTest {
     private val identity = StoreScope("guide|${UUID.randomUUID()}", "guide-device", "guide-scope")
     private val alias = "field-guide-screenshots"
     private val context get() = rule.activity
-    private fun scoped() = RoomFieldStore(EncryptedFieldDatabase.open(context), identity)
+    private fun scoped() = EncryptedFieldDatabase.store(context, identity)
 
     // Fictional sample outlets around Cebu City (not client data).
     private val stops = listOf(
@@ -277,7 +277,7 @@ class FieldSalesGuideScreenshotsTest {
         rule.onNodeWithTag("customers-back").performClick()
 
         waitTag("diagnostic-open")
-        rule.onAllNodesWithTag("diagnostic-open")[0].performClick()
+        rule.onAllNodesWithTag("diagnostic-open")[0].performScrollTo().performClick()
         waitEnabled("diagnostic-checkin")
         rule.onNodeWithText("Planned · Not started").assertExists()
         shot("07-visit-before-start")
@@ -320,6 +320,8 @@ class FieldSalesGuideScreenshotsTest {
         rule.onNodeWithTag("order-products").performScrollToNode(hasTestTag("order-qty-prod-2"))
         rule.onNodeWithTag("order-qty-prod-2").performTextInput("12")
         androidx.test.espresso.Espresso.closeSoftKeyboard()
+        // The product list is lazy: on a short screen the count above it leaves composition once scrolled past.
+        rule.onNodeWithTag("order-products").performScrollToNode(hasTestTag("order-count"))
         rule.onNodeWithTag("order-count").assertTextContains("2 of 3 products", substring = true)
         rule.onNodeWithTag("order-save").assertIsEnabled().performClick()
         rule.waitUntil(10_000) { backend.orderDrafts().size == 1 }
@@ -334,7 +336,7 @@ class FieldSalesGuideScreenshotsTest {
         rule.onNodeWithTag("order-unsent").assertTextContains("1 order draft is not sent", substring = true)
             .performScrollTo()
         shot("23-order-unsent")
-        rule.onNodeWithTag("order-draft").performClick()
+        rule.onNodeWithTag("order-draft").performScrollTo().performClick()
         waitTag("order-review")
         rule.onNodeWithTag("order-review").performClick()
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("order-check-ok").fetchSemanticsNodes().size == 5 }

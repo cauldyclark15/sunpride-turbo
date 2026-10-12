@@ -17,6 +17,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeFalse
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -108,14 +109,20 @@ class BiometricKeystoreTest {
                 crypto.encrypt("fake-session".toByteArray()) { outcome.set(it); done.countDown() }
             }
             Thread.sleep(2_500)
-            val shot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
-            context.getExternalFilesDir(null)?.let { dir ->
-                File(dir, "biometric-prompt.png").outputStream().use { shot.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            // Evidence only: some phones (Xiaomi HyperOS, Android 16) return no screenshot while the secure
+            // system prompt is on screen. The Cancelled outcome below is what proves the prompt was shown.
+            InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()?.let { shot ->
+                context.getExternalFilesDir(null)?.let { dir ->
+                    File(dir, "biometric-prompt.png").outputStream().use { shot.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                }
+                shot.recycle()
             }
-            shot.recycle()
             scenario.onActivity { crypto.cancel() }
             assertTrue("prompt reported back", done.await(10, TimeUnit.SECONDS))
         }
+        // The Redmi's power button is its fingerprint reader: a press during the run authenticates for real.
+        // That is not the cancel path under test, so it is reported as skipped, never as passed.
+        assumeFalse("a finger authenticated during the test; cancel path not exercised", outcome.get() is CryptoOutcome.Done)
         assertEquals(CryptoOutcome.Cancelled, outcome.get())
     }
 }

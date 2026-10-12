@@ -195,14 +195,14 @@ class LiveFieldBackend(
     }
     override fun visitStates(): List<Pair<com.sunpride.field.storage.IntentRow, String>> {
         val scope = storedScope() ?: return emptyList()
-        val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+        val store = EncryptedFieldDatabase.store(context, scope)
         return try { runBlocking { store.history().map { it.first to it.second.state } } }
         finally { store.close() }
     }
     override fun visitHistory() = visitStates().map { it.first }
     override fun syncStatus(): com.sunpride.field.ui.syncstatus.SyncStatus {
         val scope = storedScope() ?: return com.sunpride.field.ui.syncstatus.SyncStatus()
-        val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+        val store = EncryptedFieldDatabase.store(context, scope)
         return try { runBlocking { store.status() } } finally { store.close() }
     }
     override fun schedulePendingWork() {
@@ -216,7 +216,7 @@ class LiveFieldBackend(
         plannedVisitId: String?, outletId: String, intents: List<String>, unplannedReason: String?, note: String?,
         outcome: String?, reasonCode: String?, location: JSONObject?) {
         val scope = storedScope() ?: error("No verified local partition")
-        val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+        val store = EncryptedFieldDatabase.store(context, scope)
         try {
             runBlocking {
                 val intent = com.sunpride.field.ui.diagnosticvisit.VisitIntentFactory.create(scope, kind, clientVisitId,
@@ -230,13 +230,13 @@ class LiveFieldBackend(
     }
     override fun callSheet(outletId: String): CallSheet? {
         val scope = storedScope() ?: return null
-        val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+        val store = EncryptedFieldDatabase.store(context, scope)
         return try { runBlocking { store.callSheet(outletId) } } finally { store.close() }
     }
     override fun queueCallSheet(clientVisitId: String, checkInRequestId: String, previousRequestId: String,
         outletId: String, drafts: List<CallSheetDraftLine>) {
         val scope = storedScope() ?: error("No verified local partition")
-        val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+        val store = EncryptedFieldDatabase.store(context, scope)
         try { runBlocking {
             val sheet = store.callSheet(outletId) ?: error("No call sheet for this account")
             val activity = CallSheetPayload.activity(sheet, drafts)
@@ -250,17 +250,17 @@ class LiveFieldBackend(
     }
     override fun activityRules(): List<com.sunpride.field.storage.ActivityRule> {
         val scope = storedScope() ?: return emptyList()
-        val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+        val store = EncryptedFieldDatabase.store(context, scope)
         return try { runBlocking { store.activityRules() } } finally { store.close() }
     }
     override fun photoTypes(): List<com.sunpride.field.storage.PhotoType> {
         val scope = storedScope() ?: return emptyList()
-        val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+        val store = EncryptedFieldDatabase.store(context, scope)
         return try { runBlocking { store.photoTypes() } } finally { store.close() }
     }
     override fun visitPhotos(clientVisitId: String): List<com.sunpride.field.storage.VisitPhoto> {
         val scope = storedScope() ?: return emptyList()
-        val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+        val store = EncryptedFieldDatabase.store(context, scope)
         return try { runBlocking { store.visitPhotos(clientVisitId).map { com.sunpride.field.storage.EvidencePhotos.view(it) } } }
         finally { store.close() }
     }
@@ -274,7 +274,7 @@ class LiveFieldBackend(
         val now = System.currentTimeMillis()
         // Sealed file first, then the row: a crash in between leaves an unreferenced file, never a row without bytes.
         files.write(localId, jpeg)
-        val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+        val store = EncryptedFieldDatabase.store(context, scope)
         try {
             runBlocking {
                 store.addPhoto(com.sunpride.field.storage.EvidencePhotoRow(scope.account, scope.deviceId,
@@ -289,7 +289,7 @@ class LiveFieldBackend(
     }
     override fun uploadEvidence(): com.sunpride.field.evidence.UploadReport {
         val scope = storedScope() ?: return com.sunpride.field.evidence.UploadReport()
-        val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+        val store = EncryptedFieldDatabase.store(context, scope)
         return try {
             runBlocking { com.sunpride.field.evidence.EvidenceUploader(store, scope,
                 com.sunpride.field.evidence.KeystorePhotoFiles(context),
@@ -299,7 +299,7 @@ class LiveFieldBackend(
     override fun queueActivity(clientVisitId: String, checkInRequestId: String, previousRequestId: String,
         outletId: String, activity: JSONObject) {
         val scope = storedScope() ?: error("No verified local partition")
-        val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+        val store = EncryptedFieldDatabase.store(context, scope)
         try { runBlocking {
             val intent = com.sunpride.field.ui.diagnosticvisit.VisitIntentFactory.create(scope, "visit.activity",
                 clientVisitId, checkInRequestId, previousRequestId, null, outletId, emptyList(),
@@ -311,7 +311,7 @@ class LiveFieldBackend(
     }
     private fun <T> withStore(block: suspend (RoomFieldStore) -> T): T {
         val scope = storedScope() ?: error("No verified local partition")
-        val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+        val store = EncryptedFieldDatabase.store(context, scope)
         return try { runBlocking { block(store) } } finally { store.close() }
     }
     override fun orderDrafts(): List<OrderDraft> = if (storedScope() == null) emptyList() else withStore { it.orderDrafts() }
@@ -366,17 +366,17 @@ class LiveFieldBackend(
                 val authenticated = subjectFromToken()
                 val existing = storedScope()?.takeIf { it.account == authenticated && it.deviceId == deviceId }
                 val existingCursor = existing?.let { scope ->
-                    val scoped = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+                    val scoped = EncryptedFieldDatabase.store(context, scope)
                     try { runBlocking { scoped.cursor() } } finally { scoped.close() }
                 }
                 if (existing != null && existingCursor != null) {
-                    val scoped = RoomFieldStore(EncryptedFieldDatabase.open(context), existing)
+                    val scoped = EncryptedFieldDatabase.store(context, existing)
                     try {
                         val gateway = com.sunpride.field.sync.SignedVisitGateway(visitTransport, signer, deviceId)
                         runBlocking {
                             com.sunpride.field.sync.VisitSync(gateway, scoped, existing, bootstrap = {
                                 val page = BootstrapClient(syncTransport, signer, deviceId,
-                                    { fp -> RoomFieldStore(EncryptedFieldDatabase.open(context), StoreScope(authenticated, deviceId, fp)) })
+                                    { fp -> EncryptedFieldDatabase.store(context, StoreScope(authenticated, deviceId, fp)) })
                                     .fetch(subject = authenticated)
                                 if (page.fingerprint != existing.fingerprint) {
                                     // Old partition stays held; new verified scope cannot adopt its operations.
@@ -389,7 +389,7 @@ class LiveFieldBackend(
                     } finally { scoped.close() }
                 } else {
                     val p = BootstrapClient(syncTransport, signer, deviceId,
-                        { fp -> RoomFieldStore(EncryptedFieldDatabase.open(context), StoreScope(authenticated, deviceId, fp)) })
+                        { fp -> EncryptedFieldDatabase.store(context, StoreScope(authenticated, deviceId, fp)) })
                         .fetch(subject = authenticated)
                     subject = authenticated; fingerprint = p.fingerprint
                     prefs.edit().putString("$key.subject", subject).putString("$key.scope", fingerprint)
@@ -397,7 +397,7 @@ class LiveFieldBackend(
                 }
                 val healthScope = storedScope()
                 val health = healthScope?.let { scope ->
-                    val scoped = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+                    val scoped = EncryptedFieldDatabase.store(context, scope)
                     try { runBlocking { scoped.syncHealth() } } finally { scoped.close() }
                 }
                 failed = health != "synced"
@@ -438,63 +438,61 @@ class LiveFieldBackend(
         }
         if (subject == null || fingerprint == null || prefs.getString("$key.device", null) != deviceId)
             return TodayData(warning = warning ?: if (terminal) "Update required" else null, updateRequired = terminal)
-        val db = EncryptedFieldDatabase.open(context)
-        try {
-            val store = RoomFieldStore(db, StoreScope(subject, deviceId, fingerprint))
-            return runBlocking {
-                val day = LocalDate.now(ZoneId.of("Asia/Manila")).toString()
-                val outletRows = store.outlets().associate { it.id to JSONObject(it.json) }
-                val outlets = outletRows.mapValues { it.value.optString("name", "Outlet") }
-                val customers = store.customers().associate { it.id to JSONObject(it.json).optString("code") }
-                val visits = store.todaysVisits(day).map { row -> plannedVisitDisplay(row, outletRows, customers) }
-                val history = store.history()
-                val decorated = visits.map { visit ->
-                    val own = history.filter { (intent, _) ->
-                        val op = JSONObject(intent.serializedOperation)
-                        val payload = op.getJSONObject("payload")
-                        intent.kind == "visit.checkIn" && payload.optString("outletId") == visit.outletId &&
-                            payload.optString("serviceDate") == day && payload.optString("plannedVisitId") == visit.plannedVisitId
-                    }.map { it.first.clientVisitId }.toSet()
-                    val related = history.filter { it.first.clientVisitId in own }
-                    val call = related.map { it.first to it.second.state }
-                    visit.copy(status = when {
-                        related.any { it.second.state == "review" } -> "Needs review"
-                        VisitCallRules.closed(call) -> "Done"
-                        VisitCallRules.started(call) -> "In progress"
-                        else -> visit.status
-                    }, timeSpent = VisitCallRules.timeSpent(call),
-                        callFacts = com.sunpride.field.storage.ProductiveCall.factsOf(call))
-                }
-                val directory = com.sunpride.field.ui.customers.CustomerDirectory.build(store.outlets(), customers,
-                    store.plannedVisits(), store.route(),
-                    outletRows.keys.mapNotNull { id -> store.callSheet(id)?.let { id to it.header } }.toMap(),
-                    history.map { it.first to it.second.state }, decorated)
-                val tasks = store.tasks().mapNotNull { row ->
-                    runCatching { JSONObject(row.json) }.getOrNull()?.let {
-                        com.sunpride.field.ui.customers.CustomerTask(it.optString("kind"), it.optBoolean("required"))
-                    }?.takeIf { it.kind.isNotBlank() }
-                }
-                val held = db.rows().heldCount(subject, deviceId)
-                val result = TodayData(decorated, store.status().lastSuccess,
-                    failed || held > 0 || !store.isLeaseValid(System.currentTimeMillis()) || history.any { it.second.state != "done" } ||
-                        store.syncHealth() != "synced",
-                    warning ?: if (held > 0) "Prior assignment has held visit work — administrator review required"
-                        else if (terminal) "Update required" else null,
-                    terminal || warning == "Update required",
-                    history.count { it.second.state == "review" } + held, history.count { it.second.state == "pending" },
-                    outlets.map { (id, name) -> VisitDisplay(name, "Unplanned", "Reason required", id) },
-                    store.status(), directory, tasks,
-                    com.sunpride.field.ui.team.TeamRepository.offered(store.employeeRole()),
-                    routeCode = store.routeCode(), sales = daySales(store, day, sync))
-                if (scheduleRemainder && sync && result.syncStatus.queued + result.syncStatus.sending > 0 &&
-                    result.syncStatus.held == 0 && result.syncStatus.health != "held_for_review")
-                    com.sunpride.field.sync.work.SyncWork.enqueue(context)
-                // AND-016: a sync may have just delivered the Start ack that photos were waiting for.
-                if (sync && result.syncStatus.photosWaiting > 0 && result.syncStatus.health != "held_for_review")
-                    runCatching { com.sunpride.field.evidence.EvidenceWork.enqueue(context) }
-                result
+        val db = EncryptedFieldDatabase.shared(context)
+        val store = EncryptedFieldDatabase.store(context, StoreScope(subject, deviceId, fingerprint))
+        return runBlocking {
+            val day = LocalDate.now(ZoneId.of("Asia/Manila")).toString()
+            val outletRows = store.outlets().associate { it.id to JSONObject(it.json) }
+            val outlets = outletRows.mapValues { it.value.optString("name", "Outlet") }
+            val customers = store.customers().associate { it.id to JSONObject(it.json).optString("code") }
+            val visits = store.todaysVisits(day).map { row -> plannedVisitDisplay(row, outletRows, customers) }
+            val history = store.history()
+            val decorated = visits.map { visit ->
+                val own = history.filter { (intent, _) ->
+                    val op = JSONObject(intent.serializedOperation)
+                    val payload = op.getJSONObject("payload")
+                    intent.kind == "visit.checkIn" && payload.optString("outletId") == visit.outletId &&
+                        payload.optString("serviceDate") == day && payload.optString("plannedVisitId") == visit.plannedVisitId
+                }.map { it.first.clientVisitId }.toSet()
+                val related = history.filter { it.first.clientVisitId in own }
+                val call = related.map { it.first to it.second.state }
+                visit.copy(status = when {
+                    related.any { it.second.state == "review" } -> "Needs review"
+                    VisitCallRules.closed(call) -> "Done"
+                    VisitCallRules.started(call) -> "In progress"
+                    else -> visit.status
+                }, timeSpent = VisitCallRules.timeSpent(call),
+                    callFacts = com.sunpride.field.storage.ProductiveCall.factsOf(call))
             }
-        } finally { db.close() }
+            val directory = com.sunpride.field.ui.customers.CustomerDirectory.build(store.outlets(), customers,
+                store.plannedVisits(), store.route(),
+                outletRows.keys.mapNotNull { id -> store.callSheet(id)?.let { id to it.header } }.toMap(),
+                history.map { it.first to it.second.state }, decorated)
+            val tasks = store.tasks().mapNotNull { row ->
+                runCatching { JSONObject(row.json) }.getOrNull()?.let {
+                    com.sunpride.field.ui.customers.CustomerTask(it.optString("kind"), it.optBoolean("required"))
+                }?.takeIf { it.kind.isNotBlank() }
+            }
+            val held = db.rows().heldCount(subject, deviceId)
+            val result = TodayData(decorated, store.status().lastSuccess,
+                failed || held > 0 || !store.isLeaseValid(System.currentTimeMillis()) || history.any { it.second.state != "done" } ||
+                    store.syncHealth() != "synced",
+                warning ?: if (held > 0) "Prior assignment has held visit work — administrator review required"
+                    else if (terminal) "Update required" else null,
+                terminal || warning == "Update required",
+                history.count { it.second.state == "review" } + held, history.count { it.second.state == "pending" },
+                outlets.map { (id, name) -> VisitDisplay(name, "Unplanned", "Reason required", id) },
+                store.status(), directory, tasks,
+                com.sunpride.field.ui.team.TeamRepository.offered(store.employeeRole()),
+                routeCode = store.routeCode(), sales = daySales(store, day, sync))
+            if (scheduleRemainder && sync && result.syncStatus.queued + result.syncStatus.sending > 0 &&
+                result.syncStatus.held == 0 && result.syncStatus.health != "held_for_review")
+                com.sunpride.field.sync.work.SyncWork.enqueue(context)
+            // AND-016: a sync may have just delivered the Start ack that photos were waiting for.
+            if (sync && result.syncStatus.photosWaiting > 0 && result.syncStatus.health != "held_for_review")
+                runCatching { com.sunpride.field.evidence.EvidenceWork.enqueue(context) }
+            result
+        }
     }
     /** Live daily sales report when syncing, else today's saved copy; the server enforces who may read it. */
     private suspend fun daySales(store: RoomFieldStore, day: String, live: Boolean): com.sunpride.field.ui.today.DaySalesView {
@@ -516,7 +514,7 @@ class LiveFieldBackend(
     override fun team(directOnly: Boolean): com.sunpride.field.ui.team.TeamView {
         val scope = storedScope() ?: return com.sunpride.field.ui.team.TeamView(message = "Sync first to see your team.")
         val day = LocalDate.now(ZoneId.of("Asia/Manila")).toString()
-        val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+        val store = EncryptedFieldDatabase.store(context, scope)
         try {
             val cache = object : com.sunpride.field.ui.team.TeamCache {
                 override fun read(key: String) = runBlocking { store.localCache(TEAM_CACHE, key) }
@@ -537,7 +535,7 @@ class LiveFieldBackend(
         val scope = storedScope() ?: return com.sunpride.field.ui.diagnosticvisit.SuggestedOrderView(message = repo.CONNECTION)
         val day = LocalDate.now(ZoneId.of("Asia/Manila")).toString()
         observeSuggestionScope(scope)
-        val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+        val store = EncryptedFieldDatabase.store(context, scope)
         try {
             val cache = com.sunpride.field.ui.diagnosticvisit.StoreSuggestedOrderCache(store, day)
             return repo.load(outletId, day, cache, System.currentTimeMillis()) {
@@ -561,7 +559,7 @@ class LiveFieldBackend(
     /** Buffer one live-map ping in the encrypted store; false when there is no usable partition. */
     fun recordLocation(fix: com.sunpride.field.location.Fix, trigger: String, battery: Int?, now: Long): Boolean {
         val scope = storedScope() ?: return false
-        val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+        val store = EncryptedFieldDatabase.store(context, scope)
         return try { runBlocking {
             val open = com.sunpride.field.location.OpenVisit.checkInRequestId(store.history().map { it.first to it.second.state })
             val visitId = com.sunpride.field.location.OpenVisit.serverId(open?.let { store.ack(it)?.entityId })
@@ -574,7 +572,7 @@ class LiveFieldBackend(
         val scope = storedScope() ?: return com.sunpride.field.location.PingUpload()
         val device = vault.deviceId?.takeIf { it == scope.deviceId } ?: return com.sunpride.field.location.PingUpload()
         val gateway = com.sunpride.field.sync.SignedVisitGateway(visitTransport, loadSigner(), device)
-        val store = RoomFieldStore(EncryptedFieldDatabase.open(context), scope)
+        val store = EncryptedFieldDatabase.store(context, scope)
         return try { runBlocking {
             com.sunpride.field.location.LocationUploader(store, device) { path, bytes -> gateway.post(path, bytes) }.run()
         } } finally { store.close() }
