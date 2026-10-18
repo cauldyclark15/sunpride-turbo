@@ -1,0 +1,17 @@
+{
+  "name": "@sunpride/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./client": "./src/client.js",
+    "./migrate": "./src/migrate.js",
+    "./tables/*": "./src/tables/*.js"
+  },
+  "scripts": {
+    "migrate": "bun src/migrate.js",
+    "test": "bun test",
+    "typecheck": "tsc -p jsconfig.json",
+    "lint": "tsc -p jsconfig.json"
+  }
+}
