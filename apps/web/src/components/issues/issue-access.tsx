@@ -1,33 +1,46 @@
 "use client";
-import { api } from "@sunpride/backend/api";
-import type { FunctionReturnType } from "convex/server";
-import { useQuery } from "convex/react";
+import { useSession } from "../../lib/auth";
+import { useIssueQuery } from "./data";
+import type { IssueAccess } from "./model";
+export type {
+  IssueAccess,
+  IssueCard,
+  IssueDetail,
+  IssueAssignee,
+} from "./model";
 import { EmptyPanel, PageHeader, WorkspaceIcon } from "@sunpride/ui";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { canAccessWebModule } from "../../lib/module-access";
-export type IssueAccess = FunctionReturnType<typeof api.issues.queries.access>;
-export type IssueCard = FunctionReturnType<
-  typeof api.issues.queries.board
->["issues"][number];
-export type IssueDetail = NonNullable<
-  FunctionReturnType<typeof api.issues.queries.detail>
->;
-export type IssueAssignee = FunctionReturnType<
-  typeof api.issues.queries.assignees
->[number];
+
 export function useIssueAccess() {
-  const profile = useQuery(api.domains.profiles.current, {});
-  const allowed =
-    profile?.status === "active" && canAccessWebModule("issues", profile.role);
-  const access = useQuery(api.issues.queries.access, allowed ? {} : "skip");
+  const { profile, status } = useSession();
+  const allowed = Boolean(
+    profile?.active && canAccessWebModule("issues", profile.role),
+  );
+  const query = useIssueQuery<IssueAccess>("access", allowed ? {} : null);
+  const access = query.data;
   return {
     access,
-    canRead: Boolean(allowed && access?.canRead),
-    loading: profile === undefined || (allowed && access === undefined),
+    canRead: Boolean(allowed && access?.canRead && !query.error),
+    loading:
+      status === "loading" || (allowed && access === undefined && !query.error),
+    error: query.error,
   };
 }
-export function IssueAccessState({ loading }: { loading: boolean }) {
+export function IssueAccessState({
+  loading,
+  error,
+}: {
+  loading: boolean;
+  error?: Error | null;
+}) {
+  if (error)
+    return (
+      <p role="alert" className="text-[13px] text-danger">
+        {error.message}
+      </p>
+    );
   return loading ? (
     <p role="status" className="text-[13px] text-muted">
       Checking access…

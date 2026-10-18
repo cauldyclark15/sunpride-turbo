@@ -1,7 +1,8 @@
 "use client";
 import { Button } from "@heroui/react";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
+import { useIssueQuery, useIssueCommand } from "./data";
+import { useLive } from "../../lib/api";
+import { parseIssueKey } from "../../lib/issues";
 import {
   Card,
   EmptyPanel,
@@ -11,7 +12,7 @@ import {
   UnderlineTabs,
   WorkspaceIcon,
 } from "@sunpride/ui";
-import { useMutation, useQuery } from "convex/react";
+
 import { useRef, useState, type FormEvent } from "react";
 import {
   activityText,
@@ -53,16 +54,22 @@ type EditFields = {
   milestone: string;
 };
 export function IssueDetailPage({ number }: { number: string }) {
-  const { access, canRead, loading } = useIssueAccess();
-  const detail = useQuery(
-    api.issues.queries.detail,
-    canRead ? { number } : "skip",
+  const { access, canRead, loading, error: accessError } = useIssueAccess();
+  const query = useIssueQuery<IssueDetail | null>(
+    "detail",
+    canRead ? { number } : null,
   );
-  const assignees = useQuery(
-    api.issues.queries.assignees,
-    canRead ? {} : "skip",
+  const detail = query.data;
+  const { data: assignees } = useIssueQuery<IssueAssignee[]>(
+    "assignees",
+    canRead ? {} : null,
   );
-  if (!canRead || !access) return <IssueAccessState loading={loading} />;
+  const issueNumber = parseIssueKey(number);
+  useLive(canRead && issueNumber ? [`issue:${issueNumber}`] : [], [["issues"]]);
+  if (!canRead || !access)
+    return <IssueAccessState loading={loading} error={accessError} />;
+  if (query.error)
+    return <IssueAccessState loading={false} error={query.error} />;
   if (detail === undefined)
     return (
       <p role="status" className="text-[13px] text-muted">
@@ -341,15 +348,15 @@ function IssueDetailContent({
   // Status, area, priority, assignee and editing the issue are triage work; every tester
   // can still comment and attach.
   const triage = writable && access.canTriage;
-  const update = useMutation(api.issues.mutations.update);
-  const move = useMutation(api.issues.mutations.move);
-  const archive = useMutation(api.issues.mutations.archive);
-  const restore = useMutation(api.issues.mutations.restore);
-  const addComment = useMutation(api.issues.mutations.addComment);
-  const updateComment = useMutation(api.issues.mutations.updateComment);
-  const deleteComment = useMutation(api.issues.mutations.deleteComment);
-  const removeAttachment = useMutation(api.issues.mutations.removeAttachment);
-  const generateUploadUrl = useMutation(api.issues.mutations.generateUploadUrl);
+  const update = useIssueCommand("update");
+  const move = useIssueCommand("move");
+  const archive = useIssueCommand("archive");
+  const restore = useIssueCommand("restore");
+  const addComment = useIssueCommand("addComment");
+  const updateComment = useIssueCommand("updateComment");
+  const deleteComment = useIssueCommand("deleteComment");
+  const removeAttachment = useIssueCommand("removeAttachment");
+
   const [tab, setTab] = useState<"discussion" | "activity">("discussion");
   const [editing, setEditing] = useState(false);
   const [body, setBody] = useState("");
@@ -357,7 +364,7 @@ function IssueDetailContent({
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
   const uploadCache = useRef(
-    new Map<File, { storageId: Id<"_storage">; fileName: string }>(),
+    new Map<File, { storageId: string; fileName: string }>(),
   );
   const [error, setError] = useState("");
   async function perform(
@@ -390,8 +397,9 @@ function IssueDetailContent({
     const saved = await perform(async () => {
       const uploads = await uploadIssueFiles(
         files,
-        () => generateUploadUrl({}),
+        undefined,
         uploadCache.current,
+        issue._id,
       );
       await addComment({ issueId: issue._id, body: body.trim(), uploads });
     }, "Comment failed. Try again.");
@@ -450,6 +458,26 @@ function IssueDetailContent({
       {error ? (
         <p role="alert" className="text-[13px] text-danger">
           {error}
+        </p>
+      ) : null}
+      {issue.backup &&
+      (issue.backup.summaryOnly ||
+        issue.backup.missingComments > 0 ||
+        issue.backup.missingAttachments > 0) ? (
+        <p
+          role="note"
+          className="rounded-xl border border-border p-3 text-[13px] text-muted"
+        >
+          Restored from a backup.{" "}
+          {issue.backup.summaryOnly
+            ? "Original issue details were not included. "
+            : ""}
+          {issue.backup.missingComments > 0
+            ? `${issue.backup.missingComments} earlier comments were not included. `
+            : ""}
+          {issue.backup.missingAttachments > 0
+            ? `${issue.backup.missingAttachments} attachments are missing.`
+            : ""}
         </p>
       ) : null}
       <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -662,8 +690,8 @@ function IssueDetailContent({
                         void perform(() =>
                           update({
                             issueId: issue._id,
-                            assigneeId: (event.target.value ||
-                              null) as Id<"profiles"> | null,
+                            assigneeId: (event.target.value || null) as
+                              string | null,
                           }),
                         )
                       }

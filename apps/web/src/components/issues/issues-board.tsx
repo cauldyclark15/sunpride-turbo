@@ -1,7 +1,6 @@
 "use client";
 import Link from "next/link";
 import { useRef, useState, type DragEvent } from "react";
-import type { Id } from "@sunpride/backend/data-model";
 import { WorkspaceIcon } from "@sunpride/ui";
 import {
   dropNeighbors,
@@ -14,10 +13,10 @@ import type { IssueCard } from "./issue-access";
 import { IssuePriorityPill } from "./issue-pills";
 import { IssueTimestamp } from "./issue-timestamp";
 export type IssueMove = {
-  issueId: Id<"issues">;
+  issueId: string;
   status: IssueStatus;
-  beforeId?: Id<"issues">;
-  afterId?: Id<"issues">;
+  beforeId?: string;
+  afterId?: string;
 };
 export function IssuesBoard({
   issues,
@@ -32,13 +31,13 @@ export function IssuesBoard({
   onMove: (move: IssueMove) => Promise<void>;
   busy?: boolean;
 }) {
-  const dragged = useRef<Id<"issues"> | null>(null);
+  const dragged = useRef<string | null>(null);
   const [target, setTarget] = useState("");
   async function drop(
     event: DragEvent,
     status: IssueStatus,
     cards: IssueCard[],
-    targetId?: Id<"issues">,
+    targetId?: string,
   ) {
     event.preventDefault();
     event.stopPropagation();
@@ -56,8 +55,8 @@ export function IssuesBoard({
     await onMove({
       issueId,
       status,
-      beforeId: neighbors.beforeId as Id<"issues"> | undefined,
-      afterId: neighbors.afterId as Id<"issues"> | undefined,
+      beforeId: neighbors.beforeId as string | undefined,
+      afterId: neighbors.afterId as string | undefined,
     });
   }
   return (

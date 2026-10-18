@@ -1,9 +1,9 @@
 "use client";
 import { Button } from "@heroui/react";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
+import { useIssueQuery, useIssueCommand } from "./data";
+import type { IssueAssignee } from "./model";
 import { Card, FormField, StatusPill } from "@sunpride/ui";
-import { useMutation, useQuery } from "convex/react";
+
 import { useRouter } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
 import {
@@ -31,13 +31,12 @@ import { reportedFromDescription } from "../../config/beta";
 import { IssueStatusPill } from "./issue-pills";
 /** `from` is the page the tester was on when they chose "Report an issue". */
 export function IssueCreatePage({ from }: { from?: string } = {}) {
-  const { access, canRead, loading } = useIssueAccess();
-  const assignees = useQuery(
-    api.issues.queries.assignees,
-    canRead ? {} : "skip",
+  const { access, canRead, loading, error: accessError } = useIssueAccess();
+  const { data: assignees } = useIssueQuery<IssueAssignee[]>(
+    "assignees",
+    canRead ? {} : null,
   );
-  const createIssue = useMutation(api.issues.mutations.create);
-  const generateUploadUrl = useMutation(api.issues.mutations.generateUploadUrl);
+  const createIssue = useIssueCommand<{ number: number }>("create");
   const router = useRouter();
   const [fields, setFields] = useState({
     title: "",
@@ -55,7 +54,7 @@ export function IssueCreatePage({ from }: { from?: string } = {}) {
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
   const uploadCache = useRef(
-    new Map<File, { storageId: Id<"_storage">; fileName: string }>(),
+    new Map<File, { storageId: string; fileName: string }>(),
   );
   const [error, setError] = useState("");
   function field(name: keyof typeof fields, value: string) {
@@ -75,7 +74,7 @@ export function IssueCreatePage({ from }: { from?: string } = {}) {
     try {
       const uploads = await uploadIssueFiles(
         files,
-        () => generateUploadUrl({}),
+        undefined,
         uploadCache.current,
       );
       const result = await createIssue({
@@ -88,7 +87,7 @@ export function IssueCreatePage({ from }: { from?: string } = {}) {
         priority: fields.priority as IssuePriority,
         assigneeId: (access.canTriage && fields.assignee
           ? fields.assignee
-          : undefined) as Id<"profiles"> | undefined,
+          : undefined) as string | undefined,
         externalRef: fields.externalRef.trim() || undefined,
         milestone: fields.milestone.trim() || undefined,
         uploads,
@@ -102,7 +101,7 @@ export function IssueCreatePage({ from }: { from?: string } = {}) {
     }
   }
   if (!canRead || !access?.canWrite)
-    return <IssueAccessState loading={loading} />;
+    return <IssueAccessState loading={loading} error={accessError} />;
   return (
     <form onSubmit={submit} className="grid gap-4">
       <IssuesBackLink />

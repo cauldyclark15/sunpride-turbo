@@ -1,6 +1,5 @@
 "use client";
 import { Button } from "@heroui/react";
-import type { Id } from "@sunpride/backend/data-model";
 import { WorkspaceIcon } from "@sunpride/ui";
 import { useRef, useState } from "react";
 import {
@@ -9,36 +8,102 @@ import {
   MAX_ATTACHMENTS_PER_COMMENT,
   validateAttachment,
 } from "../../lib/issues";
-type Upload = { storageId: Id<"_storage">; fileName: string };
-/** Preserve successful uploads across a failed submission. */
+import { apiFetch, ApiError } from "../../lib/api";
+type Upload = { storageId: string; fileName: string };
+export type IssueUploadClaim = {
+  uploadId: string;
+  uploadToken: string;
+  uploadUrl: string;
+  chunkUrl: string;
+  chunkBytes: number;
+  expiresAt: number;
+};
+/** Preserve confirmed stored blobs across a failed submission. */
 export async function uploadIssueFiles(
   files: File[],
-  generateUploadUrl: () => Promise<string>,
+  claim: (input: {
+    mime: string;
+    size: number;
+    sha256: string;
+    ownerId: string | null;
+  }) => Promise<IssueUploadClaim> = (input) =>
+    apiFetch("/api/v1/issues/uploads/claim", { method: "POST", body: input }),
   cache: Map<File, Upload> = new Map(),
+  ownerId: string | null = null,
 ): Promise<Upload[]> {
   const uploads: Upload[] = [];
   for (const file of files) {
     let upload = cache.get(file);
     if (!upload) {
-      const url = await generateUploadUrl();
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": file.type },
-        body: file,
+      const digest = await crypto.subtle.digest(
+        "SHA-256",
+        await file.arrayBuffer(),
+      );
+      const sha256 = Array.from(new Uint8Array(digest), (b) =>
+        b.toString(16).padStart(2, "0"),
+      ).join("");
+      const c = await claim({
+        mime: file.type,
+        size: file.size,
+        sha256,
+        ownerId,
       });
-      if (!response.ok) throw new Error("Upload failed. Try again.");
-      const data: unknown = await response.json();
       if (
-        !data ||
-        typeof data !== "object" ||
-        !("storageId" in data) ||
-        typeof data.storageId !== "string"
+        !Number.isSafeInteger(c.chunkBytes) ||
+        c.chunkBytes < 1 ||
+        typeof c.uploadId !== "string" ||
+        typeof c.uploadToken !== "string"
       )
-        throw new Error("Upload failed. Try again.");
-      upload = {
-        storageId: data.storageId as Id<"_storage">,
-        fileName: file.name,
-      };
+        throw new ApiError({
+          code: "upload_failed",
+          message: "Upload claim was invalid. Try again.",
+        });
+      let stored = false;
+      for (
+        let offset = 0, index = 0;
+        offset < file.size;
+        offset += c.chunkBytes, index++
+      ) {
+        const chunked = file.size > c.chunkBytes;
+        const response = await fetch(
+          chunked ? `${c.chunkUrl}/${index}` : c.uploadUrl,
+          {
+            method: "PUT",
+            headers: {
+              "Content-Type": file.type,
+              Authorization: `Bearer ${c.uploadToken}`,
+            },
+            body: chunked
+              ? file.slice(offset, offset + c.chunkBytes, file.type)
+              : file,
+          },
+        );
+        const result: unknown = await response.json();
+        if (!response.ok)
+          throw new ApiError({
+            code: "upload_failed",
+            message: "Upload failed. Try again.",
+            status: response.status,
+          });
+        if (
+          result &&
+          typeof result === "object" &&
+          "status" in result &&
+          result.status === "stored" &&
+          "blobId" in result &&
+          result.blobId === c.uploadId
+        ) {
+          stored = true;
+          break;
+        }
+        if (!chunked) break;
+      }
+      if (!stored)
+        throw new ApiError({
+          code: "upload_failed",
+          message: "Upload was not confirmed. Try again.",
+        });
+      upload = { storageId: c.uploadId, fileName: file.name };
       cache.set(file, upload);
     }
     uploads.push(upload);

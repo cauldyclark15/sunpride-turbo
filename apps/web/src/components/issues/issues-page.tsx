@@ -1,13 +1,15 @@
 "use client";
 import { Button } from "@heroui/react";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
+import { useIssueQuery, useIssueCommand } from "./data";
+import { useLive } from "../../lib/api";
+import type { IssueBoard, IssueAssignee } from "./model";
 import { Notice, WorkspaceIcon } from "@sunpride/ui";
-import { useMutation, useQuery } from "convex/react";
+
 import { useRouter } from "next/navigation";
 import { useDeferredValue, useState } from "react";
 import {
   errorMessage,
+  issuesCsv,
   ISSUE_AREAS,
   ISSUE_BOARD_LIMIT,
   ISSUE_PRIORITIES,
@@ -27,36 +29,40 @@ const initialFilters = {
   assignee: "",
   milestone: "",
   archived: false,
+  attention: "",
 };
 export function IssuesPage() {
-  const { access, canRead, loading } = useIssueAccess();
+  const { access, canRead, loading, error: accessError } = useIssueAccess();
   const router = useRouter();
   const [filters, setFilters] = useState(initialFilters);
   const [view, setView] = useState<"board" | "list">("board");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const search = useDeferredValue(filters.search.trim());
-  const result = useQuery(
-    api.issues.queries.board,
+  const query = useIssueQuery<IssueBoard>(
+    "board",
     canRead
       ? {
           archived: filters.archived,
+          attention: filters.attention || undefined,
           search: search || undefined,
           area: filters.area || undefined,
           status: (filters.status || undefined) as IssueStatus | undefined,
           priority: (filters.priority || undefined) as
             IssuePriority | undefined,
           assigneeId: (filters.assignee || undefined) as
-            Id<"profiles"> | "unassigned" | undefined,
+            string | "unassigned" | undefined,
           milestone: filters.milestone || undefined,
         }
-      : "skip",
+      : null,
   );
-  const assignees = useQuery(
-    api.issues.queries.assignees,
-    canRead ? {} : "skip",
+  const result = query.data;
+  const { data: assignees } = useIssueQuery<IssueAssignee[]>(
+    "assignees",
+    canRead ? {} : null,
   );
-  const move = useMutation(api.issues.mutations.move);
+  useLive(canRead ? ["issues"] : [], [["issues"]]);
+  const move = useIssueCommand("move");
   async function moveIssue(input: IssueMove) {
     if (!access?.canTriage || busy || filters.archived) return;
     setBusy(true);
@@ -69,11 +75,16 @@ export function IssuesPage() {
       setBusy(false);
     }
   }
-  if (!canRead) return <IssueAccessState loading={loading} />;
-  const total = result?.issues.length;
-  const done = result?.issues.filter(
-    (issue) => issue.status === "completed",
-  ).length;
+  if (!canRead)
+    return <IssueAccessState loading={loading} error={accessError} />;
+  const total = result?.total ?? result?.issues.length;
+  const done = result
+    ? filters.status
+      ? filters.status === "completed"
+        ? total
+        : 0
+      : result.counts.completed
+    : undefined;
   function filter(key: keyof typeof initialFilters, value: string | boolean) {
     setFilters((current) => ({ ...current, [key]: value }));
   }
@@ -93,6 +104,104 @@ export function IssuesPage() {
           ) : undefined
         }
       />
+      {result?.summary && !filters.archived ? (
+        <section
+          aria-label="What needs attention"
+          className="grid gap-3 rounded-2xl border border-border p-4"
+        >
+          <div>
+            <h2 className="text-sm font-medium">
+              What is blocking the rollout?
+            </h2>
+            <p className="text-xs text-muted">
+              Goal: no urgent blockers. Select a queue, then open an issue to
+              assign, fix or retest it.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {(
+              [
+                ["urgent", "High-priority blockers", result.summary.urgent],
+                [
+                  "unassigned",
+                  "Open without an owner",
+                  result.summary.unassigned,
+                ],
+                ["retest", "Ready to test", result.summary.readyForRetest],
+              ] as const
+            ).map(([attention, label, count]) => (
+              <Button
+                key={attention}
+                aria-label={label}
+                variant="outline"
+                className="h-auto justify-between p-4"
+                onPress={() => setFilters({ ...initialFilters, attention })}
+              >
+                <span>{label}</span>
+                <span className="text-xl tabular-nums">{count}</span>
+              </Button>
+            ))}
+          </div>
+          <p className="text-[13px] text-muted">
+            Moves to Done recorded: {result.summary.completedThisWeek} in the
+            last 7 days
+            {result.summary.completedPriorWeek === null
+              ? " · Prior week unavailable"
+              : ` · ${result.summary.completedPriorWeek} in the preceding 7`}
+            . Reopened issues can count again.
+          </p>
+          {result.trend?.length ? (
+            <div className="grid gap-2">
+              <svg
+                viewBox="0 0 280 48"
+                role="img"
+                aria-label="Moves to Done over 14 Manila days"
+                className="h-12 w-full"
+              >
+                {result.trend.map((day, index) => (
+                  <rect
+                    key={day.date}
+                    x={index * 20 + 2}
+                    y={
+                      46 -
+                      (40 * day.completed) /
+                        Math.max(1, ...result.trend.map((d) => d.completed))
+                    }
+                    width="14"
+                    height={
+                      day.known === false
+                        ? 0
+                        : Math.max(
+                            1,
+                            (40 * day.completed) /
+                              Math.max(
+                                1,
+                                ...result.trend.map((d) => d.completed),
+                              ),
+                          )
+                    }
+                    fill="currentColor"
+                  >
+                    <title>
+                      {day.date}:{" "}
+                      {day.known === false
+                        ? "No historical activity available"
+                        : `${day.completed} moves to Done`}
+                    </title>
+                  </rect>
+                ))}
+              </svg>
+              <p className="text-xs text-muted">{result.historyNote}</p>
+            </div>
+          ) : null}
+          {filters.attention ? (
+            <p className="text-xs text-muted">
+              Showing the selected attention queue. Reset filters to see all
+              issues.
+            </p>
+          ) : null}
+        </section>
+      ) : null}
       <section
         aria-label="Issue filters"
         className="grid gap-3 rounded-2xl border border-border bg-surface p-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7"
@@ -205,6 +314,29 @@ export function IssuesPage() {
         aria-label="Issue view"
         className="flex w-fit gap-1 rounded-xl bg-surface-secondary p-1"
       >
+        <Button
+          variant="ghost"
+          size="sm"
+          isDisabled={!result || result.truncated}
+          onPress={() => {
+            if (!result || result.truncated) return;
+            const url = URL.createObjectURL(
+              new Blob([issuesCsv(result.issues)], {
+                type: "text/csv;charset=utf-8",
+              }),
+            );
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = "sunpride-issues.csv";
+            link.click();
+            URL.revokeObjectURL(url);
+          }}
+        >
+          Export CSV
+        </Button>
+        <Button variant="ghost" size="sm" onPress={() => window.print()}>
+          Print
+        </Button>
         {(["board", "list"] as const).map((option) => (
           <Button
             key={option}
@@ -225,9 +357,9 @@ export function IssuesPage() {
           meta="Narrow the search or filters"
         />
       ) : null}
-      {error ? (
+      {error || query.error ? (
         <p role="alert" className="text-[13px] text-danger">
-          {error}
+          {error || query.error?.message}
         </p>
       ) : null}
       {busy ? (
@@ -235,7 +367,7 @@ export function IssuesPage() {
           Saving move…
         </p>
       ) : null}
-      {result === undefined ? (
+      {query.error ? null : result === undefined ? (
         <p role="status" className="py-10 text-center text-[13px] text-muted">
           Loading issues…
         </p>
