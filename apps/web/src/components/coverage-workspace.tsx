@@ -1,14 +1,15 @@
 "use client";
 
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
+import { api } from "./coverage-model";
+import type { Id } from "./coverage-model";
 import { FormField, Pager, UnderlineTabs } from "@sunpride/ui";
-import { useQuery } from "convex/react";
+import { useCoverageQuery } from "./coverage-data";
 import dynamic from "next/dynamic";
 import { useState } from "react";
 import { salesForcePanels } from "../lib/module-access";
 import { CoveragePlanner } from "./coverage-planner";
 import { CoverageReview } from "./coverage-review";
+import { CoverageSummary } from "./coverage-summary";
 import { OutletAdmin } from "./outlet-admin";
 import { OutletAssignments } from "./outlet-assignments";
 import { PanelErrorBoundary } from "./panel-error-boundary";
@@ -42,6 +43,7 @@ const PositionStandardsPanel = dynamic(() =>
   ),
 );
 type CoverageTab =
+  | "summary"
   | "plan"
   | "deadlines"
   | "review"
@@ -73,7 +75,7 @@ function ScopedPlanPicker({
 }) {
   const [cursor, setCursor] = useState<string | null>(null);
   const [page, setPage] = useState(1);
-  const result = useQuery(api.coverage.discovery.list, {
+  const result = useCoverageQuery(api.coverage.discovery.list, {
     localMonth: month,
     paginationOpts: { numItems: 20, cursor },
   });
@@ -147,9 +149,12 @@ function ScopedPlanPicker({
 }
 
 export function SalesForcePanels() {
-  const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
-  const profile = useQuery(api.domains.profiles.current, {});
-  const [coverageTab, setCoverageTab] = useState<CoverageTab>("plan");
+  const permissions = useCoverageQuery(
+    api.lib.capabilities.currentPermissions,
+    {},
+  );
+  const profile = useCoverageQuery(api.domains.profiles.current, {});
+  const [coverageTab, setCoverageTab] = useState<CoverageTab>("summary");
   const [setupSection, setSetupSection] = useState<SetupSection>("routes");
   const [month, setMonth] = useState(() => {
     const parts = new Intl.DateTimeFormat("en-US", {
@@ -218,6 +223,7 @@ export function SalesForcePanels() {
     </div>
   );
   const needsPlan =
+    coverageTab !== "summary" &&
     coverageTab !== "plan" &&
     coverageTab !== "deadlines" &&
     coverageTab !== "setup" &&
@@ -228,6 +234,7 @@ export function SalesForcePanels() {
     coverageTab !== "setup" &&
     coverageTab !== "standards";
   const coverageTabs: [CoverageTab, string][] = [
+    ["summary", "Summary"],
     ["plan", "Plan"],
     ["deadlines", "MCP deadlines"],
     ...(canApprove ? ([["review", "Review"]] as [CoverageTab, string][]) : []),
@@ -285,9 +292,35 @@ export function SalesForcePanels() {
             </div>
           )}
           <div role="tabpanel">
-            {coverageTab === "plan" ? (
+            {coverageTab === "summary" ? (
+              <PanelErrorBoundary
+                key={`summary-${month}`}
+                label="Coverage summary"
+              >
+                <CoverageSummary
+                  month={month}
+                  onOpen={(row) => {
+                    setSelected({
+                      id:
+                        row.approvalPlanId ??
+                        row.action.planId ??
+                        row.planId ??
+                        "",
+                      assigneeId: row.profileId,
+                      assigneeName: row.name,
+                    });
+                    setCoverageTab(row.awaitsMyApproval ? "review" : "plan");
+                  }}
+                />
+              </PanelErrorBoundary>
+            ) : coverageTab === "plan" ? (
               <PanelErrorBoundary key="plan" label="Coverage plan">
-                <CoveragePlanner />
+                <CoveragePlanner
+                  key={`${month}-${selected?.assigneeId ?? ""}-${selected?.id ?? ""}`}
+                  initialMonth={month}
+                  initialPersonId={selected?.assigneeId}
+                  initialPlanId={selected?.id || undefined}
+                />
               </PanelErrorBoundary>
             ) : coverageTab === "setup" ? (
               setupContent

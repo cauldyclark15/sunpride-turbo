@@ -1,9 +1,9 @@
 "use client";
 import { Button } from "@heroui/react";
 import { Card, ListRow, WorkspaceIcon } from "@sunpride/ui";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
-import { useQuery } from "convex/react";
+import { api } from "./coverage-model";
+import type { Id } from "./coverage-model";
+import { useCoverageQuery } from "./coverage-data";
 import { useState } from "react";
 import {
   CoverageScopeSelect,
@@ -20,8 +20,9 @@ export function CoverageWorkloadView({
   const [cursor, setCursor] = useState<string | null>(null);
   const [territoryId, setTerritory] = useState("");
   const [routeId, setRoute] = useState("");
-  const result = useQuery(api.coverage.views.workload, {
+  const result = useCoverageQuery(api.coverage.views.workload, {
     localMonth,
+    planId,
     territoryId: territoryId ? (territoryId as Id<"territories">) : undefined,
     routeId: routeId ? (routeId as Id<"routes">) : undefined,
     paginationOpts: { numItems: 20, cursor },

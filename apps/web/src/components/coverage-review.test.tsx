@@ -1,8 +1,8 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { getFunctionName } from "convex/server";
+import { getFunctionName } from "./coverage-model";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Id } from "@sunpride/backend/data-model";
+import type { Id } from "./coverage-model";
 import {
   CoverageReview,
   coverageStatus,
@@ -20,8 +20,8 @@ const state = vi.hoisted(() => ({
   hooks: [] as unknown[],
   index: 0,
 }));
-vi.mock("convex/react", () => ({
-  useQuery: (ref: unknown, args: unknown) => {
+vi.mock("./coverage-data", () => ({
+  useCoverageQuery: (ref: unknown, args: unknown) => {
     const name = getFunctionName(ref as never);
     state.calls.push({ name, args });
     if (args === "skip") return undefined;
@@ -60,7 +60,7 @@ vi.mock("convex/react", () => ({
       };
     return state.values[name];
   },
-  useMutation: (ref: unknown) => {
+  useCoverageMutation: (ref: unknown) => {
     const name = getFunctionName(ref as never);
     return async (args: unknown) => {
       state.writes.push({ name, args });
@@ -184,6 +184,7 @@ const slot = {
     outletCode: "OUT-1",
     outletName: "Frozen Market",
     customerId: "customer-1",
+    customerCode: "customer-1",
     routeCode: "R-1",
     sequence: 3,
   },
@@ -313,7 +314,10 @@ describe("coverage review", () => {
     };
     state.values["outlets/queries:detail"] = {
       outlet: { code: "LIVE", name: "Current Store" },
-      customerLink: { customerId: "linked-customer" },
+      customerLink: {
+        customerId: "linked-customer",
+        customerCode: "linked-customer",
+      },
       assignment: { routeId: "route-1", sequence: 4 },
     };
     state.values["territories/routes:detail"] = { route: { code: "ROUTE-1" } };
@@ -485,7 +489,7 @@ describe("coverage review", () => {
         scopeUnitIds: [id<"orgUnits">("unit")],
       },
     );
-    expect(html).toContain("visit-1");
+    expect(html).toContain("Frozen Market");
     expect(state.calls.some((c) => c.name.startsWith("people/queries"))).toBe(
       false,
     );
@@ -512,7 +516,7 @@ describe("coverage review", () => {
     await state.handlers["Generate visits"]!();
     await vi.waitFor(() => expect(state.hooks[6]).toBe(false));
     const html = render();
-    expect(html).toContain("1 planned visit(s): visit-1");
+    expect(html).toContain("1 planned visit(s) ready.");
     expect(html).toContain("Frozen Market");
     expect(html).toContain("v2");
     expect(state.hooks[6]).toBe(false);
@@ -624,7 +628,8 @@ describe("coverage review", () => {
       continueCursor: "",
     };
     const visits = render("visits", sales, grants);
-    expect(visits).toContain("visit-1");
+    expect(visits).toContain("Frozen Market");
+    expect(visits).not.toContain("visit-1");
     expect(visits).toContain("Seller");
     expect(visits).not.toContain("Outsider");
     expect(

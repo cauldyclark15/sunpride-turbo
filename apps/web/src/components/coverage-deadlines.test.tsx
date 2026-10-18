@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { getFunctionName } from "convex/server";
+import { getFunctionName } from "./coverage-model";
 import { beforeEach, expect, it, vi } from "vitest";
 import { CoverageDeadlines } from "./coverage-deadlines";
 
@@ -7,8 +7,8 @@ const state = vi.hoisted(() => ({
   calls: [] as { name: string; args: unknown }[],
   away: [] as unknown[],
 }));
-vi.mock("convex/react", () => ({
-  useQuery: (ref: unknown, args: unknown) => {
+vi.mock("./coverage-data", () => ({
+  useCoverageQuery: (ref: unknown, args: unknown) => {
     const name = getFunctionName(ref as never);
     state.calls.push({ name, args });
     if (name === "coverage/away:list") return state.away;
@@ -70,7 +70,7 @@ vi.mock("convex/react", () => ({
       continueCursor: "next",
     };
   },
-  useMutation: () => vi.fn(),
+  useCoverageMutation: () => vi.fn(),
 }));
 
 beforeEach(() => {

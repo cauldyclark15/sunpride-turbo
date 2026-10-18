@@ -1,8 +1,8 @@
 "use client";
 
-import type { FunctionArgs } from "convex/server";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
+import type { FunctionArgs } from "./coverage-model";
+import { api } from "./coverage-model";
+import type { Id } from "./coverage-model";
 import { coverageMonthDays } from "../lib/coverage-calendar";
 
 type Slot = FunctionArgs<typeof api.coverage.plans.saveSlots>["slots"][number];

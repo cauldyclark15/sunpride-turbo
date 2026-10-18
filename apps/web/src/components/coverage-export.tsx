@@ -1,9 +1,9 @@
 "use client";
 import { Button } from "@heroui/react";
 import { Card, WorkspaceIcon } from "@sunpride/ui";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
-import { useConvex } from "convex/react";
+import { api } from "./coverage-model";
+import type { Id } from "./coverage-model";
+import { useCoverageClient } from "./coverage-data";
 import { useState } from "react";
 import {
   collectSchedule,
@@ -20,7 +20,7 @@ import {
 } from "./coverage-scope-filters";
 
 export function CoverageExport({ planId }: { planId: Id<"coveragePlans"> }) {
-  const convex = useConvex();
+  const client = useCoverageClient();
   const options = useCoverageScopeOptions(planId);
   const [territoryId, setTerritory] = useState("");
   const [routeId, setRoute] = useState("");
@@ -56,7 +56,7 @@ export function CoverageExport({ planId }: { planId: Id<"coveragePlans"> }) {
     const selected = filters();
     try {
       const { header, rows } = await collectSchedule((cursor) =>
-        convex.query(api.coverage.exports.schedule, {
+        client.query(api.coverage.exports.schedule, {
           planId,
           territoryId: selected.territoryId as Id<"territories"> | undefined,
           routeId: selected.routeId as Id<"routes"> | undefined,

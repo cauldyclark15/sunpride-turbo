@@ -8,9 +8,9 @@ import {
   StatusPill,
   WorkspaceIcon,
 } from "@sunpride/ui";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
-import { useMutation, useQuery } from "convex/react";
+import { api } from "./coverage-model";
+import type { Id } from "./coverage-model";
+import { useCoverageMutation, useCoverageQuery } from "./coverage-data";
 import { useState } from "react";
 import { currentManilaDate } from "../lib/coverage-calendar";
 import {
@@ -32,9 +32,9 @@ export function SupervisorAwayPanel({
   label: string;
 }) {
   const [asOf] = useState(() => Date.now());
-  const periods = useQuery(api.coverage.away.list, { profileId, asOf });
-  const record = useMutation(api.coverage.away.record);
-  const end = useMutation(api.coverage.away.end);
+  const periods = useCoverageQuery(api.coverage.away.list, { profileId, asOf });
+  const record = useCoverageMutation(api.coverage.away.record);
+  const end = useCoverageMutation(api.coverage.away.end);
   const [fromDate, setFromDate] = useState(currentManilaDate);
   const [toDate, setToDate] = useState(currentManilaDate);
   const [reason, setReason] = useState("");
@@ -152,7 +152,7 @@ export function CoverageDeadlines({
   const [asOf] = useState(() => Date.now());
   const [cursor, setCursor] = useState<string | null>(null);
   const [page, setPage] = useState(1);
-  const result = useQuery(
+  const result = useCoverageQuery(
     api.coverage.calendar.status,
     /^\d{4}-(0[1-9]|1[0-2])$/.test(localMonth)
       ? { localMonth, asOf, paginationOpts: { numItems: 50, cursor } }

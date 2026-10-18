@@ -1,14 +1,14 @@
 "use client";
 import { Button } from "@heroui/react";
 import { Card, ListRow, StatusPill, WorkspaceIcon } from "@sunpride/ui";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
-import { useQuery } from "convex/react";
+import { api } from "./coverage-model";
+import type { Id } from "./coverage-model";
+import { useCoverageQuery } from "./coverage-data";
 import { useState } from "react";
 
 export function CoverageRouteView({ planId }: { planId: Id<"coveragePlans"> }) {
   const [cursor, setCursor] = useState<string | null>(null);
-  const result = useQuery(api.coverage.views.byRoute, {
+  const result = useCoverageQuery(api.coverage.views.byRoute, {
     planId,
     paginationOpts: { numItems: 20, cursor },
   });

@@ -7,9 +7,9 @@ import {
   UnderlineTabs,
   WorkspaceIcon,
 } from "@sunpride/ui";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
-import { useQuery } from "convex/react";
+import { api } from "./coverage-model";
+import type { Id } from "./coverage-model";
+import { useCoverageQuery } from "./coverage-data";
 import { useState } from "react";
 import {
   groupCalendar,
@@ -35,7 +35,7 @@ export function CoverageCalendarView({
   const [routeId, setRoute] = useState("");
   const [status, setStatus] = useState("");
   const [cursor, setCursor] = useState<string | null>(null);
-  const result = useQuery(api.coverage.views.calendar, {
+  const result = useCoverageQuery(api.coverage.views.calendar, {
     planId,
     territoryId: territoryId ? (territoryId as Id<"territories">) : undefined,
     routeId: routeId ? (routeId as Id<"routes">) : undefined,

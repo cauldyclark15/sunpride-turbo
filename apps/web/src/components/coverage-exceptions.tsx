@@ -2,9 +2,9 @@
 
 import { Button } from "@heroui/react";
 import { Card, ListRow, StatusPill, WorkspaceIcon } from "@sunpride/ui";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
-import { useConvex, useQuery } from "convex/react";
+import { api } from "./coverage-model";
+import type { Id } from "./coverage-model";
+import { useCoverageClient, useCoverageQuery } from "./coverage-data";
 import { useState } from "react";
 
 type Row = {
@@ -27,7 +27,7 @@ export function CoverageExceptions({
 }: {
   planId: Id<"coveragePlans">;
 }) {
-  const convex = useConvex();
+  const client = useCoverageClient();
   const [pageState, setPageState] = useState<{
     planId: Id<"coveragePlans">;
     cursor: string | null;
@@ -40,14 +40,14 @@ export function CoverageExceptions({
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState("");
   const args = { planId, paginationOpts: { numItems: 20, cursor } };
-  const result = useQuery(api.coverage.exceptions.forPlan, args);
+  const result = useCoverageQuery(api.coverage.exceptions.forPlan, args);
   const rows = fresh?.planId === planId ? fresh.rows : (result?.page ?? []);
   const grouped = groupExceptions(rows);
   async function recheck() {
     setChecking(true);
     setError("");
     try {
-      const page = await convex.query(api.coverage.exceptions.forPlan, args);
+      const page = await client.query(api.coverage.exceptions.forPlan, args);
       setFresh({ planId, rows: page.page });
     } catch (failure) {
       setError(
@@ -99,7 +99,7 @@ export function CoverageExceptions({
                     <ListRow
                       icon={<WorkspaceIcon name="field" />}
                       title={row.message}
-                      meta={`${row.code}${row.serviceDate ? ` · ${row.serviceDate}` : ""}${row.signedHistorical ? " · Historical" : ""} · ${row.remediation}`}
+                      meta={`${row.code.replaceAll("_", " ")}${row.serviceDate ? ` · ${row.serviceDate}` : ""}${row.signedHistorical ? " · Historical" : ""} · ${row.remediation}`}
                       value={
                         <StatusPill
                           tone={severity === "blocking" ? "danger" : "warning"}

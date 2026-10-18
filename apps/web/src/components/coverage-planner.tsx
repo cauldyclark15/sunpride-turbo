@@ -2,10 +2,10 @@
 
 import { Button } from "@heroui/react";
 import { Card, FormField, StatusPill, WorkspaceIcon } from "@sunpride/ui";
-import { api } from "@sunpride/backend/api";
-import type { Doc, Id } from "@sunpride/backend/data-model";
-import { useMutation, useQuery } from "convex/react";
-import type { FunctionArgs, FunctionReturnType } from "convex/server";
+import { api } from "./coverage-model";
+import type { Doc, Id } from "./coverage-model";
+import { useCoverageMutation, useCoverageQuery } from "./coverage-data";
+import type { FunctionArgs, FunctionReturnType } from "./coverage-model";
 import { useState } from "react";
 import { CoverageGrid } from "./coverage-grid";
 import {
@@ -144,14 +144,29 @@ const inputSlot = (row: Doc<"coveragePlanSlots">): Slot => ({
 });
 
 /** Standalone, deliberately unmounted until the Sales Force workspace integration. */
-export function CoveragePlanner() {
-  const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
-  const profile = useQuery(api.domains.profiles.current, {});
+export function CoveragePlanner({
+  initialMonth,
+  initialPersonId,
+  initialPlanId,
+}: {
+  initialMonth?: string;
+  initialPersonId?: string;
+  initialPlanId?: string;
+} = {}) {
+  const permissions = useCoverageQuery(
+    api.lib.capabilities.currentPermissions,
+    {},
+  );
+  const profile = useCoverageQuery(api.domains.profiles.current, {});
   const canRead = permissions?.capabilities.includes("mcp.read") ?? false;
   const canPlan = permissions?.capabilities.includes("mcp.plan") ?? false;
-  const [month, setMonth] = useState(currentManilaMonth);
-  const [person, setPerson] = useState<Id<"profiles"> | null>(null);
-  const [selected, setSelected] = useState<Id<"coveragePlans"> | null>(null);
+  const [month, setMonth] = useState(initialMonth ?? currentManilaMonth);
+  const [person, setPerson] = useState<Id<"profiles"> | null>(
+    initialPersonId ?? null,
+  );
+  const [selected, setSelected] = useState<Id<"coveragePlans"> | null>(
+    initialPlanId ?? null,
+  );
   const [peopleCursor, setPeopleCursor] = useState<string | null>(null);
   const [revisionReason, setRevisionReason] = useState("");
   const [revisionDate, setRevisionDate] = useState("");
@@ -159,7 +174,7 @@ export function CoveragePlanner() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const self = profile?._id;
-  const people = useQuery(
+  const people = useCoverageQuery(
     api.people.queries.list,
     canRead &&
       permissions?.capabilities.includes("people.read") &&
@@ -182,22 +197,22 @@ export function CoveragePlanner() {
       : (person ??
         choices.find((p) => p.role === "sales")?._id ??
         (permissions?.capabilities.includes("people.read") ? undefined : self));
-  const plans = useQuery(
+  const plans = useCoverageQuery(
     api.coverage.plans.list,
     canRead && assignee
       ? { assigneeProfileId: assignee, localMonth: month }
       : "skip",
   );
-  const detail = useQuery(
+  const detail = useCoverageQuery(
     api.coverage.plans.detail,
     canRead && selected ? { planId: selected } : "skip",
   );
-  const attribution = useQuery(
+  const attribution = useCoverageQuery(
     api.coverage.discovery.attribution,
     canRead && selected ? { planId: selected } : "skip",
   );
-  const create = useMutation(api.coverage.plans.create);
-  const revise = useMutation(api.coverage.plans.createRevision);
+  const create = useCoverageMutation(api.coverage.plans.create);
+  const revise = useCoverageMutation(api.coverage.plans.createRevision);
   async function action(run: () => Promise<Doc<"coveragePlans">>) {
     if (!canPlan || busy) return;
     setBusy(true);
@@ -430,39 +445,42 @@ export function PlanEditor({
   const [assignmentReason, setAssignmentReason] = useState("");
   // Roster as of the plan's first live instant: midnight can precede a same-day assignment.
   const [rosterAsOf] = useState(() => Math.max(plan.effectiveFrom, Date.now()));
-  const readPermissions = useQuery(api.lib.capabilities.currentPermissions, {});
+  const readPermissions = useCoverageQuery(
+    api.lib.capabilities.currentPermissions,
+    {},
+  );
   const canOutletRead =
     readPermissions?.capabilities.includes("outlet.read") ?? false;
   const canRouteRead =
     readPermissions?.capabilities.includes("route.read") ?? false;
-  const territories = useQuery(
+  const territories = useCoverageQuery(
     api.territories.queries.list,
     canOutletRead
       ? { paginationOpts: { numItems: 100, cursor: null } }
       : "skip",
   );
-  const roster = useQuery(
+  const roster = useCoverageQuery(
     api.outlets.assignments.territoryRoster,
     canOutletRead && territoryId ? { territoryId, asOf: rosterAsOf } : "skip",
   );
-  const routes = useQuery(
+  const routes = useCoverageQuery(
     api.territories.routes.list,
     canRouteRead && territoryId
       ? { territoryId, paginationOpts: { numItems: 100, cursor: null } }
       : "skip",
   );
-  const names = useQuery(
+  const names = useCoverageQuery(
     api.outlets.queries.list,
     canOutletRead
       ? { paginationOpts: { numItems: 100, cursor: outletCursor } }
       : "skip",
   );
-  const saveOutlets = useMutation(api.coverage.plans.saveOutlets);
-  const setAssignment = useMutation(api.coverage.plans.setAssignment);
-  const saveSlots = useMutation(api.coverage.plans.saveSlots);
-  const apply = useMutation(api.coverage.routines.applyToDraft);
-  const submit = useMutation(api.coverage.plans.submit);
-  const routine = useQuery(api.coverage.routines.listForPosition, {
+  const saveOutlets = useCoverageMutation(api.coverage.plans.saveOutlets);
+  const setAssignment = useCoverageMutation(api.coverage.plans.setAssignment);
+  const saveSlots = useCoverageMutation(api.coverage.plans.saveSlots);
+  const apply = useCoverageMutation(api.coverage.routines.applyToDraft);
+  const submit = useCoverageMutation(api.coverage.plans.submit);
+  const routine = useCoverageQuery(api.coverage.routines.listForPosition, {
     planId: plan._id,
   });
   const snapshot = (id: Id<"outlets">) =>
@@ -470,7 +488,7 @@ export function PlanEditor({
   const named = (id: Id<"outlets">) =>
     (plan.status !== "draft" ? snapshot(id)?.outletName : undefined) ??
     names?.page.find((o) => o._id === id)?.name ??
-    id;
+    "Store unavailable";
   const rows: Outlet[] =
     plan.status === "draft"
       ? outlets

@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { CoverageScopeSelect, selectedScopeId } from "./coverage-scope-filters";
-vi.mock("convex/react", () => ({ useQuery: vi.fn() }));
+vi.mock("./coverage-data", () => ({ useCoverageQuery: vi.fn() }));
 
 const options = [
   { id: "ts70z603x3c01w", code: "DEMO-T1", name: "Demo North Metro Territory" },
