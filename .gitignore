@@ -16,6 +16,8 @@ node_modules
 coverage
 # Convex coverage-plan module (not test coverage output)
 !packages/backend/convex/coverage/
+# v2 API coverage-plan domain (not test coverage output)
+!apps/api/src/domains/coverage/
 
 # Turbo
 .turbo
