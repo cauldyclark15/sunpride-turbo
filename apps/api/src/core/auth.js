@@ -1,0 +1,347 @@
+import { capabilitiesFor } from "./capabilities.js";
+import {
+  SESSION_COOKIE,
+  readBearer,
+  readCookie,
+  sessionByToken,
+} from "./context.js";
+import { ApiError, forbidden, invalid, unauthenticated } from "./errors.js";
+import { isEmailInvited, loadProfile } from "./hooks.js";
+import { SIGNIN_POLICY, backoff, signinKey, take } from "./rate.js";
+import { reply } from "./router.js";
+import { scopeOf } from "./scope.js";
+import { HEX64_RE, isPlainObject, randomToken, sha256Hex } from "./util.js";
+
+export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+export const ACCESS_TTL_MS = 15 * 60 * 1000;
+export const NATIVE_APPS = Object.freeze([
+  "field-android",
+  "van-android",
+  "field-ios",
+]);
+const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,63}$/;
+// Dummy argon2id hash so unknown emails cost the same as wrong passwords.
+const DUMMY_HASH = await Bun.password.hash("not-a-real-password-sunpride", {
+  algorithm: "argon2id",
+});
+
+/** @param {unknown} v */
+export const normalizeEmail = (v) =>
+  typeof v === "string" ? v.trim().toLowerCase() : "";
+
+/** @param {Record<string,string|undefined>} env */
+export function bootstrapEmails(env) {
+  return new Set(
+    (env.BOOTSTRAP_ADMIN_EMAILS ?? "")
+      .split(",")
+      .map(normalizeEmail)
+      .filter(Boolean),
+  );
+}
+
+/** @param {unknown} password */
+function validPassword(password) {
+  return (
+    typeof password === "string" &&
+    password.length >= 8 &&
+    password.length <= 256
+  );
+}
+
+/** @param {import('./context.js').Ctx} ctx @param {string} token @param {number} maxAgeMs */
+function setSessionCookie(ctx, token, maxAgeMs) {
+  const secure =
+    ctx.url.protocol === "https:" ||
+    ctx.req.headers.get("x-forwarded-proto") === "https" ||
+    ctx.env.COOKIE_SECURE === "1";
+  ctx.cookies.push(
+    `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(maxAgeMs / 1000)}${secure ? "; Secure" : ""}`,
+  );
+}
+
+/** @param {import('./context.js').Ctx} ctx */
+function clearSessionCookie(ctx) {
+  ctx.cookies.push(
+    `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`,
+  );
+}
+
+/** @param {any} db @param {string} userId @param {string} app @param {string|null} deviceKeyId */
+async function createSession(db, userId, app, deviceKeyId) {
+  const token = randomToken("sps_");
+  const expiresAt = Date.now() + SESSION_TTL_MS;
+  const [row] = await db`
+    insert into sessions (token_hash, user_id, app, device_key_id, expires_at)
+    values (${sha256Hex(token)}, ${userId}, ${app}, ${deviceKeyId}, ${new Date(expiresAt)})
+    returning id`;
+  return { token, id: /** @type {string} */ (row.id), expiresAt };
+}
+
+/** @param {any} db @param {string} sessionId */
+async function createAccess(db, sessionId) {
+  const token = randomToken("spa_");
+  const expiresAt = Date.now() + ACCESS_TTL_MS;
+  await db`insert into access_tokens (token_hash, session_id, expires_at)
+           values (${sha256Hex(token)}, ${sessionId}, ${new Date(expiresAt)})`;
+  // Opportunistic cleanup of this session's expired access rows.
+  await db`delete from access_tokens where session_id = ${sessionId} and expires_at < now() - interval '1 hour'`;
+  return { token, expiresAt };
+}
+
+/** @param {unknown} body */
+function readApp(body) {
+  const app = isPlainObject(body) && body.app !== undefined ? body.app : "web";
+  if (app !== "web" && !NATIVE_APPS.includes(/** @type {string} */ (app)))
+    throw invalid("Unknown app");
+  return /** @type {string} */ (app);
+}
+
+/** @param {unknown} body */
+function requireV2(body) {
+  if (!isPlainObject(body) || body.version !== 2)
+    throw new ApiError(
+      "version_unsupported",
+      426,
+      "Protocol version 2 required",
+      false,
+      { action: "update" },
+    );
+}
+
+/** @param {unknown} deviceKey */
+function readDeviceKey(deviceKey) {
+  if (deviceKey === undefined || deviceKey === null) return null;
+  if (!isPlainObject(deviceKey)) throw invalid("Invalid device key");
+  const { keyId, publicKeySpki } = deviceKey;
+  if (typeof keyId !== "string" || !HEX64_RE.test(keyId))
+    throw invalid("Invalid device key id");
+  if (publicKeySpki !== undefined && publicKeySpki !== null) {
+    if (typeof publicKeySpki !== "string" || publicKeySpki.length > 512)
+      throw invalid("Invalid device key");
+    const bytes = Buffer.from(publicKeySpki, "base64");
+    if (
+      bytes.toString("base64") !== publicKeySpki ||
+      sha256Hex(bytes) !== keyId
+    )
+      throw invalid("Device key id does not match the public key");
+  }
+  return keyId;
+}
+
+/** @param {import('./router.js').Router} router */
+export function installAuth(router) {
+  router.post("/api/auth/sign-up", async (ctx) => {
+    const body = ctx.body;
+    if (!isPlainObject(body)) throw invalid();
+    const email = normalizeEmail(body.email);
+    if (!EMAIL_RE.test(email) || email.length > 254)
+      throw invalid("Enter a valid email");
+    if (!validPassword(body.password))
+      throw invalid("Password must be 8 to 256 characters", "weak_password");
+    const allowed =
+      bootstrapEmails(ctx.env).has(email) ||
+      (await isEmailInvited(ctx.db, email));
+    if (!allowed)
+      throw forbidden("This email has no invitation", "not_invited");
+    const passwordHash = await Bun.password.hash(
+      /** @type {string} */ (body.password),
+      { algorithm: "argon2id" },
+    );
+    const rows = await ctx.db`
+      insert into users (email, password_hash) values (${email}, ${passwordHash})
+      on conflict (email) do nothing returning id`;
+    if (!rows.length)
+      throw new ApiError(
+        "email_taken",
+        409,
+        "An account already exists for this email",
+      );
+    const userId = /** @type {string} */ (rows[0].id);
+    const session = await createSession(ctx.db, userId, "web", null);
+    setSessionCookie(ctx, session.token, SESSION_TTL_MS);
+    return reply(201, { user: { id: userId, email } });
+  });
+
+  router.post("/api/auth/sign-in", async (ctx) => {
+    const body = ctx.body;
+    if (!isPlainObject(body)) throw invalid();
+    const app = readApp(body);
+    const native = app !== "web";
+    if (native) {
+      ctx.v2 = true;
+      requireV2(body);
+    }
+    const deviceKeyId = native ? readDeviceKey(body.deviceKey) : null;
+    const email = normalizeEmail(body.email);
+    if (
+      !email ||
+      typeof body.password !== "string" ||
+      body.password.length > 256
+    )
+      throw invalid("Email and password are required");
+    const wait = await backoff(ctx.db, signinKey(email), SIGNIN_POLICY);
+    if (wait > 0)
+      throw new ApiError("rate_limited", 429, "Too many attempts", true, {
+        action: "retry",
+        retryAfterMs: wait,
+      });
+    const rows =
+      await ctx.db`select id, password_hash, disabled_at from users where email = ${email}`;
+    const user = rows[0];
+    const ok = await Bun.password.verify(
+      body.password,
+      user?.password_hash ?? DUMMY_HASH,
+    );
+    if (!user || !ok || user.disabled_at) {
+      await take(ctx.db, signinKey(email), SIGNIN_POLICY);
+      throw unauthenticated(
+        "Email or password is incorrect",
+        "invalid_credentials",
+      );
+    }
+    const session = await createSession(ctx.db, user.id, app, deviceKeyId);
+    if (!native) {
+      setSessionCookie(ctx, session.token, SESSION_TTL_MS);
+      return { user: { id: user.id, email } };
+    }
+    const access = await createAccess(ctx.db, session.id);
+    return {
+      version: 2,
+      serverTime: Date.now(),
+      sessionToken: session.token,
+      sessionExpiresAt: session.expiresAt,
+      accessToken: access.token,
+      accessExpiresAt: access.expiresAt,
+    };
+  });
+
+  router.post(
+    "/api/auth/refresh",
+    async (ctx) => {
+      requireV2(ctx.body);
+      const token = readBearer(ctx.req);
+      if (!token?.startsWith("sps_"))
+        throw unauthenticated("Session credential required", "session_invalid");
+      const row = await sessionByToken(ctx.db, token);
+      if (!row || row.app === "web")
+        throw unauthenticated("Session expired or revoked", "session_invalid");
+      const body = ctx.body;
+      if (body.app !== row.app)
+        throw unauthenticated(
+          "Session belongs to another app",
+          "session_invalid",
+        );
+      if (
+        body.deviceKeyId !== undefined &&
+        body.deviceKeyId !== null &&
+        typeof body.deviceKeyId !== "string"
+      )
+        throw invalid("Invalid device key id");
+      if (row.device_key_id && body.deviceKeyId !== row.device_key_id)
+        throw unauthenticated(
+          "Session belongs to another device key",
+          "session_invalid",
+        );
+      const access = await createAccess(ctx.db, row.session_id);
+      return {
+        version: 2,
+        serverTime: Date.now(),
+        sessionExpiresAt: new Date(row.expires_at).getTime(),
+        accessToken: access.token,
+        accessExpiresAt: access.expiresAt,
+      };
+    },
+    { v2: true },
+  );
+
+  router.post("/api/auth/sign-out", async (ctx) => {
+    const bearer = readBearer(ctx.req);
+    if (bearer) {
+      ctx.v2 = true;
+      if (bearer.startsWith("sps_"))
+        await ctx.db`update sessions set revoked_at = now() where token_hash = ${sha256Hex(bearer)} and revoked_at is null`;
+      else if (bearer.startsWith("spa_"))
+        await ctx.db`update sessions set revoked_at = now()
+                     where revoked_at is null and id = (select session_id from access_tokens where token_hash = ${sha256Hex(bearer)})`;
+      return { version: 2, revoked: true };
+    }
+    const cookie = readCookie(ctx.req, SESSION_COOKIE);
+    if (cookie)
+      await ctx.db`update sessions set revoked_at = now() where token_hash = ${sha256Hex(cookie)} and revoked_at is null`;
+    clearSessionCookie(ctx);
+    return { revoked: true };
+  });
+
+  router.get("/api/me", async (ctx) => {
+    if (!ctx.user || !ctx.session) throw unauthenticated();
+    if (ctx.via === "access" && ctx.session.app !== "web") return nativeMe(ctx);
+    const profile = await loadProfile(ctx.db, ctx.user.id);
+    return {
+      user: ctx.user,
+      profile: profile
+        ? {
+            id: profile.id,
+            name: profile.name ?? null,
+            role: profile.role,
+            orgUnitId: profile.orgUnitId ?? null,
+            status: profile.status,
+          }
+        : null,
+      capabilities: ctx.actor ? [...ctx.actor.capabilities] : [],
+    };
+  });
+}
+
+/** D3 `/api/me` for native apps. @param {import('./context.js').Ctx} ctx */
+async function nativeMe(ctx) {
+  ctx.v2 = true;
+  const actor = ctx.actor;
+  if (!actor)
+    throw forbidden(
+      "No active profile for this account",
+      "profile_unavailable",
+    );
+  const app = ctx.req.headers.get("x-app") ?? ctx.session?.app;
+  const keyId = ctx.req.headers.get("x-device-key-id");
+  if (app !== ctx.session?.app)
+    throw invalid("X-App does not match the session");
+  if (keyId !== null && !HEX64_RE.test(keyId))
+    throw invalid("Invalid X-Device-Key-Id");
+  /** @type {any} */
+  let device = null;
+  if (keyId) {
+    const rows = await ctx.db`
+      select id, status, bound_subject, credential_id, app from registered_devices
+      where profile_id = ${actor.profileId} and key_id = ${keyId} and app = ${app}
+      order by case status when 'active' then 0 when 'suspended' then 1 else 2 end, created_at desc limit 1`;
+    const d = rows[0];
+    if (d)
+      device = {
+        id: d.id,
+        status: d.status,
+        bound: Boolean(
+          d.bound_subject &&
+          d.credential_id &&
+          d.bound_subject === actor.subject,
+        ),
+        allowedApp: d.app,
+        credentialId: d.credential_id ?? null,
+      };
+  }
+  const scope = await scopeOf(ctx.db, actor);
+  return {
+    version: 2,
+    serverTime: Date.now(),
+    profile: {
+      id: actor.profileId,
+      subject: actor.subject,
+      name: actor.name,
+      role: actor.role,
+      orgUnitId: actor.orgUnitId,
+      active: true,
+    },
+    scope,
+    permissions: capabilitiesFor(actor.role),
+    device,
+  };
+}

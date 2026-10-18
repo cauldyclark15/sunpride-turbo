@@ -13,5 +13,9 @@
     "test": "bun test",
     "typecheck": "tsc -p jsconfig.json",
     "lint": "tsc -p jsconfig.json"
+  },
+  "devDependencies": {
+    "bun-types": "1.3.14",
+    "typescript": "5.9.3"
   }
 }
