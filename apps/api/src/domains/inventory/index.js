@@ -1,3 +1,60 @@
-// placeholder: replaced by lane inventory
-/** @param {any} _router @param {any} _ctx */
-export function install(_router, _ctx) {}
+import { roleHas } from "../../core/capabilities.js";
+import { commands, execute } from "./commands.js";
+import { visibleLocations } from "./common.js";
+import { installJobs } from "./jobs.js";
+import { installCommandExtensions } from "./extensions.js";
+import { lots, policies } from "./reference.js";
+import {
+  catalog,
+  countDetail,
+  documents,
+  movements,
+  negative,
+  overview,
+  productDetail,
+  suggestions,
+  trace,
+} from "./queries.js";
+
+/** @param {import('../../core/router.js').Router} router @param {any} core */
+export function install(router, core) {
+  installCommandExtensions();
+  const prefix = "/api/v1/inventory";
+  router.get(`${prefix}/overview`, overview);
+  router.get(`${prefix}/products`, catalog);
+  router.get(`${prefix}/product`, productDetail);
+  router.get(`${prefix}/locations`, async (c) =>
+    (await visibleLocations(c)).map((l) => ({
+      id: l.id,
+      _id: l.id,
+      code: l.code,
+      name: l.name,
+      type: l.type,
+      orgUnitId: l.org_unit_id,
+      active: l.active,
+    })),
+  );
+  router.get(`${prefix}/movements`, (c) => movements(c));
+  router.get(`${prefix}/trace`, trace);
+  router.get(`${prefix}/lots`, lots);
+  router.get(`${prefix}/policies`, policies);
+  router.get(`${prefix}/counts/detail`, countDetail);
+  router.get(`${prefix}/negative`, negative);
+  router.get(`${prefix}/replenishment`, suggestions);
+  for (const kind of [
+    "receipts",
+    "transfers",
+    "counts",
+    "adjustments",
+    "reservations",
+  ])
+    router.get(`${prefix}/${kind}`, (c) => documents(c, kind));
+  for (const action of Object.keys(commands))
+    router.post(`${prefix}/${action}`, (c) => execute(c, action));
+  core.registerTopic(
+    "inventory",
+    (/** @type {any} */ actor, /** @type {string} */ topic) =>
+      topic === "inventory" && roleHas(actor.role, "inventory.read"),
+  );
+  installJobs(core);
+}
