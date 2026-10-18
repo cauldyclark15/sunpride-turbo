@@ -1,20 +1,23 @@
 "use client";
 
 import { Button, Input, Label, TextField } from "@heroui/react";
-import { useConvexAuth } from "convex/react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 import { PasswordInput } from "@sunpride/ui";
-import { LoadingScreen } from "@/components/auth-gate";
-import { authClient } from "@/lib/auth-client";
-import { safeAuthDestination } from "@/lib/auth-routing";
+import { LoadingScreen } from "./auth-gate";
+import { safeAuthDestination } from "../lib/auth/routing";
+import { useSession } from "../lib/auth/session";
 
 type AuthMode = "login" | "register";
 
 export function AuthScreen({ mode, next }: { mode: AuthMode; next?: string }) {
-  const { isAuthenticated, isLoading } = useConvexAuth();
+  const session = useSession();
+  const isLoading = session.status === "loading";
+  // A refused profile is still signed in: the dashboard gate explains it.
+  const isAuthenticated =
+    session.status === "authenticated" || session.status === "refused";
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -38,8 +41,8 @@ export function AuthScreen({ mode, next }: { mode: AuthMode; next?: string }) {
     try {
       const result =
         mode === "login"
-          ? await authClient.signIn.email({ email, password })
-          : await authClient.signUp.email({ email, password, name });
+          ? await session.signIn({ email, password })
+          : await session.signUp({ email, password, name });
 
       if (result.error) {
         setError(result.error.message ?? "Sign in failed. Try again.");

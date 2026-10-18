@@ -1,5 +1,1 @@
-export function safeAuthDestination(next?: string) {
-  return next?.startsWith("/") && !next.startsWith("//")
-    ? next
-    : "/dashboard";
-}
+export { safeAuthDestination } from "./auth/routing";
