@@ -1,4 +1,26 @@
 // Registry of domain modules. Lead-owned: lanes replace only their own domain folder.
-/** @typedef {import('../core/router.js').Router} Router */
+import { install as org } from "./org/index.js";
+import { install as coverage } from "./coverage/index.js";
+import { install as visits } from "./visits/index.js";
+import { install as fieldsync } from "./fieldsync/index.js";
+import { install as van } from "./van/index.js";
+import { install as inventory } from "./inventory/index.js";
+import { install as imports } from "./imports/index.js";
+import { install as orders } from "./orders/index.js";
+import { install as fieldreports } from "./fieldreports/index.js";
+import { install as issues } from "./issues/index.js";
+import { install as analytics } from "./analytics/index.js";
 /** @type {Array<(router: any, ctx: any) => void>} */
-export const domainInstallers = [];
+export const domainInstallers = [
+  org,
+  coverage,
+  visits,
+  fieldsync,
+  van,
+  inventory,
+  imports,
+  orders,
+  fieldreports,
+  issues,
+  analytics,
+];

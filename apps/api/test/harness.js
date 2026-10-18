@@ -8,12 +8,16 @@ import { clearJobHandlers } from "../src/core/jobs.js";
 import { clearSyncRegistry } from "../src/core/sync.js";
 
 const FORBIDDEN_PORTS = new Set([3000, 4300, 4310]);
+/** Lane name selects the lane database key file and test-db prefix (SP_LANE, default core). */
+const LANE = (process.env.SP_LANE ?? "core").replace(/[^a-z0-9_]/g, "");
 export const CURSOR_SECRET = "test-cursor-secret-0123456789abcdef-0123456789";
 
 /** Base URL of the lane database (never printed). */
 async function laneUrl() {
   return (
-    await Bun.file(`${process.env.HOME}/.sunpride-keys/pg-lane-core-url`).text()
+    await Bun.file(
+      `${process.env.HOME}/.sunpride-keys/pg-lane-${LANE}-url`,
+    ).text()
   ).trim();
 }
 
@@ -26,7 +30,7 @@ export async function startHarness(opts = {}) {
   clearSyncRegistry();
   clearJobHandlers();
   const base = await laneUrl();
-  const name = `sunpride_lane_core_t${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
+  const name = `sunpride_lane_${LANE}_t${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
   const admin = createDb(base, { max: 1 });
   await admin.unsafe(`create database ${name}`);
   const u = new URL(base);
