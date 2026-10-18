@@ -1,13 +1,11 @@
 "use client";
 
-import { api } from "@sunpride/backend/api";
 import { WorkspaceShell } from "@sunpride/ui";
-import { useQuery } from "convex/react";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { getWebNavigation, navigationForRole } from "@/config/navigation";
-import { authClient } from "@/lib/auth-client";
+import { useSession } from "@/lib/auth/session";
 import { canAccessWebModule } from "@/lib/module-access";
 import {
   AreaPendingNotice,
@@ -18,13 +16,14 @@ import {
 export function OperationsShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const current = useQuery(api.domains.profiles.current, {});
+  const session = useSession();
+  const current = session.profile;
   const canAdminister = canAccessWebModule("admin", current?.role);
   const canSeeIssues = canAccessWebModule("issues", current?.role);
   const navigation = getWebNavigation(pathname, canAdminister, canSeeIssues);
 
   async function signOut() {
-    await authClient.signOut();
+    await session.signOut();
     router.replace("/login");
     router.refresh();
   }

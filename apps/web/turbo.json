@@ -2,6 +2,9 @@
   "$schema": "https://turborepo.dev/schema.json",
   "extends": ["//"],
   "tasks": {
+    "build": {
+      "env": ["$TURBO_EXTENDS$", "API_ORIGIN"]
+    },
     "test": {
       "inputs": [
         "$TURBO_DEFAULT$",

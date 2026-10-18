@@ -1,63 +1,56 @@
 "use client";
 
-import { api } from "@sunpride/backend/api";
-import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
-import { useEffect, useState, type ReactNode } from "react";
-import { authClient } from "@/lib/auth-client";
+import { useEffect, type ReactNode } from "react";
+import { isApiError } from "../lib/api/errors";
+import { useSession } from "../lib/auth/session";
+
+/** Profile refusals the API reports for a turned-off person. */
+const TURNED_OFF_CODES = new Set([
+  "profile_inactive",
+  "profile_disabled",
+  "access_turned_off",
+]);
 
 export const accessErrorMessage = (error: unknown) => {
-  if (error instanceof Error && error.message.includes("has not been invited"))
+  if (
+    isApiError(error, "not_invited") ||
+    (error instanceof Error && error.message.includes("has not been invited"))
+  )
     return "This email address has not been invited yet. Ask your administrator to invite it, or sign out and use the email address your invitation was sent to.";
   return "Access unavailable. Contact your administrator.";
 };
 
 export function AuthGate({ children }: { children: ReactNode }) {
-  const { isAuthenticated, isLoading } = useConvexAuth();
-  const ensureProfile = useMutation(api.domains.profiles.ensure);
-  const profile = useQuery(
-    api.domains.profiles.current,
-    isAuthenticated ? {} : "skip",
-  );
+  const { status, profile, error } = useSession();
   const pathname = usePathname();
   const router = useRouter();
-  const [provisioningError, setProvisioningError] = useState<string | null>(
-    null,
-  );
 
   useEffect(() => {
-    if (isLoading || isAuthenticated) return;
+    if (status !== "unauthenticated") return;
     const next = pathname.startsWith("/") ? pathname : "/dashboard";
     router.replace(`/login?next=${encodeURIComponent(next)}`);
-  }, [isAuthenticated, isLoading, pathname, router]);
+  }, [status, pathname, router]);
 
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    let active = true;
-    void ensureProfile()
-      .then(() => {
-        if (active) setProvisioningError(null);
-      })
-      .catch((error: unknown) => {
-        if (active) setProvisioningError(accessErrorMessage(error));
-      });
-    return () => {
-      active = false;
-    };
-  }, [ensureProfile, isAuthenticated]);
-
-  if (isLoading || !isAuthenticated) return <LoadingScreen label="Loading…" />;
-  if (provisioningError)
-    return (
-      <AccessMessage title="Access unavailable" message={provisioningError} />
-    );
+  if (status === "loading" || status === "unauthenticated")
+    return <LoadingScreen label="Loading…" />;
   // A turned-off profile would otherwise wait on "Loading…" forever.
-  if (profile && profile.status !== "active")
+  if (
+    (profile && !profile.active) ||
+    (error && TURNED_OFF_CODES.has(error.code))
+  )
     return (
       <AccessMessage
         title="Access turned off"
         message="Your access to Sunpride Operations has been turned off. Contact your administrator."
+      />
+    );
+  if (status === "refused" || status === "error")
+    return (
+      <AccessMessage
+        title="Access unavailable"
+        message={accessErrorMessage(error)}
       />
     );
   if (!profile) return <LoadingScreen label="Loading…" />;
@@ -81,8 +74,9 @@ export function AccessMessage({
   message: string;
 }) {
   const router = useRouter();
+  const session = useSession();
   async function signOut() {
-    await authClient.signOut();
+    await session.signOut();
     router.replace("/login");
     router.refresh();
   }

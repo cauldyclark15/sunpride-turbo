@@ -1,4 +1,13 @@
-import { convexClient } from "@convex-dev/better-auth/client/plugins";
-import { createAuthClient } from "better-auth/react";
+import { createAuthActions } from "./auth/client";
 
-export const authClient = createAuthClient({ plugins: [convexClient()] });
+/**
+ * Compatibility facade over `/api/auth/*` for code outside React. Inside
+ * components prefer `useSession()` (same calls, bound to the provider's cache).
+ */
+const actions = createAuthActions();
+
+export const authClient = {
+  signIn: { email: actions.signIn },
+  signUp: { email: actions.signUp },
+  signOut: actions.signOut,
+};
