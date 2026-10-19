@@ -7,10 +7,10 @@ import {
   StatusPill,
   WorkspaceIcon,
 } from "@sunpride/ui";
-import { api } from "@sunpride/backend/api";
-import type { Doc, Id } from "@sunpride/backend/data-model";
-import { useMutation, useQuery } from "convex/react";
-import type { FunctionArgs } from "convex/server";
+import { api } from "./coverage-model";
+import type { Doc, Id } from "./coverage-model";
+import { useCoverageMutation, useCoverageQuery } from "./coverage-data";
+import type { FunctionArgs } from "./coverage-model";
 import { useState } from "react";
 import { currentManilaMonth } from "../lib/coverage-calendar";
 import {
@@ -19,6 +19,7 @@ import {
   deadlineStateLabel,
 } from "../lib/mcp-deadlines";
 import { SupervisorAwayPanel } from "./coverage-deadlines";
+import { CoverageStandardsReview } from "./coverage-summary";
 import { manilaDateToUtcMs } from "../lib/manila-date";
 
 type Mode = "review" | "visits" | "history";
@@ -91,6 +92,8 @@ function auditValue(
   actorName: string,
 ): string {
   if (value === undefined) return "—";
+  if (typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(value))
+    return "Recorded reference";
   if (typeof value === "string")
     return value.includes("|")
       ? value === actorToken
@@ -119,11 +122,13 @@ function auditValue(
 function PlanHistory({ planId }: { planId: Id<"coveragePlans"> }) {
   const [cursor, setCursor] = useState<string | null>(null);
   const [pages, setPages] = useState<Doc<"coverageAuditEvents">[]>([]);
-  const events = useQuery(api.coverage.history.list, {
+  const events = useCoverageQuery(api.coverage.history.list, {
     planId,
     paginationOpts: { numItems: 20, cursor },
   });
-  const attribution = useQuery(api.coverage.discovery.attribution, { planId });
+  const attribution = useCoverageQuery(api.coverage.discovery.attribution, {
+    planId,
+  });
   const rows = [...pages, ...(events?.page ?? [])];
   return (
     <section aria-label="Plan history" className="grid gap-2">
@@ -224,7 +229,7 @@ function PlannedVisits({
   personId: Id<"profiles">;
   month: string;
 }) {
-  const visits = useQuery(
+  const visits = useCoverageQuery(
     api.coverage.activation.plannedForMonth,
     /^\d{4}-(0[1-9]|1[0-2])$/.test(month)
       ? { assigneeProfileId: personId, localMonth: month }
@@ -238,7 +243,7 @@ function PlannedVisits({
       )}
       <ul className="overflow-hidden rounded-xl border border-border">
         {visits?.map((visit) => (
-          <li key={visit._id} title={`Visit ${visit._id}`}>
+          <li key={visit._id}>
             <ListRow
               icon={<WorkspaceIcon name="field" />}
               title={visit.approvedSnapshot.outletName}
@@ -255,10 +260,9 @@ function PlannedVisits({
               visit.replacementOfVisitId ||
               visit.cancellationReason) && (
               <p className="px-4 pb-3 text-[12px] text-muted">
-                {visit.replacedByVisitId &&
-                  `Replaced by ${visit.replacedByVisitId} · `}
+                {visit.replacedByVisitId && "Replaced by the revised plan · "}
                 {visit.replacementOfVisitId &&
-                  `Replaces ${visit.replacementOfVisitId} · `}
+                  "Replaces a previous planned visit · "}
                 {visit.cancellationReason}
               </p>
             )}
@@ -279,14 +283,14 @@ function SlotRow({
   canRouteRead: boolean;
 }) {
   const frozen = slot.approvedSnapshot;
-  const current = useQuery(
+  const current = useCoverageQuery(
     api.outlets.queries.detail,
     !frozen && slot.outletId && canOutletRead
       ? { outletId: slot.outletId, asOf: manilaDateToUtcMs(slot.serviceDate) }
       : "skip",
   );
   const routeId = slot.routeId ?? current?.assignment?.routeId;
-  const route = useQuery(
+  const route = useCoverageQuery(
     api.territories.routes.detail,
     !frozen && routeId && canRouteRead
       ? { routeId, asOf: manilaDateToUtcMs(slot.serviceDate) }
@@ -298,17 +302,20 @@ function SlotRow({
         {slot.serviceDate} ·{" "}
         {slot.kind === "non_visit"
           ? slot.activityKind
-          : `${frozen?.outletCode ?? current?.outlet.code ?? slot.outletId ?? "—"} ${frozen?.outletName ?? current?.outlet.name ?? ""}`}
+          : `${frozen?.outletCode ?? current?.outlet.code ?? "Store unavailable"} ${frozen?.outletName ?? current?.outlet.name ?? ""}`}
       </strong>
       {slot.namedTruckRef && <span> · truck {slot.namedTruckRef}</span>}
       {slot.kind === "outlet_visit" && (
         <p>
           {frozen ? "Frozen" : "Current"}: customer{" "}
-          {frozen?.customerId ??
-            current?.customerLink?.customerId ??
-            "Prospect / unlinked"}{" "}
-          · route {frozen?.routeCode ?? route?.route.code ?? routeId ?? "—"} ·
-          stop{" "}
+          {frozen?.customerName ??
+            frozen?.customerCode ??
+            current?.customerLink?.customerName ??
+            current?.customerLink?.customerCode ??
+            (frozen?.customerId || current?.customerLink?.customerId
+              ? "Linked account"
+              : "Prospect / unlinked")}{" "}
+          · route {frozen?.routeCode ?? route?.route.code ?? "No route"} · stop{" "}
           {frozen?.sequence ?? current?.assignment?.sequence ?? slot.sequence}
         </p>
       )}
@@ -320,7 +327,7 @@ function SlotRow({
 }
 
 type ApprovalView = NonNullable<
-  ReturnType<typeof useQuery<typeof api.coverage.calendar.approvalView>>
+  ReturnType<typeof useCoverageQuery<typeof api.coverage.calendar.approvalView>>
 >;
 
 /** CALL-06: who approves this MCP, the deadline, and the recorded approval capacity. */
@@ -405,11 +412,13 @@ function SelectedPlan({
   canOutletRead: boolean;
   canRouteRead: boolean;
 }) {
-  const detail = useQuery(api.coverage.plans.detail, { planId });
-  const attribution = useQuery(api.coverage.discovery.attribution, { planId });
-  const returned = useMutation(api.coverage.plans.returnPlan);
-  const approve = useMutation(api.coverage.plans.approve);
-  const activate = useMutation(api.coverage.activation.activate);
+  const detail = useCoverageQuery(api.coverage.plans.detail, { planId });
+  const attribution = useCoverageQuery(api.coverage.discovery.attribution, {
+    planId,
+  });
+  const returned = useCoverageMutation(api.coverage.plans.returnPlan);
+  const approve = useCoverageMutation(api.coverage.plans.approve);
+  const activate = useCoverageMutation(api.coverage.activation.activate);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -419,7 +428,7 @@ function SelectedPlan({
     visitIds: Id<"plannedVisits">[];
   } | null>(null);
   const [openedAt] = useState(Date.now);
-  const route = useQuery(api.coverage.calendar.approvalView, {
+  const route = useCoverageQuery(api.coverage.calendar.approvalView, {
     planId,
     asOf: openedAt,
   });
@@ -480,6 +489,7 @@ function SelectedPlan({
             {stamp(plan.approvedAt)}
           </p>
         )}
+        {detail.review && <CoverageStandardsReview review={detail.review} />}
         {route && (
           <ApprovalRouteNotice
             view={route}
@@ -589,10 +599,7 @@ function SelectedPlan({
                 Generate visits
               </button>
               {generated && (
-                <p role="status">
-                  {generated.count} planned visit(s):{" "}
-                  {generated.visitIds.join(", ") || "none"}
-                </p>
+                <p role="status">{generated.count} planned visit(s) ready.</p>
               )}
             </div>
           )}
@@ -638,10 +645,10 @@ export function CoverageReview({
   const [cursor, setCursor] = useState<string | null>(null);
   const [prior, setPrior] = useState<
     NonNullable<
-      ReturnType<typeof useQuery<typeof api.coverage.discovery.list>>
+      ReturnType<typeof useCoverageQuery<typeof api.coverage.discovery.list>>
     >["page"]
   >([]);
-  const discovery = useQuery(
+  const discovery = useCoverageQuery(
     api.coverage.discovery.list,
     canRead &&
       !scopedSelection &&

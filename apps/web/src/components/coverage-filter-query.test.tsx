@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it, vi } from "vitest";
 
 const query = vi.hoisted(() => vi.fn());
-vi.mock("convex/react", () => ({ useQuery: query }));
+vi.mock("./coverage-data", () => ({ useCoverageQuery: query }));
 vi.mock("react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("react")>();
   let index = 0;

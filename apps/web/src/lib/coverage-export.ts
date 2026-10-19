@@ -28,6 +28,7 @@ export type ScheduleHeader = {
   approvedByName?: string;
   approvedAt?: number;
   signedHashPrefix?: string;
+  contentRevision?: number;
 };
 export type ScheduleRow = {
   slotKey: string;

@@ -1,6 +1,6 @@
 import type { StatusTone } from "@sunpride/ui";
 
-/** Server-computed MCP deadline states (coverage/calendar_rules.ts). */
+/** Server-computed MCP deadline states (apps/api/src/domains/coverage/deadlines.js). */
 export type McpDeadlineState =
   | "not_open"
   | "due"

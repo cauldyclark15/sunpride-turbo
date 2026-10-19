@@ -1,12 +1,12 @@
 "use client";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
-import { useQuery } from "convex/react";
+import { api } from "./coverage-model";
+import type { Id } from "./coverage-model";
+import { useCoverageQuery } from "./coverage-data";
 
 export type ScopeOption = { id: string; code: string; name: string };
 export type ScopeKind = "territories" | "routes";
 
-/** HTML option values are local positions, so Convex IDs never appear in the page. */
+/** HTML option values are local positions, so database identifiers never appear in the page. */
 export function selectedScopeId(
   options: ScopeOption[],
   position: string,
@@ -16,7 +16,7 @@ export function selectedScopeId(
 }
 
 export function useCoverageScopeOptions(planId?: Id<"coveragePlans">) {
-  return useQuery(
+  return useCoverageQuery(
     api.coverage.views.filterOptions,
     planId ? { planId } : "skip",
   );

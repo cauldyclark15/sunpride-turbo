@@ -68,6 +68,45 @@ vi.mock("convex/react", () => ({
   },
   useMutation: () => vi.fn(async () => ({})),
 }));
+vi.mock("./coverage-data", () => ({
+  useCoverageQuery: (ref: unknown, args: unknown) => {
+    const name = (ref as { name: string }).name;
+    state.calls.push({ name, args });
+    if (args === "skip") return undefined;
+    if (name === "domains/profiles:current") return state.profile;
+    if (name === "domains/orders:list" || name === "domains/workflows:pending")
+      return [];
+    if (name === "lib/capabilities:currentPermissions")
+      return state.permissions;
+    if (name === "coverage/plans:list") return [];
+    if (name === "coverage/plans:detail")
+      return {
+        plan: {
+          _id: "selected-plan",
+          version: 1,
+          status: "draft",
+          preparedBy: "someone",
+          preparedAt: 1,
+          assigneeProfileId: "manager",
+        },
+        slots: [],
+        warnings: [],
+      };
+    if (name === "coverage/discovery:list")
+      return { page: state.discoveryPage, continueCursor: "0", isDone: true };
+    if (name === "coverage/activation:plannedForMonth") return [];
+    if (name === "people/queries:list")
+      return {
+        page: [
+          { _id: "seller", name: "Sales", orgUnitId: "unit", status: "active" },
+        ],
+        isDone: true,
+      };
+    if (name === "people/queries:history") return [{ effectiveFrom: 0 }];
+    return undefined;
+  },
+  useCoverageMutation: () => vi.fn(async () => ({})),
+}));
 vi.mock("react", async (original) => {
   const actual = await original<typeof import("react")>();
   return {
@@ -92,7 +131,7 @@ vi.mock("react", async (original) => {
               assigneeId: "manager",
               assigneeName: "Sales",
             }
-          : initial === "plan"
+          : initial === "summary"
             ? state.tab
             : initial === "routes"
               ? state.setupSection
@@ -216,6 +255,21 @@ beforeEach(() => {
 });
 
 describe("sales force coverage module", () => {
+  it("opens the manager summary before mounting the planner or plan-specific subscriptions", () => {
+    state.tab = "summary";
+    const html = render();
+    expect(html).toContain("Loading coverage summary");
+    expect(html).not.toContain("Mounted planner");
+    expect(state.calls.some((c) => c.name === "coverage:summary")).toBe(true);
+    expect(
+      state.calls.some(
+        (c) =>
+          c.name === "coverage/discovery:list" ||
+          c.name === "coverage/plans:detail",
+      ),
+    ).toBe(false);
+    expect(html).toContain('aria-label="Coverage month"');
+  });
   it("mounts planner and the coverage tabs for manager without shell filters", () => {
     const html = render();
     expect(html).toContain("Mounted planner");

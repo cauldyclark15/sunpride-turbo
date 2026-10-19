@@ -1,8 +1,8 @@
 import React, { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { getFunctionName } from "convex/server";
+import { getFunctionName } from "./coverage-model";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Doc, Id } from "@sunpride/backend/data-model";
+import type { Doc, Id } from "./coverage-model";
 import { CoverageGrid, toggleVisit } from "./coverage-grid";
 import {
   CoveragePlanner,
@@ -21,13 +21,13 @@ const state = vi.hoisted(() => ({
   index: 0,
   editorError: "",
 }));
-vi.mock("convex/react", () => ({
-  useQuery: (ref: unknown, args: unknown) => {
+vi.mock("./coverage-data", () => ({
+  useCoverageQuery: (ref: unknown, args: unknown) => {
     const name = getFunctionName(ref as never);
     state.calls.push({ name, args });
     return args === "skip" ? undefined : state.values[name];
   },
-  useMutation: () => vi.fn(),
+  useCoverageMutation: () => vi.fn(),
 }));
 vi.mock("react", async (original) => {
   const actual = await original<typeof import("react")>();

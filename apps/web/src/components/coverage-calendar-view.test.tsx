@@ -1,8 +1,8 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { CoverageCalendarView } from "./coverage-calendar-view";
-vi.mock("convex/react", () => ({
-  useQuery: () => ({
+vi.mock("./coverage-data", () => ({
+  useCoverageQuery: () => ({
     territories: [
       {
         id: "raw-territory-id",

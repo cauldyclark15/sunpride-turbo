@@ -1,8 +1,8 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it, vi } from "vitest";
 import { CoverageRouteView } from "./coverage-route-view";
-vi.mock("convex/react", () => ({
-  useQuery: () => ({
+vi.mock("./coverage-data", () => ({
+  useCoverageQuery: () => ({
     page: [
       {
         territoryCode: "T",

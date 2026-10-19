@@ -2,9 +2,9 @@
 
 import { Button } from "@heroui/react";
 import { Card, StatusPill, WorkspaceIcon } from "@sunpride/ui";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
-import { useQuery } from "convex/react";
+import { api } from "./coverage-model";
+import type { Id } from "./coverage-model";
+import { useCoverageQuery } from "./coverage-data";
 import { useEffect, useRef, useState } from "react";
 import "leaflet/dist/leaflet.css";
 import {
@@ -103,7 +103,7 @@ export function CoverageMapView({ planId }: { planId: Id<"coveragePlans"> }) {
     Id<"territories"> | undefined
   >();
   const [routeId, setRouteId] = useState<Id<"routes"> | undefined>();
-  const result = useQuery(api.coverage.map.forPlan, {
+  const result = useCoverageQuery(api.coverage.map.forPlan, {
     planId,
     territoryId,
     routeId,
