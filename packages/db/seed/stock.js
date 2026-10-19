@@ -8,7 +8,8 @@ export function stockBook(d, c) {
   const locations = ["depot", "truck-1", "truck-2"].map((key, i) =>
     d.add("inventory_locations", key, {
       organization_id: org,
-      org_unit_id: c.root.id,
+      org_unit_id:
+        i === 0 ? c.units[0].id : c.agents[i === 1 ? 4 : 7].org_unit_id,
       site_code: "SMP-CEBU",
       code: `SMP-${key.toUpperCase()}`,
       name: `Sample Cebu ${key}`,

@@ -1,7 +1,7 @@
 import { invalid } from "../../core/errors.js";
 import { roleHas } from "../../core/capabilities.js";
 import * as C from "./constants.js";
-import { enumValue, uuid } from "./service.js";
+import { enumValue, uuid, requireIssueAccess } from "./service.js";
 /** @typedef {import('@sunpride/db/client').Db} Db */
 /** @param {any} v */
 const ms = (v) => (v == null ? undefined : new Date(v).getTime());
@@ -38,8 +38,8 @@ export function issueDto(r) {
     },
   };
 }
-/** @param {Db} db @param {any} filters @param {boolean} [agent] */
-export async function board(db, filters, agent = false) {
+/** @param {Db} db @param {any} filters @param {import("./service.js").Actor} actor @param {boolean} [agent] */
+export async function board(db, filters, actor, agent = false) {
   const archived = filters.archived === true || filters.archived === "true";
   if (
     filters.archived !== undefined &&
@@ -77,6 +77,7 @@ export async function board(db, filters, agent = false) {
     await db`select i.*,coalesce(i.reporter_label,r.name,'Agent') as reporter_name,a.name as assignee_name,coalesce(i.last_comment_author_label,c.name,'Agent') as last_comment_author_name
     from issues i left join profiles r on r.id=i.reporter_id left join profiles a on a.id=i.assignee_id left join profiles c on c.id=i.last_comment_author_id
     where i.archived=${archived}
+    and (${actor.role !== "sales"} or i.reporter_id=${actor.profileId})
     and (${filters.area ?? null}::text is null or i.area=${filters.area ?? null})
     and (${priority}::text is null or i.priority=${priority})
     and (${filters.milestone ?? null}::text is null or i.milestone=${filters.milestone ?? null})
@@ -109,7 +110,7 @@ export async function board(db, filters, agent = false) {
   }));
   const open = rows.filter((/** @type {any} */ r) => r.status !== "completed");
   const history =
-    await db`select a.kind,a.to_status,a.created_at from issue_activity a join issues i on i.id=a.issue_id where i.archived=${archived} and a.created_at >= now()-interval '14 days'
+    await db`select a.kind,a.to_status,a.created_at from issue_activity a join issues i on i.id=a.issue_id where i.archived=${archived} and (${actor.role !== "sales"} or i.reporter_id=${actor.profileId}) and a.created_at >= now()-interval '14 days'
     and (${filters.area ?? null}::text is null or i.area=${filters.area ?? null})
     and (${priority}::text is null or i.priority=${priority})
     and (${filters.milestone ?? null}::text is null or i.milestone=${filters.milestone ?? null})
@@ -181,6 +182,7 @@ export async function board(db, filters, agent = false) {
 }
 /** @param {Db} db @param {any} issue @param {import('../../core/context.js').Actor} actor */
 export async function detail(db, issue, actor) {
+  requireIssueAccess(issue, actor);
   const names =
     await db`select id,name from profiles where id in ${db([issue.reporter_id, issue.assignee_id].filter(Boolean).length ? [issue.reporter_id, issue.assignee_id].filter(Boolean) : ["00000000-0000-0000-0000-000000000000"])}`;
   const name = (

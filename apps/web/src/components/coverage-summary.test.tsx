@@ -44,6 +44,28 @@ const data: Summary = {
   ],
 };
 describe("manager-first coverage", () => {
+  it("read-only people can view an existing plan but cannot start a missing one", () => {
+    const missing = {
+      ...data,
+      rows: [
+        {
+          ...data.rows[0]!,
+          status: "not_started",
+          action: { label: "Start plan", profileId: "person" },
+        },
+      ],
+    };
+    expect(
+      renderToStaticMarkup(
+        <CoverageSummaryView data={missing} onOpen={() => {}} />,
+      ),
+    ).not.toContain("Start plan");
+    expect(
+      renderToStaticMarkup(
+        <CoverageSummaryView data={missing} onOpen={() => {}} canPlan />,
+      ),
+    ).toContain("Start plan");
+  });
   it("shows readiness versus target and prior, overdue work, my queue and trend", () => {
     const html = renderToStaticMarkup(
       <CoverageSummaryView data={data} onOpen={() => {}} />,

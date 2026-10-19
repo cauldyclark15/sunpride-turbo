@@ -58,6 +58,11 @@ export function install(router, platform) {
                 409,
                 "This request key was used for different content",
               );
+            if (prior.result?.issueId)
+              S.requireIssueAccess(
+                await S.findIssue(db, prior.result.issueId, false),
+                /** @type {S.Actor} */ (fresh),
+              );
             return prior.result;
           }
         }
@@ -107,7 +112,11 @@ export function install(router, platform) {
     };
   });
   get("board", (ctx) =>
-    board(ctx.db, Object.fromEntries(ctx.url.searchParams)),
+    board(
+      ctx.db,
+      Object.fromEntries(ctx.url.searchParams),
+      /** @type {S.Actor} */ (ctx.actor),
+    ),
   );
   get("assignees", async (ctx) => {
     const rows =
@@ -131,7 +140,12 @@ export function install(router, platform) {
     return detail(ctx.db, issue, /** @type {S.Actor} */ (ctx.actor));
   });
   get("agent/list", (ctx) =>
-    board(ctx.db, Object.fromEntries(ctx.url.searchParams), true),
+    board(
+      ctx.db,
+      Object.fromEntries(ctx.url.searchParams),
+      /** @type {S.Actor} */ (ctx.actor),
+      true,
+    ),
   );
   get("agent/get", async (ctx) =>
     detail(

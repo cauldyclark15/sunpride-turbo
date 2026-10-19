@@ -71,10 +71,12 @@ export async function summary(ctx, month) {
         label: waiting.length
           ? "Review plan"
           : latest
-            ? latest.id !== display?.id
+            ? latest.id !== display?.id && roleHas(ctx.actor.role, "mcp.plan")
               ? "Edit revision"
               : "Open plan"
-            : "Start plan",
+            : roleHas(ctx.actor.role, "mcp.plan")
+              ? "Start plan"
+              : "No plan yet",
         planId: waiting[0] ?? latest?.id,
         profileId: person.id,
       },

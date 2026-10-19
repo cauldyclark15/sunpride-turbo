@@ -321,6 +321,7 @@ export function VanTripsView({
   selected: string | null;
   onSelect: (id: string) => void;
 }) {
+  const { can } = usePermissions();
   const sales = data.rows.reduce((n, r) => n + r.salesCentavos, 0),
     open = data.rows.filter((r) => r.unclosed).length,
     exceptions = data.rows.filter(hasVariance);
@@ -363,11 +364,13 @@ export function VanTripsView({
           <div key={label} className="rounded-xl border border-separator p-4">
             <p className="text-xs text-muted">{label}</p>
             <p className="mt-2 text-xl tabular-nums">{value}</p>
-            {label === "Sales target" && data.targetCentavos === null && (
-              <Link href="/sales?tab=targets" className="text-xs underline">
-                Set targets
-              </Link>
-            )}
+            {label === "Sales target" &&
+              data.targetCentavos === null &&
+              can("target.manage") && (
+                <Link href="/sales?tab=targets" className="text-xs underline">
+                  Set targets
+                </Link>
+              )}
           </div>
         ))}
       </section>

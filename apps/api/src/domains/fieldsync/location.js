@@ -360,7 +360,22 @@ export async function live(ctx) {
     });
   }
   const trend = [];
-  const visibleIds = [...new Set(positions.map((p) => p.profileId))];
+  // A planned day exists before the first location ping. Never derive workload from
+  // the subset of people currently sharing a fix (or the bounded positions list).
+  let summaryPeople = people.filter(
+    (/** @type {any} */ p) => !filterUnit || p.current_unit_id === filterUnit,
+  );
+  if (teamId) {
+    const members =
+      await db`select profile_id from team_memberships where team_id=${teamId} and effective_from<=${new Date(ctx.now)} and (effective_to is null or effective_to>${new Date(ctx.now)})`;
+    const memberIds = new Set(
+      members.map((/** @type {any} */ m) => m.profile_id),
+    );
+    summaryPeople = summaryPeople.filter((/** @type {any} */ p) =>
+      memberIds.has(p.id),
+    );
+  }
+  const visibleIds = summaryPeople.map((/** @type {any} */ p) => p.id);
   for (let days = 6; days >= 0; days--) {
     const day = manilaDate(midnight(manilaDate(ctx.now)) - days * DAY_MS);
     const counts = await dayFacts(db, visibleIds, day);

@@ -12,6 +12,7 @@ import {
   minTime,
   maxTime,
   daysBetween,
+  monthlyPace,
 } from "./measures.js";
 import { readSales } from "./measures.js";
 import { targetBook, targetFor } from "./targets.js";
@@ -60,11 +61,33 @@ export async function salesPage(db, p, s, group = "channel", parent = null) {
           parentParts?.[1] ?? p.channel ?? "company",
         )
       : 0;
-  const balance = target === null ? null : Math.max(0, target - t.sales);
-  const perDay =
-    balance === null || !p.remainingSellingDays
-      ? null
-      : Math.ceil(balance / p.remainingSellingDays);
+  const month = {
+    ...p,
+    from: p.to.slice(0, 7) + "-01",
+    to: monthEnd(p.to.slice(0, 7)),
+  };
+  const monthlyTarget = await targetFor(
+    db,
+    s,
+    month,
+    level,
+    parentParts?.[1] ?? p.channel ?? "company",
+  );
+  // Month to date through the selected date. When the selected period already covers
+  // that range, sum its additive daily rows instead of reading the same sales twice.
+  const monthSalesTotal =
+    p.from <= month.from
+      ? current.days
+          .filter(
+            (/** @type {any} */ d) => d.key >= month.from && d.key <= p.to,
+          )
+          .reduce(
+            (/** @type {number} */ n, /** @type {any} */ d) => n + d.sales,
+            0,
+          )
+      : (await readSales(db, { ...month, to: p.to }, s, group, parent)).total
+          .sales;
+  const { balance, perDay } = monthlyPace(monthlyTarget, monthSalesTotal, p.to);
   const kpis = [
     kpi(
       "sales",
@@ -77,10 +100,10 @@ export async function salesPage(db, p, s, group = "channel", parent = null) {
     ),
     kpi(
       "target",
-      "Target",
+      "Target for selected period",
       target,
       "php",
-      target,
+      null,
       null,
       "Monthly targets phased across Monday to Saturday selling days.",
     ),
@@ -95,21 +118,21 @@ export async function salesPage(db, p, s, group = "channel", parent = null) {
     ),
     kpi(
       "balanceToSell",
-      "Balance to sell",
+      "Balance to sell this month",
       balance,
       "php",
       null,
       null,
-      "The positive balance between period target and net sales.",
+      "Full monthly target less month-to-date net sales through the selected date, floored at zero.",
     ),
     kpi(
       "perDayNeeded",
-      "Needed each selling day",
+      "Needed each selling day this month",
       perDay,
       "php",
       null,
       null,
-      "Remaining balance divided by remaining selling days, rounded up to a centavo.",
+      "Monthly balance divided by Monday to Saturday selling days after the selected date, rounded up to a centavo.",
     ),
     kpi(
       "orders",
@@ -281,13 +304,11 @@ export async function todayPage(ctx, p, s) {
     vans,
     topOnly: true,
   });
-  const balance =
-    monthTarget === null
-      ? null
-      : Math.max(0, monthTarget - mtdSales.total.sales);
-  const remaining = dates(addDays(p.to, 1), monthP.to).filter(
-    (d) => new Date(d).getUTCDay() !== 0,
-  ).length;
+  const { balance, perDay } = monthlyPace(
+    monthTarget,
+    mtdSales.total.sales,
+    p.to,
+  );
   const prior =
     overview.agentDays && p.compare.from >= overview.days[0]?.key
       ? sliceTiles(overview, { ...p, ...p.compare })
@@ -399,7 +420,7 @@ export async function todayPage(ctx, p, s) {
       ),
       kpi(
         "balanceToSell",
-        "Balance to sell",
+        "Balance to sell this month",
         balance,
         "php",
         null,
@@ -408,8 +429,8 @@ export async function todayPage(ctx, p, s) {
       ),
       kpi(
         "perDayNeeded",
-        "Needed each selling day",
-        balance === null || !remaining ? null : Math.ceil(balance / remaining),
+        "Needed each selling day this month",
+        perDay,
         "php",
         null,
         null,
@@ -486,7 +507,12 @@ export async function coveragePage(db, p, s, group) {
   const weeks = [...new Set(dates(p.from, p.to).map(weekStart))].map(
     (weekStart) => ({ weekStart }),
   );
-  const weekByRow = new Map([...facts.planned, ...facts.visits].map((/** @type {any} */ row) => [row,weekStart(dateOf(row.service_date))]));
+  const weekByRow = new Map(
+    [...facts.planned, ...facts.visits].map((/** @type {any} */ row) => [
+      row,
+      weekStart(dateOf(row.service_date)),
+    ]),
+  );
   const groups = new Map();
   for (const person of people) {
     if (
@@ -558,12 +584,10 @@ export async function coveragePage(db, p, s, group) {
         (w) =>
           visitSummary({
             planned: selected.planned.filter(
-              (/** @type {any} */ r) =>
-                weekByRow.get(r) === w.weekStart,
+              (/** @type {any} */ r) => weekByRow.get(r) === w.weekStart,
             ),
             visits: selected.visits.filter(
-              (/** @type {any} */ r) =>
-                weekByRow.get(r) === w.weekStart,
+              (/** @type {any} */ r) => weekByRow.get(r) === w.weekStart,
             ),
             coaching: [],
           }).compliance,

@@ -67,6 +67,12 @@ export async function findIssue(db, ref, active = true) {
     throw new ApiError("not_found", 404, "Active issue not found");
   return rows[0];
 }
+/** Field staff may read/discuss only feedback they reported; office access is unchanged.
+ * @param {any} issue @param {Actor} actor */
+export function requireIssueAccess(issue, actor) {
+  if (actor.role === "sales" && issue.reporter_id !== actor.profileId)
+    throw new ApiError("not_found", 404, "Issue not found");
+}
 /** @param {Db} db @param {string} status */
 async function bottom(db, status) {
   const [r] =
@@ -119,8 +125,9 @@ export async function createIssue(db, input, actor) {
   const ref = text(input.externalRef, C.MAX_SHORT_LENGTH);
   if (ref) {
     const [existing] =
-      await db`select id,number from issues where external_ref = ${ref}`;
-    if (existing)
+      await db`select id,number,reporter_id from issues where external_ref = ${ref}`;
+    if (existing) {
+      requireIssueAccess(existing, actor);
       return {
         issueId: existing.id,
         number: existing.number,
@@ -128,6 +135,7 @@ export async function createIssue(db, input, actor) {
         created: false,
         externalRef: ref,
       };
+    }
   }
   const fields = {
     title: title(input.title),
@@ -300,6 +308,7 @@ export async function moveIssue(db, issue, input, actor) {
 /** @param {Db} db @param {any} input @param {Actor} actor */
 export async function addComment(db, input, actor) {
   const issue = await findIssue(db, input.issueId ?? input.number);
+  requireIssueAccess(issue, actor);
   const body = text(input.body) ?? "";
   if (input.uploads !== undefined && !Array.isArray(input.uploads))
     throw invalid("Invalid uploads");
@@ -363,7 +372,9 @@ export async function ownComment(db, id, actor, moderate) {
     !(moderate && roleHas(actor.role, "issues.manage"))
   )
     throw forbidden("Only the author can change this comment");
-  return { comment: c, issue: await findIssue(db, c.issue_id) };
+  const issue = await findIssue(db, c.issue_id);
+  requireIssueAccess(issue, actor);
+  return { comment: c, issue };
 }
 /** @param {Db} db @param {string} id @param {Actor} actor */
 export async function refreshCounts(db, id, actor) {

@@ -29,6 +29,7 @@ import {
   weekOf,
 } from "./rules.js";
 import { execution } from "./reads.js";
+import { scopeFilterForActor } from "../org/scope.js";
 
 /** @param {any} c @param {string} id @param {boolean} [write] */
 export async function session(c, id, write = false, requireOpen = true) {
@@ -107,6 +108,7 @@ export async function cadence(c, f) {
   const week = weekOf(d);
   const month = monthOf(d);
   const people = await roster(c, f, true);
+  const { unitIds } = await scopeFilterForActor(c.db, c.actor);
   const trainers = [];
   const sessions = [];
   for (const p of people) {
@@ -114,7 +116,7 @@ export async function cadence(c, f) {
     if (st?.work_with_weekly_min == null && st?.work_with_monthly_min == null)
       continue;
     const ss =
-      await c.db`select w.*,tr.name trainer_name,te.name trainee_name from work_with_sessions w join profiles tr on tr.id=w.trainer_profile_id join profiles te on te.id=w.trainee_profile_id where w.trainer_profile_id=${p.id} and w.service_date between ${week.start < month.start ? week.start : month.start}::date and ${week.end > month.end ? week.end : month.end}::date order by w.service_date,w.id`;
+      await c.db`select w.*,tr.name trainer_name,te.name trainee_name from work_with_sessions w join profiles tr on tr.id=w.trainer_profile_id join profiles te on te.id=w.trainee_profile_id where w.trainer_profile_id=${p.id} and (${unitIds === null} or w.org_unit_id in ${c.db(unitIds?.length ? unitIds : [null])}) and w.service_date between ${week.start < month.start ? week.start : month.start}::date and ${week.end > month.end ? week.end : month.end}::date order by w.service_date,w.id`;
     const visible = [];
     for (const s of ss) {
       await gate(c, "report.read", s.org_unit_id);
@@ -373,9 +375,10 @@ export async function saveSheet(c, a) {
 /** @param {any} c @param {any} a */
 export async function register(c, a) {
   const people = await roster(c, a, true);
+  const { unitIds } = await scopeFilterForActor(c.db, c.actor);
   const ids = new Set(people.map((/** @type {any} */ p) => p.id));
   const all =
-    await c.db`select t.*,p.name owner_name,u.name unit_name from talk_sheets t join profiles p on p.id=t.owner_profile_id join org_units u on u.id=t.org_unit_id order by meeting_date desc,t.id desc`;
+    await c.db`select t.*,p.name owner_name,u.name unit_name from talk_sheets t join profiles p on p.id=t.owner_profile_id join org_units u on u.id=t.org_unit_id where (${unitIds === null} or t.org_unit_id in ${c.db(unitIds?.length ? unitIds : [null])}) order by meeting_date desc,t.id desc`;
   const chains = [];
   const openItems = [];
   const seen = new Set();

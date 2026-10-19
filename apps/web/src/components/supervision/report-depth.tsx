@@ -46,13 +46,25 @@ export function Sparkline({
 }
 export function MyTeam({ filters }: { filters: SupervisionFilters }) {
   const report = useReport("supervision.team.cockpit", filters);
+  const permissions = useReport("lib.capabilities.currentPermissions", {});
   return report ? (
-    <MyTeamView report={report} />
+    <MyTeamView
+      report={report}
+      canPrepare={
+        permissions?.capabilities.includes("deliverable.submit") ?? false
+      }
+    />
   ) : (
     <p role="status">Loading team priorities…</p>
   );
 }
-export function MyTeamView({ report }: { report: TeamCockpit }) {
+export function MyTeamView({
+  report,
+  canPrepare = false,
+}: {
+  report: TeamCockpit;
+  canPrepare?: boolean;
+}) {
   return (
     <section
       className="grid gap-4 rounded-xl border border-border p-5"
@@ -136,7 +148,11 @@ export function MyTeamView({ report }: { report: TeamCockpit }) {
                   </td>
                   <td className={`p-3 ${r.darMissing ? "text-danger" : ""}`}>
                     <Link href={r.actions.report} className="underline">
-                      {r.darMissing ? "Prepare missing DAR" : "View report"}
+                      {r.darMissing
+                        ? canPrepare
+                          ? "Prepare missing DAR"
+                          : "View missing DAR"
+                        : "View report"}
                     </Link>
                   </td>
                   <td className="p-3">

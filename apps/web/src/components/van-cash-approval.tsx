@@ -27,7 +27,11 @@ export function varianceLabel(varianceMinor: string): string {
   const value = BigInt(varianceMinor);
   const abs = value < 0n ? -value : value;
   const pesos = `₱${(abs / 100n).toLocaleString("en-PH")}.${String(abs % 100n).padStart(2, "0")}`;
-  return value < 0n ? `${pesos} short` : `${pesos} over`;
+  return value === 0n
+    ? "Balanced"
+    : value < 0n
+      ? `${pesos} short`
+      : `${pesos} over`;
 }
 
 /** Form boundary: trip number, exact peso amounts and a known reason, or a plain-words error. */

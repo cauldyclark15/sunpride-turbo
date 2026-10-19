@@ -15,8 +15,9 @@ vi.mock("../../lib/api", () => ({
   useApi: vi.fn(),
   useLive: vi.fn(),
 }));
+const permission = vi.hoisted(() => ({ manage: true }));
 vi.mock("../../lib/auth", () => ({
-  usePermissions: () => ({ can: () => true }),
+  usePermissions: () => ({ can: () => permission.manage }),
 }));
 vi.mock("../van-cash-approval", () => ({ VanCashApproval: () => null }));
 vi.mock("../van-stock-approval", () => ({ VanStockApproval: () => null }));
@@ -27,6 +28,29 @@ vi.mock("@heroui/react", () => ({
     createElement("button", null, children),
 }));
 
+it("read-only people do not see Set targets", () => {
+  permission.manage = false;
+  try {
+    const html = renderToStaticMarkup(
+      <VanTripsView
+        data={
+          {
+            date: "2026-10-20",
+            rows: [],
+            trend: [],
+            priorSalesCentavos: 0,
+            targetCentavos: null,
+          } as unknown as TripsDay
+        }
+        selected={null}
+        onSelect={() => {}}
+      />,
+    );
+    expect(html).not.toContain("Set targets");
+  } finally {
+    permission.manage = true;
+  }
+});
 const quantity = (base: string, display: string) => ({
   base,
   cases: 0,

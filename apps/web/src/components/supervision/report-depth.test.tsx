@@ -57,8 +57,13 @@ const sales: TeamDsr = {
   ],
 };
 describe("owner depth", () => {
-  it("shows day and prior-week comparisons, coaching cadence, overdue actions and a next action for each exception", () => {
+  it("read-only people see the missing report without an invitation to prepare it", () => {
     const html = renderToStaticMarkup(<MyTeamView report={team} />);
+    expect(html).not.toContain("Prepare missing DAR");
+    expect(html).toContain("View missing DAR");
+  });
+  it("shows day and prior-week comparisons, coaching cadence, overdue actions and a next action for each exception", () => {
+    const html = renderToStaticMarkup(<MyTeamView report={team} canPrepare />);
     for (const label of [
       "My team today and this week",
       "5 / 3 / 2",

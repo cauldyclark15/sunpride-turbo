@@ -91,6 +91,58 @@ async function create(role = "admin", extra = {}) {
 }
 
 describe("issue permissions and transactions", () => {
+  test("field feedback is reporter-only across board, filters, detail and comments; office is unchanged", async () => {
+    const own = await create("sales", { title: "Own field feedback" });
+    const foreign = await create("admin", {
+      title: "Internal office feedback",
+    });
+    for (const path of [
+      "board",
+      "agent/list",
+      "board?reporterId=" + users.admin.id,
+      "board?search=Internal office feedback",
+    ]) {
+      const r = await get(path, "sales");
+      expect(r.status).toBe(200);
+      expect(
+        r.body.issues.every(
+          (/** @type {any} */ i) => i.reporterId === users.sales.id,
+        ),
+      ).toBe(true);
+      expect(
+        r.body.issues.some(
+          (/** @type {any} */ i) => i.number === foreign.number,
+        ),
+      ).toBe(false);
+    }
+    expect((await get(`detail?number=${own.number}`, "sales")).status).toBe(
+      200,
+    );
+    for (const path of ["detail", "agent/get"])
+      expect(
+        (await get(`${path}?number=${foreign.number}`, "sales")).status,
+      ).toBe(404);
+    expect(
+      (
+        await post(
+          "addComment",
+          { number: foreign.number, body: "Not mine" },
+          "sales",
+        )
+      ).status,
+    ).toBe(404);
+    for (const role of [
+      "admin",
+      "manager",
+      "operations",
+      "approver",
+      "analyst",
+      "viewer",
+    ])
+      expect((await get(`detail?number=${foreign.number}`, role)).status).toBe(
+        200,
+      );
+  });
   test("anonymous cannot read, create, comment, move, or archive", async () => {
     expect((await get("board", null)).status).toBe(401);
     for (const action of ["create", "addComment", "move", "archive"])
@@ -209,7 +261,7 @@ describe("issue permissions and transactions", () => {
     });
   for (const role of ["super_admin", "admin"])
     test(`${role} can archive, read frozen discussion and restore`, async () => {
-      const i = await create();
+      const i = await create("sales");
       await post(
         "addComment",
         { issueId: i.issueId, body: "Keep me" },
@@ -234,7 +286,7 @@ describe("issue permissions and transactions", () => {
       );
     });
   test("comment author can edit; administrators moderate but cannot rewrite another author's words", async () => {
-    const i = await create();
+    const i = await create("sales");
     const c = await post(
       "addComment",
       { issueId: i.issueId, body: "Original" },
@@ -413,7 +465,7 @@ describe("issue permissions and transactions", () => {
     }
   });
   test("concurrent comments reconcile counts and attention queues use complete history", async () => {
-    const i = await create("admin", {
+    const i = await create("sales", {
       externalRef: "concurrent-comments",
       priority: "critical",
     });
@@ -488,7 +540,7 @@ describe("issue files", () => {
     });
   }
   test("claim → core upload → attach → authenticated bytes; owner and consumption checked", async () => {
-    const i = await create(),
+    const i = await create("sales"),
       bytes = new TextEncoder().encode("png fixture"),
       c = await claim(bytes, "sales", i.issueId);
     expect((await upload(c, bytes)).status).toBe(200);
@@ -566,8 +618,8 @@ describe("issue files", () => {
     ).toBe(404);
   });
   test("pending, foreign-owner, duplicate and unsupported files cannot be attached", async () => {
-    const a = await create(),
-      b = await create(),
+    const a = await create("sales"),
+      b = await create("sales"),
       bytes = new TextEncoder().encode("pending fixture"),
       c = await claim(bytes, "sales", a.issueId);
     const input = {
@@ -893,7 +945,7 @@ describe("backup and agent API", () => {
     }
   });
   test("board and detail subscriptions receive move and comment invalidations", async () => {
-    const i = await create();
+    const i = await create("sales");
     const ws = new WebSocket(
       h.origin.replace("http", "ws") + "/ws",
       /** @type {any} */ ({ headers: { cookie: users.viewer.cookie } }),
