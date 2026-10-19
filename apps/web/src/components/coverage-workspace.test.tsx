@@ -114,8 +114,10 @@ vi.mock("react", async (original) => {
     useEffect: () => {},
     useState: (initial: unknown) => {
       state.hookCalls++;
+      // The selected-plan state is the 4th useState: the v2 ModuleWorkspace
+      // holds none of its own (it held two before: setup message and busy).
       return [
-        state.hookCalls === 6 &&
+        state.hookCalls === 4 &&
         [
           "visits",
           "history",
@@ -216,6 +218,19 @@ vi.mock("./outlet-assignments", () => ({
   OutletAssignments: () => createElement("p", null, "Mounted assignments"),
 }));
 vi.mock("./imports-workspace", () => ({ ImportsWorkspace: () => null }));
+// v2: ModuleWorkspace gates on the session from GET /api/me (lib/auth), not a Convex profile.
+vi.mock("../lib/auth/session", () => ({
+  useSession: () => ({
+    profile: {
+      id: state.profile._id,
+      subject: state.profile.authSubject,
+      name: state.profile.name,
+      role: state.profile.role,
+      orgUnitId: "unit",
+      active: state.profile.status === "active",
+    },
+  }),
+}));
 vi.mock("./inventory-workspace", () => ({ InventoryWorkspace: () => null }));
 vi.mock("./coverage-planner", () => ({
   CoveragePlanner: () => createElement("p", null, "Mounted planner"),
