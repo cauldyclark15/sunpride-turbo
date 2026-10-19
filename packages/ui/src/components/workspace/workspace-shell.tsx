@@ -3,8 +3,8 @@
 import { Button } from "@heroui/react/button";
 import { Dropdown } from "@heroui/react/dropdown";
 import { Label } from "@heroui/react/label";
-import { Sidebar } from "@heroui-pro/react/sidebar";
-import type { CSSProperties, ReactNode } from "react";
+import { Sidebar, useSidebar } from "@heroui-pro/react/sidebar";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { Heading } from "react-aria-components";
 import { WorkspaceIcon } from "./workspace-icon";
 import type {
@@ -24,6 +24,8 @@ type WorkspaceShellProps = {
   navGroups: WorkspaceNavGroup[];
   onNavigate: (href: string) => void;
   onSignOut: () => void | Promise<void>;
+  /** Opens the signed-in person's account page (change password). */
+  onAccount?: () => void;
   status?: ReactNode;
   user?: WorkspaceUser;
 };
@@ -98,12 +100,16 @@ function NavGroups({
 function UserFooter({
   user,
   onSignOut,
+  onAccount,
   status,
 }: {
   user?: WorkspaceUser;
   onSignOut: () => void | Promise<void>;
+  onAccount?: () => void;
   status?: ReactNode;
 }) {
+  const { isOpen, isMobile } = useSidebar();
+  const compact = !isOpen && !isMobile;
   return (
     <Sidebar.Footer>
       {status ? (
@@ -117,12 +123,15 @@ function UserFooter({
             fullWidth
             variant="ghost"
             aria-label="Open account menu"
-            className="h-auto min-h-0 justify-start gap-3 px-2 py-2 text-left"
+            className={`h-auto min-h-0 gap-3 py-2 text-left ${compact ? "justify-center gap-0 px-0" : "justify-start px-2"}`}
           >
             <span className="grid size-8 shrink-0 place-items-center rounded-full bg-surface-secondary text-sm font-semibold text-foreground">
               {user.name.trim().slice(0, 1).toUpperCase()}
             </span>
-            <span className="min-w-0" data-sidebar="label">
+            <span
+              className={compact ? "hidden" : "min-w-0"}
+              data-sidebar="label"
+            >
               <span className="block truncate text-sm font-medium text-foreground">
                 {user.name}
               </span>
@@ -136,8 +145,15 @@ function UserFooter({
               aria-label="Account actions"
               onAction={(key: string | number) => {
                 if (key === "sign-out") void onSignOut();
+                if (key === "account") onAccount?.();
               }}
             >
+              {onAccount ? (
+                <Dropdown.Item id="account" textValue="Account">
+                  <WorkspaceIcon name="user" />
+                  <Label>Account · change password</Label>
+                </Dropdown.Item>
+              ) : null}
               <Dropdown.Item
                 id="sign-out"
                 textValue="Sign out"
@@ -154,6 +170,33 @@ function UserFooter({
   );
 }
 
+const COLLAPSE_KEY = "sp.sidebar.open";
+
+/** Desktop sidebar header: brand plus the collapse/expand control. */
+function DesktopHeader({ brand }: { brand: WorkspaceBrand }) {
+  const { isOpen: open, toggleSidebar } = useSidebar();
+  return (
+    <Sidebar.Header
+      className={`!pb-4 !pt-5 flex gap-2 ${open ? "!flex-row !px-4 items-center" : "!flex-col !px-2 items-center"}`}
+    >
+      <div className={open ? "min-w-0 flex-1" : ""}>
+        <Brand brand={brand} compact={!open} />
+      </div>
+      <Button
+        isIconOnly
+        size="sm"
+        variant="ghost"
+        aria-label={open ? "Collapse sidebar" : "Expand sidebar"}
+        aria-expanded={open}
+        onPress={toggleSidebar}
+        className={`shrink-0 text-muted transition-transform duration-300 ${open ? "" : "rotate-180"}`}
+      >
+        <WorkspaceIcon name="back" className="size-4" />
+      </Button>
+    </Sidebar.Header>
+  );
+}
+
 export function WorkspaceShell({
   activeHref,
   activePrimaryId,
@@ -164,14 +207,26 @@ export function WorkspaceShell({
   navGroups,
   onNavigate,
   onSignOut,
+  onAccount,
   status,
   user,
 }: WorkspaceShellProps) {
+  // Collapsed/expanded survives reloads; read after mount so server and client render alike.
+  const [open, setOpen] = useState(true);
+  useEffect(() => {
+    if (window.localStorage.getItem(COLLAPSE_KEY) === "0") setOpen(false);
+  }, []);
+  function changeOpen(next: boolean) {
+    setOpen(next);
+    window.localStorage.setItem(COLLAPSE_KEY, next ? "1" : "0");
+  }
   return (
     <Sidebar.Provider
-      className="!block min-h-svh bg-background"
+      className="!block h-svh overflow-hidden bg-surface"
       collapsible="icon"
       navigate={onNavigate}
+      open={open}
+      onOpenChange={changeOpen}
       toggleShortcut={false}
     >
       <a
@@ -180,61 +235,67 @@ export function WorkspaceShell({
       >
         Skip to content
       </a>
-      <div className="flex min-h-svh lg:min-h-[calc(100svh-24px)] lg:p-3">
-        {/* overflow-clip (not hidden): rounds the frame without becoming a scroll container, so the
-            sticky sidebar stays pinned while the page scrolls. */}
-        <div className="flex min-h-svh w-full overflow-clip bg-surface lg:min-h-[calc(100svh-24px)] lg:rounded-3xl lg:border lg:border-border">
-          <Sidebar
-            className="!sticky !top-0 !h-svh border-r border-separator bg-surface lg:!h-[calc(100svh-26px)]"
-            style={
-              {
-                "--sidebar-width": "var(--workspace-sidebar-width)",
-              } as CSSProperties
-            }
+      {/* Full-height app frame: the sidebar never scrolls; only the page area does. */}
+      <div className="flex h-svh w-full overflow-hidden bg-surface">
+        <Sidebar
+          className="!static !h-svh shrink-0 border-r border-separator bg-surface transition-[width] duration-300 ease-out"
+          style={
+            {
+              "--sidebar-width": "var(--workspace-sidebar-width)",
+            } as CSSProperties
+          }
+        >
+          <DesktopHeader brand={brand} />
+          <Sidebar.Content className="!px-2.5">
+            <NavGroups groups={navGroups} activePrimaryId={activePrimaryId} />
+          </Sidebar.Content>
+          <UserFooter
+            user={user}
+            onSignOut={onSignOut}
+            onAccount={onAccount}
+            status={status}
+          />
+        </Sidebar>
+
+        <Sidebar.Mobile backdrop="blur">
+          <Heading slot="title" className="sr-only">
+            Workspace navigation
+          </Heading>
+          <Sidebar.Header>
+            <Brand brand={brand} />
+          </Sidebar.Header>
+          <Sidebar.Content>
+            <NavGroups groups={navGroups} activePrimaryId={activePrimaryId} />
+          </Sidebar.Content>
+          <UserFooter
+            user={user}
+            onSignOut={onSignOut}
+            onAccount={onAccount}
+            status={status}
+          />
+        </Sidebar.Mobile>
+
+        <Sidebar.Main
+          id="workspace-scroll"
+          className="!h-svh !min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain bg-surface"
+        >
+          <div className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-separator bg-surface/95 px-4 backdrop-blur md:hidden">
+            <Brand brand={brand} />
+            <Sidebar.Trigger
+              aria-label="Open workspace navigation"
+              isIconOnly
+              variant="ghost"
+            />
+          </div>
+          <main
+            id="workspace-content"
+            className={`w-full px-6 pt-5 pb-24 md:pb-5 ${
+              contentWidth === "full" ? "max-w-none" : "mx-auto max-w-[1440px]"
+            }`}
           >
-            <Sidebar.Header className="!px-4 !pb-4 !pt-5">
-              <Brand brand={brand} />
-            </Sidebar.Header>
-            <Sidebar.Content className="!px-2.5">
-              <NavGroups groups={navGroups} activePrimaryId={activePrimaryId} />
-            </Sidebar.Content>
-            <UserFooter user={user} onSignOut={onSignOut} status={status} />
-          </Sidebar>
-
-          <Sidebar.Mobile backdrop="blur">
-            <Heading slot="title" className="sr-only">
-              Workspace navigation
-            </Heading>
-            <Sidebar.Header>
-              <Brand brand={brand} />
-            </Sidebar.Header>
-            <Sidebar.Content>
-              <NavGroups groups={navGroups} activePrimaryId={activePrimaryId} />
-            </Sidebar.Content>
-            <UserFooter user={user} onSignOut={onSignOut} status={status} />
-          </Sidebar.Mobile>
-
-          <Sidebar.Main className="!min-h-svh min-w-0 bg-surface lg:!min-h-[calc(100svh-26px)]">
-            <div className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-separator bg-surface/95 px-4 backdrop-blur md:hidden">
-              <Brand brand={brand} />
-              <Sidebar.Trigger
-                aria-label="Open workspace navigation"
-                isIconOnly
-                variant="ghost"
-              />
-            </div>
-            <main
-              id="workspace-content"
-              className={`w-full px-6 pt-5 pb-24 md:pb-5 ${
-                contentWidth === "full"
-                  ? "max-w-none"
-                  : "mx-auto max-w-[1440px]"
-              }`}
-            >
-              {children}
-            </main>
-          </Sidebar.Main>
-        </div>
+            {children}
+          </main>
+        </Sidebar.Main>
       </div>
 
       {mobilePrimaryItems.length ? (
