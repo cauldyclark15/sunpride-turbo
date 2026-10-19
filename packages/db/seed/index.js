@@ -19,6 +19,15 @@ export function generateDemo(
   vans(data, c, stock);
   stock.finish();
   management(data, c, e);
+  // ORDERS' insert trigger creates these bridge rows for seeded activities too.
+  // They must be seed-owned so reset cannot mistake them for outside tester work.
+  for (const activity of data.rows("visit_activities"))
+    if (activity.activity_kind === "order_intent")
+      data.add("order_intent_queue", activity.id, {
+        activity_id: activity.id,
+        status: "captured",
+        review_code: "sample_history",
+      });
   const pastPlanned = data
     .rows("planned_visits")
     .filter((v) => v.service_date < anchorDate).length;

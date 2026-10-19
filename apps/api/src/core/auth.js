@@ -1,3 +1,4 @@
+import { tx } from "@sunpride/db/client";
 import { capabilitiesFor } from "./capabilities.js";
 import {
   SESSION_COOKIE,
@@ -7,7 +8,13 @@ import {
 } from "./context.js";
 import { ApiError, forbidden, invalid, unauthenticated } from "./errors.js";
 import { isEmailInvited, loadProfile } from "./hooks.js";
-import { SIGNIN_POLICY, backoff, signinKey, take } from "./rate.js";
+import {
+  SIGNIN_POLICY,
+  backoff,
+  signinKey,
+  take,
+  takeOrThrow,
+} from "./rate.js";
 import { reply } from "./router.js";
 import { scopeOf } from "./scope.js";
 import { HEX64_RE, isPlainObject, randomToken, sha256Hex } from "./util.js";
@@ -185,26 +192,33 @@ export function installAuth(router) {
         action: "retry",
         retryAfterMs: wait,
       });
-    const rows =
-      await ctx.db`select id, password_hash, disabled_at from users where email = ${email}`;
-    const user = rows[0];
-    const ok = await Bun.password.verify(
-      body.password,
-      user?.password_hash ?? DUMMY_HASH,
-    );
-    if (!user || !ok || user.disabled_at) {
+    // Share the user row lock with change-password: a sign-in that verified the
+    // old hash cannot create a fresh session after the revocation transaction.
+    const signedIn = await tx(ctx.db, async (t) => {
+      const [user] =
+        await t`select id, password_hash, disabled_at from users where email = ${email} for update`;
+      const ok = await Bun.password.verify(
+        /** @type {string} */ (body.password),
+        user?.password_hash ?? DUMMY_HASH,
+      );
+      if (!user || !ok || user.disabled_at) return null;
+      const session = await createSession(t, user.id, app, deviceKeyId);
+      const access = native ? await createAccess(t, session.id) : null;
+      return { user, session, access };
+    });
+    if (!signedIn) {
       await take(ctx.db, signinKey(email), SIGNIN_POLICY);
       throw unauthenticated(
         "Email or password is incorrect",
         "invalid_credentials",
       );
     }
-    const session = await createSession(ctx.db, user.id, app, deviceKeyId);
+    const { user, session, access } = signedIn;
     if (!native) {
       setSessionCookie(ctx, session.token, SESSION_TTL_MS);
       return { user: { id: user.id, email } };
     }
-    const access = await createAccess(ctx.db, session.id);
+    if (!access) throw new Error("Native access credential was not issued");
     return {
       version: 2,
       serverTime: Date.now(),
@@ -253,6 +267,58 @@ export function installAuth(router) {
     },
     { v2: true },
   );
+
+  router.post("/api/auth/change-password", async (ctx) => {
+    const { user, session } = ctx;
+    if (!user || !session) throw unauthenticated();
+    // Reserve the budget before password verification, outside the business transaction
+    // so a refused attempt still counts. Password changes need no app capability.
+    await takeOrThrow(ctx.db, `change-password:${user.id}`, SIGNIN_POLICY);
+    const body = ctx.body;
+    if (!isPlainObject(body)) throw invalid();
+    const { currentPassword, newPassword } = body;
+    return tx(ctx.db, async (t) => {
+      const [stored] =
+        await t`select password_hash, disabled_at from users where id=${user.id} for update`;
+      const [active] =
+        await t`select id from sessions where id=${session.id} and user_id=${user.id} and revoked_at is null and expires_at > now()`;
+      if (!stored || stored.disabled_at || !active) throw unauthenticated();
+      if (
+        typeof currentPassword !== "string" ||
+        currentPassword.length > 256 ||
+        !(await Bun.password.verify(currentPassword, stored.password_hash))
+      )
+        throw new ApiError(
+          "wrong_password",
+          422,
+          "Your current password is incorrect.",
+        );
+      if (
+        typeof newPassword !== "string" ||
+        newPassword.length < 8 ||
+        newPassword.length > 128
+      )
+        throw new ApiError(
+          "weak_password",
+          422,
+          "Choose a password between 8 and 128 characters.",
+        );
+      if (newPassword === currentPassword)
+        throw new ApiError(
+          "same_password",
+          422,
+          "Choose a different password from your current one.",
+        );
+      const hash = await Bun.password.hash(newPassword, {
+        algorithm: "argon2id",
+      });
+      await t`update users set password_hash=${hash}, updated_at=now() where id=${user.id}`;
+      await t`update sessions set revoked_at=now() where user_id=${user.id} and id<>${session.id} and revoked_at is null`;
+      await t`delete from access_tokens where session_id in (select id from sessions where user_id=${user.id} and id<>${session.id})`;
+      await t`insert into audit_logs(subject,action,entity_type,entity_id) values (${user.id},'auth.password_changed','user',${user.id})`;
+      return { ok: true };
+    });
+  });
 
   router.post("/api/auth/sign-out", async (ctx) => {
     const bearer = readBearer(ctx.req);
