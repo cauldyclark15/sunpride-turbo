@@ -2,7 +2,7 @@ import { ApiError, normalizeError } from "../api/errors";
 import { apiFetch, type ApiFetchOptions } from "../api/fetch";
 import type { LiveClient } from "../api/live";
 import { defaultApiStore, type ApiStore } from "../api/store";
-import type { Me } from "./types";
+import { toMe, type Me } from "./types";
 
 /** Cache key of the current session (`GET /api/me`). */
 export const SESSION_KEY = ["me"] as const;
@@ -38,39 +38,19 @@ export async function fetchMe(
   fetchImpl?: FetchImpl,
 ): Promise<Me | null> {
   try {
-    const response = await apiFetch<
-      | Me
-      | {
-          user: { id: string; email: string };
-          profile: {
-            id: string;
-            name: string;
-            role: string;
-            orgUnitId: string | null;
-            status: string;
-          } | null;
-          capabilities: string[];
-        }
-    >("/api/me", { signal, fetchImpl });
-    if ("capabilities" in response) {
-      if (!response.profile)
-        throw new ApiError({
-          code: "profile_unavailable",
-          status: 403,
-          message: "No active profile is available for this account.",
-        });
-      return {
-        profile: {
-          ...response.profile,
-          subject: response.user.id,
-          email: response.user.email,
-          active: response.profile.status === "active",
-        },
-        scope: null,
-        permissions: response.capabilities,
-      };
-    }
-    return response;
+    const me = toMe(
+      await apiFetch<Parameters<typeof toMe>[0]>("/api/me", {
+        signal,
+        fetchImpl,
+      }),
+    );
+    if (!me)
+      throw new ApiError({
+        code: "not_invited",
+        message: "This email address has not been invited yet.",
+        status: 403,
+      });
+    return me;
   } catch (raw) {
     const error = normalizeError(raw);
     if (error.status === 401) return null;

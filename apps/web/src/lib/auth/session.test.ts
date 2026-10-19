@@ -175,7 +175,7 @@ describe("auth actions", () => {
           capabilities: [],
         }),
       ),
-    ).rejects.toMatchObject({ status: 403, code: "profile_unavailable" });
+    ).rejects.toMatchObject({ status: 403, code: "not_invited" });
   });
   it("fetchMe maps 401 to null and other failures to errors", async () => {
     expect(

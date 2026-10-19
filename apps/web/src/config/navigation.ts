@@ -71,6 +71,7 @@ export function isOwnerSlug(slug: string): slug is OwnerSlug {
 /** Any real page of the web app, including the two redirecting legacy routes. */
 export function isWebModuleSlug(slug: string): boolean {
   return (
+    slug === "account" ||
     isWorkspaceSlug(slug) ||
     isOwnerSlug(slug) ||
     Object.hasOwn(LEGACY_REDIRECTS, slug)

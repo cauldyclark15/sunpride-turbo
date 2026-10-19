@@ -201,6 +201,9 @@ export function canAccessWebModule(
   role: string | null | undefined,
 ): boolean {
   if (!role) return false;
+  // Personal settings are outside the sidebar and require no business capability.
+  if (slug === "account")
+    return (APP_ROLES as readonly string[]).includes(role);
   // The tracker has its own `/issues` routes rather than a `[module]` slug.
   if (slug === "issues")
     return (ISSUE_PANEL_ROLES["issues.read"] as readonly string[]).includes(

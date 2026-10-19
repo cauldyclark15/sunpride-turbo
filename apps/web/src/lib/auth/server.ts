@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { normalizeError } from "../api/errors";
 import { serverApi } from "../api/server";
-import type { Me } from "./types";
+import { toMe, type Me } from "./types";
 
 export const SESSION_COOKIE = "sp_session";
 
@@ -21,7 +21,9 @@ export async function getServerSession(): Promise<ServerSession> {
   if (!(await cookies()).has(SESSION_COOKIE))
     return { status: "unauthenticated" };
   try {
-    return { status: "authenticated", me: await serverApi<Me>("/api/me") };
+    const me = toMe(await serverApi<Parameters<typeof toMe>[0]>("/api/me"));
+    if (!me) return { status: "refused", code: "not_invited" };
+    return { status: "authenticated", me };
   } catch (raw) {
     const error = normalizeError(raw);
     if (error.status === 401) return { status: "unauthenticated" };

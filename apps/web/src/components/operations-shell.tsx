@@ -42,6 +42,7 @@ export function OperationsShell({ children }: { children: ReactNode }) {
       navGroups={navigation.navGroups}
       onNavigate={(href) => router.push(href)}
       onSignOut={signOut}
+      onAccount={() => router.push("/account")}
       user={
         current
           ? {
