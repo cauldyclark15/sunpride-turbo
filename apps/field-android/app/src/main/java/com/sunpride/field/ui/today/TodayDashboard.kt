@@ -23,11 +23,13 @@ import com.sunpride.field.ui.VisitDisplay
 /** Short finished-call label for a route row by the governed rule; null while the call is not finished. */
 fun outcomeLabel(summary: TodaySummary, stop: RouteStop): String? = when {
     !stop.done || stop.visit.callFacts == null -> null
+    summary.ruleMissing -> "Finished"
     summary.productive(stop) -> "Productive"
     else -> "Not productive"
 }
 
-fun productiveLine(summary: TodaySummary): String = summary.productivePercent?.let {
+fun productiveLine(summary: TodaySummary): String = if (summary.ruleMissing && summary.done > 0)
+    "Productive · counted once the office sets your call rule" else summary.productivePercent?.let {
     "Productive ${summary.productive} of ${summary.done} finished · $it%"
 } ?: "Productive · no calls ended yet"
 

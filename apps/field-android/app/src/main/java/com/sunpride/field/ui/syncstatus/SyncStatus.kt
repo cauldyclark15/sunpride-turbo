@@ -34,7 +34,7 @@ data class SyncStatus(
         held > 0 || health == "held_for_review" -> "Held · needs review"
         review > 0 -> "Needs review · not synced"
         queued > 0 || sending > 0 -> if (now >= (earliestUnsentCloseAt ?: dayCloseFor(now)))
-            "Late · held for review" else "Sync before 10 PM"
+            "Late · held for review" else if (offline) "Offline · sync before 10 PM" else "Sync before 10 PM"
         offline -> "Offline · saved data"
         leaseExpired(now) -> "Day closed · sync for access"
         cacheStale(now) -> "Cache stale · not synced"

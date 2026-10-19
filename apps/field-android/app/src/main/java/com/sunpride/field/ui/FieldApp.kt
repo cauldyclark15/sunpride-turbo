@@ -120,7 +120,9 @@ fun FieldApp(
         if (wasSignedIn && !signedIn) biometrics?.signedOut()
         wasSignedIn = signedIn
     }
-    val signOut = { controller.signOut(); biometrics?.signedOut(); Unit }
+    val signOut = { controller.signOut(); biometrics?.signedOut(); page = "home"; Unit }
+    // Whatever ends the session (sign-out, expiry, removal), the next person starts on a clean sign-in screen.
+    LaunchedEffect(controller.state) { if (controller.state == EnrollmentState.SignedOut) page = "home" }
     // AND-020: each visit to the Team page asks the server again (saved copy when offline).
     LaunchedEffect(controller, page, controller.state) {
         if (page == "team" && controller.state is EnrollmentState.Ready) controller.loadTeam()
@@ -240,8 +242,8 @@ fun FieldApp(
                             com.sunpride.field.storage.ActivityRules.kindLabel(it) }
                             ?: if (controller.orderOpen && controller.orderReview) "Review" else if (controller.orderOpen) "Order"
                             else if (controller.callSheetOpen) "Call sheet" else "Visit", style = MaterialTheme.typography.titleMedium)
-                    } else if (page == "account" || page == "sync" || page == "support" ||
-                        (ready && (page == "route" || page == "customers" || page == "customer" || page == "team"))) Row(verticalAlignment = Alignment.CenterVertically) {
+                    } else if (controller.state != EnrollmentState.SignedOut && !locked && (page == "account" || page == "sync" || page == "support" ||
+                        (ready && (page == "route" || page == "customers" || page == "customer" || page == "team")))) Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = goBack,
                             modifier = Modifier.height(48.dp).testTag(when (page) {
                                 "sync" -> "sync-back"; "support" -> "support-back"; "route" -> "route-back"
@@ -523,7 +525,8 @@ fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: (
                 Modifier.testTag("team-open"), onClick = onTeam)
         }
         if (onCustomers != null) SectionCard("Customers") {
-            ListRow("Search customers", if (data.customers.isEmpty()) "Sync to download your outlets"
+            ListRow("Search customers", if (data.customers.isEmpty() && data.lastSynced != null) "No outlets on your plan today"
+                else if (data.customers.isEmpty()) "Sync to download your outlets"
                 else "${data.customers.size} outlets saved on this phone", "search",
                 Modifier.testTag("customers-open"), onClick = onCustomers)
         }
@@ -566,7 +569,7 @@ fun EnrollmentScreen(state: EnrollmentState, key: DeviceKeyInfo?, busy: Boolean,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (key != null) SectionCard("Phone code") {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(key.fingerprint.replace(":", "").chunked(4).joinToString(" "),
+                        Text(key.fingerprint.filter { it.isLetterOrDigit() }.chunked(4).joinToString(" "),
                             fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.titleLarge,
                             modifier = Modifier.testTag("key-fingerprint"))
                         TextButton(onClick = { expanded = !expanded }, modifier = Modifier.testTag("show-full-code"),

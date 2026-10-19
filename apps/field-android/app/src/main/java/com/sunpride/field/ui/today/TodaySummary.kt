@@ -23,11 +23,13 @@ data class TodaySummary(
     val stops: List<RouteStop>,
     val routeCode: String?,
     val rule: String? = null,
+    /** The server has no productive-call rule for this seller and counts nothing as productive; match it. */
+    val ruleMissing: Boolean = false,
 ) {
     val planned get() = stops.size
     val done get() = stops.count { it.done }
     fun productive(stop: RouteStop): Boolean =
-        stop.done && stop.visit.callFacts?.let { ProductiveCall.productive(it, rule) } == true
+        !ruleMissing && stop.done && stop.visit.callFacts?.let { ProductiveCall.productive(it, rule) } == true
     val productive get() = stops.count { productive(it) }
     /** Whole percent of finished calls that were productive, rounded down like the server; null before the first call ends. */
     val productivePercent: Int? get() = if (done == 0) null else productive * 100 / done
@@ -47,6 +49,7 @@ data class TodaySummary(
                 .mapIndexed { index, item -> RouteStop(index + 1, item.value) },
             data.routeCode,
             data.sales.sales?.productiveCallRule,
+            data.sales.sales?.ruleMissing == true,
         )
     }
 }

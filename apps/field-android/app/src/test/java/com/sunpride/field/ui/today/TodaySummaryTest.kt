@@ -55,6 +55,14 @@ class TodaySummaryTest {
         assertEquals(1, TodaySummary.of(TodayData(visits)).productive)
     }
 
+    @Test fun serverWithoutARuleCountsNothingProductiveAndThePhoneMatches() {
+        val missing = DaySalesView(DaySales("2026-10-05", null, 0, null, null, 0, null, ruleMissing = true))
+        val s = TodaySummary.of(TodayData(listOf(visit("A", "Done", 0, facts("order_intent"))), sales = missing))
+        assertEquals(0, s.productive)
+        assertEquals("Productive · counted once the office sets your call rule", productiveLine(s))
+        assertEquals("Finished", outcomeLabel(s, s.stops.single()))
+    }
+
     @Test fun openCallWinsOverAnEarlierUnfinishedStop() {
         // A rejected (review) earlier stop does not hide the call the seller is standing in.
         val s = TodaySummary.of(TodayData(listOf(visit("A", "Needs review", 0), visit("B", "In progress", 1))))

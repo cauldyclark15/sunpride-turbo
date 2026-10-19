@@ -7,6 +7,8 @@ import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DaySalesTest {
@@ -34,6 +36,11 @@ class DaySalesTest {
         val bare = DaySalesCodec.decode(report(daily = null, pct = null, rule = null))
         assertEquals("No target set", DaySalesText.target(bare)); assertNull(bare.productiveCallRule)
         assertNull(DaySalesCodec.decode(report(rule = "made_up")).productiveCallRule)
+        assertTrue(bare.ruleMissing)
+        assertFalse(DaySalesCodec.decode(report()).ruleMissing)
+        // An explicit null rule from the v2 server is the same "not set" answer.
+        val explicitNull = JSONObject(report()).put("calls", JSONObject().put("productiveCallRule", JSONObject.NULL)).toString()
+        assertTrue(DaySalesCodec.decode(explicitNull).ruleMissing)
     }
 
     @Test fun rejectsMalformedAmounts() {

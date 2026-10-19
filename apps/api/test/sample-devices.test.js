@@ -127,3 +127,27 @@ test("all three apps are supported, with distinct app registration", async () =>
     rows.find((/** @type {any} */ d) => d.app === "field-ios").platform,
   ).toBe("ios");
 });
+test("one shared demo phone can carry several sample accounts, each with its own row and its own bind", async () => {
+  const key = await deviceKey();
+  const a = await person(),
+    b = await person(),
+    real = await person(false);
+  const ids = [];
+  for (const p of [a, b]) {
+    const { body } = await login(p, key);
+    const [d] =
+      await h.db`select * from registered_devices where profile_id=${p.profile.id}`;
+    expect(d.key_id).toBe(key.keyId);
+    expect(
+      (await bind(h, body.accessToken, d.id, key)).body.bindingStatus,
+    ).toBe("bound");
+    ids.push(d.id);
+  }
+  expect(new Set(ids).size).toBe(2);
+  await login(real, key);
+  expect(
+    (
+      await h.db`select * from registered_devices where profile_id=${real.profile.id}`
+    ).length,
+  ).toBe(0);
+});
