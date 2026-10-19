@@ -1,8 +1,9 @@
 "use client";
 
+import type { EndpointResult } from "./report-api";
+
 import { Button } from "@heroui/react";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
+import type { Id } from "./report-dto";
 import {
   Card,
   IconTile,
@@ -11,8 +12,7 @@ import {
   WorkspaceIcon,
   type StatusTone,
 } from "@sunpride/ui";
-import { useMutation, useQuery } from "convex/react";
-import type { FunctionReturnType } from "convex/server";
+import { useReportCommand, useReport } from "./report-api";
 import { useState } from "react";
 import {
   DECISION_REASONS,
@@ -25,7 +25,7 @@ import {
   type SupervisionFilters,
 } from "./supervision-model";
 
-type Queue = FunctionReturnType<typeof api.supervision.exceptions.queue>;
+type Queue = EndpointResult<"supervision.exceptions.queue">;
 type Item = Queue["items"][number];
 type Decide = (args: {
   evidenceId: Id<"visitLocationEvidence">;
@@ -238,8 +238,8 @@ export function ExceptionQueue({
   filters: SupervisionFilters;
   now: number;
 }) {
-  const data = useQuery(api.supervision.exceptions.queue, filters);
-  const decide = useMutation(api.visits.location.decideLocationException);
+  const data = useReport("supervision.exceptions.queue", filters);
+  const decide = useReportCommand("visits.location.decideLocationException");
   if (data === undefined)
     return <span className="text-[13px] text-muted">Loading exceptions…</span>;
   return <ExceptionQueueView data={data} now={now} decide={decide} />;

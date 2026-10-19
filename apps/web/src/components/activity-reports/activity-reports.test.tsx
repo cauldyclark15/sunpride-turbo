@@ -1,6 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { getFunctionName } from "convex/server";
 
 const at = (hhmm: string) => Date.parse(`2026-09-30T${hhmm}:00+08:00`);
 const summary = {
@@ -190,15 +189,17 @@ const state = vi.hoisted(() => ({
   capabilities: ["visit.read", "visit.record", "people.read"],
 }));
 
-vi.mock("convex/react", () => ({
-  useMutation: () => vi.fn(),
-  useQuery: (ref: unknown) => {
-    const name = getFunctionName(ref as never);
-    if (name === "field_reports/reports:myKind") return state.kind;
-    if (name === "lib/capabilities:currentPermissions")
+vi.mock("../supervision/report-api", () => ({
+  useReportSearch: () => "",
+  replaceReportSearch: () => {},
+  useReportCommand: () => vi.fn(),
+  useReport: (ref: unknown) => {
+    const name = String(ref as never);
+    if (name === "field_reports.reports.myKind") return state.kind;
+    if (name === "lib.capabilities.currentPermissions")
       return { capabilities: state.capabilities };
-    if (name === "field_reports/reports:day") return state.kind ? roar : null;
-    if (name === "field_reports/reports:completeness") return grid;
+    if (name === "field_reports.reports.day") return state.kind ? roar : null;
+    if (name === "field_reports.reports.completeness") return grid;
     return undefined;
   },
 }));

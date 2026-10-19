@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import * as backend from "../../../../../packages/backend/convex/supervision/trainer_forms_model";
+import * as backend from "../../../../api/src/domains/fieldreports/form-rules.js";
 import {
   ProgramSheetView,
   SessionFormsView,

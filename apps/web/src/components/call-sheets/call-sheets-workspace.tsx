@@ -1,8 +1,9 @@
 "use client";
 
+import type { EndpointResult } from "../supervision/report-api";
+
 import { Button } from "@heroui/react";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
+import type { Id } from "../supervision/report-dto";
 import {
   Card,
   FormField,
@@ -10,8 +11,7 @@ import {
   UnderlineTabs,
   WorkspaceIcon,
 } from "@sunpride/ui";
-import { useMutation, useQuery } from "convex/react";
-import type { FunctionReturnType } from "convex/server";
+import { useReportCommand, useReport } from "../supervision/report-api";
 import { useState } from "react";
 import {
   CALL_SHEET_HEADER_LABELS,
@@ -67,13 +67,13 @@ function AccountPicker({
 }) {
   const [cursors, setCursors] = useState<(string | null)[]>([null]);
   const cursor = cursors[cursors.length - 1] ?? null;
-  const page = useQuery(api.callSheets.accounts.list, {
+  const page = useReport("callSheets.accounts.list", {
     paginationOpts: { numItems: PAGE_SIZE, cursor },
   });
   const [code, setCode] = useState("");
   const [lookup, setLookup] = useState("");
-  const found = useQuery(
-    api.callSheets.accounts.outletByCode,
+  const found = useReport(
+    "callSheets.accounts.outletByCode",
     lookup ? { code: lookup } : "skip",
   );
   return (
@@ -157,7 +157,7 @@ function AccountPicker({
 }
 
 function CallSheetAccount({ outletId }: { outletId: Id<"outlets"> }) {
-  const detail = useQuery(api.callSheets.accounts.detail, { outletId });
+  const detail = useReport("callSheets.accounts.detail", { outletId });
   const [tab, setTab] = useState<"month" | "setup">("month");
   if (detail === undefined)
     return (
@@ -190,7 +190,7 @@ function CallSheetAccount({ outletId }: { outletId: Id<"outlets"> }) {
 
 function CallSheetMonth({ outletId }: { outletId: Id<"outlets"> }) {
   const [localMonth, setLocalMonth] = useState(() => manilaMonth());
-  const report = useQuery(api.callSheets.report.month, {
+  const report = useReport("callSheets.report.month", {
     outletId,
     localMonth,
   });
@@ -358,7 +358,7 @@ export function CallSheetMonthView({ report }: { report: CallSheetReport }) {
   );
 }
 
-type Detail = FunctionReturnType<typeof api.callSheets.accounts.detail>;
+type Detail = EndpointResult<"callSheets.accounts.detail">;
 type DraftLine = {
   productId: Id<"products">;
   code: string;
@@ -369,7 +369,7 @@ type DraftLine = {
 };
 
 export function CallSheetEditor({ detail }: { detail: Detail }) {
-  const save = useMutation(api.callSheets.accounts.save);
+  const save = useReportCommand("callSheets.accounts.save");
   const [header, setHeader] = useState<Record<CallSheetHeaderField, string>>(
     () => {
       const source = detail.account?.header;
@@ -393,8 +393,8 @@ export function CallSheetEditor({ detail }: { detail: Detail }) {
     })),
   );
   const [prefix, setPrefix] = useState("");
-  const options = useQuery(
-    api.callSheets.accounts.productSearch,
+  const options = useReport(
+    "callSheets.accounts.productSearch",
     prefix.trim().length >= 2 ? { prefix } : "skip",
   );
   const [busy, setBusy] = useState(false);

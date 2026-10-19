@@ -1,7 +1,8 @@
 "use client";
 
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
+import type { EndpointResult } from "./report-api";
+
+import type { Id } from "./report-dto";
 import {
   Card,
   FormField,
@@ -10,8 +11,7 @@ import {
   StatusPill,
   WorkspaceIcon,
 } from "@sunpride/ui";
-import { useQuery } from "convex/react";
-import type { FunctionReturnType } from "convex/server";
+import { useReport } from "./report-api";
 import { useEffect, useMemo, useRef, useState } from "react";
 import "leaflet/dist/leaflet.css";
 import {
@@ -22,7 +22,7 @@ import {
   type SupervisionFilters,
 } from "./supervision-model";
 
-type ActivityDay = FunctionReturnType<typeof api.supervision.activity.map>;
+type ActivityDay = EndpointResult<"supervision.activity.map">;
 type Person = ActivityDay["people"][number];
 
 function stopLabel(stop: Person["stops"][number]) {
@@ -287,7 +287,7 @@ export function ActivityMapView({
 export function ActivityMap({ filters }: { filters: SupervisionFilters }) {
   const [profileId, setProfileId] = useState<Id<"profiles"> | "">("");
   const [territory, setTerritory] = useState("");
-  const data = useQuery(api.supervision.activity.map, filters);
+  const data = useReport("supervision.activity.map", filters);
   if (data === undefined)
     return <span className="text-[13px] text-muted">Loading activity…</span>;
   return (

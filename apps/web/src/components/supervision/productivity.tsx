@@ -1,7 +1,8 @@
 "use client";
 
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
+import type { EndpointResult } from "./report-api";
+
+import type { Id } from "./report-dto";
 import {
   Card,
   DataTable,
@@ -11,8 +12,7 @@ import {
   WorkspaceIcon,
   type DataColumn,
 } from "@sunpride/ui";
-import { useQuery } from "convex/react";
-import type { FunctionReturnType } from "convex/server";
+import { useReport } from "./report-api";
 import { useCallback, useEffect, useState } from "react";
 import {
   combineFigures,
@@ -26,10 +26,8 @@ import {
 } from "../../lib/supervisor-productivity";
 import type { SupervisionFilters } from "./supervision-model";
 
-type Roster = FunctionReturnType<typeof api.analytics.productivity.roster>;
-type PersonFigures = FunctionReturnType<
-  typeof api.analytics.productivity.person
->;
+type Roster = EndpointResult<"analytics.productivity.roster">;
+type PersonFigures = EndpointResult<"analytics.productivity.person">;
 type Row = {
   id: string;
   person: Roster["people"][number];
@@ -381,7 +379,7 @@ function PersonLoader({
   to: string;
   onResult: (key: string, data: PersonFigures) => void;
 }) {
-  const data = useQuery(api.analytics.productivity.person, {
+  const data = useReport("analytics.productivity.person", {
     profileId,
     from,
     to,
@@ -399,7 +397,7 @@ export function Productivity({ filters }: { filters: SupervisionFilters }) {
     () => new Map(),
   );
   const period = periodFor(preset, filters.serviceDate);
-  const roster = useQuery(api.analytics.productivity.roster, {
+  const roster = useReport("analytics.productivity.roster", {
     endDate: filters.serviceDate,
     ...(filters.orgUnitId ? { orgUnitId: filters.orgUnitId } : {}),
     ...(filters.channel ? { channel: filters.channel } : {}),

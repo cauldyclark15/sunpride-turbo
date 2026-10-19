@@ -1,8 +1,9 @@
 "use client";
 
+import type { EndpointResult, EndpointArgs } from "./report-api";
+
 import { Button } from "@heroui/react";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
+import type { Id } from "./report-dto";
 import {
   Card,
   DataTable,
@@ -13,8 +14,7 @@ import {
   WorkspaceIcon,
   type DataColumn,
 } from "@sunpride/ui";
-import { useMutation, useQuery } from "convex/react";
-import type { FunctionArgs, FunctionReturnType } from "convex/server";
+import { useReportCommand, useReport } from "./report-api";
 import { useState } from "react";
 import { manilaToday, type SupervisionFilters } from "./supervision-model";
 import {
@@ -29,13 +29,13 @@ import {
 } from "./talk-sheet-model";
 import { shortDate } from "./work-with-model";
 
-type Register = FunctionReturnType<typeof api.supervision.talk_sheet.register>;
+type Register = EndpointResult<"supervision.talk_sheet.register">;
 type Chain = Register["chains"][number] & { id: string };
 type OpenItem = Register["openItems"][number] & { id: string };
-type Mine = FunctionReturnType<typeof api.supervision.talk_sheet.mine>;
+type Mine = EndpointResult<"supervision.talk_sheet.mine">;
 type MineRow = Mine["sheets"][number] & { id: string };
-type Detail = FunctionReturnType<typeof api.supervision.talk_sheet.detail>;
-type SaveArgs = FunctionArgs<typeof api.supervision.talk_sheet.save>;
+type Detail = EndpointResult<"supervision.talk_sheet.detail">;
+type SaveArgs = EndpointArgs<"supervision.talk_sheet.save">;
 type ItemInput = NonNullable<SaveArgs["items"]>[number];
 type SheetId = Id<"talkSheets">;
 
@@ -618,10 +618,10 @@ function SheetEditor({
   sheetId: SheetId;
   onClose: () => void;
 }) {
-  const detail = useQuery(api.supervision.talk_sheet.detail, { sheetId });
-  const save = useMutation(api.supervision.talk_sheet.save);
-  const finalize = useMutation(api.supervision.talk_sheet.finalize);
-  const discard = useMutation(api.supervision.talk_sheet.discard);
+  const detail = useReport("supervision.talk_sheet.detail", { sheetId });
+  const save = useReportCommand("supervision.talk_sheet.save");
+  const finalize = useReportCommand("supervision.talk_sheet.finalize");
+  const discard = useReportCommand("supervision.talk_sheet.discard");
   if (detail === undefined)
     return <span className="text-[13px] text-muted">Loading Talk Sheet…</span>;
   return (
@@ -764,8 +764,8 @@ export function MyTalkSheetsView({
 }
 
 function MyTalkSheets({ onOpen }: { onOpen: (id: SheetId) => void }) {
-  const mine = useQuery(api.supervision.talk_sheet.mine, {});
-  const create = useMutation(api.supervision.talk_sheet.create);
+  const mine = useReport("supervision.talk_sheet.mine", {});
+  const create = useReportCommand("supervision.talk_sheet.create");
   if (mine === undefined)
     return (
       <span className="text-[13px] text-muted">Loading your Talk Sheets…</span>
@@ -780,14 +780,14 @@ function Register({
   filters: SupervisionFilters;
   onOpen: (id: SheetId) => void;
 }) {
-  const data = useQuery(api.supervision.talk_sheet.register, filters);
+  const data = useReport("supervision.talk_sheet.register", filters);
   if (data === undefined)
     return <span className="text-[13px] text-muted">Loading Talk Sheets…</span>;
   return <TalkSheetRegisterView data={data} onOpen={onOpen} />;
 }
 
 export function TalkSheet({ filters }: { filters: SupervisionFilters }) {
-  const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
+  const permissions = useReport("lib.capabilities.currentPermissions", {});
   const [open, setOpen] = useState<SheetId | null>(null);
   const capabilities = permissions?.capabilities ?? [];
   const canRecord = capabilities.includes("visit.record");

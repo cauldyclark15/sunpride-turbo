@@ -1,8 +1,9 @@
 "use client";
 
+import type { EndpointResult } from "./report-api";
+
 import { Button } from "@heroui/react";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
+import type { Id } from "./report-dto";
 import {
   Card,
   DataTable,
@@ -13,8 +14,7 @@ import {
   WorkspaceIcon,
   type DataColumn,
 } from "@sunpride/ui";
-import { useMutation, useQuery } from "convex/react";
-import type { FunctionReturnType } from "convex/server";
+import { useReportCommand, useReport, useReportSearch } from "./report-api";
 import { useState } from "react";
 import {
   claimRange,
@@ -29,9 +29,7 @@ import {
 } from "./per-diem-model";
 import { formatTime, type SupervisionFilters } from "./supervision-model";
 
-type Validation = FunctionReturnType<
-  typeof api.supervision.per_diem.validation
->;
+type Validation = EndpointResult<"supervision.per_diem.validation">;
 type Selected = NonNullable<Validation["selected"]>;
 type PersonRow = Validation["people"][number] & { id: string };
 type DayRow = Selected["days"][number] & { id: string };
@@ -432,16 +430,25 @@ export function PerDiemView({
 export function PerDiem({ filters }: { filters: SupervisionFilters }) {
   const [month, setMonth] = useState(filters.serviceDate.slice(0, 7));
   const [half, setHalf] = useState<ClaimHalf>("month");
-  const [profileId, setProfileId] = useState<Id<"profiles"> | null>(null);
+  const [chosenProfile, setProfileId] = useState<
+    Id<"profiles"> | null | undefined
+  >(undefined);
+  const linkedProfile = new URLSearchParams(useReportSearch()).get("profileId");
+  const profileId =
+    chosenProfile !== undefined
+      ? chosenProfile
+      : linkedProfile && /^[a-f0-9-]{36}$/i.test(linkedProfile)
+        ? linkedProfile
+        : null;
   const range = claimRange(month, half);
-  const data = useQuery(api.supervision.per_diem.validation, {
+  const data = useReport("supervision.per_diem.validation", {
     ...(filters.orgUnitId ? { orgUnitId: filters.orgUnitId } : {}),
     ...(filters.channel ? { channel: filters.channel } : {}),
     ...(filters.directOnly ? { directOnly: filters.directOnly } : {}),
     ...range,
     ...(profileId ? { profileId } : {}),
   });
-  const mutate = useMutation(api.supervision.per_diem.decide);
+  const mutate = useReportCommand("supervision.per_diem.decide");
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap items-end gap-3">

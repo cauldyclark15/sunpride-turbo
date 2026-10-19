@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import * as server from "../../../../../packages/backend/convex/analytics/productivity_model";
+import * as server from "../../../../api/src/domains/fieldreports/productivity-rules.js";
 import {
   combineFigures,
   emptyFigures,
@@ -13,9 +13,11 @@ import {
   type PeriodFigures,
 } from "../../lib/supervisor-productivity";
 
-vi.mock("convex/react", () => ({
-  useMutation: () => vi.fn(),
-  useQuery: () => undefined,
+vi.mock("./report-api", () => ({
+  useReportSearch: () => "",
+  replaceReportSearch: () => {},
+  useReportCommand: () => vi.fn(),
+  useReport: () => undefined,
 }));
 
 import { ProductivityView } from "./productivity";

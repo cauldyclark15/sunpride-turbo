@@ -8,6 +8,8 @@ export type DsrCallStatus =
   "productive" | "nonproductive" | "open" | "not_visited" | "off_plan";
 
 export type DsrReport = {
+  trend?: import("../components/supervision/depth-model").SalesTrend[];
+  priorMtd?: number;
   serviceDate: string;
   localMonth: string;
   salesman: {
@@ -222,4 +224,75 @@ export function dailySalesCsv(report: DsrReport): string {
     ]),
   ];
   return `\uFEFF${lines.map((row) => row.map(cell).join(",")).join("\r\n")}\r\n`;
+}
+
+/** Whole-team Annex B export. Amounts remain decimal PHP; each row is the server projection. */
+export function teamDailySalesCsv(
+  report: import("../components/supervision/depth-model").TeamDsr,
+): string {
+  const rows: Array<Array<string | number | null>> = [
+    ["Daily sales report — whole team", report.serviceDate],
+    [
+      "Salesman",
+      "Today PHP",
+      "Daily target PHP",
+      "MTD PHP",
+      "Monthly target PHP",
+      "Balance to sell PHP",
+      "Prior MTD PHP",
+      "Calls",
+      "Productive calls",
+    ],
+    ...report.rows.map((r) => [
+      r.name,
+      pesoPlain(r.todaySales),
+      pesoPlain(r.dailyTarget),
+      pesoPlain(r.mtdSales),
+      pesoPlain(r.target),
+      pesoPlain(r.balanceToSell),
+      pesoPlain(r.prior),
+      r.calls,
+      r.productive,
+    ]),
+  ];
+  return `\uFEFF${rows.map((r) => r.map(cell).join(",")).join("\r\n")}\r\n`;
+}
+/** Actionable team priorities can be printed or handed off without copying the table. */
+export function teamPrioritiesCsv(
+  report: import("../components/supervision/depth-model").TeamCockpit,
+): string {
+  const rows: Array<Array<string | number | null>> = [
+    ["My team today and this week", report.serviceDate],
+    [
+      "Person",
+      "Planned",
+      "Visited",
+      "Productive",
+      "Daily call standard",
+      "Week visited",
+      "Prior week visited",
+      "Work-With done",
+      "Work-With required",
+      "Open actions",
+      "Overdue actions",
+      "Per diem waiting",
+      "DAR missing",
+    ],
+    ...report.rows.map((r) => [
+      r.name,
+      r.today.planned,
+      r.today.visited,
+      r.today.productive,
+      r.today.standard,
+      r.week.visited,
+      r.week.priorVisited,
+      r.workWith.done,
+      r.workWith.required,
+      r.talkActions,
+      r.overdue,
+      r.perDiemWaiting,
+      r.darMissing ? "Yes" : "No",
+    ]),
+  ];
+  return `\uFEFF${rows.map((r) => r.map(cell).join(",")).join("\r\n")}\r\n`;
 }

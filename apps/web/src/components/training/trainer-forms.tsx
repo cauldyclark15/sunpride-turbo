@@ -1,8 +1,9 @@
 "use client";
 
+import type { EndpointResult, EndpointArgs } from "../supervision/report-api";
+
 import { Button } from "@heroui/react";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
+import type { Id } from "../supervision/report-dto";
 import {
   Card,
   DataTable,
@@ -12,8 +13,7 @@ import {
   WorkspaceIcon,
   type DataColumn,
 } from "@sunpride/ui";
-import { useMutation, useQuery } from "convex/react";
-import type { FunctionArgs, FunctionReturnType } from "convex/server";
+import { useReportCommand, useReport } from "../supervision/report-api";
 import { useState } from "react";
 import { shortDate } from "../supervision/work-with-model";
 import {
@@ -31,11 +31,11 @@ import {
   type TrainerFormKind,
 } from "./trainer-forms-model";
 
-type Detail = FunctionReturnType<typeof api.supervision.trainer_forms.detail>;
-type Program = FunctionReturnType<typeof api.supervision.trainer_forms.program>;
-type Mine = FunctionReturnType<typeof api.supervision.trainer_forms.mine>;
+type Detail = EndpointResult<"supervision.trainer_forms.detail">;
+type Program = EndpointResult<"supervision.trainer_forms.program">;
+type Mine = EndpointResult<"supervision.trainer_forms.mine">;
 type FormRow = Mine["written"][number] & { id: string };
-type UpdateArgs = FunctionArgs<typeof api.supervision.trainer_forms.update>;
+type UpdateArgs = EndpointArgs<"supervision.trainer_forms.update">;
 type FormId = Id<"trainerForms">;
 
 function errorText(error: unknown) {
@@ -618,17 +618,17 @@ function TrainerFormEditor({
   formId: FormId;
   onClose: () => void;
 }) {
-  const detail = useQuery(api.supervision.trainer_forms.detail, { formId });
-  const history = useQuery(
-    api.supervision.trainer_forms.program,
+  const detail = useReport("supervision.trainer_forms.detail", { formId });
+  const history = useReport(
+    "supervision.trainer_forms.program",
     detail?.form.kind === "training_program"
       ? { traineeProfileId: detail.form.traineeProfileId }
       : "skip",
   );
-  const save = useMutation(api.supervision.trainer_forms.update);
-  const sign = useMutation(api.supervision.trainer_forms.sign);
-  const discard = useMutation(api.supervision.trainer_forms.discard);
-  const acknowledge = useMutation(api.supervision.trainer_forms.acknowledge);
+  const save = useReportCommand("supervision.trainer_forms.update");
+  const sign = useReportCommand("supervision.trainer_forms.sign");
+  const discard = useReportCommand("supervision.trainer_forms.discard");
+  const acknowledge = useReportCommand("supervision.trainer_forms.acknowledge");
   if (detail === undefined)
     return <span className="text-[13px] text-muted">Loading form…</span>;
   return (
@@ -652,7 +652,7 @@ export function SessionFormsView({
   onOpen,
   onCreate,
 }: {
-  data: FunctionReturnType<typeof api.supervision.trainer_forms.forSession>;
+  data: EndpointResult<"supervision.trainer_forms.forSession">;
   onOpen: (id: FormId) => void;
   onCreate: (kind: TrainerFormKind) => void;
 }) {
@@ -702,10 +702,10 @@ export function SessionTrainerForms({
 }: {
   sessionId: Id<"workWithSessions">;
 }) {
-  const data = useQuery(api.supervision.trainer_forms.forSession, {
+  const data = useReport("supervision.trainer_forms.forSession", {
     sessionId,
   });
-  const create = useMutation(api.supervision.trainer_forms.create);
+  const create = useReportCommand("supervision.trainer_forms.create");
   const [open, setOpen] = useState<FormId | null>(null);
   const [error, setError] = useState("");
   if (data === undefined)
@@ -808,10 +808,10 @@ export function TrainingFormsView({
 
 /** The Training module: every role reads and acknowledges its own trainer forms here. */
 export function TrainingWorkspace() {
-  const profile = useQuery(api.domains.profiles.current, {});
-  const mine = useQuery(api.supervision.trainer_forms.mine, {});
-  const program = useQuery(
-    api.supervision.trainer_forms.program,
+  const profile = useReport("domains.profiles.current", {});
+  const mine = useReport("supervision.trainer_forms.mine", {});
+  const program = useReport(
+    "supervision.trainer_forms.program",
     profile ? { traineeProfileId: profile._id } : "skip",
   );
   const [open, setOpen] = useState<FormId | null>(null);

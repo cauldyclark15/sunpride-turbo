@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { REASON_LABELS as SERVER_LABELS } from "../../../../../packages/backend/convex/supervision/per_diem_model";
+import { REASON_LABELS as SERVER_LABELS } from "../../../../api/src/domains/fieldreports/rules.js";
 import { PerDiemView } from "./per-diem";
 import {
   claimRange,

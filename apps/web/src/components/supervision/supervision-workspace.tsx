@@ -1,9 +1,8 @@
 "use client";
 
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
+import type { Id } from "./report-dto";
 import { FormField, UnderlineTabs } from "@sunpride/ui";
-import { useQuery } from "convex/react";
+import { useReport, useReportSearch, replaceReportSearch } from "./report-api";
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { PanelErrorBoundary } from "../panel-error-boundary";
@@ -13,6 +12,7 @@ import { Productivity } from "./productivity";
 import { manilaToday, type SupervisionFilters } from "./supervision-model";
 import { TalkSheet } from "./talk-sheet";
 import { TeamExecution } from "./team-execution";
+import { MyTeam } from "./report-depth";
 import { WorkWith } from "./work-with";
 
 const ActivityMap = dynamic(
@@ -50,15 +50,27 @@ function useNow() {
 
 export function SupervisionWorkspace() {
   const now = useNow();
-  const [tab, setTab] = useState<SupervisionTab>("team");
-  const [serviceDate, setServiceDate] = useState(() => manilaToday());
+  const [pickedTab, setTab] = useState<SupervisionTab>("team");
+  const [pickedDate, setServiceDate] = useState(() => manilaToday());
   const [orgUnitId, setOrgUnitId] = useState<Id<"orgUnits"> | "">("");
   const [channel, setChannel] = useState("");
   const [directOnly, setDirectOnly] = useState(false);
-  const options = useQuery(api.supervision.team.options, { serviceDate });
+  const params = new URLSearchParams(useReportSearch());
+  const requested = params.get("tab");
+  const tab = TABS.some(([id]) => id === requested)
+    ? (requested as SupervisionTab)
+    : pickedTab;
+  const linkedDate = params.get("date");
+  const serviceDate =
+    linkedDate && /^\d{4}-\d{2}-\d{2}$/.test(linkedDate)
+      ? linkedDate
+      : pickedDate;
+  const options = useReport("supervision.team.options", { serviceDate });
   const filters: SupervisionFilters = {
     serviceDate,
-    ...(orgUnitId ? { orgUnitId } : {}),
+    ...(orgUnitId
+      ? { orgUnitId: orgUnitId as NonNullable<SupervisionFilters["orgUnitId"]> }
+      : {}),
     ...(channel ? { channel } : {}),
     ...(directOnly ? { directOnly } : {}),
   };
@@ -68,7 +80,10 @@ export function SupervisionWorkspace() {
       <UnderlineTabs
         items={TABS}
         activeId={tab}
-        onChange={setTab}
+        onChange={(id) => {
+          setTab(id);
+          replaceReportSearch({ tab: id, date: serviceDate });
+        }}
         label="Supervision views"
       />
       <div className="flex flex-wrap items-end gap-3">
@@ -81,7 +96,10 @@ export function SupervisionWorkspace() {
               value={serviceDate}
               max={manilaToday(now)}
               onChange={(event) => {
-                if (event.target.value) setServiceDate(event.target.value);
+                if (event.target.value) {
+                  setServiceDate(event.target.value);
+                  replaceReportSearch({ date: event.target.value });
+                }
               }}
             />
           </FormField>
@@ -138,7 +156,10 @@ export function SupervisionWorkspace() {
       <div role="tabpanel">
         <PanelErrorBoundary key={key} label={`Supervision ${tab}`}>
           {tab === "team" ? (
-            <TeamExecution filters={filters} now={now} />
+            <>
+              <MyTeam filters={filters} />
+              <TeamExecution filters={filters} now={now} />
+            </>
           ) : tab === "exceptions" ? (
             <ExceptionQueue filters={filters} now={now} />
           ) : tab === "workwith" ? (
