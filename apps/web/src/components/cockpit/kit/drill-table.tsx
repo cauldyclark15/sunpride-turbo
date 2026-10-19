@@ -64,6 +64,14 @@ export function ExportTools({ csvHref }: { csvHref: string }) {
   );
 }
 
+/** Phone cards show the name, this many figures and the last column (status). */
+export const PHONE_CARD_FIGURES = 4;
+
+/** True for a cell folded away on a phone card until "Show all figures". */
+export function phoneExtra(index: number, count: number) {
+  return index > PHONE_CARD_FIGURES && index < count - 1;
+}
+
 function compare(a: number | string | null, b: number | string | null) {
   if (a === b) return 0;
   if (a === null) return 1;
@@ -100,6 +108,15 @@ export function DrillTable<T>({
 }) {
   const router = useRouter();
   const [sort, setSort] = useState(initialSort ?? null);
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const folds = columns.length > PHONE_CARD_FIGURES + 2;
+  const toggle = (key: string) =>
+    setExpanded((prior) => {
+      const next = new Set(prior);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   const sorted = useMemo(() => {
     if (!sort) return rows;
     const column = columns.find((c) => c.key === sort.key);
@@ -171,15 +188,19 @@ export function DrillTable<T>({
                     </th>
                   );
                 })}
+                {folds ? <th data-phone-more="" aria-hidden /> : null}
               </tr>
             </thead>
             <tbody>
               {sorted.map((row) => {
                 const href = rowHref?.(row) ?? null;
+                const key = rowKey(row);
+                const open = expanded.has(key);
                 return (
                   <tr
-                    key={rowKey(row)}
+                    key={key}
                     data-href={href ?? undefined}
+                    data-expanded={open ? "" : undefined}
                     onClick={
                       href
                         ? (event) => {
@@ -200,6 +221,11 @@ export function DrillTable<T>({
                         key={column.key}
                         data-label={column.label}
                         data-primary={column.primary ? "" : undefined}
+                        data-extra={
+                          folds && phoneExtra(index, columns.length)
+                            ? ""
+                            : undefined
+                        }
                         className={`px-3 py-2.5 tabular-nums first:pl-4 last:pr-4 sm:first:pl-5 sm:last:pr-5 ${
                           column.align === "right" ? "text-right" : ""
                         } ${index === 0 || column.wrap ? "" : "sm:whitespace-nowrap"}`}
@@ -217,6 +243,20 @@ export function DrillTable<T>({
                         )}
                       </td>
                     ))}
+                    {folds ? (
+                      <td data-phone-more="" data-label="">
+                        <button
+                          type="button"
+                          aria-expanded={open}
+                          onClick={() => toggle(key)}
+                          className="text-left text-[13px] font-medium text-muted underline-offset-2 hover:text-foreground hover:underline"
+                        >
+                          {open
+                            ? "Show fewer figures"
+                            : `Show all ${columns.length - 1} figures`}
+                        </button>
+                      </td>
+                    ) : null}
                   </tr>
                 );
               })}

@@ -28,7 +28,20 @@ type WorkspaceShellProps = {
   onAccount?: () => void;
   status?: ReactNode;
   user?: WorkspaceUser;
+  /**
+   * Phones and tablets (below `lg`): a fixed bottom tab bar with these pages
+   * plus "More", and a top bar with {@link phoneTitle} and a slot
+   * (`#workspace-phone-actions`) pages portal their filters into. When set,
+   * it replaces the hamburger sheet. Desktop is unchanged.
+   */
+  phoneTabs?: WorkspaceNavItem[];
+  /** The rest of the person's pages, listed in the "More" sheet. */
+  phoneMoreItems?: WorkspaceNavItem[];
+  phoneTitle?: string;
 };
+
+/** Pages portal phone-only controls (the Filters button) into this element. */
+export const PHONE_ACTIONS_ID = "workspace-phone-actions";
 
 function Brand({
   brand,
@@ -197,6 +210,215 @@ function DesktopHeader({ brand }: { brand: WorkspaceBrand }) {
   );
 }
 
+function PhoneTopBar({
+  brand,
+  title,
+}: {
+  brand: WorkspaceBrand;
+  title?: string;
+}) {
+  return (
+    <div
+      data-phone-topbar=""
+      className="sticky top-0 z-20 border-b border-separator bg-surface/95 pt-[env(safe-area-inset-top)] backdrop-blur lg:hidden"
+    >
+      <div className="flex h-14 items-center gap-3 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))]">
+        <div className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-[7px] bg-accent">
+          {brand.logo}
+        </div>
+        <p className="min-w-0 flex-1 truncate text-[16px] font-semibold tracking-tight text-foreground">
+          {title ?? brand.name}
+        </p>
+        <div id={PHONE_ACTIONS_ID} className="flex shrink-0 items-center" />
+      </div>
+    </div>
+  );
+}
+
+function PhoneTabBar({
+  tabs,
+  activePrimaryId,
+  moreOpen,
+  moreActive,
+  onNavigate,
+  onMore,
+}: {
+  tabs: WorkspaceNavItem[];
+  activePrimaryId: string;
+  moreOpen: boolean;
+  moreActive: boolean;
+  onNavigate: (href: string) => void;
+  onMore: () => void;
+}) {
+  const cell =
+    "flex min-h-14 min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-0.5 text-[11px] font-medium leading-tight";
+  return (
+    <nav
+      aria-label="Main pages"
+      data-phone-tabs=""
+      className="ck-noprint fixed inset-x-0 bottom-0 z-40 border-t border-separator bg-surface/95 pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] backdrop-blur lg:hidden"
+    >
+      <ul className="mx-auto grid max-w-xl grid-cols-5 gap-0.5 px-1 py-0.5">
+        {tabs.map((item) => {
+          const active = activePrimaryId === item.id;
+          return (
+            <li key={item.id} className="min-w-0">
+              <a
+                href={item.href}
+                aria-current={active ? "page" : undefined}
+                onClick={(event) => {
+                  event.preventDefault();
+                  onNavigate(item.href);
+                }}
+                className={`${cell} ${active ? "text-foreground" : "text-muted"}`}
+              >
+                <span
+                  className={`grid h-7 w-12 place-items-center rounded-full ${active ? "bg-default" : ""}`}
+                >
+                  <WorkspaceIcon name={item.icon} className="size-[20px]" />
+                </span>
+                <span className="w-full truncate text-center">
+                  {item.label}
+                </span>
+              </a>
+            </li>
+          );
+        })}
+        <li className="min-w-0">
+          <button
+            type="button"
+            aria-haspopup="dialog"
+            aria-expanded={moreOpen}
+            onClick={onMore}
+            className={`${cell} w-full ${moreActive || moreOpen ? "text-foreground" : "text-muted"}`}
+          >
+            <span
+              className={`grid h-7 w-12 place-items-center rounded-full ${moreActive ? "bg-default" : ""}`}
+            >
+              <WorkspaceIcon name="more" className="size-[20px]" />
+            </span>
+            <span>More</span>
+          </button>
+        </li>
+      </ul>
+    </nav>
+  );
+}
+
+function MoreSheet({
+  items,
+  activePrimaryId,
+  user,
+  onClose,
+  onNavigate,
+  onAccount,
+  onSignOut,
+}: {
+  items: WorkspaceNavItem[];
+  activePrimaryId: string;
+  user?: WorkspaceUser;
+  onClose: () => void;
+  onNavigate: (href: string) => void;
+  onAccount?: () => void;
+  onSignOut: () => void | Promise<void>;
+}) {
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+  const row =
+    "flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-[15px] font-medium text-foreground hover:bg-default-soft";
+  return (
+    <div className="ck-noprint fixed inset-0 z-50 lg:hidden">
+      <button
+        type="button"
+        aria-label="Close"
+        tabIndex={-1}
+        className="absolute inset-0 bg-black/25"
+        onClick={onClose}
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="More pages"
+        className="absolute inset-x-0 bottom-0 flex max-h-[85svh] flex-col overflow-hidden rounded-t-2xl border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] shadow-xl"
+      >
+        <div className="flex items-center justify-between gap-3 border-b border-separator px-4 py-3">
+          <div className="min-w-0">
+            <p className="truncate text-[15px] font-semibold text-foreground">
+              {user?.name ?? "More"}
+            </p>
+            {user ? (
+              <p className="truncate text-[12px] capitalize text-muted">
+                {user.role.replaceAll("_", " ")}
+              </p>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            autoFocus
+            onClick={onClose}
+            className="min-h-11 rounded-lg border border-border px-4 text-[14px] font-medium text-foreground"
+          >
+            Close
+          </button>
+        </div>
+        <ul className="overflow-y-auto overscroll-contain px-2 py-2">
+          {items.map((item) => (
+            <li key={item.id}>
+              <a
+                href={item.href}
+                aria-current={activePrimaryId === item.id ? "page" : undefined}
+                onClick={(event) => {
+                  event.preventDefault();
+                  onClose();
+                  onNavigate(item.href);
+                }}
+                className={`${row} ${activePrimaryId === item.id ? "bg-default" : ""}`}
+              >
+                <WorkspaceIcon name={item.icon} className="size-5 text-muted" />
+                <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                {item.badge ? (
+                  <span className="text-[12px] text-muted">{item.badge}</span>
+                ) : null}
+              </a>
+            </li>
+          ))}
+          <li className="mt-1 border-t border-separator pt-1">
+            {onAccount ? (
+              <button
+                type="button"
+                className={row}
+                onClick={() => {
+                  onClose();
+                  onAccount();
+                }}
+              >
+                <WorkspaceIcon name="user" className="size-5 text-muted" />
+                Account · change password
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className={`${row} !text-danger`}
+              onClick={() => {
+                onClose();
+                void onSignOut();
+              }}
+            >
+              <WorkspaceIcon name="logout" className="size-5" />
+              Sign out
+            </button>
+          </li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+
 export function WorkspaceShell({
   activeHref,
   activePrimaryId,
@@ -210,7 +432,12 @@ export function WorkspaceShell({
   onAccount,
   status,
   user,
+  phoneTabs,
+  phoneMoreItems = [],
+  phoneTitle,
 }: WorkspaceShellProps) {
+  const phone = Boolean(phoneTabs?.length);
+  const [moreOpen, setMoreOpen] = useState(false);
   // Collapsed/expanded survives reloads; read after mount so server and client render alike.
   const [open, setOpen] = useState(true);
   useEffect(() => {
@@ -222,7 +449,7 @@ export function WorkspaceShell({
   }
   return (
     <Sidebar.Provider
-      className="!block h-svh overflow-hidden bg-surface"
+      className={`!block h-svh overflow-hidden bg-surface ${phone ? "max-lg:[--phone-tabbar-height:calc(3.75rem+env(safe-area-inset-bottom))]" : ""}`}
       collapsible="icon"
       navigate={onNavigate}
       open={open}
@@ -238,7 +465,7 @@ export function WorkspaceShell({
       {/* Full-height app frame: the sidebar never scrolls; only the page area does. */}
       <div className="flex h-svh w-full overflow-hidden bg-surface">
         <Sidebar
-          className="!static !h-svh shrink-0 border-r border-separator bg-surface transition-[width] duration-300 ease-out"
+          className={`!static !h-svh shrink-0 border-r border-separator bg-surface transition-[width] duration-300 ease-out ${phone ? "max-lg:!hidden" : ""}`}
           style={
             {
               "--sidebar-width": "var(--workspace-sidebar-width)",
@@ -257,39 +484,49 @@ export function WorkspaceShell({
           />
         </Sidebar>
 
-        <Sidebar.Mobile backdrop="blur">
-          <Heading slot="title" className="sr-only">
-            Workspace navigation
-          </Heading>
-          <Sidebar.Header>
-            <Brand brand={brand} />
-          </Sidebar.Header>
-          <Sidebar.Content>
-            <NavGroups groups={navGroups} activePrimaryId={activePrimaryId} />
-          </Sidebar.Content>
-          <UserFooter
-            user={user}
-            onSignOut={onSignOut}
-            onAccount={onAccount}
-            status={status}
-          />
-        </Sidebar.Mobile>
+        {phone ? null : (
+          <Sidebar.Mobile backdrop="blur">
+            <Heading slot="title" className="sr-only">
+              Workspace navigation
+            </Heading>
+            <Sidebar.Header>
+              <Brand brand={brand} />
+            </Sidebar.Header>
+            <Sidebar.Content>
+              <NavGroups groups={navGroups} activePrimaryId={activePrimaryId} />
+            </Sidebar.Content>
+            <UserFooter
+              user={user}
+              onSignOut={onSignOut}
+              onAccount={onAccount}
+              status={status}
+            />
+          </Sidebar.Mobile>
+        )}
 
         <Sidebar.Main
           id="workspace-scroll"
           className="!h-svh !min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain bg-surface"
         >
-          <div className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-separator bg-surface/95 px-4 backdrop-blur md:hidden">
-            <Brand brand={brand} />
-            <Sidebar.Trigger
-              aria-label="Open workspace navigation"
-              isIconOnly
-              variant="ghost"
-            />
-          </div>
+          {phone ? (
+            <PhoneTopBar brand={brand} title={phoneTitle} />
+          ) : (
+            <div className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-separator bg-surface/95 px-4 backdrop-blur md:hidden">
+              <Brand brand={brand} />
+              <Sidebar.Trigger
+                aria-label="Open workspace navigation"
+                isIconOnly
+                variant="ghost"
+              />
+            </div>
+          )}
           <main
             id="workspace-content"
-            className={`w-full px-6 pt-5 pb-24 md:pb-5 ${
+            className={`w-full px-6 pt-5 ${
+              phone
+                ? "max-lg:pb-[calc(5rem+env(safe-area-inset-bottom))] max-sm:px-4 max-sm:pt-4 lg:pb-5 max-lg:pl-[max(1rem,env(safe-area-inset-left))] max-lg:pr-[max(1rem,env(safe-area-inset-right))]"
+                : "pb-24 md:pb-5"
+            } ${
               contentWidth === "full" ? "max-w-none" : "mx-auto max-w-[1440px]"
             }`}
           >
@@ -298,7 +535,31 @@ export function WorkspaceShell({
         </Sidebar.Main>
       </div>
 
-      {mobilePrimaryItems.length ? (
+      {phone ? (
+        <PhoneTabBar
+          tabs={phoneTabs ?? []}
+          activePrimaryId={activePrimaryId}
+          moreOpen={moreOpen}
+          moreActive={phoneMoreItems.some(
+            (item) => item.id === activePrimaryId,
+          )}
+          onNavigate={onNavigate}
+          onMore={() => setMoreOpen(true)}
+        />
+      ) : null}
+      {phone && moreOpen ? (
+        <MoreSheet
+          items={phoneMoreItems}
+          activePrimaryId={activePrimaryId}
+          user={user}
+          onClose={() => setMoreOpen(false)}
+          onNavigate={onNavigate}
+          onAccount={onAccount}
+          onSignOut={onSignOut}
+        />
+      ) : null}
+
+      {!phone && mobilePrimaryItems.length ? (
         <nav
           aria-label="Primary field actions"
           className="fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 grid grid-cols-3 gap-1 rounded-lg border border-border bg-overlay/95 p-1.5 shadow-overlay backdrop-blur md:hidden"

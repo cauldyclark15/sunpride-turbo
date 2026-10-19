@@ -307,7 +307,7 @@ export function SalesView({
             View by
             <select
               aria-label="View by"
-              className="!min-h-8 h-8 !rounded-lg !text-[13px]"
+              className="!min-h-11 h-11 !rounded-lg !text-[16px] lg:!min-h-8 lg:h-8 lg:!text-[13px]"
               value={groupBy}
               onChange={(event) =>
                 onGroupBy?.(event.target.value as SalesGroupBy)

@@ -95,7 +95,7 @@ export function KpiCard({
         <details className="ck-info group relative shrink-0">
           <summary
             aria-label={`What "${kpi.label}" means`}
-            className="grid size-5 cursor-pointer list-none place-items-center rounded-full border border-foreground/35 text-[10px] font-semibold text-foreground/70 hover:border-foreground hover:text-foreground [&::-webkit-details-marker]:hidden"
+            className="relative grid size-5 cursor-pointer list-none place-items-center rounded-full after:absolute after:-inset-3 after:content-[''] border border-foreground/35 text-[10px] font-semibold text-foreground/70 hover:border-foreground hover:text-foreground [&::-webkit-details-marker]:hidden"
           >
             i
           </summary>
@@ -201,7 +201,7 @@ export function KpiGrid({
 }) {
   return (
     <div
-      className={`grid grid-cols-2 gap-3 ${gridColumns(kpis.length)} ${kpis.length % 2 ? "max-md:[&>*:last-child]:col-span-2" : ""}`}
+      className={`grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 ${gridColumns(kpis.length)} ${kpis.length % 2 ? "min-[380px]:max-md:[&>*:last-child]:col-span-2" : ""}`}
     >
       {kpis.map((kpi) => (
         <KpiCard key={kpi.key} kpi={kpi} canSetTarget={canSetTarget} />

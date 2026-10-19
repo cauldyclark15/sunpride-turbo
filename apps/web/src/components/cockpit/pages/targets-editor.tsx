@@ -161,7 +161,7 @@ function TargetCell({
               if (event.key === "Enter") void save();
               if (event.key === "Escape") setEditing(false);
             }}
-            className="!min-h-8 h-8 w-32 !rounded-lg !px-2 text-right !text-[13px] tabular-nums"
+            className="!min-h-11 h-11 w-32 !rounded-lg !px-2 text-right !text-[16px] tabular-nums lg:!min-h-8 lg:h-8 lg:!text-[13px]"
           />
         </span>
         <span className="flex gap-1">

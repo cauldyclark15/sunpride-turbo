@@ -1,3 +1,4 @@
+import { noteDataSource } from "../pwa/data-source";
 import { ApiError, errorFromResponse, normalizeError } from "./errors";
 
 export type QueryValue = string | number | boolean | null | undefined;
@@ -83,6 +84,7 @@ export async function apiFetch<T = unknown>(
     throw normalizeError(error);
   }
 
+  if (method === "GET") noteDataSource(path, response.headers);
   const body = await readJson(response, options.maxBytes ?? DEFAULT_MAX_BYTES);
   if (!response.ok) throw errorFromResponse(response.status, body);
   return (body === undefined ? null : body) as T;

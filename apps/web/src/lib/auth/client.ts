@@ -2,6 +2,13 @@ import { ApiError, normalizeError } from "../api/errors";
 import { apiFetch, type ApiFetchOptions } from "../api/fetch";
 import type { LiveClient } from "../api/live";
 import { defaultApiStore, type ApiStore } from "../api/store";
+import { clearUserCaches } from "../pwa/caches";
+import { resetDataSource } from "../pwa/data-source";
+import {
+  forgetSession,
+  recallSession,
+  rememberSession,
+} from "./offline-session";
 import { toMe, type Me } from "./types";
 
 /** Cache key of the current session (`GET /api/me`). */
@@ -32,7 +39,11 @@ async function authCall<T>(
   }
 }
 
-/** `GET /api/me`; resolves `null` when there is no valid session (401). */
+/**
+ * `GET /api/me`; resolves `null` when there is no valid session (401). With
+ * no network at all it falls back to the last signed-in person on this
+ * device (see offline-session), so the installed app opens offline.
+ */
 export async function fetchMe(
   signal?: AbortSignal,
   fetchImpl?: FetchImpl,
@@ -50,12 +61,27 @@ export async function fetchMe(
         message: "This email address has not been invited yet.",
         status: 403,
       });
+    rememberSession(me);
     return me;
   } catch (raw) {
     const error = normalizeError(raw);
-    if (error.status === 401) return null;
+    if (error.status === 401) {
+      await forgetLocalData();
+      return null;
+    }
+    if (error.code === "network_error" && !signal?.aborted) {
+      const remembered = recallSession();
+      if (remembered) return remembered;
+    }
     throw error;
   }
+}
+
+/** Removes everything this device kept for the signed-in person. */
+export async function forgetLocalData() {
+  forgetSession();
+  resetDataSource();
+  await clearUserCaches();
 }
 
 export type AuthActions = {
@@ -82,6 +108,7 @@ export function createAuthActions(
 ): AuthActions {
   const identityChanged = async () => {
     live?.reset();
+    await forgetLocalData();
     await store.clear();
   };
   return {

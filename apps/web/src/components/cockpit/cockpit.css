@@ -49,6 +49,32 @@
   .ck-table td[data-label=""]::before {
     content: none;
   }
+  /* Name, 4 key figures and the status; the rest behind "Show all figures". */
+  .ck-table tr:not([data-expanded]) td[data-extra] {
+    display: none;
+  }
+  .ck-table td[data-phone-more] {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 640px) {
+  .ck-table [data-phone-more] {
+    display: none;
+  }
+}
+
+/* Tablets: a real table that scrolls sideways keeps its first column in view. */
+@media (min-width: 640px) and (max-width: 1023px) {
+  .ck-table th:first-child,
+  .ck-table td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    min-width: 8.5rem;
+    background: var(--surface);
+    box-shadow: 1px 0 0 var(--separator);
+  }
 }
 
 @media print {
@@ -59,6 +85,7 @@
     background: #fff !important;
   }
   .ck-noprint,
+  .ck-table [data-phone-more],
   [data-slot="sidebar"],
   [aria-label="Beta release"],
   nav[aria-label="Primary field actions"] {
@@ -92,4 +119,50 @@
 }
 .ck-scroll-x > * {
   flex-shrink: 0;
+}
+
+/*
+ * Phones and tablets (below lg, where the bottom tabs replace the sidebar):
+ * every control is a 44 px touch target and every field uses 16 px text so
+ * iOS Safari does not zoom in when it is focused.
+ */
+@media (max-width: 1023px) {
+  #workspace-content
+    :where(
+      button,
+      select,
+      summary[role="button"],
+      [role="tab"],
+      input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+      a.inline-flex,
+      a[class*="border"]
+    ) {
+    min-height: 44px;
+  }
+  #workspace-content :where(.ck-table thead button) {
+    min-height: 0;
+  }
+  #workspace-content :where(input, select, textarea) {
+    font-size: 16px !important;
+  }
+  /*
+   * Workspace tables (not the cockpit's stacked cards) scroll sideways at a
+   * readable width instead of squashing, with the first column kept in view.
+   */
+  #workspace-content
+    :where(.overflow-x-auto, .overflow-auto)
+    > table:not(.ck-table) {
+    min-width: max(100%, 40rem);
+  }
+  #workspace-content
+    :where(.overflow-x-auto, .overflow-auto)
+    > table:not(.ck-table)
+    :is(th, td):first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--surface);
+    min-width: 8.5rem;
+    box-shadow: 1px 0 0 var(--separator);
+  }
 }

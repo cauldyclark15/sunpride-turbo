@@ -5,6 +5,7 @@ import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { getWebNavigation } from "@/config/navigation";
+import { phoneTabsFor, phoneTitleFor } from "@/config/phone-tabs";
 import { useSession } from "@/lib/auth/session";
 import { canAccessWebModule } from "@/lib/module-access";
 import {
@@ -12,6 +13,7 @@ import {
   BetaBar,
   needsAreaAssignment,
 } from "./beta/beta-bar";
+import { OfflineDataBanner } from "./pwa/pwa-runtime";
 
 export function OperationsShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -22,6 +24,8 @@ export function OperationsShell({ children }: { children: ReactNode }) {
   const navigation = getWebNavigation(pathname, (slug) =>
     canAccessWebModule(slug, current?.role),
   );
+
+  const phone = phoneTabsFor(current?.role, navigation.navGroups);
 
   async function signOut() {
     await session.signOut();
@@ -40,6 +44,9 @@ export function OperationsShell({ children }: { children: ReactNode }) {
       }}
       contentWidth="full"
       navGroups={navigation.navGroups}
+      phoneTabs={current ? phone.tabs : undefined}
+      phoneMoreItems={phone.more}
+      phoneTitle={phoneTitleFor(pathname)}
       onNavigate={(href) => router.push(href)}
       onSignOut={signOut}
       onAccount={() => router.push("/account")}
@@ -52,6 +59,7 @@ export function OperationsShell({ children }: { children: ReactNode }) {
           : undefined
       }
     >
+      <OfflineDataBanner />
       <BetaBar pathname={pathname} canReport={canSeeIssues} />
       {needsAreaAssignment(current) ? <AreaPendingNotice /> : null}
       {children}

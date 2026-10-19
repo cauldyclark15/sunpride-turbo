@@ -163,7 +163,7 @@ export function TodayView({
                       href={link(
                         `/sales?groupBy=territory&channel=${encodeURIComponent(row.channel)}`,
                       )}
-                      className="font-medium text-foreground hover:underline"
+                      className="font-medium text-foreground hover:underline max-lg:-my-3 max-lg:inline-block max-lg:py-3"
                     >
                       {humanize(row.label)}
                     </Link>
@@ -233,7 +233,7 @@ export function TodayView({
           </Link>
         }
       >
-        <div className="grid grid-cols-5 gap-1.5 px-4 pb-3 sm:gap-2 sm:px-5">
+        <div className="grid grid-cols-3 gap-1.5 px-4 pb-3 min-[480px]:grid-cols-5 sm:gap-2 sm:px-5">
           {FIELD.map((item) => {
             const value = data.field.counts[item.count];
             const on = field === item.status;

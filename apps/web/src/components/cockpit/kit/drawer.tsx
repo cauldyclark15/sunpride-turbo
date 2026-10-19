@@ -13,8 +13,8 @@ export function closeOnEscape(
 }
 
 /**
- * A side panel over the page (a bottom sheet on a phone). It always has a
- * close button, and Escape closes it.
+ * A side panel over the page (a full-screen sheet on a phone, clear of the
+ * notch and home bar). It always has a close button, and Escape closes it.
  */
 export function Drawer({
   open,
@@ -49,20 +49,22 @@ export function Drawer({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="relative flex max-h-[85svh] w-full flex-col overflow-hidden rounded-t-2xl border border-border bg-surface shadow-xl sm:max-h-none sm:w-[440px] sm:rounded-none sm:rounded-l-2xl"
+        className="relative flex h-[100dvh] w-full flex-col overflow-hidden border-border bg-surface shadow-xl sm:h-auto sm:w-[440px] sm:rounded-l-2xl sm:border"
       >
-        <header className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
+        <header className="flex items-center justify-between gap-3 border-b border-separator px-5 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] sm:py-4">
           <h2 className="text-[15px] font-semibold text-foreground">{title}</h2>
           <button
             ref={closeRef}
             type="button"
             onClick={onClose}
-            className="inline-flex h-8 items-center rounded-lg border border-border px-3 text-[13px] font-medium text-foreground hover:bg-default-soft"
+            className="inline-flex min-h-11 items-center rounded-lg border border-border px-4 text-[14px] font-medium text-foreground hover:bg-default-soft sm:h-8 sm:min-h-0 sm:px-3 sm:text-[13px]"
           >
             Close
           </button>
         </header>
-        <div className="overflow-y-auto px-5 py-4">{children}</div>
+        <div className="flex-1 overflow-y-auto overscroll-contain px-5 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:flex-none">
+          {children}
+        </div>
       </aside>
     </div>
   );

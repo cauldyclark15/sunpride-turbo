@@ -1,5 +1,21 @@
+import { execSync } from "node:child_process";
 import type { NextConfig } from "next";
 import { PHASE_DEVELOPMENT_SERVER } from "next/constants";
+
+/** One id per build: the service worker names its caches after it. */
+function buildVersion() {
+  let commit = "local";
+  try {
+    commit = execSync("git rev-parse --short=10 HEAD", {
+      stdio: ["ignore", "pipe", "ignore"],
+    })
+      .toString()
+      .trim();
+  } catch {
+    // Not a git checkout (container build): the timestamp alone is unique.
+  }
+  return `${commit}-${Date.now().toString(36)}`;
+}
 
 /**
  * The Bun API (BACKEND_V2 §3). Behind the tunnel `/api` and `/ws` never reach
@@ -14,6 +30,29 @@ export default function nextConfig(phase: string): NextConfig {
   return {
     devIndicators: false,
     transpilePackages: ["@sunpride/ui", "@sunpride/backend"],
+    env: { NEXT_PUBLIC_SP_BUILD_ID: buildVersion() },
+    async headers() {
+      return [
+        {
+          // The PWA guide: the worker itself is never cached, so updates land.
+          source: "/sw.js",
+          headers: [
+            {
+              key: "Content-Type",
+              value: "application/javascript; charset=utf-8",
+            },
+            {
+              key: "Cache-Control",
+              value: "no-cache, no-store, must-revalidate",
+            },
+            {
+              key: "Content-Security-Policy",
+              value: "default-src 'self'; script-src 'self'",
+            },
+          ],
+        },
+      ];
+    },
     async rewrites() {
       if (!proxyApi) return [];
       return [
