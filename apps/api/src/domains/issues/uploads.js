@@ -13,7 +13,7 @@ import {
   sha256Hex,
 } from "../../core/util.js";
 import { validateAttachment } from "./constants.js";
-import { findIssue, uuid, videoLimit } from "./service.js";
+import { findIssue, uuid, videoLimit, requireIssueAccess } from "./service.js";
 
 export const CHUNK_BYTES = 8 * 1024 * 1024;
 /** @param {import('../../core/router.js').Router} router */
@@ -45,7 +45,7 @@ export function installUploads(router) {
     const token = randomToken("spu_");
     const expiresAt = Date.now() + UPLOAD_TTL_MS;
     const id = await tx(ctx.db, async (db) => {
-      if (ownerId) await findIssue(db, ownerId);
+      if (ownerId) requireIssueAccess(await findIssue(db, ownerId), actor);
       const [f] =
         await db`insert into files (owner_id,purpose,sha256,mime,size,created_by,upload_token_hash,upload_expires_at)
         values (${ownerId},'issue-attachment',${sha256},${mime},${size},${actor.userId},${sha256Hex(token)},${new Date(expiresAt)})
@@ -146,10 +146,12 @@ export function installUploads(router) {
     "/api/v1/issues/attachments/:attachmentId/content",
     async (ctx) => {
       ctx.v2 = false;
-      await requireCapability(ctx, "issues.read");
+      const actor = await requireCapability(ctx, "issues.read");
       const id = uuid(ctx.params.attachmentId, "attachment");
       const [f] =
-        await ctx.db`select a.file_name,f.path,f.mime from issue_attachments a join files f on f.id=a.storage_id join issue_comments c on c.id=a.comment_id where a.id=${id} and c.deleted_at is null and f.status='stored'`;
+        await ctx.db`select a.issue_id,a.file_name,f.path,f.mime from issue_attachments a join files f on f.id=a.storage_id join issue_comments c on c.id=a.comment_id where a.id=${id} and c.deleted_at is null and f.status='stored'`;
+      if (f)
+        requireIssueAccess(await findIssue(ctx.db, f.issue_id, false), actor);
       if (!f?.path)
         throw new ApiError("not_found", 404, "Attachment not found");
       const file = Bun.file(join(filesDir(ctx.env), f.path));

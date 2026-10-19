@@ -41,6 +41,23 @@ const kpiValues = (kpis: Kpi[]) =>
 afterEach(() => vi.unstubAllEnvs());
 
 describe("pages render their contract fixture", () => {
+  it("an empty selected-day channel panel never claims the month has no sales", () => {
+    const data = analyticsFixture("today", { date: MTD.to }, NOW);
+    data.byChannel = [];
+    const out = html(<TodayView data={data} />);
+    expect(out).toContain("No sales recorded on this day yet");
+    expect(out).not.toContain("this month yet");
+  });
+  it("zero cash and stock differences are Balanced, not zero over or extra", () => {
+    const data = analyticsFixture("vans", { date: MTD.to }, NOW);
+    data.rows = data.rows
+      .slice(0, 1)
+      .map((r) => ({ ...r, variance: 0, stockVarianceCases: 0 }));
+    const out = html(<VansView data={data} csv="/csv" />);
+    expect(out).toContain("Balanced");
+    expect(out).not.toContain("₱0.00 over");
+    expect(out).not.toContain("0 cs extra");
+  });
   it("shows missing coaching minimums without an unfinished 'of' label", () => {
     const data = analyticsFixture("coverage", MTD, NOW);
     data.rows[0]!.workWith = { done: 0, required: null };

@@ -283,21 +283,29 @@ export function CoveragePlanner({
                   }}
                 />
               </FormField>
-              <Button
-                variant="primary"
-                className="self-end"
-                isDisabled={
-                  !canPlan || !assignee || busy || !/^\d{4}-\d{2}$/.test(month)
-                }
-                onPress={() =>
-                  assignee &&
-                  void action(() =>
-                    create({ assigneeProfileId: assignee, localMonth: month }),
-                  )
-                }
-              >
-                New plan
-              </Button>
+              {canPlan && (
+                <Button
+                  variant="primary"
+                  className="self-end"
+                  isDisabled={
+                    !canPlan ||
+                    !assignee ||
+                    busy ||
+                    !/^\d{4}-\d{2}$/.test(month)
+                  }
+                  onPress={() =>
+                    assignee &&
+                    void action(() =>
+                      create({
+                        assigneeProfileId: assignee,
+                        localMonth: month,
+                      }),
+                    )
+                  }
+                >
+                  New plan
+                </Button>
+              )}
             </div>
             <div className="flex flex-wrap gap-2" aria-label="Plan versions">
               {plans?.map((plan) => (

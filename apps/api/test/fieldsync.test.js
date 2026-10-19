@@ -398,6 +398,12 @@ describe("location work/consent boundary and retention", () => {
     expect(live.body.positions[0].visited).toBe(1);
     expect(live.body.positions[0].productive).toBe(0);
   });
+  test("map workload includes a planned person before any location ping", async () => {
+    const live = await api("/api/v1/location/live");
+    expect(live.status).toBe(200);
+    expect(live.body.positions).toEqual([]);
+    expect(live.body.trend.at(-1).planned).toBe(1);
+  });
   test("refuses before first check-in, after End day, and at 22:00", async () => {
     const before = await push([ping({ recordedAt: now - 2 * 3_600_000 })]);
     expect(before.body.results[0].status).toBe("rejected");

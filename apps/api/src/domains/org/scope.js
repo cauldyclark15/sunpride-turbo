@@ -4,20 +4,44 @@ import { activeAt, get, history, instant, ms, rule } from "./model.js";
 /** @typedef {import('@sunpride/db/client').Db} Db */
 /** @typedef {import('../../core/context.js').Actor} Actor */
 
-/** Effective edges, never scheduled parent projections. Reject corrupt/oversized trees. @param {Db} db @param {number} [asOf] */
-export async function topology(db, asOf = Date.now()) {
-  instant(asOf);
+/** Raw org rows per read-only snapshot transaction. Only handles explicitly marked by
+ * markReadOnlySnapshot are cached: inside one repeatable-read read-only transaction the
+ * rows cannot change, so a scoped page need not reload the tree for every row it gates.
+ * @type {WeakMap<object, Promise<{all:import('./model.js').Row[],edges:import('./model.js').Row[]}>|null>} */
+const snapshots = new WeakMap();
+/** @param {Db} db */
+export function markReadOnlySnapshot(db) {
+  snapshots.set(db, null);
+}
+/** @param {Db} db */
+async function loadRaw(db) {
   /** @type {import('./model.js').Row[]} */
   const all =
     await db`select * from org_units where organization_id = 'sunpride' and deleted_at is null order by code limit 501`;
+  /** @type {import('./model.js').Row[]} */
+  const edges =
+    await db`select * from org_unit_parent_edges where deleted_at is null order by effective_from desc`;
+  return { all, edges };
+}
+
+/** Effective edges, never scheduled parent projections. Reject corrupt/oversized trees. @param {Db} db @param {number} [asOf] */
+export async function topology(db, asOf = Date.now()) {
+  instant(asOf);
+  let raw;
+  if (snapshots.has(db)) {
+    raw = snapshots.get(db);
+    if (!raw) {
+      raw = loadRaw(db);
+      snapshots.set(db, raw);
+    }
+  } else raw = loadRaw(db);
+  const { all, edges: allEdges } = await raw;
   if (all.length > 500) rule("Organization exceeds 500 units", "overflow");
   const units = all.filter(
     (u) =>
       activeAt(u, asOf) && (u.status === "active" || u.effective_to != null),
   );
-  /** @type {import('./model.js').Row[]} */
-  const edges =
-    await db`select * from org_unit_parent_edges where deleted_at is null and effective_from <= ${new Date(asOf)} order by effective_from desc`;
+  const edges = allEdges.filter((e) => ms(e.effective_from) <= asOf);
   const ids = new Set(units.map((u) => u.id));
   /** @type {import('./model.js').Row[]} */
   const tree = units.map((u) => {

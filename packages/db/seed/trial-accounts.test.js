@@ -146,6 +146,30 @@ test("supervisor personas are team-area scoped and managers retain regional scop
   ).toBe(true);
 });
 
+test("regional repair preserves credentials and ledger, is idempotent, and gives every supervisor area an unloaded trip", async () => {
+  const { placeDemoStock } = await import("./placement.js");
+  const before = await h.db`select id,password_hash from users order by id`;
+  const ledger =
+    await h.db`select id,quantity_delta_base,value_delta_minor from inventory_ledger_entries order by id`;
+  await h.db`update inventory_locations set org_unit_id=(select id from org_units where code='SUNPRIDE') where code like 'SMP-%'`;
+  const repaired = await placeDemoStock(h.db);
+  expect(repaired.locations).toBeGreaterThan(0);
+  expect(await placeDemoStock(h.db)).toEqual({
+    locations: 0,
+    vehicles: 0,
+    plannedTrips: 0,
+  });
+  expect(await h.db`select id,password_hash from users order by id`).toEqual(
+    before,
+  );
+  expect(
+    await h.db`select id,quantity_delta_base,value_delta_minor from inventory_ledger_entries order by id`,
+  ).toEqual(ledger);
+  const [bad] =
+    await h.db`select count(*)::int n from profiles p join users u on u.id=p.user_id where u.email like 'supervisor%@trial.sunpride.test' and not exists(select 1 from van_trips t where t.org_unit_id=p.org_unit_id and t.service_date=${todayManila()})`;
+  expect(bad.n).toBe(0);
+});
+
 test("idempotent repeat creates zero and preserves all passwords", async () => {
   const again = await createTrialAccounts(h.db, { recordPath, outPath });
   expect(again.created).toBe(0);

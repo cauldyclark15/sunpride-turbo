@@ -175,7 +175,7 @@ export const MODULE_ROLES = {
   "sales-force": MCP_PANEL_ROLES["mcp.read"], // all roles with MCP read
   supervision: supervisors, // people.read + visit.read
   "call-sheets": allReaders, // outlet.read + visit.read; editing needs outlet.manage
-  "daily-sales": allReaders, // report.read; sales read only their own sheet
+  "daily-sales": activityReportReaders, // people.read for the roster, or sales self-only
   "activity-reports": activityReportReaders, // visit.record (file) or people.read (team)
   training: allReaders, // visit.read; each person sees only their own trainer forms
   inventory: allReaders, // inventory.read

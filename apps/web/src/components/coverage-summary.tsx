@@ -8,8 +8,10 @@ import { deadlineDate, deadlineStateLabel } from "../lib/mcp-deadlines";
 export function CoverageSummaryView({
   data,
   onOpen,
+  canPlan = false,
 }: {
   data: Summary;
+  canPlan?: boolean;
   onOpen: (person: Summary["rows"][number]) => void;
 }) {
   return (
@@ -75,13 +77,17 @@ export function CoverageSummaryView({
                       {row.submittedLate ? " · submitted late" : ""}
                     </td>
                     <td>
-                      <button
-                        type="button"
-                        className="h-10 rounded-[10px] border border-border px-3"
-                        onClick={() => onOpen(row)}
-                      >
-                        {row.action.label}
-                      </button>
+                      {row.status !== "not_started" || canPlan ? (
+                        <button
+                          type="button"
+                          className="h-10 rounded-[10px] border border-border px-3"
+                          onClick={() => onOpen(row)}
+                        >
+                          {row.action.label}
+                        </button>
+                      ) : (
+                        <span className="text-muted">No plan yet</span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -129,8 +135,16 @@ export function CoverageSummary({
   onOpen: (person: Summary["rows"][number]) => void;
 }) {
   const result = useCoverageQuery(api.coverage.summary, { month });
+  const permissions = useCoverageQuery(
+    api.lib.capabilities.currentPermissions,
+    {},
+  );
   return result ? (
-    <CoverageSummaryView data={result} onOpen={onOpen} />
+    <CoverageSummaryView
+      data={result}
+      onOpen={onOpen}
+      canPlan={permissions?.capabilities.includes("mcp.plan") ?? false}
+    />
   ) : (
     <p>Loading coverage summary…</p>
   );

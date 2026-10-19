@@ -11,6 +11,7 @@ import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { createDb, tx } from "../src/client.js";
 import { BATCH, rowId } from "./store.js";
+import { placeDemoStock } from "./placement.js";
 import {
   addTrialRow,
   bindSampleSubject,
@@ -349,6 +350,7 @@ export async function createTrialAccounts(
           accounts.push(credential);
         }
       }
+      await placeDemoStock(t);
       // Write before commit: an interrupted commit can be retried with the same secrets.
       // A tester-changed password is never silently reset by a normal rerun.
       record.databases[databaseKey] = [

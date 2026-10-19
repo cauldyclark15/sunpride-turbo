@@ -25,9 +25,11 @@ function Variance({
 }) {
   if (value === null) return <span className="text-muted">Not yet</span>;
   const text =
-    unit === "php"
-      ? `${formatPhp(Math.abs(value), { cents: true })} ${value < 0 ? "short" : "over"}`
-      : `${formatCases(Math.abs(value))} ${value > 0 ? "missing" : "extra"}`;
+    value === 0
+      ? "Balanced"
+      : unit === "php"
+        ? `${formatPhp(Math.abs(value), { cents: true })} ${value < 0 ? "short" : "over"}`
+        : `${formatCases(Math.abs(value))} ${value > 0 ? "missing" : "extra"}`;
   return (
     <span
       data-variance={value === 0 ? "none" : value < 0 ? "short" : "over"}

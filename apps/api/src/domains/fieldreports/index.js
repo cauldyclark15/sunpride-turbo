@@ -1,4 +1,5 @@
 import { tx } from "@sunpride/db/client";
+import { markReadOnlySnapshot } from "../org/scope.js";
 import {
   command,
   date,
@@ -65,6 +66,8 @@ export function install(router, platform) {
         }
         return tx(c.db, async (/** @type {any} */ db) => {
           await db`set transaction isolation level repeatable read read only`;
+          await db`set local jit=off`;
+          markReadOnlySnapshot(db);
           return fn({ ...c, db }, args);
         });
       },

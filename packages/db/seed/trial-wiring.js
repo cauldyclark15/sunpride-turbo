@@ -246,7 +246,7 @@ async function ensureTodayPlan(db, person, template, slug) {
 /** Extra sellers receive a separate empty sample truck and a planned trip, never a
  * duplicate active trip on somebody else's truck or a fabricated stock balance.
  * @param {Db} db @param {Row} person @param {Row} template @param {string} slug */
-async function ensureTrip(db, person, template, slug) {
+export async function ensureTrip(db, person, template, slug) {
   const today = todayManila();
   const [existing] =
     await db`select id from van_trips where salesperson_profile_id=${person.id} and service_date=${today} and deleted_at is null and status not in ('cancelled','closed')`;

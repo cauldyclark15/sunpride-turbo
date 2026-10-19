@@ -304,6 +304,32 @@ test("all six groupings reconcile sales; shared order counted only once in the h
     expect(r.trend[r.trend.length - 1].cumSales).toBe(r.kpis[0].value);
   }
 });
+test("Today and Sales share full-month balance and selling-day pace, and a target never grades itself", async () => {
+  expect(
+    (
+      await f.post("/api/v1/targets/set", {
+        month: f.today.slice(0, 7),
+        level: "company",
+        key: "company",
+        amountCentavos: 900_000_000,
+      })
+    ).status,
+  ).toBe(200);
+  const today = await get(url("today", `date=${f.today}`));
+  const sales = await get(url("sales"));
+  for (const key of ["balanceToSell", "perDayNeeded"]) {
+    const a = today.kpis.find((/** @type {any} */ k) => k.key === key);
+    const b = sales.kpis.find((/** @type {any} */ k) => k.key === key);
+    expect(b.value, key).toBe(a.value);
+    expect(b.label).toContain("month");
+  }
+  const target = sales.kpis.find((/** @type {any} */ k) => k.key === "target");
+  expect(target.target).toBeNull();
+  expect(target.status).toBe("unknown");
+  await h.db`delete from analytics_target_events`;
+  await h.db`delete from sales_targets`;
+});
+
 test("no targets, no audits, absent AR and settlement are unknown, real zero sales stays zero", async () => {
   const sales = await get(url("sales"));
   expect(sales.kpis[0].target).toBeNull();

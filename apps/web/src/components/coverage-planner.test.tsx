@@ -209,8 +209,7 @@ describe("standalone coverage planner", () => {
     };
     const html = render(createElement(CoveragePlanner));
     expect(html).toContain("v1");
-    expect(html).toMatch(/New plan<\/button>/);
-    expect(html).toMatch(/disabled=""[^>]*>New plan/);
+    expect(html).not.toContain("New plan");
     state.values["lib/capabilities:currentPermissions"] = {
       role: "viewer",
       capabilities: [],

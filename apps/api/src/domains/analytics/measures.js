@@ -97,6 +97,17 @@ export const kpi = (key, label, value, unit, target, prior, definition) => ({
   status: status(value, target),
   definition,
 });
+/** One full-month balance/pace definition, after the selected Manila service date.
+ * @param {number|null} target @param {number} sales @param {string} asOf */
+export function monthlyPace(target, sales, asOf) {
+  const balance = target === null ? null : Math.max(0, target - sales);
+  const remaining = sellingDays(addDays(asOf, 1), monthEnd(asOf.slice(0, 7)));
+  return {
+    balance,
+    perDay:
+      balance === null || !remaining ? null : Math.ceil(balance / remaining),
+  };
+}
 /** @param {any[]} rows @param {string} key */
 export const sum = (rows, key) =>
   rows.reduce((n, r) => n + Number(r[key] ?? 0), 0);

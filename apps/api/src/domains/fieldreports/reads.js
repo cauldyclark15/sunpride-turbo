@@ -31,8 +31,18 @@ import {
   reportKindFor,
 } from "./rules.js";
 
-/** @param {any} c @param {any} p @param {string} d */
+/** @param {any} c @param {any} p @param {string} d @returns {ReturnType<typeof readExecution>} */
 export async function execution(c, p, d) {
+  // The cockpit, per-diem and weekly comparisons reuse the same authorized evidence
+  // within one repeatable-read request, never across actors or requests.
+  c.executionReads ??= new Map();
+  const key = p.id + ":" + d;
+  if (!c.executionReads.has(key))
+    c.executionReads.set(key, readExecution(c, p, d));
+  return c.executionReads.get(key);
+}
+/** @param {any} c @param {any} p @param {string} d */
+async function readExecution(c, p, d) {
   date(d);
   const planned =
     await c.db`select v.*, cp.status plan_status, cp.org_unit_id plan_unit, s.sequence from planned_visits v join coverage_plans cp on cp.id=v.plan_id join coverage_plan_slots s on s.id=v.plan_slot_id where v.assignee_profile_id=${p.id} and v.service_date=${d} and v.deleted_at is null order by s.sequence,v.id`;
@@ -42,10 +52,30 @@ export async function execution(c, p, d) {
     fail("Too many calls for one report", 422, "report_limit");
   const st = await standard(c, p, d);
   const results = [];
+  // Gate every visit before reading any of its detail, then read the detail for the
+  // whole person/day in three bounded queries (501 rows per visit still detects overflow).
+  for (const v of visits) await gate(c, "report.read", v.org_unit_id);
+  const ids = visits.map((/** @type {any} */ v) => v.id);
+  /** @param {any[]} rows */
+  const byVisit = (rows) => {
+    const m = new Map();
+    for (const r of rows) m.set(r.visit_id, [...(m.get(r.visit_id) ?? []), r]);
+    return m;
+  };
+  const [allActs, allCollections, allEvidence] = ids.length
+    ? await Promise.all([
+        c.db`select * from (select a.*, row_number() over (partition by a.visit_id order by a.server_time,a.id) rn from visit_activities a where a.visit_id in ${c.db(ids)} and a.deleted_at is null) a where rn<=501 order by visit_id,server_time,id`,
+        c.db`select * from (select f.*, row_number() over (partition by f.visit_id order by f.server_time,f.id) rn from field_collections f where f.visit_id in ${c.db(ids)} and f.deleted_at is null and f.status='recorded') f where rn<=501 order by visit_id,server_time,id`,
+        c.db`select e.*, (select x.summary_after from execution_events x where x.entity_type='visit' and x.entity_id=e.id::text and x.kind='location.exception.decided' order by x.server_at desc limit 1) decision from visit_location_evidence e where e.visit_id in ${c.db(ids)} and e.deleted_at is null order by e.visit_id,e.server_time,e.id`,
+      ])
+    : [[], [], []];
+  /** @param {any[]} rows */
+  const strip = (rows) => rows.map(({ rn, ...r }) => r);
+  const actsBy = byVisit(strip(allActs)),
+    collectionsBy = byVisit(strip(allCollections)),
+    evidenceBy = byVisit(allEvidence);
   for (const v of visits) {
-    await gate(c, "report.read", v.org_unit_id);
-    const acts =
-      await c.db`select * from visit_activities where visit_id=${v.id} and deleted_at is null order by server_time,id limit 501`;
+    const acts = actsBy.get(v.id) ?? [];
     if (acts.length > 500)
       fail("Too many activities for a complete report", 422, "report_limit");
     const activities = acts.map((/** @type {any} */ a) => ({
@@ -57,8 +87,7 @@ export async function execution(c, p, d) {
       ...dto(st ?? {}),
       productiveCallRule: st?.productive_call_rule ?? "any_listed_activity",
     };
-    const collections =
-      await c.db`select * from field_collections where visit_id=${v.id} and deleted_at is null and status='recorded' order by server_time,id limit 501`;
+    const collections = collectionsBy.get(v.id) ?? [];
     if (collections.length > 500)
       fail("Too many collections for a complete report", 422, "report_limit");
     const evaluation = isProductive(
@@ -81,8 +110,7 @@ export async function execution(c, p, d) {
       (/** @type {any} */ a) =>
         a.id === v.planned_visit_id && a.outlet_id === v.outlet_id,
     );
-    const evidence =
-      await c.db`select e.*, (select x.summary_after from execution_events x where x.entity_type='visit' and x.entity_id=e.id::text and x.kind='location.exception.decided' order by x.server_at desc limit 1) decision from visit_location_evidence e where e.visit_id=${v.id} and e.deleted_at is null order by e.server_time,e.id`;
+    const evidence = evidenceBy.get(v.id) ?? [];
     results.push({
       ...v,
       activities: acts,
@@ -799,14 +827,20 @@ export async function completeness(c, a) {
     fail("Choose 1–14 days", 400);
   const ds = dates(addDays(end, 1 - count), end, 14);
   const members = await roster(c, a, true);
+  // One bounded team/date query, not one round trip per person per day.
+  const submissions = members.length
+    ? await c.db`select profile_id,service_date,submitted_at,revision from field_day_reports where profile_id in ${c.db(members.map((/** @type {any} */ p) => p.id))} and service_date between ${ds[0]} and ${end} order by revision`
+    : [];
   const people = /** @type {any[]} */ ([]);
   for (const p of members) {
     const kind = reportKindFor(p.position_code);
     if (!kind || (a.kind && a.kind !== kind)) continue;
     const days = [];
     for (const d of ds) {
-      const subs =
-        await c.db`select submitted_at,revision from field_day_reports where profile_id=${p.id} and service_date=${d} order by revision`;
+      const subs = submissions.filter(
+        (/** @type {any} */ r) =>
+          r.profile_id === p.id && day(r.service_date) === d,
+      );
       days.push({
         serviceDate: d,
         status: completenessOf({

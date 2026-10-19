@@ -214,7 +214,7 @@ export function TodayView({
           ) : (
             <EmptyState
               variant="zero"
-              title="No sales recorded this month yet"
+              title="No sales recorded on this day yet"
             />
           )}
         </Panel>

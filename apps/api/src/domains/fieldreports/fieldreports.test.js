@@ -114,6 +114,79 @@ function ok(r) {
   expect(r.status, JSON.stringify(r.body)).toBe(200);
   return r.body;
 }
+test("DAR completeness reads the whole bounded team/week with one submission query", async () => {
+  const { completeness } = await import("./reads.js");
+  let queries = 0;
+  const db = new Proxy(h.db, {
+    apply(target, self, args) {
+      if (
+        Array.isArray(args[0]) &&
+        Object.hasOwn(args[0], "raw") &&
+        args[0].join(" ").includes("from field_day_reports")
+      )
+        queries++;
+      return Reflect.apply(target, self, args);
+    },
+  });
+  const result = await completeness(
+    {
+      db,
+      actor: { profileId: trainer.id, role: "manager", orgUnitId: unit.id },
+      now: Date.now(),
+    },
+    { endDate: d, days: 7 },
+  );
+  expect(result.people.length).toBeGreaterThan(0);
+  expect(result.dates).toHaveLength(7);
+  expect(queries).toBe(1);
+});
+
+test("a read snapshot loads the organization tree once, not once per gated row", async () => {
+  const { markReadOnlySnapshot, subtree } = await import("../org/scope.js");
+  const counting = () => {
+    let n = 0;
+    const db = new Proxy(h.db, {
+      apply(target, self, args) {
+        if (
+          Array.isArray(args[0]) &&
+          Object.hasOwn(args[0], "raw") &&
+          args[0].join(" ").includes("from org_units where organization_id")
+        )
+          n++;
+        return Reflect.apply(target, self, args);
+      },
+    });
+    return { db, count: () => n };
+  };
+  const plain = counting();
+  for (let i = 0; i < 5; i++) await subtree(plain.db, unit.id);
+  expect(plain.count()).toBe(5); // unmarked handles (writers) always re-read
+  const snap = counting();
+  markReadOnlySnapshot(snap.db);
+  const first = await subtree(snap.db, unit.id);
+  for (let i = 0; i < 4; i++)
+    expect(await subtree(snap.db, unit.id)).toEqual(first);
+  expect(snap.count()).toBe(1);
+});
+
+test("team enumeration skips a trainer's coaching and talk records stored outside current scope", async () => {
+  const [session] =
+    await h.db`insert into work_with_sessions(organization_id,trainer_profile_id,trainee_profile_id,org_unit_id,service_date,objective,mode,status,created_by,updated_by) values('test',${trainer.id},${outsider.id},${otherUnit.id},${d},'training','booking','open','test','test') returning id`;
+  try {
+    const r = await get("supervision.team.cockpit", { serviceDate: d });
+    expect(r.status).toBe(200);
+    expect(
+      r.body.rows.every((/** @type {any} */ p) => p.profileId !== outsider.id),
+    ).toBe(true);
+    expect(
+      (await get("supervision.work_with.detail", { sessionId: session.id }))
+        .status,
+    ).toBe(403);
+  } finally {
+    await h.db`delete from work_with_sessions where id=${session.id}`;
+  }
+});
+
 beforeAll(async () => {
   h = await startHarness({ installers: [install] });
   h.setHooks({
