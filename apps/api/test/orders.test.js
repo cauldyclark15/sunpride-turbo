@@ -355,6 +355,15 @@ describe("orders and governed prices on Postgres", () => {
     expect(r.body.rows.map((/** @type {any} */ x) => x.productCode)).toEqual([
       "P2",
     ]);
+    const prior = await api(
+      admin,
+      `pricing/matrix?channel=gt&at=${Date.now() - 7 * 86400_000}`,
+    );
+    expect(prior.status).toBe(200);
+    expect(
+      prior.body.rows.find((/** @type {any} */ p) => p.productCode === "P1")
+        .prices[0].unitPriceCentavos,
+    ).toBe(1250);
   });
   test("a regional manager cannot edit nationwide pricing", async () => {
     const r = await api(manager, "pricing/price-lists/import", {

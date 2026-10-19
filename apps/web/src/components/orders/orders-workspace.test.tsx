@@ -122,6 +122,27 @@ describe("commercial control workspace", () => {
     expect(html).not.toContain("raw-person");
     expect(html).not.toContain("pending_approval</td>");
   });
+  it("compares booked value with the shared governed sales target", () => {
+    state.values["target-context"] = {
+      kpis: [{ key: "target", value: 100000 }],
+    };
+    state.values.list = {
+      ...(state.values.list as object),
+      summary: {
+        count: 1,
+        totalCentavos: 25000,
+        priorCentavos: 20000,
+        waiting: 1,
+        overCredit: 0,
+        unpriced: 0,
+        targetCentavos: null,
+      },
+    };
+    const html = renderToStaticMarkup(createElement(OrdersWorkspace));
+    expect(html).toContain("25.0% of period target");
+    expect(html).toContain("₱1,000.00");
+    expect(html).toContain("Review target");
+  });
   it("keeps unknown money distinct from a real zero", () => {
     expect(money(null)).toBe("Unknown");
     expect(money(0)).toBe("₱0.00");

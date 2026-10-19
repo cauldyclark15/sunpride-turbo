@@ -21,6 +21,9 @@ import {
   type OrderPage,
 } from "./model";
 
+type TargetContext = {
+  kpis: { key: string; value: number | null; target?: number | null }[];
+};
 type Options = Record<
   "people" | "customers" | "channels" | "territories",
   { value: string; label: string }[]
@@ -101,6 +104,26 @@ export function OrdersWorkspace() {
     can("report.read") ? ["orders", "list", params] : null,
     ({ signal }) => apiFetch("/api/v1/orders/list", { query: params, signal }),
   );
+  const wholeSalesView =
+    !filters.status &&
+    !filters.salesperson &&
+    !filters.customer &&
+    !filters.territory &&
+    !filters.q &&
+    !filters.view;
+  const targetQuery = {
+    from: filters.from,
+    to: filters.to,
+    channel: filters.channel || undefined,
+    groupBy: "channel",
+  };
+  const targetContext = useApi<TargetContext>(
+    can("report.read") && wholeSalesView
+      ? ["orders", "target-context", targetQuery]
+      : null,
+    ({ signal }) =>
+      apiFetch("/api/v1/analytics/sales", { query: targetQuery, signal }),
+  );
   const options = useApi<Options>(
     can("report.read") ? ["orders", "filter-options"] : null,
     "/api/v1/orders/filter-options",
@@ -131,10 +154,15 @@ export function OrdersWorkspace() {
       setRetryBusy(null);
     }
   }
-  useLive(["orders"], [["orders"]]);
+  useLive(["orders", "analytics"], [["orders"]]);
   if (!can("report.read")) return null;
   const data = list.error ? undefined : list.data;
   const summary = data?.summary;
+  const target = !targetContext.error
+    ? (targetContext.data?.kpis.find((k) => k.key === "target")?.value ??
+      targetContext.data?.kpis.find((k) => k.key === "sales")?.target ??
+      null)
+    : null;
   function apply(next: Filters) {
     setFilters(next);
     setCursors([]);
@@ -251,8 +279,22 @@ export function OrdersWorkspace() {
                 Prior period:{" "}
                 {summary ? money(summary.priorCentavos) : "Loading…"}
               </p>
+              <p className="text-xs text-muted">
+                {!wholeSalesView
+                  ? "Targets apply to the unfiltered sales view."
+                  : `Target: ${money(target)}`}
+              </p>
+              {wholeSalesView &&
+                target !== null &&
+                target > 0 &&
+                summary?.totalCentavos != null && (
+                  <p className="text-xs text-muted">
+                    {((summary.totalCentavos / target) * 100).toFixed(1)}% of
+                    period target
+                  </p>
+                )}
               <Link href="/sales-targets" className="text-xs underline">
-                Set target
+                {target === null ? "Set target" : "Review target"}
               </Link>
             </div>
             <div className="rounded-xl border border-border p-4">

@@ -80,6 +80,15 @@ export function parsePriceRows(text: string) {
     return { productCode: r[0]!, uom: r[1]!, unitPriceCentavos: Number(r[2]) };
   });
 }
+/** Readiness target is our 100% setup goal, not an invented sales target. */
+export function priceCoverage(matrix: Matrix | undefined) {
+  const prices = matrix?.rows.flatMap((r) => r.prices) ?? [];
+  return prices.length
+    ? (prices.filter((p) => p.unitPriceCentavos !== null).length /
+        prices.length) *
+        100
+    : null;
+}
 const fromDate = (value: FormDataEntryValue | null) =>
   new Date(`${String(value)}T00:00:00+08:00`).getTime();
 const failure = (e: unknown) =>
@@ -114,6 +123,17 @@ export function PricingWorkspace() {
     can("report.read") ? ["pricing", "matrix", query] : null,
     ({ signal }) => apiFetch("/api/v1/pricing/matrix", { query, signal }),
   );
+  const comparisonQuery = {
+    ...query,
+    at: matrix.data ? matrix.data.asOf - 7 * 86400_000 : undefined,
+  };
+  const comparison = useApi<Matrix>(
+    can("report.read") && matrix.data && !matrix.error
+      ? ["pricing", "comparison", comparisonQuery]
+      : null,
+    ({ signal }) =>
+      apiFetch("/api/v1/pricing/matrix", { query: comparisonQuery, signal }),
+  );
   const detail = useApi<Detail>(
     selected ? ["pricing", "detail", selected] : null,
     ({ signal }) =>
@@ -124,6 +144,10 @@ export function PricingWorkspace() {
   );
   useLive(["orders"], [["pricing"]]);
   if (!can("report.read")) return null;
+  const currentCoverage = matrix.error ? null : priceCoverage(matrix.data);
+  const priorCoverage = comparison.error
+    ? null
+    : priceCoverage(comparison.data);
   const canEdit = can("masterdata.manage");
   const selectedList = lists.data?.rows.find((p) => p.id === selected);
   const missing =
@@ -299,6 +323,28 @@ export function PricingWorkspace() {
           </p>
         </section>
       )}
+      <section
+        aria-label="Pricing readiness trend"
+        className="rounded-xl border border-border p-4"
+      >
+        <h3 className="text-sm font-medium">
+          Current page pricing readiness · setup goal 100%
+        </h3>
+        <p className="text-sm">
+          {priorCoverage === null
+            ? "Earlier coverage unknown"
+            : `${priorCoverage.toFixed(1)}% seven days earlier`}{" "}
+          →{" "}
+          {currentCoverage === null
+            ? "Current coverage unknown"
+            : `${currentCoverage.toFixed(1)}% now`}
+        </p>
+        <p className="text-xs text-muted">
+          Same current catalog, selling units and channels, priced at each date.
+          This is a setup comparison, not historical sales or a complete-catalog
+          total. Open a list to inspect price history and fix the gaps.
+        </p>
+      </section>
       <Card
         label="Channel price lists"
         icon={<WorkspaceIcon name="commercial" />}

@@ -1,7 +1,11 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { parsePriceRows, PricingWorkspace } from "./pricing-workspace";
+import {
+  parsePriceRows,
+  priceCoverage,
+  PricingWorkspace,
+} from "./pricing-workspace";
 const state = vi.hoisted(() => ({
   canEdit: true,
   values: {} as Record<string, unknown>,
@@ -84,6 +88,32 @@ describe("channel pricing workspace", () => {
       expect(h).toContain(s);
     expect(h).not.toContain("raw-promo</");
     expect(h).not.toContain("raw-product</");
+  });
+  it("compares current-catalog readiness with a real earlier effective-date projection", () => {
+    state.values.comparison = {
+      channels: ["gt"],
+      rows: [
+        {
+          productId: "raw-product",
+          productCode: "FOOD",
+          productName: "Canned food",
+          uom: "PC",
+          prices: [{ channel: "gt", unitPriceCentavos: 0, source: "office" }],
+        },
+      ],
+      next: null,
+      asOf: 1791763200000,
+    };
+    expect(
+      priceCoverage(
+        state.values.comparison as Parameters<typeof priceCoverage>[0],
+      ),
+    ).toBe(100);
+    expect(priceCoverage(undefined)).toBeNull();
+    const html = renderToStaticMarkup(createElement(PricingWorkspace));
+    expect(html).toContain("100.0% seven days earlier");
+    expect(html).toContain("0.0% now");
+    expect(html).toContain("setup goal 100%");
   });
   it("hides pricing write actions for a reader", () => {
     state.canEdit = false;

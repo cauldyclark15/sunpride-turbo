@@ -31,8 +31,17 @@ export function integer(v, label = "Amount", max = Number.MAX_SAFE_INTEGER) {
 }
 /** @param {any} value */
 export function instant(value) {
-  const n = typeof value === "number" ? value : Date.parse(value);
-  if (!Number.isFinite(n) || n < 0) fail("Effective date is invalid");
+  const n =
+    typeof value === "number" ||
+    (typeof value === "string" && /^\d{10,16}$/.test(value))
+      ? Number(value)
+      : Date.parse(value);
+  if (
+    !Number.isSafeInteger(n) ||
+    n < 0 ||
+    !Number.isFinite(new Date(n).getTime())
+  )
+    fail("Effective date is invalid");
   return new Date(n);
 }
 /** @param {number|Date} at */
