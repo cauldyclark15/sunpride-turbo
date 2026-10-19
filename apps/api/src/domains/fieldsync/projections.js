@@ -531,6 +531,14 @@ async function bundleData(ctx) {
       !["draft", "rejected", "voided"].includes(o.status),
   );
   const inventoryAvailability = await inventoryRows(ctx);
+  // This person's own recorded calls in the bundle window, in the same shape as the `visit` delta value,
+  // so a phone that bootstraps mid-day (new phone, reinstall, sign-out/in) knows which stops are done.
+  const visitExecutions = bounded(
+    await db`select id,outlet_id,service_date,state,productivity,planned_visit_id from visit_executions
+      where assignee_profile_id=${person.id} and service_date>=${date}::date and service_date<${date}::date+3
+      and deleted_at is null order by service_date,created_at,id limit 201`,
+    200,
+  ).filter((/** @type {any} */ r) => outlets.has(r.outlet_id) || r.planned_visit_id);
   const lease = closeAt(date);
   return {
     permissions: [...ctx.actor.capabilities],
@@ -574,6 +582,14 @@ async function bundleData(ctx) {
     accountSummaries: summaries,
     activityRules,
     photoTypes: [...PHOTO_TYPES],
+    visitExecutions: visitExecutions.map((/** @type {any} */ r) => ({
+      id: r.id,
+      outletId: r.outlet_id,
+      serviceDate: dateOf(r.service_date),
+      state: r.state,
+      productivity: r.productivity,
+      plannedVisitId: r.planned_visit_id ?? null,
+    })),
     dayTarget: standard
       ? {
           dailyCalls: standard.daily_calls_target,
