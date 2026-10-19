@@ -32,6 +32,7 @@ class LocationPingStore(private val db: VanDatabase, val scope: StoreScope, priv
 
     /** The trip whose location may be recorded now, or null. */
     private suspend fun trackableTrip(): TripRow? {
+        if (s.startsWith("v2|") && (RoomVanStore.isDenied(scope) || dao.meta(s,d)?.authorizes(clock()) != true)) return null
         val trip = dao.trip(s,d) ?: return null
         if (dao.tripClose(s,d,trip.tripId) != null) return null
         val started = dao.outboxRows(s,d).any { it.tripId == trip.tripId && it.kind == "trip.start" && it.status in setOf("pending","sending","done") }
@@ -77,7 +78,7 @@ class LocationPingStore(private val db: VanDatabase, val scope: StoreScope, priv
      * the server, or its `trip.start` acknowledged); earlier the server would refuse them as `trip_not_active`.
      */
     suspend fun pending(limit: Int = LocationPolicy.MAX_BATCH): List<LocationPingRow> = db.withTransaction {
-        if (dao.meta(s,d)?.held != false) return@withTransaction emptyList()
+        if (RoomVanStore.isDenied(scope) || dao.meta(s,d)?.authorizes(clock()) != true) return@withTransaction emptyList()
         val started = dao.outboxRows(s,d).filter { it.kind == "trip.start" && it.status == "done" }.map { it.tripId }.toMutableSet()
         dao.trip(s,d)?.takeIf { it.status in SERVER_ON_ROAD }?.let { started += it.tripId }
         if (started.isEmpty()) emptyList() else dao.pendingLocationPings(s,d,started.toList(),limit)

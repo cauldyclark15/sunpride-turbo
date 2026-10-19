@@ -18,13 +18,13 @@ Root check: `bun run native:van` (assemble, JVM tests and lint, then device test
 
 ## Backend it talks to
 
-`packages/backend/convex/van/`: vehicles, trips and load sheets (office, `van.manage`), discrepancy approval (`van.load.approve`, never the confirmer), and the signed device gateway `/van/v1/bootstrap` + `/van/v1/push` for `VAN_ANDROID` devices (`van.operate`). Every truck-stock change is an inventory movement through `inventory/posting.ts#postMovement`: `van_load` (depot → truck), `status_change` (damage on the truck), `van_unload` (leftovers back to the depot). Starting a trip opens the POS route session the existing sale path (`inventory/pos.ts#postSale`) needs.
+`apps/api/src/domains/van/`: vehicles, trips and load sheets (office, `van.manage`), discrepancy approval (`van.load.approve`, never the confirmer), and signed device sync (`/api/sync/pull` + push) for `van-android` devices (`van.operate`). Every truck-stock change is an inventory movement through the server inventory posting path: `van_load` (depot → truck), `status_change` (damage on the truck), `van_unload` (leftovers back to the depot). Starting a trip opens the POS route session the existing sale path (server sale posting) needs.
 
 ## Defaults waiting on Sunpride (easy to change)
 
 From `_handoffs/sunpride-van-sales-questions.md`, "What we plan today":
 
-- One trip a day per truck, no top-ups — `VAN_POLICY.maxOpenTripsPerVehicleDay` (`convex/van/model.ts`).
+- One trip a day per truck, no top-ups — `VAN_POLICY.maxOpenTripsPerVehicleDay` (server van policy).
 - Warehouse loads, salesman confirms each line; a difference waits for a supervisor — `VAN_POLICY.loadDiscrepancyRequiresApproval`.
 - One salesman, one device; crew names are optional text.
 - Walk-in customers allowed, marked as walk-in with a reason (`policy.walkInAllowed`).
@@ -36,7 +36,7 @@ From `_handoffs/sunpride-van-sales-questions.md`, "What we plan today":
 - **Selling, payments and customer returns** are captured on the phone (VAN-011/012/019, see `ARCHITECTURE.md`) but not uploaded yet: the van gateway has no sale/return operation; the beta build shows them too ([beta.md](beta.md)). Voids and end-of-day cash/stock count are later lanes.
 - **Prices**: optional governed `priceLines` from the bootstrap replace the scope's `price_list_line` snapshot atomically; omission or an empty feed clears cached prices. Find product shows the effective selling-unit price (practice prices: ₱68.50 and ₱42.75 per PC); missing, expired or conflicting prices still say "Priced by the office". Optional `promotions` are schema-validated but not stored or applied yet (SP-0105).
 - **Live backend**: the van functions are not deployed to the shared DEV deployment (the lead deploys after merge). Device tests and screenshots use the DEBUG-only practice backend (`VAN_STUB_BACKEND`) serving `fixtures/van-v1`; no live sign-in → bootstrap → push run has been made.
-- **Office screens**: no web UI for vehicles/trips/load sheets/approval; use the Convex functions `van/vehicles:create`, `van/trips:plan`, `van/loads:plan`, `van/loads:approve`, `van/trips:returnLeftover`, `van/trips:close`.
+- **Office screens**: no web UI for vehicles/trips/load sheets/approval; use the office web app or the `/api/v1/van/*` commands (trips/plan, loads/plan, approve, return leftover, close).
 - **Bluetooth ESC/POS printer** (VAN-015) and paper-out status: not built; non-Senraise devices report "No printer".
 - **Physical scanner trigger and peso glyph**: broadcast delivery is tested on the device; an optical scan and the printed `₱` were not visually confirmed.
 - **SAP**: no posting of van transactions.

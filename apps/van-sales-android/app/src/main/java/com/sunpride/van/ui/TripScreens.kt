@@ -25,7 +25,10 @@ import java.time.format.DateTimeFormatter
     ScreenFrame("Today",action = if (c.trip == null) "Sync now" else next.label,actionTag = "home-primary",
         enabled = !c.busy,onAction = { if (c.trip == null) c.syncNow() else c.open(next.page) },footer = status,message = c.message) {
         val trip = c.trip
-        if (trip == null) {
+        if (trip == null && c.onHold) {
+            Text("Your trip is paused until the office confirms this phone. Tap Sync now. Your saved work is kept here.",
+                style = MaterialTheme.typography.titleLarge,modifier = Modifier.testTag("on-hold"))
+        } else if (trip == null) {
             Text("No trip assigned for today. Ask your supervisor.",style = MaterialTheme.typography.titleLarge,modifier = Modifier.testTag("no-trip"))
         } else {
             SectionCard("Your trip") {

@@ -25,18 +25,16 @@ class RequestSignerTest {
     @Test fun headersCarryAVerifiableP1363SignatureOverTheCanonicalString() {
         CryptoVectors.vectors.forEach { v ->
             val body = v.getString("bodyUtf8").toByteArray(Charsets.UTF_8)
-            val headers = RequestSigner.headers(signer, "test-device", "/van/v1/bootstrap", body,
+            val headers = RequestSigner.headers(signer, "test-device", "/api/sync/pull", body,
                 v.getString("nonce"), v.getLong("timestamp"))
-            assertEquals("1", headers["x-mobile-contract-version"])
-            assertEquals("test-device", headers["x-mobile-device-id"])
-            assertEquals("VAN_ANDROID", headers["x-mobile-app"])
-            assertEquals(v.getString("nonce"), headers["x-mobile-nonce"])
-            assertEquals(v.getLong("timestamp").toString(), headers["x-mobile-timestamp"])
-            assertEquals(v.getString("bodyDigestHex"), headers["x-mobile-body-digest"])
-            val signature = headers.getValue("x-mobile-signature")
+            assertEquals("test-device", headers["x-device-id"])
+            assertEquals(v.getString("nonce"), headers["x-device-nonce"])
+            assertEquals(v.getLong("timestamp").toString(), headers["x-device-timestamp"])
+            assertEquals(v.getString("bodyDigestHex"), RequestSigner.bodyDigest(body))
+            val signature = headers.getValue("x-device-signature")
             assertEquals(64, unbase64(signature).size)
             assertTrue(CryptoVectors.verifyP1363(CryptoVectors.publicKey,
-                RequestSigner.canonical("POST", "/van/v1/bootstrap", body, v.getString("nonce"), v.getLong("timestamp")).toByteArray(Charsets.UTF_8), signature))
+                RequestSigner.canonical("POST", "/api/sync/pull", body, v.getString("nonce"), v.getLong("timestamp")).toByteArray(Charsets.UTF_8), signature))
         }
     }
 
@@ -59,7 +57,7 @@ class RequestSignerTest {
 
     @Test fun fieldGatewayAndNonThirteenDigitTimestampsAreNeverSignedByVanHeaders() {
         assertThrows(IllegalArgumentException::class.java) { RequestSigner.headers(signer,"d","/mobile/v1/bootstrap",byteArrayOf(),"10000000-0000-4000-8000-000000000001",1780000000000) }
-        assertThrows(IllegalArgumentException::class.java) { RequestSigner.headers(signer,"d","/van/v1/bootstrap",byteArrayOf(),"10000000-0000-4000-8000-000000000001",1) }
+        assertThrows(IllegalArgumentException::class.java) { RequestSigner.headers(signer,"d","/api/sync/pull",byteArrayOf(),"10000000-0000-4000-8000-000000000001",1) }
     }
     @Test fun fingerprintIsShortAndStable() {
         val spki = unbase64(CryptoVectors.json.getString("publicKeySpkiBase64"))

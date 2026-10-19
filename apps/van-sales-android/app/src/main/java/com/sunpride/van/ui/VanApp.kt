@@ -30,7 +30,8 @@ import kotlinx.coroutines.delay
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     // A suspended timer does not spin or block Compose. Checks stop on leaving this state.
     LaunchedEffect(controller,controller.enrollment) {
-        while (controller.enrollment == EnrollmentState.Unregistered || controller.enrollment == EnrollmentState.Removed) {
+        while (controller.enrollment == EnrollmentState.Unregistered || controller.enrollment == EnrollmentState.Removed ||
+            controller.session.signedIn && controller.enrollment == EnrollmentState.SignedOut) {
             delay(15_000)
             if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) controller.checkAgain()
         }
@@ -107,11 +108,30 @@ import kotlinx.coroutines.delay
 }
 @Composable private fun EnrollmentScreen(c: VanController) {
     val removed = c.enrollment == EnrollmentState.Removed
+    // Signed in but the phone check never reached the office (offline): unknown, never "not registered".
+    if (c.enrollment == EnrollmentState.SignedOut) {
+        ScreenFrame("Checking phone",action = if (c.busy) "Checking…" else "Check again",actionTag = "check-again",
+            onAction = c::checkAgain,enabled = !c.busy,message = c.message) {
+            Text("Could not reach the office to check this phone. Your saved work is kept here.",modifier = Modifier.testTag("enrollment-offline"))
+            Text("We will check again automatically.",style = MaterialTheme.typography.bodyMedium)
+            ListRow("Test printer & scanner","Check this handheld while you wait","enrollment-printer",onClick = { c.open(Page.PRINTER) })
+            SecondaryButton("Sign out",c::signOut,enabled = !c.busy)
+        }
+        return
+    }
     ScreenFrame(if (removed) "Phone removed" else "Register phone",action = if (c.busy) "Checking…" else "Check again",
         actionTag = "check-again",onAction = c::checkAgain,enabled = !c.busy,message = c.message) {
         Text(if (removed) "Ask your supervisor to re-add this phone. Your saved work has not been deleted."
             else "This phone is not registered yet. Send this phone code to your supervisor.")
         SectionCard("Phone code") { Text(c.fingerprint, style = MaterialTheme.typography.titleMedium, fontFamily = FontFamily.Monospace, modifier = Modifier.testTag("fingerprint")) }
+        if (!removed) c.publicKey?.let { key ->
+            val context = LocalContext.current
+            ListRow("Send phone key","Share it with your supervisor to register this phone","share-phone-key",onClick = {
+                context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain")
+                    .putExtra(Intent.EXTRA_TEXT,"Sunpride Van phone key: $key"),"Send phone key").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            })
+            Text(key,style = MaterialTheme.typography.bodySmall,fontFamily = FontFamily.Monospace,modifier = Modifier.testTag("phone-key"))
+        }
         Text("We will check again automatically.",style = MaterialTheme.typography.bodyMedium)
         ListRow("Test printer & scanner","Check this handheld while you wait","enrollment-printer",onClick = { c.open(Page.PRINTER) })
         SecondaryButton("Sign out",c::signOut,enabled = !c.busy)

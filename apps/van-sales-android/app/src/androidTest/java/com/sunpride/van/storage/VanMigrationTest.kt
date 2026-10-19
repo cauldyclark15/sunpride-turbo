@@ -11,6 +11,22 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class VanMigrationTest {
     @get:Rule val helper = MigrationTestHelper(InstrumentationRegistry.getInstrumentation(),VanDatabase::class.java.canonicalName!!)
+    @Test fun v9CutoverHoldsLegacyAuthorityWithoutRewritingEvidence() {
+        val name="van-migration-v2-authority.db"
+        helper.createDatabase(name,9).apply {
+            execSQL("INSERT INTO sync_meta(fullAuthSubject,deviceId,health,held) VALUES ('old|subject','d','synced',0)")
+            execSQL("INSERT INTO outbox(fullAuthSubject,deviceId,clientRequestId,tripId,kind,operationJson,createdAt,status) VALUES ('old|subject','d','id','trip','sale.record','frozen bytes',1,'parked')")
+            execSQL("INSERT INTO sale_receipt(fullAuthSubject,deviceId,saleId,documentJson) VALUES ('old|subject','d','sale','frozen receipt')")
+            close()
+        }
+        helper.runMigrationsAndValidate(name,10,true,VanDatabase.MIGRATION_9_10).use { db ->
+            db.query("SELECT held,cursor,scopeFingerprint,authorizationEpoch,leaseExpiresAt,cacheExpiresAt FROM sync_meta").use {
+                assertTrue(it.moveToFirst()); assertEquals(1,it.getInt(0)); assertTrue((1..5).all { i -> it.isNull(i) })
+            }
+            db.query("SELECT operationJson,status FROM outbox").use { assertTrue(it.moveToFirst()); assertEquals("frozen bytes",it.getString(0)); assertEquals("parked",it.getString(1)) }
+            db.query("SELECT documentJson FROM sale_receipt").use { assertTrue(it.moveToFirst()); assertEquals("frozen receipt",it.getString(0)) }
+        }
+    }
     @Test fun exportedV1BaselineValidatesAndRetainsImmutableRows() {
         val name="van-migration-baseline.db"
         helper.createDatabase(name,1).apply {

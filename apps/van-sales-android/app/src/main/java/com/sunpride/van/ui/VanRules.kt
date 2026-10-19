@@ -41,7 +41,8 @@ object VanRules {
     /** An odometer reading in km without trailing zeros ("12345.6"). */
     fun km(value: Double): String = BigDecimal(value.toString()).stripTrailingZeros().toPlainString()
     fun reasonRequired(expected: Long, actual: Long?): Boolean = actual != null && actual != expected
-    fun canStart(trip: Trip?, truck: Boolean, route: Boolean): Boolean = trip?.status == "loaded" && !trip.startPending && truck && route && trip.vehicle != null && trip.route != null
+    fun canStart(trip: Trip?, truck: Boolean, route: Boolean): Boolean = trip?.status == "loaded" && !trip.startPending && truck && route && trip.vehicle != null
+    // The server allows a trip without a route; the seller still confirms "Route not assigned".
     fun canConfirm(trip: Trip?, load: Load?): Boolean = trip?.status == "loading" && load?.status == "planned" && !load.confirmPending
     fun reasonLabel(code: String): String = when (code) {
         "short_loaded" -> "Short loaded"

@@ -15,7 +15,7 @@ import kotlin.math.sqrt
 /**
  * SP-0137 live map: the van shares the truck's location ONLY while its trip is active
  * (trip started on this phone → trip closed on this phone, or sign-out). Server side:
- * `packages/backend/convex/location` (`/van/v1/location`, SP-0135). Cadence mirrors
+ * the server location endpoint (SP-0135). Cadence mirrors
  * `LOCATION_POLICY` there.
  */
 object LocationPolicy {

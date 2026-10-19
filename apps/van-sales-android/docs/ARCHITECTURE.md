@@ -4,7 +4,7 @@ This is a separate application (`com.sunpride.van`, installed DEV ID `com.sunpri
 
 ## Packages
 
-- `auth`: Better Auth sign-in/session/JWT, encrypted session vault, Convex function envelopes, enrollment state machine and fixed/redacted failures.
+- `auth`: v2 sign-in/session/refresh, encrypted session vault, cookie-free native API client, enrollment state machine and fixed/redacted failures.
 - `device`: non-exportable Android Keystore P-256 key, strict DER/P1363 conversion and request proof generation.
 - `storage`: SQLCipher-only Room v1 database, independent wrapped install passphrase, scoped rows, transactional snapshot/outbox/ack operations and pure outbox rules.
 - `ledger`: integer truck-stock projection and local movement API. LOAD and DAMAGE are restricted to their server-confirmed/atomic paths.
@@ -23,7 +23,7 @@ fun VanRepository.Companion.create(
     intent: Intent? = null,
     stubMode: String? = null,
     environment: AppEnvironment = AppEnvironment(
-        BuildConfig.CONVEX_SITE_URL, BuildConfig.CONVEX_URL
+        BuildConfig.API_ORIGIN
     )
 ): VanRepository
 
@@ -80,7 +80,7 @@ fun close(): Unit
 
 ## Auth and storage security
 
-Sign-in sends JSON to `/api/auth/sign-in/email`, omits Origin and cookies, prefers `set-auth-token` and otherwise validates the top-level JSON session token. JWT exchange uses the session bearer at `/api/auth/convex/token`; the JWT remains in memory and refreshes before expiry. Convex `/api/query|mutation` responses are decoded as envelopes, including HTTP 560 function errors; a JWT 401 gets one refresh/retry. Errors never display raw server messages.
+Sign-in posts JSON to the v2 server at `SUNPRIDE_API_ORIGIN`, with no cookies and no redirects. Only the opaque session is stored (encrypted); the short-lived access bearer stays in memory and is refreshed before expiry. A 401 gets exactly one forced refresh and retry. Errors never display raw server messages.
 
 Session AES-256-GCM and database passphrase AES-256-GCM use separate Keystore aliases. The SQLCipher passphrase is ASCII-hex encoding of 32 random bytes; only its wrapped IV/ciphertext is persisted. SQLCipher 4.12.0 is explicitly loaded with `System.loadLibrary("sqlcipher")`, and every production open uses `SupportOpenHelperFactory`. Missing/corrupt key material refuses access. There is no plaintext fallback, destructive migration, or sign-out database-key wipe.
 
@@ -115,7 +115,7 @@ SALE movements cannot be written any other way: `recordLocalMovement` refuses SA
 
 ## Payment methods (VAN-012)
 
-The office configures the methods in the bootstrap policy (`policy.paymentMethods`, van-v1; backend `VAN_PAYMENT_METHODS` in `convex/van/model.ts`): each has a `code`, `label`, `kind` (`cash` | `other` | `credit`), `referenceRequired` and `referenceLabel`. A policy without the list (an older cache or server) allows cash only. Assumed defaults until Sunpride confirms: Cash, Check (check number), GCash (reference number), Bank transfer (bank reference) and Credit (charge to account). One method per sale; split payments are not supported.
+The office configures the methods in the bootstrap policy (`policy.paymentMethods`, van-v1; server van policy): each has a `code`, `label`, `kind` (`cash` | `other` | `credit`), `referenceRequired` and `referenceLabel`. A policy without the list (an older cache or server) allows cash only. Assumed defaults until Sunpride confirms: Cash, Check (check number), GCash (reference number), Bank transfer (bank reference) and Credit (charge to account). One method per sale; split payments are not supported.
 
 - **cash:** cash received ≥ total; change is recorded. Payment state `paid`.
 - **other** (check, e-wallet, bank): the amount is exactly the total, no change. When the method needs a reference it is required, normalized (trimmed, single-spaced, upper case; letters, digits, space, `-`, `/`, `.`; 1–40) and must not already be on another payment of the same method on this phone. Payment state `awaiting_confirmation` (the office confirms the reference later).
@@ -201,6 +201,6 @@ export ANDROID_HOME="$HOME/Library/Android/sdk"
 ~/.hermes/scripts/sunpride-pos-device-test.sh /Users/jc/cnc/.worktrees/sunpride-van-pos
 ```
 
-The request's unflavored `lintDebug` name is ambiguous in this flavored skeleton; the explicit `lintDevDebug` gate is the real task. No Gradle configuration was changed to hide that naming mismatch. Device suites run only through the locking H10P wrapper, which retains the app and removes only its test APK. No emulator/connectedAndroidTest or Convex command is used.
+The request's unflavored `lintDebug` name is ambiguous in this flavored skeleton; the explicit `lintDevDebug` gate is the real task. No Gradle configuration was changed to hide that naming mismatch. Device suites run only through the locking H10P wrapper, which retains the app and removes only its test APK. No emulator/connectedAndroidTest command is used.
 
 JVM coverage includes auth/HTTP560/enrollment, frozen crypto, strict codec, integer ledger/settlement, identifiers, outbox rules, exact-byte replay, single-401 signing, gzip and diagnostics. Device coverage includes vault/key persistence, encrypted DB/WAL absence of a plaintext marker, wrong-key refusal, schema-v1 MigrationTestHelper validation, 50 concurrent/restarted IDs, damage transaction rollback, load authority, negative-sale/damage policy, scope isolation, evidence preservation, durable ack ordering/settlement and uncertain-acceptance replay against real SQLCipher Room.

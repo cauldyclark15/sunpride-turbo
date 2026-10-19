@@ -15,9 +15,12 @@ class VanSync(private val store: VanSyncStore, private val gateway: VanGateway, 
     private val mutex = locks.getOrPut(store.scope) { Mutex() }
     suspend fun syncNow() {
         if (!mutex.tryLock()) return
+        val epoch = store.authorizationEpoch()
+        fun current() { if (epoch != store.authorizationEpoch()) throw VanSyncFailure("unauthorized",false) }
         try {
             store.resetSending() // recover transient markers after process interruption
-            val bootstrap = store.replaceBootstrap(gateway.bootstrap())
+            val initial = gateway.bootstrap(); current()
+            val bootstrap = store.replaceBootstrap(initial)
             store.cleanupAcknowledgedPhotos() // recover a crash after durable ack, before file cleanup
             val blocked = mutableSetOf<String>()
             val failedPhotos = mutableSetOf<String>()
@@ -33,6 +36,7 @@ class VanSync(private val store: VanSyncStore, private val gateway: VanGateway, 
                             val photos = checkNotNull(evidence)
                             if (!photos.uploaded(sha)) {
                                 gateway.evidence(sha,photos.read(sha,bootstrap.policy.damagePolicy?.photoMaxBytes ?: 90_000))
+                                current()
                                 kotlinx.coroutines.currentCoroutineContext().ensureActive()
                                 if (!store.canSync()) throw VanSyncFailure("unauthorized",false)
                                 photos.markUploaded(sha) // only a validated 'stored' response permits a marker
@@ -52,6 +56,7 @@ class VanSync(private val store: VanSyncStore, private val gateway: VanGateway, 
                 store.markSending(pending.map { it.clientRequestId })
                 try {
                     val results = gateway.push(pending)
+                    current()
                     // No response can acknowledge a different request, duplicate or missing item.
                     if (results.size != pending.size || results.map { it.clientRequestId }.toSet() != pending.map { it.clientRequestId }.toSet()) throw VanWireFailure()
                     pending.forEach { row ->
@@ -67,7 +72,8 @@ class VanSync(private val store: VanSyncStore, private val gateway: VanGateway, 
                 }
             }
             // Pull authoritative post-operation trip/load/balance, then settle acked movements.
-            store.replaceBootstrap(gateway.bootstrap())
+            val final = gateway.bootstrap(); current()
+            store.replaceBootstrap(final)
             // SP-0137: after the trip's start is acknowledged, so the server accepts the truck's pings.
             val pingsSent = uploadPings()
             store.setHealth(if (blocked.isEmpty() && pingsSent) "synced" else "retry_pending",clock())

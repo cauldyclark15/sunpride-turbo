@@ -100,6 +100,7 @@ object VanBootstrapCodec {
     }
     fun decode(text: String): VanBootstrap = try {
         val o = JSONObject(text)
+        o.remove("_v2")
         VanWireSchema.validate(o)
         if (o.getString("type") != "van.bootstrap.response") throw VanWireFailure()
         val day = o.getString("serviceDate"); LocalDate.parse(day)

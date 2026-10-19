@@ -8,7 +8,7 @@ import org.json.JSONObject
  * safe on the phone from what the office has and from what is posted to SAP.
  *
  * 1. Phone: everything here is already committed to the encrypted store (saving never needs signal).
- * 2. Office (Convex): derived only from the outbox row status, never from a network reply.
+ * 2. Office server: derived only from the outbox row status, never from a network reply.
  * 3. SAP: van SAP posting is not switched on in this phase (no SAP status reaches the handheld), so every
  *    SAP-relevant document honestly reads "not posted to SAP"; nothing here ever claims a posting.
  */

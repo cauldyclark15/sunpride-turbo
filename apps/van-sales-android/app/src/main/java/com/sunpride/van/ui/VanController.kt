@@ -22,6 +22,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     val damagePhotoSource: (suspend () -> com.sunpride.van.evidence.DamageCapture)? = null,
     /** SP-0137: live-location sharing during a trip; [LocationSharing.Disabled] shows nothing and never tracks. */
     val locationSharing: com.sunpride.van.location.LocationSharing = com.sunpride.van.location.LocationSharing.Disabled,
+    private val publicKeyLoader: suspend () -> String? = { null },
     private val fingerprintLoader: suspend () -> String = { "Unavailable" }) {
     init { require(damagePhotoSource == null || fixtureMode && com.sunpride.van.BuildConfig.DEBUG) }
     var page by mutableStateOf(Page.HOME)
@@ -52,6 +53,9 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         private set
     var sync by mutableStateOf(SyncStatus())
         private set
+    /** The office has not (re)confirmed this phone's access: trip data hidden, saved work kept. */
+    var onHold by mutableStateOf(false)
+        private set
     var busy by mutableStateOf(false)
         private set
     var initialized by mutableStateOf(false)
@@ -59,6 +63,8 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     var message by mutableStateOf<String?>(null)
         private set
     var fingerprint by mutableStateOf("Loading…")
+    /** Public key (never secret) an administrator pastes into phone registration. */
+    var publicKey by mutableStateOf<String?>(null)
         private set
     var selectedCustomer by mutableStateOf<Customer?>(null)
         private set
@@ -137,12 +143,14 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         launch { repository.damageRecords.collect { damageRecords = it } }
         launch { repository.seller.collect { seller = it } }
         launch { repository.syncStatus.collect { sync = it } }
+        launch { repository.onHold.collect { onHold = it } }
         launch { repository.cashCounted.collect { cashCounted = it } }
         launch { repository.stockCounted.collect { stockCounted = it } }
         launch { repository.tripClosed.collect { tripClosed = it; refreshSharing() } }
         launch { repository.storeScope.collect { storeScope = it; refreshSharing() } }
         launch { repository.pendingPings.collect { pendingPings = it } }
         launch { fingerprint = try { fingerprintLoader() } catch (_: Exception) { "Unavailable. Check again." } }
+        launch { publicKey = try { publicKeyLoader() } catch (_: Exception) { null } }
         if (restore) {
             busy = true
             try {
@@ -163,9 +171,25 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
             busy = true; message = null
             try { block(); if (success != null) message = success }
             catch (e: CancellationException) { throw e }
-            catch (e: Exception) { message = failure(e) }
+            catch (e: Exception) {
+                // Debug builds only: type, code and frames, never the message (it can echo server text).
+                if (com.sunpride.van.BuildConfig.DEBUG) android.util.Log.w("SunprideVan","command failed: ${e.javaClass.simpleName} " +
+                    "${(e as? com.sunpride.van.sync.VanSyncFailure)?.code ?: ""} at " + e.stackTrace.take(8).joinToString(" < ") { "${it.className.substringAfterLast('.')}.${it.methodName}:${it.lineNumber}" })
+                message = failure(e)
+            }
             finally { busy = false }
         }
+    }
+    /** Plain words for a failed sync; saved work is never lost by a failed sync. */
+    internal fun syncMessage(e: Exception): String = when (e) {
+        is com.sunpride.van.sync.VanSyncFailure -> when (e.code) {
+            "unauthorized" -> "The office did not accept this phone's work. Your work is kept here. Ask your supervisor."
+            "version_unsupported" -> "This app needs an update. Your work is kept here."
+            "temporarily_unavailable" -> "Could not reach the office. Your work is kept here. Try again."
+            else -> "The office could not take this work yet. Your work is kept here. Try again."
+        }
+        is com.sunpride.van.auth.AuthFailure -> e.kind.message
+        else -> "Could not sync. Your work is kept here. Try again."
     }
     fun open(next: Page) {
         page = next; message = null
@@ -196,7 +220,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     }
     fun signOut() = command { stopSharing(); repository.signOut(); page = Page.HOME; sale = null; pickingForSale = false; lastReceipt = null; savedSales = emptyList(); printMessage = null; returnDraft = null; lastReturn = null; cashSummary = null; cashDraft = CashDraft(CashReconciliationRules.newReconciliationId()); stockSummary = null; stockDraft = StockDraft(StockReconciliationRules.newCountId()); closeSummary = null; closeDraft = CloseDraft(TripCloseRules.newCloseId()) }
     fun checkAgain() = command(failure = { AuthMessages.forFailure(it,AuthMessages.CHECK_FALLBACK) }) { repository.refreshEnrollment(); if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow() }
-    fun syncNow() = command("Sync finished. Check the waiting and review counts.") { repository.syncNow() }
+    fun syncNow() = command("Sync finished. Check the waiting and review counts.",failure = ::syncMessage) { repository.syncNow() }
     // Pending state is read from the store (VanRules.status), never from a stale one-off message.
     fun confirmLoad(lines: List<LoadActual>) = command { repository.confirmLoad(lines) }
     fun startTrip(truck: Boolean, route: Boolean, driver: String, helper: String, odometer: Double?, note: String) {

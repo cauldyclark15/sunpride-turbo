@@ -16,12 +16,3 @@ class AuthFailure(val kind: Kind) : Exception(kind.message, null) {
     }
     override fun toString(): String = "AuthFailure($kind)"
 }
-
-/**
- * A Convex function returned `{status:"error"}`. [code] is the ConvexError data when it is a short
- * plain string (our backend throws fixed English codes such as "Device unavailable"); it is kept for
- * branching, never shown verbatim to the user.
- */
-class ConvexFunctionError(val code: String?) : Exception("Convex function error", null) {
-    override fun toString(): String = "ConvexFunctionError"
-}

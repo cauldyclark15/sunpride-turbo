@@ -23,7 +23,7 @@ class MainActivity : ComponentActivity() {
         applySystemBars(dark)
         // The theme starts the window in logo red (splash, no white flash); the app background takes over now.
         window.setBackgroundDrawable(ColorDrawable((if (dark) SunprideTokens.darkColors else SunprideTokens.lightColors).background.toArgb()))
-        val environment = AppEnvironment(BuildConfig.CONVEX_SITE_URL,BuildConfig.CONVEX_URL)
+        val environment = AppEnvironment(BuildConfig.API_ORIGIN)
         val features = VanFeatures.forBuild(BuildConfig.DEBUG,BuildConfig.WEB_URL)
         val mode = if (BuildConfig.DEBUG && VanFeature.DEVELOPER_TOOLS in features)
             intent.getStringExtra(VanRepository.STUB_EXTRA)?.takeIf { it in setOf("ready","unregistered","revoked") } else null
@@ -31,7 +31,13 @@ class MainActivity : ComponentActivity() {
         // VAN-017: one printer for the Activity lifetime, shared by sale receipts and the printer check.
         val receiptPrinter = com.sunpride.van.printing.PrinterRegistry.select(applicationContext).also { printer = it }
         val controller = VanController(repo,environment,fixtureMode = mode != null,printer = receiptPrinter,features = features,
-            locationSharing = com.sunpride.van.location.AndroidLocationSharing(applicationContext,stub = mode != null)) {
+            locationSharing = com.sunpride.van.location.AndroidLocationSharing(applicationContext,stub = mode != null),
+            publicKeyLoader = {
+                withContext(Dispatchers.IO) {
+                    val alias = if (mode != null) "sunpride-van-stub-device-p256-v1" else KeystoreDeviceKey.DEFAULT_ALIAS
+                    KeystoreDeviceKey.loadOrCreate(applicationContext,alias).publicKeyBase64
+                }
+            }) {
             withContext(Dispatchers.IO) {
                 val alias = if (mode != null) "sunpride-van-stub-device-p256-v1" else KeystoreDeviceKey.DEFAULT_ALIAS
                 hex(sha256(KeystoreDeviceKey.loadOrCreate(applicationContext,alias).publicKeySpki)).uppercase().chunked(4).joinToString(" ")

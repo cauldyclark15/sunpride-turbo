@@ -48,5 +48,8 @@ class VanRulesTest {
         assertFalse(VanRules.canStart(trip("loaded").copy(vehicle = null),true,true))
         assertFalse(VanRules.canStart(null,true,true))
         assertTrue(VanRules.canStart(trip("loaded"),true,true))
+        // Server v2: a trip may have no route; the seller acknowledges it instead.
+        assertTrue(VanRules.canStart(trip("loaded").copy(route = null),true,true))
+        assertFalse(VanRules.canStart(trip("loaded").copy(route = null),true,false))
     }
 }

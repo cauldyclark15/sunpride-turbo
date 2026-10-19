@@ -1,13 +1,13 @@
 package com.sunpride.van.device
 
 /**
- * Proof for `POST {CONVEX_SITE_URL}/van/v1/{bootstrap,push,evidence,location}`, exactly as
+ * Proof for v2 sync pull/push and media claims, exactly as
  * the van gateway verifies it:
  * `POST|<path>|<lowercase sha256 hex of raw body>|<nonce>|<timestamp ms>`, P1363 base64.
  * Callers must send the very [body] bytes that were signed.
  */
 object RequestSigner {
-    val PATHS = setOf("/van/v1/bootstrap", "/van/v1/push", "/van/v1/evidence", "/van/v1/location")
+    val PATHS = setOf("/api/sync/pull", "/api/sync/push", "/api/media/claims")
     private val NONCE = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
     fun bodyDigest(body: ByteArray): String = hex(sha256(body))
@@ -30,13 +30,10 @@ object RequestSigner {
         val digest = bodyDigest(body)
         return linkedMapOf(
             "Content-Type" to "application/json",
-            "x-mobile-contract-version" to "1",
-            "x-mobile-device-id" to deviceId,
-            "x-mobile-app" to "VAN_ANDROID",
-            "x-mobile-nonce" to nonce,
-            "x-mobile-timestamp" to timestamp.toString(),
-            "x-mobile-body-digest" to digest,
-            "x-mobile-signature" to signer.sign("POST|$path|$digest|$nonce|$timestamp")
+            "x-device-id" to deviceId,
+            "x-device-nonce" to nonce,
+            "x-device-timestamp" to timestamp.toString(),
+            "x-device-signature" to signer.sign("POST|$path|$digest|$nonce|$timestamp")
         )
     }
 }

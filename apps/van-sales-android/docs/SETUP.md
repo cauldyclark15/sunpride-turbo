@@ -16,7 +16,7 @@ The existing `lintDebug` alias invokes `lintDevDebug`. This UI lane did not chan
 
 ## Office configuration
 
-BuildConfig uses the existing flavor-specific `SUNPRIDE_DEV_CONVEX_SITE_URL` and `SUNPRIDE_DEV_CONVEX_URL` inputs. Never commit credentials or local configuration. If either origin is missing/invalid, the sign-in screen explains that setup is needed and disables sign-in. No raw endpoint errors, server errors, identity IDs, or request IDs are shown to salesmen.
+BuildConfig reads one public origin, `SUNPRIDE_API_ORIGIN` (default `https://sunpride.cauldnclark.com`; a per-flavor `SUNPRIDE_<FLAVOR>_API_ORIGIN` overrides it). Never commit credentials or local configuration. If either origin is missing/invalid, the sign-in screen explains that setup is needed and disables sign-in. No raw endpoint errors, server errors, identity IDs, or request IDs are shown to salesmen.
 
 Live gateway deployment/auth/device/bootstrap is owned by the core/backend lanes and is not claimed by this UI verification. See `ARCHITECTURE.md`.
 

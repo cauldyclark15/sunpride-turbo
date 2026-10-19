@@ -6,7 +6,7 @@ package com.sunpride.van.evidence
  * every 8x8 block of every component is present and well formed: frame, quantization and
  * Huffman tables, the full entropy-coded scan with its restart markers, and the final EOI
  * (no inverse DCT). Progressive, arithmetic, lossless and 12-bit files are refused; the app
- * only produces baseline (Bitmap.compress). Mirror of backend `convex/van/jpeg.ts`.
+ * only produces baseline (Bitmap.compress). Mirror of the server JPEG check.
  */
 object BaselineJpeg {
     data class Info(val width: Int, val height: Int)

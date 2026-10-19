@@ -15,7 +15,7 @@ private val TIME = DateTimeFormatter.ofPattern("MMM d, h:mm a")
 private fun time(at: Long) = Instant.ofEpochMilli(at).atZone(ZoneId.systemDefault()).format(TIME)
 
 /**
- * VAN-025 Sync & posting: the phone, the office (Convex) and SAP answered separately. Read-only — every number comes
+ * VAN-025 Sync & posting: the phone, the office server and SAP answered separately. Read-only — every number comes
  * from the encrypted outbox; nothing here talks to the network except the explicit Sync now button.
  */
 @Composable fun SyncHealthScreen(c: VanController) {

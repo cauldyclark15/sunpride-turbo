@@ -43,7 +43,7 @@ class TripCloseStore(private val store: RoomVanStore) {
         val tripMovements = dao.stockmovementRows(s, d).filter { it.tripId == t.tripId }.map { it.movementId }.toSet()
         val issues = store.saleStockIssues().count { it.saleId in tripSales || it.saleId == null && it.movementId in tripMovements }
         val unprinted = RoomReceiptPrintLog(db, store.scope).savedSales().count { it.void == null && !it.printed }
-        return TripCloseFacts(onRoad(t), dao.meta(s, d)?.held != false, cash != null, stock != null,
+        return TripCloseFacts(onRoad(t), !store.canSync(), cash != null, stock != null,
             ops.count { it.status in setOf("pending", "sending") }, issues, unprinted,
             ops.count { it.status in OutboxRules.reviewStatuses }, cash?.varianceMinor, stock?.varianceLines)
     }
@@ -60,7 +60,7 @@ class TripCloseStore(private val store: RoomVanStore) {
      * [TripCloseRequest.closeId] with the same details returns the saved close.
      */
     suspend fun commit(request: TripCloseRequest): TripCloseResult = db.withTransaction {
-        if (dao.meta(s, d)?.held != false) throw TripCloseRefused(CloseProblem.HELD)
+        if (!store.canSync()) throw TripCloseRefused(CloseProblem.HELD)
         val t = dao.trip(s, d) ?: throw TripCloseRefused(CloseProblem.NOT_ON_ROUTE)
         val note = TripCloseRules.normalizedNote(request.note)
         dao.tripClose(s, d, t.tripId)?.let { prior ->
@@ -94,7 +94,7 @@ class TripCloseStore(private val store: RoomVanStore) {
             .apply { note?.let { put("note", it) } }
         val op = JSONObject().put("kind", TRIP_CLOSE_KIND).put("clientRequestId", key).put("payload", payload).toString()
         // Deliberately not sent through VanWireSchema: the gateway has no trip.close kind yet, like the counts.
-        dao.insertOutbox(OutboxRow(s, d, key, t.tripId, TRIP_CLOSE_KIND, op, at, null, SALE_PARKED))
+        dao.insertOutbox(OutboxRow(s, d, key, t.tripId, TRIP_CLOSE_KIND, op, at, null, store.capturedStatus))
         TripCloseResult(request.closeId, t.tripNumber, checklist.exceptions, reviewed, request.endOdometerKm, note, ops.size, at, false)
     }
 
