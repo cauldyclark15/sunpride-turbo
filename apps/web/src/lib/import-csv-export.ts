@@ -11,7 +11,8 @@ export const OPERATIONAL_HEADERS = {
 } as const;
 
 function cell(value: string | number) {
-  const text = String(value);
+  const raw = String(value);
+  const text = /^[\s]*[=+@-]/.test(raw) ? `'${raw}` : raw;
   return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 

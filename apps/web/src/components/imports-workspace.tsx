@@ -1,26 +1,11 @@
 "use client";
 
-import { Button, ListBox, Select } from "@heroui/react";
-import { api } from "@sunpride/backend/api";
-import {
-  Card,
-  DataTable,
-  FormField,
-  ListRow,
-  StatusPill,
-  UnderlineTabs,
-  type DataColumn,
-} from "@sunpride/ui";
-import { useConvex, useQuery } from "convex/react";
-import type { FunctionReturnType } from "convex/server";
-import { useState } from "react";
-import { hashText, parseCsv } from "../lib/csv";
-import {
-  MCP_HEADERS,
-  parseMcpFile,
-  type McpFormat,
-} from "../lib/mcp-import-format";
-import type { Id } from "../../../../packages/backend/convex/_generated/dataModel";
+import { Button } from "@heroui/react";
+import { Card } from "@sunpride/ui";
+import { useRef, useState } from "react";
+import { apiFetch, mutate, useApi, useLive } from "../lib/api";
+import { usePermissions, useSession } from "../lib/auth";
+import { parseImportFile, type ParsedCsv } from "../lib/csv";
 import {
   downloadCsv,
   errorCsv,
@@ -28,1224 +13,548 @@ import {
   type ImportError,
 } from "../lib/import-csv-export";
 import {
-  IMPORT_TEMPLATES,
+  businessPayload,
   chunkRows,
-  type ImportKind,
+  countSessionChunks,
+  PRODUCT_MASTER_HEADERS,
+  OPENING_STOCK_HEADERS,
+  PRICE_HEADERS,
+  TARGET_HEADERS,
 } from "../lib/import-templates";
+import { MCP_HEADERS, type McpFormat } from "../lib/mcp-import-format";
 
-type WorkspaceKind = ImportKind | "stock_adjustment" | "cycle_count";
-const OPERATIONAL_CONFIG = {
-  stock_adjustment: {
-    label: "Stock adjustment",
-    description: "Request a signed stock adjustment for separate approval.",
-    headers: OPERATIONAL_HEADERS.stock_adjustment.split(","),
-    templateFileName: "stock-adjustment.csv",
-    allOrNothing: true,
+type Kind =
+  | "products"
+  | "prices"
+  | "opening_stock"
+  | "cycle_count"
+  | "stock_adjustment"
+  | "mcp"
+  | "targets";
+const TASKS: { kind: Kind; label: string; description: string }[] = [
+  {
+    kind: "products",
+    label: "Products",
+    description: "Set up product names, units and barcodes.",
   },
-  cycle_count: {
-    label: "Cycle count",
-    description:
-      "Submit absolute counted quantities from an open count session.",
-    headers: OPERATIONAL_HEADERS.cycle_count.split(","),
-    templateFileName: "cycle-count.csv",
-    allOrNothing: true,
+  {
+    kind: "prices",
+    label: "Prices",
+    description: "Give the sales team a dated price list.",
   },
-};
-const CONFIG = { ...IMPORT_TEMPLATES, ...OPERATIONAL_CONFIG };
-
-function isOperational(
-  kind: WorkspaceKind,
-): kind is keyof typeof OPERATIONAL_CONFIG {
-  return kind === "stock_adjustment" || kind === "cycle_count";
-}
-
-type ImportRow = { rowNumber: number; values: Record<string, string> };
-
-type FileState = {
-  fileName: string;
-  fileHash: string;
-  runKey: string;
-  header: string[];
-  rows: ImportRow[];
-  parseErrors: ImportError[];
-  previewErrors: ImportError[];
-  previewed: boolean;
-  partitions: {
-    productCode: string;
-    baseUomCode: string;
-    locationCode: string;
-    stockStatus: string;
-    lotNumber?: string;
-    positiveBase: bigint;
-    negativeBase: bigint;
-    netDeltaBase: bigint;
-    currentBase: bigint;
-    projectedBase: bigint;
-  }[];
-  countedLines: { rowNumber: number; countedBase: bigint; status: string }[];
-  summary: string | null;
-  blocking: boolean;
-  progress: string | null;
-  outcome: string | null;
-  error: string | null;
-};
-
-function emptyFileState(): FileState {
-  return {
-    fileName: "",
-    fileHash: "",
-    runKey: "",
-    header: [],
-    rows: [],
-    parseErrors: [],
-    previewErrors: [],
-    previewed: false,
-    partitions: [],
-    countedLines: [],
-    summary: null,
-    blocking: false,
-    progress: null,
-    outcome: null,
-    error: null,
-  };
-}
-
-function displayLabel(value: string) {
-  const words = value.replaceAll("_", " ");
-  return words.charAt(0).toUpperCase() + words.slice(1);
-}
-
-function operationErrorMessage(error: unknown) {
-  const fallback = "Import failed. Try again or contact your administrator.";
-  if (!(error instanceof Error)) return fallback;
-  const message = error.message.trim();
-  if (
-    !message ||
-    message.startsWith("[CONVEX") ||
-    message.includes("Server Error") ||
-    message.length > 180
-  )
-    return fallback;
-  return message;
-}
-
-/** Base units are scale 1,000 per displayed case. */
-function displayBase(value: string) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return value;
-  const formatted = (parsed / 1000).toLocaleString("en-PH", {
-    maximumFractionDigits: 3,
-  });
-  return formatted;
-}
-
-function ErrorTable({
-  errors,
-  title,
-}: {
+  {
+    kind: "opening_stock",
+    label: "Opening stock",
+    description: "Start a location with its approved stock.",
+  },
+  {
+    kind: "cycle_count",
+    label: "Stock count",
+    description: "Check a complete count without showing expected stock.",
+  },
+  {
+    kind: "stock_adjustment",
+    label: "Adjustments",
+    description: "Validate stock corrections for separate approval.",
+  },
+  {
+    kind: "mcp",
+    label: "Route plans",
+    description: "Load stores and visits into a draft monthly plan.",
+  },
+  {
+    kind: "targets",
+    label: "Sales targets",
+    description: "Set the monthly goal so managers can see who is behind.",
+  },
+];
+type Preview = {
+  accepted: number;
   errors: ImportError[];
-  title: string;
-}) {
-  const columns: DataColumn<ImportError & { id: string }>[] = [
-    { key: "row", label: "Row", render: (error) => String(error.rowNumber) },
-    {
-      key: "column",
-      label: "Column",
-      render: (error) => (error.column ? displayLabel(error.column) : "—"),
-    },
-    {
-      key: "code",
-      label: "Code",
-      render: (error) => (
-        <StatusPill tone="danger">{displayLabel(error.code)}</StatusPill>
-      ),
-    },
-    { key: "message", label: "Message", render: (error) => error.message },
-  ];
-  return (
-    <div className="overflow-hidden rounded-xl border border-separator">
-      <h3 className="px-4 py-3 text-[11px] font-medium uppercase tracking-wide text-muted">
-        {title} · {errors.length}
-      </h3>
-      <DataTable
-        columns={columns}
-        empty={null}
-        rows={errors.slice(0, 100).map((error, index) => ({
-          ...error,
-          id: `${error.rowNumber}-${index}`,
-        }))}
-      />
-      {errors.length > 100 ? (
-        <p className="p-3 text-xs text-muted">
-          First 100 · {errors.length} total
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-function ImportSection({
-  kind,
-  state,
-  setState,
-}: {
-  kind: WorkspaceKind;
-  state: FileState;
-  setState: (next: FileState) => void;
-}) {
-  const config = CONFIG[kind];
-  const convex = useConvex();
-  const [busy, setBusy] = useState(false);
-
-  async function selectFile(file: File) {
-    try {
-      const text = await file.text();
-      const parsed = parseCsv(text, config.headers);
-      const fileHash = hashText(text);
-      setState({
-        ...emptyFileState(),
-        fileName: file.name,
-        fileHash,
-        // Content-derived run key: re-uploading the identical file resolves to the same run and
-        // is reported as a duplicate instead of posting a second movement. Change the file and
-        // it becomes a new run.
-        runKey: fileHash,
-        rows: parsed.rows,
-        header: parsed.header,
-        parseErrors: [
-          ...parsed.errors,
-          ...(isOperational(kind) &&
-          parsed.header.join(",") !== OPERATIONAL_HEADERS[kind]
-            ? [
-                {
-                  rowNumber: 1,
-                  code: "invalid_format",
-                  column: "header",
-                  message:
-                    "Header must match the template exactly and in order.",
-                },
-              ]
-            : []),
-        ],
-        outcome: null,
-      });
-    } catch (error) {
-      setState({ ...emptyFileState(), error: operationErrorMessage(error) });
-    }
-  }
-
-  async function preview() {
-    setBusy(true);
-    try {
-      if (kind === "products") {
-        const result = await convex.query(
-          api.imports.products.validateProducts,
-          {
-            rows: state.rows,
-          },
-        );
-        setState({
-          ...state,
-          summary: `${result.wouldCreate + result.wouldUpdate} valid · ${result.errorCount} rejected · ${result.wouldCreate} to create · ${result.wouldUpdate} to update`,
-          blocking: false,
-          previewed: true,
-          previewErrors: result.errors,
-          error: null,
-        });
-      } else if (kind === "opening_stock") {
-        const result = await convex.query(
-          api.imports.openingStock.validateOpeningStock,
-          { rows: state.rows },
-        );
-        setState({
-          ...state,
-          summary: `${result.accepted} valid · ${result.errorCount} rejected · ${displayBase(result.totalQuantityBase)} cases`,
-          blocking: result.errorCount > 0,
-          previewed: true,
-          previewErrors: result.errors,
-          error: null,
-        });
-      } else if (kind === "stock_adjustment") {
-        const result = await convex.query(api.imports.adjustments.preview, {
-          rows: state.rows,
-          header: state.header,
-        });
-        setState({
-          ...state,
-          previewed: true,
-          previewErrors: result.errors,
-          blocking: result.errorCount > 0,
-          partitions: result.partitions,
-          summary: `${result.accepted} valid · ${result.errorCount} rejected · ${result.requestChunks} approval request(s)`,
-          error: null,
-        });
-      } else {
-        const groups = new Map<string, ImportRow[]>();
-        for (const row of state.rows) {
-          const ref = row.values.count_reference ?? "";
-          groups.set(ref, [...(groups.get(ref) ?? []), row]);
-        }
-        const previews = [];
-        for (const rows of groups.values())
-          previews.push(
-            await convex.query(api.imports.counts.preview, {
-              rows,
-              header: state.header,
-            }),
-          );
-        // Deliberately project only blind-safe fields, even when the server returns approver data.
-        const errors = previews.flatMap((result) => result.errors);
-        setState({
-          ...state,
-          previewed: true,
-          previewErrors: errors,
-          blocking: errors.length > 0,
-          countedLines: previews.flatMap((result) =>
-            result.lines.map(({ rowNumber, countedBase, status }) => ({
-              rowNumber,
-              countedBase,
-              status,
-            })),
-          ),
-          summary: `${previews.reduce((sum, result) => sum + result.accepted, 0)} valid · ${errors.length} rejected`,
-          error: null,
-        });
-      }
-    } catch (error) {
-      setState({ ...state, error: operationErrorMessage(error) });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function commit() {
-    setBusy(true);
-    const chunks =
-      kind === "cycle_count"
-        ? (() => {
-            const groups = new Map<string, ImportRow[]>();
-            for (const row of state.rows) {
-              const ref = row.values.count_reference ?? "";
-              groups.set(ref, [...(groups.get(ref) ?? []), row]);
-            }
-            // The server requires one complete count session per chunk, never split one.
-            return [...groups.values()];
-          })()
-        : chunkRows(state.rows);
-    let created = 0;
-    let updated = 0;
-    let skipped = 0;
-    let accepted = 0;
-    let failed = 0;
-    let duplicated = false;
-    try {
-      for (const [index, chunk] of chunks.entries()) {
-        setState({
-          ...state,
-          progress: `Committing chunk ${index + 1} of ${chunks.length}…`,
-        });
-        const base = {
-          runKey: state.runKey,
-          chunkIndex: index,
-          idempotencyKey: `${kind}:${state.runKey}:${index}`,
-          fileHash: state.fileHash,
-          rows: chunk,
-        };
-        if (kind === "products") {
-          const result = await convex.mutation(
-            api.imports.products.commitProducts,
-            base,
-          );
-          if (result.duplicate) duplicated = true;
-          created += result.created;
-          updated += result.updated;
-          skipped += result.skipped;
-          failed += result.failed;
-        } else if (kind === "opening_stock") {
-          const sourceReference = chunk[0]?.values.source_reference ?? "";
-          const result = await convex.mutation(
-            api.imports.openingStock.commitOpeningStock,
-            { ...base, sourceReference },
-          );
-          if (result.duplicate) duplicated = true;
-          accepted += result.accepted;
-          failed += result.failed;
-        } else {
-          const args = {
-            ...base,
-            rowCount: state.rows.length,
-            header: state.header,
-          };
-          const result =
-            kind === "stock_adjustment"
-              ? await convex.mutation(api.imports.adjustments.commit, args)
-              : await convex.mutation(api.imports.counts.commit, args);
-          if (result.duplicate) duplicated = true;
-          accepted += result.accepted;
-          failed += result.failed;
-          if (result.errors.length) {
-            setState({
-              ...state,
-              progress: null,
-              blocking: true,
-              previewErrors: result.errors,
-              error: "Rows rejected. Review errors and retry.",
-            });
-            return;
-          }
-        }
-      }
-      setState({
-        ...state,
-        progress: null,
-        outcome: duplicated
-          ? "Already imported · No changes"
-          : kind === "products"
-            ? `Imported: ${created} created · ${updated} updated · ${skipped} unchanged · ${failed} rejected`
-            : kind === "opening_stock"
-              ? `Posted ${accepted} row(s) as ${chunks.length} movement(s)${failed > 0 ? ` · ${failed} rejected` : ""}`
-              : `${accepted} ${kind === "stock_adjustment" ? "submitted for approval" : "counts submitted"} · ${failed} rejected`,
-        error: null,
-      });
-    } catch (error) {
-      setState({
-        ...state,
-        progress: null,
-        error: operationErrorMessage(error),
-      });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const hasHeaderProblem = state.parseErrors.some(
-    (error) => error.rowNumber === 1,
-  );
-  const canCommit =
-    !busy &&
-    state.rows.length > 0 &&
-    state.rows.length <= 5000 &&
-    state.previewed &&
-    !state.error &&
-    state.parseErrors.length === 0 &&
-    !state.outcome &&
-    !hasHeaderProblem &&
-    !(config.allOrNothing && state.blocking) &&
-    Boolean(state.runKey);
-
-  return (
-    <Card
-      label={config.label}
-      count={state.rows.length || undefined}
-      actions={
-        <div className="flex items-center gap-2">
-          {isOperational(kind) ? (
-            <Button
-              variant="outline"
-              className="h-10"
-              onPress={() =>
-                downloadCsv(
-                  config.templateFileName,
-                  `${OPERATIONAL_HEADERS[kind]}\r\n`,
-                )
-              }
-            >
-              Template
-            </Button>
-          ) : (
-            <a
-              className="inline-flex h-10 items-center rounded-[10px] border border-border px-3 text-sm font-medium"
-              href={IMPORT_TEMPLATES[kind].templatePath}
-              download={config.templateFileName}
-            >
-              Template
-            </a>
-          )}
-          <label className="inline-flex h-10 cursor-pointer items-center rounded-[10px] border border-border px-3 text-sm font-medium">
-            Upload file
-            <input
-              key={`${state.fileName}:${state.fileHash}`}
-              accept=".csv,text/csv"
-              className="sr-only"
-              aria-label={`Upload ${config.label} file`}
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) void selectFile(file);
-              }}
-              type="file"
-            />
-          </label>
-        </div>
-      }
-    >
-      <div className="grid gap-4">
-        {state.fileName ? (
-          <p className="text-[13px] text-muted">
-            {state.fileName} · {state.rows.length} rows ·{" "}
-            {state.runKey.slice(0, 8)}
-          </p>
-        ) : null}
-
-        {state.rows.length > 5000 ? (
-          <p className="text-sm text-danger">File exceeds 5,000 rows</p>
-        ) : null}
-        {hasHeaderProblem ? (
-          <ErrorTable errors={state.parseErrors} title="Header mismatch" />
-        ) : null}
-
-        {!hasHeaderProblem && state.parseErrors.length > 0 ? (
-          <ErrorTable errors={state.parseErrors} title="File errors" />
-        ) : null}
-
-        {state.previewErrors.length > 0 ? (
-          <ErrorTable errors={state.previewErrors} title="Row errors" />
-        ) : null}
-        {[...state.parseErrors, ...state.previewErrors].length > 0 ? (
-          <Button
-            variant="outline"
-            className="h-10"
-            onPress={() =>
-              downloadCsv(
-                `${kind}-errors.csv`,
-                errorCsv([...state.parseErrors, ...state.previewErrors]),
-              )
-            }
-          >
-            Download errors
-          </Button>
-        ) : null}
-        {kind === "stock_adjustment" &&
-        state.previewed &&
-        state.partitions.length > 0 ? (
-          <div className="grid gap-2">
-            <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted">
-              Projected · cases
-            </h3>
-            <DataTable
-              empty={null}
-              rows={state.partitions.map((part, index) => ({
-                ...part,
-                id: String(index),
-              }))}
-              columns={[
-                {
-                  key: "product",
-                  label: "Product / UOM",
-                  render: (part) => (
-                    <span className="block">
-                      <span className="block text-[14px] font-medium">
-                        {part.productCode}
-                      </span>
-                      <span className="block font-mono text-xs text-muted">
-                        {part.baseUomCode}
-                      </span>
-                    </span>
-                  ),
-                },
-                {
-                  key: "location",
-                  label: "Location / status / lot",
-                  render: (part) =>
-                    `${part.locationCode} / ${displayLabel(part.stockStatus)} / ${part.lotNumber ?? "—"}`,
-                },
-                {
-                  key: "added",
-                  label: "Added",
-                  render: (part) => displayBase(String(part.positiveBase)),
-                },
-                {
-                  key: "removed",
-                  label: "Removed",
-                  render: (part) => displayBase(String(part.negativeBase)),
-                },
-                {
-                  key: "net",
-                  label: "Net",
-                  render: (part) => displayBase(String(part.netDeltaBase)),
-                },
-                {
-                  key: "current",
-                  label: "Current",
-                  render: (part) => displayBase(String(part.currentBase)),
-                },
-                {
-                  key: "projected",
-                  label: "Projected",
-                  render: (part) => displayBase(String(part.projectedBase)),
-                },
-              ]}
-            />
-          </div>
-        ) : null}
-        {kind === "cycle_count" &&
-        state.previewed &&
-        state.countedLines.length > 0 ? (
-          <div className="grid gap-2">
-            <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted">
-              Counted · cases
-            </h3>
-            <DataTable
-              empty={null}
-              rows={state.countedLines.map((line) => ({
-                ...line,
-                id: String(line.rowNumber),
-              }))}
-              columns={[
-                {
-                  key: "row",
-                  label: "Row",
-                  render: (line) => String(line.rowNumber),
-                },
-                {
-                  key: "counted",
-                  label: "Counted",
-                  render: (line) => displayBase(String(line.countedBase)),
-                },
-                {
-                  key: "status",
-                  label: "Status",
-                  render: (line) => (
-                    <StatusPill
-                      tone={line.status === "accepted" ? "success" : "warning"}
-                    >
-                      {displayLabel(line.status)}
-                    </StatusPill>
-                  ),
-                },
-              ]}
-            />
-          </div>
-        ) : null}
-
-        <div className="flex flex-wrap items-center gap-3">
-          <Button
-            isDisabled={
-              busy ||
-              state.rows.length === 0 ||
-              state.rows.length > 5000 ||
-              hasHeaderProblem
-            }
-            onPress={() => void preview()}
-            variant="outline"
-            className="h-10"
-          >
-            Preview file
-          </Button>
-          <Button
-            isDisabled={!canCommit}
-            onPress={() => void commit()}
-            variant="primary"
-            className="h-10"
-          >
-            {kind === "stock_adjustment"
-              ? "Submit request"
-              : kind === "cycle_count"
-                ? "Submit count"
-                : "Import file"}
-          </Button>
-          <Button
-            variant="outline"
-            className="h-10"
-            isDisabled={busy}
-            onPress={() => setState(emptyFileState())}
-          >
-            Cancel
-          </Button>
-          {state.progress ? (
-            <span className="text-sm text-muted">{state.progress}</span>
-          ) : null}
-        </div>
-
-        {state.summary ? (
-          <ListRow
-            icon="✓"
-            title="Preview"
-            meta={state.summary}
-            value={
-              <StatusPill tone={state.blocking ? "warning" : "success"}>
-                {state.blocking ? "Review" : "Ready"}
-              </StatusPill>
-            }
-          />
-        ) : null}
-        {state.outcome ? (
-          <ListRow
-            icon="✓"
-            title="Complete"
-            meta={state.outcome}
-            tone="success"
-            value={<StatusPill tone="success">Complete</StatusPill>}
-          />
-        ) : null}
-        {state.error ? (
-          <ListRow
-            icon="!"
-            title="Import failed"
-            meta={state.error}
-            tone="danger"
-            value={<StatusPill tone="danger">Failed</StatusPill>}
-          />
-        ) : null}
-      </div>
-    </Card>
-  );
-}
-
-type RunRow = {
-  id: string;
-  runKey: string;
-  importType: ImportKind;
-  status: string;
-  chunkCount: number;
-  rowCount: number;
-  createdCount: number;
-  updatedCount: number;
-  skippedCount: number;
-  failedCount: number;
-  movementIds: string[];
-  createdAt: number;
+  commitAvailable?: boolean;
+  notice?: string;
+  lines?: { rowNumber: number; countedBase: number; status: string }[];
 };
+type Receipt = {
+  accepted: number;
+  failed: number;
+  duplicate: boolean;
+  errors: ImportError[];
+};
+type Run = {
+  id: string;
+  kind: Kind;
+  status: string;
+  rowCount: number;
+  accepted: number;
+  failed: number;
+  createdAt: number;
+  errors: ImportError[];
+};
+const headersFor = (kind: Kind, format: McpFormat): string[] =>
+  kind === "products"
+    ? PRODUCT_MASTER_HEADERS
+    : kind === "opening_stock"
+      ? OPENING_STOCK_HEADERS
+      : kind === "prices"
+        ? PRICE_HEADERS
+        : kind === "targets"
+          ? TARGET_HEADERS
+          : kind === "mcp"
+            ? MCP_HEADERS[format].split(",")
+            : OPERATIONAL_HEADERS[kind].split(",");
 
-function RunHistory({
-  canNational,
-  canOperational,
-}: {
-  canNational: boolean;
-  canOperational: boolean;
-}) {
-  const runs = useQuery(api.imports.runs.list, canNational ? {} : "skip");
-  const operationalRuns = useQuery(
-    api.imports.operational_history.list,
-    canOperational ? {} : "skip",
-  );
-  const [operationalSelected, setOperationalSelected] = useState<{
-    runKey: string;
-    importType: "stock_adjustment" | "cycle_count";
-  } | null>(null);
-  const operationalDetail = useQuery(
-    api.imports.operational_history.detail,
-    canOperational && operationalSelected ? operationalSelected : "skip",
-  );
-  const [selected, setSelected] = useState<{
-    runKey: string;
-    importType: ImportKind;
-  } | null>(null);
-  const detail = useQuery(
-    api.imports.runs.detail,
-    canNational && selected
-      ? { runKey: selected.runKey, importType: selected.importType }
-      : "skip",
-  );
-
-  const rows: RunRow[] = (runs ?? []).map((run) => ({
-    id: `${run.importType}:${run.runKey}`,
-    runKey: run.runKey,
-    importType: run.importType,
-    status: run.status,
-    chunkCount: run.chunkCount,
-    rowCount: run.rowCount,
-    createdCount: run.createdCount,
-    updatedCount: run.updatedCount,
-    skippedCount: run.skippedCount,
-    failedCount: run.failedCount,
-    movementIds: run.movementIds,
-    createdAt: run.createdAt,
-  }));
-
-  const columns: DataColumn<RunRow>[] = [
-    {
-      key: "run",
-      label: "Run",
-      render: (row) => (
-        <button
-          className="text-left text-foreground underline decoration-border underline-offset-4"
-          onClick={() =>
-            setSelected({ runKey: row.runKey, importType: row.importType })
-          }
-          type="button"
-        >
-          <span className="block text-[14px] font-medium">
-            {IMPORT_TEMPLATES[row.importType].label}
-          </span>
-          <span className="block font-mono text-xs text-muted">
-            {row.runKey.slice(0, 8)}
-          </span>
-        </button>
-      ),
-    },
-    {
-      key: "type",
-      label: "Type",
-      render: (row) => IMPORT_TEMPLATES[row.importType].label,
-    },
-    {
-      key: "status",
-      label: "Status",
-      render: (row) => (
-        <StatusPill tone={row.status === "completed" ? "success" : "danger"}>
-          {displayLabel(row.status)}
-        </StatusPill>
-      ),
-    },
-    {
-      key: "rows",
-      label: "Rows",
-      align: "right",
-      render: (row) => String(row.rowCount),
-    },
-    {
-      key: "written",
-      label: "Created / updated",
-      align: "right",
-      render: (row) => `${row.createdCount} / ${row.updatedCount}`,
-    },
-    {
-      key: "rejected",
-      label: "Rejected",
-      align: "right",
-      render: (row) => String(row.failedCount),
-    },
-    {
-      key: "movements",
-      label: "Movements",
-      align: "right",
-      render: (row) => String(row.movementIds.length),
-    },
-    {
-      key: "when",
-      label: "When",
-      render: (row) =>
-        new Intl.DateTimeFormat("en-PH", {
-          dateStyle: "medium",
-          timeStyle: "short",
-        }).format(row.createdAt),
-    },
-  ];
-
+function Errors({ errors, kind }: { errors: ImportError[]; kind: Kind }) {
+  if (!errors.length) return null;
   return (
-    <div className="grid gap-5">
-      {canNational ? (
-        <div className="grid gap-4">
-          <Card label="Product and stock runs" count={rows.length} flush>
-            {runs === undefined ? (
-              <p className="p-4 text-[13px] text-muted">Loading…</p>
-            ) : (
-              <DataTable
-                columns={columns}
-                empty={
-                  <p className="p-4 text-[13px] text-muted">No imports yet</p>
-                }
-                rows={rows}
-              />
-            )}
-          </Card>
-          {selected && detail ? (
-            <Card
-              label={`${IMPORT_TEMPLATES[selected.importType].label} · ${selected.runKey.slice(0, 8)}`}
-            >
-              <p className="text-[13px] text-muted">
-                {detail.runs.length} chunks · {detail.movements.length}{" "}
-                movements
-              </p>
-              {detail.errors.length > 0 ? (
-                <ErrorTable
-                  errors={detail.errors.map((error) => ({
-                    rowNumber: error.rowNumber,
-                    column: error.column,
-                    code: error.code,
-                    message: error.message,
-                  }))}
-                  title="Recorded row errors"
-                />
-              ) : (
-                <p className="text-[13px] text-muted">No row errors</p>
-              )}
-            </Card>
-          ) : null}
-        </div>
-      ) : null}
-      {canOperational ? (
-        <div className="grid gap-4">
-          <Card
-            label="Adjustment and count runs"
-            count={operationalRuns?.length}
-            flush
-          >
-            {operationalRuns === undefined ? (
-              <p className="p-4 text-[13px] text-muted">Loading…</p>
-            ) : (
-              <DataTable
-                empty={
-                  <p className="p-4 text-[13px] text-muted">No runs yet</p>
-                }
-                rows={operationalRuns.map((run, index) => ({
-                  ...run,
-                  id: `${run.importType}:${run.runKey}:${index}`,
-                }))}
-                columns={[
-                  {
-                    key: "run",
-                    label: "Run",
-                    render: (run) => (
-                      <button
-                        type="button"
-                        className="text-left text-foreground underline decoration-border underline-offset-4"
-                        onClick={() =>
-                          setOperationalSelected({
-                            runKey: run.runKey,
-                            importType: run.importType as
-                              "stock_adjustment" | "cycle_count",
-                          })
-                        }
-                      >
-                        <span className="block text-[14px] font-medium">
-                          {
-                            CONFIG[
-                              run.importType as keyof typeof OPERATIONAL_CONFIG
-                            ].label
-                          }
-                        </span>
-                        <span className="block font-mono text-xs text-muted">
-                          {run.runKey.slice(0, 8)}
-                        </span>
-                      </button>
-                    ),
-                  },
-                  {
-                    key: "type",
-                    label: "Type",
-                    render: (run) =>
-                      CONFIG[run.importType as keyof typeof OPERATIONAL_CONFIG]
-                        .label,
-                  },
-                  {
-                    key: "status",
-                    label: "Status",
-                    render: (run) => (
-                      <StatusPill
-                        tone={run.status === "failed" ? "danger" : "success"}
-                      >
-                        {displayLabel(run.status)}
-                      </StatusPill>
-                    ),
-                  },
-                  {
-                    key: "rows",
-                    label: "Rows",
-                    render: (run) => String(run.rowCount),
-                  },
-                  {
-                    key: "rejected",
-                    label: "Rejected",
-                    render: (run) => String(run.failedCount),
-                  },
-                  {
-                    key: "when",
-                    label: "When",
-                    render: (run) =>
-                      new Intl.DateTimeFormat("en-PH", {
-                        dateStyle: "medium",
-                        timeStyle: "short",
-                      }).format(run.createdAt),
-                  },
-                ]}
-              />
-            )}
-          </Card>
-          {operationalSelected && operationalDetail ? (
-            <Card
-              label={`${CONFIG[operationalSelected.importType].label} · ${operationalSelected.runKey.slice(0, 8)}`}
-            >
-              <p className="text-[13px] text-muted">
-                {operationalDetail.runs.length} chunks ·{" "}
-                {operationalDetail.runs
-                  .map((run) => displayLabel(run.status))
-                  .join(" · ")}
-              </p>
-              {operationalDetail.errors.length ? (
-                <ErrorTable
-                  title="Recorded row errors"
-                  errors={operationalDetail.errors.map((error) => ({
-                    rowNumber: error.rowNumber,
-                    column: error.column,
-                    code: error.code,
-                    message: error.message,
-                  }))}
-                />
-              ) : (
-                <p className="text-[13px] text-muted">No row errors</p>
-              )}
-            </Card>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
+    <section className="grid gap-3" aria-label="Rows to fix">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-medium">Rejected rows</h3>
+        <Button
+          variant="outline"
+          onPress={() => downloadCsv(`${kind}-errors.csv`, errorCsv(errors))}
+        >
+          Download errors
+        </Button>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead>
+            <tr>
+              <th className="p-3">Row</th>
+              <th>Field</th>
+              <th>What to fix</th>
+            </tr>
+          </thead>
+          <tbody>
+            {errors.slice(0, 100).map((e, i) => (
+              <tr
+                className="border-t border-separator"
+                key={`${e.rowNumber}-${i}`}
+              >
+                <td className="p-3">{e.rowNumber}</td>
+                <td>{e.column?.replaceAll("_", " ") ?? "File"}</td>
+                <td>{e.message}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {errors.length > 100 && (
+        <p className="text-sm text-muted">
+          Showing 100 of {errors.length} errors. Download the complete list.
+        </p>
+      )}
+    </section>
   );
 }
 
-function McpSection() {
-  const convex = useConvex();
-  const [month, setMonth] = useState(() =>
-    new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 7),
-  );
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [planId, setPlanId] = useState<Id<"coveragePlans"> | null>(null);
+function Loader({ kind }: { kind: Kind }) {
   const [format, setFormat] = useState<McpFormat>("mcp_visits");
-  const [file, setFile] = useState<Awaited<
-    ReturnType<typeof parseMcpFile>
-  > | null>(null);
-  const [name, setName] = useState("");
-  const [preview, setPreview] = useState<FunctionReturnType<
-    typeof api.imports.mcp.preview
-  > | null>(null);
-  const [message, setMessage] = useState("");
-  const [messageError, setMessageError] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
-  const discovery = useQuery(api.coverage.discovery.list, {
-    localMonth: month,
-    status: "draft",
-    paginationOpts: { numItems: 20, cursor },
+  const [planId, setPlanId] = useState("");
+  const [fields, setFields] = useState({
+    month: "",
+    priceListCode: "",
+    channelKey: "",
+    effectiveFrom: "",
   });
-  const history = useQuery(
-    api.imports.mcp.history,
-    planId
-      ? { planId, paginationOpts: { numItems: 20, cursor: historyCursor } }
-      : "skip",
+  const [sourceReference, setSource] = useState("");
+  const [file, setFile] = useState<
+    (ParsedCsv & { fileHash: string; name: string }) | null
+  >(null);
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [outcome, setOutcome] = useState("");
+  const [cursor, setCursor] = useState<string | null>(null);
+  const epoch = useRef(0);
+  const plans = useApi<{
+    rows: { id: string; assignee: string; month: string; version: number }[];
+    truncated: boolean;
+  }>(kind === "mcp" ? ["imports", "plans"] : null, "/api/v1/imports/plans");
+  const business = kind === "prices" || kind === "targets";
+  const history = useApi<{ rows: Run[]; next: string | null }>(
+    business ? null : ["imports", "runs", kind, cursor],
+    ({ signal }) =>
+      apiFetch("/api/v1/imports/runs", {
+        query: { kind, cursor: cursor ?? undefined },
+        signal,
+      }),
   );
-  async function select(upload: File) {
+  useLive(["imports"], [["imports"]]);
+  const headers = headersFor(kind, format);
+  const task = TASKS.find((t) => t.kind === kind)!;
+  const reset = () => {
+    epoch.current++;
+    setFile(null);
     setPreview(null);
     setMessage("");
-    setMessageError(false);
+    setOutcome("");
+  };
+  const invalidate = () => {
+    epoch.current++;
+    setPreview(null);
+    setMessage("");
+    setOutcome("");
+  };
+  const request = (rows: ParsedCsv["rows"]) => ({
+    rows,
+    header: file!.header,
+    sourceReference,
+    planId: kind === "mcp" ? planId : undefined,
+    format: kind === "mcp" ? format : undefined,
+  });
+  async function upload(picked: File) {
+    reset();
+    const current = epoch.current;
+    setBusy(true);
     try {
-      setFile(await parseMcpFile(upload, format));
-      setName(upload.name);
-    } catch (error) {
-      setFile(null);
-      setMessageError(true);
-      setMessage(operationErrorMessage(error));
+      const parsed = await parseImportFile(picked, headers);
+      if (current === epoch.current) setFile({ ...parsed, name: picked.name });
+    } catch (e) {
+      if (current === epoch.current)
+        setMessage(
+          e instanceof Error ? e.message : "Could not read this file.",
+        );
+    } finally {
+      if (current === epoch.current) setBusy(false);
     }
   }
   async function check() {
-    if (!planId || !file || file.errors.length) return;
+    if (!file || file.errors.length || busy) return;
+    const current = ++epoch.current;
     setBusy(true);
+    setPreview(null);
+    setMessage("");
+    setOutcome("");
     try {
-      const result = await convex.query(api.imports.mcp.preview, {
-        planId,
-        format,
-        header: file.header,
-        rows: file.rows,
-        fileHash: file.fileHash,
-        rowCount: file.rows.length,
-      });
-      setPreview(result);
-      setMessageError(false);
-      setMessage(
-        `${result.accepted.length} accepted · ${new Set(result.rejected.map((error) => error.rowNumber)).size} rejected`,
-      );
-    } catch (error) {
-      setPreview(null);
-      setMessageError(true);
-      setMessage(operationErrorMessage(error));
+      if (business) {
+        const result = businessPayload(kind, file.rows, fields);
+        setPreview({
+          accepted: result.errors.length ? 0 : file.rows.length,
+          errors: result.errors,
+        });
+      } else {
+        const groups =
+          kind === "cycle_count" ? countSessionChunks(file.rows) : [file.rows];
+        const results: Preview[] = [];
+        for (const rows of groups)
+          results.push(
+            await apiFetch<Preview>(`/api/v1/imports/${kind}/preview`, {
+              method: "POST",
+              body: request(rows),
+            }),
+          );
+        if (current === epoch.current)
+          setPreview({
+            accepted: results.reduce((n, r) => n + r.accepted, 0),
+            errors: results.flatMap((r) => r.errors),
+            lines: results.flatMap((r) => r.lines ?? []),
+            commitAvailable: results.every((r) => r.commitAvailable !== false),
+            notice: results.find((r) => r.notice)?.notice,
+          });
+      }
+    } catch (e) {
+      if (current === epoch.current)
+        setMessage(
+          e instanceof Error
+            ? e.message
+            : "Validation failed. Nothing was loaded.",
+        );
     } finally {
-      setBusy(false);
+      if (current === epoch.current) setBusy(false);
     }
   }
   async function commit() {
-    if (!planId || !file || !preview?.accepted.length) return;
+    if (
+      !file ||
+      !preview ||
+      preview.errors.length ||
+      !preview.accepted ||
+      preview.commitAvailable === false ||
+      busy
+    )
+      return;
     setBusy(true);
+    setMessage("");
+    setOutcome("");
+    const current = ++epoch.current;
+    let saved = 0;
     try {
-      const accepted = new Set(preview.accepted.map((row) => row.rowNumber));
-      let total = 0;
-      for (let index = 0; index < file.rows.length; index += 100) {
-        const rows = file.rows.slice(index, index + 100);
-        if (!rows.some((row) => accepted.has(row.rowNumber))) continue;
-        const result = await convex.mutation(api.imports.mcp.commit, {
-          planId,
-          format,
-          header: file.header,
-          rows,
-          fileHash: file.fileHash,
-          rowCount: file.rows.length,
-          chunkIndex: Math.floor(index / 100),
-          sourceReference: name,
-        });
-        total += result.acceptedCount;
+      if (business) {
+        const payload = businessPayload(kind, file.rows, fields);
+        if (payload.errors.length) {
+          setPreview({ accepted: 0, errors: payload.errors });
+          return;
+        }
+        const response = await mutate<{
+          ok?: boolean;
+          errors?: { row: number; message: string }[];
+        }>(
+          kind === "targets"
+            ? "/api/v1/targets/import"
+            : "/api/v1/pricing/price-lists/import",
+          payload.body,
+          {
+            idempotencyKey: `${kind}:${file.fileHash}:${JSON.stringify(fields)}`,
+            invalidate: [["analytics"], ["pricing"]],
+          },
+        );
+        const errors = (response.errors ?? []).map((e) => ({
+          rowNumber: e.row,
+          code: "invalid_format",
+          message: e.message,
+        }));
+        if (
+          errors.length ||
+          response.ok === false ||
+          (kind === "prices" && response.ok !== true)
+        ) {
+          setPreview({ accepted: 0, errors });
+          setMessage(
+            "The server did not accept this file. Review the rows and try again.",
+          );
+          return;
+        }
+        saved = file.rows.length;
+      } else {
+        const chunks =
+          kind === "cycle_count"
+            ? countSessionChunks(file.rows)
+            : chunkRows(file.rows);
+        for (let i = 0; i < chunks.length; i++) {
+          const runKey =
+            kind === "mcp" ? `${planId}:${file.fileHash}` : file.fileHash;
+          const idempotencyKey = `${kind}:${runKey}:${i}`;
+          const result = await mutate<Receipt>(
+            `/api/v1/imports/${kind}/commit`,
+            {
+              ...request(chunks[i]!),
+              runKey,
+              chunkIndex: i,
+              idempotencyKey,
+              fileHash: file.fileHash,
+              rowCount: file.rows.length,
+            },
+            { idempotencyKey, invalidate: [["imports"]] },
+          );
+          if (result.errors.length || result.failed) {
+            setPreview({ accepted: 0, errors: result.errors });
+            throw new Error(
+              `Stopped after ${saved} rows were confirmed. This chunk was not loaded; fix its errors before retrying.`,
+            );
+          }
+          saved += result.accepted;
+        }
       }
-      setMessageError(false);
-      setMessage(`${total} rows merged`);
-      setPreview(null);
-    } catch (error) {
-      setMessageError(true);
-      setMessage(operationErrorMessage(error));
+      if (current === epoch.current) {
+        setOutcome(
+          business
+            ? `${saved} rows loaded.`
+            : `${saved} rows confirmed. Repeated file submissions do not add a second copy.`,
+        );
+        setPreview(null);
+      }
+    } catch (e) {
+      if (current === epoch.current)
+        setMessage(
+          e instanceof Error
+            ? e.message
+            : `Connection interrupted after ${saved} confirmed rows. Retry the same file to check its receipts.`,
+        );
     } finally {
-      setBusy(false);
+      if (current === epoch.current) setBusy(false);
     }
   }
-  const errors: ImportError[] = [
-    ...(file?.errors ?? []),
-    ...(preview?.rejected ?? []),
-  ];
+  const errors = [...(file?.errors ?? []), ...(preview?.errors ?? [])];
   return (
-    <>
-      <Card
-        label="Route sheets"
-        actions={
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              className="h-10"
-              onPress={() =>
-                downloadCsv(
-                  `${format}-template.csv`,
-                  `${MCP_HEADERS[format]}\r\n`,
-                )
-              }
-            >
-              Template
-            </Button>
-            <label className="inline-flex h-10 cursor-pointer items-center rounded-[10px] border border-border px-3 text-sm font-medium">
-              Upload file
+    <div className="grid gap-5">
+      <Card label={kind === "mcp" ? "Route sheets" : task.label}>
+        <div className="grid gap-4">
+          <p className="text-sm text-muted">{task.description}</p>
+          <p className="text-sm">
+            {business
+              ? "Download the template, fill it in, then preview. The owning service validates and saves the complete file."
+              : "Download the template, fill it in, then preview. Each chunk of up to 100 rows is all-or-nothing. Count sessions stay whole. Earlier completed chunks stay saved if a later chunk fails."}
+          </p>
+          <Button
+            variant="outline"
+            onPress={() =>
+              downloadCsv(
+                `${kind.replaceAll("_", "-")}.csv`,
+                `${headers.join(",")}\r\n`,
+              )
+            }
+          >
+            Template
+          </Button>
+          {kind === "mcp" && (
+            <>
+              <label>
+                Draft plan
+                <select
+                  aria-label="Draft plan"
+                  value={planId}
+                  disabled={busy}
+                  onChange={(e) => {
+                    setPlanId(e.target.value);
+                    invalidate();
+                  }}
+                >
+                  <option value="">Choose a draft plan</option>
+                  {plans.data?.rows.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.assignee} · {p.month} · version {p.version}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {plans.error && <p role="alert">{plans.error.message}</p>}
+              {plans.data?.truncated && (
+                <p>
+                  Only the first 100 drafts are listed. Open Coverage plans to
+                  find an older draft.
+                </p>
+              )}
+              <label>
+                Sheet type
+                <select
+                  aria-label="Sheet type"
+                  value={format}
+                  disabled={busy}
+                  onChange={(e) => {
+                    setFormat(e.target.value as McpFormat);
+                    reset();
+                  }}
+                >
+                  <option value="mcp_visits">Dated visits</option>
+                  <option value="route_sheet">Route defaults</option>
+                </select>
+              </label>
+            </>
+          )}
+          {kind === "opening_stock" && (
+            <label>
+              Source reference
               <input
-                className="sr-only"
-                aria-label="Upload route sheet"
-                type="file"
-                accept=".csv,.xlsx"
-                onChange={(event) => {
-                  const upload = event.target.files?.[0];
-                  if (upload) void select(upload);
+                aria-label="Source reference"
+                value={sourceReference}
+                disabled={busy}
+                onChange={(e) => {
+                  setSource(e.target.value);
+                  invalidate();
                 }}
               />
             </label>
-          </div>
-        }
-      >
-        <div className="grid gap-4">
-          <div className="grid gap-4 sm:grid-cols-3">
-            <FormField label="Month">
+          )}
+          {kind === "targets" && (
+            <label>
+              Target month
               <input
-                aria-label="Month"
-                className="h-10 rounded-[10px] border border-border bg-surface px-3"
+                aria-label="Target month"
                 type="month"
-                value={month}
-                onChange={(event) => {
-                  setMonth(event.target.value);
-                  setCursor(null);
-                  setPlanId(null);
-                  setPreview(null);
+                value={fields.month}
+                disabled={busy}
+                onChange={(e) => {
+                  setFields({ ...fields, month: e.target.value });
+                  invalidate();
                 }}
               />
-            </FormField>
-            <FormField label="Draft plan">
-              <Select
-                aria-label="Draft plan"
-                selectedKey={planId ?? "__none"}
-                onSelectionChange={(key) => {
-                  setPlanId(
-                    key === "__none"
-                      ? null
-                      : (String(key) as Id<"coveragePlans">),
-                  );
-                  setHistoryCursor(null);
-                  setPreview(null);
-                }}
-              >
-                <Select.Trigger className="h-10 min-h-10 rounded-[10px] !border !border-border bg-surface px-3 text-sm shadow-none">
-                  <Select.Value />
-                  <Select.Indicator />
-                </Select.Trigger>
-                <Select.Popover>
-                  <ListBox>
-                    <ListBox.Item id="__none" textValue="Select draft">
-                      Select draft
-                    </ListBox.Item>
-                    {discovery?.page.map((plan) => (
-                      <ListBox.Item
-                        key={plan.planId}
-                        id={plan.planId}
-                        textValue={`${plan.assigneeName} · ${plan.localMonth}`}
-                      >
-                        {plan.assigneeName} · {plan.localMonth}
-                      </ListBox.Item>
-                    ))}
-                  </ListBox>
-                </Select.Popover>
-              </Select>
-            </FormField>
-            <FormField label="Sheet type">
-              <Select
-                aria-label="Sheet type"
-                selectedKey={format}
-                onSelectionChange={(key) => {
-                  setFormat(String(key) as McpFormat);
-                  setFile(null);
-                  setPreview(null);
-                }}
-              >
-                <Select.Trigger className="h-10 min-h-10 rounded-[10px] !border !border-border bg-surface px-3 text-sm shadow-none">
-                  <Select.Value />
-                  <Select.Indicator />
-                </Select.Trigger>
-                <Select.Popover>
-                  <ListBox>
-                    <ListBox.Item id="mcp_visits" textValue="Dated visits">
-                      Dated visits
-                    </ListBox.Item>
-                    <ListBox.Item id="route_sheet" textValue="Route defaults">
-                      Route defaults
-                    </ListBox.Item>
-                  </ListBox>
-                </Select.Popover>
-              </Select>
-            </FormField>
-          </div>
-          {discovery && !discovery.isDone && (
-            <Button
-              variant="outline"
-              className="h-10"
-              onPress={() => setCursor(discovery.continueCursor)}
-            >
-              More plans
-            </Button>
+            </label>
           )}
-          {file && (
-            <p className="text-sm">
-              {name} · {file.rows.length} rows · {file.interpretation}
-            </p>
-          )}
-          {errors.length > 0 && (
+          {kind === "prices" && (
             <>
-              <ErrorTable errors={errors} title="Rejected rows" />
-              <Button
-                variant="outline"
-                className="h-10"
-                onPress={() => downloadCsv("mcp-errors.csv", errorCsv(errors))}
-              >
-                Download errors
-              </Button>
+              <label>
+                Price-list code
+                <input
+                  aria-label="Price-list code"
+                  value={fields.priceListCode}
+                  disabled={busy}
+                  onChange={(e) => {
+                    setFields({ ...fields, priceListCode: e.target.value });
+                    invalidate();
+                  }}
+                />
+              </label>
+              <label>
+                Channel
+                <input
+                  aria-label="Channel"
+                  value={fields.channelKey}
+                  disabled={busy}
+                  onChange={(e) => {
+                    setFields({ ...fields, channelKey: e.target.value });
+                    invalidate();
+                  }}
+                />
+              </label>
+              <label>
+                Effective date (Manila)
+                <input
+                  aria-label="Effective date (Manila)"
+                  type="date"
+                  value={fields.effectiveFrom}
+                  disabled={busy}
+                  onChange={(e) => {
+                    setFields({ ...fields, effectiveFrom: e.target.value });
+                    invalidate();
+                  }}
+                />
+              </label>
             </>
           )}
-          {message && (
-            <div role="status">
-              <ListRow
-                icon={messageError ? "!" : "✓"}
-                title={messageError ? "Import failed" : "Import status"}
-                meta={message}
-                tone={messageError ? "danger" : "success"}
-                value={
-                  <StatusPill tone={messageError ? "danger" : "success"}>
-                    {messageError ? "Failed" : preview ? "Ready" : "Complete"}
-                  </StatusPill>
-                }
-              />
-            </div>
+          {business && (
+            <p className="text-sm text-muted">
+              Amounts are whole centavos: ₱1.00 is 100. Codes must be stored as
+              text in Excel. The server checks scope and existing records before
+              saving.
+            </p>
           )}
-          <div className="flex gap-2">
+          <label className="grid gap-2">
+            Upload file
+            <input
+              aria-label="CSV or Excel file"
+              type="file"
+              accept=".csv,.xlsx"
+              disabled={busy}
+              onChange={(e) => {
+                const chosen = e.target.files?.[0];
+                if (chosen) void upload(chosen);
+                e.target.value = "";
+              }}
+            />
+          </label>
+          {file && (
+            <p>
+              {file.name} · {file.rows.length} rows
+            </p>
+          )}
+          {message && <p role="alert">{message}</p>}
+          {outcome && <p role="status">{outcome}</p>}
+          {preview && (
+            <>
+              <p>
+                {preview.accepted} valid · {preview.errors.length} errors
+              </p>
+              {preview.notice && <p role="status">{preview.notice}</p>}
+              {kind === "cycle_count" &&
+                preview.lines?.map((line) => (
+                  <p key={line.rowNumber}>
+                    Row {line.rowNumber} · Counted {line.countedBase} base units
+                    · {line.status}
+                  </p>
+                ))}
+            </>
+          )}
+          <Errors errors={errors} kind={kind} />
+          <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
-              className="h-10"
               isDisabled={
-                !planId || !file?.rows.length || !!file.errors.length || busy
+                !file ||
+                !!file.errors.length ||
+                busy ||
+                (kind === "mcp" && !planId)
               }
               onPress={() => void check()}
             >
@@ -1253,136 +562,140 @@ function McpSection() {
             </Button>
             <Button
               variant="primary"
-              className="h-10"
-              isDisabled={!preview?.accepted.length || busy}
+              isDisabled={
+                !preview?.accepted ||
+                !!errors.length ||
+                preview.commitAvailable === false ||
+                busy
+              }
               onPress={() => void commit()}
             >
-              Merge rows
+              {kind === "mcp" ? "Merge rows" : "Load rows"}
+            </Button>
+            <Button variant="ghost" isDisabled={busy} onPress={reset}>
+              Cancel
             </Button>
           </div>
-          {preview?.accepted.length ? (
-            <ListRow
-              icon="✓"
-              title="Ready to merge"
-              meta={`${preview.accepted.length} rows`}
-              tone="success"
-            />
-          ) : null}
         </div>
       </Card>
-      {planId && (
-        <Card label="History" count={history?.page.length} flush>
-          {history?.page.map((run) => (
-            <div key={run.runId}>
-              <ListRow
-                icon="▤"
-                title={run.sourceReference ?? run.fileHash}
-                meta={`${run.acceptedCount} accepted · ${run.rejectedCount} rejected`}
-                value={
-                  <StatusPill tone={run.rejectedCount ? "warning" : "success"}>
-                    {run.rejectedCount ? "Review" : "Complete"}
-                  </StatusPill>
-                }
-              />
-              {run.errors.length > 0 && (
-                <ErrorTable errors={run.errors} title="Row errors" />
-              )}
-            </div>
-          ))}
-          {history?.page.length === 0 ? (
-            <p className="p-4 text-[13px] text-muted">No route sheets yet</p>
-          ) : null}
-          {history && !history.isDone && (
-            <Button
-              variant="outline"
-              className="m-4 h-10"
-              onPress={() => setHistoryCursor(history.continueCursor)}
-            >
-              More history
-            </Button>
-          )}
+      {!business && (
+        <Card label="Run history">
+          <div className="grid gap-3">
+            {history.error ? (
+              <p role="alert">{history.error.message}</p>
+            ) : !history.data ? (
+              <p>Loading history…</p>
+            ) : (
+              <>
+                {!history.data.rows.length && <p>No imports on this page.</p>}
+                {history.data.rows.map((run) => (
+                  <div key={run.id} className="border-b border-separator py-3">
+                    <p>
+                      {new Date(run.createdAt).toLocaleString("en-PH", {
+                        timeZone: "Asia/Manila",
+                      })}{" "}
+                      · {run.status.replaceAll("_", " ")}
+                    </p>
+                    <p>
+                      {run.accepted} loaded · {run.failed} not loaded
+                    </p>
+                    <Errors errors={run.errors} kind={kind} />
+                  </div>
+                ))}
+                <div className="flex gap-2">
+                  {cursor && (
+                    <Button variant="outline" onPress={() => setCursor(null)}>
+                      Latest runs
+                    </Button>
+                  )}
+                  {history.data.next && (
+                    <Button
+                      variant="outline"
+                      onPress={() => setCursor(history.data!.next)}
+                    >
+                      More history
+                    </Button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
         </Card>
       )}
-    </>
+      {business && (
+        <a
+          className="text-sm underline"
+          href={kind === "targets" ? "/sales" : "/master-data"}
+        >
+          {kind === "targets"
+            ? "Review sales against targets"
+            : "Review product and pricing setup"}
+        </a>
+      )}
+    </div>
   );
 }
 
 export function ImportsWorkspace(_props: { setupMessage: string }) {
   void _props;
-  const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
-  const [asOf] = useState(() => Date.now());
-  const tree = useQuery(api.org.queries.tree, permissions ? { asOf } : "skip");
-  const canNational = Boolean(
-    permissions &&
-    (permissions.role === "super_admin" ||
-      (permissions.role === "admin" &&
-        tree?.some(
-          (unit) =>
-            unit._id === permissions.orgUnitId && unit.typeCode === "NATIONAL",
-        ))),
+  const { can } = usePermissions();
+  const { profile, me } = useSession();
+  const [selected, setSelected] = useState<Kind | null>(null);
+  const options = useApi<{ kinds: Kind[]; unavailable: Kind[] }>(
+    profile?.active ? ["imports", "options"] : null,
+    "/api/v1/imports/options",
   );
-  const canAdjust =
-    permissions?.capabilities.includes("inventory.adjustment.request") ?? false;
-  const canCount =
-    permissions?.capabilities.includes("inventory.count.submit") ?? false;
-  const canOperational = canAdjust || canCount;
-  const canMcp = permissions?.capabilities.includes("mcp.plan") ?? false;
-  const [tab, setTab] = useState<WorkspaceKind | "mcp" | "history">("products");
-  const [files, setFiles] = useState<Record<WorkspaceKind, FileState>>({
-    products: emptyFileState(),
-    opening_stock: emptyFileState(),
-    stock_adjustment: emptyFileState(),
-    cycle_count: emptyFileState(),
-  });
-
-  const tabs: { key: WorkspaceKind | "mcp" | "history"; label: string }[] = [
-    ...(canNational
-      ? [
-          { key: "products" as const, label: CONFIG.products.label },
-          { key: "opening_stock" as const, label: CONFIG.opening_stock.label },
-        ]
-      : []),
-    ...(canAdjust
-      ? [
-          {
-            key: "stock_adjustment" as const,
-            label: CONFIG.stock_adjustment.label,
-          },
-        ]
-      : []),
-    ...(canCount
-      ? [{ key: "cycle_count" as const, label: CONFIG.cycle_count.label }]
-      : []),
-    ...(canMcp ? [{ key: "mcp" as const, label: "Route sheets" }] : []),
-    { key: "history", label: "Run history" },
-  ];
-  // A permission or organizational reassignment must immediately unmount a now-forbidden section.
-  const activeTab = tabs.some((item) => item.key === tab) ? tab : tabs[0]!.key;
-
+  const available = TASKS.filter((t) =>
+    t.kind === "targets"
+      ? can("target.manage")
+      : t.kind === "prices"
+        ? can("masterdata.manage")
+        : options.data?.kinds.includes(t.kind),
+  );
+  const active = available.some((t) => t.kind === selected) ? selected : null;
   return (
-    <div className="grid gap-4">
-      {/* The module shell already titles this page "Imports"; a single
-          remaining tab needs no tab bar. */}
-      {tabs.length > 1 ? (
-        <UnderlineTabs
-          label="Import types"
-          items={tabs.map((item) => [item.key, item.label] as const)}
-          activeId={activeTab}
-          onChange={setTab}
+    <div className="grid gap-6">
+      <header>
+        <h2 className="text-xl font-medium">What do you want to load?</h2>
+        <p className="mt-2 text-sm text-muted">
+          Keep sales goals, prices, stock and route plans ready for the team.
+          Start with the file that needs attention.
+        </p>
+      </header>
+      {options.error && <p role="alert">{options.error.message}</p>}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {available.map((task) => (
+          <button
+            key={task.kind}
+            type="button"
+            aria-label={task.label}
+            aria-pressed={active === task.kind}
+            onClick={() => setSelected(task.kind)}
+            className={`rounded-xl border p-4 text-left transition-colors ${active === task.kind ? "border-foreground bg-default" : "border-separator hover:bg-default"}`}
+          >
+            <span className="block font-medium">{task.label}</span>
+            <span className="mt-2 block text-sm text-muted">
+              {task.description}
+            </span>
+            {options.data?.unavailable.includes(task.kind) && (
+              <span className="mt-2 block text-xs text-muted">
+                Validation only · submission not yet connected
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+      {active && (
+        <Loader
+          key={`${profile?.id}:${me?.scope?.fingerprint}:${active}`}
+          kind={active}
         />
-      ) : null}
-      {activeTab === "history" ? (
-        <RunHistory canNational={canNational} canOperational={canOperational} />
-      ) : activeTab === "mcp" ? (
-        <McpSection />
-      ) : (
-        <ImportSection
-          kind={activeTab}
-          setState={(next) =>
-            setFiles((current) => ({ ...current, [activeTab]: next }))
-          }
-          state={files[activeTab]}
-        />
+      )}
+      {!active && (
+        <p className="text-sm text-muted">
+          Choose a task to download its template and check a file before
+          loading.
+        </p>
       )}
     </div>
   );

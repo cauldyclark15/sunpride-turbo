@@ -159,3 +159,83 @@ export function hashText(text: string): string {
   }
   return `fnv1a-${(hash >>> 0).toString(16).padStart(8, "0")}`;
 }
+
+/** Upload identity is SHA-256; hashText remains for legacy pure callers. */
+export async function parseImportFile(
+  file: File,
+  expectedHeader: string[],
+): Promise<ParsedCsv & { fileHash: string }> {
+  if (!/\.(csv|xlsx)$/i.test(file.name))
+    throw new Error("Choose a CSV or XLSX file.");
+  let parsed: ParsedCsv;
+  let bytes: Uint8Array;
+  if (/\.csv$/i.test(file.name)) {
+    const text = await file.text();
+    bytes = new TextEncoder().encode(text);
+    parsed = parseCsv(text, expectedHeader);
+  } else {
+    const { readSheet } = await import("read-excel-file/browser");
+    const cells = await readSheet(file, 1);
+    bytes = new Uint8Array(await file.arrayBuffer());
+    const errors: CsvParseError[] = [];
+    const text = cells
+      .map((row, index) =>
+        row
+          .map((value, column) => {
+            const key = expectedHeader[column] ?? "";
+            if (
+              index > 0 &&
+              (typeof value === "number" || typeof value === "boolean") &&
+              /code|reference|barcode|^key$|_at$|date/.test(key)
+            )
+              errors.push({
+                rowNumber: index + 1,
+                code: "text_required",
+                message: `Store ${key.replaceAll("_", " ")} as text to keep its exact value.`,
+              });
+            let text = String(value ?? "");
+            if (value instanceof Date) {
+              const iso = Number.isFinite(value.getTime())
+                ? value.toISOString()
+                : "";
+              if (
+                !/(date|_at)$/.test(key) ||
+                iso.slice(11, 23) !== "00:00:00.000"
+              )
+                errors.push({
+                  rowNumber: index + 1,
+                  code: "ambiguous_date",
+                  message: "Use text or a date-only Excel cell.",
+                });
+              text = iso.slice(0, 10);
+            }
+            return `"${text.replaceAll('"', '""')}"`;
+          })
+          .join(","),
+      )
+      .join("\n");
+    parsed = parseCsv(text, expectedHeader);
+    parsed.errors.push(...errors);
+  }
+  if (
+    parsed.header.join(",") !== expectedHeader.join(",") ||
+    parsed.header.length !== expectedHeader.length
+  )
+    parsed.errors.unshift({
+      rowNumber: 1,
+      code: "invalid_format",
+      message:
+        "Columns must exactly match the downloaded template, in the same order.",
+    });
+  if (!parsed.rows.length || parsed.rows.length > 5000)
+    parsed.errors.push({
+      rowNumber: 1,
+      code: "too_many_rows",
+      message: "Choose a file with 1–5,000 rows.",
+    });
+  const digest = await crypto.subtle.digest("SHA-256", bytes as BufferSource);
+  const fileHash = Array.from(new Uint8Array(digest), (b) =>
+    b.toString(16).padStart(2, "0"),
+  ).join("");
+  return { ...parsed, fileHash };
+}

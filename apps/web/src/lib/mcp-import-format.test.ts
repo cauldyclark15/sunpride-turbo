@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { MCP_HEADERS as SERVER } from "../../../../packages/backend/convex/imports/mcp";
+import { parseImportFile } from "./csv";
+import { HEADERS } from "../../../api/src/domains/imports/format.js";
+const SERVER = {
+  mcp_visits: HEADERS.mcp_visits,
+  route_sheet: HEADERS.route_sheet,
+};
 import { MCP_HEADERS, parseMcpFile, sheetToMcpRows } from "./mcp-import-format";
 
 const columns = MCP_HEADERS.mcp_visits.split(",");
@@ -88,5 +93,9 @@ describe("MCP spreadsheet format", () => {
       sequence: "1",
     });
     expect(parsed.interpretation).toContain("first sheet");
+    const unified = await parseImportFile(file, columns);
+    expect(unified.errors).toEqual([]);
+    expect(unified.rows).toEqual(parsed.rows);
+    expect(unified.fileHash).toBe(parsed.fileHash);
   });
 });
