@@ -206,6 +206,83 @@ describe("single transactional posting authority", () => {
       code: "out_of_scope",
     });
   });
+  it("lot-tracked van damage: an in-place available → damaged change allocates and keeps the lot; two lines via outside cannot", async () => {
+    const p = await product({ tracked: true });
+    await receipt(p, 10, {
+      lotNumber: "VAN-DMG",
+      expiresAt: Date.now() + 60 * 86400000,
+    });
+    const line = {
+      productId: p.id,
+      fromLocationId: depot,
+      toLocationId: depot,
+      quantityBase: 2,
+      uom: "PC",
+    };
+    // The old van shape: the inward "damaged" line has no source, so no lot can be chosen.
+    await expect(
+      movement({
+        ...input(p, 2),
+        kind: "status_change",
+        lines: [
+          { ...line, toLocationId: null, stockStatus: "available" },
+          { ...line, fromLocationId: null, stockStatus: "damaged" },
+        ],
+      }),
+    ).rejects.toThrow("Select a lot for this movement");
+    const done = await movement({
+      ...input(p, 2),
+      kind: "status_change",
+      lines: [
+        { ...line, fromStockStatus: "available", toStockStatus: "damaged" },
+      ],
+    });
+    expect(done.duplicate).toBe(false);
+    const rows =
+      await h.db`select l.lot_number,b.stock_status,b.physical_base from inventory_lot_balances b join inventory_lots l on l.id=b.lot_id where b.product_id=${p.id} order by b.stock_status`;
+    expect(
+      rows.map((/** @type {any} */ r) => [
+        r.lot_number,
+        r.stock_status,
+        Number(r.physical_base),
+      ]),
+    ).toEqual([
+      ["VAN-DMG", "available", 8],
+      ["VAN-DMG", "damaged", 2],
+    ]);
+  });
+  it("a domain-vouched location skips only the actor's own scope gate (van seller loading from an area depot)", async () => {
+    const p = await product(),
+      seller = await person("sales"),
+      root = await person("super_admin");
+    await movement(input(p, 10, null, foreign, { actor: root }));
+    const load = input(p, 4, foreign, truck, { actor: seller });
+    await expect(movement(load)).rejects.toMatchObject({
+      code: "out_of_scope",
+    });
+    const posted = await movement({
+      ...load,
+      idempotencyKey: crypto.randomUUID(),
+      authorizedLocations: [foreign, truck],
+    });
+    expect(posted.duplicate).toBe(false);
+    const [b] =
+      await h.db`select physical_base from inventory_balances where product_id=${p.id} and location_id=${foreign}`;
+    expect(Number(b.physical_base)).toBe(6);
+    // Vouching for the truck alone still gates the foreign depot line.
+    await expect(
+      movement({
+        ...input(p, 1, foreign, truck, { actor: seller }),
+        authorizedLocations: [truck],
+      }),
+    ).rejects.toMatchObject({ code: "out_of_scope" });
+    await expect(
+      movement({
+        ...input(p, 1, foreign, truck, { actor: seller }),
+        authorizedLocations: ["not-a-uuid"],
+      }),
+    ).rejects.toThrow("Location must be a UUID");
+  });
   it("ledger sums equal each balance quantity, reserved amount and value across 25 randomized sequences", async () => {
     let seed = 0x713913;
     const rand = () => {

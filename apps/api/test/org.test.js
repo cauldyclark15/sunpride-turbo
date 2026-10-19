@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { startHarness } from "./harness.js";
+import { startHarness, deviceKey } from "./harness.js";
 import { install } from "../src/domains/org/index.js";
 import { identityHooks } from "../src/domains/org/identity.js";
 import {
@@ -815,6 +815,52 @@ describe("setup queues, enrollment and current-scope history", () => {
     ).toBe(false);
     const after = await identityHooks(h.env).loadProfile(h.db, manager.userId);
     expect(after?.scopeEpoch).not.toBe(before?.scopeEpoch);
+  });
+  test("admin registers a scoped P-256 phone without binding or leaking its key", async () => {
+    const key = await deviceKey();
+    const body = {
+      profileId: sales.profileId,
+      app: "van-android",
+      inventoryTag: "V2-PROOF",
+      publicKeySpki: key.publicKeySpki,
+    };
+    expect((await call("people/devices/register", sales, body)).status).toBe(
+      403,
+    );
+    expect((await call("people/devices/register", other, body)).status).toBe(
+      403,
+    );
+    expect(
+      (
+        await call("people/devices/register", admin, {
+          ...body,
+          publicKeySpki: "bad-key",
+        })
+      ).status,
+    ).toBe(422);
+    const created = await call(
+      "people/devices/register",
+      admin,
+      body,
+      "register-proof",
+    );
+    expect(created.status).toBe(200);
+    expect(
+      (await call("people/devices/register", admin, body, "register-proof"))
+        .body,
+    ).toEqual(created.body);
+    const [stored] =
+      await h.db`select * from registered_devices where id=${created.body.deviceId}`;
+    expect(stored.profile_id).toBe(sales.profileId);
+    expect(stored.key_id).toBe(key.keyId);
+    expect(stored.bound_subject).toBeNull();
+    expect(stored.credential_id).toBeNull();
+    expect((await call("people/devices/register", admin, body)).status).toBe(
+      422,
+    );
+    const [audit] =
+      await h.db`select details from audit_logs where action='people.devices.register' order by created_at desc limit 1`;
+    expect(JSON.stringify(audit.details)).not.toContain(key.publicKeySpki);
   });
   test("device administration has legal transitions, private-key fields stay out of lists and foreign scope is denied", async () => {
     const [d] =

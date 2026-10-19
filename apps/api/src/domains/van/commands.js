@@ -17,7 +17,7 @@ import {
   explainStock,
   assertNotCounted,
 } from "./facts.js";
-import { finishLoad, movement } from "./operations.js";
+import { finishLoad, movement, statusLine } from "./operations.js";
 import {
   issueApproval,
   approvalCodeFor,
@@ -276,22 +276,13 @@ export async function decideDamage(db, actor, p) {
       "reversal",
       record.id,
       [
-        {
-          productId: record.product_id,
-          fromLocationId: trip.truck_location_id,
-          toLocationId: null,
-          quantityBase: qty,
-          uom: record.uom_code,
-          stockStatus: "damaged",
-        },
-        {
-          productId: record.product_id,
-          fromLocationId: null,
-          toLocationId: trip.truck_location_id,
-          quantityBase: qty,
-          uom: record.uom_code,
-          stockStatus: "available",
-        },
+        statusLine(
+          trip,
+          { productId: record.product_id, uomCode: record.uom_code },
+          qty,
+          "damaged",
+          "available",
+        ),
       ],
       `damage-reversal:${record.id}`,
     );

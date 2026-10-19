@@ -28,6 +28,16 @@ mock.module("../src/domains/inventory/posting.js", () => ({
     values(${id},${input.organizationId},${id},${input.kind},${input.sourceType},${input.sourceId},'posted',now(),now(),${input.actor.userId},${input.idempotencyKey},1)`;
     // This is the mocked INVENTORY authority, not a production van balance writer.
     for (const line of input.lines) {
+      if (
+        line.fromLocationId === truck &&
+        line.toLocationId === truck &&
+        line.fromStockStatus !== line.toStockStatus
+      ) {
+        const signed = (/** @type {string} */ s) =>
+          s === "damaged" ? line.quantityBase : -line.quantityBase;
+        await db`update inventory_balances set damaged_base=coalesce(damaged_base,0)+${signed(line.toStockStatus)},available_base=coalesce(available_base,0)-${signed(line.toStockStatus)} where product_id=${line.productId} and location_id=${truck}`;
+        continue;
+      }
       const delta =
         (line.toLocationId === truck ? line.quantityBase : 0) -
         (line.fromLocationId === truck ? line.quantityBase : 0);
@@ -276,6 +286,8 @@ test("load confirmation posts actual depot → truck lines exactly once", async 
   const a = await apply(operation),
     length = postings.length;
   expect(postings.at(-1).kind).toBe("van_load");
+  // A territory seller loads from an area depot: the trip vouches for exactly its two locations.
+  expect(postings.at(-1).authorizedLocations).toEqual([depot, truck]);
   expect(postings.at(-1).lines).toEqual([
     {
       productId: product,
@@ -695,23 +707,16 @@ test("damage consumes own trip-bound JPEG, transfers statuses, and independent r
       photoSha256: digest,
     }),
   );
+  // One in-place status change so lot-tracked stock keeps its lots.
   expect(postings.at(-1).lines).toEqual([
     {
       productId: product,
       fromLocationId: truck,
-      toLocationId: null,
-      quantityBase: 12,
-      uom: "PC",
-      stockStatus: "available",
-      lotId: null,
-    },
-    {
-      productId: product,
-      fromLocationId: null,
       toLocationId: truck,
       quantityBase: 12,
       uom: "PC",
-      stockStatus: "damaged",
+      fromStockStatus: "available",
+      toStockStatus: "damaged",
       lotId: null,
     },
   ]);
@@ -730,6 +735,18 @@ test("damage consumes own trip-bound JPEG, transfers statuses, and independent r
   });
   expect(rejected.status).toBe(200);
   expect(postings.at(-1).kind).toBe("reversal");
+  expect(postings.at(-1).lines).toEqual([
+    {
+      productId: product,
+      fromLocationId: truck,
+      toLocationId: truck,
+      quantityBase: 12,
+      uom: "PC",
+      fromStockStatus: "damaged",
+      toStockStatus: "available",
+      lotId: null,
+    },
+  ]);
   const again = await push([
     op("truck.damage", {
       tripId: trip.tripId,

@@ -73,10 +73,27 @@ export async function movement(db, trip, actor, kind, id, lines, key) {
     occurredAt: Date.now(),
     actor: { profileId: actor.profileId, userId: actor.userId },
     organizationId: trip.organization_id,
+    // The trip's depot and truck were scope-checked when the office planned it; a territory
+    // seller is not in scope for an area depot, but may move stock between exactly these two.
+    authorizedLocations: [
+      trip.source_location_id,
+      trip.truck_location_id,
+    ].filter(Boolean),
     lines: nonzero,
   });
   return result.movementId;
 }
+/** In-place truck status change; posting allocates the source lots and keeps them. @param {any} trip @param {any} l @param {bigint} quantity @param {string} from @param {string} to */
+export const statusLine = (trip, l, quantity, from, to) => ({
+  productId: l.productId,
+  fromLocationId: trip.truck_location_id,
+  toLocationId: trip.truck_location_id,
+  quantityBase: quantity,
+  uom: l.uomCode ?? l.facts?.uomCode ?? "PC",
+  fromStockStatus: from,
+  toStockStatus: to,
+  lotId: l.lotId ?? null,
+});
 /** @param {any} trip @param {any} l @param {bigint} quantity @param {boolean} inward @param {string} [status] */
 const stockLine = (trip, l, quantity, inward, status = "available") => ({
   productId: l.productId,
@@ -266,10 +283,9 @@ async function dispatchOperation(ctx, env) {
         actor,
         "status_change",
         id,
-        [
-          stockLine(trip, facts, qty, false),
-          stockLine(trip, facts, qty, true, "damaged"),
-        ],
+        // One in-place status change keeps the same lots: available → damaged on the truck.
+        // (Two lines via "outside" left the inward line without a lot for lot-tracked stock.)
+        [statusLine(trip, facts, qty, "available", "damaged")],
         op.clientOpId,
       );
       await db`insert into van_damage_records(id,organization_id,trip_id,org_unit_id,truck_location_id,product_id,product_code,uom_code,quantity_scale,quantity_base,reason,note,photo_id,needs_approval,status,recorded_by,recorded_profile_id,device_id,client_request_id,recorded_at,movement_id)
