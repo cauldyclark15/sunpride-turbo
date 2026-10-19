@@ -12,14 +12,13 @@
  *   bun scripts/issues.ts comment SP-0012 "Fixed in abc123"
  *   bun scripts/issues.ts close SP-0012 [--comment "..."]                              (Ready for retest; --done for Done)
  *
- * Every write is attributed to --actor (default "Agent"). Calls the internal functions in
- * packages/backend/convex/issues/agent.ts through `bunx convex run`, so it uses the
- * deployment configured in packages/backend/.env.local (DEV) and its admin access.
+ * Every write is attributed to --actor (default "Agent"). Calls the v2 HTTP API.
+ * SUNPRIDE_API_URL defaults to http://127.0.0.1:4310. The optional bearer is read
+ * from ~/.sunpride-keys/v2-issues-token; no Convex configuration is used.
  */
-import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
 
 const STATUSES = [
   "draft",
@@ -41,12 +40,10 @@ const STATUS_LABELS: Record<string, string> = {
 };
 const BOOLEAN_FLAGS = new Set(["archived", "json", "done"]);
 
-const backendDir = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  "packages",
-  "backend",
-);
+const apiBase = (
+  process.env.SUNPRIDE_API_URL ?? "http://127.0.0.1:4310"
+).replace(/\/$/, "");
+const tokenFile = join(homedir(), ".sunpride-keys", "v2-issues-token");
 
 type Flags = Record<string, string | true>;
 
@@ -109,23 +106,40 @@ function compact<T extends Record<string, unknown>>(value: T) {
   );
 }
 
-function run(fn: string, args: Record<string, unknown>) {
-  const result = spawnSync(
-    "bunx",
-    [
-      "convex",
-      "run",
-      `issues/agent:${fn}`,
-      JSON.stringify(compact(args)),
-      "--codegen",
-      "disable",
-    ],
-    { cwd: backendDir, encoding: "utf8" },
-  );
-  if (result.status !== 0)
-    fail((result.stderr || result.stdout || `convex run ${fn} failed`).trim());
-  const output = result.stdout.trim();
-  return output ? (JSON.parse(output) as unknown) : null;
+async function run(fn: string, args: Record<string, unknown>) {
+  const read = fn === "list" || fn === "get";
+  const url = new URL(`${apiBase}/api/v1/issues/agent/${fn}`);
+  const data = compact(args);
+  if (read)
+    for (const [key, value] of Object.entries(data))
+      url.searchParams.set(key, String(value));
+  const token = existsSync(tokenFile)
+    ? readFileSync(tokenFile, "utf8").trim()
+    : "";
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+  if (token) headers.authorization = `Bearer ${token}`;
+  if (!read) headers["idempotency-key"] = crypto.randomUUID();
+  try {
+    const res = await fetch(url, {
+      method: read ? "GET" : "POST",
+      headers,
+      ...(!read ? { body: JSON.stringify(data) } : {}),
+    });
+    const result = (await res.json()) as {
+      error?: { message?: string; code?: string };
+    };
+    if (!res.ok)
+      fail(
+        result.error?.message ??
+          result.error?.code ??
+          `API returned ${res.status}`,
+      );
+    return result as unknown;
+  } catch (error) {
+    fail(error instanceof Error ? error.message : "API request failed");
+  }
 }
 
 type Card = {
@@ -162,7 +176,7 @@ const actor = text(flags, "actor");
 switch (command) {
   case "list": {
     const limit = text(flags, "limit");
-    const result = run("list", {
+    const result = (await run("list", {
       status: status(text(flags, "status")),
       area: text(flags, "area"),
       milestone: text(flags, "milestone"),
@@ -170,14 +184,14 @@ switch (command) {
       search: text(flags, "search"),
       archived: flags.archived === true ? true : undefined,
       limit: limit ? Number(limit) : undefined,
-    }) as { issues: Card[]; truncated: boolean };
+    })) as { issues: Card[]; truncated: boolean };
     if (flags.json) console.log(JSON.stringify(result, null, 2));
     else printList(result.issues, result.truncated);
     break;
   }
   case "get": {
     const ref = positional[0] ?? fail("Usage: get SP-0012");
-    const detail = run("get", { number: ref }) as {
+    const detail = (await run("get", { number: ref })) as {
       key: string;
       issue: Record<string, unknown> & { title: string; status: string };
       reporterName: string;
@@ -212,7 +226,7 @@ switch (command) {
     const title = text(flags, "title") ?? fail("--title is required");
     console.log(
       JSON.stringify(
-        run("create", {
+        await run("create", {
           title,
           description: text(flags, "description"),
           steps: text(flags, "steps"),
@@ -235,13 +249,26 @@ switch (command) {
     const issues = JSON.parse(readFileSync(file, "utf8")) as unknown;
     if (!Array.isArray(issues)) fail("The file must hold a JSON array");
     const results = [];
-    for (let start = 0; start < issues.length; start += 100)
+    for (let start = 0; start < issues.length;) {
+      const batch: unknown[] = [];
+      while (start < issues.length && batch.length < 100) {
+        const candidate = [...batch, issues[start]];
+        if (
+          Buffer.byteLength(
+            JSON.stringify(compact({ issues: candidate, actor })),
+            "utf8",
+          ) > 900_000
+        ) {
+          if (!batch.length)
+            fail("One issue exceeds the API request size limit");
+          break;
+        }
+        batch.push(issues[start++]);
+      }
       results.push(
-        ...(run("bulkCreate", {
-          issues: issues.slice(start, start + 100),
-          actor,
-        }) as unknown[]),
+        ...((await run("bulkCreate", { issues: batch, actor })) as unknown[]),
       );
+    }
     console.log(JSON.stringify(results, null, 2));
     break;
   }
@@ -261,7 +288,7 @@ switch (command) {
           : status(text(flags, "status"));
     console.log(
       JSON.stringify(
-        run("update", {
+        await run("update", {
           number: ref,
           status: nextStatus,
           priority: text(flags, "priority"),
@@ -281,7 +308,9 @@ switch (command) {
     const ref = positional[0];
     const body = positional[1] ?? text(flags, "body");
     if (!ref || !body) fail('Usage: comment SP-0012 "text"');
-    console.log(JSON.stringify(run("comment", { number: ref, body, actor })));
+    console.log(
+      JSON.stringify(await run("comment", { number: ref, body, actor })),
+    );
     break;
   }
   default:

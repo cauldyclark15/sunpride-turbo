@@ -1,10 +1,9 @@
 // Client-safe mirror of backend issue constants. The parity test prevents drift.
-import { ConvexError } from "convex/values";
+import { ApiError } from "./api/errors";
 
 /** The server's own message for a rejected mutation (e.g. "Unknown area"), else the fallback. */
 export function errorMessage(error: unknown, fallback: string): string {
-  if (error instanceof ConvexError && typeof error.data === "string")
-    return error.data;
+  if (error instanceof ApiError) return error.message;
   return fallback;
 }
 
@@ -159,6 +158,7 @@ export function absoluteTimestamp(value: number): string {
   return new Intl.DateTimeFormat("en-PH", {
     dateStyle: "medium",
     timeStyle: "short",
+    timeZone: "Asia/Manila",
   }).format(value);
 }
 export function formatFileSize(bytes: number): string {
@@ -202,6 +202,53 @@ export function activityText(event: {
     restored: "restored the issue",
   };
   return labels[event.kind] ?? event.kind.replaceAll("_", " ");
+}
+/** Export only a complete, authorized board response; caller refuses a truncated one. */
+export function issuesCsv(
+  issues: {
+    key: string;
+    title: string;
+    status: IssueStatus;
+    priority: IssuePriority;
+    area: string;
+    assigneeName?: string;
+    reporterName: string;
+    milestone?: string;
+    externalRef?: string;
+  }[],
+): string {
+  const cell = (value: unknown) => {
+    const s = String(value ?? "");
+    const safe = /^[\s]*[=+@-]/.test(s) ? `'${s}` : s;
+    return `"${safe.replaceAll('"', '""')}"`;
+  };
+  const rows = [
+    [
+      "Issue",
+      "Title",
+      "Status",
+      "Priority",
+      "Area",
+      "Assignee",
+      "Reporter",
+      "Milestone",
+      "Reference",
+    ],
+    ...issues.map((i) => [
+      i.key,
+      i.title,
+      ISSUE_STATUS_LABELS[i.status],
+      i.priority,
+      i.area,
+      i.assigneeName ?? "Unassigned",
+      i.reporterName,
+      i.milestone,
+      i.externalRef,
+    ]),
+  ];
+  return (
+    "\uFEFF" + rows.map((row) => row.map(cell).join(",")).join("\r\n") + "\r\n"
+  );
 }
 /** before = card above; after = card below, per the backend move contract. */
 export function dropNeighbors<T extends { _id: string }>(

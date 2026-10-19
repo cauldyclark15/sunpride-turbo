@@ -1,8 +1,6 @@
 import React, { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { getFunctionName } from "convex/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Id } from "@sunpride/backend/data-model";
 import { IssuesPage } from "./issues-page";
 import { IssuesBoard } from "./issues-board";
 import { IssuesList } from "./issues-list";
@@ -14,6 +12,9 @@ import { ISSUE_STATUSES } from "../../lib/issues";
 import type { IssueCard, IssueDetail } from "./issue-access";
 const state = vi.hoisted(() => ({
   values: {} as Record<string, unknown>,
+  liveCalls: [] as { topics: unknown; keys: unknown }[],
+  readError: "",
+  requestKeys: [] as (string | undefined)[],
   queryCalls: [] as { name: string; args: unknown }[],
   mutations: [] as { name: string; args: unknown }[],
   buttons: [] as { label: string; onPress?: () => void }[],
@@ -31,21 +32,65 @@ const state = vi.hoisted(() => ({
   commentBody: "",
   files: [] as File[],
 }));
-vi.mock("convex/react", () => ({
-  useQuery: (ref: unknown, args: unknown) => {
-    const name = getFunctionName(ref as never);
-    state.queryCalls.push({ name, args });
-    return args === "skip" ? undefined : state.values[name];
-  },
-  useMutation: (ref: unknown) => async (args: unknown) => {
-    const name = getFunctionName(ref as never);
+vi.mock("../../lib/api", async (original) => {
+  const actual = await original<typeof import("../../lib/api")>();
+  const command = async (name: string, args: unknown) => {
     state.mutations.push({ name, args });
     if (name === state.reject) throw new Error("Rejected");
-    if (name === "issues/mutations:generateUploadUrl")
-      return "https://upload.example.com";
-    if (name === "issues/mutations:create")
+    if (name.endsWith("/uploads/claim"))
+      return {
+        uploadId: "storage-1",
+        uploadToken: "spu_test",
+        uploadUrl: "https://upload.example.com",
+        chunkUrl: "/chunks",
+        chunkBytes: 8 * 1024 * 1024,
+        expiresAt: Date.now() + 10000,
+      };
+    if (name.endsWith("/create"))
       return { issueId: "issue-1", number: 42, key: "SP-0042" };
     return {};
+  };
+  return {
+    ...actual,
+    useApi: (key: unknown[] | null) => {
+      const name = key ? `/api/v1/issues/${key[1]}` : "skipped";
+      state.queryCalls.push({ name, args: key ? key[2] : null });
+      return {
+        data: key ? state.values[name] : undefined,
+        error:
+          state.readError === name
+            ? new actual.ApiError({
+                code: "network_error",
+                message: "Connection lost",
+              })
+            : null,
+      };
+    },
+    useLive: (topics: unknown, keys: unknown) => {
+      state.liveCalls.push({ topics, keys });
+    },
+    mutate: (
+      name: string,
+      args: unknown,
+      options: { idempotencyKey?: string },
+    ) => {
+      state.requestKeys.push(options.idempotencyKey);
+      return command(name, args);
+    },
+    apiFetch: (name: string, options: { body: unknown }) =>
+      command(name, options.body),
+  };
+});
+vi.mock("../../lib/auth", () => ({
+  useSession: () => {
+    const profile = state.values["/api/me"] as
+      { status: string; role: string } | null | undefined;
+    return {
+      profile: profile
+        ? { ...profile, active: profile.status === "active" }
+        : null,
+      status: profile === undefined ? "loading" : "authenticated",
+    };
   },
 }));
 vi.mock("next/navigation", () => ({
@@ -231,19 +276,10 @@ vi.mock("@sunpride/ui", () => ({
       ),
     ),
 }));
-const id = <
-  T extends
-    | "issues"
-    | "profiles"
-    | "issueAttachments"
-    | "issueComments"
-    | "issueActivity",
->(
-  value: string,
-) => value as Id<T>;
+const id = (value: string) => value;
 const timestamp = Date.UTC(2026, 9, 2, 12);
 const card: IssueCard = {
-  _id: id<"issues">("issue-1"),
+  _id: id("issue-1"),
   number: 1,
   key: "SP-0001",
   title: "Order total is incorrect",
@@ -266,7 +302,7 @@ const card: IssueCard = {
 };
 const attachments: IssueDetail["comments"][number]["attachments"] = [
   {
-    _id: id<"issueAttachments">("image"),
+    _id: id("image"),
     fileName: "evidence.png",
     fileType: "image/png",
     fileSize: 2048,
@@ -274,7 +310,7 @@ const attachments: IssueDetail["comments"][number]["attachments"] = [
     url: "https://example.com/evidence.png",
   },
   {
-    _id: id<"issueAttachments">("video"),
+    _id: id("video"),
     fileName: "recording.mp4",
     fileType: "video/mp4",
     fileSize: 4096,
@@ -282,7 +318,7 @@ const attachments: IssueDetail["comments"][number]["attachments"] = [
     url: "https://example.com/recording.mp4",
   },
   {
-    _id: id<"issueAttachments">("document"),
+    _id: id("document"),
     fileName: "steps.pdf",
     fileType: "application/pdf",
     fileSize: 1024,
@@ -293,7 +329,6 @@ const attachments: IssueDetail["comments"][number]["attachments"] = [
 const detail: IssueDetail = {
   issue: {
     _id: card._id,
-    _creationTime: timestamp,
     number: 1,
     title: card.title,
     description: "Incorrect total after checkout",
@@ -304,12 +339,11 @@ const detail: IssueDetail = {
     priority: "high",
     status: "draft",
     order: 1024,
-    searchText: "order",
     archived: false,
     milestone: "Launch",
     externalRef: "SOP-004",
-    assigneeId: id<"profiles">("ben"),
-    reporterId: id<"profiles">("ana"),
+    assigneeId: id("ben"),
+    reporterId: id("ana"),
     commentCount: 1,
     attachmentCount: 3,
     createdAt: timestamp,
@@ -320,7 +354,7 @@ const detail: IssueDetail = {
   assigneeName: "Ben",
   comments: [
     {
-      _id: id<"issueComments">("comment-1"),
+      _id: id("comment-1"),
       authorName: "Ben",
       authorId: undefined,
       updatedAt: undefined,
@@ -333,7 +367,7 @@ const detail: IssueDetail = {
   ],
   activity: [
     {
-      _id: id<"issueActivity">("event-1"),
+      _id: id("event-1"),
       kind: "status_changed",
       actorName: "Ben",
       fromStatus: "draft",
@@ -343,7 +377,7 @@ const detail: IssueDetail = {
       createdAt: timestamp,
     },
     {
-      _id: id<"issueActivity">("event-2"),
+      _id: id("event-2"),
       kind: "updated",
       actorName: "Ana",
       fromStatus: undefined,
@@ -362,24 +396,27 @@ function render(node: React.ReactNode) {
 }
 beforeEach(() => {
   state.values = {
-    "domains/profiles:current": { status: "active", role: "admin" },
-    "issues/queries:access": {
+    "/api/me": { status: "active", role: "admin" },
+    "/api/v1/issues/access": {
       canRead: true,
       canWrite: true,
       canTriage: true,
       canManage: true,
       maxVideoBytes: 75 * 1024 * 1024,
     },
-    "issues/queries:board": {
+    "/api/v1/issues/board": {
       issues: [card],
       counts,
       milestones: ["Launch"],
       truncated: false,
     },
-    "issues/queries:assignees": [{ _id: "ben", name: "Ben", role: "admin" }],
-    "issues/queries:detail": detail,
+    "/api/v1/issues/assignees": [{ _id: "ben", name: "Ben", role: "admin" }],
+    "/api/v1/issues/detail": detail,
   };
   state.queryCalls = [];
+  state.liveCalls = [];
+  state.readError = "";
+  state.requestKeys = [];
   state.mutations = [];
   state.buttons = [];
   state.elements = [];
@@ -427,7 +464,7 @@ describe("issue board and list", () => {
         issues={[
           {
             ...card,
-            _id: id<"issues">("issue-2"),
+            _id: id("issue-2"),
             title: "Second",
             order: 2048,
           },
@@ -444,7 +481,7 @@ describe("issue board and list", () => {
   it("renders 25 rows and the shared Pager", () => {
     const rows = Array.from({ length: 26 }, (_, index) => ({
       ...card,
-      _id: id<"issues">(`issue-${index}`),
+      _id: id(`issue-${index}`),
       title: `Row ${index}`,
       number: index + 1,
     }));
@@ -491,7 +528,7 @@ describe("issue board and list", () => {
     expect(html).toContain("Issue list");
     expect(html).not.toContain("Issue board");
     expect(
-      state.queryCalls.find((call) => call.name === "issues/queries:board")
+      state.queryCalls.find((call) => call.name === "/api/v1/issues/board")
         ?.args,
     ).toEqual({
       archived: true,
@@ -504,13 +541,13 @@ describe("issue board and list", () => {
     });
   });
   it("notices truncated results and hides the create action for readers", () => {
-    state.values["issues/queries:board"] = {
+    state.values["/api/v1/issues/board"] = {
       issues: [card],
       counts,
       milestones: [],
       truncated: true,
     };
-    state.values["issues/queries:access"] = {
+    state.values["/api/v1/issues/access"] = {
       canRead: true,
       canWrite: false,
       canManage: false,
@@ -560,7 +597,7 @@ describe("create issue", () => {
       preventDefault: vi.fn(),
     });
     expect(
-      state.mutations.find((call) => call.name === "issues/mutations:create")
+      state.mutations.find((call) => call.name === "/api/v1/issues/create")
         ?.args,
     ).toMatchObject({
       title: "Checkout total",
@@ -574,7 +611,7 @@ describe("create issue", () => {
     expect(state.pushes).toEqual(["/issues/42"]);
   });
   it("prefills the reporting page and hides the assignee for testers", async () => {
-    state.values["issues/queries:access"] = {
+    state.values["/api/v1/issues/access"] = {
       canRead: true,
       canWrite: true,
       canTriage: false,
@@ -592,7 +629,7 @@ describe("create issue", () => {
         .onSubmit as (event: unknown) => Promise<void>
     )({ preventDefault: vi.fn() });
     const args = state.mutations.find(
-      (call) => call.name === "issues/mutations:create",
+      (call) => call.name === "/api/v1/issues/create",
     )?.args as Record<string, unknown>;
     expect(args.title).toBe("Stock looks wrong");
     expect(args.assigneeId).toBeUndefined();
@@ -604,7 +641,7 @@ describe("create issue", () => {
   });
   it("does not navigate on mutation failure", async () => {
     state.fields = { title: "Checkout" };
-    state.reject = "issues/mutations:create";
+    state.reject = "/api/v1/issues/create";
     render(<IssueCreatePage />);
     await (
       state.elements.find((element) => element.type === "form")!.props
@@ -653,7 +690,7 @@ describe("issue detail", () => {
       "No activity yet",
     ));
   it("hides mutation controls, composer and attachment removal without write access", () => {
-    state.values["issues/queries:access"] = {
+    state.values["/api/v1/issues/access"] = {
       canRead: true,
       canWrite: false,
       canManage: false,
@@ -676,11 +713,11 @@ describe("issue detail", () => {
     expect(html).toContain("Backlog");
   });
   it("lets a beta tester comment and attach but not triage", () => {
-    state.values["domains/profiles:current"] = {
+    state.values["/api/me"] = {
       status: "active",
       role: "sales",
     };
-    state.values["issues/queries:access"] = {
+    state.values["/api/v1/issues/access"] = {
       canRead: true,
       canWrite: true,
       canTriage: false,
@@ -702,7 +739,7 @@ describe("issue detail", () => {
     expect(html).toContain("Backlog");
   });
   it("makes archived issues read-only and offers Restore to managers", () => {
-    state.values["issues/queries:detail"] = {
+    state.values["/api/v1/issues/detail"] = {
       ...detail,
       issue: { ...detail.issue, archived: true },
     };
@@ -712,11 +749,11 @@ describe("issue detail", () => {
     expect(html).not.toContain("Add a comment");
   });
   it("renders the not-found and loading states", () => {
-    state.values["issues/queries:detail"] = null;
+    state.values["/api/v1/issues/detail"] = null;
     expect(render(<IssueDetailPage number="bad" />)).toContain(
       "Issue not found",
     );
-    state.values["issues/queries:detail"] = undefined;
+    state.values["/api/v1/issues/detail"] = undefined;
     expect(render(<IssueDetailPage number="1" />)).toContain("Loading issue");
   });
   it("updates status, area, priority and clears the assignee using the correct contracts", async () => {
@@ -733,22 +770,23 @@ describe("issue detail", () => {
       await (control.props.onChange as (event: unknown) => Promise<void>)({
         target: { value },
       });
+      await flush();
     }
     expect(state.mutations).toEqual([
       {
-        name: "issues/mutations:move",
+        name: "/api/v1/issues/move",
         args: { issueId: "issue-1", status: "ongoing_test" },
       },
       {
-        name: "issues/mutations:update",
+        name: "/api/v1/issues/update",
         args: { issueId: "issue-1", area: "Home" },
       },
       {
-        name: "issues/mutations:update",
+        name: "/api/v1/issues/update",
         args: { issueId: "issue-1", priority: "critical" },
       },
       {
-        name: "issues/mutations:update",
+        name: "/api/v1/issues/update",
         args: { issueId: "issue-1", assigneeId: null },
       },
     ]);
@@ -761,19 +799,19 @@ describe("issue detail", () => {
     expect(html).not.toContain("href=");
   });
 });
+const flush = () => new Promise((resolve) => setImmediate(resolve));
+function event(value: string) {
+  return { preventDefault: vi.fn(), target: { value } };
+}
 describe("interaction contracts", () => {
-  const flush = () => new Promise((resolve) => setImmediate(resolve));
   function button(label: string) {
     return state.buttons.find((item) => item.label === label)!;
-  }
-  function event(value: string) {
-    return { preventDefault: vi.fn(), target: { value } };
   }
   it("paginates to the remaining rows", () => {
     state.page = 2;
     const rows = Array.from({ length: 26 }, (_, index) => ({
       ...card,
-      _id: id<"issues">(`issue-${index}`),
+      _id: id(`issue-${index}`),
       title: `Row ${index}`,
     }));
     const html = render(<IssuesList issues={rows} />);
@@ -785,7 +823,7 @@ describe("interaction contracts", () => {
     const onMove = vi.fn().mockResolvedValue(undefined);
     const destination = {
       ...card,
-      _id: id<"issues">("destination"),
+      _id: id("destination"),
       status: "ongoing_test" as const,
     };
     render(
@@ -828,13 +866,13 @@ describe("interaction contracts", () => {
       await flush();
     }
     expect(state.mutations).toEqual([
-      { name: "issues/mutations:archive", args: { issueId: "issue-1" } },
+      { name: "/api/v1/issues/archive", args: { issueId: "issue-1" } },
       {
-        name: "issues/mutations:deleteComment",
+        name: "/api/v1/issues/deleteComment",
         args: { commentId: "comment-1" },
       },
       {
-        name: "issues/mutations:removeAttachment",
+        name: "/api/v1/issues/removeAttachment",
         args: { attachmentId: "image" },
       },
     ]);
@@ -848,7 +886,7 @@ describe("interaction contracts", () => {
   });
   it("restores archived issues", async () => {
     vi.stubGlobal("window", { confirm: () => true });
-    state.values["issues/queries:detail"] = {
+    state.values["/api/v1/issues/detail"] = {
       ...detail,
       issue: { ...detail.issue, archived: true },
     };
@@ -856,7 +894,7 @@ describe("interaction contracts", () => {
     button("Restore issue").onPress!();
     await flush();
     expect(state.mutations).toEqual([
-      { name: "issues/mutations:restore", args: { issueId: "issue-1" } },
+      { name: "/api/v1/issues/restore", args: { issueId: "issue-1" } },
     ]);
   });
   it("posts a comment with the issue ID", async () => {
@@ -867,7 +905,7 @@ describe("interaction contracts", () => {
     await flush();
     expect(state.mutations).toEqual([
       {
-        name: "issues/mutations:addComment",
+        name: "/api/v1/issues/addComment",
         args: {
           issueId: "issue-1",
           body: "Retested successfully",
@@ -888,7 +926,7 @@ describe("interaction contracts", () => {
     await flush();
     expect(state.mutations).toEqual([
       {
-        name: "issues/mutations:updateComment",
+        name: "/api/v1/issues/updateComment",
         args: { commentId: "comment-1", body: "Retest passed" },
       },
     ]);
@@ -902,15 +940,15 @@ describe("interaction contracts", () => {
       "fetch",
       vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ storageId: "storage-1" }),
+        json: async () => ({ blobId: "storage-1", status: "stored" }),
       }),
     );
     render(<IssueCreatePage />);
     const form = state.elements.find((element) => element.type === "form")!;
     await (form.props.onSubmit as (event: unknown) => Promise<void>)(event(""));
     expect(state.mutations.map((call) => call.name)).toEqual([
-      "issues/mutations:generateUploadUrl",
-      "issues/mutations:create",
+      "/api/v1/issues/uploads/claim",
+      "/api/v1/issues/create",
     ]);
     expect(state.mutations[1]!.args).toMatchObject({
       uploads: [{ storageId: "storage-1", fileName: "evidence.png" }],
@@ -935,7 +973,7 @@ describe("interaction contracts", () => {
     await flush();
     expect(state.mutations).toEqual([
       {
-        name: "issues/mutations:update",
+        name: "/api/v1/issues/update",
         args: {
           issueId: "issue-1",
           title: "Fixed title",
@@ -955,21 +993,17 @@ describe("access boundaries", () => {
     "skips issue queries for disallowed roles",
     (Component) => {
       // Beta: every app role reads issues; an unknown role still gets nothing.
-      state.values["domains/profiles:current"] = {
+      state.values["/api/me"] = {
         role: "contractor",
         status: "active",
       };
       const html = render(<Component />);
       expect(html).toContain("No access");
-      expect(
-        state.queryCalls
-          .filter((call) => call.name.startsWith("issues/"))
-          .every((call) => call.args === "skip"),
-      ).toBe(true);
+      expect(state.queryCalls.every((call) => call.args === null)).toBe(true);
     },
   );
   it("skips data queries when backend denies read access", () => {
-    state.values["issues/queries:access"] = {
+    state.values["/api/v1/issues/access"] = {
       canRead: false,
       canWrite: false,
       canManage: false,
@@ -977,30 +1011,153 @@ describe("access boundaries", () => {
     };
     expect(render(<IssuesPage />)).toContain("No access");
     expect(
-      state.queryCalls.find((call) => call.name === "issues/queries:board")
+      state.queryCalls.find((call) => call.name === "/api/v1/issues/board")
         ?.args,
-    ).toBe("skip");
+    ).toBeUndefined();
   });
   it("skips issue queries for inactive profiles", () => {
-    state.values["domains/profiles:current"] = {
+    state.values["/api/me"] = {
       role: "admin",
       status: "inactive",
     };
     expect(render(<IssuesPage />)).toContain("No access");
-    expect(
-      state.queryCalls
-        .filter((call) => call.name.startsWith("issues/"))
-        .every((call) => call.args === "skip"),
-    ).toBe(true);
+    expect(state.queryCalls.every((call) => call.args === null)).toBe(true);
   });
   it("denies create for read-only accounts", () => {
-    state.values["issues/queries:access"] = {
+    state.values["/api/v1/issues/access"] = {
       canRead: true,
       canWrite: false,
       canManage: false,
       maxVideoBytes: 1,
     };
     expect(render(<IssueCreatePage />)).toContain("No access");
+  });
+});
+describe("v2 issue data flow", () => {
+  it("subscribes the board and selected issue to invalidations of every issue cache", () => {
+    render(<IssuesPage />);
+    expect(state.liveCalls).toContainEqual({
+      topics: ["issues"],
+      keys: [["issues"]],
+    });
+    render(<IssueDetailPage number="SP-0001" />);
+    expect(state.liveCalls).toContainEqual({
+      topics: ["issue:1"],
+      keys: [["issues"]],
+    });
+  });
+  it("shows read failures rather than an endless loading label", () => {
+    state.readError = "/api/v1/issues/board";
+    expect(render(<IssuesPage />)).toContain("Connection lost");
+    state.readError = "/api/v1/issues/detail";
+    expect(render(<IssueDetailPage number="1" />)).toContain("Connection lost");
+    state.readError = "/api/v1/issues/access";
+    expect(render(<IssuesPage />)).toContain("Connection lost");
+  });
+  it("explains missing restored bodies, comments and attachment bytes", () => {
+    state.values["/api/v1/issues/detail"] = {
+      ...detail,
+      issue: {
+        ...detail.issue,
+        backup: {
+          summaryOnly: true,
+          missingComments: 7,
+          missingAttachments: 2,
+        },
+      },
+    };
+    const html = render(<IssueDetailPage number="1" />);
+    expect(html).toContain("Original issue details were not included");
+    expect(html).toContain("7 earlier comments");
+    expect(html).toContain("2 attachments are missing");
+  });
+  it("reuses the same intent key after a failed create", async () => {
+    state.fields = { title: "Retry safely" };
+    state.reject = "/api/v1/issues/create";
+    render(<IssueCreatePage />);
+    const submit = state.elements.find((e) => e.type === "form")!.props
+      .onSubmit as (e: unknown) => Promise<void>;
+    await submit(event(""));
+    state.reject = "";
+    await submit(event(""));
+    expect(state.requestKeys).toHaveLength(2);
+    expect(state.requestKeys[0]).toBeTruthy();
+    expect(state.requestKeys[1]).toBe(state.requestKeys[0]);
+  });
+  it("shows actionable queue counts and labels the limited activity history", () => {
+    state.values["/api/v1/issues/board"] = {
+      issues: [card],
+      counts,
+      milestones: [],
+      total: 1,
+      truncated: false,
+      summary: {
+        open: 1,
+        urgent: 1,
+        unassigned: 1,
+        readyForRetest: 0,
+        completedThisWeek: 2,
+        completedPriorWeek: 1,
+      },
+      trend: [{ date: "2026-10-19", opened: 1, completed: 2 }],
+      historyNote: "v2 history only",
+    };
+    const html = render(<IssuesPage />);
+    expect(html).toContain("What is blocking the rollout?");
+    expect(html).toContain("Goal: no urgent blockers");
+    expect(html).toContain("Moves to Done recorded: 2");
+    expect(html).toContain("v2 history only");
+    expect(html).toContain("Open without an owner");
+    state.buttons.find((b) => b.label === "Open without an owner")!.onPress!();
+  });
+  it("hashes file bytes and sends bounded chunks until storage is confirmed", async () => {
+    const file = new File(["1234567"], "video.mp4", { type: "video/mp4" });
+    const claim = vi.fn().mockResolvedValue({
+      uploadId: "blob",
+      uploadToken: "spu_test",
+      uploadUrl: "/upload",
+      chunkUrl: "/chunks",
+      chunkBytes: 3,
+      expiresAt: Date.now() + 10000,
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ status: "pending" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ status: "pending" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ status: "stored", blobId: "blob" }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await uploadIssueFiles([file], claim)).toEqual([
+      { storageId: "blob", fileName: "video.mp4" },
+    ]);
+    const digest = await crypto.subtle.digest(
+      "SHA-256",
+      await file.arrayBuffer(),
+    );
+    expect(claim.mock.calls[0]![0]).toMatchObject({
+      ownerId: null,
+      size: 7,
+      mime: "video/mp4",
+      sha256: Array.from(new Uint8Array(digest), (b) =>
+        b.toString(16).padStart(2, "0"),
+      ).join(""),
+    });
+    expect(fetchMock.mock.calls.map((c) => c[0])).toEqual([
+      "/chunks/0",
+      "/chunks/1",
+      "/chunks/2",
+    ]);
+    expect(fetchMock.mock.calls.map((c) => (c[1].body as Blob).size)).toEqual([
+      3, 3, 1,
+    ]);
   });
 });
 describe("attachment uploads", () => {
@@ -1019,10 +1176,17 @@ describe("attachment uploads", () => {
     const file = new File(["evidence"], "evidence.png", { type: "image/png" });
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ storageId: "stored-1" }),
+      json: async () => ({ blobId: "stored-1", status: "stored" }),
     });
     vi.stubGlobal("fetch", fetchMock);
-    const generate = vi.fn().mockResolvedValue("https://upload.example.com");
+    const generate = vi.fn().mockResolvedValue({
+      uploadId: "stored-1",
+      uploadToken: "spu_test",
+      uploadUrl: "https://upload.example.com",
+      chunkUrl: "/chunks",
+      chunkBytes: 8 * 1024 * 1024,
+      expiresAt: Date.now() + 10000,
+    });
     const cache = new Map();
     expect(await uploadIssueFiles([file], generate, cache)).toEqual([
       { storageId: "stored-1", fileName: "evidence.png" },
@@ -1030,8 +1194,11 @@ describe("attachment uploads", () => {
     await uploadIssueFiles([file], generate, cache);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith("https://upload.example.com", {
-      method: "POST",
-      headers: { "Content-Type": "image/png" },
+      method: "PUT",
+      headers: {
+        "Content-Type": "image/png",
+        Authorization: "Bearer spu_test",
+      },
       body: file,
     });
   });
@@ -1041,12 +1208,19 @@ describe("attachment uploads", () => {
       "fetch",
       vi
         .fn()
-        .mockResolvedValueOnce({ ok: false })
+        .mockResolvedValueOnce({ ok: false, json: async () => ({}) })
         .mockResolvedValueOnce({ ok: true, json: async () => ({}) }),
     );
     for (let i = 0; i < 2; i++)
       await expect(
-        uploadIssueFiles([file], async () => "https://upload.example.com"),
-      ).rejects.toThrow("Upload failed");
+        uploadIssueFiles([file], async () => ({
+          uploadId: "stored-1",
+          uploadToken: "spu_test",
+          uploadUrl: "https://upload.example.com",
+          chunkUrl: "/chunks",
+          chunkBytes: 8 * 1024 * 1024,
+          expiresAt: Date.now() + 10000,
+        })),
+      ).rejects.toThrow(/Upload/);
   });
 });

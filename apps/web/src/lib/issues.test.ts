@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import * as backend from "../../../../packages/backend/convex/issues/constants";
+import * as backend from "../../../api/src/domains/issues/constants.js";
 import * as client from "./issues";
 describe("issue constants", () => {
   it("mirrors every backend status, label, priority, area and limit", () => {
@@ -120,6 +120,24 @@ describe("issue helpers", () => {
     );
   });
 });
+describe("issue CSV", () => {
+  it("preserves commas, quotes and newlines and protects spreadsheet formulas", () => {
+    const csv = client.issuesCsv([
+      {
+        key: "SP-0001",
+        title: '=danger,"quote"\nnext',
+        status: "draft",
+        priority: "high",
+        area: "Issues",
+        reporterName: "Tester",
+      },
+    ]);
+    expect(csv.startsWith("\uFEFF")).toBe(true);
+    expect(csv).toContain('"\'=danger,""quote""\nnext"');
+    expect(csv.endsWith("\r\n")).toBe(true);
+    expect(csv).toContain('"Backlog"');
+  });
+});
 describe("issue activity and errors", () => {
   it("names people and summarises long text instead of quoting it", () => {
     expect(
@@ -136,9 +154,12 @@ describe("issue activity and errors", () => {
     );
   });
   it("shows the server's message for a rejected mutation", async () => {
-    const { ConvexError } = await import("convex/values");
+    const { ApiError } = await import("./api/errors");
     expect(
-      client.errorMessage(new ConvexError("Unknown area: X"), "Save failed"),
+      client.errorMessage(
+        new ApiError({ code: "invalid", message: "Unknown area: X" }),
+        "Save failed",
+      ),
     ).toBe("Unknown area: X");
     expect(client.errorMessage(new Error("network"), "Save failed")).toBe(
       "Save failed",
