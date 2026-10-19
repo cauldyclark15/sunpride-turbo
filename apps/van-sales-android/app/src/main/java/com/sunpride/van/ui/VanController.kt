@@ -157,7 +157,11 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
                 repository.restoreSession()
                 if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow()
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { message = AuthMessages.forFailure(e,"Could not connect. Saved work stays on this phone. Try again.") }
+            catch (e: Exception) {
+                // A sync refusal is not a connection problem; say what actually happened.
+                message = if (e is com.sunpride.van.sync.VanSyncFailure) syncMessage(e)
+                    else AuthMessages.forFailure(e,"Could not connect. Saved work stays on this phone. Try again.")
+            }
             finally { busy = false; initialized = true; refreshSharing() }
         } else { initialized = true; refreshSharing() }
         awaitCancellation()
