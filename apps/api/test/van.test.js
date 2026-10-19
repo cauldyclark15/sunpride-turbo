@@ -60,6 +60,11 @@ mock.module("../src/domains/org/scope.js", () => ({
 /** @type {any[]} */ const refreshes = [];
 mock.module("../src/domains/analytics/refresh.js", () => ({
   enqueueRefresh: async (/** @type {any} */ _ctx, /** @type {any} */ p) => {
+    if (
+      typeof _ctx.enqueue !== "function" ||
+      typeof _ctx.publish !== "function"
+    )
+      throw new Error("Analytics seam needs the durable handler context");
     refreshes.push(p);
   },
 }));

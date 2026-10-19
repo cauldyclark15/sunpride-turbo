@@ -2,6 +2,7 @@ import { tx } from "@sunpride/db/client";
 import { join } from "node:path";
 import { filesDir } from "../../core/media.js";
 import { requireCapability } from "../../core/capabilities.js";
+import { enqueue } from "../../core/jobs.js";
 import { enqueueRefresh } from "../analytics/refresh.js";
 import { scopeFilterForActor } from "../org/scope.js";
 import { currentActor, tripFor, can } from "./access.js";
@@ -36,7 +37,15 @@ export function install(router, ctx) {
   ctx.registerProjection("van.bundle", vanProjection(ctx.env));
   ctx.registerJob("van.refresh", async (/** @type {any} */ job) =>
     enqueueRefresh(
-      { ...job, publish: ctx.publish },
+      {
+        ...job,
+        publish: ctx.publish,
+        enqueue: (
+          /** @type {import('../../core/context.js').JobSpec} */ spec,
+        ) => enqueue(job.db, spec),
+        now: Date.now(),
+        env: ctx.env,
+      },
       { kind: "van", date: job.payload.date, unitId: job.payload.unitId },
     ),
   );
