@@ -178,9 +178,16 @@ final class LiveV2GuideUITests: XCTestCase {
             shot("photo-taken")
             _ = tap("photoBack", timeout: 5)
         }
-        if tap("diagnosticOutcome") {
-            let nonproductive = app.buttons["Nonproductive"].firstMatch
-            if nonproductive.waitForExistence(timeout: 5) { nonproductive.tap() }
+        // The outcome menu sits just above the pinned End call button: scroll fully down so it is clear of it.
+        for _ in 0..<6 { app.swipeUp() }
+        let nonproductive = app.buttons["Nonproductive"].firstMatch
+        for _ in 0..<3 where !nonproductive.exists {
+            let menu = app.buttons["diagnosticOutcome"].firstMatch
+            if menu.exists && menu.isHittable { menu.tap() } else { app.swipeUp() }
+            _ = nonproductive.waitForExistence(timeout: 4)
+        }
+        if nonproductive.exists {
+            nonproductive.tap()
             let reason = element("nonproductiveReason")
             if reason.waitForExistence(timeout: 5) { reveal(reason); reason.tap(); reason.typeText("Transport verification visit\n") }
         }

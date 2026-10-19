@@ -69,15 +69,14 @@ SUNPRIDE_BETA_BUILD=1 bun run ipa:field-ios-beta          # from the repo root
 
 `apps/field-ios/scripts/build-beta.sh` archives the `FieldIOS-Beta` scheme (`Beta` configuration), exports a
 development-signed app and copies it to `~/cnc/_releases/sunpride/field-ios-beta/1.0.0-beta.N/` with a `.sha256`.
-It refuses a build whose bundle id is not `com.sunpride.field.beta`, whose endpoints are not HTTPS Convex URLs, or
+It refuses a build whose bundle id is not `com.sunpride.field.beta`, whose server address is not a plain HTTPS origin, or
 that is not signed by team `FV2R5JV6YD`. Add `SUNPRIDE_BETA_INSTALL_UDID=<udid>` to install it on a registered
 phone afterwards.
 
 | Setting                         | Meaning                                                                                     |
 | ------------------------------- | ------------------------------------------------------------------------------------------- |
-| `SUNPRIDE_BETA_CONVEX_SITE_URL` | Beta backend site URL. Unset → `https://impartial-canary-155.convex.site` (beta prod)       |
-| `SUNPRIDE_BETA_CONVEX_URL`      | Beta backend functions URL. Unset → `https://impartial-canary-155.convex.cloud`             |
-| `SUNPRIDE_BETA_WEB_URL`         | Web app for "Report an issue" (`/issues/new` is added). Unset → `https://sunpride.keepr.im` |
+| `SUNPRIDE_BETA_API_URL`         | Sunpride server origin (sign-in, phone, sync, photos). Unset → `https://sunpride.cauldnclark.com` |
+| `SUNPRIDE_BETA_WEB_URL`         | Web app for "Report an issue" (`/issues/new` is added). Unset → `https://sunpride.cauldnclark.com` |
 | `SUNPRIDE_BETA_BUILD`           | Build number N: shown as `1.0.0-beta.N`, `CFBundleVersion` N. Bump for every hand-out       |
 
 Defaults live in `Config/Beta.xcconfig`; the script passes the environment values as build-setting overrides.

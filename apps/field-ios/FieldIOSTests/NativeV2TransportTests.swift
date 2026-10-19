@@ -31,6 +31,17 @@ final class NativeV2TransportTests: XCTestCase {
         await model.signIn(email: "seller@example.test", password: "correct-horse")
         await model.syncNow()
         XCTAssertTrue(model.visits.contains { $0.outlet == "Stub Outlet" }, "AppModel bootstrap: \(model.syncMessage ?? "no error")")
+
+        // Live walk counterexample: an ended call sat "Waiting" on an online phone until the app was reopened.
+        // With upload-soon on (the live app's setting), queued work is sent while the app stays open.
+        model.uploadSoonAfterQueue = .milliseconds(50)
+        let first = try XCTUnwrap(model.visits.filter(\.planned).min { ($0.sequence ?? 0) < ($1.sequence ?? 0) })
+        try model.queueCheckIn(first, unplannedReason: nil, location: nil)
+        let active = partition
+        XCTAssertEqual(try store.pendingOutbox(for: active).count, 1, "queued locally first")
+        for _ in 0..<100 where try store.pendingOutbox(for: active).count > 0 { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertEqual(try store.pendingOutbox(for: active).count, 0, "sent without reopening the app: \(model.syncMessage ?? "-")")
+        XCTAssertNotNil(try store.ack(for: try XCTUnwrap(store.intents(for: active).first).requestId, in: active))
     }
     #endif
     private let device = "10000000-0000-4000-8000-000000000001"

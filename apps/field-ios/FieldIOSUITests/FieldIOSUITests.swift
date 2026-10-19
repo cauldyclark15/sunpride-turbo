@@ -707,6 +707,39 @@ final class FieldIOSUITests: XCTestCase {
         offline.terminate()
     }
 
+    /// Live walk counterexample: a call opened from Today's Next card, once ended, must show that store's
+    /// result. The Next card then points at the following stop; the open screen must not follow it.
+    @MainActor
+    func testEndingACallOpenedFromNextShowsItsResultNotTheNextStore() {
+        let app = XCUIApplication()
+        app.launchEnvironment["FIELD_STUB_BACKEND"] = "registers"
+        app.launchEnvironment["FIELD_STUB_LOCATION"] = "denied"
+        app.launch()
+        signIn(app, password: "correct-horse")
+        let next = app.buttons["nextOutlet"].firstMatch
+        XCTAssertTrue(next.waitForExistence(timeout: 20))
+        let firstStore = next.label
+        next.tap()
+        XCTAssertTrue(app.buttons["diagnosticCheckIn"].waitForExistence(timeout: 10))
+        app.buttons["diagnosticCheckIn"].tap()
+        XCTAssertTrue(app.buttons["diagnosticCheckOut"].waitForExistence(timeout: 10))
+        reveal(app.buttons["diagnosticOutcome"], in: app)
+        app.buttons["diagnosticOutcome"].tap()
+        app.buttons["Nonproductive"].tap()
+        let reason = app.textFields["nonproductiveReason"]
+        reveal(reason, in: app)
+        reason.tap(); reason.typeText("Store closed")
+        app.buttons["diagnosticCheckOut"].tap()
+        XCTAssertTrue(app.buttons["diagnosticConfirmEnd"].waitForExistence(timeout: 5))
+        app.buttons["diagnosticConfirmEnd"].tap()
+        XCTAssertTrue(app.staticTexts["callTimeSpent"].waitForExistence(timeout: 10), "the ended call's result is shown")
+        XCTAssertFalse(app.buttons["diagnosticCheckIn"].exists, "the screen did not jump to the next store's Start")
+        app.buttons["BackButton"].tap()
+        XCTAssertTrue(next.waitForExistence(timeout: 10))
+        XCTAssertNotEqual(next.label, firstStore, "Today moved on to the following stop")
+        app.terminate()
+    }
+
     /// IOS-013: an unplanned visit's purpose decides the required form; a completed End waits for it.
     func testUnplannedPurposeRequiresItsActivityFormBeforeCompletedEnd() {
         let app = launchStub("registers")

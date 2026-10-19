@@ -238,11 +238,13 @@ final class AppModel {
         let http = HTTPClient()
         let auth = AuthClient(site: environment.apiOrigin, store: store, http: http)
         let functions = ServerAPI(url: environment.apiOrigin, auth: auth, http: http)
-        return AppModel(auth: auth, registry: ServerDeviceRegistry(functions: functions), store: store,
+        let model = AppModel(auth: auth, registry: ServerDeviceRegistry(functions: functions), store: store,
                         site: environment.apiOrigin, functions: functions, http: http,
                         biometrics: BiometricGate(vault: store, crypto: crypto)) {
             try DeviceKeys.loadOrCreate(store: store)
         }
+        model.uploadSoonAfterQueue = .seconds(2)
+        return model
     }
 
     var pill: Pill {
@@ -839,10 +841,29 @@ final class AppModel {
         refreshToday()
     }
 
+    /// When set, work queued while the app is open and online is sent after this short pause (coalescing a
+    /// note + End tapped together) instead of waiting for the next app open, pull-to-refresh or an OS
+    /// background slot. Live walk: an ended call sat "Waiting 2" on an online phone until the app was
+    /// reopened, so the office saw nothing. nil (unit tests' default) keeps request sequences deterministic.
+    @ObservationIgnored var uploadSoonAfterQueue: Duration?
+    @ObservationIgnored private var uploadSoonTask: Task<Void, Never>?
+
     private func didQueueWork() {
         refreshToday()
         breadcrumb(.workQueued)
         BackgroundRetry.shared.scheduleIfNeeded()
+        guard let delay = uploadSoonAfterQueue, !isOffline else { return }
+        uploadSoonTask?.cancel()
+        uploadSoonTask = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self else { return }
+            if self.bootstrapping {
+                // A sync is already running; it may have read the outbox before this intent. Try once more.
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled else { return }
+            }
+            await self.syncNow()
+        }
     }
 
     func syncNow() async {
