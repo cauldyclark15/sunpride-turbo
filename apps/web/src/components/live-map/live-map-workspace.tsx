@@ -1,7 +1,6 @@
 "use client";
 
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
+import { apiFetch, useApi, useApiPages, useLive } from "../../lib/api";
 import {
   Card,
   FormField,
@@ -10,7 +9,6 @@ import {
   StatusPill,
   WorkspaceIcon,
 } from "@sunpride/ui";
-import { usePaginatedQuery, useQuery } from "convex/react";
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
@@ -129,6 +127,7 @@ export function LiveMapView(props: LiveMapViewProps) {
   const sample = data.positions.some((p) => p.sample);
   return (
     <div className="grid gap-4">
+      <DaySummary data={data} now={now} onSelect={props.onSelect} />
       <Card
         label="Live map"
         count={shown.length}
@@ -191,6 +190,16 @@ export function LiveMapView(props: LiveMapViewProps) {
                 </option>
               ))}
             </Select>
+            <label className="flex h-10 items-center gap-2 text-[13px]">
+              <input
+                type="checkbox"
+                checked={filters.idleOnly ?? false}
+                onChange={(e) =>
+                  onFilters({ ...filters, idleOnly: e.target.checked })
+                }
+              />
+              Needs a check-in
+            </label>
             <div className="w-[200px] max-w-full">
               <FormField label="Search">
                 <input
@@ -268,7 +277,7 @@ export function LiveMapView(props: LiveMapViewProps) {
                     }
                     tone={STATUS_STYLE[p.status].tone}
                     title={p.kind === "van" ? `${p.name} · truck` : p.name}
-                    meta={positionMeta(p)}
+                    meta={positionMeta(p, now)}
                     value={lastSeen(now, p.recordedAt)}
                     action={
                       <StatusPill tone={STATUS_STYLE[p.status].tone}>
@@ -290,6 +299,96 @@ export function LiveMapView(props: LiveMapViewProps) {
         />
       </div>
     </div>
+  );
+}
+
+function DaySummary({
+  data,
+  now,
+  onSelect,
+}: {
+  data: LiveData;
+  now: number;
+  onSelect: (id: string | null) => void;
+}) {
+  const today = data.trend?.at(-1);
+  const flagged = data.positions.filter((p) => p.idleFlag);
+  const prior = data.prior;
+  const trend = data.trend ?? [];
+  const max = Math.max(1, ...trend.map((p) => Math.max(p.visited, p.planned)));
+  return (
+    <Card label="Who needs a check-in?" icon={<WorkspaceIcon name="field" />}>
+      <div className="grid gap-3">
+        <p className="text-[13px] text-muted">
+          {today
+            ? `People sharing location: ${today.visited} visits against ${today.planned} planned stops · ${today.productive} productive`
+            : "Day totals unavailable"}
+          {prior
+            ? ` · ${prior.visited} visits on the prior day`
+            : " · Prior day unavailable"}
+        </p>
+        {flagged.length ? (
+          <div className="flex flex-wrap gap-2">
+            {flagged.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                className="rounded-lg border border-border px-3 py-2 text-left text-[13px]"
+                onClick={() => onSelect(p.profileId)}
+              >
+                {p.name} · no movement or visit for 45+ min · Open day
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[13px] text-muted">
+            No idle flags among the visible positions. Phones that have not
+            synced may still have work waiting.
+          </p>
+        )}
+        <p className="text-[12px] text-muted">
+          Idle is a provisional 45-minute prompt to check in, not a finding
+          about performance. Updated {lastSeen(now, data.now)}.
+        </p>
+        {trend.length ? (
+          <div>
+            <p className="text-[12px] text-muted">
+              Last seven days · visited (solid) against planned (outline)
+            </p>
+            <svg
+              role="img"
+              aria-label="Seven-day planned and visited trend"
+              viewBox="0 0 280 64"
+              className="h-16 w-full max-w-[420px]"
+            >
+              {trend.map((p, index) => (
+                <g key={p.date}>
+                  <title>
+                    {p.date}: {p.visited} visited, {p.planned} planned
+                  </title>
+                  <rect
+                    x={index * 40 + 4}
+                    y={60 - (p.planned / max) * 52}
+                    width="24"
+                    height={(p.planned / max) * 52}
+                    fill="none"
+                    stroke="currentColor"
+                    opacity="0.35"
+                  />
+                  <rect
+                    x={index * 40 + 7}
+                    y={60 - (p.visited / max) * 52}
+                    width="18"
+                    height={(p.visited / max) * 52}
+                    fill="currentColor"
+                  />
+                </g>
+              ))}
+            </svg>
+          </div>
+        ) : null}
+      </div>
+    </Card>
   );
 }
 
@@ -335,21 +434,36 @@ function TrailPanel({
           {trail === undefined ? (
             <span className="text-[13px] text-muted">Loading trail…</span>
           ) : trail === null ? null : trail.pings.length === 0 &&
-            trail.stops.length === 0 ? (
+            trail.stops.length === 0 &&
+            !trail.plannedStops?.length ? (
             <p className="text-[13px] text-muted">
               No location shared on this day.
             </p>
           ) : (
             <>
               <p className="text-[13px] text-muted">
-                {trail.pings.length} positions · {trailKm(trail)} km ·{" "}
-                {formatTime(trail.pings[0]?.recordedAt)}–
+                {trail.pings.length} positions ·{" "}
+                {trail.pings.length < 2
+                  ? "distance unavailable"
+                  : `${trail.distanceKm ?? trailKm(trail)} km recorded`}{" "}
+                · {formatTime(trail.pings[0]?.recordedAt)}–
                 {formatTime(trail.pings.at(-1)?.recordedAt)}
                 {trail.pings.some((p) => p.mockLocation)
                   ? " · mock location seen"
                   : ""}
-                {trail.truncated ? " · first positions only" : ""}
+                {trail.truncated ? " · partial day data" : ""}
               </p>
+              {trail.plannedStops?.length ? (
+                <div className="grid gap-1 text-[13px]">
+                  <p className="font-medium">Signed route order</p>
+                  {trail.plannedStops.map((stop) => (
+                    <p key={stop.plannedVisitId}>
+                      {stop.sequence}. {stop.name} ·{" "}
+                      {stop.visited ? "Visited" : "Not yet visited"}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
               {trail.stops.length ? (
                 <div className="divide-y divide-separator rounded-xl border border-border">
                   {trail.stops.map((stop, index) => (
@@ -359,6 +473,8 @@ function TrailPanel({
                       title={stop.outletName}
                       meta={[
                         stop.outletCode,
+                        stop.onPlan === false ? "Off plan" : "Planned stop",
+                        stop.productive ? "Productive" : null,
                         stop.pinned ? null : "No store pin",
                       ]
                         .filter(Boolean)
@@ -383,7 +499,7 @@ function TrailPanel({
   );
 }
 
-/** Field → Live map (SP-0135). Real time through Convex subscriptions. */
+/** Field → Live map. Server-scoped Bun reads plus coalesced invalidation. */
 export function LiveMapWorkspace() {
   const now = useNow();
   const [filters, setFilters] = useState<LiveFilters>({
@@ -395,29 +511,45 @@ export function LiveMapWorkspace() {
   const [teamId, setTeamId] = useState("");
   const [selectedProfileId, setSelected] = useState<string | null>(null);
   const [trailDate, setTrailDate] = useState(() => manilaToday());
-  const data = useQuery(api.location.queries.live, {
-    now,
-    ...(orgUnitId ? { orgUnitId: orgUnitId as Id<"orgUnits"> } : {}),
-    ...(teamId ? { teamId: teamId as Id<"teams"> } : {}),
-  });
-  const pins = usePaginatedQuery(
-    api.location.queries.storePins,
-    {},
-    { initialNumItems: 100 },
+  const liveQuery = useApi<LiveData>(
+    ["location", "live", orgUnitId, teamId, manilaToday(now)],
+    ({ signal }) =>
+      apiFetch("/api/v1/location/live", {
+        query: {
+          orgUnitId: orgUnitId || undefined,
+          teamId: teamId || undefined,
+        },
+        signal,
+      }),
   );
-  useEffect(() => {
-    if (pins.status === "CanLoadMore" && pins.results.length < MAX_STORE_PINS)
-      pins.loadMore(100);
-  }, [pins]);
-  const trail = useQuery(
-    api.location.queries.trail,
+  const data = liveQuery.error ? undefined : liveQuery.data;
+  const pins = useApiPages<StorePin>(
+    ["location", "store-pins"],
+    (cursor, { signal }) =>
+      apiFetch("/api/v1/location/store-pins", {
+        query: { cursor: cursor || undefined },
+        signal,
+      }),
+    { all: true, maxPages: MAX_STORE_PINS / 100 },
+  );
+  const trailQuery = useApi<Trail>(
     selectedProfileId
-      ? {
-          profileId: selectedProfileId as Id<"profiles">,
-          serviceDate: trailDate,
-        }
-      : "skip",
+      ? ["location", "trail", selectedProfileId, trailDate]
+      : null,
+    ({ signal }) =>
+      apiFetch("/api/v1/location/trail", {
+        query: { profileId: selectedProfileId, date: trailDate },
+        signal,
+      }),
   );
+  const trail = trailQuery.error ? null : trailQuery.data;
+  useLive(["location"], [["location"]]);
+  // Age/freshness and idle flags must advance even with silent phones.
+  const refresh = liveQuery.refetch;
+  useEffect(() => {
+    const timer = setInterval(() => void refresh(), 30_000);
+    return () => clearInterval(timer);
+  }, [refresh]);
   const positions = useMemo(
     () => (data ? filterPositions(data.positions, filters) : []),
     [data, filters],
@@ -427,11 +559,11 @@ export function LiveMapWorkspace() {
   const layers = useMemo(
     () => ({
       positions,
-      stores: pins.results as StorePin[],
+      stores: pins.error ? [] : (pins.items ?? []),
       trail: selectedProfileId ? (trail ?? null) : null,
       selectedId,
     }),
-    [positions, pins.results, trail, selectedProfileId, selectedId],
+    [positions, pins.items, pins.error, trail, selectedProfileId, selectedId],
   );
   // Auto-fit: on the first positions, on a filter change, and on a newly loaded trail.
   const trailPoints: LatLng[] = trail?.pings.length ? trail.pings : [];
@@ -439,41 +571,62 @@ export function LiveMapWorkspace() {
   const fitKey = trailPoints.length
     ? `trail:${selectedProfileId}:${trailDate}:${trail ? "1" : "0"}`
     : `live:${orgUnitId}:${teamId}:${filters.kind}:${filters.status}:${positions.length > 0}`;
+  if (liveQuery.error)
+    return (
+      <p role="alert" className="text-[13px] text-muted">
+        Live locations could not be loaded. {liveQuery.error.message}
+      </p>
+    );
   if (data === undefined)
     return <span className="text-[13px] text-muted">Loading live map…</span>;
   const provider = mapProvider(GOOGLE_KEY);
   return (
-    <LiveMapView
-      data={data}
-      now={now}
-      filters={filters}
-      onFilters={setFilters}
-      orgUnitId={orgUnitId}
-      onUnit={setOrgUnitId}
-      teamId={teamId}
-      onTeam={setTeamId}
-      selectedProfileId={selectedProfileId}
-      onSelect={(id) => {
-        setSelected(id);
-        setTrailDate(manilaToday());
-      }}
-      trail={selectedProfileId ? trail : null}
-      trailDate={trailDate}
-      onTrailDate={setTrailDate}
-      map={
-        <LiveMapCanvas
-          provider={provider}
-          googleKey={GOOGLE_KEY}
-          googleMapId={GOOGLE_MAP_ID}
-          layers={layers}
-          fitPoints={fitPoints}
-          fitKey={fitKey}
-          onSelect={(p) => {
-            setSelected(p.profileId);
-            setTrailDate(manilaToday());
-          }}
-        />
-      }
-    />
+    <div className="grid gap-3">
+      {trailQuery.error ? (
+        <p role="alert">
+          This day could not be loaded. {trailQuery.error.message}
+        </p>
+      ) : null}
+      {pins.error ? (
+        <p role="status">
+          Store pins unavailable. People and day trails remain available.
+        </p>
+      ) : null}
+      {pins.truncated ? (
+        <p role="status">First 2,000 store pins only.</p>
+      ) : null}
+      <LiveMapView
+        data={data}
+        now={now}
+        filters={filters}
+        onFilters={setFilters}
+        orgUnitId={orgUnitId}
+        onUnit={setOrgUnitId}
+        teamId={teamId}
+        onTeam={setTeamId}
+        selectedProfileId={selectedProfileId}
+        onSelect={(id) => {
+          setSelected(id);
+          setTrailDate(manilaToday());
+        }}
+        trail={selectedProfileId ? trail : null}
+        trailDate={trailDate}
+        onTrailDate={setTrailDate}
+        map={
+          <LiveMapCanvas
+            provider={provider}
+            googleKey={GOOGLE_KEY}
+            googleMapId={GOOGLE_MAP_ID}
+            layers={layers}
+            fitPoints={fitPoints}
+            fitKey={fitKey}
+            onSelect={(p) => {
+              setSelected(p.profileId);
+              setTrailDate(manilaToday());
+            }}
+          />
+        }
+      />
+    </div>
   );
 }

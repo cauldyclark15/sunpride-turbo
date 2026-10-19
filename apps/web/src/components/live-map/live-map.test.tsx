@@ -1,5 +1,4 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { getFunctionName } from "convex/server";
 import { describe, expect, it, vi } from "vitest";
 
 const NOW = Date.parse("2026-10-08T05:00:00Z"); // 13:00 Manila
@@ -22,6 +21,14 @@ const base = {
   serviceDate: "2026-10-08",
   visitOutletName: null,
   sample: false,
+  planned: 12,
+  visited: 5,
+  productive: 3,
+  idleFlag: false,
+  lastSeenAt: NOW,
+  lastMovedAt: NOW - 60_000,
+  lastActivityAt: NOW,
+  freshness: "fresh" as const,
 };
 const positions = [
   {
@@ -107,19 +114,27 @@ const trail = {
   ],
 };
 
-vi.mock("convex/react", () => ({
-  useQuery: (ref: unknown, args: unknown) => {
-    if (args === "skip") return undefined;
-    const name = getFunctionName(ref as never);
-    if (name === "location/queries:live") return live;
-    if (name === "location/queries:trail") return trail;
-    return undefined;
+const apiCalls: string[] = [];
+let liveError: { message: string } | undefined;
+vi.mock("../../lib/api", () => ({
+  apiFetch: async (path: string) => {
+    apiCalls.push(path);
+    return {};
   },
-  usePaginatedQuery: () => ({
-    results: [],
-    status: "Exhausted",
-    loadMore: () => undefined,
-  }),
+  useApi: (
+    key: unknown[] | null,
+    fetcher: (context: { signal: AbortSignal }) => Promise<unknown>,
+  ) => {
+    if (!key) return { data: undefined, refetch: async () => {} };
+    void fetcher({ signal: new AbortController().signal });
+    return {
+      data: key[1] === "live" ? live : trail,
+      error: key[1] === "live" ? liveError : undefined,
+      refetch: async () => {},
+    };
+  },
+  useApiPages: () => ({ items: [], truncated: false }),
+  useLive: () => {},
 }));
 
 import {
@@ -157,6 +172,7 @@ describe("live map model", () => {
     expect(countByStatus(typed)).toEqual({
       moving: 1,
       idle: 0,
+      "at-store": 0,
       stale: 1,
       offline: 0,
     });
@@ -202,8 +218,8 @@ describe("live map model", () => {
   });
 
   it("summarises a position and a trail", () => {
-    expect(positionMeta(typed[0]!)).toBe(
-      "Field · Cebu North · 18 km/h · 80% battery · ±12 m · In call: Colon Grocery",
+    expect(positionMeta(typed[0]!, NOW)).toBe(
+      "Field · Cebu North · 18 km/h · 80% battery · ±12 m · In call: Colon Grocery · 12 planned · 5 visited · 3 productive · Last move 1 min ago",
     );
     expect(positionMeta(typed[1]!)).toContain("Sample");
     expect(trailKm(trail as never)).toBeGreaterThan(1);
@@ -270,9 +286,97 @@ describe("live map view", () => {
     expect(html).toContain("08:10–08:25");
   });
 
-  it("mounts the workspace from the live subscription", () => {
+  it("mounts the workspace from the live API", () => {
     const html = renderToStaticMarkup(<LiveMapWorkspace />);
     expect(html).toContain("Live map");
     expect(html).toContain("Rhea Santos");
+    expect(apiCalls).toContain("/api/v1/location/live");
+  });
+
+  it("shows planned, visited, productive and last movement on each pin/list", () => {
+    const html = renderToStaticMarkup(<LiveMapView {...props()} />);
+    expect(html).toContain("12 planned");
+    expect(html).toContain("5 visited");
+    expect(html).toContain("3 productive");
+    expect(html).toContain("Last move 1 min ago");
+  });
+
+  it("flags idle people without calling a silent phone unproductive", () => {
+    const data = { ...live, positions: [{ ...positions[0]!, idleFlag: true }] };
+    const html = renderToStaticMarkup(
+      <LiveMapView {...props({ data: data as never })} />,
+    );
+    expect(html).toContain("no movement or visit for 45+ min");
+    expect(html).toContain("not a finding about performance");
+    expect(
+      filterPositions(data.positions as LivePosition[], {
+        kind: "",
+        status: "",
+        search: "",
+        idleOnly: true,
+      }),
+    ).toHaveLength(1);
+  });
+
+  it("keeps signed route order and explicitly labels off-plan visits", () => {
+    const day = {
+      ...trail,
+      plannedStops: [
+        {
+          plannedVisitId: "p1",
+          outletId: "o1",
+          name: "Signed store",
+          sequence: 2,
+          visited: false,
+        },
+      ],
+      stops: [{ ...trail.stops[0]!, onPlan: false }],
+    };
+    const html = renderToStaticMarkup(
+      <LiveMapView
+        {...props({ selectedProfileId: "p1", trail: day as never })}
+      />,
+    );
+    expect(html).toContain("Signed route order");
+    expect(html).toContain("Not yet visited");
+    expect(html).toContain("Off plan");
+  });
+
+  it("shows the signed plan before the first GPS fix without inventing a zero distance", () => {
+    const day = {
+      ...trail,
+      pings: [],
+      stops: [],
+      distanceKm: null,
+      plannedStops: [
+        {
+          plannedVisitId: "p1",
+          outletId: "o1",
+          name: "Morning store",
+          sequence: 1,
+          visited: false,
+        },
+      ],
+    };
+    const html = renderToStaticMarkup(
+      <LiveMapView
+        {...props({ selectedProfileId: "p1", trail: day as never })}
+      />,
+    );
+    expect(html).toContain("Morning store");
+    expect(html).toContain("Not yet visited");
+    expect(html).toContain("distance unavailable");
+    expect(html).not.toContain("0 km recorded");
+  });
+
+  it("does not render cached locations after an authorization error", () => {
+    liveError = { message: "Access withdrawn" };
+    try {
+      const html = renderToStaticMarkup(<LiveMapWorkspace />);
+      expect(html).toContain("Access withdrawn");
+      expect(html).not.toContain("Rhea Santos");
+    } finally {
+      liveError = undefined;
+    }
   });
 });

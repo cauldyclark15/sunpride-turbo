@@ -1,19 +1,109 @@
-import type { api } from "@sunpride/backend/api";
-import type { FunctionReturnType } from "convex/server";
-
-/** SP-0135 live map: pure helpers shared by the map engines, the list and the tests. */
-export type LiveData = FunctionReturnType<typeof api.location.queries.live>;
-export type LivePosition = LiveData["positions"][number];
-export type LiveStatus = LivePosition["status"];
-export type Trail = FunctionReturnType<typeof api.location.queries.trail>;
-export type StorePin = FunctionReturnType<
-  typeof api.location.queries.storePins
->["page"][number];
+/** Bun API DTOs. IDs are opaque strings; no generated backend types. */
+export type LiveStatus = "moving" | "idle" | "at-store" | "stale" | "offline";
+export type LivePosition = {
+  id: string;
+  kind: "field" | "van";
+  profileId: string;
+  name: string;
+  vehicleId: string | null;
+  vehicleLabel: string | null;
+  tripNumber: string | null;
+  orgUnitId: string;
+  unitName: string;
+  teamId: string | null;
+  teamName: string | null;
+  latitude: number;
+  longitude: number;
+  accuracyMeters: number;
+  speedMetersPerSecond: number | null;
+  headingDegrees: number | null;
+  batteryPercent: number | null;
+  mockLocation: boolean;
+  recordedAt: number;
+  receivedAt: number;
+  serviceDate: string;
+  status: LiveStatus;
+  visitOutletName: string | null;
+  sample: boolean;
+  planned: number;
+  visited: number;
+  productive: number;
+  idleFlag: boolean;
+  lastSeenAt: number;
+  lastMovedAt: number | null;
+  lastActivityAt: number | null;
+  freshness: "fresh" | "stale" | "offline" | "ended";
+};
+export type DayCount = {
+  date: string;
+  planned: number;
+  visited: number;
+  productive: number;
+};
+export type LiveData = {
+  now: number;
+  truncated: boolean;
+  selfOnly: boolean;
+  positions: LivePosition[];
+  units: { id: string; name: string }[];
+  teams: { id: string; name: string }[];
+  trend?: DayCount[];
+  prior?: DayCount;
+  idleThresholdMinutes?: number;
+  provisional?: boolean;
+};
+export type Trail = {
+  profileId: string;
+  name: string;
+  serviceDate: string;
+  truncated: boolean;
+  distanceKm: number | null;
+  distanceBasis: string;
+  pings: {
+    kind: "field" | "van";
+    latitude: number;
+    longitude: number;
+    accuracyMeters: number;
+    speedMetersPerSecond: number | null;
+    batteryPercent: number | null;
+    mockLocation: boolean;
+    trigger: string;
+    recordedAt: number;
+  }[];
+  stops: {
+    visitId: string;
+    outletCode: string;
+    outletName: string;
+    state: string;
+    checkedInAt: number | null;
+    checkedOutAt: number | null;
+    latitude: number | null;
+    longitude: number | null;
+    pinned: boolean;
+    onPlan: boolean;
+    productive: boolean;
+  }[];
+  plannedStops?: {
+    plannedVisitId: string;
+    outletId: string;
+    name: string;
+    sequence: number;
+    visited: boolean;
+  }[];
+};
+export type StorePin = {
+  outletId: string;
+  code: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+};
 
 export type LiveFilters = {
   kind: "" | "field" | "van";
   status: "" | LiveStatus;
   search: string;
+  idleOnly?: boolean;
 };
 
 const MANILA_OFFSET_MS = 8 * 3_600_000;
@@ -28,7 +118,8 @@ export const STATUS_STYLE: Record<
   { label: string; color: string; tone: "success" | "warning" | "neutral" }
 > = {
   moving: { label: "Moving", color: "#15803d", tone: "success" },
-  idle: { label: "Idle", color: "#2563eb", tone: "neutral" },
+  idle: { label: "Stationary", color: "#2563eb", tone: "neutral" },
+  "at-store": { label: "At store", color: "#374151", tone: "success" },
   stale: { label: "Stale", color: "#d97706", tone: "warning" },
   offline: { label: "Offline", color: "#6b7280", tone: "neutral" },
 };
@@ -36,6 +127,7 @@ export const STATUS_STYLE: Record<
 export const STATUS_ORDER: LiveStatus[] = [
   "moving",
   "idle",
+  "at-store",
   "stale",
   "offline",
 ];
@@ -47,6 +139,7 @@ export function filterPositions(
   const needle = filters.search.trim().toLowerCase();
   return positions.filter(
     (p) =>
+      (!filters.idleOnly || p.idleFlag) &&
       (!filters.kind || p.kind === filters.kind) &&
       (!filters.status || p.status === filters.status) &&
       (!needle ||
@@ -59,6 +152,7 @@ export function countByStatus(positions: readonly LivePosition[]) {
   const counts: Record<LiveStatus, number> = {
     moving: 0,
     idle: 0,
+    "at-store": 0,
     stale: 0,
     offline: 0,
   };
@@ -87,7 +181,7 @@ export function formatTime(value: number | null | undefined) {
 }
 
 /** Short facts for the list and the marker popup. */
-export function positionMeta(p: LivePosition) {
+export function positionMeta(p: LivePosition, now = Date.now()) {
   return [
     p.kind === "van" ? (p.vehicleLabel ?? "Truck") : "Field",
     p.tripNumber,
@@ -99,6 +193,11 @@ export function positionMeta(p: LivePosition) {
     `±${Math.round(p.accuracyMeters)} m`,
     p.mockLocation ? "Mock location" : null,
     p.visitOutletName ? `In call: ${p.visitOutletName}` : null,
+    `${p.planned ?? 0} planned · ${p.visited ?? 0} visited · ${p.productive ?? 0} productive`,
+    p.lastMovedAt
+      ? `Last move ${lastSeen(now, p.lastMovedAt)}`
+      : "Last move unknown",
+    p.idleFlag ? "Check in: no movement or visit for 45+ min" : null,
     p.sample ? "Sample" : null,
   ]
     .filter(Boolean)
@@ -217,7 +316,7 @@ export function stopHtml(order: number) {
 
 /** Popup text for a stop on the selected trail. */
 export function stopLabel(stop: Trail["stops"][number], order: number) {
-  return `${order}. ${stop.outletName} · ${formatTime(stop.checkedInAt)}–${formatTime(stop.checkedOutAt)}${stop.pinned ? "" : " · near GPS position"}`;
+  return `${order}. ${stop.outletName}${stop.onPlan === false ? " · Off plan" : ""} · ${formatTime(stop.checkedInAt)}–${formatTime(stop.checkedOutAt)}${stop.pinned ? "" : " · near GPS position"}`;
 }
 
 /** Which map to draw: Google Maps when a browser key is configured, else OpenStreetMap. */
