@@ -52,6 +52,40 @@ export async function deviceCommand(c, action, b) {
   }
   return null;
 }
+/** Admin-only registration; does not bind, reassign or revive any existing key. @param {Ctx} c @param {Row} b */
+export async function registerDevice(c, b) {
+  const person = await access(c, "people", uuid(b.profileId), "admin.manage");
+  if (person.status !== "active" || !person.org_unit_id)
+    rule("Choose an active assigned person");
+  if (!["field-android", "van-android", "field-ios"].includes(b.app))
+    rule("Choose a phone app");
+  const tag = required(b.inventoryTag, "Phone inventory tag", 100);
+  const publicKey = required(b.publicKeySpki, "Public key", 512);
+  const bytes = Buffer.from(publicKey, "base64");
+  if (bytes.toString("base64") !== publicKey || bytes.length > 256)
+    rule("Invalid public key");
+  try {
+    await crypto.subtle.importKey(
+      "spki",
+      bytes,
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["verify"],
+    );
+  } catch {
+    rule("Invalid P-256 public key");
+  }
+  const keyId = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
+  const existing =
+    await c.db`select id,profile_id,status,public_key_spki from registered_devices where key_id=${keyId} and app=${b.app} for update`;
+  if (existing.length)
+    rule("This key is already registered; manage the existing phone instead");
+  const [row] =
+    await c.db`insert into registered_devices(profile_id,app,platform,inventory_tag,public_key_spki,key_id,org_unit_id,status)
+    values(${person.id},${b.app},${b.app === "field-ios" ? "ios" : "android"},${tag},${publicKey},${keyId},${person.org_unit_id},'active') returning id`;
+  return { deviceId: row.id };
+}
+
 /** @param {Ctx} c @param {Row} p */
 export async function deviceReport(c, p) {
   const device = await access(c, "devices", uuid(p.deviceId), "admin.manage");

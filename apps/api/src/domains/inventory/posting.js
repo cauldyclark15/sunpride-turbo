@@ -22,7 +22,7 @@ import {
  * lotId?:string|null, stockStatus?:string, fromStockStatus?:string, toStockStatus?:string,
  * unitCostMinor?:number, reservedDeltaBase?:number}} MovementLine
  * @typedef {{kind:string, sourceType:string, sourceId:string, idempotencyKey:string, occurredAt:number,
- * actor:{profileId:string|null,userId:string|null}, organizationId:string, lines:MovementLine[], note?:string}} MovementInput
+ * actor:{profileId:string|null,userId:string|null}, organizationId:string, lines:MovementLine[], note?:string, authorizedLocations?:string[]}} MovementInput
  */
 const KINDS = [
   "opening_balance",
@@ -83,13 +83,25 @@ export async function postMovement(tx, input) {
         .filter(Boolean),
     ),
   ];
+  // A calling domain may vouch for locations it authorized itself (a van trip's depot and truck
+  // were scope-checked when the trip was planned; the seller then moves stock only between them).
+  // Only those exact ids skip the actor's per-location scope gate; every other line stays gated.
+  /** @type {Set<string>} */ const vouched = new Set();
+  if (input.authorizedLocations !== undefined) {
+    if (
+      !Array.isArray(input.authorizedLocations) ||
+      input.authorizedLocations.length > 4
+    )
+      invalid("Invalid authorized locations");
+    for (const l of input.authorizedLocations) vouched.add(id(l, "Location"));
+  }
   const locations = new Map();
   for (const locationId of locationIds) {
     id(locationId, "Location");
     const [loc] =
       await tx`select * from inventory_locations where id=${locationId} and organization_id=${org} and deleted_at is null for share`;
     if (!loc) invalid("Movement location not found");
-    if (actor)
+    if (actor && !vouched.has(loc.id))
       await locationGate({ db: tx, actor }, "inventory.read", loc.id, org);
     if (!loc.active) invalid("Movement location is inactive");
     locations.set(loc.id, loc);
