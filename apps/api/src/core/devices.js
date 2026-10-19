@@ -1,3 +1,4 @@
+import { tx } from "@sunpride/db/client";
 import { actorFor } from "./context.js";
 import {
   ApiError,
@@ -331,14 +332,18 @@ export function installDevices(router) {
       const message = `BIND|${device.id}|${credentialId}|${body.nonce}|${timestamp}`;
       if (!(await verifySignature(device.public_key_spki, body.proof, message)))
         return rejected;
-      const updated = await ctx.db`
+      await tx(ctx.db, async (t) => {
+        const updated = await t`
         update registered_devices
         set bound_subject = ${actor.subject}, credential_id = ${credentialId}, bound_at = now(),
             attestation = ${{ format: att.format, keyId: att.keyId ?? null, verified: false }}
         where id = ${device.id} and bound_subject is null and credential_id is null and status = 'active'
         returning id`;
-      if (!updated.length)
-        throw conflict("Device already bound", "already_bound");
+        if (!updated.length)
+          throw conflict("Device already bound", "already_bound");
+        await t`insert into audit_logs(subject,action,entity_type,entity_id,details)
+        values (${actor.subject},'device.bound','device',${device.id},${{ app: device.app, verified: false }})`;
+      });
       await refund(ctx.db, subjectKey);
       return { version: 2, bindingStatus: "bound" };
     },
