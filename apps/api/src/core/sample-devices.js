@@ -27,10 +27,13 @@ export async function registerSamplePhone(t, userId, app, key) {
   } catch {
     throw invalid("Invalid P-256 public key");
   }
-  // One row per person and app. A shared demo phone may carry several sample accounts: every row is
-  // looked up by profile, and each binds with its own fresh credential and possession proof.
+  // One live phone per person and app. A revoked phone (admin "replacement", "lost", ...) is retired for
+  // good: its key is never restored, but the sample person may register a NEW phone. A suspended phone
+  // still blocks, so an admin hold is never side-stepped. A shared demo phone may carry several sample
+  // accounts: every row is looked up by profile, and each binds with its own credential and proof.
   const existing = await t`select id from registered_devices
-    where profile_id=${profile.id} and app=${app} limit 1`;
+    where profile_id=${profile.id} and app=${app}
+      and (status <> 'revoked' or key_id=${key.keyId}) limit 1`;
   if (existing.length) return;
   const [device] = await t`insert into registered_devices
     (profile_id,app,platform,inventory_tag,public_key_spki,key_id,org_unit_id)

@@ -151,3 +151,30 @@ test("one shared demo phone can carry several sample accounts, each with its own
     ).length,
   ).toBe(0);
 });
+test("after an admin revokes a sample phone, a new phone registers; the revoked key is never restored and a suspension still blocks", async () => {
+  const p = await person(),
+    oldKey = await deviceKey(),
+    newKey = await deviceKey();
+  await login(p, oldKey);
+  await h.db`update registered_devices set status='revoked' where profile_id=${p.profile.id}`;
+  await login(p, oldKey);
+  expect(
+    (
+      await h.db`select status from registered_devices where profile_id=${p.profile.id}`
+    ).map((/** @type {any} */ r) => r.status),
+  ).toEqual(["revoked"]);
+  const { body } = await login(p, newKey);
+  const [fresh] =
+    await h.db`select * from registered_devices where profile_id=${p.profile.id} and status='active'`;
+  expect(fresh.key_id).toBe(newKey.keyId);
+  expect(
+    (await bind(h, body.accessToken, fresh.id, newKey)).body.bindingStatus,
+  ).toBe("bound");
+  await h.db`update registered_devices set status='suspended' where id=${fresh.id}`;
+  await login(p, await deviceKey());
+  expect(
+    (
+      await h.db`select status from registered_devices where profile_id=${p.profile.id} order by created_at`
+    ).map((/** @type {any} */ r) => r.status),
+  ).toEqual(["revoked", "suspended"]);
+});
