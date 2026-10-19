@@ -1,301 +1,495 @@
 "use client";
 
-import { Button, Input, ListBox, Select } from "@heroui/react";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
+import { Button, Input } from "@heroui/react";
 import {
   Card,
   FormField,
-  ListRow,
   MetricCard,
   Notice,
   PageHeader,
-  StatusPill,
   UnderlineTabs,
-  WorkspaceIcon,
 } from "@sunpride/ui";
-import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { useMemo, useState } from "react";
-import { isBetaFeatureOn } from "../config/beta";
+import Link from "next/link";
+import { useRef, useState } from "react";
+import { apiFetch, useApi, useApiPages, useLive, useMutate } from "../lib/api";
+import { usePermissions } from "../lib/auth";
 import { NegativeStockPanel } from "./negative-stock-panel";
 
-const allTabs = [
-  ["stock", "Stock control"],
+export type StockQuantity = {
+  base: number;
+  cases: number | null;
+  pieces: number | null;
+  display: string;
+  valueCentavos: number | null;
+};
+export type StockUnits = {
+  basePerCase: number | null;
+  basePerPiece: number | null;
+  baseCode: string;
+  scale: number;
+};
+type Product = {
+  id: string;
+  code: string;
+  name: string;
+  tracking: string;
+  units: StockUnits;
+};
+type Location = {
+  id: string;
+  _id: string;
+  code: string;
+  name: string;
+  type: string;
+  active: boolean;
+};
+type Row = {
+  productId: string;
+  code: string;
+  name: string;
+  locationId: string;
+  locationName: string;
+  locationType: string;
+  kind: string;
+  onHand: StockQuantity;
+  available: StockQuantity;
+  reserved: StockQuantity;
+  hold: StockQuantity;
+  valueCentavos: number | null;
+  prior: StockQuantity;
+  daysCover: number | null;
+  target: StockQuantity | null;
+  status: string;
+  units: StockUnits;
+};
+type Overview = {
+  asOf: number;
+  valuation: string;
+  locations: {
+    id: string;
+    name: string;
+    type: string;
+    kind: string;
+    valueCentavos: number | null;
+    priorValueCentavos: number | null;
+    out: number;
+    low: number;
+  }[];
+  rows: Row[];
+  out: Row[];
+  low: Row[];
+  nearExpiry: {
+    id: string;
+    productId: string;
+    name: string;
+    locationName: string;
+    lotNumber: string;
+    expiresAt: number;
+    quantity: StockQuantity;
+  }[];
+  trend: { date: string; valueCentavos: number | null }[];
+  summary: {
+    valueCentavos: number | null;
+    priorValueCentavos: number | null;
+    outAtDepot: number;
+    low: number;
+    nearExpiry: number;
+    unknownPrices: number;
+    policiesMissing: number;
+  };
+};
+type Doc = {
+  id: string;
+  number: string;
+  status: string;
+  locations: string[];
+  canApprove: boolean;
+  requestedBy: string | null;
+};
+type Count = {
+  session: { id: string; status: string; createdBy: string };
+  canApprove: boolean;
+  lines: {
+    id: string;
+    productId: string;
+    code: string;
+    name: string;
+    stockStatus: string;
+    lotNumber?: string;
+    counted: StockQuantity | null;
+    expected?: StockQuantity;
+    variance?: StockQuantity | null;
+  }[];
+};
+type StockLot = {
+  id: string;
+  lotId: string;
+  productId: string;
+  locationId: string;
+  lotNumber: string;
+  stockStatus: string;
+  onHand: StockQuantity;
+};
+type Movement = {
+  id: string;
+  number: string;
+  kind: string;
+  at: number;
+  lines: {
+    id: string;
+    name: string;
+    quantity: StockQuantity;
+    from: string | null;
+    to: string | null;
+  }[];
+};
+type Trace = {
+  movement: Movement;
+  allocations: { id: string; lotNumber: string; quantity: StockQuantity }[];
+  ledger: {
+    id: string;
+    locationId: string;
+    status: string;
+    delta: StockQuantity;
+    reservedDelta: StockQuantity;
+    after: StockQuantity;
+    balanceVersion: number;
+  }[];
+};
+const tabs = [
+  ["stock", "Overview"],
   ["receiving", "Receiving"],
   ["transfers", "Transfers"],
   ["counts", "Stock counts"],
-  ["production", "Production"],
   ["controls", "Adjustments"],
   ["ledger", "Movements"],
 ] as const;
-
-const inputClass =
-  "h-10 w-full rounded-[10px] border border-field-border bg-field-background px-3 text-sm shadow-none";
-
-function InventorySelect({
-  label,
+type Tab = (typeof tabs)[number][0];
+const fieldClass =
+  "h-10 w-full rounded-[10px] border border-field-border bg-field-background px-3 text-sm";
+const tableClass =
+  "w-full min-w-[720px] text-left text-sm [&_th]:border-b [&_th]:border-separator [&_th]:px-3 [&_th]:py-3 [&_th]:text-xs [&_th]:font-medium [&_th]:text-muted [&_td]:border-b [&_td]:border-separator [&_td]:px-3 [&_td]:py-3";
+export const stockMoney = (v: number | null | undefined) =>
+  v == null
+    ? "Unknown"
+    : new Intl.NumberFormat("en-PH", {
+        style: "currency",
+        currency: "PHP",
+      }).format(v / 100);
+const label = (s: string) =>
+  s.replaceAll("_", " ").replace(/^./, (v) => v.toUpperCase());
+/** Converts the catalog's cases + pieces to integer base units; never multiplies by a guessed 1000. */
+export function enteredStockQuantity(
+  cases: string,
+  pieces: string,
+  units: StockUnits,
+  allowZero = false,
+) {
+  if (!/^\d*$/.test(cases) || !/^\d*(\.\d+)?$/.test(pieces))
+    throw new Error("Enter non-negative cases and pieces");
+  if (Number(cases) && !units.basePerCase)
+    throw new Error("Set up the case conversion first");
+  if (Number(pieces) && !units.basePerPiece)
+    throw new Error("Set up the piece conversion first");
+  const base =
+    Number(cases || 0) * (units.basePerCase ?? 0) +
+    Number(pieces || 0) * (units.basePerPiece ?? 0);
+  if (!Number.isSafeInteger(base) || base < (allowZero ? 0 : 1))
+    throw new Error("Enter a whole base quantity within the product's units");
+  return base;
+}
+function Picker({
+  label: caption,
   value,
-  options,
   onChange,
-  showLabel = true,
+  options,
 }: {
   label: string;
   value: string;
-  options: { id: string; label: string }[];
-  onChange: (value: string) => void;
-  showLabel?: boolean;
-}) {
-  const select = (
-    <Select
-      aria-label={label}
-      selectedKey={value || "__none"}
-      onSelectionChange={(key) =>
-        onChange(key === "__none" ? "" : String(key ?? ""))
-      }
-    >
-      <Select.Trigger className="h-10 min-h-10 rounded-[10px] !border !border-border bg-surface px-3 text-sm shadow-none">
-        <Select.Value />
-        <Select.Indicator />
-      </Select.Trigger>
-      <Select.Popover>
-        <ListBox>
-          {options.map((option) => (
-            <ListBox.Item
-              key={option.id || "__none"}
-              id={option.id || "__none"}
-              textValue={option.label}
-            >
-              {option.label}
-            </ListBox.Item>
-          ))}
-        </ListBox>
-      </Select.Popover>
-    </Select>
-  );
-  return showLabel ? <FormField label={label}>{select}</FormField> : select;
-}
-
-function quantityBase(value: string) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0)
-    throw new Error("Enter a positive quantity");
-  return BigInt(Math.round(parsed * 1_000));
-}
-
-function countedQuantityBase(value: string) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 0)
-    throw new Error("Count must be zero or greater");
-  return BigInt(Math.round(parsed * 1_000));
-}
-
-function displayLabel(value: string) {
-  const words = value.replaceAll("_", " ");
-  return words.charAt(0).toUpperCase() + words.slice(1);
-}
-
-function formatTime(value: number) {
-  return new Intl.DateTimeFormat("en-PH", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(value);
-}
-
-function operationErrorMessage(error: unknown) {
-  const fallback = "Action failed. Try again.";
-  if (!(error instanceof Error)) return fallback;
-  const message = error.message.trim();
-  return message === "Enter a positive quantity" ||
-    message === "Count must be zero or greater"
-    ? message
-    : fallback;
-}
-
-function OperationPanel({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
+  onChange: (s: string) => void;
+  options: { id: string; name: string }[];
 }) {
   return (
-    <Card label={title} icon={<WorkspaceIcon name="inventory" />}>
-      {children}
-    </Card>
+    <FormField label={caption}>
+      <select
+        aria-label={caption}
+        className={fieldClass}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        <option value="">Choose {caption.toLowerCase()}</option>
+        {options.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.name}
+          </option>
+        ))}
+      </select>
+    </FormField>
+  );
+}
+function Amount({ q }: { q: StockQuantity }) {
+  return (
+    <span className="tabular-nums">
+      {q.display}
+      <small className="block text-xs text-muted">
+        {stockMoney(q.valueCentavos)}
+      </small>
+    </span>
   );
 }
 
 export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
   void setupMessage;
-  const [tab, setTab] = useState<(typeof allTabs)[number][0]>("stock");
-  // Beta: hidden features stay in the code; see config/beta.ts.
-  const showProduction = isBetaFeatureOn("production");
-  const showSetup = isBetaFeatureOn("inventory-setup");
-  const showDifferences = isBetaFeatureOn("stock-differences");
-  const tabs = allTabs.filter(([id]) => id !== "production" || showProduction);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [locationFilter, setLocationFilter] = useState("");
-  const [receipt, setReceipt] = useState({
-    productId: "",
-    locationId: "",
-    quantity: "10",
-    lotNumber: "",
-    expiresAt: "",
-  });
-  const [transfer, setTransfer] = useState({
-    productId: "",
-    sourceId: "",
-    destinationId: "",
-    quantity: "10",
-  });
-  const [countSessionId, setCountSessionId] = useState("");
-  const [countValues, setCountValues] = useState<Record<string, string>>({});
-
-  const products = useQuery(api.domains.masterData.products, { limit: 100 });
-  const locations = useQuery(api.inventory.queries.locations, {});
-  const overview = useQuery(api.inventory.queries.overview, {
-    ...(locationFilter
-      ? { locationId: locationFilter as Id<"inventoryLocations"> }
-      : {}),
-    limit: 250,
-  });
-  const receipts = useQuery(api.inventory.receipts.list, { limit: 25 });
-  const transfers = useQuery(api.inventory.transfers.list, { limit: 25 });
-  const counts = useQuery(api.inventory.counts.list, { limit: 25 });
-  const countDetail = useQuery(
-    api.inventory.counts.detail,
-    countSessionId
-      ? { sessionId: countSessionId as Id<"stockCountSessions"> }
-      : "skip",
+  const [tab, setTab] = useState<Tab>("stock"),
+    [locationId, setLocationId] = useState(""),
+    [productId, setProductId] = useState(""),
+    [traceId, setTraceId] = useState(""),
+    [countId, setCountId] = useState("");
+  const [cases, setCases] = useState(""),
+    [pieces, setPieces] = useState(""),
+    [source, setSource] = useState(""),
+    [destination, setDestination] = useState(""),
+    [lotNumber, setLotNumber] = useState(""),
+    [expires, setExpires] = useState(""),
+    [reason, setReason] = useState(""),
+    [subtract, setSubtract] = useState(true);
+  const [counts, setCounts] = useState<
+      Record<string, { cases: string; pieces: string }>
+    >({}),
+    [notice, setNotice] = useState<string | null>(null),
+    [success, setSuccess] = useState<string | null>(null);
+  const [reorderCases, setReorderCases] = useState(""),
+    [targetCases, setTargetCases] = useState("");
+  const { can } = usePermissions();
+  const write = useMutate();
+  const intents = useRef(new Map<string, string>());
+  const locations = useApi<Location[]>(
+    ["inventory", "locations"],
+    "/api/v1/inventory/locations",
   );
-  const production = useQuery(
-    api.inventory.manufacturing.list,
-    showProduction ? { limit: 25 } : "skip",
+  const products = useApi<Product[]>(
+    ["inventory", "products"],
+    "/api/v1/inventory/products",
   );
-  const adjustments = useQuery(api.inventory.adjustments.list, { limit: 25 });
-  const replenishment = useQuery(api.inventory.replenishment.suggestions, {});
-  const reconciliationRuns = useQuery(
-    api.inventory.reconciliation.runs,
-    showDifferences ? { limit: 10 } : "skip",
+  const overview = useApi<Overview>(
+    ["inventory", "overview", locationId],
+    ({ signal }) =>
+      apiFetch("/api/v1/inventory/overview", {
+        signal,
+        query: { locationId: locationId || undefined },
+      }),
   );
-  const movements = usePaginatedQuery(
-    api.inventory.queries.movements,
-    {},
-    { initialNumItems: 25 },
+  const queueKind =
+    tab === "receiving"
+      ? "receipts"
+      : tab === "transfers"
+        ? "transfers"
+        : tab === "counts"
+          ? "counts"
+          : tab === "controls"
+            ? "adjustments"
+            : null;
+  const queue = useApiPages<Doc>(
+    queueKind ? ["inventory", queueKind] : null,
+    (cursor, { signal }) =>
+      apiFetch(`/api/v1/inventory/${queueKind}`, {
+        signal,
+        query: { cursor: cursor ?? undefined },
+      }),
   );
-  const provision = useMutation(api.inventory.setup.foundation);
-  const postReceipt = useMutation(api.inventory.receipts.post);
-  const requestTransfer = useMutation(api.inventory.transfers.request);
-  const approveTransfer = useMutation(api.inventory.transfers.approve);
-  const shipTransfer = useMutation(api.inventory.transfers.ship);
-  const receiveTransfer = useMutation(api.inventory.transfers.receive);
-  const startCount = useMutation(api.inventory.counts.start);
-  const submitCount = useMutation(api.inventory.counts.submit);
-  const approveCount = useMutation(api.inventory.counts.approveAndPost);
-  const runReconciliation = useMutation(api.inventory.reconciliation.run);
-
-  const inventoryReady =
-    Boolean(locations?.length) &&
-    Boolean(products?.length) &&
-    products!.every(
-      (product) =>
-        product.baseUomId !== undefined &&
-        product.quantityScale !== undefined &&
-        product.trackingMode !== undefined &&
-        product.allocationPolicy !== undefined,
+  const detail = useApi<Count>(
+    countId ? ["inventory", "count", countId] : null,
+    ({ signal }) =>
+      apiFetch("/api/v1/inventory/counts/detail", {
+        signal,
+        query: { sessionId: countId },
+      }),
+  );
+  const moves = useApiPages<Movement>(
+    tab === "ledger" || productId
+      ? ["inventory", "movements", productId]
+      : null,
+    (cursor, { signal }) =>
+      apiFetch("/api/v1/inventory/movements", {
+        signal,
+        query: {
+          cursor: cursor ?? undefined,
+          productId: productId || undefined,
+        },
+      }),
+  );
+  const trace = useApi<Trace>(
+    traceId ? ["inventory", "trace", traceId] : null,
+    ({ signal }) =>
+      apiFetch("/api/v1/inventory/trace", {
+        signal,
+        query: { movementId: traceId },
+      }),
+  );
+  const lots = useApi<StockLot[]>(
+    tab === "controls" && productId ? ["inventory", "lots", productId] : null,
+    ({ signal }) =>
+      apiFetch("/api/v1/inventory/lots", { signal, query: { productId } }),
+  );
+  useLive(["inventory"], [["inventory"]]);
+  const selected = products.data?.find((p) => p.id === productId),
+    data = overview.data;
+  const stocks = (data?.rows ?? []).filter(
+    (r) => !productId || r.productId === productId,
+  );
+  const locationOptions = (locations.data ?? []).filter(
+    (l) => l.active && l.type !== "virtual_boundary",
+  );
+  const transit = locationOptions.find((l) => l.type === "in_transit");
+  async function run(
+    action: string,
+    body: Record<string, unknown>,
+    done = "Saved",
+  ) {
+    if (write.pending) return;
+    const fingerprint = JSON.stringify([action, body]);
+    let key = intents.current.get(fingerprint);
+    if (!key) {
+      key = crypto.randomUUID();
+      intents.current.set(fingerprint, key);
+    }
+    try {
+      await write.mutate(
+        `/api/v1/inventory/${action}`,
+        { ...body, idempotencyKey: key },
+        { invalidate: [["inventory"]] },
+      );
+      intents.current.delete(fingerprint);
+      setNotice(null);
+      setSuccess(done);
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : "Action failed. Try again.");
+    }
+  }
+  function withQuantity(action: (base: number) => void) {
+    try {
+      if (!selected) throw new Error("Choose a product");
+      action(enteredStockQuantity(cases, pieces, selected.units));
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : "Check the quantity");
+    }
+  }
+  function focus(row: Row, next: Tab) {
+    setLocationId(row.locationId);
+    setSource(row.locationId);
+    setDestination(row.locationId);
+    setProductId(row.productId);
+    setTab(next);
+  }
+  function rowActions(row: Row) {
+    return (
+      <div className="flex gap-2">
+        {can("inventory.write") ? (
+          <Button
+            size="sm"
+            variant="outline"
+            onPress={() => focus(row, "transfers")}
+          >
+            Transfer
+          </Button>
+        ) : null}
+        {can("inventory.count.submit") ? (
+          <Button
+            size="sm"
+            variant="outline"
+            onPress={() => focus(row, "counts")}
+          >
+            Count
+          </Button>
+        ) : null}
+        {can("inventory.adjustment.request") ? (
+          <Button
+            size="sm"
+            variant="outline"
+            onPress={() => focus(row, "controls")}
+          >
+            Adjust
+          </Button>
+        ) : null}
+      </div>
     );
-  const displayedNotice =
-    notice ??
-    (!inventoryReady && locations && products
-      ? showSetup
-        ? "Set up inventory to continue"
-        : "Inventory is not set up yet. Ask your administrator."
-      : null);
-
-  const inTransit = locations?.find(
-    (location) => location.type === "in_transit",
-  );
-  const totals = useMemo(
-    () =>
-      (overview ?? []).reduce(
-        (sum, row) => ({
-          physical: sum.physical + Number(row.physical),
-          available: sum.available + Number(row.available),
-          reserved: sum.reserved + Number(row.reserved),
-          quality: sum.quality + Number(row.qualityHold),
-        }),
-        { physical: 0, available: 0, reserved: 0, quality: 0 },
-      ),
-    [overview],
-  );
-
-  async function execute(action: () => Promise<unknown>, success: string) {
-    setBusy(true);
-    try {
-      await action();
-      setNotice(null);
-      setToast(success);
-      window.setTimeout(() => setToast(null), 4000);
-    } catch (error) {
-      console.error(error);
-      setNotice(operationErrorMessage(error));
-    } finally {
-      setBusy(false);
-    }
   }
-
-  async function setupInventory() {
-    setBusy(true);
-    setNotice(null);
-    try {
-      await provision();
-      setNotice(null);
-      setToast("Inventory set up");
-      window.setTimeout(() => setToast(null), 4000);
-    } catch (error) {
-      console.error(error);
-      setNotice("Setup failed. Try again.");
-    } finally {
-      setBusy(false);
-    }
+  function exportRows() {
+    const escape = (v: string) =>
+      `"${(/^[=+@\-\t\r]/.test(v) ? "'" : "") + v.replaceAll('"', '""')}"`;
+    const csv =
+      "\uFEFF" +
+      [
+        [
+          "Product",
+          "Location",
+          "On hand",
+          "Available",
+          "Value PHP",
+          "Cover days",
+        ],
+        ...stocks.map((r) => [
+          r.name,
+          r.locationName,
+          r.onHand.display,
+          r.available.display,
+          r.valueCentavos == null ? "Unknown" : String(r.valueCentavos / 100),
+          r.daysCover == null ? "Unknown" : r.daysCover.toFixed(1),
+        ]),
+      ]
+        .map((row) => row.map(escape).join(","))
+        .join("\r\n");
+    const url = URL.createObjectURL(
+      new Blob([csv], { type: "text/csv;charset=utf-8" }),
+    );
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "stock-by-location.csv";
+    a.click();
+    URL.revokeObjectURL(url);
   }
-
+  const quantityFields = (
+    <div className="grid grid-cols-2 gap-3">
+      <FormField label="Cases">
+        <Input
+          className={fieldClass}
+          aria-label="Cases"
+          value={cases}
+          onChange={(e) => setCases(e.target.value)}
+          disabled={!selected?.units.basePerCase}
+        />
+      </FormField>
+      <FormField label="Pieces">
+        <Input
+          className={fieldClass}
+          aria-label="Pieces"
+          value={pieces}
+          onChange={(e) => setPieces(e.target.value)}
+          disabled={!selected?.units.basePerPiece}
+        />
+      </FormField>
+    </div>
+  );
   return (
     <div className="grid gap-4">
       <PageHeader
         title="Inventory"
-        meta={
-          overview && locations
-            ? `${totals.physical.toLocaleString("en-PH")} cases · ${locations.length} ${locations.length === 1 ? "location" : "locations"} configured`
-            : undefined
-        }
+        meta="Is the right stock in the right place?"
       />
-      {toast ? (
-        <div
-          role="status"
-          className="fixed bottom-4 right-4 z-50 rounded-xl bg-overlay px-4 py-3 text-[13px] text-overlay-foreground shadow-overlay"
-        >
-          {toast}
-        </div>
+      {notice ? <Notice title={notice} tone="danger" /> : null}
+      {success ? (
+        <p role="status" className="text-sm">
+          {success}
+        </p>
       ) : null}
-      {displayedNotice ? (
+      {overview.error ? (
+        <Notice title={overview.error.message} tone="danger" />
+      ) : null}
+      {!data && !overview.error ? <p>Loading stock…</p> : null}
+      {locations.data?.length === 0 || products.data?.length === 0 ? (
         <Notice
-          title={displayedNotice}
-          tone={notice ? "danger" : "warning"}
-          meta={
-            !inventoryReady && showSetup ? (
-              <Button
-                variant="outline"
-                className="mt-2 h-8 min-h-8"
-                isPending={busy}
-                onPress={() => void setupInventory()}
-              >
-                Set up
-              </Button>
-            ) : undefined
-          }
+          title="Inventory is not set up yet. Ask your administrator."
+          meta={<Link href="/admin">Set up locations and catalog</Link>}
         />
       ) : null}
       <UnderlineTabs
@@ -304,761 +498,867 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
         onChange={setTab}
         label="Inventory sections"
       />
-
-      {tab === "stock" ? (
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Picker
+          label="Location"
+          value={locationId}
+          onChange={setLocationId}
+          options={locationOptions}
+        />
+        <Picker
+          label="Product"
+          value={productId}
+          onChange={setProductId}
+          options={products.data ?? []}
+        />
+      </div>
+      {tab === "stock" && data ? (
         <>
-          <section aria-label="Stock · cases">
-            <h2 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted">
-              Stock · cases
-            </h2>
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              {[
-                ["Physical", totals.physical],
-                ["Available", totals.available],
-                ["Reserved", totals.reserved],
-                ["Hold", totals.quality],
-              ].map(([label, value]) => (
-                <MetricCard
-                  key={label}
-                  label={String(label)}
-                  value={Number(value).toLocaleString("en-PH")}
-                />
+          <section
+            aria-label="Stock exceptions"
+            className="grid gap-3 md:grid-cols-3"
+          >
+            <Card label="Out at depot">
+              <p className="text-2xl tabular-nums">{data.summary.outAtDepot}</p>
+              <p className="text-sm text-muted">
+                Products needing stock, not a count of empty balance rows.
+              </p>
+              {data.out
+                .filter((r) => r.kind === "depot")
+                .slice(0, 5)
+                .map((r) => (
+                  <div key={`${r.productId}:${r.locationId}`} className="my-3">
+                    <button
+                      className="text-sm underline"
+                      onClick={() => setProductId(r.productId)}
+                    >
+                      {r.name} · {r.locationName}
+                    </button>
+                    {rowActions(r)}
+                  </div>
+                ))}
+            </Card>
+            <Card label="Low stock">
+              <p className="text-2xl tabular-nums">{data.summary.low}</p>
+              {data.low.slice(0, 5).map((r) => (
+                <div key={`${r.productId}:${r.locationId}`} className="my-3">
+                  <p>
+                    {r.name} · {r.locationName}
+                  </p>
+                  <Amount q={r.available} />
+                  {rowActions(r)}
+                </div>
+              ))}
+              {data.summary.policiesMissing ? (
+                <p className="text-sm text-muted">
+                  {data.summary.policiesMissing} product/location targets need
+                  setup.
+                </p>
+              ) : null}
+            </Card>
+            <Card label="Near expiry">
+              <p className="text-2xl tabular-nums">{data.summary.nearExpiry}</p>
+              <p className="text-sm text-muted">
+                Next 30 days · count and inspect before moving.
+              </p>
+              {data.nearExpiry.slice(0, 5).map((r) => (
+                <div key={r.id} className="my-3">
+                  <button
+                    className="underline"
+                    onClick={() => {
+                      setProductId(r.productId);
+                      setTab("counts");
+                    }}
+                  >
+                    {r.name} · {r.locationName}
+                  </button>
+                  <p className="text-xs text-muted">
+                    Lot {r.lotNumber} ·{" "}
+                    {new Date(r.expiresAt).toLocaleDateString("en-PH", {
+                      timeZone: "Asia/Manila",
+                    })}
+                  </p>
+                  <Amount q={r.quantity} />
+                </div>
+              ))}
+            </Card>
+          </section>
+          <div className="grid gap-4 md:grid-cols-3">
+            <MetricCard
+              label="Stock selling value"
+              value={stockMoney(data.summary.valueCentavos)}
+              detail={`28 days ago: ${stockMoney(data.summary.priorValueCentavos)}`}
+            />
+            <MetricCard
+              label="Locations configured"
+              value={String(locations.data?.length ?? 0)}
+              detail="Depot, trucks and goods on the road"
+            />
+            <MetricCard
+              label="Price setup"
+              value={
+                data.summary.unknownPrices
+                  ? `${data.summary.unknownPrices} unknown`
+                  : "Available"
+              }
+              detail="Default price list · not accounting cost"
+            />
+          </div>
+          <Card label="Value by location">
+            <div className="grid gap-3 md:grid-cols-3">
+              {data.locations.map((l) => (
+                <button
+                  key={l.id}
+                  className="rounded-lg border border-separator p-4 text-left"
+                  onClick={() => setLocationId(l.id)}
+                >
+                  <span className="block font-medium">
+                    {l.name} · {label(l.kind)}
+                  </span>
+                  <span className="block tabular-nums">
+                    {stockMoney(l.valueCentavos)}
+                  </span>
+                  <small className="text-muted">
+                    28 days ago {stockMoney(l.priorValueCentavos)} · {l.out} out
+                    · {l.low} low
+                  </small>
+                </button>
               ))}
             </div>
-          </section>
+          </Card>
+          <Card label="Stock value trend · last 14 days">
+            <div
+              className="flex h-28 items-end gap-1"
+              role="img"
+              aria-label="Stock value over the last 14 days"
+            >
+              {data.trend.map((d) => {
+                const maximum = Math.max(
+                  1,
+                  ...data.trend.map((t) => t.valueCentavos ?? 0),
+                );
+                return (
+                  <div
+                    key={d.date}
+                    className="flex-1 bg-foreground/70"
+                    style={{
+                      height:
+                        d.valueCentavos == null
+                          ? 2
+                          : Math.max(2, (d.valueCentavos / maximum) * 100) +
+                            "%",
+                    }}
+                    title={`${d.date}: ${stockMoney(d.valueCentavos)}`}
+                  />
+                );
+              })}
+            </div>
+            <p className="mt-2 text-xs text-muted">
+              Reconstructed from the ledger at today's default prices. Unknown
+              price is not zero.
+            </p>
+          </Card>
           <Card
             label="Stock by location"
-            icon={<WorkspaceIcon name="inventory" />}
-            flush
             actions={
-              <div className="w-56">
-                <InventorySelect
-                  label="Location"
-                  showLabel={false}
-                  value={locationFilter}
-                  onChange={setLocationFilter}
-                  options={[
-                    { id: "", label: "All locations" },
-                    ...(locations ?? []).map((location) => ({
-                      id: location._id,
-                      label: `${location.code} · ${location.name}`,
-                    })),
-                  ]}
-                />
+              <div className="flex gap-2">
+                <Button variant="outline" onPress={exportRows}>
+                  Export CSV
+                </Button>
+                <Button variant="outline" onPress={() => window.print()}>
+                  Print
+                </Button>
               </div>
             }
           >
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] border-collapse [&_tbody_tr:last-child_td]:border-b-0 text-left text-sm [&_th]:border-b [&_th]:border-separator [&_th]:px-4 [&_th]:py-3 [&_th]:text-[11px] [&_th]:font-medium [&_th]:uppercase [&_th]:tracking-wide [&_th]:text-muted [&_td]:h-[52px] [&_td]:border-b [&_td]:border-separator [&_td]:px-4 [&_td]:py-2">
+              <table className={tableClass}>
                 <thead>
                   <tr>
-                    <th>Product</th>
-                    <th>Location</th>
-                    <th className="text-right">Physical</th>
-                    <th className="text-right">Available</th>
-                    <th className="text-right">Reserved</th>
-                    <th className="text-right">Hold</th>
+                    <th>Product / location</th>
+                    <th>On hand</th>
+                    <th>Available / reserved</th>
+                    <th>Value</th>
+                    <th>Cover / target</th>
+                    <th>Next action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {(overview ?? []).map((row) => (
-                    <tr key={row.id}>
+                  {stocks.map((r) => (
+                    <tr key={`${r.productId}:${r.locationId}`}>
                       <td>
-                        <span className="block text-[14px] font-medium">
-                          {row.productName}
-                        </span>
-                        <span className="block font-mono text-xs text-muted">
-                          {row.productCode}
-                        </span>
+                        <button
+                          className="text-left font-medium underline"
+                          onClick={() => {
+                            setProductId(r.productId);
+                            setTab("ledger");
+                          }}
+                        >
+                          {r.name}
+                        </button>
+                        <small className="block text-muted">
+                          {r.code} · {r.locationName} · {label(r.locationType)}
+                        </small>
                       </td>
                       <td>
-                        <span className="block text-[14px] font-medium">
-                          {row.locationName || row.locationCode}
-                        </span>
-                        <span className="block text-xs text-muted">
-                          <span className="font-mono">{row.locationCode}</span>{" "}
-                          · {displayLabel(row.locationType)}
-                        </span>
+                        <Amount q={r.onHand} />
+                      </td>
+                      <td>
+                        <Amount q={r.available} />
+                        <small>Reserved {r.reserved.display}</small>
                       </td>
                       <td className="text-right tabular-nums">
-                        {row.physical}
+                        {stockMoney(r.valueCentavos)}
                       </td>
-                      <td className="text-right tabular-nums">
-                        {row.available}
+                      <td>
+                        {r.daysCover == null
+                          ? "Unknown demand"
+                          : `${r.daysCover.toFixed(1)} days`}
+                        <small className="block text-muted">
+                          {r.target
+                            ? `Target ${r.target.display}`
+                            : "Target needs setup"}
+                        </small>
+                        <small className="block text-muted">
+                          28 days ago {r.prior.display}
+                        </small>
                       </td>
-                      <td className="text-right tabular-nums">
-                        {row.reserved}
-                      </td>
-                      <td className="text-right tabular-nums">
-                        {row.qualityHold}
-                      </td>
+                      <td>{rowActions(r)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              {overview?.length === 0 ? (
-                <p className="p-4 text-[13px] text-muted">No stock yet</p>
+              {stocks.length === 0 ? (
+                <p className="p-4 text-sm text-muted">No stock yet</p>
               ) : null}
             </div>
+            <p className="mt-3 text-xs text-muted">
+              Cover uses the last 28 days of issues and POS sales, not
+              transfers. Updated{" "}
+              {new Date(data.asOf).toLocaleString("en-PH", {
+                timeZone: "Asia/Manila",
+              })}
+              .
+            </p>
           </Card>
         </>
       ) : null}
-
       {tab === "receiving" ? (
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-          <OperationPanel title="Receive stock">
-            <div className="grid gap-3">
-              <InventorySelect
-                label="Product"
-                value={receipt.productId}
-                onChange={(productId) => setReceipt({ ...receipt, productId })}
-                options={[
-                  { id: "", label: "Select product" },
-                  ...(products ?? []).map((product) => ({
-                    id: product._id,
-                    label: `${product.code} · ${product.name}`,
-                  })),
-                ]}
-              />
-              <InventorySelect
+        <Card label="Receive stock">
+          {can("inventory.write") ? (
+            <div className="grid max-w-xl gap-3">
+              <Picker
                 label="Receiving location"
-                value={receipt.locationId}
-                onChange={(locationId) =>
-                  setReceipt({ ...receipt, locationId })
-                }
-                options={[
-                  { id: "", label: "Receiving location" },
-                  ...(locations ?? [])
-                    .filter((location) => location.allowsReceiving)
-                    .map((location) => ({
-                      id: location._id,
-                      label: `${location.code} · ${location.name}`,
-                    })),
-                ]}
+                value={destination}
+                onChange={setDestination}
+                options={locationOptions}
               />
-              <FormField label="Quantity in cases">
-                <Input
-                  className={inputClass}
-                  aria-label="Quantity in cases"
-                  value={receipt.quantity}
-                  onChange={(event) =>
-                    setReceipt({ ...receipt, quantity: event.target.value })
-                  }
-                  placeholder="Accepted cases"
-                />
-              </FormField>
+              {quantityFields}
               <FormField label="Lot number">
                 <Input
-                  className={inputClass}
-                  aria-label="Lot number"
-                  value={receipt.lotNumber}
-                  onChange={(event) =>
-                    setReceipt({ ...receipt, lotNumber: event.target.value })
-                  }
-                  placeholder="Supplier or production lot"
+                  className={fieldClass}
+                  value={lotNumber}
+                  onChange={(e) => setLotNumber(e.target.value)}
                 />
               </FormField>
               <FormField label="Expiry date">
                 <Input
-                  className={inputClass}
                   type="date"
-                  aria-label="Expiry date"
-                  value={receipt.expiresAt}
-                  onChange={(event) =>
-                    setReceipt({ ...receipt, expiresAt: event.target.value })
-                  }
+                  className={fieldClass}
+                  value={expires}
+                  onChange={(e) => setExpires(e.target.value)}
                 />
               </FormField>
               <Button
-                variant="primary"
-                isPending={busy}
-                isDisabled={
-                  !receipt.productId ||
-                  !receipt.locationId ||
-                  !receipt.lotNumber ||
-                  !receipt.expiresAt
-                }
+                isPending={write.pending}
                 onPress={() =>
-                  void execute(
-                    () =>
-                      postReceipt({
-                        idempotencyKey: crypto.randomUUID(),
-                        receiptType: "purchase_order",
-                        receivingLocationId:
-                          receipt.locationId as Id<"inventoryLocations">,
-                        deliveryReference: `WEB-${Date.now()}`,
-                        lines: [
-                          {
-                            productId: receipt.productId as Id<"products">,
-                            quantityBase: quantityBase(receipt.quantity),
-                            lotNumber: receipt.lotNumber,
-                            manufacturedAt: Date.now(),
-                            expiresAt: new Date(receipt.expiresAt).getTime(),
-                          },
-                        ],
-                      }),
-                    "Receipt posted",
+                  withQuantity(
+                    (base) =>
+                      void run(
+                        "receipts/post",
+                        {
+                          receivingLocationId: destination,
+                          receiptType: "unplanned",
+                          lines: [
+                            {
+                              productId,
+                              quantityBase: base,
+                              ...(lotNumber ? { lotNumber } : {}),
+                              ...(expires
+                                ? {
+                                    expiresAt: new Date(
+                                      `${expires}T00:00:00+08:00`,
+                                    ).getTime(),
+                                  }
+                                : {}),
+                            },
+                          ],
+                        },
+                        "Receipt posted",
+                      ),
                   )
                 }
               >
                 Post receipt
               </Button>
             </div>
-          </OperationPanel>
-          <Card
-            label="Recent receipts"
-            icon={<WorkspaceIcon name="inventory" />}
-          >
-            <DocumentList
-              itemLabel="Receipt"
-              empty="No receipts yet"
-              rows={(receipts ?? []).map((row) => ({
-                id: row._id,
-                number: row.receiptNumber,
-                status: row.status,
-                time: row.createdAt,
-              }))}
-            />
-          </Card>
-        </div>
+          ) : (
+            <p>Stock receiving is read-only for your role.</p>
+          )}
+        </Card>
       ) : null}
-
       {tab === "transfers" ? (
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-          <OperationPanel title="New transfer">
-            <div className="grid gap-3">
-              <InventorySelect
-                label="Product"
-                value={transfer.productId}
-                onChange={(productId) =>
-                  setTransfer({ ...transfer, productId })
-                }
-                options={[
-                  { id: "", label: "Select product" },
-                  ...(products ?? []).map((product) => ({
-                    id: product._id,
-                    label: `${product.code} · ${product.name}`,
-                  })),
-                ]}
+        <Card label="New transfer">
+          {can("inventory.write") ? (
+            <div className="grid max-w-xl gap-3">
+              <Picker
+                label="Source location"
+                value={source}
+                onChange={setSource}
+                options={locationOptions.filter((l) => l.type !== "in_transit")}
               />
-              {(["sourceId", "destinationId"] as const).map((field) => (
-                <InventorySelect
-                  key={field}
-                  label={
-                    field === "sourceId"
-                      ? "Source location"
-                      : "Destination location"
-                  }
-                  value={transfer[field]}
-                  onChange={(value) =>
-                    setTransfer({ ...transfer, [field]: value })
-                  }
-                  options={[
-                    {
-                      id: "",
-                      label:
-                        field === "sourceId"
-                          ? "Source location"
-                          : "Destination location",
-                    },
-                    ...(locations ?? [])
-                      .filter((location) => location.type !== "in_transit")
-                      .map((location) => ({
-                        id: location._id,
-                        label: `${location.code} · ${location.name}`,
-                      })),
-                  ]}
-                />
-              ))}
-              <FormField label="Transfer quantity in cases">
-                <Input
-                  className={inputClass}
-                  aria-label="Transfer quantity in cases"
-                  value={transfer.quantity}
-                  onChange={(event) =>
-                    setTransfer({ ...transfer, quantity: event.target.value })
-                  }
-                />
-              </FormField>
+              <Picker
+                label="Destination location"
+                value={destination}
+                onChange={setDestination}
+                options={locationOptions.filter((l) => l.type !== "in_transit")}
+              />
+              {quantityFields}
+              {!transit ? <p>Set up an in-transit location first.</p> : null}
               <Button
-                variant="primary"
-                isPending={busy}
-                isDisabled={
-                  !transfer.productId ||
-                  !transfer.sourceId ||
-                  !transfer.destinationId ||
-                  !inTransit
-                }
+                isDisabled={!transit}
+                isPending={write.pending}
                 onPress={() =>
-                  void execute(
-                    () =>
-                      requestTransfer({
-                        sourceLocationId:
-                          transfer.sourceId as Id<"inventoryLocations">,
-                        destinationLocationId:
-                          transfer.destinationId as Id<"inventoryLocations">,
-                        inTransitLocationId: inTransit!._id,
-                        lines: [
-                          {
-                            productId: transfer.productId as Id<"products">,
-                            quantityBase: quantityBase(transfer.quantity),
-                          },
-                        ],
-                      }),
-                    "Transfer requested",
+                  withQuantity(
+                    (base) =>
+                      void run(
+                        "transfers/request",
+                        {
+                          sourceLocationId: source,
+                          destinationLocationId: destination,
+                          inTransitLocationId: transit?.id,
+                          lines: [{ productId, quantityBase: base }],
+                        },
+                        "Transfer requested",
+                      ),
                   )
                 }
               >
                 Request transfer
               </Button>
             </div>
-          </OperationPanel>
-          <OperationPanel title="Transfer queue">
-            <div className="grid gap-2">
-              {(transfers ?? []).map((row) => (
-                <div
-                  key={row._id}
-                  className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-separator px-4 last:border-b-0"
-                >
-                  <div>
-                    <strong className="text-[14px] font-medium">
-                      {locations?.find(
-                        (location) => location._id === row.sourceLocationId,
-                      )?.name ?? row.sourceLocationId}{" "}
-                      →{" "}
-                      {locations?.find(
-                        (location) =>
-                          location._id === row.destinationLocationId,
-                      )?.name ?? row.destinationLocationId}
-                    </strong>
-                    <small className="block text-[13px] text-muted">
-                      <span className="font-mono">{row.transferNumber}</span> ·{" "}
-                      {formatTime(row.createdAt)}
-                    </small>
-                  </div>
-                  <StatusPill
-                    tone={row.status === "received" ? "success" : "warning"}
-                  >
-                    {displayLabel(row.status)}
-                  </StatusPill>
-                  <div className="flex flex-wrap justify-end gap-1">
-                    {row.status === "requested" ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onPress={() =>
-                          void execute(
-                            () => approveTransfer({ transferId: row._id }),
-                            "Transfer approved.",
-                          )
-                        }
-                      >
-                        Approve
-                      </Button>
-                    ) : null}
-                    {row.status === "approved" ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onPress={() =>
-                          void execute(
-                            () =>
-                              shipTransfer({
-                                transferId: row._id,
-                                idempotencyKey: crypto.randomUUID(),
-                              }),
-                            "Transfer shipped",
-                          )
-                        }
-                      >
-                        Ship
-                      </Button>
-                    ) : null}
-                    {row.status === "shipped" ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onPress={() =>
-                          void execute(
-                            () =>
-                              receiveTransfer({
-                                transferId: row._id,
-                                idempotencyKey: crypto.randomUUID(),
-                              }),
-                            "Transfer received",
-                          )
-                        }
-                      >
-                        Receive
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-              ))}
-              {transfers?.length === 0 ? (
-                <p className="p-4 text-[13px] text-muted">No transfers yet</p>
-              ) : null}
-            </div>
-          </OperationPanel>
-        </div>
+          ) : (
+            <p>Transfers are read-only for your role.</p>
+          )}
+        </Card>
       ) : null}
-
       {tab === "counts" ? (
-        <OperationPanel title="Count sessions">
-          <div className="mb-5 flex flex-wrap gap-2">
-            {(locations ?? [])
-              .filter((location) => location.type !== "virtual_boundary")
-              .map((location) => (
-                <Button
-                  key={location._id}
-                  size="sm"
-                  variant="outline"
-                  isPending={busy}
-                  onPress={() =>
-                    void execute(
-                      () =>
-                        startCount({
-                          locationId: location._id,
-                          countType:
-                            location.type === "truck" ? "route_close" : "cycle",
+        <Card label="Blind stock count">
+          {can("inventory.count.submit") ? (
+            <div className="flex flex-wrap gap-2">
+              {locationOptions
+                .filter((l) => !locationId || l.id === locationId)
+                .map((l) => (
+                  <Button
+                    key={l.id}
+                    variant="outline"
+                    isPending={write.pending}
+                    onPress={() =>
+                      void run(
+                        "counts/start",
+                        {
+                          locationId: l.id,
                           blindCount: true,
-                        }),
-                      "Count started",
+                          countType: "cycle",
+                        },
+                        "Count started",
+                      )
+                    }
+                  >
+                    Count {l.name}
+                  </Button>
+                ))}
+            </div>
+          ) : null}
+          {detail.error ? (
+            <Notice title={detail.error.message} tone="danger" />
+          ) : null}
+          {detail.data ? (
+            <div className="mt-4 grid gap-3">
+              {detail.data.lines.map((l) => {
+                const units = products.data?.find(
+                  (p) => p.id === l.productId,
+                )?.units;
+                return (
+                  <div
+                    key={l.id}
+                    className="grid gap-3 border-b border-separator py-3 sm:grid-cols-[1fr_100px_100px]"
+                  >
+                    <div>
+                      <p>
+                        {l.name} · {label(l.stockStatus)}
+                      </p>
+                      <small>
+                        {l.lotNumber ? `Lot ${l.lotNumber} · ` : ""}
+                        {l.expected
+                          ? `Expected ${l.expected.display} · ${stockMoney(l.expected.valueCentavos)}`
+                          : "Blind count · expected stock hidden"}
+                      </small>
+                      {l.variance ? (
+                        <p>
+                          Variance <Amount q={l.variance} />
+                        </p>
+                      ) : null}
+                      {l.counted ? (
+                        <p>
+                          Counted <Amount q={l.counted} />
+                        </p>
+                      ) : null}
+                    </div>
+                    {detail.data?.session.status === "counting" &&
+                    can("inventory.count.submit") ? (
+                      <>
+                        <FormField label={`Cases · ${l.code}`}>
+                          <Input
+                            aria-label={`Count cases ${l.code}`}
+                            className={fieldClass}
+                            disabled={!units?.basePerCase}
+                            value={counts[l.id]?.cases ?? ""}
+                            onChange={(e) =>
+                              setCounts({
+                                ...counts,
+                                [l.id]: {
+                                  pieces: counts[l.id]?.pieces ?? "",
+                                  cases: e.target.value,
+                                },
+                              })
+                            }
+                          />
+                        </FormField>
+                        <FormField label={`Pieces · ${l.code}`}>
+                          <Input
+                            aria-label={`Count pieces ${l.code}`}
+                            className={fieldClass}
+                            disabled={!units?.basePerPiece}
+                            value={counts[l.id]?.pieces ?? ""}
+                            onChange={(e) =>
+                              setCounts({
+                                ...counts,
+                                [l.id]: {
+                                  cases: counts[l.id]?.cases ?? "",
+                                  pieces: e.target.value,
+                                },
+                              })
+                            }
+                          />
+                        </FormField>
+                      </>
+                    ) : null}
+                  </div>
+                );
+              })}
+              {detail.data.session.status === "counting" &&
+              can("inventory.count.submit") ? (
+                <Button
+                  isPending={write.pending}
+                  onPress={() => {
+                    try {
+                      const ls = detail.data!.lines.map((l) => {
+                        const units = products.data?.find(
+                          (p) => p.id === l.productId,
+                        )?.units;
+                        if (!units) throw new Error("Product units need setup");
+                        const entered = counts[l.id];
+                        if (!entered || (!entered.cases && !entered.pieces))
+                          throw new Error("Enter every count, including zero");
+                        return {
+                          lineId: l.id,
+                          countedBase: enteredStockQuantity(
+                            entered.cases,
+                            entered.pieces,
+                            units,
+                            true,
+                          ),
+                        };
+                      });
+                      void run(
+                        "counts/submit",
+                        { sessionId: countId, lines: ls },
+                        "Count submitted",
+                      );
+                    } catch (e) {
+                      setNotice(
+                        e instanceof Error ? e.message : "Check the count",
+                      );
+                    }
+                  }}
+                >
+                  Submit count
+                </Button>
+              ) : null}
+              {detail.data.canApprove ? (
+                <Button
+                  isPending={write.pending}
+                  onPress={() =>
+                    void run(
+                      "counts/approve",
+                      {
+                        sessionId: countId,
+                        reasonCode: "verified_stock_count",
+                      },
+                      "Count posted",
                     )
                   }
                 >
-                  Count {location.code}
+                  Approve count
                 </Button>
-              ))}
-          </div>
-          <div className="grid gap-4 lg:grid-cols-[0.7fr_1.3fr]">
-            <div>
-              <div className="grid gap-2">
-                {(counts ?? []).map((row) => (
-                  <button
-                    key={row._id}
-                    type="button"
-                    className={`flex min-h-14 w-full items-center justify-between gap-3 border-b border-separator px-4 text-left last:border-b-0 ${countSessionId === row._id ? "bg-accent-soft" : ""}`}
-                    onClick={() => {
-                      setCountSessionId(row._id);
-                      setCountValues({});
-                    }}
-                  >
-                    <div>
-                      <strong className="text-[14px] font-medium">
-                        {locations?.find(
-                          (location) => location._id === row.locationId,
-                        )?.name ?? row.countNumber}
-                      </strong>
-                      <small className="block text-[13px] text-muted">
-                        <span className="font-mono">{row.countNumber}</span> ·{" "}
-                        {formatTime(row.createdAt)}
-                      </small>
-                    </div>
-                    <StatusPill
-                      tone={row.status === "posted" ? "success" : "warning"}
-                    >
-                      {displayLabel(row.status)}
-                    </StatusPill>
-                  </button>
-                ))}
-                {counts?.length === 0 ? (
-                  <p className="p-4 text-[13px] text-muted">No counts yet</p>
-                ) : null}
-              </div>
-            </div>
-            <div className="p-4">
-              {!countDetail ? (
-                <p className="text-[13px] text-muted">
-                  Select a count to review
-                </p>
-              ) : (
-                <div className="grid gap-3">
-                  {countDetail.lines.map((line) => (
-                    <div
-                      key={line.lineId}
-                      className="grid gap-2 border-b border-border pb-3 sm:grid-cols-[1fr_10rem] sm:items-end"
-                    >
-                      <div>
-                        <strong className="text-[14px] font-medium">
-                          {line.productName}
-                        </strong>
-                        <small className="block text-[12px] text-muted">
-                          <span className="font-mono">{line.productCode}</span>
-                          {line.lotNumber ? ` · lot ${line.lotNumber}` : ""}
-                          {line.systemBase !== undefined
-                            ? ` · system ${Number(line.systemBase) / 1_000}`
-                            : " · blind count"}
-                        </small>
-                      </div>
-                      <FormField label={`Counted cases · ${line.productCode}`}>
-                        <Input
-                          className={inputClass}
-                          type="number"
-                          min="0"
-                          step="0.001"
-                          aria-label={`Counted quantity for ${line.productCode}`}
-                          disabled={countDetail.session.status !== "counting"}
-                          value={
-                            countValues[line.lineId] ??
-                            (line.countedBase !== undefined
-                              ? String(Number(line.countedBase) / 1_000)
-                              : "")
-                          }
-                          onChange={(event) =>
-                            setCountValues({
-                              ...countValues,
-                              [line.lineId]: event.target.value,
-                            })
-                          }
-                          placeholder="Counted cases"
-                        />
-                      </FormField>
-                    </div>
-                  ))}
-                  {countDetail.session.status === "counting" ? (
-                    <Button
-                      variant="primary"
-                      isPending={busy}
-                      isDisabled={countDetail.lines.some(
-                        (line) => !countValues[line.lineId],
-                      )}
-                      onPress={() =>
-                        void execute(
-                          () =>
-                            submitCount({
-                              sessionId: countDetail.session._id,
-                              lines: countDetail.lines.map((line) => ({
-                                lineId: line.lineId,
-                                countedBase: countedQuantityBase(
-                                  countValues[line.lineId] ?? "0",
-                                ),
-                              })),
-                            }),
-                          "Count submitted",
-                        )
-                      }
-                    >
-                      Submit count
-                    </Button>
-                  ) : null}
-                  {countDetail.session.status === "submitted" ? (
-                    <Button
-                      variant="primary"
-                      isPending={busy}
-                      onPress={() =>
-                        void execute(
-                          () =>
-                            approveCount({
-                              sessionId: countDetail.session._id,
-                              idempotencyKey: crypto.randomUUID(),
-                              reasonCode: "verified_stock_count",
-                            }),
-                          "Count posted",
-                        )
-                      }
-                    >
-                      Approve count
-                    </Button>
-                  ) : null}
-                </div>
-              )}
-            </div>
-          </div>
-        </OperationPanel>
-      ) : null}
-
-      {tab === "production" && showProduction ? (
-        <OperationPanel title="Production orders">
-          <DocumentList
-            itemLabel="Production order"
-            rows={(production ?? []).map((row) => ({
-              id: row._id,
-              number: row.productionOrderNumber,
-              status: row.status,
-              time: row.createdAt,
-            }))}
-            empty="No production orders yet"
-          />
-        </OperationPanel>
-      ) : null}
-
-      {tab === "controls" ? (
-        <div className="grid gap-4 xl:grid-cols-3">
-          <OperationPanel title="Low stock">
-            <div className="grid gap-2">
-              {(replenishment ?? []).map((row) => (
-                <div
-                  key={row.policyId}
-                  className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-separator px-4 last:border-b-0"
-                >
-                  <div>
-                    <strong className="font-mono text-sm font-medium">
-                      {row.productCode}
-                    </strong>
-                    <small className="block text-[13px] text-muted">
-                      {row.locationCode ?? "All locations"} · suggested{" "}
-                      {Number(row.suggestedBase) / 1_000}
-                    </small>
-                  </div>
-                  <StatusPill tone="warning">Low</StatusPill>
-                </div>
-              ))}
-              {replenishment?.length === 0 ? (
-                <p className="text-[13px] text-muted">No low stock</p>
               ) : null}
             </div>
-          </OperationPanel>
-          <OperationPanel title="Recent adjustments">
-            <DocumentList
-              itemLabel="Adjustment"
-              empty="No adjustments yet"
-              rows={(adjustments ?? []).map((row) => ({
-                id: row._id,
-                number: row.adjustmentNumber,
-                status: row.status,
-                time: row.createdAt,
-              }))}
-            />
-          </OperationPanel>
-          {showDifferences ? (
-            <OperationPanel title="Differences">
-              <Button
-                variant="primary"
-                isPending={busy}
-                onPress={() =>
-                  void execute(
-                    () => runReconciliation({ sapCutoff: Date.now() }),
-                    "Check differences",
-                  )
+          ) : (
+            <p className="mt-4 text-sm text-muted">
+              Select a count below to enter or review it.
+            </p>
+          )}
+        </Card>
+      ) : null}
+      {tab === "controls" ? (
+        <>
+          <Card label="Request an adjustment">
+            {can("inventory.adjustment.request") ? (
+              <div className="grid max-w-xl gap-3">
+                <Picker
+                  label="Adjustment location"
+                  value={source}
+                  onChange={setSource}
+                  options={locationOptions}
+                />
+                {quantityFields}
+                <label className="text-sm">
+                  <input
+                    type="checkbox"
+                    checked={subtract}
+                    onChange={(e) => setSubtract(e.target.checked)}
+                  />{" "}
+                  Remove stock (untick to add)
+                </label>
+                <FormField label="Reason">
+                  <Input
+                    className={fieldClass}
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                  />
+                </FormField>
+                <Button
+                  isPending={write.pending}
+                  onPress={() =>
+                    withQuantity(
+                      (base) =>
+                        void run(
+                          "adjustments/request",
+                          {
+                            reasonCode: reason,
+                            lines: [
+                              {
+                                productId,
+                                locationId: source,
+                                varianceBase: subtract ? -base : base,
+                                stockStatus: "available",
+                              },
+                            ],
+                          },
+                          "Adjustment submitted for a different approver",
+                        ),
+                    )
+                  }
+                >
+                  Request adjustment
+                </Button>
+                <p className="text-xs text-muted">
+                  Lot-tracked corrections use a blind count to retain exact lot
+                  evidence.
+                </p>
+              </div>
+            ) : null}
+          </Card>
+          <NegativeStockPanel locations={locations.data} />
+        </>
+      ) : null}
+      {tab === "controls" && can("inventory.write") ? (
+        <Card label="Stock targets">
+          <div className="grid max-w-xl gap-3">
+            <p className="text-sm text-muted">
+              Use the selected product and adjustment location. Thresholds are
+              cases from the catalog.
+            </p>
+            <FormField label="Reorder point · cases">
+              <Input
+                className={fieldClass}
+                value={reorderCases}
+                onChange={(e) => setReorderCases(e.target.value)}
+              />
+            </FormField>
+            <FormField label="Target stock · cases">
+              <Input
+                className={fieldClass}
+                value={targetCases}
+                onChange={(e) => setTargetCases(e.target.value)}
+              />
+            </FormField>
+            <Button
+              variant="outline"
+              isPending={write.pending}
+              onPress={() => {
+                try {
+                  if (!selected || !source)
+                    throw new Error("Choose a product and location");
+                  void run(
+                    "replenishment/save",
+                    {
+                      productId,
+                      locationId: source,
+                      reorderPointBase: enteredStockQuantity(
+                        reorderCases,
+                        "",
+                        selected.units,
+                        true,
+                      ),
+                      targetLevelBase: enteredStockQuantity(
+                        targetCases,
+                        "",
+                        selected.units,
+                      ),
+                    },
+                    "Stock target saved",
+                  );
+                } catch (e) {
+                  setNotice(
+                    e instanceof Error ? e.message : "Check the stock target",
+                  );
                 }
+              }}
+            >
+              Save stock target
+            </Button>
+          </div>
+        </Card>
+      ) : null}
+      {tab === "controls" && productId ? (
+        <Card label="Lot quality">
+          {lots.error ? (
+            <Notice title={lots.error.message} tone="danger" />
+          ) : null}
+          {lots.data
+            ?.filter((l) => !source || l.locationId === source)
+            .map((l) => (
+              <div
+                key={l.id}
+                className="flex flex-wrap items-center justify-between gap-3 border-b border-separator py-3"
               >
-                Check differences
-              </Button>
-              <div className="mt-4 grid gap-2">
-                {(reconciliationRuns ?? []).map((row) => (
-                  <div
-                    key={row._id}
-                    className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-separator px-4 last:border-b-0"
+                <p>
+                  Lot {l.lotNumber} · {label(l.stockStatus)} ·{" "}
+                  <Amount q={l.onHand} />
+                </p>
+                {l.onHand.base > 0 &&
+                l.stockStatus === "available" &&
+                can("inventory.write") ? (
+                  <Button
+                    variant="outline"
+                    onPress={() =>
+                      void run(
+                        "quality/change",
+                        {
+                          lotId: l.lotId,
+                          locationId: l.locationId,
+                          fromStatus: l.stockStatus,
+                          toStatus: "quarantine",
+                          quantityBase: l.onHand.base,
+                          reasonCode: reason || "inspection_required",
+                        },
+                        "Stock held for inspection",
+                      )
+                    }
                   >
-                    <div>
-                      <strong className="text-sm font-medium">
-                        {displayLabel(row.scope)}
-                      </strong>
-                      <small className="block text-[13px] text-muted">
-                        {row.comparedCount} compared · {row.differenceCount}{" "}
-                        differences
-                      </small>
-                    </div>
-                    <StatusPill
-                      tone={row.differenceCount === 0 ? "success" : "warning"}
-                    >
-                      {displayLabel(row.status)}
-                    </StatusPill>
-                  </div>
-                ))}
-                {reconciliationRuns?.length === 0 ? (
-                  <p className="p-4 text-[13px] text-muted">No checks yet</p>
+                    Hold for inspection
+                  </Button>
+                ) : null}
+                {l.onHand.base > 0 &&
+                ["quality_hold", "quarantine"].includes(l.stockStatus) &&
+                can("inventory.approve") ? (
+                  <Button
+                    variant="outline"
+                    onPress={() =>
+                      void run(
+                        "quality/change",
+                        {
+                          lotId: l.lotId,
+                          locationId: l.locationId,
+                          fromStatus: l.stockStatus,
+                          toStatus: "available",
+                          quantityBase: l.onHand.base,
+                          reasonCode: reason || "quality_released",
+                        },
+                        "Quality stock released",
+                      )
+                    }
+                  >
+                    Release stock
+                  </Button>
                 ) : null}
               </div>
-            </OperationPanel>
-          ) : null}
-          <div className="xl:col-span-3">
-            <NegativeStockPanel locations={locations} />
-          </div>
-        </div>
-      ) : null}
-
-      {tab === "ledger" ? (
-        <OperationPanel title="Recent movements">
-          <div className="grid gap-2">
-            {movements.results.map((row) => (
-              <div
-                key={row._id}
-                className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-separator px-4 last:border-b-0"
-              >
-                <div>
-                  <strong className="text-[14px] font-medium">
-                    {displayLabel(row.movementType)}
-                  </strong>
-                  <small className="block text-[13px] text-muted">
-                    <span className="font-mono">{row.movementNumber}</span> ·{" "}
-                    {formatTime(row.postedAt)}
-                  </small>
-                </div>
-                <span className="text-[13px] text-muted">
-                  {displayLabel(row.sourceType)}
-                </span>
-                <StatusPill
-                  tone={row.status === "posted" ? "success" : "neutral"}
-                >
-                  {displayLabel(row.status)}
-                </StatusPill>
-              </div>
             ))}
-          </div>
-          {movements.results.length === 0 &&
-          movements.status === "Exhausted" ? (
-            <p className="p-4 text-[13px] text-muted">No movements yet</p>
+        </Card>
+      ) : null}
+      {queueKind ? (
+        <Card label={`Recent ${queueKind}`}>
+          {queue.error ? (
+            <Notice title={queue.error.message} tone="danger" />
           ) : null}
-          {movements.status === "CanLoadMore" ? (
-            <Button
-              className="mt-4"
-              size="sm"
-              variant="outline"
-              onPress={() => movements.loadMore(25)}
+          {queue.items?.length === 0 && queue.isComplete ? (
+            <p className="text-sm text-muted">No {queueKind} yet</p>
+          ) : null}
+          {queue.items?.map((d) => (
+            <div
+              key={d.id}
+              className="flex flex-wrap items-center justify-between gap-3 border-b border-separator py-3"
             >
-              Load more
+              <div>
+                <p>{d.locations.join(" → ")}</p>
+                <small className="text-muted">
+                  {d.number} · {label(d.status)}
+                </small>
+              </div>
+              <div className="flex gap-2">
+                {queueKind === "counts" ? (
+                  <Button
+                    variant="outline"
+                    onPress={() => {
+                      setCountId(d.id);
+                      setCounts({});
+                    }}
+                  >
+                    Open count
+                  </Button>
+                ) : null}
+                {queueKind === "transfers" &&
+                d.status === "requested" &&
+                d.canApprove ? (
+                  <Button
+                    variant="outline"
+                    onPress={() =>
+                      void run(
+                        "transfers/approve",
+                        { transferId: d.id },
+                        "Transfer approved",
+                      )
+                    }
+                  >
+                    Approve
+                  </Button>
+                ) : null}
+                {queueKind === "transfers" &&
+                ["approved", "shipped"].includes(d.status) &&
+                can("inventory.write") ? (
+                  <Button
+                    variant="outline"
+                    onPress={() =>
+                      void run(
+                        `transfers/${d.status === "approved" ? "ship" : "receive"}`,
+                        { transferId: d.id },
+                        "Transfer updated",
+                      )
+                    }
+                  >
+                    {d.status === "approved" ? "Ship" : "Receive"}
+                  </Button>
+                ) : null}
+                {queueKind === "adjustments" &&
+                d.status === "submitted" &&
+                d.canApprove ? (
+                  <>
+                    <Button
+                      variant="outline"
+                      onPress={() =>
+                        void run(
+                          "adjustments/decide",
+                          { adjustmentId: d.id, decision: "approved" },
+                          "Adjustment posted",
+                        )
+                      }
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onPress={() =>
+                        void run(
+                          "adjustments/decide",
+                          { adjustmentId: d.id, decision: "rejected" },
+                          "Adjustment rejected",
+                        )
+                      }
+                    >
+                      Reject
+                    </Button>
+                  </>
+                ) : null}
+              </div>
+            </div>
+          ))}
+          {queue.status === "canLoadMore" ? (
+            <Button variant="outline" onPress={() => void queue.loadMore()}>
+              Show older
             </Button>
           ) : null}
-        </OperationPanel>
+        </Card>
       ) : null}
-    </div>
-  );
-}
-
-function DocumentList({
-  rows,
-  itemLabel,
-  empty = "No records yet",
-}: {
-  rows: { id: string; number: string; status: string; time: number }[];
-  itemLabel: string;
-  empty?: string;
-}) {
-  return (
-    <div>
-      <div className="-mx-4 -mb-4">
-        {rows.length === 0 ? (
-          <p className="p-4 text-[13px] text-muted">{empty}</p>
-        ) : null}
-        {rows.map((row) => (
-          <ListRow
-            key={row.id}
-            icon={<WorkspaceIcon name="inventory" />}
-            title={<span className="text-[14px] font-medium">{itemLabel}</span>}
-            meta={
-              <>
-                <span className="font-mono">{row.number}</span> ·{" "}
-                {formatTime(row.time)}
-              </>
-            }
-            action={
-              <StatusPill
-                tone={
-                  row.status === "posted" ||
-                  row.status === "received" ||
-                  row.status === "completed"
-                    ? "success"
-                    : "warning"
-                }
-              >
-                {displayLabel(row.status)}
-              </StatusPill>
-            }
-          />
-        ))}
-      </div>
+      {tab === "ledger" ? (
+        <Card label="Movement trace">
+          {moves.error ? (
+            <Notice title={moves.error.message} tone="danger" />
+          ) : null}
+          {moves.items?.map((m) => (
+            <div key={m.id} className="border-b border-separator py-3">
+              <button className="underline" onClick={() => setTraceId(m.id)}>
+                {label(m.kind)} · {m.number}
+              </button>
+              {m.lines.map((l) => (
+                <p key={l.id} className="text-sm">
+                  {l.name} · {l.from ?? "Received"} → {l.to ?? "Issued"} ·{" "}
+                  <Amount q={l.quantity} />
+                </p>
+              ))}
+            </div>
+          ))}
+          {moves.status === "canLoadMore" ? (
+            <Button variant="outline" onPress={() => void moves.loadMore()}>
+              Show older
+            </Button>
+          ) : null}
+          {trace.error ? (
+            <Notice title={trace.error.message} tone="danger" />
+          ) : null}
+          {trace.data ? (
+            <div className="mt-4">
+              <h3 className="font-medium">
+                {trace.data.movement.number} · ledger evidence
+              </h3>
+              {trace.data.allocations.map((a) => (
+                <p key={a.id}>
+                  Lot {a.lotNumber} · <Amount q={a.quantity} />
+                </p>
+              ))}
+              {trace.data.ledger.map((e) => (
+                <p key={e.id} className="py-2 text-sm">
+                  {locations.data?.find((l) => l.id === e.locationId)?.name ??
+                    "Location"}{" "}
+                  · {label(e.status)} · change <Amount q={e.delta} /> · balance{" "}
+                  <Amount q={e.after} /> · revision {e.balanceVersion}
+                </p>
+              ))}
+            </div>
+          ) : null}
+        </Card>
+      ) : null}
     </div>
   );
 }

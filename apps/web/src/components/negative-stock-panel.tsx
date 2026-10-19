@@ -1,17 +1,17 @@
 "use client";
 
 import { Button, Input } from "@heroui/react";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
-import { Card, Notice, StatusPill, WorkspaceIcon } from "@sunpride/ui";
-import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { useState } from "react";
-
-/**
- * SP-0085: distributor operations may sell below zero at locations where it is
- * explicitly allowed; each below-zero sale waits here until stock covers it and
- * a second person closes it.
- */
+import { Card, Notice, StatusPill } from "@sunpride/ui";
+import { useRef, useState } from "react";
+import {
+  ApiError,
+  apiFetch,
+  useApi,
+  useApiPages,
+  useLive,
+  useMutate,
+} from "../lib/api";
+import type { StockQuantity } from "./inventory-workspace";
 
 export const NEGATIVE_STOCK_LOCATION_TYPES = new Set([
   "warehouse",
@@ -19,217 +19,240 @@ export const NEGATIVE_STOCK_LOCATION_TYPES = new Set([
   "bin",
   "truck",
 ]);
-const DEFAULT_MOVEMENT_TYPES = ["pos_sale", "inventory_issue"] as const;
-const SOURCE_REF = "Client call 2 Oct 2026 (CALL-10): distributor operations";
-const FLAG_PAGE = 25;
-// Matches the server's per-request location limit for allowance lookups.
 const MAX_ALLOWANCE_LOCATIONS = 200;
-
 type LocationOption = { _id: string; code: string; name: string; type: string };
-
-const rowClass =
-  "grid min-h-14 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-separator px-4 last:border-b-0";
-const inputClass =
-  "h-10 w-full rounded-[10px] border border-field-border bg-field-background px-3 text-sm shadow-none";
-
+type Allowance = {
+  id: string;
+  locationId: string;
+  active: boolean;
+  movementTypes: string[];
+  limitBase: number | null;
+  sourceRef: string;
+};
+type Flag = {
+  id: string;
+  number: string;
+  code: string;
+  name: string;
+  locationName: string;
+  shortfall: StockQuantity;
+  current: StockQuantity;
+  canResolve: boolean;
+};
+type Negative = {
+  canManage: boolean;
+  allowances: Allowance[];
+  flags: { items: Flag[]; nextCursor: string | null };
+};
 export function negativeStockErrorMessage(error: unknown) {
-  const data = (error as { data?: unknown } | null)?.data;
-  return typeof data === "string" && data.trim()
-    ? data.trim()
+  return error instanceof ApiError
+    ? error.message
     : "Action failed. Try again.";
 }
+const money = (v: number | null) =>
+  v == null
+    ? "Unknown"
+    : new Intl.NumberFormat("en-PH", {
+        style: "currency",
+        currency: "PHP",
+      }).format(v / 100);
 
 export function NegativeStockPanel({
   locations,
 }: {
   locations: LocationOption[] | undefined;
 }) {
-  const eligible = (locations ?? []).filter((location) =>
-    NEGATIVE_STOCK_LOCATION_TYPES.has(location.type),
-  );
-  const shown = eligible.slice(0, MAX_ALLOWANCE_LOCATIONS);
-  const allowances = useQuery(
-    api.inventory.negative_stock.allowances,
+  const eligible = (locations ?? []).filter((l) =>
+      NEGATIVE_STOCK_LOCATION_TYPES.has(l.type),
+    ),
+    shown = eligible.slice(0, MAX_ALLOWANCE_LOCATIONS);
+  const state = useApi<Negative>(
     locations
-      ? {
-          locationIds: shown.map(
-            (location) => location._id as Id<"inventoryLocations">,
-          ),
-        }
-      : "skip",
+      ? ["inventory", "negative", "allowances", shown.map((l) => l._id)]
+      : null,
+    ({ signal }) =>
+      apiFetch<Negative>("/api/v1/inventory/negative", {
+        signal,
+        query: { locationIds: shown.map((l) => l._id).join(",") },
+      }),
   );
-  // Pages are filtered to the caller's locations on the server, so a page can
-  // come back empty while older flags remain; keep offering "Show older"
-  // until the server says the list is exhausted.
-  const {
-    results: flags,
-    status: flagStatus,
-    loadMore,
-  } = usePaginatedQuery(
-    api.inventory.negative_stock.flags,
-    { status: "open" },
-    { initialNumItems: FLAG_PAGE },
+  const flags = useApiPages<Flag>(
+    locations ? ["inventory", "negative", "flags"] : null,
+    async (cursor, { signal }) => {
+      const result = await apiFetch<Negative>("/api/v1/inventory/negative", {
+        signal,
+        query: { cursor: cursor ?? undefined, limit: 25 },
+      });
+      return result.flags;
+    },
   );
-  // Only national administrators may switch an allowance; everyone else sees
-  // the state read-only rather than a control the server refuses.
-  const canManage =
-    useQuery(api.inventory.negative_stock.canManageAllowances, {}) === true;
-  const setAllowance = useMutation(api.inventory.negative_stock.setAllowance);
-  const resolveFlag = useMutation(api.inventory.negative_stock.resolveFlag);
-  const [notes, setNotes] = useState<Record<string, string>>({});
-  const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
-
-  const byLocation = new Map(
-    (allowances ?? []).map((row) => [row.locationId as string, row]),
-  );
-
-  async function run(key: string, action: () => Promise<unknown>) {
-    setBusy(key);
+  useLive(["inventory"], [["inventory", "negative"]]);
+  const write = useMutate(),
+    keys = useRef(new Map<string, string>());
+  const [notes, setNotes] = useState<Record<string, string>>({}),
+    [notice, setNotice] = useState<string | null>(null);
+  async function run(action: string, body: Record<string, unknown>) {
+    if (write.pending) return;
+    const fingerprint = JSON.stringify([action, body]);
+    let key = keys.current.get(fingerprint);
+    if (!key) {
+      key = crypto.randomUUID();
+      keys.current.set(fingerprint, key);
+    }
     try {
-      await action();
+      await write.mutate(
+        `/api/v1/inventory/${action}`,
+        { ...body, idempotencyKey: key },
+        { invalidate: [["inventory"]] },
+      );
+      keys.current.delete(fingerprint);
       setNotice(null);
     } catch (error) {
-      console.error(error);
       setNotice(negativeStockErrorMessage(error));
-    } finally {
-      setBusy(null);
     }
   }
-
+  const allowances = new Map(
+    (state.data?.allowances ?? []).map((a) => [a.locationId, a]),
+  );
   return (
-    <Card label="Below-zero stock" icon={<WorkspaceIcon name="inventory" />}>
+    <Card label="Below-zero stock">
       {notice ? <Notice title={notice} tone="danger" /> : null}
+      {state.error ? (
+        <Notice title={state.error.message} tone="danger" />
+      ) : null}
+      {flags.error ? (
+        <Notice title={flags.error.message} tone="danger" />
+      ) : null}
       <div className="grid gap-6 xl:grid-cols-2">
-        <section aria-label="Below-zero sales to settle" className="grid gap-2">
-          <h3 className="text-sm font-medium">Sales to settle</h3>
-          {flags.map((flag) => (
+        <section aria-label="Below-zero sales to settle">
+          <h3 className="mb-3 text-sm font-medium">Sales to settle</h3>
+          {flags.items?.map((f) => (
             <div
-              key={flag.id}
-              className="grid gap-2 border-b border-separator px-4 pb-3 last:border-b-0"
+              key={f.id}
+              className="grid gap-2 border-b border-separator py-3"
             >
-              <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
+              <div className="flex items-start justify-between gap-3">
                 <div>
-                  <strong className="font-mono text-sm font-medium">
-                    {flag.productCode} · {flag.locationCode}
+                  <strong className="text-sm">
+                    {f.name} · {f.locationName}
                   </strong>
-                  <small className="block text-[13px] text-muted">
-                    {flag.movementNumber} · short {flag.shortfall} · now{" "}
-                    {flag.currentAvailable}
-                  </small>
+                  <p className="text-xs text-muted">
+                    {f.number} · short {f.shortfall.display} · now{" "}
+                    {f.current.display}
+                  </p>
+                  <p className="text-xs text-muted">
+                    Shortfall value {money(f.shortfall.valueCentavos)}
+                  </p>
                 </div>
-                <StatusPill
-                  tone={
-                    Number(flag.currentAvailable) < 0 ? "warning" : "success"
-                  }
-                >
-                  {Number(flag.currentAvailable) < 0 ? "Below zero" : "Covered"}
+                <StatusPill tone={f.current.base < 0 ? "warning" : "success"}>
+                  {f.current.base < 0 ? "Below zero" : "Covered"}
                 </StatusPill>
               </div>
-              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                <Input
-                  className={inputClass}
-                  aria-label={`Settlement note for ${flag.movementNumber}`}
-                  placeholder="How it was covered"
-                  value={notes[flag.id] ?? ""}
-                  onChange={(event) =>
-                    setNotes({ ...notes, [flag.id]: event.target.value })
-                  }
-                />
-                <Button
-                  variant="secondary"
-                  isPending={busy === flag.id}
-                  isDisabled={!notes[flag.id]?.trim()}
-                  onPress={() =>
-                    void run(flag.id, () =>
-                      resolveFlag({
-                        flagId: flag.id as Id<"negativeStockFlags">,
-                        note: notes[flag.id] ?? "",
-                      }),
-                    )
-                  }
-                >
-                  Settle
-                </Button>
-              </div>
+              {f.canResolve ? (
+                <div className="flex gap-2">
+                  <Input
+                    aria-label={`Settlement note for ${f.number}`}
+                    placeholder="How it was covered"
+                    value={notes[f.id] ?? ""}
+                    onChange={(e) =>
+                      setNotes({ ...notes, [f.id]: e.target.value })
+                    }
+                  />
+                  <Button
+                    variant="outline"
+                    isDisabled={!notes[f.id]?.trim() || f.current.base < 0}
+                    isPending={write.pending}
+                    onPress={() =>
+                      void run("negative/resolve", {
+                        flagId: f.id,
+                        note: notes[f.id],
+                      })
+                    }
+                  >
+                    Settle
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-xs text-muted">
+                  A different authorized person must settle this posting.
+                </p>
+              )}
             </div>
           ))}
-          {flagStatus === "Exhausted" && flags.length === 0 ? (
-            <p className="px-4 text-[13px] text-muted">Nothing below zero</p>
+          {flags.isComplete && flags.items?.length === 0 ? (
+            <p className="text-sm text-muted">Nothing below zero</p>
           ) : null}
-          {flagStatus === "CanLoadMore" || flagStatus === "LoadingMore" ? (
-            <div className="grid gap-2 px-4">
-              {flags.length === 0 ? (
-                <p className="text-[13px] text-muted">
+          {flags.status === "canLoadMore" || flags.status === "loadingMore" ? (
+            <div className="mt-3">
+              {!flags.items?.length ? (
+                <p className="text-sm text-muted">
                   None in the newest sales checked; older ones not checked yet
                 </p>
               ) : null}
               <Button
-                variant="secondary"
-                isPending={flagStatus === "LoadingMore"}
-                onPress={() => loadMore(FLAG_PAGE)}
+                variant="outline"
+                isPending={flags.status === "loadingMore"}
+                onPress={() => void flags.loadMore()}
               >
                 Show older
               </Button>
             </div>
           ) : null}
         </section>
-        <section
-          aria-label="Locations allowed below zero"
-          className="grid gap-2"
-        >
-          <h3 className="text-sm font-medium">Distributor locations</h3>
-          {shown.map((location) => {
-            const allowance = byLocation.get(location._id);
-            const allowed = allowance?.active === true;
+        <section aria-label="Locations allowed below zero">
+          <h3 className="mb-3 text-sm font-medium">Distributor locations</h3>
+          {shown.map((l) => {
+            const allowance = allowances.get(l._id),
+              allowed = allowance?.active === true;
             return (
-              <div key={location._id} className={rowClass}>
+              <div
+                key={l._id}
+                className="flex flex-wrap items-center justify-between gap-3 border-b border-separator py-3"
+              >
                 <div>
-                  <strong className="font-mono text-sm font-medium">
-                    {location.code}
-                  </strong>
-                  <small className="block text-[13px] text-muted">
-                    {location.name}
-                  </small>
+                  <strong className="text-sm">{l.name}</strong>
+                  <small className="block text-xs text-muted">{l.code}</small>
                 </div>
                 <StatusPill tone={allowed ? "warning" : "neutral"}>
-                  {allowed ? "Can sell below zero" : "Stops at zero"}
+                  {state.data
+                    ? allowed
+                      ? "Can sell below zero"
+                      : "Stops at zero"
+                    : "Loading allowance…"}
                 </StatusPill>
-                {canManage ? (
+                {state.data?.canManage ? (
                   <Button
-                    variant="secondary"
-                    isPending={busy === location._id}
+                    variant="outline"
+                    isPending={write.pending}
                     onPress={() =>
-                      void run(location._id, () =>
-                        setAllowance({
-                          locationId: location._id as Id<"inventoryLocations">,
-                          active: !allowed,
-                          movementTypes: allowance?.movementTypes.length
-                            ? allowance.movementTypes
-                            : [...DEFAULT_MOVEMENT_TYPES],
-                          ...(allowance?.limitBase != null
-                            ? { limitBase: allowance.limitBase }
-                            : {}),
-                          sourceRef: allowance?.sourceRef ?? SOURCE_REF,
-                        }),
-                      )
+                      void run("negative/allow", {
+                        locationId: l._id,
+                        active: !allowed,
+                        movementTypes: allowance?.movementTypes.length
+                          ? allowance.movementTypes
+                          : ["pos_sale", "inventory_issue"],
+                        ...(allowance?.limitBase != null
+                          ? { limitBase: allowance.limitBase }
+                          : {}),
+                        sourceRef:
+                          allowance?.sourceRef ??
+                          "Client call 2 Oct 2026: distributor operations",
+                      })
                     }
                   >
                     {allowed ? "Stop" : "Allow"}
                   </Button>
-                ) : (
-                  <span aria-hidden="true" />
-                )}
+                ) : null}
               </div>
             );
           })}
           {eligible.length > shown.length ? (
-            <p className="px-4 text-[13px] text-muted">
+            <p className="mt-2 text-sm text-muted">
               Showing the first {shown.length} of {eligible.length} locations
             </p>
           ) : null}
           {locations && eligible.length === 0 ? (
-            <p className="px-4 text-[13px] text-muted">No stock locations</p>
+            <p className="text-sm text-muted">No stock locations</p>
           ) : null}
         </section>
       </div>
