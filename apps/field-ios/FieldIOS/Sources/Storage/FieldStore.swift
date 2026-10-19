@@ -108,20 +108,30 @@ struct StoreSnapshot: Sendable {
     var activityRules: [ActivityRule] = []
     /// IOS-016 photo types from the server; empty from older servers (the phone then offers defaults).
     var photoTypes: [PhotoType] = []
+    /// This person's own calls already recorded on the server today (any phone). A mid-day bootstrap
+    /// (new phone, reinstall, sign-out/in) uses them so a finished stop is never offered again.
+    var serverVisits: [ServerVisit] = []
+    struct ServerVisit: Codable, Sendable, Equatable {
+        let id: String; let outletId: String; let serviceDate: String; let state: String
+        var plannedVisitId: String? = nil
+        static let closedStates: Set<String> = ["checked-out", "completed", "skipped", "rescheduled", "missed"]
+        var closed: Bool { Self.closedStates.contains(state) }
+        var isValid: Bool { !id.isEmpty && !outletId.isEmpty && serviceDate.count == 10 && !state.isEmpty && id.count <= 64 }
+    }
 
     init(employee: Employee, visits: [Visit], outlets: [Outlet], customers: [Customer],
          route: Route?, tasks: [Task], callSheets: [CallSheet] = [], orderTerms: [OrderTerms] = [],
          productCatalog: [BootstrapV1.Product] = [], inventoryAvailability: [BootstrapV1.InventoryAvailability] = [],
          accountSummaries: [AccountSummary] = [],
          dayTarget: DayTarget? = nil, daySales: DaySales? = nil, activityRules: [ActivityRule] = [],
-         photoTypes: [PhotoType] = []) {
+         photoTypes: [PhotoType] = [], serverVisits: [ServerVisit] = []) {
         self.employee = employee; self.visits = visits; self.outlets = outlets
         self.customers = customers; self.route = route; self.tasks = tasks; self.callSheets = callSheets
         self.orderTerms = orderTerms
         self.productCatalog = productCatalog; self.inventoryAvailability = inventoryAvailability
         self.accountSummaries = accountSummaries
         self.dayTarget = dayTarget; self.daySales = daySales; self.activityRules = activityRules
-        self.photoTypes = photoTypes
+        self.photoTypes = photoTypes; self.serverVisits = serverVisits
     }
 }
 
@@ -233,6 +243,8 @@ protocol FieldLocalStore: AnyObject {
     func intents(for partition: StorePartition) throws -> [VisitIntent]
     func applyDelta(_ changes: [DeltaChange], nextCursor: String, for partition: StorePartition) throws
     func deltaValue(entity: String, id: String, for partition: StorePartition) throws -> Data?
+    /// Every stored delta body of one entity kind (tombstones excluded), for overlaying server state.
+    func deltaValues(entity: String, for partition: StorePartition) throws -> [Data]
     func pendingOutbox(for partition: StorePartition) throws -> [OutboxItem]
     func heldOutbox(for partition: StorePartition) throws -> [OutboxItem]
     func reviewOutbox(for partition: StorePartition) throws -> [ReviewItem]
@@ -567,6 +579,7 @@ final class EncryptedFieldStore: FieldLocalStore {
         // One row keeps the server's rule order; it rides the generic snapshot table (no migration).
         if !snapshot.activityRules.isEmpty { rows.append(("activityRules", "all", nil, try encode(snapshot.activityRules))) }
         if !snapshot.photoTypes.isEmpty { rows.append(("photoTypes", "all", nil, try encode(snapshot.photoTypes))) }
+        for v in snapshot.serverVisits { rows.append(("serverVisit", v.id, nil, try encode(v))) }
         guard Set(snapshot.orderTerms.map(\.outletId)).count == snapshot.orderTerms.count,
               snapshot.orderTerms.allSatisfy({ terms in terms.isValid && snapshot.visits.contains { $0.outletId == terms.outletId } }),
               rows.allSatisfy({ !$0.1.isEmpty }), snapshot.callSheets.allSatisfy(\.isValid),
@@ -677,7 +690,8 @@ final class EncryptedFieldStore: FieldLocalStore {
             dayTarget: entities(StoreSnapshot.DayTarget.self, kind: "dayTarget", partition: partition).first,
             daySales: entities(StoreSnapshot.DaySales.self, kind: "daySales", partition: partition).first,
             activityRules: activityRules(for: partition),
-            photoTypes: entities([PhotoType].self, kind: "photoTypes", partition: partition).first ?? [])
+            photoTypes: entities([PhotoType].self, kind: "photoTypes", partition: partition).first ?? [],
+            serverVisits: entities(StoreSnapshot.ServerVisit.self, kind: "serverVisit", partition: partition))
     }
     func activityRules(for partition: StorePartition) throws -> [ActivityRule] {
         try entities([ActivityRule].self, kind: "activityRules", partition: partition).first ?? []
@@ -875,6 +889,11 @@ final class EncryptedFieldStore: FieldLocalStore {
         return try query("SELECT body FROM delta WHERE \(Self.predicate) AND entity=? AND id=?", p(partition) + [.text(entity), .text(id)]) {
             sqlite3_column_type($0, 0) == SQLITE_NULL ? nil : Self.data($0, 0)
         }.first ?? nil
+    }
+    func deltaValues(entity: String, for partition: StorePartition) throws -> [Data] {
+        guard !entity.hasPrefix("local.") else { throw StoreError.invalidInput }
+        return try query("SELECT body FROM delta WHERE \(Self.predicate) AND entity=? AND body IS NOT NULL ORDER BY id",
+                         p(partition) + [.text(entity)]) { Self.data($0, 0) }
     }
     func localCache(entity: String, key: String, for partition: StorePartition) throws -> (body: Data, savedAt: Int64)? {
         guard entity.hasPrefix("local."), !key.isEmpty else { throw StoreError.invalidInput }

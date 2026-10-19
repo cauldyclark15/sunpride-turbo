@@ -36,24 +36,31 @@ final class LiveV2GuideUITests: XCTestCase {
     }
     private func element(_ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }
     private func reveal(_ element: XCUIElement) {
-        for _ in 0..<10 where !(element.exists && element.isHittable) { app.swipeUp() }
+        // Scroll down first, then back up, until the element is on screen and hittable.
+        for _ in 0..<8 where !(element.exists && element.isHittable) { app.swipeUp() }
+        for _ in 0..<12 where !(element.exists && element.isHittable) { app.swipeDown() }
     }
     private func tap(_ id: String, timeout: TimeInterval = 15) -> Bool {
-        let target = element(id)
-        guard target.waitForExistence(timeout: timeout) else { walked.append("MISSING \(id)"); return false }
+        let any = element(id)
+        guard any.waitForExistence(timeout: timeout) else { walked.append("MISSING \(id)"); return false }
+        let button = app.buttons[id].firstMatch
+        let target = button.exists ? button : any
         reveal(target)
         guard target.isHittable else { walked.append("NOT HITTABLE \(id)"); return false }
         target.tap(); return true
     }
     private func back() {
         let custom = app.buttons["BackButton"].firstMatch
-        if custom.exists && custom.isHittable { custom.tap(); return }
+        _ = wait(6) { custom.exists && custom.isHittable }
+        if custom.exists && custom.isHittable { custom.tap(); Thread.sleep(forTimeInterval: 1); return }
         let nav = app.navigationBars.buttons.element(boundBy: 0)
         if nav.exists { nav.tap() }
     }
     private func dismissSheet() {
-        for id in ["Done", "Close"] where app.buttons[id].firstMatch.exists { app.buttons[id].firstMatch.tap(); return }
-        app.swipeDown(velocity: .fast)
+        for id in ["Done", "Close"] where app.buttons[id].firstMatch.exists {
+            app.buttons[id].firstMatch.tap(); Thread.sleep(forTimeInterval: 1.2); return
+        }
+        app.swipeDown(velocity: .fast); Thread.sleep(forTimeInterval: 1.2)
     }
     private func wait(_ seconds: TimeInterval, _ condition: () -> Bool) -> Bool {
         let end = Date().addingTimeInterval(seconds)
@@ -126,10 +133,12 @@ final class LiveV2GuideUITests: XCTestCase {
         }
         if tap("openTeam") { _ = wait(20) { !self.element("teamLoading").exists }; shot("team-as-agent"); back() }
 
-        // A full visit at the next planned store.
+        // Start the work day (location sharing with consent), then a full visit at the next planned store.
+        if tap("startDayButton", timeout: 5) { settleToday(); shot("day-started") }
         XCTAssertTrue(tap("nextOutlet"), "open next planned store")
-        XCTAssertTrue(element("diagnosticCheckIn").waitForExistence(timeout: 15)); shot("store")
-        element("diagnosticCheckIn").tap()
+        XCTAssertTrue(wait(15) { self.element("diagnosticCheckIn").exists || self.element("diagnosticCheckOut").exists })
+        shot("store")
+        if element("diagnosticCheckIn").exists { element("diagnosticCheckIn").tap() }
         XCTAssertTrue(element("diagnosticCheckOut").waitForExistence(timeout: 60), "checked in")
         shot("check-in")
         let note = element("diagnosticNote"); reveal(note)
@@ -139,9 +148,20 @@ final class LiveV2GuideUITests: XCTestCase {
         if tap("openCallSheet", timeout: 3) { shot("call-sheet"); back() }
         if tap("newOrder", timeout: 3) {
             shot("order-draft")
-            if tap("reviewOrder", timeout: 3) { shot("order-review"); back() }
-            if tap("discardOrderDraft", timeout: 3) { app.buttons["Discard"].firstMatch.tap() } else { back() }
+            let qty = app.textFields.matching(NSPredicate(format: "identifier BEGINSWITH 'orderQty-'")).firstMatch
+            if qty.waitForExistence(timeout: 5) { qty.tap(); qty.typeText("2"); app.tap() }
+            if tap("reviewOrder", timeout: 3), element("orderReviewTitle").waitForExistence(timeout: 5) {
+                shot("order-review")
+                if app.buttons["Edit"].firstMatch.exists { app.buttons["Edit"].firstMatch.tap(); Thread.sleep(forTimeInterval: 1) }
+            }
+            if tap("discardOrderDraft", timeout: 3) {
+                let confirm = app.buttons["Discard"].firstMatch
+                if confirm.waitForExistence(timeout: 3) { confirm.tap() }
+            }
+            if !element("diagnosticCheckOut").waitForExistence(timeout: 3) { back() }
         }
+        // Make sure we are back on the open visit before photos and checkout.
+        if !element("diagnosticCheckOut").waitForExistence(timeout: 3) { _ = tap("nextOutlet") }
         if tap("openPhotos") {
             let type = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'photoType-'")).firstMatch
             if type.waitForExistence(timeout: 10) { type.tap() }

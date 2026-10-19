@@ -398,23 +398,13 @@ final class AppModel {
                              (try store.deferredOutbox(for: partition).map { $0.intent.requestId }) +
                              (try store.heldOutbox(for: partition).map { $0.intent.requestId }))
             let rejected = try store.reviewOutbox(for: partition)
-            review = rejected.map { item in
-                let reasons: [String: String] = [
-                    "invalid_request": "Invalid request", "invalid_plan": "Plan is no longer valid",
-                    "conflict": "Conflicts with server record", "dependency_missing": "Check-in was not accepted",
-                    "unsupported_operation": "Operation not supported", "out_of_scope": "Outside current scope",
-                    "evidence_pending_review": "Evidence needs review", "invalid_transition": "Visit state changed",
-                    "call_open": "Finish the open call first", "mcp_order": "Visit stores in plan order",
-                    "wrong_date": "Visit date does not match the phone date",
-                    "unknown_code": "Unrecognized server reason", "unknown_status": "Unrecognized server status"
-                ]
-                return "\(item.intent.kind) · \(reasons[item.code] ?? "Unknown outcome — ask supervisor")"
-            }
+            review = rejected.map { ReviewText.line(kind: $0.intent.kind, code: $0.code) }
             if try store.isHeld(partition), try !intents.isEmpty || !store.pendingPhotos(for: partition).isEmpty {
                 review.append("Unsent work held — verify account and scope")
             }
             if try store.hasOtherHeldWork(for: partition) { review.append("Prior scope has unsent work held for supervised review") }
             let calls = localCalls(intents: intents, rejected: Set(rejected.map { $0.intent.requestId }))
+            let closedOnServer = try Self.closedOnServer(saved?.serverVisits ?? [], store: store, partition: partition)
             visits = rows.map { visit in
                 let initial = intents.first { $0.matches(visit) }
                 let related = intents.filter { intent in
@@ -425,6 +415,7 @@ final class AppModel {
                 if related.contains(where: { intent in rejected.contains(where: { $0.intent.requestId == intent.requestId }) }) { status = "Needs review" }
                 else if related.contains(where: { queued.contains($0.requestId) }) { status = syncing ? "Sending" : "Queued" }
                 else if !related.isEmpty { status = "Accepted" }
+                else if closedOnServer.contains(visit.id) { status = "Done" }
                 else { status = visit.status }
                 let activityKinds = call.map { open in
                     intents.filter { intent in
@@ -435,7 +426,9 @@ final class AppModel {
                 } ?? []
                 return TodayVisit(id: visit.id, outletId: visit.outletId, outlet: visit.outlet,
                                   serviceDate: visit.serviceDate, intents: visit.intents, planned: visit.planned, status: status,
-                                  sequence: visit.sequence, pin: visit.pin, startedAt: call?.initial.deviceTime, endedAt: call?.end?.deviceTime,
+                                  sequence: visit.sequence, pin: visit.pin, startedAt: call?.initial.deviceTime,
+                                  // A stop already finished on the server (another phone, or before a re-bootstrap) is done.
+                                  endedAt: call?.end?.deviceTime ?? (call == nil && closedOnServer.contains(visit.id) ? Self.recordedElsewhere : nil),
                                   outcome: call?.end?.payload?["outcome"] as? String,
                                   activityKinds: activityKinds, reasonCode: call?.end?.payload?["reasonCode"] as? String)
             }
@@ -456,6 +449,32 @@ final class AppModel {
                 .map { Date(timeIntervalSince1970: Double($0) / 1000) }
             refreshStatus()
         } catch { syncMessage = "Cached visits are unavailable." }
+    }
+
+    /// Marker end time for a stop the server already closed; never shown as a duration (no start time).
+    static let recordedElsewhere = Date(timeIntervalSince1970: 0)
+
+    /// Planned-visit IDs the server reports as finished: the snapshot's own recorded calls, overridden by any
+    /// newer `visit` delta (a tombstone or a reopened state removes it).
+    static func closedOnServer(_ snapshot: [StoreSnapshot.ServerVisit], store: any FieldLocalStore,
+                               partition: StorePartition) throws -> Set<String> {
+        var closed = Set<String>()
+        let known = Set(snapshot.map(\.id))
+        // Calls recorded after this bootstrap arrive only as `visit` deltas.
+        for data in try store.deltaValues(entity: "visit", for: partition) {
+            guard let row = try? JSONDecoder().decode(StoreSnapshot.ServerVisit.self, from: data),
+                  !known.contains(row.id), row.closed, let planned = row.plannedVisitId else { continue }
+            closed.insert(planned)
+        }
+        for row in snapshot {
+            guard let planned = row.plannedVisitId else { continue }
+            var current: StoreSnapshot.ServerVisit? = row
+            if let data = try store.deltaValue(entity: "visit", id: row.id, for: partition) {
+                current = try? JSONDecoder().decode(StoreSnapshot.ServerVisit.self, from: data)
+            }
+            if current?.closed == true { closed.insert(planned) }
+        }
+        return closed
     }
 
     private func localCalls(intents: [VisitIntent], rejected: Set<UUID>) -> [LocalCall] {
@@ -487,11 +506,14 @@ final class AppModel {
         }
         guard visit.planned else { return }
         // Read the authoritative saved plan, not sequence supplied by a stale view/caller.
-        let planned = try store.snapshot(for: partition)?.visits.filter { $0.serviceDate == visit.serviceDate } ?? []
+        let saved = try store.snapshot(for: partition)
+        let closedOnServer = try Self.closedOnServer(saved?.serverVisits ?? [], store: store, partition: partition)
+        if closedOnServer.contains(visit.id) { throw CallFailure.alreadyClosed }
+        let planned = saved?.visits.filter { $0.serviceDate == visit.serviceDate } ?? []
         guard let index = planned.firstIndex(where: { $0.id == visit.id }) else { throw StoreError.invalidInput }
         let sequence = planned[index].sequence ?? index
         for (position, earlier) in planned.enumerated() where (earlier.sequence ?? position) < sequence {
-            guard calls.contains(where: { $0.initial.payload?["plannedVisitId"] as? String == earlier.id &&
+            guard closedOnServer.contains(earlier.id) || calls.contains(where: { $0.initial.payload?["plannedVisitId"] as? String == earlier.id &&
                 $0.initial.payload?["serviceDate"] as? String == visit.serviceDate && $0.closed }) else { throw CallFailure.mcpOrder }
         }
     }
@@ -1075,5 +1097,36 @@ final class AppModel {
         let reason = enrollment.message
         await signOut()
         signInError = reason ?? MobileError.sessionExpired.description
+    }
+}
+
+/// Plain words for the "To review" list: what the step was and why the office must look. Every server
+/// refusal code has its own sentence; no operation names or codes are shown to the salesperson.
+enum ReviewText {
+    static func step(_ kind: String) -> String {
+        switch kind {
+        case "visit.checkIn": return "Start of visit"
+        case "visit.checkOut": return "End of visit"
+        case "visit.activity": return "Visit activity"
+        case "visit.callSheet": return "Call sheet"
+        case "visit.locationException": return "Location note"
+        case "order.submit", "order.capture": return "Order"
+        case "evidence.attach": return "Photo"
+        default: return "Phone update"
+        }
+    }
+    static let reasons: [String: String] = [
+        "invalid_request": "The office could not read it", "invalid_plan": "Plan is no longer valid",
+        "conflict": "Conflicts with the office record", "dependency_missing": "The start of this visit was not accepted",
+        "unsupported_operation": "Not supported by this app version", "out_of_scope": "Outside your current area",
+        "evidence_pending_review": "Photo needs review", "invalid_transition": "Visit state changed",
+        "call_open": "Finish the open call first", "mcp_order": "Visit stores in plan order",
+        "wrong_date": "Visit date does not match the phone date",
+        "idempotency_conflict": "Already recorded for this store today",
+        "stock_conflict": "Stock changed in the office", "load_not_posted": "Truck load not posted yet",
+        "unknown_code": "The office gave a reason this app does not know", "unknown_status": "The office answer was not clear"
+    ]
+    static func line(kind: String, code: String) -> String {
+        "\(step(kind)) · \(reasons[code] ?? reasons["unknown_code"]!)"
     }
 }

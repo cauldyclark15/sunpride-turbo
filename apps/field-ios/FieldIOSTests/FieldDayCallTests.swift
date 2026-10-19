@@ -47,7 +47,8 @@ final class FieldDayCallTests: XCTestCase {
     private func planned(_ id: String, sequence: Int? = nil) -> StoreSnapshot.Visit {
         .init(id: id, outletId: id, serviceDate: day, planId: "plan", planVersion: 1, intents: ["audit"], sequence: sequence)
     }
-    private func save(_ visits: [StoreSnapshot.Visit], target: StoreSnapshot.DayTarget? = nil) throws {
+    private func save(_ visits: [StoreSnapshot.Visit], target: StoreSnapshot.DayTarget? = nil,
+                      serverVisits: [StoreSnapshot.ServerVisit] = []) throws {
         let expiry = Int64(FieldDay.nextClose(after: clock.now).timeIntervalSince1970 * 1000)
         let pin = StoreSnapshot.Coordinate(latitude: 14.5764, longitude: 121.0851)
         let outlets: [StoreSnapshot.Outlet] = ["first", "second", "extra"].map { id in
@@ -55,7 +56,7 @@ final class FieldDayCallTests: XCTestCase {
         }
         try store.saveSnapshot(.init(employee: .init(id: "seller", role: "sales", orgUnitId: "unit"), visits: visits,
             outlets: outlets,
-            customers: [], route: nil, tasks: [], dayTarget: target), cursor: "cursor", leaseExpiresAt: expiry, cacheExpiresAt: expiry, for: partition)
+            customers: [], route: nil, tasks: [], dayTarget: target, serverVisits: serverVisits), cursor: "cursor", leaseExpiresAt: expiry, cacheExpiresAt: expiry, for: partition)
     }
     private func visit(_ id: String) throws -> AppModel.TodayVisit {
         try XCTUnwrap(model.visits.first { $0.id == id })
@@ -67,6 +68,34 @@ final class FieldDayCallTests: XCTestCase {
     private func expect(_ error: AppModel.CallFailure, _ work: () throws -> Void) {
         XCTAssertThrowsError(try work()) { XCTAssertEqual($0 as? AppModel.CallFailure, error) }
     }
+    /// A stop already finished on the server (another phone, or before a sign-out/reinstall) is shown done,
+    /// cannot be started again, and unblocks the next stop in plan order. Live counterexample: the same
+    /// sample agent visited stop 1 on Android, then iOS bootstrapped and offered stop 1 as "Next".
+    func testStopFinishedOnTheServerIsDoneAndUnblocksTheNextStop() async throws {
+        try save([planned("second", sequence: 1), planned("first", sequence: 0)], serverVisits: [
+            .init(id: "server-call-1", outletId: "first", serviceDate: day, state: "checked-out", plannedVisitId: "first")])
+        model.refreshToday()
+        let first = try visit("first")
+        XCTAssertEqual(first.status, "Done")
+        XCTAssertNotNil(first.endedAt)
+        XCTAssertNil(first.timeSpent, "no invented duration for a call recorded elsewhere")
+        expect(.alreadyClosed) { try start(first) }
+        try start(try visit("second"))
+        XCTAssertNotNil(try store.intents(for: partition).first { $0.payload?["plannedVisitId"] as? String == "second" })
+        let board = model.dashboard
+        XCTAssertEqual(board.route.first?.state, .done)
+    }
+
+    func testOpenOrUnrelatedServerCallsDoNotCloseAStop() async throws {
+        try save([planned("second", sequence: 1), planned("first", sequence: 0)], serverVisits: [
+            .init(id: "open", outletId: "first", serviceDate: day, state: "checked-in", plannedVisitId: "first"),
+            .init(id: "unplanned", outletId: "second", serviceDate: day, state: "checked-out", plannedVisitId: nil)])
+        model.refreshToday()
+        XCTAssertNil(try visit("first").endedAt)
+        XCTAssertNil(try visit("second").endedAt)
+        expect(.mcpOrder) { try start(try visit("second")) }
+    }
+
     func testPlanOrderOpenCallAndExplicitProductivityGuard() throws {
         XCTAssertEqual(model.visits.filter(\.planned).map(\.id), ["first", "second"])
         let first = try visit("first"), second = try visit("second"), extra = try visit("unplanned-extra")

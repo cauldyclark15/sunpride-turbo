@@ -263,10 +263,24 @@ describe("FIELDSYNC projections through real core proof/cursor harness", () => {
         "accountSummaries",
         "activityRules",
         "photoTypes",
+        "visitExecutions",
         "dayTarget",
         "daySales",
       ].sort(),
     );
+  });
+  test("snapshot carries this person's own recorded calls so a mid-day bootstrap knows done stops", async () => {
+    await h.db`update visit_executions set state='checked-out',checked_out_at=now(),productivity='verified' where id=${f.visit}`;
+    const { body } = await pull();
+    const rows = body.bundles[0].data.visitExecutions;
+    const row = rows.find((/** @type {any} */ r) => r.id === f.visit);
+    expect(row).toBeDefined();
+    expect(Object.keys(row).sort()).toEqual(["id", "outletId", "plannedVisitId", "productivity", "serviceDate", "state"]);
+    expect(row.state).toBe("checked-out");
+    expect(row.serviceDate).toBe(date);
+    const foreign = await h.db`select id from visit_executions where assignee_profile_id<>${who.profile.id}`;
+    const ids = new Set(foreign.map((/** @type {any} */ r) => r.id));
+    expect(rows.some((/** @type {any} */ r) => ids.has(r.id))).toBe(false);
   });
   test("visit delta and tombstone preserve v2 DTO and advancing cursor", async () => {
     const first = await pull();
