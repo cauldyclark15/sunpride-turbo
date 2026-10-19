@@ -23,7 +23,7 @@ All paths below are relative to `/api/v1/`. GET parameters accept epoch-millisec
 
 List families: `people/list`, `people/invitations/list`, `people/devices/list`, `org/teams/list`, `territories/list`, `territories/routes/list`, `outlets/list`, `catalog/products/list`, `catalog/customers/list`. All apply `q` before LIMIT and use UUID keyset cursors. Search uses generated tsvectors where available, with escaped substring matching for names/codes. Details and bounded histories are installed beside these families; exact route names are in `index.js`.
 
-Queues: `outlets/assignments/unassigned`, `outlets/pins/queue`, and `outlets/enrolment/pending`. Enrolment evidence is served only after an outlet-owner check and exact persisted file linkage. Disk paths never appear on the wire.
+Queues: `outlets/unassigned`, `outlets/pins/queue`, and `outlets/enrolment/pending`. Enrolment evidence is served only after an outlet-owner check and exact persisted file linkage. Disk paths never appear on the wire.
 
 POST commands require cookie authentication and a current capability/scope check inside a transaction. `Idempotency-Key` is optional at the HTTP boundary and always supplied by the new web adapter. Receipts bind profile + route + key to a canonical whole-payload SHA-256. Changed payloads under an old key return 409; retry authorization is checked before the receipt is returned. Generic SQL unique/overlap failures become 409, missing foreign references become 422.
 
