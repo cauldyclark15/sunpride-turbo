@@ -1,0 +1,282 @@
+[
+  {
+    "code": "SMP-PCH-227",
+    "name": "Pineapple Chunks 227g",
+    "category": "Canned",
+    "piecePriceMinor": 4275,
+    "caseQty": 48
+  },
+  {
+    "code": "SMP-PCH-432",
+    "name": "Pineapple Chunks 432g",
+    "category": "Canned",
+    "piecePriceMinor": 6850,
+    "caseQty": 24
+  },
+  {
+    "code": "SMP-PTB-227",
+    "name": "Pineapple Tidbits 227g",
+    "category": "Canned",
+    "piecePriceMinor": 4250,
+    "caseQty": 48
+  },
+  {
+    "code": "SMP-PSL-439",
+    "name": "Pineapple Slices 439g",
+    "category": "Canned",
+    "piecePriceMinor": 7175,
+    "caseQty": 24
+  },
+  {
+    "code": "SMP-PCR-567",
+    "name": "Crushed Pineapple 567g",
+    "category": "Canned",
+    "piecePriceMinor": 8450,
+    "caseQty": 24
+  },
+  {
+    "code": "SMP-FCK-432",
+    "name": "Fruit Cocktail 432g",
+    "category": "Canned",
+    "piecePriceMinor": 7900,
+    "caseQty": 24
+  },
+  {
+    "code": "SMP-FCK-836",
+    "name": "Fruit Cocktail 836g",
+    "category": "Canned",
+    "piecePriceMinor": 13950,
+    "caseQty": 12
+  },
+  {
+    "code": "SMP-TFC-836",
+    "name": "Tropical Fruit Cocktail 836g",
+    "category": "Canned",
+    "piecePriceMinor": 14500,
+    "caseQty": 12
+  },
+  {
+    "code": "SMP-MNG-425",
+    "name": "Mango Halves in Syrup 425g",
+    "category": "Canned",
+    "piecePriceMinor": 9875,
+    "caseQty": 24
+  },
+  {
+    "code": "SMP-LYC-565",
+    "name": "Lychee in Syrup 565g",
+    "category": "Canned",
+    "piecePriceMinor": 11200,
+    "caseQty": 24
+  },
+  {
+    "code": "SMP-PJ-240",
+    "name": "Pineapple Juice 240ml",
+    "category": "Canned",
+    "piecePriceMinor": 2650,
+    "caseQty": 24
+  },
+  {
+    "code": "SMP-PJ-1L",
+    "name": "Pineapple Juice 1L",
+    "category": "Canned",
+    "piecePriceMinor": 9900,
+    "caseQty": 12
+  },
+  {
+    "code": "SMP-POJ-240",
+    "name": "Pineapple-Orange Juice 240ml",
+    "category": "Canned",
+    "piecePriceMinor": 2750,
+    "caseQty": 24
+  },
+  {
+    "code": "SMP-MJ-240",
+    "name": "Mango Juice Drink 240ml",
+    "category": "Canned",
+    "piecePriceMinor": 2500,
+    "caseQty": 24
+  },
+  {
+    "code": "SMP-CJ-1L",
+    "name": "Calamansi Juice Drink 1L",
+    "category": "Canned",
+    "piecePriceMinor": 8500,
+    "caseQty": 12
+  },
+  {
+    "code": "SMP-CB-150",
+    "name": "Corned Beef 150g",
+    "category": "Canned",
+    "piecePriceMinor": 4650,
+    "caseQty": 48
+  },
+  {
+    "code": "SMP-CB-260",
+    "name": "Corned Beef 260g",
+    "category": "Canned",
+    "piecePriceMinor": 7600,
+    "caseQty": 24
+  },
+  {
+    "code": "SMP-LM-165",
+    "name": "Luncheon Meat 165g",
+    "category": "Canned",
+    "piecePriceMinor": 5500,
+    "caseQty": 48
+  },
+  {
+    "code": "SMP-LM-340",
+    "name": "Luncheon Meat 340g",
+    "category": "Canned",
+    "piecePriceMinor": 10450,
+    "caseQty": 24
+  },
+  {
+    "code": "SMP-MLF-150",
+    "name": "Meat Loaf 150g",
+    "category": "Canned",
+    "piecePriceMinor": 2875,
+    "caseQty": 48
+  },
+  {
+    "code": "SMP-VS-88",
+    "name": "Vienna Sausage 88g",
+    "category": "Canned",
+    "piecePriceMinor": 3125,
+    "caseQty": 48
+  },
+  {
+    "code": "SMP-PB-230",
+    "name": "Pork and Beans 230g",
+    "category": "Canned",
+    "piecePriceMinor": 3400,
+    "caseQty": 48
+  },
+  {
+    "code": "SMP-SRD-155",
+    "name": "Sardines in Tomato Sauce 155g",
+    "category": "Canned",
+    "piecePriceMinor": 2475,
+    "caseQty": 100
+  },
+  {
+    "code": "SMP-SPS-250",
+    "name": "Spaghetti Sauce Sweet Style 250g",
+    "category": "Mixes",
+    "piecePriceMinor": 3850,
+    "caseQty": 48
+  },
+  {
+    "code": "SMP-SPS-1KG",
+    "name": "Spaghetti Sauce Sweet Style 1kg",
+    "category": "Mixes",
+    "piecePriceMinor": 12900,
+    "caseQty": 12
+  },
+  {
+    "code": "SMP-TS-250",
+    "name": "Tomato Sauce 250g",
+    "category": "Mixes",
+    "piecePriceMinor": 2350,
+    "caseQty": 48
+  },
+  {
+    "code": "SMP-PCM-400",
+    "name": "Pancake Mix 400g",
+    "category": "Mixes",
+    "piecePriceMinor": 7250,
+    "caseQty": 24
+  },
+  {
+    "code": "SMP-CHP-250",
+    "name": "Champorado Mix 250g",
+    "category": "Mixes",
+    "piecePriceMinor": 5400,
+    "caseQty": 24
+  },
+  {
+    "code": "SMP-LFM-80",
+    "name": "Leche Flan Mix 80g",
+    "category": "Mixes",
+    "piecePriceMinor": 3275,
+    "caseQty": 48
+  },
+  {
+    "code": "SMP-GJM-25",
+    "name": "Gulaman Jelly Mix 25g",
+    "category": "Mixes",
+    "piecePriceMinor": 1850,
+    "caseQty": 96
+  },
+  {
+    "code": "SMP-CSM-50",
+    "name": "Caldereta Sauce Mix 50g",
+    "category": "Mixes",
+    "piecePriceMinor": 2900,
+    "caseQty": 72
+  },
+  {
+    "code": "SMP-HD-1KG",
+    "name": "Jumbo Hotdog 1kg",
+    "category": "Frozen",
+    "piecePriceMinor": 22500,
+    "caseQty": 12
+  },
+  {
+    "code": "SMP-HD-500",
+    "name": "Regular Hotdog 500g",
+    "category": "Frozen",
+    "piecePriceMinor": 10900,
+    "caseQty": 24
+  },
+  {
+    "code": "SMP-LNG-450",
+    "name": "Pork Longganisa 450g",
+    "category": "Frozen",
+    "piecePriceMinor": 15500,
+    "caseQty": 24
+  },
+  {
+    "code": "SMP-TCN-450",
+    "name": "Pork Tocino 450g",
+    "category": "Frozen",
+    "piecePriceMinor": 16250,
+    "caseQty": 24
+  },
+  {
+    "code": "SMP-CNG-400",
+    "name": "Chicken Nuggets 400g",
+    "category": "Frozen",
+    "piecePriceMinor": 13800,
+    "caseQty": 24
+  },
+  {
+    "code": "SMP-SMI-300",
+    "name": "Pork Siomai 300g (20s)",
+    "category": "Frozen",
+    "piecePriceMinor": 12500,
+    "caseQty": 24
+  },
+  {
+    "code": "SMP-EMB-250",
+    "name": "Embutido 250g",
+    "category": "Frozen",
+    "piecePriceMinor": 9800,
+    "caseQty": 24
+  },
+  {
+    "code": "SMP-SKL-1KG",
+    "name": "Skinless Longganisa 1kg",
+    "category": "Frozen",
+    "piecePriceMinor": 24800,
+    "caseQty": 12
+  },
+  {
+    "code": "SMP-BRG-12",
+    "name": "Beef Burger Patties 12s",
+    "category": "Frozen",
+    "piecePriceMinor": 18900,
+    "caseQty": 12
+  }
+]
