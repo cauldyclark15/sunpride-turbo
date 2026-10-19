@@ -1,6 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { getFunctionName } from "convex/server";
 
 const at = (hhmm: string) => Date.parse(`2026-09-28T${hhmm}:00+08:00`);
 const dayCloseAt = at("22:00");
@@ -193,11 +192,13 @@ const activity = {
   ],
 };
 
-vi.mock("convex/react", () => ({
-  useMutation: () => vi.fn(),
-  useQuery: (ref: unknown) => {
-    const name = getFunctionName(ref as never);
-    if (name === "supervision/team:options")
+vi.mock("./report-api", () => ({
+  useReportSearch: () => "",
+  replaceReportSearch: () => {},
+  useReportCommand: () => vi.fn(),
+  useReport: (ref: unknown) => {
+    const name = String(ref as never);
+    if (name === "supervision.team.options")
       return {
         canDecide: true,
         units: [
@@ -206,7 +207,7 @@ vi.mock("convex/react", () => ({
         ],
         channels: ["PMOT"],
       };
-    if (name === "supervision/team:day") return teamDay;
+    if (name === "supervision.team.day") return teamDay;
     return undefined;
   },
 }));

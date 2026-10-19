@@ -1,0 +1,3242 @@
+{
+  "dsr.report.team": {
+    "type": "object",
+    "properties": {
+      "serviceDate": { "type": "string" },
+      "definition": { "type": "string" },
+      "totals": {
+        "type": "object",
+        "properties": {
+          "todaySales": { "type": "number" },
+          "mtdSales": { "type": "number" },
+          "target": { "anyOf": [{ "type": "null" }, { "type": "number" }] },
+          "prior": { "type": "number" }
+        },
+        "required": ["todaySales", "mtdSales", "target", "prior"]
+      },
+      "rows": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "profileId": { "type": "string" },
+            "name": { "type": "string" },
+            "todaySales": { "type": "number" },
+            "mtdSales": { "type": "number" },
+            "target": { "anyOf": [{ "type": "null" }, { "type": "number" }] },
+            "dailyTarget": {
+              "anyOf": [{ "type": "null" }, { "type": "number" }]
+            },
+            "balanceToSell": {
+              "anyOf": [{ "type": "null" }, { "type": "number" }]
+            },
+            "calls": { "type": "number" },
+            "productive": { "type": "number" },
+            "trend": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "date": { "type": "string" },
+                  "sales": { "type": "number" },
+                  "cumulative": { "type": "number" }
+                },
+                "required": ["date", "sales", "cumulative"]
+              }
+            },
+            "prior": { "type": "number" }
+          },
+          "required": [
+            "profileId",
+            "name",
+            "todaySales",
+            "mtdSales",
+            "target",
+            "dailyTarget",
+            "balanceToSell",
+            "calls",
+            "productive",
+            "trend",
+            "prior"
+          ]
+        }
+      }
+    },
+    "required": ["serviceDate", "definition", "totals", "rows"]
+  },
+  "supervision.team.cockpit": {
+    "type": "object",
+    "properties": {
+      "serviceDate": { "type": "string" },
+      "week": {
+        "type": "object",
+        "properties": {
+          "start": { "type": "string" },
+          "end": { "type": "string" }
+        },
+        "required": ["start", "end"]
+      },
+      "definition": { "type": "string" },
+      "rows": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "profileId": { "type": "string" },
+            "name": { "type": "string" },
+            "position": { "anyOf": [{ "type": "null" }, { "type": "string" }] },
+            "channel": { "type": "string" },
+            "today": {
+              "type": "object",
+              "properties": {
+                "planned": { "type": "number" },
+                "visited": { "type": "number" },
+                "productive": { "type": "number" },
+                "standard": {
+                  "anyOf": [{ "type": "null" }, { "type": "number" }]
+                }
+              },
+              "required": ["planned", "visited", "productive", "standard"]
+            },
+            "week": {
+              "type": "object",
+              "properties": {
+                "planned": { "type": "number" },
+                "visited": { "type": "number" },
+                "productive": { "type": "number" },
+                "priorVisited": { "type": "number" }
+              },
+              "required": ["planned", "visited", "productive", "priorVisited"]
+            },
+            "trend": { "type": "array", "items": { "type": "number" } },
+            "workWith": {
+              "type": "object",
+              "properties": {
+                "done": { "type": "number" },
+                "required": {
+                  "anyOf": [{ "type": "null" }, { "type": "number" }]
+                }
+              },
+              "required": ["done", "required"]
+            },
+            "talkActions": { "type": "number" },
+            "overdue": { "type": "number" },
+            "perDiemWaiting": { "type": "number" },
+            "darMissing": { "anyOf": [{ "const": false }, { "const": true }] },
+            "actions": {
+              "type": "object",
+              "properties": {
+                "day": { "type": "string" },
+                "workWith": { "type": "string" },
+                "talk": { "type": "string" },
+                "perDiem": { "type": "string" },
+                "report": { "type": "string" }
+              },
+              "required": ["day", "workWith", "talk", "perDiem", "report"]
+            }
+          },
+          "required": [
+            "profileId",
+            "name",
+            "position",
+            "channel",
+            "today",
+            "week",
+            "trend",
+            "workWith",
+            "talkActions",
+            "overdue",
+            "perDiemWaiting",
+            "darMissing",
+            "actions"
+          ]
+        }
+      }
+    },
+    "required": ["serviceDate", "week", "definition", "rows"]
+  },
+  "supervision.exceptions.queue": {
+    "type": "object",
+    "properties": {
+      "serviceDate": { "type": "string" },
+      "dayCloseAt": { "type": "number" },
+      "truncated": { "anyOf": [{ "const": false }, { "const": true }] },
+      "canDecide": { "anyOf": [{ "const": false }, { "const": true }] },
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "at": { "anyOf": [{ "type": "null" }, { "type": "number" }] },
+            "history": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "at": { "type": "number" },
+                  "reasonCode": {
+                    "anyOf": [{ "type": "null" }, { "type": "string" }]
+                  },
+                  "kind": { "type": "string" },
+                  "actorName": { "type": "string" },
+                  "after": {
+                    "anyOf": [{ "type": "null" }, { "type": "string" }]
+                  }
+                },
+                "required": ["at", "reasonCode", "kind", "actorName", "after"]
+              }
+            },
+            "id": { "type": "string" },
+            "profileId": { "type": "string" },
+            "channel": { "type": "string" },
+            "result": { "anyOf": [{ "type": "null" }, { "type": "string" }] },
+            "open": { "anyOf": [{ "const": false }, { "const": true }] },
+            "kind": {
+              "anyOf": [
+                { "const": "location" },
+                { "const": "cancelled" },
+                { "const": "unplanned" },
+                { "const": "rescheduled" },
+                { "const": "nonproductive" },
+                { "const": "not_visited" },
+                { "const": "out_of_sequence" }
+              ]
+            },
+            "reason": { "anyOf": [{ "type": "null" }, { "type": "string" }] },
+            "decision": {
+              "anyOf": [
+                { "type": "null" },
+                {
+                  "type": "object",
+                  "properties": {
+                    "at": { "type": "number" },
+                    "status": { "type": "string" },
+                    "reasonCode": {
+                      "anyOf": [{ "type": "null" }, { "type": "string" }]
+                    },
+                    "actorName": { "type": "string" }
+                  },
+                  "required": ["at", "status", "reasonCode", "actorName"]
+                }
+              ]
+            },
+            "radiusMeters": {
+              "anyOf": [{ "type": "null" }, { "type": "number" }]
+            },
+            "sequence": { "anyOf": [{ "type": "null" }, { "type": "number" }] },
+            "outletName": { "type": "string" },
+            "outletCode": { "type": "string" },
+            "after": { "anyOf": [{ "type": "null" }, { "type": "number" }] },
+            "visitId": { "anyOf": [{ "type": "null" }, { "type": "string" }] },
+            "event": {
+              "anyOf": [
+                { "type": "null" },
+                { "const": "check_in" },
+                { "const": "check_out" }
+              ]
+            },
+            "accuracyMeters": {
+              "anyOf": [{ "type": "null" }, { "type": "number" }]
+            },
+            "distanceMeters": {
+              "anyOf": [{ "type": "null" }, { "type": "number" }]
+            },
+            "personName": { "type": "string" },
+            "canDecide": { "anyOf": [{ "const": false }, { "const": true }] },
+            "evidenceId": {
+              "anyOf": [{ "type": "null" }, { "type": "string" }]
+            }
+          },
+          "required": [
+            "at",
+            "history",
+            "id",
+            "profileId",
+            "channel",
+            "result",
+            "open",
+            "kind",
+            "reason",
+            "decision",
+            "radiusMeters",
+            "sequence",
+            "outletName",
+            "outletCode",
+            "after",
+            "visitId",
+            "event",
+            "accuracyMeters",
+            "distanceMeters",
+            "personName",
+            "canDecide",
+            "evidenceId"
+          ]
+        }
+      }
+    },
+    "required": ["serviceDate", "dayCloseAt", "truncated", "canDecide", "items"]
+  },
+  "visits.location.decideLocationException": {
+    "type": "object",
+    "properties": {
+      "reviewStatus": {
+        "anyOf": [{ "const": "rejected" }, { "const": "approved_exception" }]
+      }
+    },
+    "required": ["reviewStatus"]
+  },
+  "supervision.per_diem.validation": {
+    "type": "object",
+    "properties": {
+      "localMonth": { "type": "string" },
+      "from": { "type": "string" },
+      "to": { "type": "string" },
+      "ruleVersion": { "type": "string" },
+      "truncated": { "anyOf": [{ "const": false }, { "const": true }] },
+      "people": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "profileId": { "type": "string" },
+            "name": { "type": "string" },
+            "employeeCode": {
+              "anyOf": [{ "type": "null" }, { "type": "string" }]
+            },
+            "positionLabel": {
+              "anyOf": [{ "type": "null" }, { "type": "string" }]
+            },
+            "channel": { "type": "string" },
+            "latest": {
+              "anyOf": [
+                { "type": "null" },
+                {
+                  "type": "object",
+                  "properties": {
+                    "decision": {
+                      "anyOf": [
+                        { "const": "returned" },
+                        { "const": "validated" }
+                      ]
+                    },
+                    "decidedAt": { "type": "number" }
+                  },
+                  "required": ["decision", "decidedAt"]
+                }
+              ]
+            }
+          },
+          "required": [
+            "profileId",
+            "name",
+            "employeeCode",
+            "positionLabel",
+            "channel",
+            "latest"
+          ]
+        }
+      },
+      "selected": {
+        "anyOf": [
+          { "type": "null" },
+          {
+            "type": "object",
+            "properties": {
+              "profileId": { "type": "string" },
+              "name": { "type": "string" },
+              "positionLabel": {
+                "anyOf": [{ "type": "null" }, { "type": "string" }]
+              },
+              "canDecide": { "anyOf": [{ "const": false }, { "const": true }] },
+              "truncated": { "anyOf": [{ "const": false }, { "const": true }] },
+              "contentHash": { "type": "string" },
+              "totals": {
+                "type": "object",
+                "properties": {
+                  "plannedStops": { "type": "number" },
+                  "validCalls": { "type": "number" },
+                  "heldCalls": { "type": "number" },
+                  "invalidCalls": { "type": "number" },
+                  "notVisited": { "type": "number" },
+                  "validDays": { "type": "number" },
+                  "heldDays": { "type": "number" }
+                },
+                "required": [
+                  "plannedStops",
+                  "validCalls",
+                  "heldCalls",
+                  "invalidCalls",
+                  "notVisited",
+                  "validDays",
+                  "heldDays"
+                ]
+              },
+              "days": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "serviceDate": { "type": "string" },
+                    "plannedStops": { "type": "number" },
+                    "validCalls": { "type": "number" },
+                    "heldCalls": { "type": "number" },
+                    "invalidCalls": { "type": "number" },
+                    "notVisited": { "type": "number" },
+                    "dayStatus": {
+                      "anyOf": [
+                        { "const": "valid" },
+                        { "const": "held" },
+                        { "const": "none" }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "serviceDate",
+                    "plannedStops",
+                    "validCalls",
+                    "heldCalls",
+                    "invalidCalls",
+                    "notVisited",
+                    "dayStatus"
+                  ]
+                }
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "productivity": {
+                      "anyOf": [{ "type": "null" }, { "type": "string" }]
+                    },
+                    "id": { "type": "string" },
+                    "status": {
+                      "anyOf": [
+                        { "const": "valid" },
+                        { "const": "held" },
+                        { "const": "invalid" }
+                      ]
+                    },
+                    "serviceDate": { "type": "string" },
+                    "kind": {
+                      "anyOf": [
+                        { "const": "not_visited" },
+                        { "const": "visit" }
+                      ]
+                    },
+                    "notes": {
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          { "const": "location_unreviewed" },
+                          { "const": "late_accepted" },
+                          { "const": "location_exception_approved" }
+                        ]
+                      }
+                    },
+                    "sequence": {
+                      "anyOf": [{ "type": "null" }, { "type": "number" }]
+                    },
+                    "outletName": { "type": "string" },
+                    "outletCode": { "type": "string" },
+                    "checkedInAt": {
+                      "anyOf": [{ "type": "null" }, { "type": "number" }]
+                    },
+                    "visitId": {
+                      "anyOf": [{ "type": "null" }, { "type": "string" }]
+                    },
+                    "reasons": {
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          { "const": "not_visited" },
+                          { "const": "outside_mcp" },
+                          { "const": "removed_from_plan" },
+                          { "const": "plan_not_approved" },
+                          { "const": "not_completed" },
+                          { "const": "still_open" },
+                          { "const": "no_location" },
+                          { "const": "location_rejected" },
+                          { "const": "late_pending" },
+                          { "const": "late_rejected" },
+                          { "const": "no_report" },
+                          { "const": "no_call_sheet" },
+                          { "const": "forms_missing" }
+                        ]
+                      }
+                    },
+                    "missingForms": {
+                      "type": "array",
+                      "items": { "type": "string" }
+                    }
+                  },
+                  "required": [
+                    "productivity",
+                    "id",
+                    "status",
+                    "serviceDate",
+                    "kind",
+                    "notes",
+                    "sequence",
+                    "outletName",
+                    "outletCode",
+                    "checkedInAt",
+                    "visitId",
+                    "reasons",
+                    "missingForms"
+                  ]
+                }
+              },
+              "decisions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "string" },
+                    "decision": {
+                      "anyOf": [
+                        { "const": "returned" },
+                        { "const": "validated" }
+                      ]
+                    },
+                    "note": {
+                      "anyOf": [{ "type": "null" }, { "type": "string" }]
+                    },
+                    "deciderName": { "type": "string" },
+                    "decidedAt": { "type": "number" },
+                    "validCalls": { "type": "number" },
+                    "validDays": { "type": "number" },
+                    "ruleVersion": { "type": "string" },
+                    "stale": {
+                      "anyOf": [{ "const": false }, { "const": true }]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "decision",
+                    "note",
+                    "deciderName",
+                    "decidedAt",
+                    "validCalls",
+                    "validDays",
+                    "ruleVersion",
+                    "stale"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "profileId",
+              "name",
+              "positionLabel",
+              "canDecide",
+              "truncated",
+              "contentHash",
+              "totals",
+              "days",
+              "items",
+              "decisions"
+            ]
+          }
+        ]
+      }
+    },
+    "required": [
+      "localMonth",
+      "from",
+      "to",
+      "ruleVersion",
+      "truncated",
+      "people",
+      "selected"
+    ]
+  },
+  "supervision.per_diem.decide": { "type": "string" },
+  "analytics.productivity.person": {
+    "type": "object",
+    "properties": {
+      "profileId": { "type": "string" },
+      "name": { "type": "string" },
+      "employeeCode": { "anyOf": [{ "type": "null" }, { "type": "string" }] },
+      "positionLabel": { "anyOf": [{ "type": "null" }, { "type": "string" }] },
+      "channel": { "type": "string" },
+      "direct": { "anyOf": [{ "const": false }, { "const": true }] },
+      "from": { "type": "string" },
+      "to": { "type": "string" },
+      "productiveCallTargetPct": {
+        "anyOf": [{ "type": "null" }, { "type": "number" }]
+      },
+      "sourceRef": { "type": "string" },
+      "figures": {
+        "type": "object",
+        "properties": {
+          "days": { "type": "number" },
+          "sellingDays": { "type": "number" },
+          "planned": { "type": "number" },
+          "plannedDone": { "type": "number" },
+          "calls": { "type": "number" },
+          "productiveCalls": { "type": "number" },
+          "convertedCalls": { "type": "number" },
+          "missed": { "type": "number" },
+          "pending": { "type": "number" },
+          "visits": { "type": "number" },
+          "unplanned": { "type": "number" },
+          "exceptionVisits": { "type": "number" },
+          "locationExceptions": { "type": "number" },
+          "outOfSequence": { "type": "number" },
+          "orders": { "type": "number" },
+          "sales": { "type": "number" },
+          "callsTarget": { "anyOf": [{ "type": "null" }, { "type": "number" }] }
+        },
+        "required": [
+          "days",
+          "sellingDays",
+          "planned",
+          "plannedDone",
+          "calls",
+          "productiveCalls",
+          "convertedCalls",
+          "missed",
+          "pending",
+          "visits",
+          "unplanned",
+          "exceptionVisits",
+          "locationExceptions",
+          "outOfSequence",
+          "orders",
+          "sales",
+          "callsTarget"
+        ]
+      },
+      "days": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "serviceDate": { "type": "string" },
+            "closed": { "anyOf": [{ "const": false }, { "const": true }] },
+            "sellingDay": { "anyOf": [{ "const": false }, { "const": true }] },
+            "planned": { "type": "number" },
+            "plannedDone": { "type": "number" },
+            "calls": { "type": "number" },
+            "productiveCalls": { "type": "number" },
+            "convertedCalls": { "type": "number" },
+            "visits": { "type": "number" },
+            "unplanned": { "type": "number" },
+            "exceptionVisits": { "type": "number" },
+            "locationExceptions": { "type": "number" },
+            "outOfSequence": { "type": "number" },
+            "orders": { "type": "number" },
+            "sales": { "type": "number" },
+            "callsTarget": {
+              "anyOf": [{ "type": "null" }, { "type": "number" }]
+            }
+          },
+          "required": [
+            "serviceDate",
+            "closed",
+            "sellingDay",
+            "planned",
+            "plannedDone",
+            "calls",
+            "productiveCalls",
+            "convertedCalls",
+            "visits",
+            "unplanned",
+            "exceptionVisits",
+            "locationExceptions",
+            "outOfSequence",
+            "orders",
+            "sales",
+            "callsTarget"
+          ]
+        }
+      }
+    },
+    "required": [
+      "profileId",
+      "name",
+      "employeeCode",
+      "positionLabel",
+      "channel",
+      "direct",
+      "from",
+      "to",
+      "productiveCallTargetPct",
+      "sourceRef",
+      "figures",
+      "days"
+    ]
+  },
+  "analytics.productivity.roster": {
+    "type": "object",
+    "properties": {
+      "truncated": { "anyOf": [{ "const": false }, { "const": true }] },
+      "directReports": { "type": "number" },
+      "people": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "profileId": { "type": "string" },
+            "name": { "type": "string" },
+            "employeeCode": {
+              "anyOf": [{ "type": "null" }, { "type": "string" }]
+            },
+            "positionLabel": {
+              "anyOf": [{ "type": "null" }, { "type": "string" }]
+            },
+            "channel": { "type": "string" },
+            "direct": { "anyOf": [{ "const": false }, { "const": true }] }
+          },
+          "required": [
+            "profileId",
+            "name",
+            "employeeCode",
+            "positionLabel",
+            "channel",
+            "direct"
+          ]
+        }
+      }
+    },
+    "required": ["truncated", "directReports", "people"]
+  },
+  "supervision.talk_sheet.detail": {
+    "type": "object",
+    "properties": {
+      "sheet": {
+        "type": "object",
+        "properties": {
+          "_id": { "type": "string" },
+          "_creationTime": { "type": "number" },
+          "nextContactDate": {
+            "anyOf": [{ "type": "undefined" }, { "type": "string" }]
+          },
+          "acknowledgedByName": {
+            "anyOf": [{ "type": "undefined" }, { "type": "string" }]
+          },
+          "previousSheetId": {
+            "anyOf": [{ "type": "undefined" }, { "type": "string" }]
+          },
+          "finalizedAt": {
+            "anyOf": [{ "type": "undefined" }, { "type": "number" }]
+          },
+          "status": { "anyOf": [{ "const": "draft" }, { "const": "final" }] },
+          "orgUnitId": { "type": "string" },
+          "updatedAt": { "type": "number" },
+          "organizationId": { "type": "string" },
+          "createdAt": { "type": "number" },
+          "createdBy": { "type": "string" },
+          "updatedBy": { "type": "string" },
+          "partnerName": { "type": "string" },
+          "partnerKey": { "type": "string" },
+          "ownerProfileId": { "type": "string" },
+          "meetingDate": { "type": "string" }
+        },
+        "required": [
+          "_id",
+          "_creationTime",
+          "status",
+          "orgUnitId",
+          "updatedAt",
+          "organizationId",
+          "createdAt",
+          "createdBy",
+          "updatedBy",
+          "partnerName",
+          "partnerKey",
+          "ownerProfileId",
+          "meetingDate"
+        ]
+      },
+      "ownerName": { "type": "string" },
+      "previousMeetingDate": {
+        "anyOf": [{ "type": "null" }, { "type": "string" }]
+      },
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "item": {
+              "type": "object",
+              "properties": {
+                "_id": { "type": "string" },
+                "_creationTime": { "type": "number" },
+                "rootCause": {
+                  "anyOf": [{ "type": "undefined" }, { "type": "string" }]
+                },
+                "originItemId": {
+                  "anyOf": [{ "type": "undefined" }, { "type": "string" }]
+                },
+                "carriedFromItemId": {
+                  "anyOf": [{ "type": "undefined" }, { "type": "string" }]
+                },
+                "status": {
+                  "anyOf": [
+                    { "const": "completed" },
+                    { "const": "on_going" },
+                    { "const": "overdue" }
+                  ]
+                },
+                "organizationId": { "type": "string" },
+                "topic": {
+                  "anyOf": [
+                    { "const": "siv_stt" },
+                    { "const": "buying_accounts" },
+                    { "const": "program_utilization" },
+                    { "const": "report_submission" },
+                    { "const": "inventory_days" },
+                    { "const": "marketing_program" },
+                    { "const": "other_operational" }
+                  ]
+                },
+                "sheetId": { "type": "string" },
+                "position": { "type": "number" },
+                "gap": { "type": "string" },
+                "agreement": { "type": "string" },
+                "correctiveAction": { "type": "string" },
+                "responsible": { "type": "string" },
+                "timeline": { "type": "string" },
+                "openedOn": { "type": "string" }
+              },
+              "required": [
+                "_id",
+                "_creationTime",
+                "status",
+                "organizationId",
+                "topic",
+                "sheetId",
+                "position",
+                "gap",
+                "agreement",
+                "correctiveAction",
+                "responsible",
+                "timeline",
+                "openedOn"
+              ]
+            },
+            "effectiveStatus": {
+              "anyOf": [
+                { "const": "completed" },
+                { "const": "on_going" },
+                { "const": "overdue" }
+              ]
+            },
+            "carried": { "anyOf": [{ "const": false }, { "const": true }] },
+            "daysOpen": { "type": "number" },
+            "rootCauseDue": { "anyOf": [{ "const": false }, { "const": true }] }
+          },
+          "required": [
+            "item",
+            "effectiveStatus",
+            "carried",
+            "daysOpen",
+            "rootCauseDue"
+          ]
+        }
+      },
+      "gaps": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "anyOf": [
+                { "const": "acknowledged_by" },
+                { "const": "next_contact" },
+                { "const": "no_items" },
+                { "const": "item_gap" },
+                { "const": "item_agreement" },
+                { "const": "item_action" },
+                { "const": "item_responsible" },
+                { "const": "item_timeline" },
+                { "const": "root_cause" }
+              ]
+            },
+            "label": {
+              "anyOf": [
+                {
+                  "const": "Name who acknowledged and committed for the partner"
+                },
+                { "const": "Set the next contact date after the meeting" },
+                { "const": "Add at least one gap or issue" },
+                { "const": "Describe every gap or issue" },
+                { "const": "Write the agreement for every line" },
+                { "const": "Write the corrective action for every line" },
+                { "const": "Name who is responsible for every line" },
+                { "const": "Give every line a timeline date" },
+                {
+                  "const": "Write the root-cause review for lines open over a month"
+                }
+              ]
+            }
+          },
+          "required": ["code", "label"]
+        }
+      },
+      "canEdit": { "anyOf": [{ "const": false }, { "const": true }] }
+    },
+    "required": [
+      "sheet",
+      "ownerName",
+      "previousMeetingDate",
+      "items",
+      "gaps",
+      "canEdit"
+    ]
+  },
+  "supervision.talk_sheet.save": { "type": "null" },
+  "supervision.talk_sheet.finalize": { "type": "null" },
+  "supervision.talk_sheet.discard": { "type": "null" },
+  "supervision.talk_sheet.mine": {
+    "type": "object",
+    "properties": {
+      "sheets": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "sheetId": { "type": "string" },
+            "partnerName": { "type": "string" },
+            "meetingDate": { "type": "string" },
+            "nextContactDate": {
+              "anyOf": [{ "type": "null" }, { "type": "string" }]
+            },
+            "status": { "anyOf": [{ "const": "draft" }, { "const": "final" }] },
+            "carriedFrom": {
+              "anyOf": [{ "type": "null" }, { "type": "string" }]
+            }
+          },
+          "required": [
+            "sheetId",
+            "partnerName",
+            "meetingDate",
+            "nextContactDate",
+            "status",
+            "carriedFrom"
+          ]
+        }
+      },
+      "partners": { "type": "array", "items": { "type": "string" } }
+    },
+    "required": ["sheets", "partners"]
+  },
+  "supervision.talk_sheet.create": { "type": "string" },
+  "supervision.talk_sheet.register": {
+    "type": "object",
+    "properties": {
+      "today": { "type": "string" },
+      "truncated": { "anyOf": [{ "const": false }, { "const": true }] },
+      "chains": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "latestSheetId": { "type": "string" },
+            "partnerName": { "type": "string" },
+            "orgUnitId": { "type": "string" },
+            "unitName": { "type": "string" },
+            "ownerName": { "type": "string" },
+            "lastMeetingDate": {
+              "anyOf": [{ "type": "null" }, { "type": "string" }]
+            },
+            "nextContactDate": {
+              "anyOf": [{ "type": "null" }, { "type": "string" }]
+            },
+            "contactOverdue": {
+              "anyOf": [{ "const": false }, { "const": true }]
+            },
+            "draftSheetId": {
+              "anyOf": [{ "type": "null" }, { "type": "string" }]
+            },
+            "openCount": { "type": "number" },
+            "overdueCount": { "type": "number" },
+            "rootCauseCount": { "type": "number" }
+          },
+          "required": [
+            "latestSheetId",
+            "partnerName",
+            "orgUnitId",
+            "unitName",
+            "ownerName",
+            "lastMeetingDate",
+            "nextContactDate",
+            "contactOverdue",
+            "draftSheetId",
+            "openCount",
+            "overdueCount",
+            "rootCauseCount"
+          ]
+        }
+      },
+      "openItems": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "itemId": { "type": "string" },
+            "sheetId": { "type": "string" },
+            "partnerName": { "type": "string" },
+            "ownerName": { "type": "string" },
+            "topic": {
+              "anyOf": [
+                { "const": "siv_stt" },
+                { "const": "buying_accounts" },
+                { "const": "program_utilization" },
+                { "const": "report_submission" },
+                { "const": "inventory_days" },
+                { "const": "marketing_program" },
+                { "const": "other_operational" }
+              ]
+            },
+            "gap": { "type": "string" },
+            "responsible": { "type": "string" },
+            "timeline": { "type": "string" },
+            "status": {
+              "anyOf": [{ "const": "on_going" }, { "const": "overdue" }]
+            },
+            "openedOn": { "type": "string" },
+            "daysOpen": { "type": "number" },
+            "rootCauseDue": {
+              "anyOf": [{ "const": false }, { "const": true }]
+            },
+            "rootCause": { "anyOf": [{ "type": "null" }, { "type": "string" }] }
+          },
+          "required": [
+            "itemId",
+            "sheetId",
+            "partnerName",
+            "ownerName",
+            "topic",
+            "gap",
+            "responsible",
+            "timeline",
+            "status",
+            "openedOn",
+            "daysOpen",
+            "rootCauseDue",
+            "rootCause"
+          ]
+        }
+      }
+    },
+    "required": ["today", "truncated", "chains", "openItems"]
+  },
+  "lib.capabilities.currentPermissions": {
+    "type": "object",
+    "properties": {
+      "version": { "const": 1 },
+      "role": {
+        "anyOf": [
+          { "const": "admin" },
+          { "const": "sales" },
+          { "const": "super_admin" },
+          { "const": "operations" },
+          { "const": "manager" },
+          { "const": "approver" },
+          { "const": "analyst" },
+          { "const": "viewer" }
+        ]
+      },
+      "orgUnitId": { "anyOf": [{ "type": "null" }, { "type": "string" }] },
+      "scopeUnitIds": { "type": "array", "items": { "type": "string" } },
+      "capabilities": { "type": "array", "items": { "type": "string" } }
+    },
+    "required": ["version", "role", "orgUnitId", "scopeUnitIds", "capabilities"]
+  },
+  "supervision.team.day": {
+    "type": "object",
+    "properties": {
+      "serviceDate": { "type": "string" },
+      "dayCloseAt": { "type": "number" },
+      "truncated": { "anyOf": [{ "const": false }, { "const": true }] },
+      "canDecide": { "anyOf": [{ "const": false }, { "const": true }] },
+      "units": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "code": { "type": "string" },
+            "name": { "type": "string" }
+          },
+          "required": ["id", "code", "name"]
+        }
+      },
+      "channels": { "type": "array", "items": { "type": "string" } },
+      "people": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "planned": { "type": "number" },
+            "plannedDone": { "type": "number" },
+            "done": { "type": "number" },
+            "productive": { "type": "number" },
+            "nonproductive": { "type": "number" },
+            "unplanned": { "type": "number" },
+            "inProgress": { "anyOf": [{ "const": false }, { "const": true }] },
+            "outOfSequence": { "type": "number" },
+            "openExceptions": { "type": "number" },
+            "lateSync": { "type": "number" },
+            "firstCheckInAt": {
+              "anyOf": [{ "type": "null" }, { "type": "number" }]
+            },
+            "lastCheckOutAt": {
+              "anyOf": [{ "type": "null" }, { "type": "number" }]
+            },
+            "lastActivityAt": {
+              "anyOf": [{ "type": "null" }, { "type": "number" }]
+            },
+            "profileId": { "type": "string" },
+            "name": { "type": "string" },
+            "employeeCode": {
+              "anyOf": [{ "type": "null" }, { "type": "string" }]
+            },
+            "positionLabel": {
+              "anyOf": [{ "type": "null" }, { "type": "string" }]
+            },
+            "channel": { "type": "string" },
+            "orgUnitId": { "type": "string" },
+            "direct": { "anyOf": [{ "const": false }, { "const": true }] }
+          },
+          "required": [
+            "planned",
+            "plannedDone",
+            "done",
+            "productive",
+            "nonproductive",
+            "unplanned",
+            "inProgress",
+            "outOfSequence",
+            "openExceptions",
+            "lateSync",
+            "firstCheckInAt",
+            "lastCheckOutAt",
+            "lastActivityAt",
+            "profileId",
+            "name",
+            "employeeCode",
+            "positionLabel",
+            "channel",
+            "orgUnitId",
+            "direct"
+          ]
+        }
+      }
+    },
+    "required": [
+      "serviceDate",
+      "dayCloseAt",
+      "truncated",
+      "canDecide",
+      "units",
+      "channels",
+      "people"
+    ]
+  },
+  "supervision.trainer_forms.detail": {
+    "type": "object",
+    "properties": {
+      "form": {
+        "type": "object",
+        "properties": {
+          "_id": { "type": "string" },
+          "_creationTime": { "type": "number" },
+          "acknowledgedAt": {
+            "anyOf": [{ "type": "undefined" }, { "type": "number" }]
+          },
+          "program": {
+            "anyOf": [
+              { "type": "undefined" },
+              {
+                "type": "object",
+                "properties": {
+                  "area": { "type": "string" },
+                  "strengths": { "type": "string" },
+                  "objectives": {
+                    "type": "array",
+                    "items": { "type": "string" }
+                  },
+                  "improvementAreas": { "type": "string" },
+                  "plansForNextContact": { "type": "string" }
+                },
+                "required": [
+                  "area",
+                  "strengths",
+                  "objectives",
+                  "improvementAreas",
+                  "plansForNextContact"
+                ]
+              }
+            ]
+          },
+          "sheet": {
+            "anyOf": [
+              { "type": "undefined" },
+              {
+                "type": "object",
+                "properties": {
+                  "result": { "type": "string" },
+                  "objective": { "type": "string" },
+                  "learnings": { "type": "string" },
+                  "nextSteps": { "type": "string" }
+                },
+                "required": ["result", "objective", "learnings", "nextSteps"]
+              }
+            ]
+          },
+          "evaluation": {
+            "anyOf": [
+              { "type": "undefined" },
+              {
+                "type": "object",
+                "properties": {
+                  "overall": {
+                    "anyOf": [
+                      { "type": "undefined" },
+                      { "const": 1 },
+                      { "const": 2 },
+                      { "const": 3 },
+                      { "const": 4 }
+                    ]
+                  },
+                  "area": { "type": "string" },
+                  "remarks": { "type": "string" },
+                  "periodStart": { "type": "string" },
+                  "periodEnd": { "type": "string" },
+                  "district": { "type": "string" },
+                  "ratings": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "item": { "type": "string" },
+                        "rating": {
+                          "anyOf": [
+                            { "const": 1 },
+                            { "const": 2 },
+                            { "const": 3 },
+                            { "const": 4 }
+                          ]
+                        }
+                      },
+                      "required": ["item", "rating"]
+                    }
+                  }
+                },
+                "required": [
+                  "area",
+                  "remarks",
+                  "periodStart",
+                  "periodEnd",
+                  "district",
+                  "ratings"
+                ]
+              }
+            ]
+          },
+          "evaluationSessions": {
+            "anyOf": [
+              { "type": "undefined" },
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "sessionId": { "type": "string" },
+                    "serviceDate": { "type": "string" }
+                  },
+                  "required": ["sessionId", "serviceDate"]
+                }
+              }
+            ]
+          },
+          "signedAt": {
+            "anyOf": [{ "type": "undefined" }, { "type": "number" }]
+          },
+          "signedBy": {
+            "anyOf": [{ "type": "undefined" }, { "type": "string" }]
+          },
+          "acknowledgedBy": {
+            "anyOf": [{ "type": "undefined" }, { "type": "string" }]
+          },
+          "traineeComment": {
+            "anyOf": [{ "type": "undefined" }, { "type": "string" }]
+          },
+          "status": {
+            "anyOf": [
+              { "const": "draft" },
+              { "const": "signed" },
+              { "const": "acknowledged" }
+            ]
+          },
+          "orgUnitId": { "type": "string" },
+          "updatedAt": { "type": "number" },
+          "organizationId": { "type": "string" },
+          "createdAt": { "type": "number" },
+          "createdBy": { "type": "string" },
+          "sessionId": { "type": "string" },
+          "serviceDate": { "type": "string" },
+          "kind": {
+            "anyOf": [
+              { "const": "training_program" },
+              { "const": "training_sheet" },
+              { "const": "job_evaluation" }
+            ]
+          },
+          "updatedBy": { "type": "string" },
+          "trainerProfileId": { "type": "string" },
+          "traineeProfileId": { "type": "string" }
+        },
+        "required": [
+          "_id",
+          "_creationTime",
+          "status",
+          "orgUnitId",
+          "updatedAt",
+          "organizationId",
+          "createdAt",
+          "createdBy",
+          "sessionId",
+          "serviceDate",
+          "kind",
+          "updatedBy",
+          "trainerProfileId",
+          "traineeProfileId"
+        ]
+      },
+      "trainerName": { "type": "string" },
+      "traineeName": { "type": "string" },
+      "sessionStatus": {
+        "anyOf": [
+          { "const": "cancelled" },
+          { "const": "completed" },
+          { "const": "open" }
+        ]
+      },
+      "gaps": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "anyOf": [
+                { "const": "next_contact" },
+                { "const": "area" },
+                { "const": "result" },
+                { "const": "objective" },
+                { "const": "strengths" },
+                { "const": "objectives" },
+                { "const": "learnings" },
+                { "const": "overall" },
+                { "const": "period" },
+                { "const": "improvement_areas" },
+                { "const": "next_steps" },
+                { "const": "section_unrated" }
+              ]
+            },
+            "label": {
+              "anyOf": [
+                { "const": "Write the area" },
+                { "const": "Write at least one training objective" },
+                { "const": "Write the strengths" },
+                { "const": "Write the areas needing improvement" },
+                { "const": "Write the training plans for the next contact" },
+                { "const": "Write the objective" },
+                { "const": "Write the result" },
+                { "const": "Write the learnings" },
+                { "const": "Write the next steps" },
+                {
+                  "const": "Give a training period that includes the Work-With day"
+                },
+                { "const": "Rate at least one item in every section" },
+                { "const": "Rate the overall job standard" }
+              ]
+            }
+          },
+          "required": ["code", "label"]
+        }
+      },
+      "canEdit": { "anyOf": [{ "const": false }, { "const": true }] },
+      "canAcknowledge": { "anyOf": [{ "const": false }, { "const": true }] }
+    },
+    "required": [
+      "form",
+      "trainerName",
+      "traineeName",
+      "sessionStatus",
+      "gaps",
+      "canEdit",
+      "canAcknowledge"
+    ]
+  },
+  "supervision.trainer_forms.program": {
+    "type": "object",
+    "properties": {
+      "traineeName": { "type": "string" },
+      "blocks": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "formId": { "type": "string" },
+            "serviceDate": { "type": "string" },
+            "trainerName": { "type": "string" },
+            "status": {
+              "anyOf": [{ "const": "signed" }, { "const": "acknowledged" }]
+            },
+            "program": {
+              "type": "object",
+              "properties": {
+                "area": { "type": "string" },
+                "strengths": { "type": "string" },
+                "objectives": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "improvementAreas": { "type": "string" },
+                "plansForNextContact": { "type": "string" }
+              },
+              "required": [
+                "area",
+                "strengths",
+                "objectives",
+                "improvementAreas",
+                "plansForNextContact"
+              ]
+            }
+          },
+          "required": [
+            "formId",
+            "serviceDate",
+            "trainerName",
+            "status",
+            "program"
+          ]
+        }
+      },
+      "latestEvaluation": {
+        "anyOf": [
+          { "type": "null" },
+          {
+            "type": "object",
+            "properties": {
+              "formId": { "type": "string" },
+              "serviceDate": { "type": "string" },
+              "trainerName": { "type": "string" },
+              "evaluation": {
+                "type": "object",
+                "properties": {
+                  "overall": {
+                    "anyOf": [
+                      { "type": "undefined" },
+                      { "const": 1 },
+                      { "const": 2 },
+                      { "const": 3 },
+                      { "const": 4 }
+                    ]
+                  },
+                  "area": { "type": "string" },
+                  "remarks": { "type": "string" },
+                  "periodStart": { "type": "string" },
+                  "periodEnd": { "type": "string" },
+                  "district": { "type": "string" },
+                  "ratings": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "item": { "type": "string" },
+                        "rating": {
+                          "anyOf": [
+                            { "const": 1 },
+                            { "const": 2 },
+                            { "const": 3 },
+                            { "const": 4 }
+                          ]
+                        }
+                      },
+                      "required": ["item", "rating"]
+                    }
+                  }
+                },
+                "required": [
+                  "area",
+                  "remarks",
+                  "periodStart",
+                  "periodEnd",
+                  "district",
+                  "ratings"
+                ]
+              }
+            },
+            "required": ["formId", "serviceDate", "trainerName", "evaluation"]
+          }
+        ]
+      }
+    },
+    "required": ["traineeName", "blocks", "latestEvaluation"]
+  },
+  "supervision.trainer_forms.update": { "type": "null" },
+  "supervision.trainer_forms.sign": { "type": "null" },
+  "supervision.trainer_forms.discard": { "type": "null" },
+  "supervision.trainer_forms.acknowledge": { "type": "null" },
+  "supervision.trainer_forms.forSession": {
+    "type": "object",
+    "properties": {
+      "forms": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "formId": { "type": "string" },
+            "kind": {
+              "anyOf": [
+                { "const": "training_program" },
+                { "const": "training_sheet" },
+                { "const": "job_evaluation" }
+              ]
+            },
+            "sessionId": { "type": "string" },
+            "serviceDate": { "type": "string" },
+            "status": {
+              "anyOf": [
+                { "const": "draft" },
+                { "const": "signed" },
+                { "const": "acknowledged" }
+              ]
+            },
+            "trainerName": { "type": "string" },
+            "traineeName": { "type": "string" }
+          },
+          "required": [
+            "formId",
+            "kind",
+            "sessionId",
+            "serviceDate",
+            "status",
+            "trainerName",
+            "traineeName"
+          ]
+        }
+      },
+      "canCreate": { "anyOf": [{ "const": false }, { "const": true }] }
+    },
+    "required": ["forms", "canCreate"]
+  },
+  "supervision.trainer_forms.create": { "type": "string" },
+  "domains.profiles.current": {
+    "anyOf": [
+      { "type": "null" },
+      {
+        "type": "object",
+        "properties": {
+          "_id": { "type": "string" },
+          "_creationTime": { "type": "number" },
+          "orgUnitId": {
+            "anyOf": [{ "type": "undefined" }, { "type": "string" }]
+          },
+          "employeeCode": {
+            "anyOf": [{ "type": "undefined" }, { "type": "string" }]
+          },
+          "positionId": {
+            "anyOf": [{ "type": "undefined" }, { "type": "string" }]
+          },
+          "employmentType": {
+            "anyOf": [
+              { "type": "undefined" },
+              { "const": "sfi_employee" },
+              { "const": "adp_personnel" },
+              { "const": "third_party" }
+            ]
+          },
+          "channelScope": {
+            "anyOf": [{ "type": "undefined" }, { "type": "string" }]
+          },
+          "supervisorSubject": {
+            "anyOf": [{ "type": "undefined" }, { "type": "string" }]
+          },
+          "effectiveFrom": {
+            "anyOf": [{ "type": "undefined" }, { "type": "number" }]
+          },
+          "role": {
+            "anyOf": [
+              { "const": "admin" },
+              { "const": "sales" },
+              { "const": "super_admin" },
+              { "const": "operations" },
+              { "const": "manager" },
+              { "const": "approver" },
+              { "const": "analyst" },
+              { "const": "viewer" }
+            ]
+          },
+          "authSubject": { "type": "string" },
+          "name": { "type": "string" },
+          "email": { "type": "string" },
+          "status": {
+            "anyOf": [{ "const": "active" }, { "const": "disabled" }]
+          },
+          "updatedAt": { "type": "number" }
+        },
+        "required": [
+          "_id",
+          "_creationTime",
+          "role",
+          "authSubject",
+          "name",
+          "email",
+          "status",
+          "updatedAt"
+        ]
+      }
+    ]
+  },
+  "supervision.trainer_forms.mine": {
+    "type": "object",
+    "properties": {
+      "toAcknowledge": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "formId": { "type": "string" },
+            "kind": {
+              "anyOf": [
+                { "const": "training_program" },
+                { "const": "training_sheet" },
+                { "const": "job_evaluation" }
+              ]
+            },
+            "sessionId": { "type": "string" },
+            "serviceDate": { "type": "string" },
+            "status": {
+              "anyOf": [
+                { "const": "draft" },
+                { "const": "signed" },
+                { "const": "acknowledged" }
+              ]
+            },
+            "trainerName": { "type": "string" },
+            "traineeName": { "type": "string" }
+          },
+          "required": [
+            "formId",
+            "kind",
+            "sessionId",
+            "serviceDate",
+            "status",
+            "trainerName",
+            "traineeName"
+          ]
+        }
+      },
+      "received": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "formId": { "type": "string" },
+            "kind": {
+              "anyOf": [
+                { "const": "training_program" },
+                { "const": "training_sheet" },
+                { "const": "job_evaluation" }
+              ]
+            },
+            "sessionId": { "type": "string" },
+            "serviceDate": { "type": "string" },
+            "status": {
+              "anyOf": [
+                { "const": "draft" },
+                { "const": "signed" },
+                { "const": "acknowledged" }
+              ]
+            },
+            "trainerName": { "type": "string" },
+            "traineeName": { "type": "string" }
+          },
+          "required": [
+            "formId",
+            "kind",
+            "sessionId",
+            "serviceDate",
+            "status",
+            "trainerName",
+            "traineeName"
+          ]
+        }
+      },
+      "written": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "formId": { "type": "string" },
+            "kind": {
+              "anyOf": [
+                { "const": "training_program" },
+                { "const": "training_sheet" },
+                { "const": "job_evaluation" }
+              ]
+            },
+            "sessionId": { "type": "string" },
+            "serviceDate": { "type": "string" },
+            "status": {
+              "anyOf": [
+                { "const": "draft" },
+                { "const": "signed" },
+                { "const": "acknowledged" }
+              ]
+            },
+            "trainerName": { "type": "string" },
+            "traineeName": { "type": "string" }
+          },
+          "required": [
+            "formId",
+            "kind",
+            "sessionId",
+            "serviceDate",
+            "status",
+            "trainerName",
+            "traineeName"
+          ]
+        }
+      }
+    },
+    "required": ["toAcknowledge", "received", "written"]
+  },
+  "supervision.work_with.detail": {
+    "type": "object",
+    "properties": {
+      "session": {
+        "type": "object",
+        "properties": {
+          "_id": { "type": "string" },
+          "_creationTime": { "type": "number" },
+          "cancelledAt": {
+            "anyOf": [{ "type": "undefined" }, { "type": "number" }]
+          },
+          "cancelReason": {
+            "anyOf": [{ "type": "undefined" }, { "type": "string" }]
+          },
+          "completedAt": {
+            "anyOf": [{ "type": "undefined" }, { "type": "number" }]
+          },
+          "trainerPositionId": {
+            "anyOf": [{ "type": "undefined" }, { "type": "string" }]
+          },
+          "truckReference": {
+            "anyOf": [{ "type": "undefined" }, { "type": "string" }]
+          },
+          "rodeWithTruck": {
+            "anyOf": [
+              { "type": "undefined" },
+              { "const": false },
+              { "const": true }
+            ]
+          },
+          "trainingLog": {
+            "anyOf": [
+              { "type": "undefined" },
+              {
+                "type": "object",
+                "properties": {
+                  "topics": { "type": "string" },
+                  "tradeDevelopment": { "type": "string" },
+                  "discussedWithTrainee": {
+                    "anyOf": [{ "const": false }, { "const": true }]
+                  }
+                },
+                "required": [
+                  "topics",
+                  "tradeDevelopment",
+                  "discussedWithTrainee"
+                ]
+              }
+            ]
+          },
+          "preCall": {
+            "anyOf": [
+              { "type": "undefined" },
+              {
+                "type": "object",
+                "properties": {
+                  "documents": {
+                    "type": "array",
+                    "items": {
+                      "anyOf": [
+                        { "const": "productivity" },
+                        { "const": "distribution" },
+                        { "const": "daily_productive_sales_report" },
+                        { "const": "call_sheet" }
+                      ]
+                    }
+                  },
+                  "remarks": { "type": "string" }
+                },
+                "required": ["documents", "remarks"]
+              }
+            ]
+          },
+          "postCall": {
+            "anyOf": [
+              { "type": "undefined" },
+              {
+                "type": "object",
+                "properties": {
+                  "strengths": { "type": "string" },
+                  "weaknesses": { "type": "string" },
+                  "opportunities": { "type": "string" },
+                  "threats": { "type": "string" }
+                },
+                "required": [
+                  "strengths",
+                  "weaknesses",
+                  "opportunities",
+                  "threats"
+                ]
+              }
+            ]
+          },
+          "mcpPlanned": {
+            "anyOf": [{ "type": "undefined" }, { "type": "number" }]
+          },
+          "mcpDone": {
+            "anyOf": [{ "type": "undefined" }, { "type": "number" }]
+          },
+          "status": {
+            "anyOf": [
+              { "const": "cancelled" },
+              { "const": "completed" },
+              { "const": "open" }
+            ]
+          },
+          "orgUnitId": { "type": "string" },
+          "updatedAt": { "type": "number" },
+          "organizationId": { "type": "string" },
+          "createdAt": { "type": "number" },
+          "createdBy": { "type": "string" },
+          "serviceDate": { "type": "string" },
+          "updatedBy": { "type": "string" },
+          "objective": {
+            "anyOf": [{ "const": "training" }, { "const": "sales_validation" }]
+          },
+          "mode": { "anyOf": [{ "const": "truck" }, { "const": "booking" }] },
+          "trainerProfileId": { "type": "string" },
+          "traineeProfileId": { "type": "string" },
+          "observations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "remark": {
+                  "anyOf": [{ "type": "undefined" }, { "type": "string" }]
+                },
+                "area": { "anyOf": [{ "const": "bcp" }, { "const": "psf" }] },
+                "item": { "type": "string" },
+                "rating": {
+                  "anyOf": [
+                    { "const": "partial" },
+                    { "const": "met" },
+                    { "const": "not_met" }
+                  ]
+                }
+              },
+              "required": ["area", "item", "rating"]
+            }
+          }
+        },
+        "required": [
+          "_id",
+          "_creationTime",
+          "status",
+          "orgUnitId",
+          "updatedAt",
+          "organizationId",
+          "createdAt",
+          "createdBy",
+          "serviceDate",
+          "updatedBy",
+          "objective",
+          "mode",
+          "trainerProfileId",
+          "traineeProfileId",
+          "observations"
+        ]
+      },
+      "trainerName": { "type": "string" },
+      "traineeName": { "type": "string" },
+      "mcp": {
+        "type": "object",
+        "properties": {
+          "planned": { "type": "number" },
+          "done": { "type": "number" }
+        },
+        "required": ["planned", "done"]
+      },
+      "gaps": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "anyOf": [
+                { "const": "bcp_observation" },
+                { "const": "psf_observation" },
+                { "const": "training_log" },
+                { "const": "trade_development" },
+                { "const": "training_log_discussed" },
+                { "const": "pre_call_documents" },
+                { "const": "pre_call_remarks" },
+                { "const": "post_call_swot" },
+                { "const": "mcp_missing" },
+                { "const": "mcp_unfinished" },
+                { "const": "truck_missing" },
+                { "const": "truck_not_ridden" }
+              ]
+            },
+            "label": {
+              "anyOf": [
+                {
+                  "const": "Record at least one Basic Call Procedure (BCP) observation"
+                },
+                {
+                  "const": "Record at least one Persuasive Selling Format (PSF) observation"
+                },
+                { "const": "Write the training log" },
+                { "const": "Write the trade development remark" },
+                {
+                  "const": "Review and discuss the training log with the trainee"
+                },
+                { "const": "Pick the reports reviewed before the call" },
+                { "const": "Write the pre-call review remarks" },
+                { "const": "Write all four SWOT remarks after the call" },
+                {
+                  "const": "The trainee has no approved MCP stops on this day"
+                },
+                { "const": "The trainee has not finished the day's MCP" },
+                { "const": "Name the truck for a truck work-with" },
+                { "const": "Confirm you rode the named truck" }
+              ]
+            }
+          },
+          "required": ["code", "label"]
+        }
+      },
+      "canEdit": { "anyOf": [{ "const": false }, { "const": true }] }
+    },
+    "required": [
+      "session",
+      "trainerName",
+      "traineeName",
+      "mcp",
+      "gaps",
+      "canEdit"
+    ]
+  },
+  "supervision.work_with.update": { "type": "null" },
+  "supervision.work_with.complete": { "type": "null" },
+  "supervision.work_with.cancel": { "type": "null" },
+  "supervision.work_with.mine": {
+    "type": "object",
+    "properties": {
+      "sessions": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "sessionId": { "type": "string" },
+            "serviceDate": { "type": "string" },
+            "trainerProfileId": { "type": "string" },
+            "trainerName": { "type": "string" },
+            "traineeProfileId": { "type": "string" },
+            "traineeName": { "type": "string" },
+            "objective": {
+              "anyOf": [
+                { "const": "training" },
+                { "const": "sales_validation" }
+              ]
+            },
+            "mode": { "anyOf": [{ "const": "truck" }, { "const": "booking" }] },
+            "truckReference": {
+              "anyOf": [{ "type": "null" }, { "type": "string" }]
+            },
+            "status": {
+              "anyOf": [
+                { "const": "cancelled" },
+                { "const": "completed" },
+                { "const": "open" }
+              ]
+            }
+          },
+          "required": [
+            "sessionId",
+            "serviceDate",
+            "trainerProfileId",
+            "trainerName",
+            "traineeProfileId",
+            "traineeName",
+            "objective",
+            "mode",
+            "truckReference",
+            "status"
+          ]
+        }
+      },
+      "trainees": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "profileId": { "type": "string" },
+            "name": { "type": "string" },
+            "employeeCode": {
+              "anyOf": [{ "type": "null" }, { "type": "string" }]
+            }
+          },
+          "required": ["profileId", "name", "employeeCode"]
+        }
+      },
+      "traineesTruncated": { "anyOf": [{ "const": false }, { "const": true }] }
+    },
+    "required": ["sessions", "trainees", "traineesTruncated"]
+  },
+  "supervision.work_with.start": { "type": "string" },
+  "supervision.work_with.cadence": {
+    "type": "object",
+    "properties": {
+      "week": {
+        "type": "object",
+        "properties": {
+          "start": { "type": "string" },
+          "end": { "type": "string" }
+        },
+        "required": ["start", "end"]
+      },
+      "month": {
+        "type": "object",
+        "properties": {
+          "start": { "type": "string" },
+          "end": { "type": "string" }
+        },
+        "required": ["start", "end"]
+      },
+      "truncated": { "anyOf": [{ "const": false }, { "const": true }] },
+      "trainers": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "profileId": { "type": "string" },
+            "name": { "type": "string" },
+            "employeeCode": {
+              "anyOf": [{ "type": "null" }, { "type": "string" }]
+            },
+            "positionLabel": { "type": "string" },
+            "orgUnitId": { "type": "string" },
+            "direct": { "anyOf": [{ "const": false }, { "const": true }] },
+            "weeklyMin": {
+              "anyOf": [{ "type": "null" }, { "type": "number" }]
+            },
+            "monthlyMin": {
+              "anyOf": [{ "type": "null" }, { "type": "number" }]
+            },
+            "weekCount": { "type": "number" },
+            "monthCount": { "type": "number" },
+            "openCount": { "type": "number" },
+            "weekState": {
+              "anyOf": [
+                { "const": "met" },
+                { "const": "behind" },
+                { "const": "on_track" },
+                { "const": "no_standard" }
+              ]
+            },
+            "monthState": {
+              "anyOf": [
+                { "const": "met" },
+                { "const": "behind" },
+                { "const": "on_track" },
+                { "const": "no_standard" }
+              ]
+            },
+            "sourceRef": { "type": "string" }
+          },
+          "required": [
+            "profileId",
+            "name",
+            "employeeCode",
+            "positionLabel",
+            "orgUnitId",
+            "direct",
+            "weeklyMin",
+            "monthlyMin",
+            "weekCount",
+            "monthCount",
+            "openCount",
+            "weekState",
+            "monthState",
+            "sourceRef"
+          ]
+        }
+      },
+      "sessions": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "sessionId": { "type": "string" },
+            "serviceDate": { "type": "string" },
+            "trainerProfileId": { "type": "string" },
+            "trainerName": { "type": "string" },
+            "traineeProfileId": { "type": "string" },
+            "traineeName": { "type": "string" },
+            "objective": {
+              "anyOf": [
+                { "const": "training" },
+                { "const": "sales_validation" }
+              ]
+            },
+            "mode": { "anyOf": [{ "const": "truck" }, { "const": "booking" }] },
+            "truckReference": {
+              "anyOf": [{ "type": "null" }, { "type": "string" }]
+            },
+            "status": {
+              "anyOf": [
+                { "const": "cancelled" },
+                { "const": "completed" },
+                { "const": "open" }
+              ]
+            }
+          },
+          "required": [
+            "sessionId",
+            "serviceDate",
+            "trainerProfileId",
+            "trainerName",
+            "traineeProfileId",
+            "traineeName",
+            "objective",
+            "mode",
+            "truckReference",
+            "status"
+          ]
+        }
+      }
+    },
+    "required": ["week", "month", "truncated", "trainers", "sessions"]
+  },
+  "supervision.activity.map": {
+    "type": "object",
+    "properties": {
+      "serviceDate": { "type": "string" },
+      "truncated": { "anyOf": [{ "const": false }, { "const": true }] },
+      "showsFixes": { "anyOf": [{ "const": false }, { "const": true }] },
+      "people": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "profileId": { "type": "string" },
+            "name": { "type": "string" },
+            "channel": { "type": "string" },
+            "stops": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "productivity": {
+                    "anyOf": [{ "type": "null" }, { "type": "string" }]
+                  },
+                  "id": { "type": "string" },
+                  "source": {
+                    "anyOf": [
+                      { "const": "unplanned" },
+                      { "const": "not_visited" },
+                      { "const": "planned" }
+                    ]
+                  },
+                  "sequence": {
+                    "anyOf": [{ "type": "null" }, { "type": "number" }]
+                  },
+                  "outletName": { "type": "string" },
+                  "outletCode": { "type": "string" },
+                  "territoryCode": {
+                    "anyOf": [{ "type": "null" }, { "type": "string" }]
+                  },
+                  "state": { "type": "string" },
+                  "checkedInAt": {
+                    "anyOf": [{ "type": "null" }, { "type": "number" }]
+                  },
+                  "checkedOutAt": {
+                    "anyOf": [{ "type": "null" }, { "type": "number" }]
+                  },
+                  "visitId": {
+                    "anyOf": [{ "type": "null" }, { "type": "string" }]
+                  },
+                  "point": {
+                    "anyOf": [
+                      { "type": "null" },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "latitude": { "type": "number" },
+                          "longitude": { "type": "number" }
+                        },
+                        "required": ["latitude", "longitude"]
+                      }
+                    ]
+                  },
+                  "fix": {
+                    "anyOf": [
+                      { "type": "null" },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "result": { "type": "string" },
+                          "latitude": { "type": "number" },
+                          "longitude": { "type": "number" },
+                          "accuracyMeters": {
+                            "anyOf": [{ "type": "null" }, { "type": "number" }]
+                          }
+                        },
+                        "required": [
+                          "result",
+                          "latitude",
+                          "longitude",
+                          "accuracyMeters"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "productivity",
+                  "id",
+                  "source",
+                  "sequence",
+                  "outletName",
+                  "outletCode",
+                  "territoryCode",
+                  "state",
+                  "checkedInAt",
+                  "checkedOutAt",
+                  "visitId",
+                  "point",
+                  "fix"
+                ]
+              }
+            }
+          },
+          "required": ["profileId", "name", "channel", "stops"]
+        }
+      }
+    },
+    "required": ["serviceDate", "truncated", "showsFixes", "people"]
+  },
+  "supervision.team.options": {
+    "type": "object",
+    "properties": {
+      "canDecide": { "anyOf": [{ "const": false }, { "const": true }] },
+      "units": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "code": { "type": "string" },
+            "name": { "type": "string" }
+          },
+          "required": ["id", "code", "name"]
+        }
+      },
+      "channels": { "type": "array", "items": { "type": "string" } }
+    },
+    "required": ["canDecide", "units", "channels"]
+  },
+  "callSheets.accounts.list": {
+    "type": "object",
+    "properties": {
+      "page": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "outletId": { "type": "string" },
+            "outletCode": { "type": "string" },
+            "outletName": { "type": "string" },
+            "accountName": { "type": "string" },
+            "lineCount": { "type": "number" },
+            "revision": { "type": "number" },
+            "updatedAt": { "type": "number" }
+          },
+          "required": [
+            "outletId",
+            "outletCode",
+            "outletName",
+            "accountName",
+            "lineCount",
+            "revision",
+            "updatedAt"
+          ]
+        }
+      },
+      "isDone": { "anyOf": [{ "const": false }, { "const": true }] },
+      "continueCursor": { "type": "string" }
+    },
+    "required": ["page", "isDone", "continueCursor"]
+  },
+  "callSheets.accounts.outletByCode": {
+    "anyOf": [
+      { "type": "null" },
+      {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "code": { "type": "string" },
+          "name": { "type": "string" }
+        },
+        "required": ["id", "code", "name"]
+      }
+    ]
+  },
+  "callSheets.accounts.detail": {
+    "type": "object",
+    "properties": {
+      "outlet": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "code": { "type": "string" },
+          "name": { "type": "string" },
+          "address": { "anyOf": [{ "type": "null" }, { "type": "string" }] },
+          "status": {
+            "anyOf": [
+              { "const": "active" },
+              { "const": "inactive" },
+              { "const": "prospect" }
+            ]
+          }
+        },
+        "required": ["id", "code", "name", "address", "status"]
+      },
+      "canEdit": { "anyOf": [{ "const": false }, { "const": true }] },
+      "account": {
+        "anyOf": [
+          { "type": "null" },
+          {
+            "type": "object",
+            "properties": {
+              "revision": { "type": "number" },
+              "updatedAt": { "type": "number" },
+              "header": {
+                "type": "object",
+                "properties": {
+                  "pricing": {
+                    "anyOf": [{ "type": "null" }, { "type": "string" }]
+                  },
+                  "address": {
+                    "anyOf": [{ "type": "null" }, { "type": "string" }]
+                  },
+                  "accountName": { "type": "string" },
+                  "buyerName": {
+                    "anyOf": [{ "type": "null" }, { "type": "string" }]
+                  },
+                  "contactNumber": {
+                    "anyOf": [{ "type": "null" }, { "type": "string" }]
+                  },
+                  "accountInCharge": {
+                    "anyOf": [{ "type": "null" }, { "type": "string" }]
+                  },
+                  "receivingInCharge": {
+                    "anyOf": [{ "type": "null" }, { "type": "string" }]
+                  },
+                  "distributorName": {
+                    "anyOf": [{ "type": "null" }, { "type": "string" }]
+                  },
+                  "distributorSchedule": {
+                    "anyOf": [{ "type": "null" }, { "type": "string" }]
+                  },
+                  "foc": { "anyOf": [{ "type": "null" }, { "type": "string" }] }
+                },
+                "required": [
+                  "pricing",
+                  "address",
+                  "accountName",
+                  "buyerName",
+                  "contactNumber",
+                  "accountInCharge",
+                  "receivingInCharge",
+                  "distributorName",
+                  "distributorSchedule",
+                  "foc"
+                ]
+              },
+              "lines": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "productId": { "type": "string" },
+                    "code": { "type": "string" },
+                    "name": { "type": "string" },
+                    "uom": { "type": "string" },
+                    "pricing": {
+                      "anyOf": [{ "type": "null" }, { "type": "string" }]
+                    },
+                    "active": {
+                      "anyOf": [{ "const": false }, { "const": true }]
+                    }
+                  },
+                  "required": [
+                    "productId",
+                    "code",
+                    "name",
+                    "uom",
+                    "pricing",
+                    "active"
+                  ]
+                }
+              }
+            },
+            "required": ["revision", "updatedAt", "header", "lines"]
+          }
+        ]
+      }
+    },
+    "required": ["outlet", "canEdit", "account"]
+  },
+  "callSheets.report.month": {
+    "type": "object",
+    "properties": {
+      "outlet": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "code": { "type": "string" },
+          "name": { "type": "string" }
+        },
+        "required": ["id", "code", "name"]
+      },
+      "localMonth": { "type": "string" },
+      "configured": { "anyOf": [{ "const": false }, { "const": true }] },
+      "revision": { "anyOf": [{ "type": "null" }, { "type": "number" }] },
+      "header": {
+        "type": "object",
+        "properties": {
+          "pricing": { "anyOf": [{ "type": "null" }, { "type": "string" }] },
+          "address": { "anyOf": [{ "type": "null" }, { "type": "string" }] },
+          "accountName": { "type": "string" },
+          "buyerName": { "anyOf": [{ "type": "null" }, { "type": "string" }] },
+          "contactNumber": {
+            "anyOf": [{ "type": "null" }, { "type": "string" }]
+          },
+          "accountInCharge": {
+            "anyOf": [{ "type": "null" }, { "type": "string" }]
+          },
+          "receivingInCharge": {
+            "anyOf": [{ "type": "null" }, { "type": "string" }]
+          },
+          "distributorName": {
+            "anyOf": [{ "type": "null" }, { "type": "string" }]
+          },
+          "distributorSchedule": {
+            "anyOf": [{ "type": "null" }, { "type": "string" }]
+          },
+          "foc": { "anyOf": [{ "type": "null" }, { "type": "string" }] }
+        },
+        "required": [
+          "pricing",
+          "address",
+          "accountName",
+          "buyerName",
+          "contactNumber",
+          "accountInCharge",
+          "receivingInCharge",
+          "distributorName",
+          "distributorSchedule",
+          "foc"
+        ]
+      },
+      "rows": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "productId": { "type": "string" },
+            "code": { "type": "string" },
+            "name": { "type": "string" },
+            "uom": { "type": "string" },
+            "barcode": { "anyOf": [{ "type": "null" }, { "type": "string" }] },
+            "pricing": { "anyOf": [{ "type": "null" }, { "type": "string" }] },
+            "onSheet": { "anyOf": [{ "const": false }, { "const": true }] },
+            "weeks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "order": {
+                    "anyOf": [{ "type": "null" }, { "type": "number" }]
+                  },
+                  "beginningInventory": {
+                    "anyOf": [{ "type": "null" }, { "type": "number" }]
+                  },
+                  "take": {
+                    "anyOf": [{ "type": "null" }, { "type": "number" }]
+                  },
+                  "delivered": {
+                    "anyOf": [{ "type": "null" }, { "type": "number" }]
+                  },
+                  "offtake": {
+                    "anyOf": [{ "type": "null" }, { "type": "number" }]
+                  },
+                  "endInventory": {
+                    "anyOf": [{ "type": "null" }, { "type": "number" }]
+                  },
+                  "week": { "type": "number" }
+                },
+                "required": [
+                  "order",
+                  "beginningInventory",
+                  "take",
+                  "delivered",
+                  "offtake",
+                  "endInventory",
+                  "week"
+                ]
+              }
+            }
+          },
+          "required": [
+            "productId",
+            "code",
+            "name",
+            "uom",
+            "barcode",
+            "pricing",
+            "onSheet",
+            "weeks"
+          ]
+        }
+      },
+      "capturedVisits": { "type": "number" },
+      "lastCapturedAt": { "anyOf": [{ "type": "null" }, { "type": "number" }] }
+    },
+    "required": [
+      "outlet",
+      "localMonth",
+      "configured",
+      "revision",
+      "header",
+      "rows",
+      "capturedVisits",
+      "lastCapturedAt"
+    ]
+  },
+  "callSheets.accounts.save": {
+    "type": "object",
+    "properties": { "revision": { "type": "number" } },
+    "required": ["revision"]
+  },
+  "callSheets.accounts.productSearch": {
+    "type": "array",
+    "items": {
+      "type": "object",
+      "properties": {
+        "productId": { "type": "string" },
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "uom": { "type": "string" },
+        "category": { "type": "string" }
+      },
+      "required": ["productId", "code", "name", "uom", "category"]
+    }
+  },
+  "dsr.report.salesmen": {
+    "type": "object",
+    "properties": {
+      "self": { "anyOf": [{ "const": false }, { "const": true }] },
+      "truncated": { "anyOf": [{ "const": false }, { "const": true }] },
+      "people": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "profileId": { "type": "string" },
+            "name": { "type": "string" },
+            "employeeCode": {
+              "anyOf": [{ "type": "null" }, { "type": "string" }]
+            },
+            "position": { "anyOf": [{ "type": "null" }, { "type": "string" }] }
+          },
+          "required": ["profileId", "name", "employeeCode", "position"]
+        }
+      }
+    },
+    "required": ["self", "truncated", "people"]
+  },
+  "dsr.report.day": {
+    "type": "object",
+    "properties": {
+      "serviceDate": { "type": "string" },
+      "localMonth": { "type": "string" },
+      "ruleVersion": { "type": "string" },
+      "salesman": {
+        "type": "object",
+        "properties": {
+          "profileId": { "type": "string" },
+          "name": { "type": "string" },
+          "employeeCode": {
+            "anyOf": [{ "type": "null" }, { "type": "string" }]
+          },
+          "position": { "anyOf": [{ "type": "null" }, { "type": "string" }] }
+        },
+        "required": ["profileId", "name", "employeeCode", "position"]
+      },
+      "areaCovered": { "type": "array", "items": { "type": "string" } },
+      "invoiceNumbers": { "type": "array", "items": { "type": "string" } },
+      "sellingDay": { "anyOf": [{ "const": false }, { "const": true }] },
+      "sellingDaysInMonth": { "type": "number" },
+      "targets": {
+        "type": "object",
+        "properties": {
+          "daily": { "anyOf": [{ "type": "null" }, { "type": "number" }] },
+          "dailySource": {
+            "anyOf": [
+              { "type": "null" },
+              { "const": "set" },
+              { "const": "derived_from_monthly" }
+            ]
+          },
+          "monthly": { "anyOf": [{ "type": "null" }, { "type": "number" }] },
+          "sourceRef": { "anyOf": [{ "type": "null" }, { "type": "string" }] }
+        },
+        "required": ["daily", "dailySource", "monthly", "sourceRef"]
+      },
+      "totals": {
+        "type": "object",
+        "properties": {
+          "todaySales": { "type": "number" },
+          "todayPct": { "anyOf": [{ "type": "null" }, { "type": "number" }] },
+          "mtdSales": { "type": "number" },
+          "mtdPct": { "anyOf": [{ "type": "null" }, { "type": "number" }] },
+          "balanceToSell": {
+            "anyOf": [{ "type": "null" }, { "type": "number" }]
+          }
+        },
+        "required": [
+          "todaySales",
+          "todayPct",
+          "mtdSales",
+          "mtdPct",
+          "balanceToSell"
+        ]
+      },
+      "calls": {
+        "type": "object",
+        "properties": {
+          "dailyCallsTarget": {
+            "anyOf": [{ "type": "null" }, { "type": "number" }]
+          },
+          "productiveCallTargetPct": {
+            "anyOf": [{ "type": "null" }, { "type": "number" }]
+          },
+          "productiveCallRule": {
+            "anyOf": [
+              { "const": "any_listed_activity" },
+              { "const": "truck_seller" }
+            ]
+          },
+          "calls": { "type": "number" },
+          "productiveCalls": { "type": "number" },
+          "productivePct": {
+            "anyOf": [{ "type": "null" }, { "type": "number" }]
+          },
+          "planned": { "type": "number" }
+        },
+        "required": [
+          "dailyCallsTarget",
+          "productiveCallTargetPct",
+          "productiveCallRule",
+          "calls",
+          "productiveCalls",
+          "productivePct",
+          "planned"
+        ]
+      },
+      "customers": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "reasonCode": {
+              "anyOf": [{ "type": "null" }, { "type": "string" }]
+            },
+            "outletId": { "anyOf": [{ "type": "null" }, { "type": "string" }] },
+            "customerCode": {
+              "anyOf": [{ "type": "null" }, { "type": "string" }]
+            },
+            "key": { "type": "string" },
+            "sequence": { "anyOf": [{ "type": "null" }, { "type": "number" }] },
+            "outletCode": {
+              "anyOf": [{ "type": "null" }, { "type": "string" }]
+            },
+            "remarks": { "type": "array", "items": { "type": "string" } },
+            "invoiceNumbers": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "todaySales": { "type": "number" },
+            "mtdSales": { "type": "number" },
+            "inRoutePlan": { "anyOf": [{ "const": false }, { "const": true }] },
+            "callStatus": {
+              "anyOf": [
+                { "type": "null" },
+                { "const": "nonproductive" },
+                { "const": "not_visited" },
+                { "const": "open" },
+                { "const": "productive" },
+                { "const": "off_plan" }
+              ]
+            },
+            "matchedCodes": { "type": "array", "items": { "type": "string" } }
+          },
+          "required": [
+            "name",
+            "reasonCode",
+            "outletId",
+            "customerCode",
+            "key",
+            "sequence",
+            "outletCode",
+            "remarks",
+            "invoiceNumbers",
+            "todaySales",
+            "mtdSales",
+            "inRoutePlan",
+            "callStatus",
+            "matchedCodes"
+          ]
+        }
+      },
+      "categories": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "todaySales": { "type": "number" },
+            "todayQuantity": { "type": "number" },
+            "mtdSales": { "type": "number" },
+            "mtdQuantity": { "type": "number" },
+            "category": { "type": "string" }
+          },
+          "required": [
+            "todaySales",
+            "todayQuantity",
+            "mtdSales",
+            "mtdQuantity",
+            "category"
+          ]
+        }
+      },
+      "programs": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "executed": { "type": "number" },
+            "notExecuted": { "type": "number" },
+            "notApplicable": { "type": "number" },
+            "programRef": { "type": "string" }
+          },
+          "required": ["executed", "notExecuted", "notApplicable", "programRef"]
+        }
+      }
+    },
+    "required": [
+      "serviceDate",
+      "localMonth",
+      "ruleVersion",
+      "salesman",
+      "areaCovered",
+      "invoiceNumbers",
+      "sellingDay",
+      "sellingDaysInMonth",
+      "targets",
+      "totals",
+      "calls",
+      "customers",
+      "categories",
+      "programs"
+    ]
+  },
+  "field_reports.reports.day": {
+    "anyOf": [
+      { "type": "null" },
+      {
+        "type": "object",
+        "properties": {
+          "routes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "routeCode": {
+                  "anyOf": [{ "type": "null" }, { "type": "string" }]
+                },
+                "calls": { "type": "number" },
+                "productiveCalls": { "type": "number" },
+                "productivePct": {
+                  "anyOf": [{ "type": "null" }, { "type": "number" }]
+                },
+                "routeName": {
+                  "anyOf": [{ "type": "null" }, { "type": "string" }]
+                }
+              },
+              "required": [
+                "routeCode",
+                "calls",
+                "productiveCalls",
+                "productivePct",
+                "routeName"
+              ]
+            }
+          },
+          "status": {
+            "anyOf": [
+              { "const": "submitted" },
+              { "const": "missing" },
+              { "const": "due" },
+              { "const": "late" },
+              { "const": "off_day" },
+              { "const": "upcoming" }
+            ]
+          },
+          "serviceDate": { "type": "string" },
+          "kind": { "anyOf": [{ "const": "dar" }, { "const": "roar" }] },
+          "sourceRef": { "type": "string" },
+          "summary": {
+            "type": "object",
+            "properties": {
+              "unplanned": { "type": "number" },
+              "planned": { "type": "number" },
+              "calls": { "type": "number" },
+              "productiveCalls": { "type": "number" },
+              "workWithSessions": { "type": "number" },
+              "notVisited": { "type": "number" },
+              "plannedDone": { "type": "number" },
+              "productivePct": {
+                "anyOf": [{ "type": "null" }, { "type": "number" }]
+              },
+              "workWithCompleted": { "type": "number" },
+              "firstCheckInAt": {
+                "anyOf": [{ "type": "null" }, { "type": "number" }]
+              },
+              "lastCheckOutAt": {
+                "anyOf": [{ "type": "null" }, { "type": "number" }]
+              },
+              "fieldMinutes": {
+                "anyOf": [{ "type": "null" }, { "type": "number" }]
+              }
+            },
+            "required": [
+              "unplanned",
+              "planned",
+              "calls",
+              "productiveCalls",
+              "workWithSessions",
+              "notVisited",
+              "plannedDone",
+              "productivePct",
+              "workWithCompleted",
+              "firstCheckInAt",
+              "lastCheckOutAt",
+              "fieldMinutes"
+            ]
+          },
+          "sellingDay": { "anyOf": [{ "const": false }, { "const": true }] },
+          "person": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "employeeCode": {
+                "anyOf": [{ "type": "null" }, { "type": "string" }]
+              },
+              "profileId": { "type": "string" },
+              "positionLabel": { "type": "string" },
+              "unitName": {
+                "anyOf": [{ "type": "null" }, { "type": "string" }]
+              },
+              "positionCode": { "type": "string" }
+            },
+            "required": [
+              "name",
+              "employeeCode",
+              "profileId",
+              "positionLabel",
+              "unitName",
+              "positionCode"
+            ]
+          },
+          "dueAt": { "type": "number" },
+          "canSubmit": { "anyOf": [{ "const": false }, { "const": true }] },
+          "submitBlockedReason": {
+            "anyOf": [{ "type": "null" }, { "type": "string" }]
+          },
+          "standard": {
+            "anyOf": [
+              { "type": "null" },
+              {
+                "type": "object",
+                "properties": {
+                  "sourceRef": { "type": "string" },
+                  "dailyCallsTarget": {
+                    "anyOf": [{ "type": "null" }, { "type": "number" }]
+                  },
+                  "productiveCallTargetPct": {
+                    "anyOf": [{ "type": "null" }, { "type": "number" }]
+                  }
+                },
+                "required": [
+                  "sourceRef",
+                  "dailyCallsTarget",
+                  "productiveCallTargetPct"
+                ]
+              }
+            ]
+          },
+          "callsTargetMet": {
+            "anyOf": [{ "type": "null" }, { "const": false }, { "const": true }]
+          },
+          "productiveTargetMet": {
+            "anyOf": [{ "type": "null" }, { "const": false }, { "const": true }]
+          },
+          "stops": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "reasonCode": {
+                  "anyOf": [{ "type": "null" }, { "type": "string" }]
+                },
+                "routeCode": {
+                  "anyOf": [{ "type": "null" }, { "type": "string" }]
+                },
+                "notes": { "type": "array", "items": { "type": "string" } },
+                "key": { "type": "string" },
+                "collections": { "type": "number" },
+                "source": {
+                  "anyOf": [
+                    { "const": "unplanned" },
+                    { "const": "not_visited" },
+                    { "const": "planned" }
+                  ]
+                },
+                "sequence": {
+                  "anyOf": [{ "type": "null" }, { "type": "number" }]
+                },
+                "outletName": { "type": "string" },
+                "outletCode": { "type": "string" },
+                "state": { "type": "string" },
+                "checkedInAt": {
+                  "anyOf": [{ "type": "null" }, { "type": "number" }]
+                },
+                "checkedOutAt": {
+                  "anyOf": [{ "type": "null" }, { "type": "number" }]
+                },
+                "callStatus": { "type": "string" },
+                "matchedCodes": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "activityKinds": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "callMinutes": {
+                  "anyOf": [{ "type": "null" }, { "type": "number" }]
+                }
+              },
+              "required": [
+                "reasonCode",
+                "routeCode",
+                "notes",
+                "key",
+                "collections",
+                "source",
+                "sequence",
+                "outletName",
+                "outletCode",
+                "state",
+                "checkedInAt",
+                "checkedOutAt",
+                "callStatus",
+                "matchedCodes",
+                "activityKinds",
+                "callMinutes"
+              ]
+            }
+          },
+          "workWith": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "status": { "type": "string" },
+                "sessionId": { "type": "string" },
+                "objective": { "type": "string" },
+                "mode": { "type": "string" },
+                "mcpPlanned": {
+                  "anyOf": [{ "type": "null" }, { "type": "number" }]
+                },
+                "mcpDone": {
+                  "anyOf": [{ "type": "null" }, { "type": "number" }]
+                },
+                "traineeName": { "type": "string" }
+              },
+              "required": [
+                "status",
+                "sessionId",
+                "objective",
+                "mode",
+                "mcpPlanned",
+                "mcpDone",
+                "traineeName"
+              ]
+            }
+          },
+          "submission": {
+            "anyOf": [
+              { "type": "null" },
+              {
+                "type": "object",
+                "properties": {
+                  "submittedAt": { "type": "number" },
+                  "remarks": { "type": "string" },
+                  "summary": {
+                    "type": "object",
+                    "properties": {
+                      "unplanned": { "type": "number" },
+                      "planned": { "type": "number" },
+                      "calls": { "type": "number" },
+                      "productiveCalls": { "type": "number" },
+                      "workWithSessions": { "type": "number" },
+                      "notVisited": { "type": "number" },
+                      "plannedDone": { "type": "number" },
+                      "productivePct": {
+                        "anyOf": [{ "type": "null" }, { "type": "number" }]
+                      },
+                      "workWithCompleted": { "type": "number" },
+                      "firstCheckInAt": {
+                        "anyOf": [{ "type": "null" }, { "type": "number" }]
+                      },
+                      "lastCheckOutAt": {
+                        "anyOf": [{ "type": "null" }, { "type": "number" }]
+                      },
+                      "fieldMinutes": {
+                        "anyOf": [{ "type": "null" }, { "type": "number" }]
+                      }
+                    },
+                    "required": [
+                      "unplanned",
+                      "planned",
+                      "calls",
+                      "productiveCalls",
+                      "workWithSessions",
+                      "notVisited",
+                      "plannedDone",
+                      "productivePct",
+                      "workWithCompleted",
+                      "firstCheckInAt",
+                      "lastCheckOutAt",
+                      "fieldMinutes"
+                    ]
+                  },
+                  "revision": { "type": "number" },
+                  "submittedByName": { "type": "string" },
+                  "firstSubmittedAt": { "type": "number" }
+                },
+                "required": [
+                  "submittedAt",
+                  "remarks",
+                  "summary",
+                  "revision",
+                  "submittedByName",
+                  "firstSubmittedAt"
+                ]
+              }
+            ]
+          },
+          "revisions": { "type": "number" }
+        },
+        "required": [
+          "routes",
+          "status",
+          "serviceDate",
+          "kind",
+          "sourceRef",
+          "summary",
+          "sellingDay",
+          "person",
+          "dueAt",
+          "canSubmit",
+          "submitBlockedReason",
+          "standard",
+          "callsTargetMet",
+          "productiveTargetMet",
+          "stops",
+          "workWith",
+          "submission",
+          "revisions"
+        ]
+      }
+    ]
+  },
+  "field_reports.reports.submit": {
+    "type": "object",
+    "properties": {
+      "revision": { "type": "number" },
+      "late": { "anyOf": [{ "const": false }, { "const": true }] },
+      "summary": {
+        "type": "object",
+        "properties": {
+          "unplanned": { "type": "number" },
+          "planned": { "type": "number" },
+          "calls": { "type": "number" },
+          "productiveCalls": { "type": "number" },
+          "workWithSessions": { "type": "number" },
+          "notVisited": { "type": "number" },
+          "plannedDone": { "type": "number" },
+          "productivePct": {
+            "anyOf": [{ "type": "null" }, { "type": "number" }]
+          },
+          "workWithCompleted": { "type": "number" },
+          "firstCheckInAt": {
+            "anyOf": [{ "type": "null" }, { "type": "number" }]
+          },
+          "lastCheckOutAt": {
+            "anyOf": [{ "type": "null" }, { "type": "number" }]
+          },
+          "fieldMinutes": {
+            "anyOf": [{ "type": "null" }, { "type": "number" }]
+          }
+        },
+        "required": [
+          "unplanned",
+          "planned",
+          "calls",
+          "productiveCalls",
+          "workWithSessions",
+          "notVisited",
+          "plannedDone",
+          "productivePct",
+          "workWithCompleted",
+          "firstCheckInAt",
+          "lastCheckOutAt",
+          "fieldMinutes"
+        ]
+      }
+    },
+    "required": ["revision", "late", "summary"]
+  },
+  "field_reports.reports.completeness": {
+    "type": "object",
+    "properties": {
+      "dates": { "type": "array", "items": { "type": "string" } },
+      "truncated": { "anyOf": [{ "const": false }, { "const": true }] },
+      "units": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "code": { "type": "string" },
+            "name": { "type": "string" }
+          },
+          "required": ["id", "code", "name"]
+        }
+      },
+      "people": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "employeeCode": {
+              "anyOf": [{ "type": "null" }, { "type": "string" }]
+            },
+            "profileId": { "type": "string" },
+            "kind": { "anyOf": [{ "const": "dar" }, { "const": "roar" }] },
+            "positionLabel": { "type": "string" },
+            "days": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "anyOf": [
+                      { "const": "submitted" },
+                      { "const": "missing" },
+                      { "const": "due" },
+                      { "const": "late" },
+                      { "const": "off_day" },
+                      { "const": "upcoming" }
+                    ]
+                  },
+                  "serviceDate": { "type": "string" },
+                  "submittedAt": {
+                    "anyOf": [{ "type": "null" }, { "type": "number" }]
+                  },
+                  "revisions": { "type": "number" }
+                },
+                "required": [
+                  "status",
+                  "serviceDate",
+                  "submittedAt",
+                  "revisions"
+                ]
+              }
+            }
+          },
+          "required": [
+            "name",
+            "employeeCode",
+            "profileId",
+            "kind",
+            "positionLabel",
+            "days"
+          ]
+        }
+      },
+      "totals": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "serviceDate": { "type": "string" },
+            "required": { "type": "number" },
+            "submitted": { "type": "number" },
+            "late": { "type": "number" },
+            "missing": { "type": "number" }
+          },
+          "required": [
+            "serviceDate",
+            "required",
+            "submitted",
+            "late",
+            "missing"
+          ]
+        }
+      }
+    },
+    "required": ["dates", "truncated", "units", "people", "totals"]
+  },
+  "field_reports.reports.myKind": {
+    "anyOf": [{ "type": "null" }, { "const": "dar" }, { "const": "roar" }]
+  }
+}

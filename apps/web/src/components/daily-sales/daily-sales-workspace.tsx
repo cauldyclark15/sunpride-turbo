@@ -1,10 +1,11 @@
 "use client";
 
+import Link from "next/link";
+
 import { Button } from "@heroui/react";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
+import type { Id } from "../supervision/report-dto";
 import { Card, FormField, WorkspaceIcon } from "@sunpride/ui";
-import { useQuery } from "convex/react";
+import { useReport } from "../supervision/report-api";
 import { useState } from "react";
 import {
   callStatusText,
@@ -20,11 +21,13 @@ import {
 import { isBetaFeatureOn } from "../../config/beta";
 import { PanelErrorBoundary } from "../panel-error-boundary";
 import "./daily-sales-print.css";
+import { TeamSales, Sparkline } from "../supervision/report-depth";
 
 export function DailySalesWorkspace() {
   const [serviceDate, setServiceDate] = useState(() => manilaToday());
   const [chosen, setChosen] = useState<Id<"profiles"> | null>(null);
-  const options = useQuery(api.dsr.report.salesmen, { serviceDate });
+  const [teamMode, setTeamMode] = useState(false);
+  const options = useReport("dsr.report.salesmen", { serviceDate });
   const people = options?.people ?? [];
   const profileId =
     options?.self || (chosen === null && people.length === 1)
@@ -76,6 +79,24 @@ export function DailySalesWorkspace() {
           </div>
         )}
       </div>
+      {options && !options.self && (
+        <div className="flex gap-3" aria-label="Report mode">
+          <button
+            type="button"
+            aria-pressed={!teamMode}
+            onClick={() => setTeamMode(false)}
+          >
+            Single salesman
+          </button>
+          <button
+            type="button"
+            aria-pressed={teamMode}
+            onClick={() => setTeamMode(true)}
+          >
+            Whole team
+          </button>
+        </div>
+      )}
       {options?.truncated && (
         <p role="status" className="text-sm text-muted">
           Showing the first salesmen in your area only.
@@ -83,6 +104,16 @@ export function DailySalesWorkspace() {
       )}
       {options === undefined ? (
         <p className="text-sm text-muted">Loading…</p>
+      ) : teamMode && !options.self ? (
+        <PanelErrorBoundary label="Whole team daily sales">
+          <TeamSales
+            serviceDate={serviceDate}
+            onPerson={(id) => {
+              setChosen(id);
+              setTeamMode(false);
+            }}
+          />
+        </PanelErrorBoundary>
       ) : profileId ? (
         <PanelErrorBoundary
           key={`${profileId}:${serviceDate}`}
@@ -113,7 +144,7 @@ function DailySalesSheet({
   profileId: Id<"profiles">;
   serviceDate: string;
 }) {
-  const report = useQuery(api.dsr.report.day, { profileId, serviceDate });
+  const report = useReport("dsr.report.day", { profileId, serviceDate });
   if (report === undefined)
     return <p className="text-sm text-muted">Loading…</p>;
   return (
@@ -236,6 +267,20 @@ export function DailySalesView({ report }: { report: DsrReport }) {
         />
       </div>
 
+      {report.trend && (
+        <div className="flex items-center gap-4">
+          <Sparkline
+            values={report.trend.map((t) => t.cumulative)}
+            label="Month-to-date sales trend"
+          />
+          <span className="text-sm text-muted">
+            Prior MTD {pesoText(report.priorMtd ?? null)} ·{" "}
+            <Link href="/analytics?view=sales" className="underline">
+              Review sales and targets
+            </Link>
+          </span>
+        </div>
+      )}
       <div className="grid gap-2">
         <h3 className="text-sm font-semibold">Actual coverage</h3>
         {report.customers.length === 0 ? (

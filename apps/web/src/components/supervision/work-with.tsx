@@ -1,8 +1,9 @@
 "use client";
 
+import type { EndpointResult, EndpointArgs } from "./report-api";
+
 import { Button } from "@heroui/react";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
+import type { Id } from "./report-dto";
 import {
   Card,
   DataTable,
@@ -13,8 +14,7 @@ import {
   WorkspaceIcon,
   type DataColumn,
 } from "@sunpride/ui";
-import { useMutation, useQuery } from "convex/react";
-import type { FunctionArgs, FunctionReturnType } from "convex/server";
+import { useReportCommand, useReport } from "./report-api";
 import { useState } from "react";
 import { SessionTrainerForms } from "../training/trainer-forms";
 import type { SupervisionFilters } from "./supervision-model";
@@ -30,13 +30,13 @@ import {
   type PreCallDocument,
 } from "./work-with-model";
 
-type Cadence = FunctionReturnType<typeof api.supervision.work_with.cadence>;
+type Cadence = EndpointResult<"supervision.work_with.cadence">;
 type Trainer = Cadence["trainers"][number] & { id: string };
 type SessionRow = Cadence["sessions"][number] & { id: string };
-type Mine = FunctionReturnType<typeof api.supervision.work_with.mine>;
-type Detail = FunctionReturnType<typeof api.supervision.work_with.detail>;
-type UpdateArgs = FunctionArgs<typeof api.supervision.work_with.update>;
-type StartArgs = FunctionArgs<typeof api.supervision.work_with.start>;
+type Mine = EndpointResult<"supervision.work_with.mine">;
+type Detail = EndpointResult<"supervision.work_with.detail">;
+type UpdateArgs = EndpointArgs<"supervision.work_with.update">;
+type StartArgs = EndpointArgs<"supervision.work_with.start">;
 type Observation = NonNullable<UpdateArgs["observations"]>[number];
 
 function errorText(error: unknown) {
@@ -763,10 +763,10 @@ function SessionEditor({
   sessionId: Id<"workWithSessions">;
   onClose: () => void;
 }) {
-  const detail = useQuery(api.supervision.work_with.detail, { sessionId });
-  const save = useMutation(api.supervision.work_with.update);
-  const complete = useMutation(api.supervision.work_with.complete);
-  const cancel = useMutation(api.supervision.work_with.cancel);
+  const detail = useReport("supervision.work_with.detail", { sessionId });
+  const save = useReportCommand("supervision.work_with.update");
+  const complete = useReportCommand("supervision.work_with.complete");
+  const cancel = useReportCommand("supervision.work_with.cancel");
   if (detail === undefined)
     return <span className="text-[13px] text-muted">Loading session…</span>;
   return (
@@ -792,8 +792,8 @@ function MyWorkWith({
   serviceDate: string;
   onOpen: (id: Id<"workWithSessions">) => void;
 }) {
-  const mine = useQuery(api.supervision.work_with.mine, { serviceDate });
-  const start = useMutation(api.supervision.work_with.start);
+  const mine = useReport("supervision.work_with.mine", { serviceDate });
+  const start = useReportCommand("supervision.work_with.start");
   if (mine === undefined)
     return (
       <span className="text-[13px] text-muted">Loading your sessions…</span>
@@ -828,8 +828,8 @@ function MyWorkWith({
 }
 
 export function WorkWith({ filters }: { filters: SupervisionFilters }) {
-  const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
-  const data = useQuery(api.supervision.work_with.cadence, filters);
+  const permissions = useReport("lib.capabilities.currentPermissions", {});
+  const data = useReport("supervision.work_with.cadence", filters);
   const [open, setOpen] = useState<Id<"workWithSessions"> | null>(null);
   const canRecord = !!permissions?.capabilities.includes("visit.record");
   return (

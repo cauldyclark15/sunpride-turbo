@@ -1,6 +1,7 @@
 "use client";
 
-import { api } from "@sunpride/backend/api";
+import type { EndpointResult } from "./report-api";
+
 import {
   Card,
   DataTable,
@@ -9,8 +10,7 @@ import {
   WorkspaceIcon,
   type DataColumn,
 } from "@sunpride/ui";
-import { useQuery } from "convex/react";
-import type { FunctionReturnType } from "convex/server";
+import { useReport } from "./report-api";
 import {
   formatTime,
   type SupervisionFilters,
@@ -19,7 +19,7 @@ import {
   personStatus,
 } from "./supervision-model";
 
-type TeamDay = FunctionReturnType<typeof api.supervision.team.day>;
+type TeamDay = EndpointResult<"supervision.team.day">;
 type Person = TeamDay["people"][number] & { id: string };
 
 function flags(person: Person) {
@@ -240,7 +240,7 @@ export function TeamExecution({
   filters: SupervisionFilters;
   now: number;
 }) {
-  const data = useQuery(api.supervision.team.day, filters);
+  const data = useReport("supervision.team.day", filters);
   if (data === undefined)
     return <span className="text-[13px] text-muted">Loading team…</span>;
   return <TeamExecutionView data={data} now={now} />;

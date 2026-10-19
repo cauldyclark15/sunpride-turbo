@@ -1,8 +1,9 @@
 "use client";
 
+import type { EndpointResult } from "../supervision/report-api";
+
 import { Button } from "@heroui/react";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
+import type { Id } from "../supervision/report-dto";
 import {
   Card,
   DataTable,
@@ -14,8 +15,12 @@ import {
   WorkspaceIcon,
   type DataColumn,
 } from "@sunpride/ui";
-import { useMutation, useQuery } from "convex/react";
-import type { FunctionReturnType } from "convex/server";
+import {
+  useReportCommand,
+  useReport,
+  useReportSearch,
+  replaceReportSearch,
+} from "../supervision/report-api";
 import { useEffect, useState } from "react";
 import {
   activitySummary,
@@ -37,11 +42,10 @@ import { MODE_LABELS, OBJECTIVE_LABELS } from "../supervision/work-with-model";
 import "./activity-reports-print.css";
 
 export type DayReport = NonNullable<
-  FunctionReturnType<typeof api.field_reports.reports.day>
+  EndpointResult<"field_reports.reports.day">
 >;
-export type CompletenessGrid = FunctionReturnType<
-  typeof api.field_reports.reports.completeness
->;
+export type CompletenessGrid =
+  EndpointResult<"field_reports.reports.completeness">;
 type Stop = DayReport["stops"][number] & { id: string };
 type WorkWithRow = DayReport["workWith"][number] & { id: string };
 type GridPerson = CompletenessGrid["people"][number] & { id: string };
@@ -496,8 +500,8 @@ export function CompletenessView({
 }
 
 function MyReport({ serviceDate }: { serviceDate: string }) {
-  const report = useQuery(api.field_reports.reports.day, { serviceDate });
-  const submit = useMutation(api.field_reports.reports.submit);
+  const report = useReport("field_reports.reports.day", { serviceDate });
+  const submit = useReportCommand("field_reports.reports.submit");
   if (report === undefined)
     return <p className="text-[13px] text-muted">Loading report…</p>;
   if (report === null)
@@ -527,7 +531,7 @@ function PersonReport({
   profileId: Id<"profiles">;
   serviceDate: string;
 }) {
-  const report = useQuery(api.field_reports.reports.day, {
+  const report = useReport("field_reports.reports.day", {
     serviceDate,
     profileId,
   });
@@ -545,7 +549,7 @@ function TeamReports({ endDate }: { endDate: string }) {
     profileId: Id<"profiles">;
     serviceDate: string;
   } | null>(null);
-  const grid = useQuery(api.field_reports.reports.completeness, {
+  const grid = useReport("field_reports.reports.completeness", {
     endDate,
     days: WEEK,
     ...(orgUnitId ? { orgUnitId } : {}),
@@ -629,9 +633,9 @@ export function ActivityReportsWorkspace() {
     const timer = setInterval(() => setNow(Date.now()), 60_000);
     return () => clearInterval(timer);
   }, []);
-  const [serviceDate, setServiceDate] = useState(() => manilaToday());
-  const kind = useQuery(api.field_reports.reports.myKind, {});
-  const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
+  const [pickedDate, setServiceDate] = useState(() => manilaToday());
+  const kind = useReport("field_reports.reports.myKind", {});
+  const permissions = useReport("lib.capabilities.currentPermissions", {});
   const canSupervise = !!permissions?.capabilities.includes("people.read");
   const tabs: [Tab, string][] = [
     ...(kind
@@ -642,6 +646,13 @@ export function ActivityReportsWorkspace() {
       : []),
   ];
   const [picked, setPicked] = useState<Tab | null>(null);
+  const params = new URLSearchParams(useReportSearch());
+  const id = params.get("profileId");
+  const date = params.get("date");
+  const linkedPerson =
+    canSupervise && id && /^[a-f0-9-]{36}$/i.test(id) ? id : null;
+  const serviceDate =
+    date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : pickedDate;
   const tab = tabs.some(([id]) => id === picked) ? picked! : tabs[0]?.[0];
   if (kind === undefined || permissions === undefined)
     return <p className="text-[13px] text-muted">Loading…</p>;
@@ -651,7 +662,10 @@ export function ActivityReportsWorkspace() {
         <UnderlineTabs
           items={tabs}
           activeId={tab}
-          onChange={setPicked}
+          onChange={(id) => {
+            setPicked(id);
+            replaceReportSearch({ profileId: null });
+          }}
           label="Activity report views"
         />
       )}
@@ -665,7 +679,10 @@ export function ActivityReportsWorkspace() {
               value={serviceDate}
               max={manilaToday(now)}
               onChange={(event) => {
-                if (event.target.value) setServiceDate(event.target.value);
+                if (event.target.value) {
+                  setServiceDate(event.target.value);
+                  replaceReportSearch({ date: event.target.value });
+                }
               }}
             />
           </FormField>
@@ -683,7 +700,9 @@ export function ActivityReportsWorkspace() {
           key={`${tab}-${serviceDate}`}
           label="Activity reports"
         >
-          {tab === "team" ? (
+          {linkedPerson && canSupervise ? (
+            <PersonReport profileId={linkedPerson} serviceDate={serviceDate} />
+          ) : tab === "team" ? (
             <TeamReports endDate={serviceDate} />
           ) : (
             <MyReport serviceDate={serviceDate} />

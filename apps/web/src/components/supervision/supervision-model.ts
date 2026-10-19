@@ -1,4 +1,3 @@
-import type { Id } from "@sunpride/backend/data-model";
 import type { StatusTone } from "@sunpride/ui";
 
 /** Pure view rules for the supervision screens (WEB-022/023/024). */
@@ -6,7 +5,8 @@ import type { StatusTone } from "@sunpride/ui";
 /** Arguments every supervision query takes. */
 export type SupervisionFilters = {
   serviceDate: string;
-  orgUnitId?: Id<"orgUnits">;
+  // Transitional structural brand for still-unported consumers outside this lane.
+  orgUnitId?: string & { __tableName: "orgUnits" };
   channel?: string;
   directOnly?: boolean;
 };

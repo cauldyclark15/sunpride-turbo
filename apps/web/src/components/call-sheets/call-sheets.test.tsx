@@ -1,6 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { getFunctionName } from "convex/server";
 
 const week = (n: number, values: Record<string, number | null> = {}) => ({
   week: n,
@@ -88,11 +87,13 @@ const detail = {
   },
 };
 
-vi.mock("convex/react", () => ({
-  useMutation: () => vi.fn(),
-  useQuery: (ref: unknown) => {
-    const name = getFunctionName(ref as never);
-    if (name === "callSheets/accounts:list")
+vi.mock("../supervision/report-api", () => ({
+  useReportSearch: () => "",
+  replaceReportSearch: () => {},
+  useReportCommand: () => vi.fn(),
+  useReport: (ref: unknown) => {
+    const name = String(ref as never);
+    if (name === "callSheets.accounts.list")
       return {
         page: [
           {

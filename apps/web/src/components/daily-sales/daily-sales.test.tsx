@@ -1,6 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { getFunctionName } from "convex/server";
 
 const report = {
   serviceDate: "2026-09-28",
@@ -108,12 +107,14 @@ const queries = vi.hoisted(() => ({
   day: undefined as unknown,
 }));
 
-vi.mock("convex/react", () => ({
-  useQuery: (ref: unknown, args: unknown) => {
+vi.mock("../supervision/report-api", () => ({
+  useReportSearch: () => "",
+  replaceReportSearch: () => {},
+  useReport: (ref: unknown, args: unknown) => {
     if (args === "skip") return undefined;
-    const name = getFunctionName(ref as never);
-    if (name === "dsr/report:salesmen") return queries.salesmen;
-    if (name === "dsr/report:day") return queries.day;
+    const name = String(ref as never);
+    if (name === "dsr.report.salesmen") return queries.salesmen;
+    if (name === "dsr.report.day") return queries.day;
     return undefined;
   },
 }));

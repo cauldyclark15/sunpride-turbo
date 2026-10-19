@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { TOPIC_LABELS as SERVER_TOPICS } from "../../../../../packages/backend/convex/supervision/talk_sheet_model";
+import { TOPIC_LABELS as SERVER_TOPICS } from "../../../../api/src/domains/fieldreports/rules.js";
 import {
   MyTalkSheetsView,
   TalkSheetEditorView,
