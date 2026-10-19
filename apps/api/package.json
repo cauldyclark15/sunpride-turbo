@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "bun --watch src/server.js",
     "start": "bun src/server.js",
-    "test": "bun test",
+    "test": "bun scripts/test-files.js",
     "typecheck": "tsc -p jsconfig.json",
     "lint": "tsc -p jsconfig.json"
   },
