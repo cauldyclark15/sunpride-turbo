@@ -42,7 +42,7 @@ const isUniqueViolation = (e) => {
  */
 export async function enqueue(db, job) {
   const key = job.key ?? null;
-  const runAt = job.runAt == null ? new Date() : new Date(job.runAt);
+  const runAt = job.runAt == null ? null : new Date(job.runAt);
   // Pass objects straight through: Bun.sql double-encodes a JSON *string* cast to jsonb.
   const payload =
     job.payload === undefined || job.payload === null ? {} : job.payload;
@@ -50,7 +50,7 @@ export async function enqueue(db, job) {
     throw new Error("job payload must be a plain object");
   const rows = await db`
     insert into jobs (kind, coalesce_key, run_at, payload)
-    values (${job.kind}, ${key}, ${runAt}, ${payload})
+    values (${job.kind}, ${key}, coalesce(${runAt}::timestamptz, clock_timestamp()), ${payload})
     on conflict (kind, coalesce_key) where status = 'pending' and coalesce_key is not null do nothing
     returning id`;
   if (rows.length) return rows[0].id;

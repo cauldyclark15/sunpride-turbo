@@ -1,4 +1,5 @@
 import { isProductive } from "../visits/productive.js";
+import { authorizedOrders } from "../fieldsync/projections.js";
 import {
   addDays,
   date,
@@ -34,7 +35,7 @@ import {
 export async function execution(c, p, d) {
   date(d);
   const planned =
-    await c.db`select v.*, cp.status plan_status, s.sequence from planned_visits v join coverage_plans cp on cp.id=v.plan_id join coverage_plan_slots s on s.id=v.plan_slot_id where v.assignee_profile_id=${p.id} and v.service_date=${d} and v.deleted_at is null order by s.sequence,v.id`;
+    await c.db`select v.*, cp.status plan_status, cp.org_unit_id plan_unit, s.sequence from planned_visits v join coverage_plans cp on cp.id=v.plan_id join coverage_plan_slots s on s.id=v.plan_slot_id where v.assignee_profile_id=${p.id} and v.service_date=${d} and v.deleted_at is null order by s.sequence,v.id`;
   const visits =
     await c.db`select v.*,o.name outlet_name,o.code outlet_code from visit_executions v join outlets o on o.id=v.outlet_id where v.assignee_profile_id=${p.id} and v.service_date=${d} and v.deleted_at is null order by v.checked_in_at,v.id`;
   if (planned.length > 200 || visits.length > 200)
@@ -63,6 +64,13 @@ export async function execution(c, p, d) {
     const evaluation = isProductive(
       {
         ...dto(v),
+        inRoutePlan:
+          v.source === "planned" &&
+          planned.some(
+            (/** @type {any} */ p) =>
+              p.id === v.planned_visit_id && p.status === "planned",
+          ),
+        collectionCount: collections.length,
         activities,
         collections: collections.map(dto),
         activityKinds: acts.map((/** @type {any} */ a) => a.activity_kind),
@@ -84,12 +92,7 @@ export async function execution(c, p, d) {
       evidence,
     });
   }
-  for (const p of planned)
-    await gate(
-      c,
-      "report.read",
-      p.approved_snapshot?.orgUnitId ?? p.approved_snapshot?.org_unit_id,
-    );
+  for (const p of planned) await gate(c, "report.read", p.plan_unit);
   const sequenceIssues = new Map();
   let highest = -Infinity;
   for (const v of [...results]
@@ -147,13 +150,15 @@ export async function execution(c, p, d) {
 }
 /** @param {any} c @param {any} p @param {string} from @param {string} to */
 export async function salesLines(c, p, from, to) {
-  // Legacy order/line decimal pesos are converted EXACTLY in Postgres; targets are already centavos.
+  const orders = await authorizedOrders(c, p.id, to, {
+    from,
+    organizationId: p.organization_id ?? "sunpride",
+  });
+  if (!orders.length) return [];
   const rows =
-    await c.db`select o.id order_id,o.customer_code,o.sap_document_number,o.order_number,o.source_location_id,(o.created_at at time zone 'Asia/Manila')::date service_date,l.product_code,l.description,l.quantity,(l.line_total*100)::bigint cents,pr.category,cu.name customer_name,loc.org_unit_id source_unit from orders o join order_lines l on l.order_id=o.id and l.deleted_at is null left join products pr on pr.code=l.product_code left join customers cu on cu.code=o.customer_code left join inventory_locations loc on loc.id=o.source_location_id where (o.salesperson_subject=${p.user_id ?? ""} or o.salesperson_subject=${p.auth_subject ?? ""}) and o.status not in ('draft','rejected','voided') and o.deleted_at is null and (o.created_at at time zone 'Asia/Manila')::date between ${from}::date and ${to}::date order by o.created_at,o.id,l.id`;
+    await c.db`select o.id order_id,o.customer_code,o.sap_document_number,o.order_number,o.source_location_id,(coalesce(o.offline_created_at,o.created_at) at time zone 'Asia/Manila')::date service_date,l.product_code,l.description,l.quantity,(l.line_total*100)::bigint cents,pr.category,cu.name customer_name from orders o join order_lines l on l.order_id=o.id and l.deleted_at is null left join products pr on pr.code=l.product_code left join customers cu on cu.code=o.customer_code where o.id in ${c.db(orders.map((/** @type {any} */ o) => o.id))} and o.status not in ('draft','rejected','voided') order by o.created_at,o.id,l.id limit 10001`;
   if (rows.length > 10000)
     fail("Too many order lines for one report", 422, "report_limit");
-  for (const r of rows)
-    if (r.source_location_id) await gate(c, "report.read", r.source_unit);
   return rows;
 }
 /** @param {any} c @param {any} a */
@@ -176,9 +181,11 @@ export async function dsr(c, a) {
   const sellingDaysInMonth = dates(month.start, month.end).filter((v) =>
     weekdays.includes(new Date(v + "T00:00:00Z").getUTCDay()),
   ).length;
-  const monthlyValue = monthly ? Number(monthly.value) : null;
+  const monthlyValue = monthly
+    ? Number(monthly.amount_centavos ?? Math.round(Number(monthly.value) * 100))
+    : null;
   const dailyValue = daily
-    ? Number(daily.value)
+    ? Number(daily.amount_centavos ?? Math.round(Number(daily.value) * 100))
     : monthly && sellingDay
       ? Math.round(Number(monthlyValue) / sellingDaysInMonth)
       : null;

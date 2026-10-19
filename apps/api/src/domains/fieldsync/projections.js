@@ -1,7 +1,6 @@
 import { tx } from "@sunpride/db/client";
 import { checkDayManifest } from "./manifest.js";
 import { inventoryRows, PHOTO_TYPES } from "./reference.js";
-import { teamExceptions } from "./team.js";
 import { requireCapability } from "../../core/capabilities.js";
 import { canonicalJson, sha256Hex } from "../../core/util.js";
 import { resolvePrice } from "../orders/pricing.js";
@@ -17,17 +16,15 @@ import {
   midnight,
   ms,
   outletInScope,
-  personInScope,
   rebootstrap,
   safeInt,
   serviceDate,
   uuid,
-  visiblePeople,
 } from "./model.js";
 
 /** @typedef {import('../../core/sync.js').ProjectionCtx} ProjectionCtx */
 
-/** @param {any} ctx @param {string} profileId @param {string} date @param {{from?:string,includeOldOpen?:boolean}} [options] */
+/** @param {any} ctx @param {string} profileId @param {string} date @param {{from?:string,includeOldOpen?:boolean,organizationId?:string}} [options] */
 export async function authorizedOrders(ctx, profileId, date, options = {}) {
   const db = ctx.db;
   const { unitIds } = await scopeFilterForActor(db, ctx.actor);
@@ -43,7 +40,7 @@ export async function authorizedOrders(ctx, profileId, date, options = {}) {
       and assignment.effective_from<=${new Date(ctx.now)} and (assignment.effective_to is null or assignment.effective_to>${new Date(ctx.now)})
     left join inventory_locations l on l.id=o.source_location_id
     where p.id=${profileId} and p.status='active' and p.deleted_at is null and o.deleted_at is null
-      and o.organization_id=${ORGANIZATION}
+      and o.organization_id=${options.organizationId ?? ORGANIZATION}
       and (${unitIds === null} or coalesce(assignment.org_unit_id,p.org_unit_id) in ${db(units)})
       and (o.source_location_id is null or (l.deleted_at is null and l.active and l.organization_id=${ORGANIZATION} and (${unitIds === null} or l.org_unit_id in ${db(units)})))
       and exists (
@@ -104,16 +101,6 @@ async function salesData(ctx, person, date) {
     calls: { productiveCallRule: standard?.productive_call_rule ?? null },
   };
 }
-/** Exact field.sales D4: the account summaries stay in field.bundle, not extra top-level keys. @param {ProjectionCtx} ctx */
-async function fieldSales(ctx) {
-  await requireCapability(ctx, "report.read");
-  const person = await personInScope(ctx, ctx.params.profileId, "report.read");
-  return {
-    data: await salesData(ctx, person, ctx.params.serviceDate),
-    next: null,
-  };
-}
-
 /** Facts are shared by the map and Team so planned/done/productive cannot disagree. @param {any} db @param {string[]} ids @param {string} date */
 export async function dayFacts(db, ids, date) {
   if (!ids.length) return new Map();
@@ -145,59 +132,6 @@ export async function dayFacts(db, ids, date) {
     where p.id in ${db(ids)} group by p.id`;
   return new Map(rows.map((/** @type {any} */ r) => [r.id, r]));
 }
-/** @param {ProjectionCtx} ctx */
-async function teamSummary(ctx) {
-  await requireCapability(ctx, "people.read");
-  const people = (
-    await visiblePeople(ctx, ctx.params.directOnly, "people.read")
-  ).filter((/** @type {any} */ p) => p.id !== ctx.actor.profileId);
-  const facts = await dayFacts(
-    ctx.db,
-    people.map((/** @type {any} */ p) => p.id),
-    ctx.params.serviceDate,
-  );
-  const ids = people.map((/** @type {any} */ p) => p.id);
-  const exceptions = await teamExceptions(ctx, ids, ctx.params.serviceDate);
-  return {
-    data: {
-      serviceDate: ctx.params.serviceDate,
-      generatedAt: ctx.now,
-      dayCloseAt: closeAt(ctx.params.serviceDate),
-      directOnly: ctx.params.directOnly,
-      truncated: exceptions.length > 50,
-      people: people.map((/** @type {any} */ p) => {
-        const f = facts.get(p.id);
-        return {
-          profileId: p.id,
-          name: p.name,
-          positionLabel: p.position_label ?? null,
-          channel: p.channel_scope ?? "Unassigned",
-          direct: p.direct,
-          planned: f.planned,
-          plannedDone: f.planned_done,
-          done: f.done,
-          productive: f.productive,
-          nonproductive: f.nonproductive,
-          unplanned: f.unplanned,
-          inProgress: f.in_progress > 0,
-          outOfSequence: f.out_of_sequence,
-          openExceptions: exceptions.filter(
-            (/** @type {any} */ e) => e.profileId === p.id && e.open,
-          ).length,
-          lateSync: f.late_sync,
-          firstCheckInAt: ms(f.first_check_in_at),
-          lastCheckOutAt: ms(f.last_check_out_at),
-          lastActivityAt: ms(f.last_activity_at),
-        };
-      }),
-      openExceptions: exceptions.filter((e) => e.open).length,
-      totalExceptions: exceptions.length,
-      exceptions: exceptions.slice(0, 50),
-    },
-    next: null,
-  };
-}
-
 /** @param {ProjectionCtx} ctx */
 async function suggestedOrder(ctx) {
   await requireCapability(ctx, "report.read");
@@ -751,30 +685,6 @@ export function installProjections(ctx) {
     load: fieldLoad,
     leaseExpiresAt: (/** @type {ProjectionCtx} */ p) =>
       closeAt(p.params.dayFrom),
-  });
-  ctx.registerProjection("field.sales", {
-    params: (/** @type {any} */ p) => ({
-      profileId: uuid(p.profileId),
-      serviceDate: serviceDate(p.serviceDate),
-    }),
-    snapshot: fieldSales,
-    scopeKeys: () => {
-      throw rebootstrap("Refresh this report with a snapshot");
-    },
-  });
-  ctx.registerProjection("team.summary", {
-    params: (/** @type {any} */ p) => {
-      if (typeof p.directOnly !== "boolean")
-        throw rebootstrap("Choose the team filter");
-      return {
-        serviceDate: serviceDate(p.serviceDate),
-        directOnly: p.directOnly,
-      };
-    },
-    snapshot: teamSummary,
-    scopeKeys: () => {
-      throw rebootstrap("Refresh this report with a snapshot");
-    },
   });
   ctx.registerProjection("suggested-order", {
     params: (/** @type {any} */ p) => ({

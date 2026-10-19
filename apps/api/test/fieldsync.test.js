@@ -15,6 +15,7 @@ import {
   signedPost,
 } from "./harness.js";
 import { install } from "../src/domains/fieldsync/index.js";
+import { installProjections as installReports } from "../src/domains/fieldreports/mobile.js";
 import { closeDays, purgeExpired } from "../src/domains/fieldsync/jobs.js";
 import {
   closeAt,
@@ -174,7 +175,13 @@ async function api(path, body) {
 beforeEach(async () => {
   now = Date.now();
   date = manilaDate(now);
-  h = await startHarness({ installers: [install] });
+  h = await startHarness({
+    installers: [
+      install,
+      (/** @type {any} */ _router, /** @type {any} */ ctx) =>
+        installReports(ctx),
+    ],
+  });
   profiles = profileStore(h);
   f = await fixture();
 });
@@ -347,8 +354,11 @@ describe("FIELDSYNC projections through real core proof/cursor harness", () => {
       ["O1", who.userId, null, 100],
       ["O2", who.userId, location.id, 200],
       ["O3", "foreign-subject", null, 300],
-    ])
-      await h.db`insert into orders(organization_id,client_request_id,order_number,customer_code,salesperson_subject,status,subtotal,total,source_location_id) values ('sunpride',${crypto.randomUUID()},${number},'C1',${subject},'approved',${amount},${amount},${source})`;
+    ]) {
+      const [order] =
+        await h.db`insert into orders(organization_id,client_request_id,order_number,customer_code,salesperson_subject,status,subtotal,total,source_location_id) values ('sunpride',${crypto.randomUUID()},${number},'C1',${subject},'approved',${amount},${amount},${source}) returning id`;
+      await h.db`insert into order_lines(order_id,product_code,description,quantity,unit_price,line_total) values (${order.id},'SKU1','Sample product',1,${amount},${amount})`;
+    }
     const result = await pull("field.sales", {
       profileId: who.profile.id,
       serviceDate: date,
@@ -472,6 +482,8 @@ describe("location work/consent boundary and retention", () => {
       ping({ recordedAt: now - 60_000, trigger: "start" }),
       ping({ recordedAt: now, latitude: 10.31, trigger: "moving" }),
     ]);
+    // The previous planned stop must close before an off-plan call can start.
+    await h.db`update visit_executions set state='completed',checked_out_at=${new Date(now - 30_000)} where id=${f.visit}`;
     await h.db`insert into visit_executions(organization_id,client_visit_id,assignee_profile_id,outlet_id,org_unit_id,service_date,source,state,productivity,last_server_time,checked_in_at,unplanned_reason)
       values ('sunpride',${crypto.randomUUID()},${who.profile.id},${f.outlet},${f.unit},${date},'unplanned','checked-in','pending',${new Date(now - 15_000)},${new Date(now - 15_000)},'sample off-plan stop')`;
     const result = await api(
@@ -785,6 +797,7 @@ describe("projection completeness, scheduled fences and authorized inventory", (
       values ('sunpride','employee',${who.profile.id},'daily','sales_value',1000,${new Date(midnight(date))},'sample target','test')`;
     await h.db`insert into orders(organization_id,client_request_id,order_number,customer_code,salesperson_subject,status,subtotal,total)
       values ('sunpride',${crypto.randomUUID()},'TARGET-O1','C1',${who.userId},'approved',125.50,125.50)`;
+    await h.db`insert into order_lines(order_id,product_code,description,quantity,unit_price,line_total) select id,'SKU1','Sample product',1,125.50,125.50 from orders where order_number='TARGET-O1'`;
     const report = await pull("field.sales", {
       profileId: who.profile.id,
       serviceDate: date,

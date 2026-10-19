@@ -62,8 +62,9 @@ describe("ModuleWorkspace", () => {
   it("mounts the other lanes' rebuilt workspaces by name, or says they are being rebuilt", () => {
     state.profile = { active: true, role: "super_admin", name: "Francis" };
     const out = html(<ModuleWorkspace module="pricing" />);
-    expect(out).toContain("Being rebuilt");
-    expect(out).toContain("Prices");
+    expect(WORKSPACE_LOADERS.PricingWorkspace).toBeTypeOf("function");
+    expect(out).toContain("Loading prices");
+    expect(out).not.toContain("Being rebuilt");
     expect(out).not.toContain("Something went wrong");
   });
 });

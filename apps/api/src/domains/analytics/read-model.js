@@ -15,7 +15,7 @@ export async function rebuildSalesCache(db, from, to) {
     const [masters] =
       await t`select analytics_master_fingerprint() as fingerprint`;
     await t`delete from analytics_sales_cache where service_date between ${from} and ${to}`;
-    await t`insert into analytics_sales_cache select f.*,now(),now(),o.change_seq,l.change_seq from analytics_sales_facts f join orders o on o.id=f.order_id join order_lines l on l.id=f.line_id where service_date between ${from} and ${to}`;
+    await t`insert into analytics_sales_cache select f.*,now(),now(),o.change_seq,l.change_seq from analytics_sales_facts f join orders o on o.id=f.order_id join order_lines l on l.id=f.line_id where f.service_date between ${from} and ${to}`;
     await t`delete from analytics_sales_tiles where service_date between ${from} and ${to}`;
     await t`insert into analytics_sales_tiles(service_date,group_kind,group_key,label,profile_id,agent_unit_id,owner_unit_id,source_unit_id,source_location_id,channel,territory_id,sales,approved,posted,orders,lines,quantity,buyers,stores)
       select f.service_date,g.kind,coalesce(g.key,'unassigned'),coalesce(g.label,'Unassigned'),f.profile_id,f.agent_unit_id,f.owner_unit_id,f.source_unit_id,f.source_location_id,f.channel,f.territory_id,sum(f.sales_centavos),coalesce(sum(f.sales_centavos) filter(where f.approved),0),coalesce(sum(f.sales_centavos) filter(where f.posted),0),count(distinct f.order_id),count(*),sum(f.quantity),coalesce(array_agg(distinct f.customer_code) filter(where f.sales_centavos>0),'{}'),coalesce(array_agg(distinct f.store_id) filter(where f.sales_centavos>0 and f.store_id is not null),'{}')

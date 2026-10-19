@@ -19,6 +19,20 @@ export function generateDemo(
   vans(data, c, stock);
   stock.finish();
   management(data, c, e);
+  // The commercial orders already exist in this historical fixture. Own the
+  // trigger-created bridge rows and mark them captured, never replay 90 days.
+  for (const activity of data.rows("visit_activities")) {
+    if (activity.activity_kind !== "order_intent") continue;
+    data.add(
+      "order_intent_queue",
+      activity.id,
+      {
+        activity_id: activity.id,
+        status: "captured",
+      },
+      activity.created_at,
+    );
+  }
   const pastPlanned = data
     .rows("planned_visits")
     .filter((v) => v.service_date < anchorDate).length;

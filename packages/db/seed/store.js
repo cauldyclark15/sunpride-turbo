@@ -167,7 +167,7 @@ export async function insertRows(db, table, rows) {
   for (let i = 0; i < rows.length; i += 1000) {
     // Force a text parameter: Bun otherwise JSON-encodes this serialized JSON again.
     await db.unsafe(
-      `insert into ${ident(table)} (${cols}) select ${cols} from jsonb_populate_recordset(null::${ident(table)}, $1::text::jsonb)`,
+      `insert into ${ident(table)} (${cols}) select ${cols} from jsonb_populate_recordset(null::${ident(table)}, $1::text::jsonb)${table === "order_intent_queue" ? " on conflict(activity_id) do update set id=excluded.id,status=excluded.status,created_at=excluded.created_at,updated_at=excluded.updated_at" : ""}`,
       [JSON.stringify(rows.slice(i, i + 1000))],
     );
   }
@@ -210,6 +210,11 @@ export async function persist(db, data) {
 export async function resetDemo(db) {
   return tx(db, async (t) => {
     await t`select pg_advisory_xact_lock(4310090)`;
+    await t`set local jit=off`;
+    await t`set local plan_cache_mode=force_custom_plan`;
+    // Fresh bulk inserts otherwise leave the trigger planner with empty-table
+    // estimates, turning each immutable-row ownership check into a full scan.
+    await t`analyze sample_data_rows`;
     const markers =
       await t`select * from sample_data_rows where batch=${BATCH}`;
     if (!markers.length) return { deleted: 0 };
@@ -269,7 +274,7 @@ export async function resetDemo(db) {
         `select 1 from ${ident(f.child)} c
         join ${ident(f.parent)} p on c.${ident(f.column_name)}=p.${ident(f.parent_column)}
         join seed_owned_reset owned on owned.table_name=$1 and owned.row_id=p.id
-        left join seed_owned_reset mine on mine.table_name=$2 and mine.row_id=c.id
+        left join seed_owned_reset mine on mine.table_name=$2 and mine.row_id=(to_jsonb(c)->>'id')::uuid
         where mine.row_id is null limit 1`,
         [f.parent, f.child],
       );
@@ -278,6 +283,7 @@ export async function resetDemo(db) {
           `Reset refused: non-sample ${f.child} references sample ${f.parent}`,
         );
     }
+    await t`select set_config('sunpride.seed_reset',${BATCH},true)`;
     let deleted = 0;
     for (const table of dependencyOrder([...tables], fks).reverse()) {
       const result = await t.unsafe(

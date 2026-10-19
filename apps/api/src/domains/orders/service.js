@@ -39,12 +39,12 @@ export async function audit(
 ) {
   await writeAudit(ctx.db, {
     subject: ctx.actor.subject,
-    actorSubject: ctx.actor.subject,
+    actor: ctx.actor,
     action,
     entityType,
     entityId,
     details,
-    createdAt: ctx.now,
+    at: ctx.now,
   });
 }
 /** @param {any} ctx @param {any} row */

@@ -289,6 +289,8 @@ test("per-diem counterexample: completed planned merchandise call with note only
   ).toBe(1);
 });
 test("DSR MTD uses the exact analytics sales source: order lines, not header totals; rejected/draft/voided excluded; returned signed lines count", async () => {
+  await h.db`insert into customers(code,name,channel,territory,credit_limit,active) values ('C1','Store account','GT','Area A',0,true)`;
+  await h.db`insert into outlet_customer_links(outlet_id,customer_id,source,effective_from,actor_subject,reason) select ${outlet.id},id,'test','2020-01-01','test','fixture' from customers where code='C1'`;
   const statuses = [
     "draft",
     "submitted",
@@ -305,7 +307,7 @@ test("DSR MTD uses the exact analytics sales source: order lines, not header tot
   ];
   for (const status of statuses) {
     const [o] =
-      await h.db`insert into orders(client_request_id,order_number,customer_code,salesperson_subject,status,subtotal,total,created_at) values(${crypto.randomUUID()},${crypto.randomUUID()},'C1',${rep.user_id},${status},99999,99999,${new Date(d + "T09:00:00+08:00")}) returning id`;
+      await h.db`insert into orders(organization_id,client_request_id,order_number,customer_code,salesperson_subject,status,subtotal,total,created_at) values('test',${crypto.randomUUID()},${crypto.randomUUID()},'C1',${rep.user_id},${status},99999,99999,${new Date(d + "T09:00:00+08:00")}) returning id`;
     await h.db`insert into order_lines(order_id,product_code,description,quantity,unit_price,line_total) values(${o.id},'P1','Sample',1,1.11,${status === "returned" ? "-1.11" : "1.11"})`;
   }
   await h.db`insert into sales_targets(organization_id,subject_kind,profile_id,period,metric,value,effective_from,source_ref,created_by) values('test','employee',${rep.id},'monthly','sales_value',10000,'2020-01-01','Sample target','test')`;
@@ -323,7 +325,8 @@ test("DSR MTD uses the exact analytics sales source: order lines, not header tot
     ),
   ).toBe(Number(source.sales));
   expect(r.trend.at(-1).cumulative).toBe(Number(source.sales));
-  expect(r.totals.balanceToSell).toBe(10000 - Number(source.sales));
+  expect(r.targets.monthly).toBe(1000000);
+  expect(r.totals.balanceToSell).toBe(1000000 - Number(source.sales));
   const team = ok(await get("dsr.report.team", { serviceDate: d }));
   expect(team.totals.mtdSales).toBe(r.totals.mtdSales);
 });
