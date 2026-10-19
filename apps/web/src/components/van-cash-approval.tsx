@@ -2,9 +2,9 @@
 
 import { Button } from "@heroui/react";
 import { Card, FormField, WorkspaceIcon } from "@sunpride/ui";
-import { api } from "@sunpride/backend/api";
-import { useMutation, useQuery } from "convex/react";
-import type { FunctionArgs, FunctionReturnType } from "convex/server";
+import { usePermissions } from "../lib/auth";
+import { useVanCommand } from "./van/use-command";
+import type { CashCode, CashCodeInput } from "./van/model";
 import { useState, type FormEvent } from "react";
 import { pesosToCentavos } from "./van-void-approval";
 
@@ -19,10 +19,8 @@ export const VAN_CASH_VARIANCE_REASONS = [
   { code: "other", label: "Other" },
 ] as const;
 
-type IssuedCode = FunctionReturnType<typeof api.van.cash.issueApprovalCode>;
-type Issue = (
-  args: FunctionArgs<typeof api.van.cash.issueApprovalCode>,
-) => Promise<IssuedCode>;
+type IssuedCode = CashCode;
+type Issue = (args: CashCodeInput) => Promise<IssuedCode>;
 
 /** "-145.50" centavos string → "₱145.50 short"; positive → over. */
 export function varianceLabel(varianceMinor: string): string {
@@ -60,12 +58,14 @@ export async function requestCashCode(
  * 8-digit code. The code works only for those amounts and that reason.
  */
 export function VanCashApproval() {
-  const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
-  const issue = useMutation(api.van.cash.issueApprovalCode);
+  const permissions = usePermissions();
+  const issue = useVanCommand<CashCodeInput, CashCode>(
+    "/api/v1/van/cash/approval-code",
+  );
   const [result, setResult] = useState<IssuedCode | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  if (!permissions?.capabilities.includes("van.cash.approve")) return null;
+  if (!permissions.can("van.cash.approve")) return null;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

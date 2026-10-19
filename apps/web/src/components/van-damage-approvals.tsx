@@ -1,10 +1,12 @@
 "use client";
 
 import { Button, Input } from "@heroui/react";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
+import { apiFetch, useApiPages, useLive } from "../lib/api";
+import { usePermissions } from "../lib/auth";
+import { useVanCommand } from "./van/use-command";
+import type { DamageRow } from "./van/model";
 import { Card, Notice, StatusPill, WorkspaceIcon } from "@sunpride/ui";
-import { useMutation, usePaginatedQuery } from "convex/react";
+
 import { useState } from "react";
 
 /**
@@ -13,7 +15,6 @@ import { useState } from "react";
  * written off, rejecting returns it to sellable stock through a separate movement.
  */
 
-const PAGE = 20;
 const inputClass =
   "h-10 w-full rounded-[10px] border border-field-border bg-field-background px-3 text-sm shadow-none";
 
@@ -43,6 +44,7 @@ export function formatDamageQuantity(base: bigint, scale: bigint) {
 }
 
 export function damageErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
   const data = (error as { data?: unknown } | null)?.data;
   return typeof data === "string" && data.trim()
     ? data.trim()
@@ -56,20 +58,23 @@ const manilaTime = new Intl.DateTimeFormat("en-PH", {
 });
 
 export function VanDamageApprovals() {
-  const { results, status, loadMore } = usePaginatedQuery(
-    api.van.damage.listForReview,
-    { status: "pending_approval" },
-    { initialNumItems: PAGE },
+  const permissions = usePermissions();
+  const { items, status, loadMore, error } = useApiPages<DamageRow>(
+    permissions.can("van.read") ? ["van", "damage"] : null,
+    (cursor, { signal }) =>
+      apiFetch("/api/v1/van/damage", { query: { cursor }, signal }),
   );
-  const decide = useMutation(api.van.damage.decide);
+  const results = items ?? [];
+  useLive(["van"], [["van"]]);
+  const decide = useVanCommand<
+    { damageId: string; decision: "approve" | "reject"; note?: string },
+    unknown
+  >("/api/v1/van/damage/decide");
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
-  async function run(
-    damageId: Id<"vanDamageRecords">,
-    decision: "approve" | "reject",
-  ) {
+  async function run(damageId: string, decision: "approve" | "reject") {
     const note = notes[damageId]?.trim();
     if (decision === "reject" && !note) {
       setNotice("Say why the damage is rejected");
@@ -80,7 +85,6 @@ export function VanDamageApprovals() {
       await decide({ damageId, decision, ...(note ? { note } : {}) });
       setNotice(null);
     } catch (error) {
-      console.error(error);
       setNotice(damageErrorMessage(error));
     } finally {
       setBusy(null);
@@ -89,7 +93,12 @@ export function VanDamageApprovals() {
 
   return (
     <Card label="Truck damage" icon={<WorkspaceIcon name="inventory" />}>
-      {notice ? <Notice title={notice} tone="danger" /> : null}
+      {notice || error ? (
+        <Notice
+          title={notice ?? error?.message ?? "Could not load damage"}
+          tone="danger"
+        />
+      ) : null}
       <section aria-label="Truck damage waiting" className="grid gap-2">
         {results.map((row) => (
           <div
@@ -105,7 +114,10 @@ export function VanDamageApprovals() {
                   </span>
                 </strong>
                 <small className="block text-[13px] text-muted">
-                  {formatDamageQuantity(row.quantityBase, row.quantityScale)}{" "}
+                  {formatDamageQuantity(
+                    BigInt(row.quantityBase),
+                    BigInt(row.quantityScale),
+                  )}{" "}
                   {row.uomCode} · {damageReasonLabel(row.reason)} ·{" "}
                   {row.sellerName} · {row.tripNumber} ·{" "}
                   {manilaTime.format(row.recordedAt)}
@@ -169,15 +181,15 @@ export function VanDamageApprovals() {
             )}
           </div>
         ))}
-        {results.length === 0 && status !== "LoadingFirstPage" ? (
+        {results.length === 0 && status !== "loading" && !error ? (
           <p className="text-[13px] text-muted">No truck damage waiting</p>
         ) : null}
-        {status === "CanLoadMore" ? (
+        {status === "canLoadMore" ? (
           <Button
             size="sm"
             variant="secondary"
             className="w-fit"
-            onPress={() => loadMore(PAGE)}
+            onPress={() => void loadMore()}
           >
             Show older
           </Button>
