@@ -4,7 +4,7 @@ import { WorkspaceShell } from "@sunpride/ui";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { getWebNavigation, navigationForRole } from "@/config/navigation";
+import { getWebNavigation } from "@/config/navigation";
 import { useSession } from "@/lib/auth/session";
 import { canAccessWebModule } from "@/lib/module-access";
 import {
@@ -18,9 +18,10 @@ export function OperationsShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const session = useSession();
   const current = session.profile;
-  const canAdminister = canAccessWebModule("admin", current?.role);
   const canSeeIssues = canAccessWebModule("issues", current?.role);
-  const navigation = getWebNavigation(pathname, canAdminister, canSeeIssues);
+  const navigation = getWebNavigation(pathname, (slug) =>
+    canAccessWebModule(slug, current?.role),
+  );
 
   async function signOut() {
     await session.signOut();
@@ -38,9 +39,7 @@ export function OperationsShell({ children }: { children: ReactNode }) {
         descriptor: "Operations · Beta",
       }}
       contentWidth="full"
-      navGroups={navigationForRole(navigation.navGroups, (slug) =>
-        canAccessWebModule(slug, current?.role),
-      )}
+      navGroups={navigation.navGroups}
       onNavigate={(href) => router.push(href)}
       onSignOut={signOut}
       user={

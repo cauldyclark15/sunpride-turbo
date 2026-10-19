@@ -1,4 +1,5 @@
 @import "@sunpride/ui/styles.css";
+@import "../components/cockpit/cockpit.css";
 
 body {
   min-height: 100vh;
