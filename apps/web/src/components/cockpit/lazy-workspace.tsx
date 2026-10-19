@@ -23,10 +23,10 @@ export type WorkspaceName =
 type Loader = () => Promise<Record<string, unknown>>;
 
 export const WORKSPACE_LOADERS: Partial<Record<WorkspaceName, Loader>> = {
-  // MOUNT: MasterDataWorkspace: () => import("@/components/master-data"),
-  // MOUNT: OrdersWorkspace: () => import("@/components/orders"),
-  // MOUNT: PricingWorkspace: () => import("@/components/pricing"),
-  // MOUNT: VanTripsWorkspace: () => import("@/components/van"),
+  MasterDataWorkspace: () => import("@/components/master-data"),
+  OrdersWorkspace: () => import("@/components/orders"),
+  PricingWorkspace: () => import("@/components/pricing"),
+  VanTripsWorkspace: () => import("@/components/van"),
 };
 
 export const WORKSPACE_TITLES: Record<WorkspaceName, string> = {
