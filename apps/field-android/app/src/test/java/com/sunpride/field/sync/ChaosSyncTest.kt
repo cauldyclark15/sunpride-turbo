@@ -223,7 +223,7 @@ class ChaosSyncTest {
             "/mobile/v1/push" -> JSONObject().put("type", "push.response").put("contractVersion", 1).put("serverTime", start)
                 .put("results", JSONArray(operationBytes(bytes).map { accept(it) })).toString()
             "/mobile/v1/pull" -> pages[JSONObject(bytes.toString(Charsets.UTF_8)).getString("cursor")] ?: pull("steady")
-            LiveBootstrapTransport.PATH -> bootstrapPages[if (JSONObject(bytes.toString(Charsets.UTF_8)).has("pageCursor")) 1 else 0]
+            "/mobile/v1/bootstrap" -> bootstrapPages[if (JSONObject(bytes.toString(Charsets.UTF_8)).has("pageCursor")) 1 else 0]
             else -> kotlin.error("Unexpected path $path")
         }
     }
@@ -254,7 +254,7 @@ class ChaosSyncTest {
         }
         override fun token(refresh: Boolean): String { refreshes += refresh; return "test-only-bearer" }
         override fun post(body: ByteArray, headers: Map<String, String>, bearer: String) =
-            post(LiveBootstrapTransport.PATH, body, headers, bearer)
+            post("/mobile/v1/bootstrap", body, headers, bearer)
         override fun post(path: String, bytes: ByteArray, headers: Map<String, String>, bearer: String): Pair<Int, String> {
             assertEquals(RequestSigner.bodyDigest(bytes), headers["x-mobile-body-digest"])
             assertEquals(start.toString(), headers["x-mobile-timestamp"]) // Device-clock skew is not used for proof.
@@ -634,14 +634,14 @@ class ChaosSyncTest {
             val generation = store.metadata.activeGeneration
             val server = Server(); val transport = Transport(store, server)
             server.bootstrapPages = listOf(envelope(1, "page-2", null), envelope(2, null, "renewed"))
-            transport.scripts[LiveBootstrapTransport.PATH] = ArrayDeque(List(failedPage - 1) { Fault.PASS } + fault)
+            transport.scripts["/mobile/v1/bootstrap"] = ArrayDeque(List(failedPage - 1) { Fault.PASS } + fault)
             assertEquals(BootstrapFailure.Kind.OFFLINE, assertThrows(BootstrapFailure::class.java) {
                 bootstrap(store, transport)
             }.kind)
             assertEquals(generation, store.metadata.activeGeneration); assertEquals("bootstrap-cursor", store.cursor())
             assertEquals(1, store.swaps); assertFrozen(store, original)
             val failedBody = transport.attempts.last().bytes
-            transport.scripts[LiveBootstrapTransport.PATH] = ArrayDeque(listOf(Fault.DUPLICATE, Fault.DUPLICATE))
+            transport.scripts["/mobile/v1/bootstrap"] = ArrayDeque(listOf(Fault.DUPLICATE, Fault.DUPLICATE))
             bootstrap(store, transport)
             assertEquals("renewed", store.cursor()); assertEquals(2, store.swaps); assertFrozen(store, original)
             assertArrayEquals(failedBody, transport.attempts.takeLast(2)[failedPage - 1].bytes)
@@ -718,7 +718,7 @@ class ChaosSyncTest {
         val server = Server(); val transport = Transport(store, server)
         var conflict = true
         transport.reply = { path, _ -> if (conflict && path.endsWith("pull")) 409 to error("invalid_cursor") else null }
-        transport.scripts[LiveBootstrapTransport.PATH] = ArrayDeque(listOf(Fault.BEFORE_SERVER))
+        transport.scripts["/mobile/v1/bootstrap"] = ArrayDeque(listOf(Fault.BEFORE_SERVER))
         try { engine(store, transport) { bootstrap(store, transport) }.sync() } catch (_: BootstrapFailure) { }
         assertFrozen(store, original); assertTrue(store.metadata.held); assertTrue(server.receipts.isEmpty())
         conflict = false
@@ -740,7 +740,7 @@ class ChaosSyncTest {
         store.clock = start + 72 * 60 * 60 * 1000L
         val server = Server(); val transport = Transport(store, server)
         server.bootstrapPages = listOf(envelope(lease = store.clock + 60_000, cache = store.clock + 120_000))
-        transport.scripts[LiveBootstrapTransport.PATH] = ArrayDeque(listOf(Fault.BEFORE_SERVER))
+        transport.scripts["/mobile/v1/bootstrap"] = ArrayDeque(listOf(Fault.BEFORE_SERVER))
         assertTrue(engine(store, transport) { bootstrap(store, transport) }.sync())
         assertTrue(store.metadata.held); assertFalse(store.isLeaseValid(store.clock))
         assertEquals(original.map { it.requestId }, server.receipts.keys.toList())

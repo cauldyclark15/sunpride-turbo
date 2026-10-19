@@ -15,7 +15,7 @@ sealed interface EnrollmentState {
 /** `mobile/devices:mine` result: `null` or `{deviceId, status, bound, allowedApp}`. */
 data class DeviceRecord(val deviceId: String, val status: String, val bound: Boolean, val allowedApp: String)
 
-/** Online device functions (see packages/backend/convex/mobile/devices.ts). */
+/** Online device functions (`/api/me` and `/api/devices/challenge|bind`). */
 interface DeviceApi {
     fun mine(publicKey: String): DeviceRecord?
     /** Returns nonce and server expiry (epoch ms). */
@@ -24,7 +24,7 @@ interface DeviceApi {
              nonce: String, timestamp: Long, proof: String)
 }
 
-class ConvexDeviceApi(private val functions: ConvexFunctions) : DeviceApi {
+class ServerDeviceApi(private val functions: ServerFunctions) : DeviceApi {
     override fun mine(publicKey: String): DeviceRecord? {
         val value = functions.query("mobile/devices:mine",
             JSONObject().put("publicKey", publicKey).put("app", APP)) ?: return null
@@ -49,7 +49,7 @@ class ConvexDeviceApi(private val functions: ConvexFunctions) : DeviceApi {
         if (value?.optString("bindingStatus") != "bound") throw AuthFailure(AuthFailure.Kind.SERVER)
     }
 
-    companion object { const val APP = "ANDROID" }
+    companion object { const val APP = "field-android" }
 }
 
 /**
@@ -65,7 +65,7 @@ class Enrollment(
     private val monotonicMillis: () -> Long = { System.nanoTime() / 1_000_000 },
     private val newCredentialId: () -> String = { UUID.randomUUID().toString() }
 ) {
-    /** One lookup (and, if needed, one bind). Throws [AuthFailure]/[ConvexFunctionError] on failure. */
+    /** One lookup (and, if needed, one bind). Throws [AuthFailure]/[ServerError] on failure. */
     fun refresh(): EnrollmentState {
         val record = api.mine(signer.publicKeyBase64)
         val state = classify(record)
@@ -80,7 +80,7 @@ class Enrollment(
     /** `null` means "registered, active, not yet bound" — bind required. */
     private fun classify(record: DeviceRecord?): EnrollmentState? = when {
         record == null -> EnrollmentState.Unregistered
-        record.allowedApp != ConvexDeviceApi.APP -> EnrollmentState.Unregistered
+        record.allowedApp != ServerDeviceApi.APP -> EnrollmentState.Unregistered
         record.status != "active" -> EnrollmentState.Removed // revoked or suspended: stop, ask admin
         record.bound -> EnrollmentState.Ready(record.deviceId)
         else -> null
@@ -102,9 +102,9 @@ class Enrollment(
         try {
             api.bind(deviceId, credentialId, ATTESTATION_FORMAT, signer.protection.name.lowercase(),
                 nonce, timestamp, proof)
-        } catch (e: ConvexFunctionError) {
+        } catch (e: ServerError) {
             // A concurrent/previous attempt may already have bound this key; the read-back decides.
-            if (e.code != "Device already bound or missing key") throw e
+            if (e.code !in setOf("Device already bound or missing key", "already_bound")) throw e
         }
     }
 

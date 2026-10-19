@@ -1,7 +1,7 @@
 package com.sunpride.field.evidence
 
 import com.sunpride.field.auth.AuthFailure
-import com.sunpride.field.auth.ConvexFunctionError
+import com.sunpride.field.auth.ServerError
 import com.sunpride.field.storage.*
 import com.sunpride.field.support.FakeFieldStore
 import com.sunpride.field.sync.BootstrapCodec
@@ -25,19 +25,21 @@ class EvidenceUploaderTest {
     }
     private class FakeApi : EvidenceApi {
         val calls = mutableListOf<String>()
+        var onStage: ((String) -> Unit)? = null
         var failUpload: Exception? = null
         var failAttach: Exception? = null
         /** Server-side rows by checksum: a retried attach returns the original ID. */
         val attached = mutableMapOf<String, String>()
         val uploadedBytes = mutableListOf<ByteArray>()
-        override fun uploadUrl(visitId: String): Pair<String, String> { calls += "url:$visitId"; return "https://upload/x" to "claim-${calls.size}" }
+        override fun uploadUrl(visitId: String): Pair<String, String> { calls += "url:$visitId"; onStage?.invoke("claim"); return "https://upload/x" to "claim-${calls.size}" }
         override fun upload(url: String, bytes: ByteArray, mime: String): String {
-            calls += "upload:$mime"; failUpload?.let { throw it }; uploadedBytes += bytes; return "storage-${calls.size}"
+            calls += "upload:$mime"; failUpload?.let { throw it }; uploadedBytes += bytes; onStage?.invoke("upload"); return "storage-${calls.size}"
         }
         override fun attach(claim: String, visitId: String, storageId: String, row: EvidencePhotoRow): String {
             calls += "attach:$visitId:${row.photoType}"
             val id = attached.getOrPut(row.sha256) { "evidence-${attached.size + 1}" }
             failAttach?.let { throw it }
+            onStage?.invoke("attach")
             return id
         }
     }
@@ -106,7 +108,7 @@ class EvidenceUploaderTest {
         val (store, start, files) = setup()
         val refused = photo(store, files, start)
         store.recordAck(start.requestId, "visit-server-1", "[]", 300)
-        val api = FakeApi().apply { failAttach = ConvexFunctionError("out_of_scope") }
+        val api = FakeApi().apply { failAttach = ServerError("out_of_scope") }
         val report = EvidenceUploader(store, scope, files, api).run()
         assertEquals(1, report.review)
         assertEquals("out_of_scope", store.visitPhotos(start.clientVisitId).single { it.localId == refused.localId }.reviewCode)
@@ -118,6 +120,20 @@ class EvidenceUploaderTest {
         val last = EvidenceUploader(store, scope, files, api).run()
         assertEquals(1, last.review); assertFalse(last.retryLater)
         assertEquals("upload_failed", store.visitPhotos(start.clientVisitId).single { it.localId == flaky.localId }.reviewCode)
+    }
+
+    @Test fun holdAfterEachNetworkStageKeepsEncryptedBytesAndDoesNotMarkUploaded() = runBlocking {
+        for (stage in listOf("claim", "upload", "attach")) {
+            val (store, start, files) = setup()
+            val row = photo(store, files, start)
+            store.recordAck(start.requestId, "server-visit", "[]", 300)
+            val api = FakeApi().apply { onStage = { if (it == stage) runBlocking { store.holdForReview() } } }
+            val result = EvidenceUploader(store, scope, files, api).run()
+            assertEquals(0, result.uploaded)
+            assertEquals("pending", store.visitPhotos(start.clientVisitId).single().state)
+            assertTrue(files.files.containsKey(row.localId))
+            assertEquals(if (stage == "claim") 1 else if (stage == "upload") 2 else 3, api.calls.size)
+        }
     }
 
     @Test fun damagedFilesRejectedStartsAndHeldPartitionsNeverUpload() = runBlocking {

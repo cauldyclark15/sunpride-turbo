@@ -658,7 +658,7 @@ private fun BiometricSetting(gate: BiometricGate) {
     }
 }
 
-private val previewEnvironment = AppEnvironment("https://preview.convex.site", "https://preview.convex.cloud")
+private val previewEnvironment = AppEnvironment("https://sunpride.cauldnclark.com")
 @Preview(name = "Light", showBackground = true)
 @Composable private fun LightPreview() = FieldApp(previewEnvironment, dark = false, debug = true)
 @Preview(name = "Dark", showBackground = true, uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES)

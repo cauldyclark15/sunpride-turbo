@@ -1,7 +1,7 @@
 package com.sunpride.field.ui.diagnosticvisit
 
 import com.sunpride.field.auth.AuthFailure
-import com.sunpride.field.auth.ConvexFunctionError
+import com.sunpride.field.auth.ServerError
 import com.sunpride.field.storage.CallSheet
 import kotlinx.coroutines.runBlocking
 import org.json.JSONException
@@ -278,7 +278,7 @@ object SuggestedOrderRepository {
                 // Overtaken: show only what an offline open would (a newer refusal stays a refusal).
                 else -> saved(cache, key, outletId, asOfDate, now)
             }
-        } catch (_: ConvexFunctionError) {
+        } catch (_: ServerError) {
             refuse(cache, key, BLOCKED_NOT_ALLOWED, now)
         } catch (e: AuthFailure) {
             when (e.kind) {

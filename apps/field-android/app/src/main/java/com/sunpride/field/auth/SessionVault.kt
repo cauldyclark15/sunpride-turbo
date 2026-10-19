@@ -11,7 +11,7 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-/** Persistent auth state. The Better Auth session token is the only secret; deviceId is not. */
+/** Persistent auth state. The server session token is the only secret; deviceId is not. */
 interface SessionVault {
     fun readSession(): String?
     fun saveSession(token: String)

@@ -24,9 +24,9 @@ class RedactionTest {
             assertNull(e.cause)
             assertClean(e.message); assertClean(e.toString()); assertClean(e.stackTraceToString().lineSequence().first())
         }
-        val convex = ConvexFunctionError("Device unavailable")
-        assertNull(convex.cause)
-        assertClean(convex.toString())
+        val refused = ServerError("Device unavailable")
+        assertNull(refused.cause)
+        assertClean(refused.toString())
     }
 
     @Test fun realFailurePathsDoNotEchoSecrets() {
@@ -34,7 +34,7 @@ class RedactionTest {
         try {
             val origin = "http://localhost:${server.port}"
             val vault = InMemorySessionVault()
-            val auth = AuthClient(AppEnvironment(origin, origin), vault)
+            val auth = AuthClient(AppEnvironment(origin), vault)
             server.enqueue(MockResponse().setResponseCode(401).setBody("""{"message":"fake-password-XYZ fake-session-XYZ"}"""))
             val signIn = runCatching { auth.signIn("a@example.test", "fake-password-XYZ") }.exceptionOrNull()!!
             assertClean(signIn.message); assertClean(signIn.toString()); assertClean(FieldController.userMessage(signIn))
@@ -49,15 +49,15 @@ class RedactionTest {
 
             vault.saveSession("fake-session-XYZ")
             server.enqueue(MockResponse().setResponseCode(500).setBody("fake-session-XYZ eyJfakeJwt"))
-            val exchange = runCatching { auth.convexToken() }.exceptionOrNull()!!
+            val exchange = runCatching { auth.accessToken() }.exceptionOrNull()!!
             assertClean(exchange.message); assertClean(FieldController.userMessage(exchange))
         } finally { server.shutdown() }
     }
 
-    @Test fun userMessagesForConvexErrorsAreFixed() {
+    @Test fun userMessagesForServerErrorsAreFixed() {
         listOf("Device unavailable", "Device identity mismatch", "Device scope changed", null, "Uncaught eyJfakeJwt")
             .forEach { code ->
-                val text = FieldController.userMessage(ConvexFunctionError(code))
+                val text = FieldController.userMessage(ServerError(code))
                 assertClean(text); assertTrue(text.isNotBlank())
             }
         assertClean(FieldController.userMessage(IllegalStateException("fake-session-XYZ")))

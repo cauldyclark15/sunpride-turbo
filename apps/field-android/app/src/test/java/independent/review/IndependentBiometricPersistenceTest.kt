@@ -147,7 +147,7 @@ class IndependentBiometricPersistenceTest {
 
     @Test fun failedOrdinaryWipeMustNotReopenAfterProductionAuthSignOut() {
         val r = Rig(); r.signInA(); r.ordinaryDisk.reject = true; r.gate.enable()
-        val auth = AuthClient(AppEnvironment("", ""), r.vault)
+        val auth = AuthClient(AppEnvironment(""), r.vault)
         assertTrue(runCatching { auth.signOut() }.exceptionOrNull() is SessionStorageFailure)
         r.gate.signedOut()
         val (cold, gate) = r.cold()
@@ -192,7 +192,7 @@ class IndependentBiometricPersistenceTest {
     @Test fun delayedUnlockCannotUndoProductionAuthSignOut() {
         val r = Rig(); r.enable(); val (cold, gate) = r.cold()
         r.crypto.hold = true; gate.unlock()
-        AuthClient(AppEnvironment("", ""), cold).signOut()
+        AuthClient(AppEnvironment(""), cold).signOut()
         gate.signedOut(); r.crypto.held!!.invoke()
         assertNull(cold.readSession()); assertEquals(0, gate.unlocks)
     }
@@ -201,18 +201,18 @@ class IndependentBiometricPersistenceTest {
         val r = Rig(); r.enable(); val (cold, gate) = r.cold()
         r.crypto.hold = true; gate.unlock(); gate.usePassword()
         MockWebServer().use { server ->
-            server.enqueue(MockResponse().setBody("{\"token\":\"session-account-B\"}")); server.start()
-            val env = AppEnvironment(server.url("/").toString(), "http://localhost:${server.port}")
+            server.enqueue(MockResponse().setBody("""{"version":2,"serverTime":${System.currentTimeMillis()},"sessionToken":"sps_session-account-B","accessToken":"spa_test","accessExpiresAt":${System.currentTimeMillis()+900000}}""")); server.start()
+            val env = AppEnvironment(server.url("/").toString())
             AuthClient(env, cold).signIn("b@example.invalid", "test-fixture-only")
             gate.passwordSignedIn(); r.crypto.held!!.invoke()
-            assertEquals("session-account-B", cold.readSession()); assertEquals(0, gate.unlocks)
+            assertEquals("sps_session-account-B", cold.readSession()); assertEquals(0, gate.unlocks)
             assertFalse(cold.biometricOn)
         }
     }
 
     @Test fun delayedEnableCannotUndoProductionAuthSignOut() {
         val r = Rig(); r.signInA(); r.crypto.hold = true; r.gate.enable()
-        AuthClient(AppEnvironment("", ""), r.vault).signOut()
+        AuthClient(AppEnvironment(""), r.vault).signOut()
         r.gate.signedOut(); r.crypto.held!!.invoke()
         assertNull(r.vault.readSession()); assertFalse(r.vault.biometricOn)
     }
@@ -220,11 +220,11 @@ class IndependentBiometricPersistenceTest {
     @Test fun delayedEnableCannotUndoProductionPasswordReplacement() {
         val r = Rig(); r.signInA(); r.crypto.hold = true; r.gate.enable()
         MockWebServer().use { server ->
-            server.enqueue(MockResponse().setBody("{\"token\":\"session-account-B\"}")); server.start()
-            val env = AppEnvironment(server.url("/").toString(), "http://localhost:${server.port}")
+            server.enqueue(MockResponse().setBody("""{"version":2,"serverTime":${System.currentTimeMillis()},"sessionToken":"sps_session-account-B","accessToken":"spa_test","accessExpiresAt":${System.currentTimeMillis()+900000}}""")); server.start()
+            val env = AppEnvironment(server.url("/").toString())
             AuthClient(env, r.vault).signIn("b@example.invalid", "test-fixture-only")
             r.gate.passwordSignedIn(); r.crypto.held!!.invoke()
-            assertEquals("session-account-B", r.vault.readSession()); assertFalse(r.vault.biometricOn)
+            assertEquals("sps_session-account-B", r.vault.readSession()); assertFalse(r.vault.biometricOn)
         }
     }
 }

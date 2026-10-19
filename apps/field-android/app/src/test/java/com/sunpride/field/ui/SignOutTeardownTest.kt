@@ -47,7 +47,7 @@ class SignOutTeardownTest {
     private var memory = SessionMemory()
     private fun vault() = LockableSessionVault(plain, sealed, memory) { crypto.deleteKey() }
     // Not configured: AuthClient skips the remote call, so only the local wipe runs (offline sign-out).
-    private fun auth(v: LockableSessionVault) = AuthClient(AppEnvironment("", ""), v)
+    private fun auth(v: LockableSessionVault) = AuthClient(AppEnvironment(""), v)
 
     /** Account A signed in with the password, then turned fingerprint sign-in on. */
     private fun signedInWithBiometrics(): LockableSessionVault {

@@ -9,7 +9,7 @@ import java.time.ZoneId
  * SP-0136 live map: the phone shares its location ONLY during the work day — from the day's first
  * Start (a check-in or the "Start day" button) until "End day", sign-out or the 10 PM Manila daily
  * close, whichever comes first, and never before 05:00. The server refuses field pings outside the
- * same hours (`packages/backend/convex/location/model.ts` LOCATION_POLICY.workStartHour/dailyCloseHour).
+ * same hours (the server location policy work-start and daily-close hours).
  */
 object WorkHours {
     val zone: ZoneId = ZoneId.of("Asia/Manila")

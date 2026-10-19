@@ -41,7 +41,7 @@ import java.io.File
 class BatteryGuideDeviceTest {
     @get:Rule val rule = createAndroidComposeRule<androidx.activity.ComponentActivity>()
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
-    private val configured = AppEnvironment("https://team.convex.site", "https://team.convex.cloud")
+    private val configured = AppEnvironment("https://sunpride.cauldnclark.com")
     private val alias = "sunpride-field-battery-guide-test"
 
     @After fun cleanUp() = KeystoreDeviceKey.delete(alias)

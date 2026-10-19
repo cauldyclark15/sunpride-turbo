@@ -18,10 +18,9 @@ class AuthFailure(val kind: Kind) : Exception(kind.message, null) {
 }
 
 /**
- * A Convex function returned `{status:"error"}`. [code] is the ConvexError data when it is a short
- * plain string (our backend throws fixed English codes such as "Device unavailable"); it is kept for
- * branching, never shown verbatim to the user.
+ * The Sunpride server refused a request with a closed error `code` (for example `scope_withdrawn`);
+ * it is kept for branching, never shown verbatim to the user.
  */
-class ConvexFunctionError(val code: String?) : Exception("Convex function error", null) {
-    override fun toString(): String = "ConvexFunctionError"
+class ServerError(val code: String?) : Exception("Server error", null) {
+    override fun toString(): String = "ServerError"
 }

@@ -46,7 +46,7 @@ import java.io.FileOutputStream
 @RunWith(AndroidJUnit4::class)
 class CalmScreenshotsTest {
     @get:Rule val rule = createAndroidComposeRule<androidx.activity.ComponentActivity>()
-    private val environment = AppEnvironment("https://team.convex.site", "https://team.convex.cloud")
+    private val environment = AppEnvironment("https://sunpride.cauldnclark.com")
     private val backend = object : FieldBackend {
         override val isSignedIn = false
         override fun loadSigner(): com.sunpride.field.device.DeviceSigner = error("No sign-in in screenshot")

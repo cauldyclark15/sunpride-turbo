@@ -1,7 +1,7 @@
 package com.sunpride.field.ui.today
 
 import com.sunpride.field.auth.AuthFailure
-import com.sunpride.field.auth.ConvexFunctionError
+import com.sunpride.field.auth.ServerError
 import com.sunpride.field.storage.ProductiveCall
 import org.json.JSONObject
 import java.text.NumberFormat
@@ -53,6 +53,8 @@ object DaySalesCodec {
 
 /** Where the last good report is kept (encrypted store, per signed-in partition). */
 interface DaySalesCache {
+    fun current(): Boolean = true
+    fun revoke() {}
     fun read(key: String): Pair<String, Long>?
     fun write(key: String, json: String, savedAt: Long)
 }
@@ -66,11 +68,13 @@ object DaySalesRepository {
         if (fetch == null) return saved(cache, serviceDate, null)
         return try {
             val text = fetch()
+            if (!cache.current()) return DaySalesView(message = "Connect and refresh to see the current account.")
             val sales = DaySalesCodec.decode(text)
             if (sales.serviceDate != serviceDate) throw DaySalesWireFailure()
             runCatching { cache.write(serviceDate, text, now) }
             DaySalesView(sales)
-        } catch (_: ConvexFunctionError) {
+        } catch (_: ServerError) {
+            cache.revoke()
             DaySalesView(message = "Not available for your account")
         } catch (e: AuthFailure) {
             if (e.kind == AuthFailure.Kind.SESSION_EXPIRED) DaySalesView(message = "Sign in again to see sales")

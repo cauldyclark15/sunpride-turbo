@@ -77,7 +77,7 @@ private const val DAY = 86_400_000L
 @RunWith(AndroidJUnit4::class)
 class FieldSalesGuideScreenshotsTest {
     @get:Rule val rule = createAndroidComposeRule<androidx.activity.ComponentActivity>()
-    private val environment = AppEnvironment("https://team.convex.site", "https://team.convex.cloud")
+    private val environment = AppEnvironment("https://sunpride.cauldnclark.com")
     private val identity = StoreScope("guide|${UUID.randomUUID()}", "guide-device", "guide-scope")
     private val alias = "field-guide-screenshots"
     private val context get() = rule.activity

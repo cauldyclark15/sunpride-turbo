@@ -3,7 +3,7 @@ package com.sunpride.field.storage
 import org.json.JSONObject
 
 /**
- * Phone mirror of the server's productive-call rule (`packages/backend/convex/sfa/productive_call.ts`,
+ * Phone mirror of the server's productive-call rule (`apps/api/src/domains/visits/productive.js`,
  * rule version `productive-call/2026-10-02`). A finished planned call is productive when ANY ONE listed
  * activity was recorded at the visit; the End call outcome alone never makes a call productive. Truck
  * sellers' merchandising counts only with the "visited, no sales due to inventory" marker.

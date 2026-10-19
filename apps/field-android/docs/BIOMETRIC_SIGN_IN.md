@@ -42,9 +42,9 @@ biometric-only key is destroyed by Android on any enrollment change; the fallbac
 A phone that still has a session sealed by the old `-v1` key gets the "changed" message and the password
 screen once, then turns the feature on again.
 
-The password is never stored. With the feature on, the Better Auth session token exists on disk only
+The password is never stored. With the feature on, the server session token exists on disk only
 under the biometric key; after the prompt it lives in this process's memory and is exchanged for the
-short-lived Convex JWT exactly as before.
+short-lived access token exactly as before.
 
 Late prompts and storage failures (release check):
 

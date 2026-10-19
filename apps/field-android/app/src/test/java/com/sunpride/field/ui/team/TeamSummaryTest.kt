@@ -1,7 +1,7 @@
 package com.sunpride.field.ui.team
 
 import com.sunpride.field.auth.AuthFailure
-import com.sunpride.field.auth.ConvexFunctionError
+import com.sunpride.field.auth.ServerError
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -89,7 +89,7 @@ class TeamSummaryTest {
     @Test fun serverRefusalNeverShowsSavedData() {
         val cache = MemoryCache()
         TeamRepository.load(day, true, cache, now) { summary() }
-        val refused = TeamRepository.load(day, true, cache, now) { throw ConvexFunctionError("Insufficient permission") }
+        val refused = TeamRepository.load(day, true, cache, now) { throw ServerError("Insufficient permission") }
         assertTrue(refused.notAllowed)
         assertNull(refused.summary)
         assertEquals("Team view isn't available for your account.", refused.message)

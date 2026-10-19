@@ -1,7 +1,7 @@
 package com.sunpride.field.ui.team
 
 import com.sunpride.field.auth.AuthFailure
-import com.sunpride.field.auth.ConvexFunctionError
+import com.sunpride.field.auth.ServerError
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
@@ -80,6 +80,8 @@ object TeamCodec {
 
 /** Where the last good summary is kept (encrypted store, per signed-in partition). */
 interface TeamCache {
+    fun current(): Boolean = true
+    fun revoke() {}
     fun read(key: String): Pair<String, Long>?
     fun write(key: String, json: String, savedAt: Long)
 }
@@ -100,11 +102,13 @@ object TeamRepository {
         val key = key(serviceDate, directOnly)
         return try {
             val text = fetch()
+            if (!cache.current()) return TeamView(message = "Connect and refresh to see the current account.")
             val summary = TeamCodec.decode(text)
             if (summary.serviceDate != serviceDate || summary.directOnly != directOnly) throw TeamWireFailure()
             runCatching { cache.write(key, text, now) }
             TeamView(summary)
-        } catch (_: ConvexFunctionError) {
+        } catch (_: ServerError) {
+            cache.revoke()
             TeamView(notAllowed = true, message = "Team view isn't available for your account.")
         } catch (e: AuthFailure) {
             if (e.kind == AuthFailure.Kind.SESSION_EXPIRED) TeamView(message = "Sign in again to see your team.")

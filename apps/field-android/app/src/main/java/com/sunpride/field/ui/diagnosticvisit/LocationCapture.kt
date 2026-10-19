@@ -4,7 +4,7 @@ import org.json.JSONObject
 import kotlin.math.roundToInt
 
 /**
- * Display-only mirror of the server's `VISIT_LOCATION_POLICY` (packages/backend/convex/visits/policy.ts).
+ * Display-only mirror of the server's `VISIT_LOCATION_POLICY` (server visit location policy).
  * The server alone decides the distance/geofence result against the verified outlet pin; the phone never
  * sends a within-geofence flag. These thresholds only let the phone tell the salesperson, at Start/End,
  * that a fix will go to supervisor review. Client answer 13: no distance limit, never block a check-in.

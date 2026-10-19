@@ -36,7 +36,7 @@ import org.junit.Test
  */
 class BiometricSignInUiTest {
     @get:Rule val rule = createAndroidComposeRule<androidx.activity.ComponentActivity>()
-    private val configured = AppEnvironment("https://team.convex.site", "https://team.convex.cloud")
+    private val configured = AppEnvironment("https://sunpride.cauldnclark.com")
     private val alias = "sunpride-field-device-bio-ui-test"
     private val plain = InMemorySessionVault()
     private val sealed = InMemorySealedTokenStore()

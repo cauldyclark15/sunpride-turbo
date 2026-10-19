@@ -1,14 +1,9 @@
-# Copy to local.properties and set non-secret deployment endpoints.
-# Never put passwords, session tokens, JWTs, or signing material here.
-SUNPRIDE_DEV_CONVEX_SITE_URL=https://your-dev.convex.site
-SUNPRIDE_DEV_CONVEX_URL=https://your-dev.convex.cloud
-SUNPRIDE_STAGING_CONVEX_SITE_URL=https://your-staging.convex.site
-SUNPRIDE_STAGING_CONVEX_URL=https://your-staging.convex.cloud
-SUNPRIDE_PROD_CONVEX_SITE_URL=https://your-prod.convex.site
-SUNPRIDE_PROD_CONVEX_URL=https://your-prod.convex.cloud
-# SP-0124 beta build (docs/BETA_FEATURES.md). Endpoints fall back to DEV when empty.
-SUNPRIDE_BETA_CONVEX_SITE_URL=
-SUNPRIDE_BETA_CONVEX_URL=
+# Copy to local.properties. Non-secret server origins only; every flavor defaults to
+# https://sunpride.cauldnclark.com when unset. Never put passwords, tokens or signing material here.
+# SUNPRIDE_DEV_API_ORIGIN=http://10.0.2.2:4310
+# SUNPRIDE_STAGING_API_ORIGIN=
+# SUNPRIDE_PROD_API_ORIGIN=
+# SUNPRIDE_BETA_API_ORIGIN=
 # Web app for Account > Report an issue (opens <url>/issues/new); hidden when empty.
 SUNPRIDE_BETA_WEB_URL=
 SUNPRIDE_BETA_BUILD=1

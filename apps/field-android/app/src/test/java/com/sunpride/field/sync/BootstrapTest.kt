@@ -10,7 +10,7 @@ import org.junit.Test
 import java.util.UUID
 import com.sunpride.field.AppEnvironment
 import com.sunpride.field.auth.AuthClient
-import com.sunpride.field.auth.ConvexFunctions
+import com.sunpride.field.auth.ServerFunctions
 import com.sunpride.field.auth.InMemorySessionVault
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -249,27 +249,41 @@ class BootstrapTest {
         MockWebServer().use { server ->
             server.start()
             val url = server.url("/").toString().trimEnd('/')
-            val env = AppEnvironment(url, url)
-            val vault = InMemorySessionVault().apply { saveSession("test-session") }
-            // Test-only syntactically valid JWT; no live bearer/credential is used.
-            val payload = Base64.getUrlEncoder().withoutPadding().encodeToString("{\"exp\":9999999999}".toByteArray())
-            server.enqueue(MockResponse().setBody("{\"token\":\"header.$payload.signature\"}"))
-            server.enqueue(MockResponse().setBody(JSONObject().put("status", "success").put("value",
-                JSONObject().put("nonce", UUID.randomUUID().toString()).put("expiresAt", 1790380860000L)).toString()))
-            server.enqueue(MockResponse().setBody(first))
+            val env = AppEnvironment(url)
+            val vault = InMemorySessionVault().apply { saveSession("sps_test-session") }
+            val now = System.currentTimeMillis()
+            val data = JSONObject(first)
+            listOf("type", "contractVersion", "page", "serverTime", "nextPageCursor", "syncCursor").forEach { data.remove(it) }
+            data.getJSONObject("appConfig").put("offlineLeaseExpiresAt", now+900000).put("cacheExpiresAt", now+900000)
+            val fingerprint = data.getJSONObject("scope").getString("fingerprint")
+            val scope = JSONObject().put("id", "scope").put("fingerprint", fingerprint).put("epoch", "epoch")
+            val me = JSONObject().put("version", 2).put("scope", scope).put("profile", data.getJSONObject("employee"))
+                .put("device", JSONObject().put("id", "device-1").put("status", "active").put("bound", true))
+            server.enqueue(MockResponse().setBody("""{"version":2,"serverTime":$now,"accessToken":"spa_test","accessExpiresAt":${now+900000}}"""))
+            server.enqueue(MockResponse().setBody(me.toString()))
+            server.enqueue(MockResponse().setBody(JSONObject().put("version", 2)
+                .put("nonce", UUID.randomUUID().toString()).put("serverTime", now).put("expiresAt", now+60000).toString()))
+            val bundle = JSONObject().put("scopeId", "scope").put("scopeFingerprint", fingerprint).put("projection", "field.bundle")
+                .put("params", JSONObject().put("dayFrom", "2026-09-26")).put("mode", "snapshot").put("complete", true)
+                .put("authorization", JSONObject().put("epoch", "epoch").put("expiresAt", now+900000))
+                .put("offlineLease", JSONObject().put("expiresAt", now+900000)).put("data", data).put("changes", org.json.JSONArray())
+            server.enqueue(MockResponse().setBody(JSONObject().put("version", 2).put("serverTime", now).put("snapshotId", "snap")
+                .put("nextPageCursor", JSONObject.NULL).put("nextCursor", "v2-cursor").put("hasMore", false)
+                .put("bundles", org.json.JSONArray().put(bundle)).toString()))
             val auth = AuthClient(env, vault)
-            val transport = LiveBootstrapTransport(env, auth, ConvexFunctions(env, auth))
-            BootstrapClient(transport, Signer(), "device-1", { Store() }, { 10_000L })
-                .fetch("2026-09-26", "issuer|person")
-            val token = server.takeRequest(); val challenge = server.takeRequest(); val post = server.takeRequest()
-            assertEquals("/api/auth/convex/token", token.path)
-            assertEquals("/api/mutation", challenge.path)
-            assertEquals("/mobile/v1/bootstrap", post.path)
+            val transport = LiveBootstrapTransport(env, auth, ServerFunctions(env, auth))
+            BootstrapClient(transport, Signer(), "device-1", { Store() }, { 10_000L }).fetch("2026-09-26", "v2|person")
+            val token = server.takeRequest(); val identity = server.takeRequest(); val challenge = server.takeRequest(); val post = server.takeRequest()
+            assertEquals("/api/auth/refresh", token.path); assertEquals("/api/me", identity.path)
+            assertEquals("/api/devices/challenge", challenge.path); assertEquals("/api/sync/pull", post.path)
             assertNull(post.getHeader("Origin"))
             val bytes = post.body.readByteArray()
-            assertEquals(com.sunpride.field.device.RequestSigner.bodyDigest(bytes), post.getHeader("x-mobile-body-digest"))
+            assertTrue(post.getHeader("x-device-signature")!!.contains(com.sunpride.field.device.RequestSigner.bodyDigest(bytes)))
             assertEquals("device-1", JSONObject(String(bytes)).getString("deviceId"))
-            assertEquals("Bearer header.$payload.signature", post.getHeader("Authorization"))
+            assertEquals(2, JSONObject(String(bytes)).getInt("version"))
+            assertEquals("Bearer spa_test", post.getHeader("Authorization"))
+            assertNull(post.getHeader("x-mobile-signature"))
+            assertEquals("device-1", post.getHeader("x-device-id"))
         }
     }
     @Test fun unauthorizedRefreshOnceAndRestart() {

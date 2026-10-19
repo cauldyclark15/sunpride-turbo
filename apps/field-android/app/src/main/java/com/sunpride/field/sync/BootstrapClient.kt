@@ -3,8 +3,8 @@ package com.sunpride.field.sync
 import com.sunpride.field.AppEnvironment
 import com.sunpride.field.auth.AuthClient
 import com.sunpride.field.auth.AuthFailure
-import com.sunpride.field.auth.ConvexDeviceApi
-import com.sunpride.field.auth.ConvexFunctions
+import com.sunpride.field.auth.ServerDeviceApi
+import com.sunpride.field.auth.ServerFunctions
 import com.sunpride.field.auth.JSON_MEDIA
 import com.sunpride.field.auth.defaultHttpClient
 import com.sunpride.field.device.DeviceSigner
@@ -23,6 +23,7 @@ class BootstrapFailure(val kind: Kind) : Exception(kind.name) {
 }
 
 interface BootstrapTransport {
+    fun prepare(body: ByteArray, page: Int): WireRequest = WireRequest("/mobile/v1/bootstrap", body)
     /** Fresh challenge for every HTTP attempt, including 401 retries. */
     fun challenge(deviceId: String): Pair<String, Long>
     fun token(refresh: Boolean): String
@@ -32,21 +33,22 @@ interface BootstrapTransport {
 class LiveBootstrapTransport(
     private val environment: AppEnvironment,
     private val auth: AuthClient,
-    functions: ConvexFunctions,
+    private val functions: ServerFunctions,
     private val http: OkHttpClient = defaultHttpClient()
 ) : BootstrapTransport {
-    private val devices = ConvexDeviceApi(functions)
-    override fun challenge(deviceId: String) = devices.challenge(deviceId)
-    override fun token(refresh: Boolean) = auth.convexToken(forceRefresh = refresh)
+    override fun prepare(body: ByteArray, page: Int) = V2Wire.bootstrap(body, page, functions.api.syncMe())
+    private val devices = ServerDeviceApi(functions)
+    override fun challenge(deviceId: String) = syncBoundary { devices.challenge(deviceId) }
+    override fun token(refresh: Boolean) = syncBoundary { auth.accessToken(forceRefresh = refresh) }
     override fun post(body: ByteArray, headers: Map<String, String>, bearer: String): Pair<Int, String> {
-        val builder = Request.Builder().url(environment.siteUrl.trimEnd('/') + PATH)
+        val builder = Request.Builder().url(environment.apiOrigin.trimEnd('/') + PATH)
             .header("Authorization", "Bearer $bearer")
         headers.forEach { (key, value) -> builder.header(key, value) }
         val request = builder.post(body.toRequestBody(JSON_MEDIA)).build()
         return try { http.newCall(request).execute().use { it.code to it.body?.string().orEmpty() } }
         catch (_: IOException) { throw BootstrapFailure(BootstrapFailure.Kind.OFFLINE) }
     }
-    companion object { const val PATH = "/mobile/v1/bootstrap" }
+    companion object { const val PATH = "/api/sync/pull" }
 }
 
 /** Bounded single-flight foreground bootstrap. Pages stay in memory until a complete, consistent final page. */
@@ -63,14 +65,14 @@ class BootstrapClient(private val transport: BootstrapTransport, private val sig
             try {
                 for (index in 1..100) {
                     val body = BootstrapCodec.request(deviceId, day, next)
-                    val (code, text) = send(body)
+                    val (code, text) = send(body, index)
                     if (code !in 200..299) {
                         val error = runCatching { BootstrapCodec.error(text) }.getOrNull()
                         throw when {
                             code == 401 -> BootstrapFailure(BootstrapFailure.Kind.UNAUTHORIZED)
-                            error?.code == "device_revoked" -> BootstrapFailure(BootstrapFailure.Kind.REMOVED)
+                            error?.code in setOf("device_revoked", "device_suspended", "scope_withdrawn") -> BootstrapFailure(BootstrapFailure.Kind.REMOVED)
                             error?.code == "version_unsupported" -> BootstrapFailure(BootstrapFailure.Kind.UPDATE_REQUIRED)
-                            error?.code in setOf("rebootstrap_required", "invalid_cursor") -> BootstrapFailure(BootstrapFailure.Kind.RESTART)
+                            code == 409 || error?.code in setOf("rebootstrap_required", "invalid_cursor", "cursor_invalid", "cursor_expired", "scope_changed", "snapshot_changed") -> BootstrapFailure(BootstrapFailure.Kind.RESTART)
                             code >= 500 || error?.retryable == true -> BootstrapFailure(BootstrapFailure.Kind.RETRYABLE)
                             else -> BootstrapFailure(BootstrapFailure.Kind.INVALID_RESPONSE)
                         }
@@ -81,6 +83,8 @@ class BootstrapClient(private val transport: BootstrapTransport, private val sig
                     if (p.page != index || !p.supported || p.fingerprint.isBlank() ||
                         (pages.isNotEmpty() && (p.fingerprint != pages.first().fingerprint ||
                             p.employee.optString("id") != pages.first().employee.optString("id"))))
+                        throw BootstrapFailure(BootstrapFailure.Kind.INVALID_RESPONSE)
+                    if (pages.isNotEmpty() && p.raw.optString("v2SnapshotId") != pages.first().raw.optString("v2SnapshotId"))
                         throw BootstrapFailure(BootstrapFailure.Kind.INVALID_RESPONSE)
                     pages.add(p)
                     next = p.next
@@ -111,16 +115,17 @@ class BootstrapClient(private val transport: BootstrapTransport, private val sig
         throw BootstrapFailure(BootstrapFailure.Kind.RESTART)
     }
 
-    private fun send(body: ByteArray): Pair<Int, String> {
+    private fun send(body: ByteArray, page: Int): Pair<Int, String> {
+        val wire = transport.prepare(body, page)
         for (attempt in 0..1) {
-            // Obtain JWT first: if token exchange fails, don't issue an unused challenge.
+            // Obtain the access token first: if token exchange fails, don't issue an unused challenge.
             val bearer = transport.token(attempt != 0)
             val received = monotonicMillis()
             val (nonce, expiresAt) = transport.challenge(deviceId)
             val timestamp = expiresAt - 60_000L + (monotonicMillis() - received)
-            val headers = RequestSigner.headers(signer, deviceId, LiveBootstrapTransport.PATH, body, nonce, timestamp)
-            val result = transport.post(body, headers, bearer)
-            if (result.first != 401) return result
+            val headers = RequestSigner.headers(signer, deviceId, wire.path, wire.bytes, nonce, timestamp)
+            val result = transport.post(wire.bytes, headers, bearer)
+            if (result.first != 401) return result.first to if (result.first in 200..299) wire.decode(result.second) else result.second
         }
         return 401 to ""
     }

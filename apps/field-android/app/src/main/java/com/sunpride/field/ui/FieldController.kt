@@ -32,9 +32,9 @@ import java.security.MessageDigest
 import com.sunpride.field.AppEnvironment
 import com.sunpride.field.auth.AuthClient
 import com.sunpride.field.auth.AuthFailure
-import com.sunpride.field.auth.ConvexDeviceApi
-import com.sunpride.field.auth.ConvexFunctionError
-import com.sunpride.field.auth.ConvexFunctions
+import com.sunpride.field.auth.ServerDeviceApi
+import com.sunpride.field.auth.ServerError
+import com.sunpride.field.auth.ServerFunctions
 import com.sunpride.field.auth.Enrollment
 import com.sunpride.field.auth.EnrollmentState
 import com.sunpride.field.auth.SessionVault
@@ -181,11 +181,19 @@ class LiveFieldBackend(
     private val context: Context,
     private val signerLoader: () -> DeviceSigner
 ) : FieldBackend {
-    private val auth = AuthClient(environment, vault)
-    private val functions = ConvexFunctions(environment, auth)
+    private val environmentOrigin = environment.apiOrigin.trimEnd('/')
+    private val auth = AuthClient(environment, vault, signer = signerLoader)
+    private val functions = ServerFunctions(environment, auth).also { it.signer = signerLoader }
     private val syncTransport = LiveBootstrapTransport(environment, auth, functions)
     private val visitTransport = com.sunpride.field.sync.LiveVisitTransport(environment, auth, functions)
-    private val prefs = context.getSharedPreferences("field_cache_index", Context.MODE_PRIVATE)
+    private val prefs = context.getSharedPreferences("field_v2_cache_index", Context.MODE_PRIVATE)
+    init {
+        val transport = context.getSharedPreferences("field_transport_epoch", Context.MODE_PRIVATE)
+        if (transport.getInt("epoch", 0) != 2) {
+            runBlocking { EncryptedFieldDatabase.holdExisting(context) }
+            check(transport.edit().putInt("epoch", 2).commit())
+        }
+    }
     private fun storedScope(): StoreScope? {
         val key = sessionKey() ?: return null
         val account = prefs.getString("$key.subject", null) ?: return null
@@ -293,7 +301,7 @@ class LiveFieldBackend(
         return try {
             runBlocking { com.sunpride.field.evidence.EvidenceUploader(store, scope,
                 com.sunpride.field.evidence.KeystorePhotoFiles(context),
-                com.sunpride.field.evidence.ConvexEvidenceApi(functions)).run() }
+                com.sunpride.field.evidence.ServerEvidenceApi(functions)).run() }
         } finally { store.close() }
     }
     override fun queueActivity(clientVisitId: String, checkInRequestId: String, previousRequestId: String,
@@ -343,12 +351,9 @@ class LiveFieldBackend(
             .joinToString("") { b -> "%02x".format(b.toInt() and 255) }
     }
     private fun subjectFromToken(): String {
-        val token = auth.convexToken()
-        val claims = JSONObject(String(Base64.getUrlDecoder().decode(token.split('.')[1]), Charsets.UTF_8))
-        val issuer = claims.getString("iss")
-        val subject = claims.getString("sub")
-        check(issuer.startsWith("https://") && subject.isNotBlank())
-        return "$issuer|$subject"
+        val me = functions.api.me()
+        check(me.getJSONObject("profile").getBoolean("active"))
+        return "v2:${environmentOrigin}|${me.getJSONObject("profile").getString("subject")}"
     }
     override fun today(deviceId: String, signer: DeviceSigner, sync: Boolean): TodayData =
         today(deviceId, signer, sync, scheduleRemainder = true)
@@ -419,7 +424,7 @@ class LiveFieldBackend(
                 if (e is BootstrapFailure && e.kind == BootstrapFailure.Kind.UNAUTHORIZED) {
                     // HTTP gateway returns 401 for failed device authorization, including revocation.
                     // Distinguish it by a fresh authenticated enrollment read when possible.
-                    val revoked = runCatching { ConvexDeviceApi(functions).mine(signer.publicKeyBase64)?.status }
+                    val revoked = runCatching { ServerDeviceApi(functions).mine(signer.publicKeyBase64)?.status }
                         .getOrNull() in setOf("revoked", "suspended")
                     if (revoked) warning = "Phone removed"
                 }
@@ -496,11 +501,14 @@ class LiveFieldBackend(
     }
     /** Live daily sales report when syncing, else today's saved copy; the server enforces who may read it. */
     private suspend fun daySales(store: RoomFieldStore, day: String, live: Boolean): com.sunpride.field.ui.today.DaySalesView {
+        val grant = projectionGrant("sales", day)
         val cache = object : com.sunpride.field.ui.today.DaySalesCache {
+            override fun current() = grant.current()
+            override fun revoke() { if (!grant.deny()) auth.signOut() }
             override fun read(key: String) = runBlocking { store.localCache(SALES_CACHE, key) }
-                ?.let { row -> row.json?.let { it to row.revision } }
-            override fun write(key: String, json: String, savedAt: Long) = runBlocking {
-                store.putLocalCache(SALES_CACHE, key, json, savedAt, day)
+                ?.let { row -> row.json?.let { grant.read(it)?.let { text -> text to row.revision } } }
+            override fun write(key: String, json: String, savedAt: Long) {
+                grant.wrap(json)?.let { runBlocking { store.putLocalCache(SALES_CACHE, key, it, savedAt, day) } }
             }
         }
         val profileId = store.employeeId()
@@ -516,11 +524,14 @@ class LiveFieldBackend(
         val day = LocalDate.now(ZoneId.of("Asia/Manila")).toString()
         val store = EncryptedFieldDatabase.store(context, scope)
         try {
+            val grant = projectionGrant("team", com.sunpride.field.ui.team.TeamRepository.key(day, directOnly))
             val cache = object : com.sunpride.field.ui.team.TeamCache {
+                override fun current() = grant.current()
+            override fun revoke() { if (!grant.deny()) auth.signOut() }
                 override fun read(key: String) = runBlocking { store.localCache(TEAM_CACHE, key) }
-                    ?.let { row -> row.json?.let { it to row.revision } }
-                override fun write(key: String, json: String, savedAt: Long) = runBlocking {
-                    store.putLocalCache(TEAM_CACHE, key, json, savedAt, "$day|")
+                    ?.let { row -> row.json?.let { grant.read(it)?.let { text -> text to row.revision } } }
+                override fun write(key: String, json: String, savedAt: Long) {
+                    grant.wrap(json)?.let { runBlocking { store.putLocalCache(TEAM_CACHE, key, it, savedAt, "$day|") } }
                 }
             }
             return com.sunpride.field.ui.team.TeamRepository.load(day, directOnly, cache, System.currentTimeMillis()) {
@@ -550,11 +561,47 @@ class LiveFieldBackend(
     private fun observeSuggestionScope(scope: StoreScope?) = synchronized(this) {
         if (scope != suggestionScope) { suggestionScope = scope; retireSuggestions() }
     }
-    private fun retireSuggestions() = com.sunpride.field.ui.diagnosticvisit.SuggestedOrderRepository.retire()
+    private fun retireSuggestions() {
+        com.sunpride.field.auth.ProjectionGrant.retire()
+        com.sunpride.field.ui.diagnosticvisit.SuggestedOrderRepository.retire()
+    }
+    private fun projectionGrant(name: String, filter: String): com.sunpride.field.auth.ProjectionGrant {
+        val scope = storedScope() ?: error("No verified partition")
+        val grants = context.getSharedPreferences("field_v2_projection_grants", Context.MODE_PRIVATE)
+        return com.sunpride.field.auth.ProjectionGrant("${scope}|${sessionKey()}", name,
+            { grants.getString(it, null) }, { k, v -> grants.edit().putString(k, v).commit() }).also { it.begin(filter) }
+    }
     /** SP-0136: the signed-in person's verified account (keys their consent and work day), or null. */
     fun locationAccount(): String? = storedScope()?.account
     override val workDay: com.sunpride.field.location.WorkDayHost by lazy {
-        com.sunpride.field.location.LocationShare.workDay(context) { locationAccount() }
+        val local = com.sunpride.field.location.LocationShare.workDay(context) { locationAccount() }
+        object : com.sunpride.field.location.WorkDayHost by local {
+            override fun consent(now: Long) {
+                local.consent(now)
+                prefs.edit().putBoolean("${sessionKey()}.location-consent-pending", true).apply()
+                locationCommands()
+            }
+            override fun endDay(now: Long) {
+                local.endDay(now)
+                prefs.edit().putBoolean("${sessionKey()}.location-end-pending", true).apply()
+                locationCommands()
+            }
+        }
+    }
+    private fun locationCommands() {
+        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+            runCatching { flushLocationCommands() }
+        }
+    }
+    @Synchronized private fun flushLocationCommands() {
+        if (prefs.getBoolean("${sessionKey()}.location-consent-pending", false)) {
+            functions.api.post("/api/v1/location/consent", JSONObject().put("enabled", true))
+            prefs.edit().remove("${sessionKey()}.location-consent-pending").commit()
+        }
+        if (prefs.getBoolean("${sessionKey()}.location-end-pending", false)) {
+            functions.api.post("/api/v1/location/end-day", JSONObject())
+            prefs.edit().remove("${sessionKey()}.location-end-pending").commit()
+        }
     }
     /** Buffer one live-map ping in the encrypted store; false when there is no usable partition. */
     fun recordLocation(fix: com.sunpride.field.location.Fix, trigger: String, battery: Int?, now: Long): Boolean {
@@ -567,8 +614,9 @@ class LiveFieldBackend(
             store.addPing(ping.getString("clientPingId"), fix.time, ping.toString(), now)
         } } finally { store.close() }
     }
-    /** Upload buffered pings through the signed device gateway (`/mobile/v1/location`). */
+    /** Upload buffered pings through the signed device gateway (`/api/sync/push`, `location.record`). */
     fun uploadLocation(): com.sunpride.field.location.PingUpload {
+        flushLocationCommands()
         val scope = storedScope() ?: return com.sunpride.field.location.PingUpload()
         val device = vault.deviceId?.takeIf { it == scope.deviceId } ?: return com.sunpride.field.location.PingUpload()
         val gateway = com.sunpride.field.sync.SignedVisitGateway(visitTransport, loadSigner(), device)
@@ -586,7 +634,9 @@ class LiveFieldBackend(
         runCatching { workDay.signOut(System.currentTimeMillis()) }
         signOutNow()
     }
-    private fun signOutNow() = signOutTeardown(
+    private fun signOutNow(): Unit {
+        retireSuggestions()
+        signOutTeardown(
         // QSR-010: sign-out leaves only held, encrypted unsent evidence; no cached plan, customers,
         // prices or session-keyed scope index survive for the next person on this phone.
         // Suggested-order authorization ends before the purge, which can fail (SP-0067).
@@ -595,12 +645,16 @@ class LiveFieldBackend(
                 runBlocking { EncryptedFieldDatabase.purgeExisting(context) }
             }
         },
-        clearIndex = { if (!prefs.edit().clear().commit()) throw SessionStorageFailure() },
+        clearIndex = {
+            val cleared = context.getSharedPreferences("field_v2_projection_grants", Context.MODE_PRIVATE).edit().clear().commit()
+            if (!prefs.edit().clear().commit() || !cleared) throw SessionStorageFailure()
+        },
         authSignOut = { auth.signOut() },
     )
+    }
     override fun refreshEnrollment(signer: DeviceSigner): EnrollmentState {
         val state = try {
-            Enrollment(ConvexDeviceApi(functions), signer, vault).refresh()
+            Enrollment(ServerDeviceApi(functions), signer, vault).refresh()
         } catch (e: AuthFailure) {
             if (e.kind == AuthFailure.Kind.SESSION_EXPIRED) {
                 retireSuggestions()
@@ -999,7 +1053,11 @@ class FieldController(
         if (teamLoading || state !is EnrollmentState.Ready) return@launch
         if (directOnly != teamDirectOnly) team = com.sunpride.field.ui.team.TeamView()
         teamDirectOnly = directOnly; teamLoading = true
-        try { team = withContext(io) { backend.team(directOnly) } }
+        val epoch = backend.authorizationEpoch
+        try {
+            val result = withContext(io) { backend.team(directOnly) }
+            if (state is EnrollmentState.Ready && epoch == backend.authorizationEpoch) team = result
+        }
         catch (e: kotlinx.coroutines.CancellationException) { throw e }
         catch (_: Exception) { team = team.copy(message = "Couldn't load your team. Try again.") }
         finally { teamLoading = false }
@@ -1112,7 +1170,7 @@ class FieldController(
         /** Fixed copy only — server text, URLs and credentials never reach the screen. */
         fun userMessage(e: Throwable): String = when (e) {
             is AuthFailure -> e.kind.message
-            is ConvexFunctionError -> when (e.code) {
+            is ServerError -> when (e.code) {
                 "Device identity mismatch" -> "This phone is registered to a different account. Ask your administrator."
                 "Device scope changed", "Device scope unavailable" ->
                     "Your assignment changed. Ask your administrator to re-register this phone."

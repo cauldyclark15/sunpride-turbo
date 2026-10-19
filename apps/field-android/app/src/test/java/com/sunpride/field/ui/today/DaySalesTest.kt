@@ -1,7 +1,7 @@
 package com.sunpride.field.ui.today
 
 import com.sunpride.field.auth.AuthFailure
-import com.sunpride.field.auth.ConvexFunctionError
+import com.sunpride.field.auth.ServerError
 import com.sunpride.field.storage.ProductiveCall
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -53,7 +53,7 @@ class DaySalesTest {
 
     @Test fun refusalWrongDayAndNoCopyNeverShowFigures() {
         val cache = Cache().apply { write(day, report(), 1L) }
-        val refused = DaySalesRepository.load(day, cache, 2L) { throw ConvexFunctionError("Forbidden") }
+        val refused = DaySalesRepository.load(day, cache, 2L) { throw ServerError("Forbidden") }
         assertNull(refused.sales); assertEquals("Not available for your account", refused.message)
         val wrongDay = DaySalesRepository.load(day, Cache(), 2L) { report(date = "2026-10-04") }
         assertNull(wrongDay.sales)

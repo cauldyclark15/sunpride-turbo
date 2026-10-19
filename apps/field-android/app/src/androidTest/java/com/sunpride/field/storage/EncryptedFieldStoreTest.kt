@@ -327,7 +327,7 @@ class EncryptedFieldStoreTest {
         assertNotNull(repo.load("outlet-1", day, cache(), 10) { live }.order)
         assertNotNull(repo.load("outlet-1", day, cache(), 11, offline).order)
         val refused = repo.load("outlet-1", day, cache(), 12) {
-            throw com.sunpride.field.auth.ConvexFunctionError("Forbidden") }
+            throw com.sunpride.field.auth.ServerError("Forbidden") }
         assertNull(refused.order); assertEquals(repo.NOT_ALLOWED, refused.message)
         val row = store().localCache("local.suggestedOrder", repo.key(day, "outlet-1"))!!
         assertTrue(row.tombstone); assertFalse(row.json!!.contains("product-1"))

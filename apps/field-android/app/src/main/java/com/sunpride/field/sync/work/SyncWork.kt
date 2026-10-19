@@ -43,7 +43,7 @@ class VisitSyncWorker(context: Context, parameters: WorkerParameters) : Coroutin
         val app = applicationContext
         return try {
             testSync?.let { return outcome(it(), app) }
-            val backend = LiveFieldBackend(AppEnvironment(BuildConfig.CONVEX_SITE_URL, BuildConfig.CONVEX_URL),
+            val backend = LiveFieldBackend(AppEnvironment(BuildConfig.SUNPRIDE_API_ORIGIN),
                 SessionVaults.app(app), app) { KeystoreDeviceKey.loadOrCreate(app) }
             if (!backend.isSignedIn) return Result.success()
             val device = backend.cachedDeviceId ?: return Result.success()
