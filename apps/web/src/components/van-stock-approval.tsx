@@ -2,17 +2,13 @@
 
 import { Button } from "@heroui/react";
 import { Card, FormField, WorkspaceIcon } from "@sunpride/ui";
-import { api } from "@sunpride/backend/api";
-import { useMutation, useQuery } from "convex/react";
-import type { FunctionArgs, FunctionReturnType } from "convex/server";
+import { usePermissions } from "../lib/auth";
+import { useVanCommand } from "./van/use-command";
+import type { StockCode, StockCodeInput } from "./van/model";
 import { useState, type FormEvent } from "react";
 
-type IssuedCode = FunctionReturnType<
-  typeof api.van.stock_count.issueApprovalCode
->;
-type Issue = (
-  args: FunctionArgs<typeof api.van.stock_count.issueApprovalCode>,
-) => Promise<IssuedCode>;
+type IssuedCode = StockCode;
+type Issue = (args: StockCodeInput) => Promise<IssuedCode>;
 
 /** The count code as read out ("abcd-ef12 3456") → "ABCDEF123456", or null unless 12 hex characters. */
 export function normalizeCountCode(input: string): string | null {
@@ -72,12 +68,14 @@ export async function requestStockCode(
  * quantity and reason), so the code approves only that exact count.
  */
 export function VanStockApproval() {
-  const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
-  const issue = useMutation(api.van.stock_count.issueApprovalCode);
+  const permissions = usePermissions();
+  const issue = useVanCommand<StockCodeInput, StockCode>(
+    "/api/v1/van/stock/approval-code",
+  );
   const [result, setResult] = useState<IssuedCode | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  if (!permissions?.capabilities.includes("van.stock.approve")) return null;
+  if (!permissions.can("van.stock.approve")) return null;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

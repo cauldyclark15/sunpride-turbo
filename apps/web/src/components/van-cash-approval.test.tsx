@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { getFunctionName } from "convex/server";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CASH_VARIANCE_REASONS } from "../../../../packages/backend/convex/van/model";
 import {
@@ -13,13 +13,15 @@ import {
 const state = vi.hoisted(() => ({
   values: {} as Record<string, unknown>,
 }));
-vi.mock("convex/react", () => ({
-  useQuery: (reference: unknown, args: unknown) =>
-    args === "skip"
-      ? undefined
-      : state.values[getFunctionName(reference as never)],
-  useMutation: () => vi.fn(),
+vi.mock("../lib/auth", () => ({
+  usePermissions: () => ({
+    can: (capability: string) =>
+      (
+        state.values["permissions"] as { capabilities: string[] }
+      )?.capabilities.includes(capability) ?? false,
+  }),
 }));
+vi.mock("../lib/api", () => ({ mutate: vi.fn() }));
 
 const form = (values: Record<string, string>) => ({
   get: (name: string) => values[name] ?? null,
@@ -28,7 +30,7 @@ const render = () => renderToStaticMarkup(createElement(VanCashApproval));
 
 beforeEach(() => {
   state.values = {
-    "lib/capabilities:currentPermissions": {
+    permissions: {
       capabilities: ["van.cash.approve"],
     },
   };
@@ -102,7 +104,7 @@ describe("van cash count approval (VAN-022)", () => {
     expect(html).toContain("Van cash count approval");
     expect(html).toContain('name="tripNumber"');
     expect(html).toContain("Fake bill or coin");
-    state.values["lib/capabilities:currentPermissions"] = {
+    state.values["permissions"] = {
       capabilities: ["van.void.approve"],
     };
     expect(render()).toBe("");

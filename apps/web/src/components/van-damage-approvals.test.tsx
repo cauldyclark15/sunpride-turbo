@@ -1,6 +1,6 @@
 import React, { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { getFunctionName } from "convex/server";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   VanDamageApprovals,
@@ -11,7 +11,7 @@ import {
 
 const state = vi.hoisted(() => ({
   rows: [] as Record<string, unknown>[],
-  status: "Exhausted" as string,
+  status: "exhausted" as string,
   paginated: [] as unknown[],
   mutations: [] as Array<{ name: string; args: unknown }>,
   buttons: [] as Array<{ label: string; onPress: () => void }>,
@@ -19,22 +19,21 @@ const state = vi.hoisted(() => ({
   notes: {} as Record<string, string>,
 }));
 
-vi.mock("convex/react", () => ({
-  usePaginatedQuery: (ref: unknown, args: unknown, options: unknown) => {
-    state.paginated.push({
-      name: getFunctionName(ref as never),
-      args,
-      options,
-    });
-    return { results: state.rows, status: state.status, loadMore: vi.fn() };
+vi.mock("../lib/api", () => ({
+  useApiPages: (key: unknown) => {
+    state.paginated.push({ key });
+    return { items: state.rows, status: state.status, loadMore: vi.fn() };
   },
-  useMutation: (ref: unknown) => {
-    const name = getFunctionName(ref as never);
-    return vi.fn(async (args: unknown) => {
+  useLive: vi.fn(),
+  apiFetch: vi.fn(),
+}));
+vi.mock("../lib/auth", () => ({ usePermissions: () => ({ can: () => true }) }));
+vi.mock("./van/use-command", () => ({
+  useVanCommand: (name: string) =>
+    vi.fn(async (args: unknown) => {
       state.mutations.push({ name, args });
       return null;
-    });
-  },
+    }),
 }));
 vi.mock("react", async (original) => {
   const actual = await original<typeof import("react")>();
@@ -98,7 +97,7 @@ const render = () => renderToStaticMarkup(createElement(VanDamageApprovals));
 
 beforeEach(() => {
   state.rows = [];
-  state.status = "Exhausted";
+  state.status = "exhausted";
   state.paginated = [];
   state.mutations = [];
   state.buttons = [];
@@ -114,9 +113,8 @@ describe("truck damage approvals (VAN-020)", () => {
     expect(formatDamageQuantity(7n, 3n)).toBe("7/3");
     expect(damageReasonLabel("spoiled")).toBe("Spoiled");
     expect(damageErrorMessage({ data: "Not yours" })).toBe("Not yours");
-    expect(damageErrorMessage(new Error("x"))).toBe(
-      "Action failed. Try again.",
-    );
+    expect(damageErrorMessage(new Error("x"))).toBe("x");
+    expect(damageErrorMessage({})).toBe("Action failed. Try again.");
   });
 
   it("lists pending records with photo, note and both decisions", async () => {
@@ -124,9 +122,7 @@ describe("truck damage approvals (VAN-020)", () => {
     const html = render();
     expect(state.paginated).toEqual([
       {
-        name: "van/damage:listForReview",
-        args: { status: "pending_approval" },
-        options: { initialNumItems: 20 },
+        key: ["van", "damage"],
       },
     ]);
     expect(html).toContain("Truck damage");
@@ -142,7 +138,7 @@ describe("truck damage approvals (VAN-020)", () => {
     await Promise.resolve();
     expect(state.mutations).toEqual([
       {
-        name: "van/damage:decide",
+        name: "/api/v1/van/damage/decide",
         args: { damageId: "d1", decision: "approve" },
       },
     ]);
@@ -161,7 +157,7 @@ describe("truck damage approvals (VAN-020)", () => {
     await Promise.resolve();
     expect(state.mutations).toEqual([
       {
-        name: "van/damage:decide",
+        name: "/api/v1/van/damage/decide",
         args: { damageId: "d1", decision: "reject", note: "Label only" },
       },
     ]);
@@ -169,14 +165,14 @@ describe("truck damage approvals (VAN-020)", () => {
 
   it("hides decisions the caller may not take and shows empty and paging states", () => {
     state.rows = [row({ canDecide: false, photoUrl: null })];
-    state.status = "CanLoadMore";
+    state.status = "canLoadMore";
     const html = render();
     expect(html).toContain("No photo");
     expect(html).toContain("Another supervisor decides this one");
     expect(html).not.toContain(">Approve<");
     expect(html).toContain("Show older");
     state.rows = [];
-    state.status = "Exhausted";
+    state.status = "exhausted";
     expect(render()).toContain("No truck damage waiting");
   });
 });

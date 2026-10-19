@@ -2,9 +2,9 @@
 
 import { Button } from "@heroui/react";
 import { Card, FormField, WorkspaceIcon } from "@sunpride/ui";
-import { api } from "@sunpride/backend/api";
-import { useMutation, useQuery } from "convex/react";
-import type { FunctionArgs, FunctionReturnType } from "convex/server";
+import { usePermissions } from "../lib/auth";
+import { useVanCommand } from "./van/use-command";
+import type { VoidCode, VoidCodeInput } from "./van/model";
 import { useState, type FormEvent } from "react";
 
 /** Mirrors `VOID_REASONS` in `convex/van/model.ts` (parity-tested). */
@@ -27,10 +27,8 @@ export function pesosToCentavos(text: string): string | null {
   return centavos.toString();
 }
 
-type IssuedCode = FunctionReturnType<typeof api.van.voids.issueApprovalCode>;
-type Issue = (
-  args: FunctionArgs<typeof api.van.voids.issueApprovalCode>,
-) => Promise<IssuedCode>;
+type IssuedCode = VoidCode;
+type Issue = (args: VoidCodeInput) => Promise<IssuedCode>;
 
 /** Form boundary: receipt number, exact peso total and a known reason, or a plain-words error. */
 export async function requestVoidCode(
@@ -54,12 +52,14 @@ export async function requestVoidCode(
  * reads back the 8-digit code. The code works only for that receipt, total and reason.
  */
 export function VanVoidApproval() {
-  const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
-  const issue = useMutation(api.van.voids.issueApprovalCode);
+  const permissions = usePermissions();
+  const issue = useVanCommand<VoidCodeInput, VoidCode>(
+    "/api/v1/van/void/approval-code",
+  );
   const [result, setResult] = useState<IssuedCode | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  if (!permissions?.capabilities.includes("van.void.approve")) return null;
+  if (!permissions.can("van.void.approve")) return null;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

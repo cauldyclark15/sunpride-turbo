@@ -95,6 +95,12 @@ vi.mock("convex/react", () => ({
     });
   },
 }));
+vi.mock("../lib/auth", () => ({
+  usePermissions: () => ({
+    can: (capability: string) =>
+      state.permissions.capabilities.includes(capability),
+  }),
+}));
 vi.mock("./van-damage-approvals", () => ({
   VanDamageApprovals: () => createElement("div", null, "van-damage-approvals"),
 }));
