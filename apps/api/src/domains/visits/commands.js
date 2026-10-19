@@ -3,6 +3,7 @@ import { canonicalJson } from "../../core/util.js";
 import { rulesAt, missingKinds, ACTIVITY_KINDS } from "./rules.js";
 import { recordLocation } from "./location.js";
 import { validateAccountCapture } from "./capture.js";
+import { recordEntries } from "../fieldreports/call-sheets.js";
 import { isProductive, RULE_VERSION } from "./productive.js";
 import {
   ORGANIZATION,
@@ -265,6 +266,22 @@ export async function activity(ctx) {
   const [row] =
     await ctx.db`insert into visit_activities (organization_id,org_unit_id,visit_id,assignee_profile_id,outlet_id,activity_kind,activity,device_time,server_time)
     values (${ORGANIZATION},${visit.org_unit_id},${visit.id},${ctx.actor.profileId},${visit.outlet_id},${p.activity.kind},${p.activity},${new Date(p.deviceTime)},${new Date(ctx.now)}) returning id`;
+  if (p.activity.kind === "call_sheet") {
+    await recordEntries(
+      ctx,
+      { activityId: row.id },
+      {
+        recordChange: (/** @type {any} */ _db, /** @type {any} */ change) =>
+          ctx.change(
+            change.entity,
+            change.entityId,
+            change.scopeKey,
+            change.op,
+          ),
+      },
+    );
+    ctx.publish("call_sheets");
+  }
   await ctx.db`update visit_executions set state='in-progress' where id=${visit.id}`;
   await touchVisit(ctx, visit);
   const eventId = await event(

@@ -53,6 +53,20 @@ export async function exceptionsFor(ctx, p, s, prefetched = {}) {
       : null;
   const personFor = (/** @type {string} */ id) =>
     people.find((/** @type {any} */ r) => r.id === id);
+  const storeOwner = (/** @type {any} */ store) => {
+    const representative = people.find(
+      (/** @type {any} */ person) =>
+        person.role === "sales" && person.territory_id === store?.territory_id,
+    );
+    const supervisor = owner(representative);
+    if (supervisor) return supervisor;
+    const manager = people.find(
+      (/** @type {any} */ person) =>
+        ["manager", "admin", "super_admin"].includes(person.role) &&
+        person.current_unit_id === store?.owner_unit_id,
+    );
+    return manager ? { profileId: manager.id, name: manager.name } : null;
+  };
   const add = (
     /** @type {string} */ kind,
     /** @type {string} */ id,
@@ -202,7 +216,7 @@ export async function exceptionsFor(ctx, p, s, prefetched = {}) {
         null,
         ctx.now,
         { status: v.status },
-        `/van?trip=${v.tripId}`,
+        `/van-trips?tripId=${v.tripId}`,
       );
     if (v.variance != null && v.variance !== 0)
       add(
@@ -216,7 +230,7 @@ export async function exceptionsFor(ctx, p, s, prefetched = {}) {
         null,
         ctx.now,
         { variance: v.variance },
-        `/van?trip=${v.tripId}`,
+        `/van-trips?tripId=${v.tripId}`,
       );
     if (v.stockVarianceCases != null && v.stockVarianceCases !== 0)
       add(
@@ -230,7 +244,7 @@ export async function exceptionsFor(ctx, p, s, prefetched = {}) {
         null,
         ctx.now,
         { varianceCases: v.stockVarianceCases },
-        `/van?trip=${v.tripId}`,
+        `/van-trips?tripId=${v.tripId}`,
       );
   }
   // A blind counter must not learn expected-stock facts through a report, even aggregate signs.
@@ -264,11 +278,11 @@ export async function exceptionsFor(ctx, p, s, prefetched = {}) {
       `${store?.name ?? "Store"} has a shelf gap`,
       "A recorded audit found a required product missing.",
       { type: "sku", id: a.product_id, label: "Missing product" },
-      null,
+      storeOwner(store),
       null,
       ms(a.created_at) ?? ctx.now,
       { storeId: a.outlet_id, productId: a.product_id },
-      `/inventory?product=${a.product_id}`,
+      `/stores/store?storeId=${a.outlet_id}`,
     );
   }
   for (const r of money.rows.filter(
@@ -284,11 +298,11 @@ export async function exceptionsFor(ctx, p, s, prefetched = {}) {
       `${r.name} is above credit limit`,
       "Recorded receivables exceed the configured credit limit.",
       { type: "store", id: store?.id ?? r.accountId, label: r.name },
-      null,
+      storeOwner(store),
       null,
       ctx.now,
       { balance: r.balance, creditLimit: r.creditLimit },
-      `/admin?section=outlets&outlet=${store?.id ?? r.accountId}`,
+      `/money?accountId=${r.accountId}`,
     );
   }
   const pendingOrders =
@@ -336,7 +350,16 @@ export async function exceptionsFor(ctx, p, s, prefetched = {}) {
   const talks =
     await db`select i.*,s.owner_profile_id,s.org_unit_id from talk_sheet_items i join talk_sheets s on s.id=i.sheet_id join analytics_people p on p.id=s.owner_profile_id where i.status='overdue' and s.status='final' and s.org_unit_id in ${db(ids)} and p.current_unit_id in ${db(ids)} and (${s.ownProfileId}::uuid is null or p.id=${s.ownProfileId}) and (${p.channel}::text is null or p.channel_scope=${p.channel})`;
   for (const t of talks) {
-    const person = personFor(t.owner_profile_id);
+    const matches = people.filter((/** @type {any} */ person) =>
+      [person.name, person.email].some(
+        (value) =>
+          value &&
+          value.trim().toLowerCase() ===
+            String(t.responsible).trim().toLowerCase(),
+      ),
+    );
+    const person =
+      matches.length === 1 ? matches[0] : personFor(t.owner_profile_id);
     add(
       "talk_sheet_overdue",
       t.id,
@@ -352,7 +375,7 @@ export async function exceptionsFor(ctx, p, s, prefetched = {}) {
       null,
       ms(t.created_at) ?? ctx.now,
       { gap: t.gap, responsible: t.responsible, timeline: t.timeline },
-      `/supervision?tab=talk-sheets&item=${t.id}`,
+      `/supervision?tab=talk&item=${t.id}`,
     );
   }
   const perDiems =
@@ -373,7 +396,7 @@ export async function exceptionsFor(ctx, p, s, prefetched = {}) {
       null,
       ms(v.decided_at) ?? ctx.now,
       { invalidCalls: v.invalid_calls, notVisited: v.not_visited },
-      `/supervision?tab=per-diem&person=${v.profile_id}`,
+      `/supervision?tab=perdiem&profileId=${v.profile_id}`,
     );
   }
   const newStores =
@@ -421,11 +444,11 @@ export async function exceptionsFor(ctx, p, s, prefetched = {}) {
         `${o.name} has stopped buying`,
         "A historically buying key store has no sale in the period.",
         { type: "store", id: o.id, label: o.name },
-        null,
+        storeOwner(o),
         null,
         ctx.now,
         { lastBuyingDate: dateOf(last.d) },
-        `/admin?section=outlets&outlet=${o.id}`,
+        `/stores/store?storeId=${o.id}`,
       );
   }
   const rank = /** @type {Record<string,number>} */ ({

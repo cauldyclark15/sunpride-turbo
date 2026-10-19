@@ -121,9 +121,18 @@ export function management(d, c, e) {
       const key = `${month}-${target.level}-${target.key}`;
       const row = d.add("sales_targets", key, {
         organization_id: org,
-        subject_kind: target.subject_kind,
+        subject_kind: ["company", "channel"].includes(target.level)
+          ? target.level
+          : target.subject_kind,
+        month,
+        level: target.level,
+        target_key: target.key,
+        amount_centavos: target.amount,
+        revision_at: d.epoch,
         profile_id: target.profile_id,
-        team_id: target.team_id,
+        team_id: ["company", "channel"].includes(target.level)
+          ? null
+          : target.team_id,
         territory_id: target.territory_id,
         period: "monthly",
         metric: "sales_value",

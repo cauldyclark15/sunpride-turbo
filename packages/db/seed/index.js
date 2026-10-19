@@ -14,6 +14,22 @@ export function generateDemo(
 ) {
   const data = new Dataset(anchorDate, days);
   const c = company(data, hashes);
+  // The maintained selling catalog is required by both mobile capture owners.
+  for (const store of c.stores) {
+    const account = data.add("call_sheet_accounts", store.id, {
+      organization_id: "sunpride",
+      outlet_id: store.id,
+      revision: 1,
+      header_account_name: store.name,
+      updated_by: "system:sample",
+    });
+    for (const [ordinal, product] of c.products.entries())
+      data.add("call_sheet_account_lines", `${store.id}-${product.id}`, {
+        call_sheet_account_id: account.id,
+        ordinal,
+        product_id: product.id,
+      });
+  }
   const stock = stockBook(data, c);
   const e = execution(data, c, stock);
   vans(data, c, stock);

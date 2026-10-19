@@ -145,6 +145,12 @@ export async function scopeFor(ctx) {
     label,
     ownProfileId: actor.role === "sales" ? actor.profileId : null,
     cross: CROSS_SCOPE_ROLES.includes(actor.role) && !requested,
+    companyScope:
+      actor.role !== "sales" &&
+      !requested &&
+      (
+        await ctx.db`select id from org_units where code='SUNPRIDE' and organization_id='sunpride' and deleted_at is null`
+      ).some((/** @type {any} */ u) => ids.includes(u.id)),
   };
 }
 /** @param {any} ctx @param {boolean} [day] */

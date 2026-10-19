@@ -364,7 +364,7 @@ export function VanTripsView({
             <p className="text-xs text-muted">{label}</p>
             <p className="mt-2 text-xl tabular-nums">{value}</p>
             {label === "Sales target" && data.targetCentavos === null && (
-              <Link href="/sales-targets" className="text-xs underline">
+              <Link href="/sales?tab=targets" className="text-xs underline">
                 Set targets
               </Link>
             )}

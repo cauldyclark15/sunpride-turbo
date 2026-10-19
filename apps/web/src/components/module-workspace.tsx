@@ -7,7 +7,7 @@ import {
   WorkspaceModuleTabs,
 } from "@sunpride/ui";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 import {
   getWebModuleTabs,
@@ -150,6 +150,16 @@ function AllowedModuleWorkspace({
   );
 }
 
+function VanTripRoute() {
+  const query = useSearchParams();
+  return (
+    <VanTripsWorkspace
+      initialDate={query.get("date") ?? undefined}
+      initialTripId={query.get("tripId")}
+    />
+  );
+}
+
 function ModuleContent({ module }: { module: WebModuleSlug }): ReactNode {
   switch (module) {
     case "orders":
@@ -173,7 +183,7 @@ function ModuleContent({ module }: { module: WebModuleSlug }): ReactNode {
     case "pricing":
       return <PricingWorkspace />;
     case "van-trips":
-      return <VanTripsWorkspace />;
+      return <VanTripRoute />;
     case "inventory":
       return <InventoryWorkspace setupMessage="" />;
     case "imports":

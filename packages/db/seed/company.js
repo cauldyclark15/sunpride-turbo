@@ -34,7 +34,7 @@ function barcode(index) {
 export function company(d, hashes) {
   const root = d.add("org_units", "national", {
     organization_id: org,
-    code: "SMP-PH",
+    code: "SUNPRIDE",
     name: "Sunpride Demo Philippines",
     type_code: "national",
     status: "active",
@@ -142,7 +142,7 @@ export function company(d, hashes) {
       employee_code: `SMP-${key.toUpperCase()}`,
       position_id: positions[position].id,
       employment_type: "sfi_employee",
-      channel_scope: key === "van" ? "PMOT" : "GT",
+      channel_scope: key === "van" ? "pmot" : "gt",
       effective_from: d.epoch,
     });
   }
@@ -206,10 +206,10 @@ export function company(d, hashes) {
               employment_type: "sfi_employee",
               channel_scope:
                 agentPositions[i] === "KAS"
-                  ? "KA"
+                  ? "kas"
                   : agentPositions[i].startsWith("PMOT")
-                    ? "PMOT"
-                    : "GT",
+                    ? "pmot"
+                    : "gt",
               effective_from: d.epoch,
             });
     p.supervisor_subject = supervisors[Math.floor(i / 6)].auth_subject;

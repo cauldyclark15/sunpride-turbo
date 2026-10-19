@@ -18,6 +18,7 @@ import {
   completeTask,
 } from "./commands.js";
 import { attach, canClaimVisitMedia } from "./evidence.js";
+import { canClaimMedia as canClaimVanMedia } from "../van/media.js";
 import { decideLocation } from "./location.js";
 import { list, detail, media } from "./reads.js";
 import { trace, lateQueue } from "./review.js";
@@ -68,7 +69,12 @@ export function install(router, installCtx) {
   installCtx.registerTopic("visits", (/** @type {any} */ actor) =>
     roleHas(actor.role, "visit.read"),
   );
-  setHooks({ canClaimMedia: canClaimVisitMedia });
+  setHooks({
+    canClaimMedia: (db, actor, claim) =>
+      claim.purpose === "truck-damage"
+        ? canClaimVanMedia(db, actor, claim)
+        : canClaimVisitMedia(db, actor, claim),
+  });
   installCtx.registerJob(
     "visits.refresh",
     async (/** @type {any} */ jobCtx) => {

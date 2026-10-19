@@ -48,7 +48,12 @@ async function buildTargetBook(db, s, month) {
   /** @param {string} level @param {string} key @returns {number|null} */
   function amount(level, key) {
     const own = explicit.get(`${level}:${key}`);
-    if (own && ((level !== "company" && level !== "channel") || s.cross))
+    if (
+      own &&
+      ((level !== "company" && level !== "channel") ||
+        s.cross ||
+        s.companyScope)
+    )
       return Number(own.amount_centavos);
     /** @type {(number|null)[]} */ let children = [];
     if (level === "company") {
@@ -119,11 +124,13 @@ export async function listTargets(ctx) {
         label: sub.label,
         amountCentavos: amount,
         setBy:
-          own && (s.cross || !["company", "channel"].includes(level))
+          own &&
+          (s.cross || s.companyScope || !["company", "channel"].includes(level))
             ? own.created_by
             : null,
         setAt:
-          own && (s.cross || !["company", "channel"].includes(level))
+          own &&
+          (s.cross || s.companyScope || !["company", "channel"].includes(level))
             ? new Date(own.revision_at).getTime()
             : null,
       };

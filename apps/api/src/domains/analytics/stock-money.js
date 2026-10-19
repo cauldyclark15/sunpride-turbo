@@ -17,41 +17,75 @@ import {
   readMoney,
 } from "./data.js";
 
-/** The schema has no remittance/close ledger yet: absent fields remain unknown, never zero.
+/** Canonical VAN settlement sources, scoped by the currently authorized trip.
  * @param {any} db @param {any} p @param {any} s */
 export async function readVans(db, p, s) {
   const ids = s.ids.length ? s.ids : [null];
   const trips =
-    await db`select t.*,v.name as vehicle_name,v.vehicle_code,pe.name as seller_name,
-    (select sum(f.sales_centavos) from analytics_sales_facts f where f.route_session_id=t.route_session_id and f.service_date=t.service_date and f.agent_unit_id in ${db(ids)} and f.owner_unit_id in ${db(ids)} and (f.source_location_id is null or f.source_unit_id in ${db(ids)})) as sales_centavos,
-    (select count(*) from orders o where o.route_session_id=t.route_session_id and o.status='voided') as voids
+    await db`select t.*,v.name vehicle_name,v.vehicle_code,pe.name seller_name,
+    (select sum(f.sales_centavos) from analytics_sales_facts f where f.route_session_id=t.route_session_id and f.service_date=t.service_date and f.agent_unit_id in ${db(ids)} and f.owner_unit_id in ${db(ids)} and (f.source_location_id is null or f.source_unit_id in ${db(ids)})) legacy_sales
     from van_trips t join vehicles v on v.id=t.vehicle_id join analytics_people pe on pe.id=t.salesperson_profile_id
     where t.deleted_at is null and t.status!='cancelled' and t.service_date between ${p.from} and ${p.to} and t.org_unit_id in ${db(ids)} and pe.current_unit_id in ${db(ids)}
     and (${s.ownProfileId}::uuid is null or pe.id=${s.ownProfileId}) and (${p.channel}::text is null or pe.channel_scope=${p.channel})`;
-  const products = await readProducts(db);
-  const loads =
-    await db`select l.trip_id,l.product_id,sum(l.actual_base) as quantity from van_trip_load_lines l join van_trip_loads h on h.id=l.load_id where h.status='posted' and l.trip_id in ${db(trips.length ? trips.map((/** @type {any} */ t) => t.id) : [null])} and l.deleted_at is null group by l.trip_id,l.product_id`;
-  return trips.map((/** @type {any} */ t) => {
-    const selected = loads.filter((/** @type {any} */ l) => l.trip_id === t.id);
-    const cases = selected.map((/** @type {any} */ l) => {
+  const tripIds = trips.length
+    ? trips.map((/** @type {any} */ t) => t.id)
+    : [null];
+  const [products, loads, events, counts, settlements, sales] =
+    await Promise.all([
+      readProducts(db),
+      db`select l.trip_id,l.product_id,sum(l.actual_base) quantity from van_trip_load_lines l join van_trip_loads h on h.id=l.load_id where h.status='posted' and l.trip_id in ${db(tripIds)} and l.deleted_at is null group by l.trip_id,l.product_id`,
+      db`select * from van_stock_events where trip_id in ${db(tripIds)}`,
+      db`select c.trip_id,l.* from van_stock_count_lines l join van_stock_counts c on c.id=l.count_id where c.trip_id in ${db(tripIds)}`,
+      db`select t.id trip_id,c.expected_centavos,c.declared_centavos,c.variance_centavos,r.amount_centavos remitted,
+      (select sum(case when kind in ('refund','void_refund') then -amount_centavos else amount_centavos end) from van_payments where trip_id=t.id and method='cash') expected
+      from van_trips t left join van_cash_counts c on c.trip_id=t.id left join van_cash_remittances r on r.trip_id=t.id where t.id in ${db(tripIds)}`,
+      db`select s.trip_id,count(*) total,count(v.id) voids,coalesce(sum(s.total_centavos) filter(where v.id is null),0) sales,coalesce(sum(s.discount_centavos) filter(where v.id is null),0) discounts from van_sales s left join van_sale_voids v on v.sale_id=s.id where s.trip_id in ${db(tripIds)} group by s.trip_id`,
+    ]);
+  const casesFor = (
+    /** @type {any[]} */ rows,
+    /** @type {(row:any)=>number} */ quantity,
+  ) => {
+    if (!rows.length) return null;
+    const values = rows.map((row) => {
       const product = products.find(
-        (/** @type {any} */ p) => p.id === l.product_id,
+        (/** @type {any} */ pr) => pr.id === row.product_id,
       );
-      const u = product ? units(product, num(l.quantity)) : null;
-      return u?.cases == null
-        ? null
-        : u.cases +
-            ((u.pieces ?? 0) * Number(product.quantity_scale ?? 1)) /
-              Number(product.case_base ?? product.quantity_scale ?? 1);
+      const caseBase = Number(row.facts?.caseBase ?? product?.case_base ?? 0);
+      return caseBase > 0 ? quantity(row) / caseBase : null;
     });
+    return values.every((v) => v !== null)
+      ? values.reduce((n, v) => n + Number(v), 0)
+      : null;
+  };
+  return trips.map((/** @type {any} */ t) => {
+    const own = events.filter((/** @type {any} */ e) => e.trip_id === t.id);
+    const cash = settlements.find((/** @type {any} */ c) => c.trip_id === t.id);
+    const sold = sales.find((/** @type {any} */ sale) => sale.trip_id === t.id);
+    const counted = counts.filter((/** @type {any} */ c) => c.trip_id === t.id);
+    const expected = num(
+      cash?.expected ?? cash?.expected_centavos ?? (own.length ? 0 : null),
+    );
+    const remitted = num(cash?.remitted);
+    const movementCases = (
+      /** @type {string[]} */ kinds,
+      /** @type {number} */ sign,
+    ) => {
+      const selected = own.filter((/** @type {any} */ e) =>
+        kinds.includes(e.kind),
+      );
+      return selected.length
+        ? casesFor(selected, (e) => sign * Number(e.delta_base))
+        : own.length
+          ? 0
+          : null;
+    };
     const state =
       t.status === "closed"
         ? "settled"
-        : ["closing", "reconciling"].includes(t.status)
-          ? "returned"
-          : t.status === "review_required" ||
-              (dateOf(t.service_date) < p.today && t.status !== "closed")
-            ? "unclosed"
+        : dateOf(t.service_date) < p.today || t.status === "review_required"
+          ? "unclosed"
+          : ["closing", "reconciling"].includes(t.status)
+            ? "returned"
             : t.status === "active"
               ? "on_route"
               : "loading";
@@ -60,26 +94,22 @@ export async function readVans(db, p, s) {
       truck: t.vehicle_name ?? t.vehicle_code,
       seller: t.seller_name,
       status: state,
-      loadedCases:
-        cases.length && cases.every((/** @type {number|null} */ c) => c != null)
-          ? cases.reduce(
-              (/** @type {number} */ a, /** @type {number|null} */ b) =>
-                a + (b ?? 0),
-              0,
-            )
-          : null,
-      soldCases: null,
-      returnedCases: null,
-      stockVarianceCases: null,
-      salesCentavos: Number(t.sales_centavos ?? 0),
-      cashExpected: num(t.cash_expected_minor),
-      cashRemitted: num(t.cash_remitted_minor),
+      loadedCases: casesFor(
+        loads.filter((/** @type {any} */ l) => l.trip_id === t.id),
+        (l) => Number(l.quantity),
+      ),
+      soldCases: movementCases(["sale", "void"], -1),
+      returnedCases: movementCases(["unload"], -1),
+      stockVarianceCases: counted.length
+        ? casesFor(counted, (c) => Number(c.variance_base))
+        : null,
+      salesCentavos: sold ? Number(sold.sales) : Number(t.legacy_sales ?? 0),
+      cashExpected: expected,
+      cashRemitted: remitted,
       variance:
-        t.cash_expected_minor != null && t.cash_remitted_minor != null
-          ? Number(t.cash_remitted_minor) - Number(t.cash_expected_minor)
-          : null,
-      voids: Number(t.voids),
-      discountsCentavos: num(t.discounts_minor),
+        expected !== null && remitted !== null ? remitted - expected : null,
+      voids: Number(sold?.voids ?? 0),
+      discountsCentavos: sold ? Number(sold.discounts) : own.length ? 0 : null,
       closedAt: ms(t.closed_at),
     };
   });

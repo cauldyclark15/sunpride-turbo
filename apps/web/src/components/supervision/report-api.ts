@@ -9,7 +9,7 @@ export type EndpointArgs<K extends keyof Endpoints> = Endpoints[K]["args"];
 export function reportPath(name: string) {
   // Location decisions remain VISITS-owned, never a second evidence writer here.
   if (name === "visits.location.decideLocationException")
-    return "/api/v1/visits/location/decideLocationException";
+    return "/api/v1/visits/location-exception/decide";
   return `/api/v1/fieldreports/${name.replaceAll(".", "/")}`;
 }
 export function useReport<K extends keyof Endpoints>(

@@ -27,9 +27,9 @@ export function install(router, ctx) {
   router.get("/api/v1/location/consent", consentState);
   router.post("/api/v1/location/consent", consent);
   router.post("/api/v1/location/end-day", endDay);
-  const vanAbsent = readFileSync(
-    new URL("../van/index.js", import.meta.url),
-    "utf8",
-  ).includes("// placeholder: replaced by lane van");
+  const vanAbsent =
+    readFileSync(new URL("../van/index.js", import.meta.url), "utf8").match(
+      /placeholder:\s*replaced by lane van/,
+    ) !== null;
   installJobs(ctx, vanAbsent);
 }

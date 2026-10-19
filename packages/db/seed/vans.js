@@ -160,6 +160,124 @@ export function vans(d, c, stock) {
           },
           start,
         );
+      const frozen = (/** @type {any} */ p) => ({
+        productId: p.id,
+        code: p.code,
+        name: p.name,
+        uomCode: "PC",
+        quantityScale: "1",
+        caseBase: String(p.caseQty),
+        pieceBase: "1",
+      });
+      for (const l of loadLines)
+        d.add(
+          "van_stock_events",
+          `load-${key}-${l.p}`,
+          {
+            trip_id: trip.id,
+            source_id: load.id,
+            kind: "load",
+            product_id: c.products[l.p].id,
+            stock_status: "available",
+            delta_base: l.qty,
+            facts: frozen(c.products[l.p]),
+          },
+          start,
+        );
+      for (const order of posted) {
+        const lines = d
+          .rows("order_lines")
+          .filter((l) => l.order_id === order.id);
+        const store = c.stores.find(
+          (s) => s.customer.code === order.customer_code,
+        );
+        const receiptNumber = `SMP-RECEIPT-${order.order_number}`;
+        const sale = d.add(
+          "van_sales",
+          order.id,
+          {
+            trip_id: trip.id,
+            receipt_number: receiptNumber,
+            outlet_id: store?.id ?? null,
+            customer_code: order.customer_code,
+            total_centavos: Math.round(Number(order.total) * 100),
+            discount_centavos: 0,
+            receipt: {
+              receiptNumber,
+              customer: {
+                name: store?.name ?? "Sample account",
+                code: order.customer_code,
+                address: store?.address ?? "",
+              },
+              seller: { name: seller.name },
+              truck: {
+                name: vehicle.name,
+                code: vehicle.vehicle_code,
+                plateNumber: vehicle.plate_number,
+              },
+              tripNumber: trip.trip_number,
+              currency: "PHP",
+              totalMinor: String(Math.round(Number(order.total) * 100)),
+              discountMinor: "0",
+              payment: { kind: "cash", label: "Cash" },
+              source: "sample",
+              soldAt: Date.parse(order.created_at),
+            },
+            captured_request: { source: "sample", orderId: order.id },
+          },
+          order.created_at,
+        );
+        d.add(
+          "van_payments",
+          order.id,
+          {
+            trip_id: trip.id,
+            sale_id: sale.id,
+            kind: "sale",
+            method: "cash",
+            amount_centavos: Math.round(Number(order.total) * 100),
+            facts: { source: "sample" },
+          },
+          order.created_at,
+        );
+        for (const [ordinal, line] of lines.entries()) {
+          const product = c.products.find((p) => p.code === line.product_code);
+          if (!product) throw new Error("Sample van product missing");
+          const facts = {
+            ...frozen(product),
+            quantityBase: String(line.quantity),
+            totalMinor: String(Math.round(Number(line.line_total) * 100)),
+            lineNumber: ordinal,
+          };
+          d.add(
+            "van_sale_lines",
+            `${order.id}-${ordinal}`,
+            {
+              sale_id: sale.id,
+              ordinal,
+              product_id: product.id,
+              quantity_base: line.quantity,
+              total_centavos: Math.round(Number(line.line_total) * 100),
+              facts,
+            },
+            order.created_at,
+          );
+          d.add(
+            "van_stock_events",
+            `sale-${order.id}-${ordinal}`,
+            {
+              trip_id: trip.id,
+              source_id: sale.id,
+              kind: "sale",
+              product_id: product.id,
+              stock_status: "available",
+              delta_base: -Number(line.quantity),
+              facts,
+            },
+            order.created_at,
+          );
+        }
+      }
       if (today) continue;
       const returned = loadLines.map((l) => ({
         p: l.p,
@@ -213,6 +331,80 @@ export function vans(d, c, stock) {
         0,
       );
       const short = vi === 0 && date === shortTripDate ? 125_000 : 0;
+      const vanCount = d.add(
+        "van_stock_counts",
+        key,
+        {
+          trip_id: trip.id,
+          count_code: `SMP-COUNT-${key}`,
+          variance_lines: 0,
+          short_base: 0,
+          over_base: 0,
+          facts: { source: "sample" },
+        },
+        end,
+      );
+      for (const l of returned) {
+        const facts = frozen(c.products[l.p]);
+        d.add(
+          "van_stock_count_lines",
+          `${key}-${l.p}`,
+          {
+            count_id: vanCount.id,
+            product_id: c.products[l.p].id,
+            stock_status: "available",
+            expected_base: l.qty,
+            counted_base: l.qty,
+            variance_base: 0,
+            value_centavos: 0,
+            facts,
+          },
+          end,
+        );
+        d.add(
+          "van_stock_events",
+          `unload-${key}-${l.p}`,
+          {
+            trip_id: trip.id,
+            source_id: unload,
+            kind: "unload",
+            product_id: c.products[l.p].id,
+            stock_status: "available",
+            delta_base: -l.qty,
+            facts,
+          },
+          end,
+        );
+      }
+      const cashCount = d.add(
+        "van_cash_counts",
+        key,
+        {
+          trip_id: trip.id,
+          expected_centavos: expected,
+          declared_centavos: expected - short,
+          variance_centavos: -short,
+          facts: {
+            source: "sample",
+            reasonCode: short ? "cash_short" : "balanced",
+          },
+        },
+        end,
+      );
+      if (!unclosed)
+        d.add(
+          "van_cash_remittances",
+          key,
+          {
+            trip_id: trip.id,
+            count_id: cashCount.id,
+            amount_centavos: expected - short,
+            received_by: c.people.approver.id,
+            received_by_name: c.people.approver.name,
+            reference: `Sample hand-in ${key}`,
+          },
+          at(short ? shortDate : date, 18 * 60 + 10),
+        );
       d.event(
         "van_settlement",
         `settlement-${key}`,
