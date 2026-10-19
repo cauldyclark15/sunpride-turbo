@@ -1,8 +1,8 @@
 "use client";
 
 import { Button, Input } from "@heroui/react";
-import { api } from "@sunpride/backend/api";
-import type { Doc, Id } from "@sunpride/backend/data-model";
+import { api } from "./master-data/api";
+import type { Doc, Id } from "./master-data/model";
 import {
   Card,
   DataTable,
@@ -13,11 +13,13 @@ import {
   WorkspaceIcon,
   type DataColumn,
 } from "@sunpride/ui";
-import { useMutation, useQuery } from "convex/react";
-import type { FunctionArgs } from "convex/server";
+import { useMutation, useQuery } from "./master-data/api";
+import type { FunctionArgs } from "./master-data/api";
 import { useState, type FormEvent } from "react";
 import { AdminSelectField } from "./org-admin";
 import { formatManilaDate } from "../lib/manila-date";
+import { SetupSearch } from "./master-data/setup-health";
+import { useSetupParam } from "./master-data/location";
 
 type Person = Doc<"profiles">;
 export type AssignableRole =
@@ -72,11 +74,15 @@ export async function performPeopleAssignment(
 }
 
 export function PeopleAdmin() {
+  const [search, setSearch] = useState<string | undefined>(undefined);
+  const unassigned = useSetupParam("unassigned") === "true";
   const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
   const canManage = permissions?.capabilities.includes("admin.manage") ?? false;
   const [cursors, setCursors] = useState<(string | null)[]>([null]);
   const cursor = cursors[cursors.length - 1] ?? null;
   const result = useQuery(api.people.queries.list, {
+    ...(unassigned ? { unassigned: "true" } : {}),
+    ...(search ? { q: search } : {}),
     paginationOpts: { numItems: 25, cursor },
   });
   const [asOf] = useState(() => Date.now());
@@ -116,9 +122,7 @@ export function PeopleAdmin() {
   const selected = people.find((person) => person._id === selectedId);
   const nameOf = (id?: Id<"profiles">) =>
     (supervisorOptions?.page ?? people).find((person) => person._id === id)
-      ?.name ??
-    id ??
-    "—";
+      ?.name ?? (id ? "Person unavailable" : "—");
   const unitOf = (id?: Id<"orgUnits">) =>
     units?.find((unit) => unit._id === id)?.name ??
     (id ? "Outside current tree" : "—");
@@ -128,9 +132,7 @@ export function PeopleAdmin() {
   const supervisorOf = (subject?: string) =>
     (supervisorOptions?.page ?? people).find(
       (person) => person.authSubject === subject,
-    )?.name ??
-    subject ??
-    "—";
+    )?.name ?? (subject ? "Supervisor unavailable" : "—");
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -264,6 +266,14 @@ export function PeopleAdmin() {
         count={people.length}
         flush
       >
+        <SetupSearch
+          label="Search people"
+          value={search ?? ""}
+          onChange={(value) => {
+            setSearch(value);
+            setCursors([null]);
+          }}
+        />
         {result === undefined ? (
           <p className="p-4 text-sm text-muted">Loading people…</p>
         ) : (

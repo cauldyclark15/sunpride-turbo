@@ -1,7 +1,6 @@
 "use client";
 import { Card, ListRow, WorkspaceIcon } from "@sunpride/ui";
-import { api } from "@sunpride/backend/api";
-import { useQuery } from "convex/react";
+import { api, useQuery } from "../master-data/api";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 

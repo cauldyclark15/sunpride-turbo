@@ -1,18 +1,19 @@
 "use client";
 
 import { Button, Input } from "@heroui/react";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
+import { api } from "./master-data/api";
+import type { Id } from "./master-data/model";
 import {
   Card,
   FormField,
   ListRow,
   Notice,
   StatusPill,
+  Pager,
   UnderlineTabs,
   WorkspaceIcon,
 } from "@sunpride/ui";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "./master-data/api";
 import { useState, type FormEvent } from "react";
 import { AdminSelectField, OrgAdmin } from "./org-admin";
 import { TerritoryAdmin } from "./territory-admin";
@@ -27,11 +28,14 @@ import {
 } from "./people-admin";
 import { TeamsAdmin } from "./teams-admin";
 import { DevicesAdmin } from "./devices-admin";
+import { SetupHealth, SetupSearch } from "./master-data/setup-health";
+import { setSetupParam, useSetupParam } from "./master-data/location";
 
 const readableError = (error: unknown) =>
   error instanceof Error ? error.message : "Access update failed. Try again.";
 
 const tabs = [
+  ["health", "Setup health"],
   ["organization", "Organization"],
   ["people", "People"],
   ["teams", "Teams"],
@@ -45,30 +49,39 @@ const tabs = [
 type AdminTab = (typeof tabs)[number][0];
 
 export function AdminWorkspace() {
-  const [tab, setTab] = useState<AdminTab>("organization");
+  const [tab, setTab] = useState<AdminTab>("health");
+  const section = useSetupParam("section");
+  const activeTab = (
+    tabs.some(([id]) => id === section) ? section : tab
+  ) as AdminTab;
   return (
     <div className="grid gap-4">
       <UnderlineTabs
         label="Administration sections"
         items={tabs}
-        activeId={tab}
-        onChange={setTab}
+        activeId={activeTab}
+        onChange={(value) => {
+          setTab(value);
+          setSetupParam("section", value);
+        }}
       />
-      {tab === "organization" ? (
+      {activeTab === "health" ? (
+        <SetupHealth />
+      ) : activeTab === "organization" ? (
         <OrgAdmin />
-      ) : tab === "people" ? (
+      ) : activeTab === "people" ? (
         <PeopleAdmin />
-      ) : tab === "teams" ? (
+      ) : activeTab === "teams" ? (
         <TeamsAdmin />
-      ) : tab === "territories" ? (
+      ) : activeTab === "territories" ? (
         <TerritoryAdmin />
-      ) : tab === "routes" ? (
+      ) : activeTab === "routes" ? (
         <RouteAdmin />
-      ) : tab === "outlets" ? (
+      ) : activeTab === "outlets" ? (
         <OutletAdmin />
-      ) : tab === "assignments" ? (
+      ) : activeTab === "assignments" ? (
         <OutletAssignments />
-      ) : tab === "devices" ? (
+      ) : activeTab === "devices" ? (
         <DevicesAdmin />
       ) : (
         <InvitationsAdmin />
@@ -78,13 +91,24 @@ export function AdminWorkspace() {
 }
 
 function InvitationsAdmin() {
+  const [search, setSearch] = useState<string | undefined>(undefined);
+  const [cursors, setCursors] = useState<(string | null)[]>([null]);
   const current = useQuery(api.domains.profiles.current, {});
+  const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
   const canAdminister =
-    current?.role === "super_admin" || current?.role === "admin";
-  const invitations = useQuery(
+    (current?.role === "super_admin" || current?.role === "admin") &&
+    permissions?.national !== false;
+  const invitationPage = useQuery(
     api.domains.profiles.listInvitations,
-    canAdminister ? {} : "skip",
+    canAdminister
+      ? {
+          q: search,
+          paginationOpts: { numItems: 25, cursor: cursors.at(-1) ?? null },
+        }
+      : "skip",
   );
+  const invitations = invitationPage?.page;
+  const units = useQuery(api.org.queries.tree, canAdminister ? {} : "skip");
   const invite = useMutation(api.domains.profiles.invite);
   const revoke = useMutation(api.domains.profiles.revoke);
   const positions = useQuery(
@@ -93,6 +117,7 @@ function InvitationsAdmin() {
   );
   const [role, setRole] = useState<AssignableRole>("viewer");
   const [positionId, setPositionId] = useState("");
+  const [orgUnitId, setOrgUnitId] = useState("");
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<{
     tone: "success" | "error";
@@ -121,11 +146,13 @@ function InvitationsAdmin() {
         role,
         ...(name ? { name } : {}),
         ...(positionId ? { positionId: positionId as Id<"positions"> } : {}),
+        ...(orgUnitId ? { orgUnitId } : {}),
       });
       setMessage({ tone: "success", text: "Invitation sent" });
       form.reset();
       setRole("viewer");
       setPositionId("");
+      setOrgUnitId("");
     } catch (error) {
       setMessage({ tone: "error", text: readableError(error) });
     } finally {
@@ -151,6 +178,14 @@ function InvitationsAdmin() {
         icon={<WorkspaceIcon name="user" />}
         flush
       >
+        <SetupSearch
+          label="Search invitations"
+          value={search ?? ""}
+          onChange={(value) => {
+            setSearch(value);
+            setCursors([null]);
+          }}
+        />
         {(invitations ?? []).length ? (
           invitations?.map((invitation) => (
             <ListRow
@@ -193,6 +228,17 @@ function InvitationsAdmin() {
         ) : (
           <p className="p-4 text-[13px] text-muted">No invitations</p>
         )}
+        <Pager
+          label="Invitation pages"
+          page={cursors.length}
+          canPrevious={cursors.length > 1}
+          canNext={!!invitationPage && !invitationPage.isDone}
+          onPrevious={() => setCursors((old) => old.slice(0, -1))}
+          onNext={() =>
+            invitationPage &&
+            setCursors((old) => [...old, invitationPage.continueCursor])
+          }
+        />
       </Card>
       <Card
         label="Invite person"
@@ -242,6 +288,17 @@ function InvitationsAdmin() {
                 id: position._id,
                 label: position.label,
               })),
+            ]}
+          />
+          <AdminSelectField
+            label="Organizational unit"
+            value={orgUnitId}
+            onChange={setOrgUnitId}
+            options={[
+              { id: "", label: "Assign later" },
+              ...(units ?? [])
+                .filter((u) => u.status === "active")
+                .map((u) => ({ id: u._id, label: `${u.code} · ${u.name}` })),
             ]}
           />
           {message ? (

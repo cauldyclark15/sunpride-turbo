@@ -9,13 +9,15 @@ import {
   StatusPill,
   WorkspaceIcon,
 } from "@sunpride/ui";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
-import { useMutation, useQuery } from "convex/react";
-import type { FunctionArgs } from "convex/server";
+import { api } from "./master-data/api";
+import type { Id } from "./master-data/model";
+import { useMutation, useQuery } from "./master-data/api";
+import type { FunctionArgs } from "./master-data/api";
 import { useState, type FormEvent } from "react";
 import { formatManilaDate, futureManilaDateToUtcMs } from "../lib/manila-date";
 import { NewStoreApprovals } from "./new-store-approvals";
+import { SetupSearch } from "./master-data/setup-health";
+import { useSetupParam } from "./master-data/location";
 
 type Action =
   | "create"
@@ -122,6 +124,9 @@ export async function performOutletAction(
 }
 
 export function OutletAdmin() {
+  const [search, setSearch] = useState<string | undefined>(undefined);
+  const requestedOutlet = useSetupParam("outlet");
+  const unverified = useSetupParam("unverified") === "true";
   const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
   const profile = useQuery(api.domains.profiles.current, {});
   const canRead = permissions?.capabilities.includes("outlet.read") ?? false;
@@ -133,10 +138,15 @@ export function OutletAdmin() {
   const list = useQuery(
     api.outlets.queries.list,
     canRead
-      ? { paginationOpts: { cursor: cursors.at(-1) ?? null, numItems: 25 } }
+      ? {
+          ...(search ? { q: search } : {}),
+          ...(unverified ? { unverified: "true" } : {}),
+          paginationOpts: { cursor: cursors.at(-1) ?? null, numItems: 25 },
+        }
       : "skip",
   );
-  const [selectedId, setSelectedId] = useState<Id<"outlets"> | null>(null);
+  const [selectedState, setSelectedId] = useState<Id<"outlets"> | null>(null);
+  const selectedId = selectedState ?? (requestedOutlet || null);
   const detail = useQuery(
     api.outlets.queries.detail,
     canRead && selectedId ? { outletId: selectedId } : "skip",
@@ -189,10 +199,18 @@ export function OutletAdmin() {
     }
   }
   const customerName = (id: Id<"customers">) =>
-    customers?.find((c) => c._id === id)?.name ?? id;
+    customers?.page.find((c) => c._id === id)?.name ?? "Customer unavailable";
   return (
     <>
       <NewStoreApprovals />
+      <SetupSearch
+        label="Search stores"
+        value={search ?? ""}
+        onChange={(value) => {
+          setSearch(value);
+          setCursors([null]);
+        }}
+      />
       <Card
         label="Outlets"
         count={list?.page.length}
@@ -288,7 +306,7 @@ export function OutletAdmin() {
               <p>
                 Route:{" "}
                 {detail.assignment
-                  ? `${detail.assignment.territoryId} / ${detail.assignment.routeId ?? "no route"}${detail.assignment.sequence ? ` · stop ${detail.assignment.sequence}` : ""}`
+                  ? `${detail.outlet.territoryName ?? "Territory assigned"} / ${detail.outlet.routeName ?? "no route"}${detail.assignment.sequence ? ` · stop ${detail.assignment.sequence}` : ""}`
                   : "Unassigned"}
               </p>
               <p>
@@ -334,13 +352,14 @@ export function OutletAdmin() {
                   <li key={pin._id}>
                     {pin.status[0]?.toUpperCase()}
                     {pin.status.slice(1)} · {pin.latitude}, {pin.longitude} ·{" "}
-                    {pin.radiusMeters} m · {pin.source} ·{" "}
+                    {pin.radiusMeters} m · {pin.source.replaceAll("_", " ")} ·{" "}
                     {pin.evidenceNote ?? "No note"} · proposed by{" "}
-                    {pin.proposedBy}
+                    {pin.proposerName ?? "Office user"}
                     {pin.verifiedBy && (
                       <>
                         {" "}
-                        · reviewed by {pin.verifiedBy}: {pin.reviewerReason}
+                        · reviewed by {pin.verifierName ?? "Office user"}:{" "}
+                        {pin.reviewerReason}
                       </>
                     )}
                     {pin.status === "verified" && (
@@ -501,8 +520,8 @@ export function OutletAdmin() {
                   <FormField label="Existing customer">
                     <select name="customerId">
                       <option value="">Unlink (prospect)</option>
-                      {customers
-                        ?.filter((c) => c.active)
+                      {customers?.page
+                        .filter((c) => c.active)
                         .map((c) => (
                           <option key={c._id} value={c._id}>
                             {c.name} · {c.code}

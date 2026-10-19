@@ -1,11 +1,13 @@
 "use client";
 import { Card, FormField, Pager, IconTile, WorkspaceIcon } from "@sunpride/ui";
 import { Button } from "@heroui/react";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
-import { useMutation, useQuery } from "convex/react";
-import type { FunctionArgs } from "convex/server";
+import { api } from "./master-data/api";
+import type { Id } from "./master-data/model";
+import { useMutation, useQuery } from "./master-data/api";
+import type { FunctionArgs } from "./master-data/api";
 import { useState, type FormEvent } from "react";
+import { SetupSearch } from "./master-data/setup-health";
+import { useSetupParam } from "./master-data/location";
 import {
   formatManilaDate,
   futureManilaDateToUtcMs,
@@ -79,6 +81,8 @@ export async function performAssignmentAction(
   });
 }
 export function OutletAssignments() {
+  const [search, setSearch] = useState<string | undefined>(undefined);
+  const onlyUnassigned = useSetupParam("unassigned") === "true";
   const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
   const canRead = permissions?.capabilities.includes("outlet.read") ?? false;
   const canRoute = permissions?.capabilities.includes("route.read") ?? false;
@@ -110,7 +114,13 @@ export function OutletAssignments() {
   );
   const outlets = useQuery(
     api.outlets.queries.list,
-    canRead ? { paginationOpts: { numItems: 100, cursor } } : "skip",
+    canRead
+      ? {
+          ...(search ? { q: search } : {}),
+          ...(onlyUnassigned ? { unassigned: "true" } : {}),
+          paginationOpts: { numItems: 100, cursor },
+        }
+      : "skip",
   );
   const unassigned = useQuery(
     api.outlets.assignments.unassigned,
@@ -164,6 +174,15 @@ export function OutletAssignments() {
           <p>Outlet read access required.</p>
         ) : (
           <>
+            <SetupSearch
+              label="Search assignment stores"
+              value={search ?? ""}
+              onChange={(value) => {
+                setSearch(value);
+                setCursor(null);
+                setPage(1);
+              }}
+            />
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <FormField label="Preview date">
                 <input
@@ -299,8 +318,9 @@ export function OutletAssignments() {
                       {row.effectiveTo
                         ? formatManilaDate(row.effectiveTo)
                         : "Current"}{" "}
-                      · {row.territoryId} / {row.routeId ?? "no route"} ·{" "}
-                      {row.sequence ?? "—"} · {row.actorSubject}: {row.reason}
+                      · {row.territoryName ?? "Territory unavailable"} /{" "}
+                      {row.routeName ?? "no route"} · {row.sequence ?? "—"} ·{" "}
+                      {row.actorName ?? "Office user"}: {row.reason}
                     </li>
                   ))}
                 </ol>
@@ -314,8 +334,8 @@ export function OutletAssignments() {
                 <ul>
                   {roster?.map((row) => (
                     <li key={row._id}>
-                      {row.outletId} · {row.routeId ?? "no route"} ·{" "}
-                      {row.sequence ?? "—"}
+                      {row.outletName ?? "Store unavailable"} ·{" "}
+                      {row.routeName ?? "no route"} · {row.sequence ?? "—"}
                     </li>
                   ))}
                 </ul>
@@ -330,7 +350,9 @@ export function OutletAssignments() {
                   {currentOrder.map((id, i) => (
                     <li key={id}>
                       {i + 1}.{" "}
-                      {outlets?.page.find((o) => o._id === id)?.name ?? id}{" "}
+                      {outlets?.page.find((o) => o._id === id)?.name ??
+                        stops?.find((row) => row.outletId === id)?.outletName ??
+                        "Store unavailable"}{" "}
                       <Button
                         variant="outline"
                         className="h-10"

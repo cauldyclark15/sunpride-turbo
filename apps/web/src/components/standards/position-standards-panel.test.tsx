@@ -7,7 +7,8 @@ import {
 
 const SOURCE = "Sir Francis email 2026-09-30 / call 2026-10-02";
 
-vi.mock("convex/react", () => ({
+vi.mock("../master-data/api", async (original) => ({
+  ...(await original<typeof import("../master-data/api")>()),
   useQuery: () => ({
     definition: {
       ruleVersion: "productive-call/2026-10-02",

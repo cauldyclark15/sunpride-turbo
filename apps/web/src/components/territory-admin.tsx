@@ -8,12 +8,13 @@ import {
   WorkspaceIcon,
 } from "@sunpride/ui";
 import { Button, Input } from "@heroui/react";
-import { api } from "@sunpride/backend/api";
-import type { Doc, Id } from "@sunpride/backend/data-model";
-import { useMutation, useQuery } from "convex/react";
-import type { FunctionArgs } from "convex/server";
+import { api } from "./master-data/api";
+import type { Doc, Id } from "./master-data/model";
+import { useMutation, useQuery } from "./master-data/api";
+import type { FunctionArgs } from "./master-data/api";
 import { useState, type FormEvent } from "react";
 import { formatManilaDate, futureManilaDateToUtcMs } from "../lib/manila-date";
+import { SetupSearch } from "./master-data/setup-health";
 
 type Action = "create" | "edit" | "transfer" | "assign" | "end" | "deactivate";
 type Mutations = {
@@ -145,6 +146,7 @@ function TerritoryListRow({
 }
 
 export function TerritoryAdmin() {
+  const [search, setSearch] = useState<string | undefined>(undefined);
   const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
   const canRead = permissions?.capabilities.includes("territory.read") ?? false;
   const canManage =
@@ -160,7 +162,10 @@ export function TerritoryAdmin() {
   const territories = useQuery(
     api.territories.queries.list,
     canRead
-      ? { paginationOpts: { numItems: 25, cursor: cursors.at(-1) ?? null } }
+      ? {
+          ...(search ? { q: search } : {}),
+          paginationOpts: { numItems: 25, cursor: cursors.at(-1) ?? null },
+        }
       : "skip",
   );
   const detail = useQuery(
@@ -231,6 +236,14 @@ export function TerritoryAdmin() {
           <p>Territory access required.</p>
         ) : (
           <>
+            <SetupSearch
+              label="Search territories"
+              value={search ?? ""}
+              onChange={(value) => {
+                setSearch(value);
+                setCursors([null]);
+              }}
+            />
             <label className="flex items-center gap-2 text-[13px]">
               <input
                 type="checkbox"
@@ -280,9 +293,7 @@ export function TerritoryAdmin() {
                 <p>
                   Owner:{" "}
                   {units?.find((unit) => unit._id === detail.owner?.orgUnitId)
-                    ?.name ??
-                    detail.owner?.orgUnitId ??
-                    "Pending"}
+                    ?.name ?? "Pending"}
                 </p>
                 <p>
                   Effective {formatManilaDate(detail.territory.effectiveFrom)}
@@ -300,8 +311,8 @@ export function TerritoryAdmin() {
                 <ol>
                   {history?.map((row) => (
                     <li key={row._id}>
-                      {row.orgUnitId} · {formatManilaDate(row.effectiveFrom)} ·{" "}
-                      {row.reason}
+                      {row.orgUnitName ?? "Unit unavailable"} ·{" "}
+                      {formatManilaDate(row.effectiveFrom)} · {row.reason}
                     </li>
                   ))}
                 </ol>
@@ -310,7 +321,9 @@ export function TerritoryAdmin() {
                   {salespeople?.map((row) => (
                     <li key={row._id}>
                       {people?.page.find((p) => p._id === row.profileId)
-                        ?.name ?? row.profileId}{" "}
+                        ?.name ??
+                        row.personName ??
+                        "Salesperson unavailable"}{" "}
                       · {row.kind === "secondary" ? "Secondary" : "Primary"}{" "}
                       <Button
                         variant="outline"
@@ -426,7 +439,9 @@ export function TerritoryAdmin() {
                       {salespeople?.map((row) => (
                         <option key={row._id} value={row._id}>
                           {people?.page.find((p) => p._id === row.profileId)
-                            ?.name ?? row.profileId}
+                            ?.name ??
+                            row.personName ??
+                            "Salesperson unavailable"}
                         </option>
                       ))}
                     </select>

@@ -1,8 +1,8 @@
 import React, { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { getFunctionName } from "convex/server";
+import { fixtureName as getFunctionName } from "./master-data/fixtures";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Id } from "@sunpride/backend/data-model";
+import type { Id } from "./master-data/model";
 import {
   OutletAssignments,
   performAssignmentAction,
@@ -13,7 +13,8 @@ const state = vi.hoisted(() => ({
   showOutlet: false,
   calls: [] as { name: string; args: unknown }[],
 }));
-vi.mock("convex/react", () => ({
+vi.mock("./master-data/api", async (original) => ({
+  ...(await original<typeof import("./master-data/api")>()),
   useQuery: (ref: unknown, args: unknown) => {
     const name = getFunctionName(ref as never);
     state.calls.push({ name, args });

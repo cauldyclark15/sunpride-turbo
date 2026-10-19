@@ -9,13 +9,14 @@ import {
   StatusPill,
   WorkspaceIcon,
 } from "@sunpride/ui";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
-import { useMutation, useQuery } from "convex/react";
-import type { FunctionArgs } from "convex/server";
+import { api } from "./master-data/api";
+import type { Id } from "./master-data/model";
+import { useMutation, useQuery } from "./master-data/api";
+import type { FunctionArgs } from "./master-data/api";
 import Image from "next/image";
 import { useState, type FormEvent } from "react";
 import { formatManilaDate } from "../lib/manila-date";
+import { SetupSearch } from "./master-data/setup-health";
 
 type Decision = "approved" | "rejected";
 type Decide = (
@@ -46,6 +47,7 @@ const eventLabel = {
  * with outlet access sees the status-change feed; salespeople only their own stores.
  */
 export function NewStoreApprovals() {
+  const [search, setSearch] = useState<string | undefined>(undefined);
   const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
   const profile = useQuery(api.domains.profiles.current, {});
   const has = (name: string) =>
@@ -57,7 +59,10 @@ export function NewStoreApprovals() {
   const queue = useQuery(
     api.outlets.enrolment.pending,
     canApprove
-      ? { paginationOpts: { cursor: cursors.at(-1) ?? null, numItems: 10 } }
+      ? {
+          ...(search ? { q: search } : {}),
+          paginationOpts: { cursor: cursors.at(-1) ?? null, numItems: 10 },
+        }
       : "skip",
   );
   const mine = useQuery(
@@ -118,6 +123,14 @@ export function NewStoreApprovals() {
       icon={<WorkspaceIcon name="field" />}
     >
       <div className="grid gap-4 p-4">
+        <SetupSearch
+          label="Search new stores"
+          value={search ?? ""}
+          onChange={(value) => {
+            setSearch(value);
+            setCursors([null]);
+          }}
+        />
         {format && (
           <p className="text-sm text-muted">
             New customer codes are issued on approval, e.g. {format.example}.

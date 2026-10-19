@@ -1,8 +1,11 @@
 import React, { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { getFunctionName } from "convex/server";
+import {
+  fixtureName as getFunctionName,
+  fixtureValue,
+} from "./master-data/fixtures";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Doc, Id } from "@sunpride/backend/data-model";
+import type { Doc, Id } from "./master-data/model";
 import { AdminWorkspace } from "./admin-workspace";
 import { OrgAdmin, performOrgAction } from "./org-admin";
 import { PeopleAdmin, performPeopleAssignment } from "./people-admin";
@@ -26,11 +29,12 @@ const state = vi.hoisted(() => ({
   tabOverride: "" as string,
   nullIndex: 0,
 }));
-vi.mock("convex/react", () => ({
+vi.mock("./master-data/api", async (original) => ({
+  ...(await original<typeof import("./master-data/api")>()),
   useQuery: (reference: unknown, args: unknown) => {
     const name = getFunctionName(reference as never);
     state.queryCalls.push({ name, args });
-    return state.values[name];
+    return fixtureValue(reference, state.values[name]);
   },
   useMutation: () => vi.fn(),
 }));
@@ -39,7 +43,7 @@ vi.mock("react", async (importOriginal) => {
   return {
     ...actual,
     useState: (initial: unknown) => {
-      if (initial === "organization" && state.tabOverride)
+      if (initial === "health" && state.tabOverride)
         return [state.tabOverride, vi.fn()];
       if (initial === null) {
         state.nullIndex += 1;
@@ -365,9 +369,14 @@ describe("Admin workspace tabs", () => {
     expect(view).toContain("People");
     expect(view).toContain("Teams");
     expect(view).toContain("Invitations");
-    expect(view).toContain("<h2>Organization · 3</h2>");
+    expect(view).toContain("<h2>Setup health</h2>");
+    state.tabOverride = "organization";
+    expect(html(createElement(AdminWorkspace))).toContain(
+      "<h2>Organization · 3</h2>",
+    );
   });
   it("shows counts in only the active administration card header", () => {
+    state.tabOverride = "organization";
     const organization = html(createElement(AdminWorkspace));
     expect(organization).toContain("<h2>Organization · 3</h2>");
     expect(organization).not.toContain("people shown");
@@ -885,7 +894,9 @@ describe("Phones admin", () => {
       args: { deviceId },
     });
     expect(view).toContain("The server now refuses this phone");
-    expect(view).toContain("has not reached the server");
+    expect(view).toContain("Work may remain only on the phone");
+    expect(view).toContain("may already have reached the office");
+    expect(view).toContain("Reconcile the received operations");
     expect(view).toContain("Check-in");
     expect(view).toContain("Maria Santos");
     expect(view).toContain("suspected compromise");
