@@ -5,58 +5,73 @@ import Foundation
 protocol EvidenceAPI: AnyObject {
     /// Returns the one-time upload URL and its claim reference.
     func uploadURL(visitId: String) async throws -> (url: URL, claim: String)
-    /// POSTs the bytes; returns the Convex storage ID.
+    func uploadURL(visitId: String, photo: EvidencePhotoRow) async throws -> (url: URL, claim: String)
+    /// POSTs the bytes; returns the server media ID.
     func upload(_ url: URL, bytes: Data, mime: String) async throws -> String
     /// Returns the server evidence ID (the same ID again for a retried, already attached photo).
     func attach(claim: String, visitId: String, storageId: String, photo: EvidencePhotoRow) async throws -> String
+}
+
+extension EvidenceAPI {
+    func uploadURL(visitId: String, photo: EvidencePhotoRow) async throws -> (url: URL, claim: String) {
+        try await uploadURL(visitId: visitId)
+    }
 }
 
 /// A storage POST that reached the server and was refused; retried a bounded number of times.
 struct EvidenceUploadFailure: Error, Equatable {}
 
 @MainActor
-final class ConvexEvidenceAPI: EvidenceAPI {
-    private let functions: ConvexFunctions
+final class ServerEvidenceAPI: EvidenceAPI {
+    private let functions: ServerAPI
     private let http: HTTPClient
-    init(functions: ConvexFunctions, http: HTTPClient) { self.functions = functions; self.http = http }
+    init(functions: ServerAPI, http: HTTPClient) { self.functions = functions; self.http = http }
 
-    private struct UploadArgs: Encodable { let visitId: String }
-    private struct UploadValue: Decodable { let url: String; let uploadTokenRef: String }
-    private struct AttachArgs: Encodable {
-        let uploadTokenRef: String; let visitId: String; let storageId: String
-        let mime: String; let size: Int64; let checksum: String; let capturedAt: Int64
-        let photoType: String; let source = "mobile"
-    }
-    private struct AttachValue: Decodable { let evidenceId: String }
-    private struct StorageValue: Decodable { let storageId: String }
-
-    func uploadURL(visitId: String) async throws -> (url: URL, claim: String) {
-        guard let value: UploadValue = try await functions.mutation("visits/evidence:generateUploadUrl", UploadArgs(visitId: visitId)),
-              let url = URL(string: value.url), url.scheme == "https", !value.uploadTokenRef.isEmpty else {
-            throw MobileError.invalidResponse
-        }
-        return (url, value.uploadTokenRef)
+    private var capabilities: [URL: String] = [:]
+    func uploadURL(visitId: String) async throws -> (url: URL, claim: String) { throw MobileError.invalidResponse }
+    func uploadURL(visitId: String, photo: EvidencePhotoRow) async throws -> (url: URL, claim: String) {
+        let me = try await functions.currentMe()
+        guard let deviceId = (me["device"] as? [String: Any])?["id"] as? String else { throw MobileError.invalidResponse }
+        let body = try NativeV2.bytes(["version": 2, "deviceId": deviceId, "purpose": "visit-photo", "ownerId": visitId,
+            "mime": photo.mime, "size": photo.sizeBytes, "sha256": photo.sha256])
+        let data = try await functions.signedPost("/api/media/claims", body: body, deviceId: deviceId)
+        let value = try NativeV2.validate(data)
+        guard let raw = value["uploadUrl"] as? String, let url = URL(string: raw), functions.sameOrigin(url),
+              url.path.hasPrefix("/api/media/uploads/"), let token = value["uploadToken"] as? String, !token.isEmpty,
+              let upload = value["uploadId"] as? String, url.lastPathComponent == upload else { throw MobileError.invalidResponse }
+        capabilities[url] = token
+        return (url, upload)
     }
     func upload(_ url: URL, bytes: Data, mime: String) async throws -> String {
-        // The signed URL is its own authority: no bearer is sent to the storage endpoint.
+        guard let capability = capabilities.removeValue(forKey: url) else { throw MobileError.invalidResponse }
         var request = URLRequest(url: url)
-        request.httpMethod = "POST"
+        request.httpMethod = "PUT"
         request.setValue(mime, forHTTPHeaderField: "Content-Type")
-        request.httpBody = bytes
-        request.timeoutInterval = 120
+        request.setValue("Bearer \(capability)", forHTTPHeaderField: "Authorization")
+        request.httpBody = bytes; request.timeoutInterval = 120
         let (data, response) = try await http.send(request)
-        guard (200..<300).contains(response.statusCode),
-              let value = try? JSONDecoder().decode(StorageValue.self, from: data), !value.storageId.isEmpty else {
-            throw EvidenceUploadFailure()
-        }
-        return value.storageId
+        guard (200..<300).contains(response.statusCode), let value = try? NativeV2.validate(data),
+              value["status"] as? String == "stored", value["sha256"] as? String == EvidencePhotos.sha256Hex(bytes),
+              let blob = value["blobId"] as? String, blob == url.lastPathComponent else { throw EvidenceUploadFailure() }
+        return blob
     }
     func attach(claim: String, visitId: String, storageId: String, photo: EvidencePhotoRow) async throws -> String {
-        guard let value: AttachValue = try await functions.mutation("visits/evidence:attach", AttachArgs(
-            uploadTokenRef: claim, visitId: visitId, storageId: storageId, mime: photo.mime, size: photo.sizeBytes,
-            checksum: photo.sha256, capturedAt: photo.capturedAt, photoType: photo.photoType)),
-              !value.evidenceId.isEmpty else { throw MobileError.invalidResponse }
-        return value.evidenceId
+        let me = try await functions.currentMe()
+        guard let id = (me["device"] as? [String: Any])?["id"] as? String,
+              let scope = (me["scope"] as? [String: Any])?["id"] as? String else { throw MobileError.invalidResponse }
+        let op: [String: Any] = ["clientOpId": photo.localId.uuidString.lowercased(), "opType": "evidence.attach",
+            "clientTime": photo.capturedAt, "dependsOn": [], "payload": ["visitId": visitId, "blobId": storageId,
+                "checksum": photo.sha256, "mime": photo.mime, "size": photo.sizeBytes, "capturedAt": photo.capturedAt,
+                "photoType": photo.photoType, "source": "mobile"]]
+        let data = try await functions.signedPost("/api/sync/push", body: NativeV2.push(deviceId: id, scopeId: scope, operations: [op]), deviceId: id)
+        let result = try NativeV2.validate(data)
+        guard let rows = result["results"] as? [[String: Any]], rows.count == 1, let row = rows.first,
+              row["clientOpId"] as? String == photo.localId.uuidString.lowercased(), row["opType"] as? String == "evidence.attach" else { throw MobileError.invalidResponse }
+        guard ["applied", "duplicate"].contains(row["status"] as? String ?? ""),
+              let evidence = (row["ack"] as? [String: Any])?["entityId"] as? String else {
+            throw MobileError.rejected("evidence_pending_review")
+        }
+        return evidence
     }
 }
 
@@ -115,7 +130,7 @@ final class EvidenceUploader {
             do {
                 // Every await can outlive a cancel or a hold (sign-out, removed phone, scope change):
                 // recheck both after each one, before attaching and before the phone copy goes.
-                let (url, claim) = try await api.uploadURL(visitId: visitId)
+                let (url, claim) = try await api.uploadURL(visitId: visitId, photo: photo)
                 guard mayContinue() else { report.retryLater = true; break }
                 let storageId = try await api.upload(url, bytes: bytes, mime: photo.mime)
                 guard mayContinue() else { report.retryLater = true; break }
@@ -128,6 +143,11 @@ final class EvidenceUploader {
                 // The server holds the photo now; the phone copy is no longer needed.
                 files.delete(photo.localId)
                 report.uploaded += 1
+            } catch let failure as NativeFailure where failure.withdraws {
+                // Retire cache authority before any further attachment or deletion.
+                try? store.purgeCacheForReview(partition)
+                report.retryLater = false
+                break
             } catch MobileError.rejected(let code) {
                 guard mayContinue() else { report.retryLater = true; break }
                 if EvidencePhotos.finalCodes.contains(code) { review(photo, code, &report) }

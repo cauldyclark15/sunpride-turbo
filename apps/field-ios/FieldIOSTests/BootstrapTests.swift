@@ -61,14 +61,14 @@ final class BootstrapTests: XCTestCase {
     }
     private func client() -> BootstrapClient {
         BootstrapClient(site: StubHTTP.site, auth: auth,
-            registry: ConvexDeviceRegistry(functions: ConvexFunctions(url: StubHTTP.cloud, auth: auth, http: http)),
+            registry: ServerDeviceRegistry(functions: ServerAPI(url: StubHTTP.cloud, auth: auth, http: http)),
             http: http, key: key)
     }
     private func protocolStub(_ page: Data, next: Data? = nil, page2Status: Int = 200,
                               firstStatus: Int = 200) {
         let jwt = StubHTTP.jwt(exp: Date().timeIntervalSince1970 + 900)
-        StubURLProtocol.install { request in
-            if request.path == "/api/auth/convex/token" { return .reply(.json(200, ["token": jwt])) }
+        StubURLProtocol.installLegacy { request in
+            if request.path == "/legacy/auth/token" { return .reply(.json(200, ["token": jwt])) }
             if request.path == "/api/mutation" {
                 return .reply(.json(200, ["status": "success", "value": [
                     "nonce": UUID().uuidString.lowercased(), "expiresAt": 1_790_380_860_000]]))
@@ -239,24 +239,24 @@ final class BootstrapTests: XCTestCase {
         let sales = try XCTUnwrap(store.snapshot(for: partition)?.daySales)
         XCTAssertEqual(sales.amountMinor, 175_050)
         XCTAssertNotNil(sales.asOf, "stamped with the page's server time")
-        let requests = StubURLProtocol.requests(to: "/mobile/v1/bootstrap")
+        let requests = StubURLProtocol.rawRequests.filter { $0.path == "/api/sync/pull" }
         XCTAssertEqual(requests.count, 2)
         let challenges = StubURLProtocol.requests(to: "/api/mutation")
         XCTAssertEqual(challenges.count, 2)
-        XCTAssertNotEqual(requests[0].headers["x-mobile-nonce"], requests[1].headers["x-mobile-nonce"])
+        XCTAssertNotEqual(requests[0].headers["x-device-nonce"], requests[1].headers["x-device-nonce"])
         for request in requests {
             let headers = Dictionary(uniqueKeysWithValues: request.headers.map { ($0.key.lowercased(), $0.value) })
             let digest = RequestSigner.bodyDigest(request.body)
             XCTAssertEqual(headers["x-mobile-body-digest"], digest)
-            XCTAssertEqual(headers["x-mobile-contract-version"], "1")
-            XCTAssertEqual(headers["x-mobile-device-id"], device)
-            XCTAssertEqual(headers["x-mobile-app"], "IOS")
+            XCTAssertEqual(headers["x-mobile-contract-version"], "2")
+            XCTAssertEqual(headers["x-device-id"], device)
+            XCTAssertEqual(headers["x-mobile-app"], "field-ios")
             XCTAssertTrue(headers["authorization"]?.hasPrefix("Bearer ") == true)
-            let nonce = try XCTUnwrap(headers["x-mobile-nonce"])
-            let timestamp = try XCTUnwrap(headers["x-mobile-timestamp"])
+            let nonce = try XCTUnwrap(headers["x-device-nonce"])
+            let timestamp = try XCTUnwrap(headers["x-device-timestamp"])
             XCTAssertEqual(timestamp, "1790380830000") // challenge expiry - 30s, not local clock
-            let signature = try XCTUnwrap(headers["x-mobile-signature"])
-            let canonical = "POST|/mobile/v1/bootstrap|\(digest)|\(nonce)|\(timestamp)"
+            let signature = try XCTUnwrap(headers["x-device-signature"])
+            let canonical = "POST|/api/sync/pull|\(digest)|\(nonce)|\(timestamp)"
             XCTAssertTrue(DeviceKeys.verify(signatureBase64: signature, message: Data(canonical.utf8), spkiBase64: key.publicKeyBase64))
             XCTAssertNotNil((try json(request.body))["deviceId"])
         }
@@ -280,13 +280,13 @@ final class BootstrapTests: XCTestCase {
     func testJWT401RefreshOnceAndFreshProof() async throws {
         let page = try fixture("bootstrap-response")
         let jwt = StubHTTP.jwt(exp: Date().timeIntervalSince1970 + 900)
-        StubURLProtocol.install { request in
+        StubURLProtocol.installLegacy { request in
             switch request.path {
-            case "/api/auth/convex/token": return .reply(.json(200, ["token": jwt]))
+            case "/legacy/auth/token": return .reply(.json(200, ["token": jwt]))
             case "/api/mutation": return .reply(.json(200, ["status": "success", "value": [
                 "nonce": UUID().uuidString.lowercased(), "expiresAt": Date().timeIntervalSince1970 * 1000 + 60_000]]))
             case "/mobile/v1/bootstrap":
-                let nonce = request.headers.first { $0.key.lowercased() == "x-mobile-nonce" }?.value ?? ""
+                let nonce = request.headers.first { $0.key.lowercased() == "x-device-nonce" }?.value ?? ""
                 return .reply(.init(status: nonce.isEmpty ? 500 : 401, body: page))
             default: return .fail(.badURL)
             }
@@ -294,16 +294,16 @@ final class BootstrapTests: XCTestCase {
         do { _ = try await client().run(deviceId: device, subject: subject, store: store); XCTFail("must fail") }
         catch { XCTAssertEqual(error as? BootstrapClient.Failure, .unauthorized) }
         XCTAssertEqual(StubURLProtocol.requests(to: "/mobile/v1/bootstrap").count, 2)
-        XCTAssertEqual(StubURLProtocol.requests(to: "/api/auth/convex/token").count, 2)
+        XCTAssertEqual(StubURLProtocol.requests(to: "/legacy/auth/token").count, 2)
         XCTAssertEqual(StubURLProtocol.requests(to: "/api/mutation").count, 2)
     }
 
     func test401RefreshThenSucceedsOnce() async throws {
         let jwt = StubHTTP.jwt(exp: Date().timeIntervalSince1970 + 900)
         let page = try fixture("bootstrap-response")
-        StubURLProtocol.install { request in
+        StubURLProtocol.installLegacy { request in
             switch request.path {
-            case "/api/auth/convex/token": return .reply(.json(200, ["token": jwt]))
+            case "/legacy/auth/token": return .reply(.json(200, ["token": jwt]))
             case "/api/mutation": return .reply(.json(200, ["status": "success", "value": [
                 "nonce": UUID().uuidString.lowercased(), "expiresAt": Date().timeIntervalSince1970 * 1000 + 60_000]]))
             case "/mobile/v1/bootstrap":
@@ -316,7 +316,7 @@ final class BootstrapTests: XCTestCase {
         XCTAssertEqual(try store.cursor(for: p), "opaque-start")
         XCTAssertEqual(StubURLProtocol.requests(to: "/mobile/v1/bootstrap").count, 2)
         XCTAssertEqual(StubURLProtocol.requests(to: "/api/mutation").count, 2)
-        XCTAssertEqual(StubURLProtocol.requests(to: "/api/auth/convex/token").count, 2)
+        XCTAssertEqual(StubURLProtocol.requests(to: "/legacy/auth/token").count, 2)
     }
 
     func test409RestartsAndRevokedHoldsOnlyItsPartition() async throws {
@@ -348,9 +348,9 @@ final class BootstrapTests: XCTestCase {
     func test409ThenFreshStartSucceedsAndInvalidCursorRestarts() async throws {
         let jwt = StubHTTP.jwt(exp: Date().timeIntervalSince1970 + 900)
         let failure = try fixture("error-invalid-cursor"), success = try fixture("bootstrap-response")
-        StubURLProtocol.install { request in
+        StubURLProtocol.installLegacy { request in
             switch request.path {
-            case "/api/auth/convex/token": return .reply(.json(200, ["token": jwt]))
+            case "/legacy/auth/token": return .reply(.json(200, ["token": jwt]))
             case "/api/mutation": return .reply(.json(200, ["status": "success", "value": [
                 "nonce": UUID().uuidString.lowercased(), "expiresAt": Date().timeIntervalSince1970 * 1000 + 60_000]]))
             case "/mobile/v1/bootstrap":
@@ -396,10 +396,10 @@ final class BootstrapTests: XCTestCase {
         catch { XCTAssertEqual(error as? BootstrapClient.Failure, .throttled) }
         XCTAssertEqual(StubURLProtocol.requests(to: "/mobile/v1/bootstrap").count, 1, "no immediate hammering")
         let jwt = StubHTTP.jwt(exp: Date().timeIntervalSince1970 + 900)
-        StubURLProtocol.install { request in
-            if request.path == "/api/auth/convex/token" { return .reply(.json(200, ["token": jwt])) }
+        StubURLProtocol.installLegacy { request in
+            if request.path == "/legacy/auth/token" { return .reply(.json(200, ["token": jwt])) }
             if request.path == "/api/mutation" {
-                return .reply(.json(200, ["status": "error", "errorMessage": "Uncaught ConvexError: rate_limited",
+                return .reply(.json(200, ["status": "error", "errorMessage": "rate_limited",
                                           "errorData": "rate_limited"]))
             }
             return .fail(.badURL)

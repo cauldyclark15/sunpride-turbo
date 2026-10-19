@@ -27,7 +27,7 @@ final class VisitSyncTests: XCTestCase {
         http = StubHTTP.client()
         auth = AuthClient(site: StubHTTP.site, store: secrets, http: http)
         key = SoftwareDeviceKey(key: P256.Signing.PrivateKey(), storage: .ephemeralTest)
-        partition = try StorePartition(subject: "issuer|seller", deviceId: "device-1", scope: "scope-1")
+        partition = try StorePartition(subject: "issuer|seller", deviceId: "device-1", scope: "bun-v2:scope-1")
         let snapshot = StoreSnapshot(employee: .init(id: "employee-1", role: "sales", orgUnitId: "unit-1"),
             visits: [.init(id: "planned-1", outletId: "outlet-1", serviceDate: BootstrapClient.manilaDay(Date()),
                            planId: "plan-1", planVersion: 1, intents: ["merchandise"])],
@@ -44,7 +44,7 @@ final class VisitSyncTests: XCTestCase {
     }
     private func client() -> VisitSyncClient {
         VisitSyncClient(site: StubHTTP.site, auth: auth,
-            registry: ConvexDeviceRegistry(functions: ConvexFunctions(url: StubHTTP.cloud, auth: auth, http: http)),
+            registry: ServerDeviceRegistry(functions: ServerAPI(url: StubHTTP.cloud, auth: auth, http: http)),
             http: http, key: key)
     }
     private func checkIn() throws -> VisitIntent {
@@ -57,9 +57,9 @@ final class VisitSyncTests: XCTestCase {
     }
     private func install(_ response: @escaping @Sendable (StubURLProtocol.Recorded) -> StubURLProtocol.Outcome) {
         let jwt = StubHTTP.jwt(exp: Date().timeIntervalSince1970 + 900)
-        StubURLProtocol.install { request in
+        StubURLProtocol.installLegacy { request in
             switch request.path {
-            case "/api/auth/convex/token": return .reply(.json(200, ["token": jwt]))
+            case "/legacy/auth/token": return .reply(.json(200, ["token": jwt]))
             case "/api/mutation": return .reply(.json(200, ["status": "success", "value": [
                 "nonce": UUID().uuidString.lowercased(), "expiresAt": Date().timeIntervalSince1970 * 1000 + 60_000]]))
             default: return response(request)
@@ -95,12 +95,12 @@ final class VisitSyncTests: XCTestCase {
         try await client().push(store: store, partition: partition)
         XCTAssertTrue(try store.pendingOutbox(for: partition).isEmpty)
         XCTAssertEqual(try store.ack(for: intent.requestId, in: partition)?.entityId, "server-visit-1")
-        let request = try XCTUnwrap(StubURLProtocol.requests(to: "/mobile/v1/push").first)
+        let request = try XCTUnwrap(StubURLProtocol.rawRequests.first { $0.path == "/api/sync/push" })
         let headers = Dictionary(uniqueKeysWithValues: request.headers.map { ($0.key.lowercased(), $0.value) })
         let digest = RequestSigner.bodyDigest(request.body)
         XCTAssertEqual(headers["x-mobile-body-digest"], digest)
-        let proof = try XCTUnwrap(headers["x-mobile-signature"])
-        let message = "POST|/mobile/v1/push|\(digest)|\(headers["x-mobile-nonce"]!)|\(headers["x-mobile-timestamp"]!)"
+        let proof = try XCTUnwrap(headers["x-device-signature"])
+        let message = "POST|/api/sync/push|\(digest)|\(headers["x-device-nonce"]!)|\(headers["x-device-timestamp"]!)"
         XCTAssertTrue(DeviceKeys.verify(signatureBase64: proof, message: Data(message.utf8), spkiBase64: key.publicKeyBase64))
     }
     func testUncertainAcceptanceReplaysSameOperationBytesAndKey() async throws {
@@ -119,7 +119,7 @@ final class VisitSyncTests: XCTestCase {
         }
         XCTAssertEqual(ops[0], ops[1])
         XCTAssertEqual(ops[0], intent.operationJSON)
-        XCTAssertNotEqual(requests[0].headers["x-mobile-nonce"], requests[1].headers["x-mobile-nonce"])
+        XCTAssertNotEqual(requests[0].headers["x-device-nonce"], requests[1].headers["x-device-nonce"])
         XCTAssertEqual(try store.ack(for: intent.requestId, in: partition)?.eventIds, ["event-1"])
     }
     func testCrashBeforeLocalAckReopensAndReplaysFrozenBytes() async throws {
@@ -268,7 +268,7 @@ final class VisitSyncTests: XCTestCase {
         for _ in 0..<25 {
             let id = UUID(); ids.append(id.uuidString.lowercased())
             let op: [String: Any] = ["kind": "visit.checkIn", "clientRequestId": id.uuidString.lowercased(),
-                "payload": ["clientVisitId": UUID().uuidString.lowercased()]]
+                "payload": ["clientVisitId": UUID().uuidString.lowercased(), "deviceTime": 1_799_999_000_000]]
             try store.enqueue(.init(requestId: id, kind: "visit.checkIn", operationJSON: JSONSerialization.data(withJSONObject: op)), for: partition, now: Date())
         }
         install { request in Self.accepted(request) }
@@ -371,11 +371,11 @@ final class VisitSyncTests: XCTestCase {
         catch { XCTAssertEqual(error as? VisitSyncClient.Failure, .throttled) }
         XCTAssertEqual(try store.cursor(for: partition), "cursor-0")
         let jwt = StubHTTP.jwt(exp: Date().timeIntervalSince1970 + 900)
-        StubURLProtocol.install { request in
+        StubURLProtocol.installLegacy { request in
             switch request.path {
-            case "/api/auth/convex/token": return .reply(.json(200, ["token": jwt]))
+            case "/legacy/auth/token": return .reply(.json(200, ["token": jwt]))
             case "/api/mutation": return .reply(.json(200, ["status": "error",
-                "errorMessage": "Uncaught ConvexError: rate_limited", "errorData": "rate_limited"]))
+                "errorMessage": "rate_limited", "errorData": "rate_limited"]))
             default: return .fail(.badURL)
             }
         }

@@ -1,7 +1,7 @@
 import Foundation
 import Network
 
-/// Composition root for the signed-in field session: Better Auth session, Convex functions and enrollment.
+/// Composition root for the signed-in field session: server session, Sunpride API and enrollment.
 @MainActor
 @Observable
 final class AppModel {
@@ -121,13 +121,13 @@ final class AppModel {
     }
     private struct ProfileIdentity: Decodable { let _id: String; let authSubject: String }
     private struct CachedPartition: Codable { let subject: String; let deviceId: String; let scope: String }
-    private static let partitionAccount = "field.lastVerifiedPartition"
+    private static let partitionAccount = "field.bunV2.lastVerifiedPartition"
 
     @ObservationIgnored private let auth: AuthClient
     @ObservationIgnored private let registry: DeviceRegistry
     @ObservationIgnored private let secrets: SecretStore
     @ObservationIgnored private let site: URL?
-    @ObservationIgnored private let functions: ConvexFunctions?
+    @ObservationIgnored private let functions: ServerAPI?
     @ObservationIgnored private let http: HTTPClient?
     @ObservationIgnored private let loadKey: () throws -> any DeviceSigningKey
     @ObservationIgnored private var fieldStore: EncryptedFieldStore?
@@ -185,7 +185,7 @@ final class AppModel {
     }
 
     init(auth: AuthClient, registry: DeviceRegistry, store: SecretStore,
-         pollInterval: Duration = .seconds(10), site: URL? = nil, functions: ConvexFunctions? = nil,
+         pollInterval: Duration = .seconds(10), site: URL? = nil, functions: ServerAPI? = nil,
          http: HTTPClient? = nil, localStore: EncryptedFieldStore? = nil,
          photoFiles: PhotoFiles? = nil, evidenceAPI: EvidenceAPI? = nil, biometrics: BiometricGate? = nil,
          liveSource: (any LiveLocationSource)? = nil, consentStore: (any LocationConsentStore)? = nil,
@@ -219,16 +219,27 @@ final class AppModel {
     /// Real wiring: Keychain session, ephemeral cookie-less URLSession, Secure Enclave (or simulator) key.
     /// SP-0133: the session goes through the lockable vault (Face ID / Touch ID sign-in).
     static func live(environment: AppEnvironment) -> AppModel {
-        let service = "com.sunpride.field.dev"
+        let service = Bundle.main.bundleIdentifier ?? "com.sunpride.field.dev"
         let crypto = KeychainBiometricCrypto(service: service)
         let store = LockableSessionStore(plain: KeychainStore(service: service)) {
             try KeychainBiometricCrypto.deleteItems(service: service)
         }
+        if (try? store.read("transport.bunV2.cutover")) == nil {
+            // Old secure storage is retained; only credentials/cache authority are retired.
+            try? store.delete(StoreAccount.session)
+            let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            if let file = support?.appending(path: "FieldStore/field.sqlite"), FileManager.default.fileExists(atPath: file.path),
+               let legacy = try? EncryptedFieldStore(url: file, secrets: store) {
+                try? legacy.purgeAllCachesForReview()
+                legacy.close()
+            }
+            try? store.save(Data([2]), for: "transport.bunV2.cutover")
+        }
         let http = HTTPClient()
-        let auth = AuthClient(site: environment.siteURL, store: store, http: http)
-        let functions = ConvexFunctions(url: environment.convexURL, auth: auth, http: http)
-        return AppModel(auth: auth, registry: ConvexDeviceRegistry(functions: functions), store: store,
-                        site: environment.siteURL, functions: functions, http: http,
+        let auth = AuthClient(site: environment.apiOrigin, store: store, http: http)
+        let functions = ServerAPI(url: environment.apiOrigin, auth: auth, http: http)
+        return AppModel(auth: auth, registry: ServerDeviceRegistry(functions: functions), store: store,
+                        site: environment.apiOrigin, functions: functions, http: http,
                         biometrics: BiometricGate(vault: store, crypto: crypto)) {
             try DeviceKeys.loadOrCreate(store: store)
         }
@@ -799,7 +810,7 @@ final class AppModel {
               let store = fieldStore, (try? store.pendingPhotos(for: partition).isEmpty) == false else { return }
         let api: EvidenceAPI
         if let evidenceAPI { api = evidenceAPI }
-        else if let functions, let http { api = ConvexEvidenceAPI(functions: functions, http: http) }
+        else if let functions, let http { api = ServerEvidenceAPI(functions: functions, http: http) }
         else { return }
         guard let files = try? evidenceFiles() else { return }
         _ = await EvidenceUploader(store: store, partition: partition, files: files, api: api, now: now).run()

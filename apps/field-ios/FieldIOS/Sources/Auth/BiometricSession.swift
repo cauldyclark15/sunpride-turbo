@@ -5,7 +5,7 @@ import Foundation
 /// `SecAccessControl(.biometryCurrentSet)` + `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` (a newly
 /// enrolled face or finger makes it unreadable, so the password is required again; there is no passcode
 /// fallback), and the ordinary copy is removed. At launch the system prompt opens it into this process's
-/// memory only; server calls still exchange that session for the short-lived Convex JWT exactly as before.
+/// memory only; server calls still exchange that session for the short-lived access token exactly as before.
 enum BiometricAvailability: Equatable, Sendable { case available, notEnrolled, unavailable }
 
 enum BiometryKind: Equatable, Sendable {

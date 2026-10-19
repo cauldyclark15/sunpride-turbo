@@ -1,9 +1,9 @@
-// Local-only endpoints. Never store tokens or credentials here.
-// Replace via gitignored Local.xcconfig or CI build settings for a real DEV endpoint.
-CONVEX_SITE_URL = http:/$()/localhost:3000
-CONVEX_URL = http:/$()/localhost:3001
+// The Sunpride server this build talks to (public address only; never tokens or credentials).
+// For a local simulator proof, override in a gitignored Config/Local.xcconfig, e.g. http:/$()/127.0.0.1:4390.
+// Xcode config uses $() to escape `//`.
+SUNPRIDE_API_ORIGIN = https:/$()/sunpride.cauldnclark.com
 // "Report an issue" (Account) opens $(FIELD_WEB_URL)/issues/new: the Sunpride web tracker. Empty hides it.
-FIELD_WEB_URL = https:/$()/sunpride.keepr.im
+FIELD_WEB_URL = https:/$()/sunpride.cauldnclark.com
 MARKETING_VERSION = 1.0
 CURRENT_PROJECT_VERSION = 1
 FIELD_VERSION_LABEL = $(MARKETING_VERSION)

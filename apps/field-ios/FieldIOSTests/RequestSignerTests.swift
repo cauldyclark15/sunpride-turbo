@@ -82,18 +82,19 @@ final class RequestSignerTests: XCTestCase {
             XCTAssertEqual(signature.derRepresentation.base64EncodedString(), der, name)
 
             // Our signer, with the fixture key, reproduces the digest/canonical/headers and a valid P1363 proof.
+            let migrated = RequestSigner.canonical(method: "POST", path: "/api/sync/push", bodyDigest: RequestSigner.bodyDigest(body), nonce: nonce, timestamp: timestamp)
             let signed = try RequestSigner(key: try fixtureKey(fixture))
-                .sign(path: path, body: body, deviceId: "test-device", nonce: nonce, timestamp: timestamp)
-            XCTAssertEqual(signed.canonical, canonical, name)
+                .sign(path: "/api/sync/push", body: body, deviceId: "test-device", nonce: nonce, timestamp: timestamp)
+            XCTAssertEqual(signed.canonical, migrated, name)
             XCTAssertEqual(signed.headers["x-mobile-body-digest"], vector["bodyDigestHex"] as? String, name)
-            XCTAssertEqual(signed.headers["x-mobile-nonce"], nonce, name)
-            XCTAssertEqual(signed.headers["x-mobile-timestamp"], String(timestamp), name)
-            XCTAssertEqual(signed.headers["x-mobile-device-id"], "test-device", name)
-            XCTAssertEqual(signed.headers["x-mobile-app"], "IOS", name)
-            XCTAssertEqual(signed.headers["x-mobile-contract-version"], "1", name)
-            let ours = try XCTUnwrap(signed.headers["x-mobile-signature"])
+            XCTAssertEqual(signed.headers["x-device-nonce"], nonce, name)
+            XCTAssertEqual(signed.headers["x-device-timestamp"], String(timestamp), name)
+            XCTAssertEqual(signed.headers["x-device-id"], "test-device", name)
+            XCTAssertEqual(signed.headers["x-mobile-app"], "field-ios", name)
+            XCTAssertEqual(signed.headers["x-mobile-contract-version"], "2", name)
+            let ours = try XCTUnwrap(signed.headers["x-device-signature"])
             XCTAssertEqual(Data(base64Encoded: ours)?.count, 64, name)
-            XCTAssertTrue(DeviceKeys.verify(signatureBase64: ours, message: Data(canonical.utf8), spkiBase64: fixture.spki), name)
+            XCTAssertTrue(DeviceKeys.verify(signatureBase64: ours, message: Data(migrated.utf8), spkiBase64: fixture.spki), name)
         }
     }
 
@@ -140,23 +141,23 @@ final class RequestSignerTests: XCTestCase {
         let signer = RequestSigner(key: SoftwareDeviceKey(key: P256.Signing.PrivateKey(), storage: .ephemeralTest))
         let nonce = "10000000-0000-4000-8000-000000000001"
         XCTAssertThrowsError(try signer.sign(path: "/mobile/v1/other", body: Data(), deviceId: "d", nonce: nonce, timestamp: 1))
-        XCTAssertThrowsError(try signer.sign(path: "/mobile/v1/pull", body: Data(), deviceId: "d", nonce: "not-a-uuid", timestamp: 1))
-        XCTAssertThrowsError(try signer.sign(path: "/mobile/v1/pull", body: Data(), deviceId: "", nonce: nonce, timestamp: 1))
-        XCTAssertThrowsError(try signer.sign(path: "/mobile/v1/pull", body: Data(), deviceId: "d", nonce: nonce, timestamp: 0))
+        XCTAssertThrowsError(try signer.sign(path: "/api/sync/pull", body: Data(), deviceId: "d", nonce: "not-a-uuid", timestamp: 1))
+        XCTAssertThrowsError(try signer.sign(path: "/api/sync/pull", body: Data(), deviceId: "", nonce: nonce, timestamp: 1))
+        XCTAssertThrowsError(try signer.sign(path: "/api/sync/pull", body: Data(), deviceId: "d", nonce: nonce, timestamp: 0))
     }
 
     func testBuiltRequestCarriesExactBodyAndBearer() throws {
         let key = SoftwareDeviceKey(key: P256.Signing.PrivateKey(), storage: .ephemeralTest)
         let body = Data(#"{"type":"pull.request","contractVersion":1,"deviceId":"dev1","cursor":"c","limit":50}"#.utf8)
-        let request = try RequestSigner(key: key).request(site: StubHTTP.site, path: "/mobile/v1/pull", body: body,
+        let request = try RequestSigner(key: key).request(site: StubHTTP.site, path: "/api/sync/pull", body: body,
                                                           deviceId: "dev1", nonce: "20000000-0000-4000-8000-000000000002",
                                                           timestamp: 1_780_000_000_123, jwt: Redacted("jwt-value"))
-        XCTAssertEqual(request.url?.absoluteString, "https://unit-test.convex.site/mobile/v1/pull")
+        XCTAssertEqual(request.url?.absoluteString, "https://unit-test.sunpride.test/api/sync/pull")
         XCTAssertEqual(request.httpBody, body)
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer jwt-value")
         XCTAssertNil(request.value(forHTTPHeaderField: "Origin"))
-        let canonical = "POST|/mobile/v1/pull|\(RequestSigner.bodyDigest(body))|20000000-0000-4000-8000-000000000002|1780000000123"
-        XCTAssertTrue(DeviceKeys.verify(signatureBase64: try XCTUnwrap(request.value(forHTTPHeaderField: "x-mobile-signature")),
+        let canonical = "POST|/api/sync/pull|\(RequestSigner.bodyDigest(body))|20000000-0000-4000-8000-000000000002|1780000000123"
+        XCTAssertTrue(DeviceKeys.verify(signatureBase64: try XCTUnwrap(request.value(forHTTPHeaderField: "x-device-signature")),
                                         message: Data(canonical.utf8), spkiBase64: key.publicKeyBase64))
     }
 

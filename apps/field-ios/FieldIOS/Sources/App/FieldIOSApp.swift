@@ -5,11 +5,7 @@ struct FieldIOSApp: App {
     init() { BackgroundRetry.register() }
     var body: some Scene {
         WindowGroup {
-            let values = [
-                "CONVEX_SITE_URL": Bundle.main.object(forInfoDictionaryKey: "CONVEX_SITE_URL") as? String ?? "",
-                "CONVEX_URL": Bundle.main.object(forInfoDictionaryKey: "CONVEX_URL") as? String ?? ""
-            ]
-            let result = Result { try AppEnvironment(values: values) }
+            let result = Result { try AppEnvironment.bundled() }
             switch result {
             case .success(let environment):
                 #if DEBUG

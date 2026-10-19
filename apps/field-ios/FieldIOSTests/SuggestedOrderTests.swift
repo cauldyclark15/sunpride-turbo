@@ -278,14 +278,14 @@ final class SuggestedOrderTests: XCTestCase {
         try secrets.save(Data("test-session".utf8), for: StoreAccount.session)
         let http = StubHTTP.client()
         let auth = AuthClient(site: StubHTTP.site, store: secrets, http: http, now: clock.closure)
-        let functions = ConvexFunctions(url: StubHTTP.cloud, auth: auth, http: http)
+        let functions = ServerAPI(url: StubHTTP.cloud, auth: auth, http: http)
         let key = SoftwareDeviceKey(key: P256.Signing.PrivateKey(), storage: .ephemeralTest)
         let model = AppModel(auth: auth, registry: FakeRegistry(), store: secrets, functions: functions, now: clock.closure) { key }
         let value = try object()
         let reply = try JSONSerialization.data(withJSONObject: ["status": "success", "value": value])
         let token = StubHTTP.jwt(exp: clock.now.timeIntervalSince1970 + 900)
-        StubURLProtocol.install { request in
-            if request.path == "/api/auth/convex/token" { return .reply(.json(200, ["token": token])) }
+        StubURLProtocol.installLegacy { request in
+            if request.path == "/legacy/auth/token" { return .reply(.json(200, ["token": token])) }
             return .reply(.init(status: 200, body: reply))
         }
         await model.suggestedOrders.load(outletId: outletId, offline: false)
@@ -295,7 +295,9 @@ final class SuggestedOrderTests: XCTestCase {
         let envelope = try XCTUnwrap(JSONSerialization.jsonObject(with: query.body) as? [String: Any])
         XCTAssertEqual(envelope["path"] as? String, "analytics/suggested_orders:forOutlet")
         XCTAssertEqual(envelope["args"] as? [String: String], ["outletId": outletId, "asOfDate": day])
-        XCTAssertTrue(StubURLProtocol.requests(to: "/api/mutation").isEmpty)
+        XCTAssertTrue(StubURLProtocol.rawRequests.allSatisfy { $0.path != "/api/sync/push" }, "a read never writes")
+        XCTAssertTrue(StubURLProtocol.rawRequests.filter { $0.method == "POST" }.allSatisfy {
+            ["/api/auth/refresh", "/api/devices/challenge", "/api/sync/pull"].contains($0.path) }, "only token refresh, the signed read and its proof challenge")
         XCTAssertTrue(StubURLProtocol.requests(to: "/mobile/v1/push").isEmpty)
         await model.signOut()
         await model.suggestedOrders.load(outletId: outletId, offline: true)

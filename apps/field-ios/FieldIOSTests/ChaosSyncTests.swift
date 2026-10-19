@@ -25,7 +25,7 @@ final class ChaosSyncTests: XCTestCase {
         directory = FileManager.default.temporaryDirectory.appending(path: "field-chaos-\(UUID().uuidString)")
         secrets = KeychainStore(service: "com.sunpride.field.chaos.tests.\(UUID().uuidString)")
         clock = TestClock(Date())
-        partition = try StorePartition(subject: "issuer|seller", deviceId: "device-1", scope: "scope-v1")
+        partition = try StorePartition(subject: "issuer|seller", deviceId: "device-1", scope: "bun-v2:scope-v1")
         key = SoftwareDeviceKey(key: P256.Signing.PrivateKey(), storage: .ephemeralTest)
         try secrets.save(Data("test-session".utf8), for: StoreAccount.session)
         try reset(seed: 1)
@@ -40,7 +40,7 @@ final class ChaosSyncTests: XCTestCase {
         for account in ["db", StoreAccount.session, StoreAccount.deviceId, StoreAccount.credentialId,
                         "field.lastVerifiedPartition"] { try? secrets.delete(account) }
         try? FileManager.default.removeItem(at: directory)
-        StubURLProtocol.install { _ in .fail(.notConnectedToInternet) }
+        StubURLProtocol.installLegacy(scopeFingerprint: "scope-v1") { _ in .fail(.notConnectedToInternet) }
         try await super.tearDown()
     }
 
@@ -88,7 +88,7 @@ final class ChaosSyncTests: XCTestCase {
     }
     private func makeEngine() {
         engine = VisitSyncClient(site: StubHTTP.site, auth: auth,
-            registry: ConvexDeviceRegistry(functions: ConvexFunctions(url: StubHTTP.cloud, auth: auth, http: http)),
+            registry: ServerDeviceRegistry(functions: ServerAPI(url: StubHTTP.cloud, auth: auth, http: http)),
             http: http, key: key)
     }
     private func restart() throws {
@@ -121,7 +121,7 @@ final class ChaosSyncTests: XCTestCase {
         config["cacheExpiresAt"] = expiry
         page["appConfig"] = config
         page["employee"] = ["id": "profile-1", "role": "sales", "orgUnitId": "unit-1"]
-        page["scope"] = ["fingerprint": partition.scope, "orgUnitIds": ["unit-1"]]
+        page["scope"] = ["fingerprint": partition.scope.replacingOccurrences(of: "bun-v2:", with: ""), "orgUnitIds": ["unit-1"]]
         page["plannedVisits"] = (1...2).map { n in
             ["id": "planned-\(n)", "outletId": "outlet-\(n)", "serviceDate": BootstrapClient.manilaDay(now),
              "planId": "plan-1", "planVersion": 1, "intents": ["merchandise"], "sequence": n - 1] as [String: Any]
@@ -199,16 +199,16 @@ final class ChaosSyncTests: XCTestCase {
     }
     private func bootstrap() -> BootstrapClient {
         BootstrapClient(site: StubHTTP.site, auth: auth,
-            registry: ConvexDeviceRegistry(functions: ConvexFunctions(url: StubHTTP.cloud, auth: auth, http: http)),
+            registry: ServerDeviceRegistry(functions: ServerAPI(url: StubHTTP.cloud, auth: auth, http: http)),
             http: http, key: key)
     }
     private func launchModel(_ registry: FakeRegistry) async {
-        let functions = ConvexFunctions(url: StubHTTP.cloud, auth: auth, http: http)
+        let functions = ServerAPI(url: StubHTTP.cloud, auth: auth, http: http)
         let signingKey = key!
         model = AppModel(auth: auth, registry: registry, store: secrets, site: StubHTTP.site, functions: functions,
                          http: http, localStore: store, now: clock.closure) { signingKey }
         await model!.launch()
-        XCTAssertTrue(model!.freshThisLaunch)
+        XCTAssertTrue(model!.freshThisLaunch, "launch bootstrap: \(model!.syncMessage ?? "no message")")
         XCTAssertEqual(model!.enrollment.state, .ready(deviceId: partition.deviceId))
     }
 
@@ -245,7 +245,7 @@ final class ChaosSyncTests: XCTestCase {
             model = nil
             try reset(seed: seed)
             let registry = FakeRegistry()
-            registry.lastMine = .success(.init(deviceId: partition.deviceId, status: "active", bound: true, allowedApp: "IOS"))
+            registry.lastMine = .success(.init(deviceId: partition.deviceId, status: "active", bound: true, allowedApp: "field-ios"))
             await launchModel(registry)
             let app = try XCTUnwrap(model)
             app.refreshToday()
@@ -372,7 +372,7 @@ final class ChaosSyncTests: XCTestCase {
         XCTAssertEqual(held.needsReview, 1)
         XCTAssertEqual(held.label, "Held · needs supervisor")
         XCTAssertFalse(BackgroundRetry.hasRetryableWork(store: store, partition: partition))
-        let newScope = try StorePartition(subject: partition.subject, deviceId: partition.deviceId, scope: "scope-v2")
+        let newScope = try StorePartition(subject: partition.subject, deviceId: partition.deviceId, scope: "bun-v2:scope-v2")
         let snapshot = try XCTUnwrap(store.snapshot(for: partition))
         let expiry = try XCTUnwrap(store.leaseExpiry(for: partition))
         try store.saveSnapshot(snapshot, cursor: "new-scope", leaseExpiresAt: expiry, cacheExpiresAt: expiry, for: newScope)
@@ -431,14 +431,14 @@ final class ChaosSyncTests: XCTestCase {
             model = nil
             try reset(seed: UInt64(index + 10))
             let registry = FakeRegistry()
-            registry.lastMine = .success(.init(deviceId: partition.deviceId, status: "active", bound: true, allowedApp: "IOS"))
+            registry.lastMine = .success(.init(deviceId: partition.deviceId, status: "active", bound: true, allowedApp: "field-ios"))
             await launchModel(registry)
             let operations = try day(seed: UInt64(index + 10))
             // Real AppModel catches these failures and owns the hold transition. A bare
             // VisitSyncClient reports a failure; it does not claim to lock a partition itself.
             transport.script("/mobile/v1/push", fault == .unauthorized ? [.unauthorized, .unauthorized] : [fault])
             if fault == .unauthorized {
-                registry.lastMine = .success(.init(deviceId: partition.deviceId, status: "revoked", bound: true, allowedApp: "IOS"))
+                registry.lastMine = .success(.init(deviceId: partition.deviceId, status: "revoked", bound: true, allowedApp: "field-ios"))
             }
             if fault == .rebootstrap {
                 // Failed reconnect bootstrap must leave the existing partition held.
@@ -468,14 +468,14 @@ final class ChaosSyncTests: XCTestCase {
 
     func testUnresolved401RetainsPendingWorkWithoutInventingRevocation() async throws {
         let registry = FakeRegistry()
-        registry.lastMine = .success(.init(deviceId: partition.deviceId, status: "active", bound: true, allowedApp: "IOS"))
+        registry.lastMine = .success(.init(deviceId: partition.deviceId, status: "active", bound: true, allowedApp: "field-ios"))
         await launchModel(registry)
         let operations = try day(seed: 1)
         transport.script("/mobile/v1/push", [.unauthorized, .unauthorized])
-        let tokensBefore = StubURLProtocol.requests(to: "/api/auth/convex/token").count
+        let tokensBefore = StubURLProtocol.requests(to: "/legacy/auth/token").count
         await model!.syncNow()
         XCTAssertEqual(StubURLProtocol.requests(to: "/mobile/v1/push").count, 2)
-        XCTAssertEqual(StubURLProtocol.requests(to: "/api/auth/convex/token").count, tokensBefore + 1)
+        XCTAssertEqual(StubURLProtocol.requests(to: "/legacy/auth/token").count, tokensBefore + 1)
         XCTAssertEqual(model!.enrollment.state, .ready(deviceId: partition.deviceId))
         // Production deliberately does not infer revocation or hold from an ambiguous 401.
         XCTAssertFalse(try store.isHeld(partition))
@@ -626,7 +626,7 @@ private final class ChaosTransport: Sendable {
         jwt = StubHTTP.jwt(exp: Date().timeIntervalSince1970 + 900)
     }
     var ledger: Ledger { state.withLock { $0.ledger } }
-    func install() { StubURLProtocol.install { [self] in handle($0) } }
+    func install() { StubURLProtocol.installLegacy(scopeFingerprint: "scope-v1", profileId: "profile-1") { [self] in handle($0) } }
     func script(_ path: String, _ faults: [Fault]) { state.withLock { $0.scripts[path] = faults } }
     func randomizePushes(_ count: Int) { state.withLock { $0.randomPushes = count } }
     func setBootstrap(_ pages: [Data]) { state.withLock { $0.bootstrap = pages } }
@@ -635,7 +635,7 @@ private final class ChaosTransport: Sendable {
 
     func handle(_ request: StubURLProtocol.Recorded) -> StubURLProtocol.Outcome {
         state.withLock { state in
-            if request.path == "/api/auth/convex/token" { return .reply(.json(200, ["token": jwt])) }
+            if request.path == "/legacy/auth/token" { return .reply(.json(200, ["token": jwt])) }
             if request.path == "/api/mutation" {
                 state.nonce += 1
                 return .reply(.json(200, ["status": "success", "value": [

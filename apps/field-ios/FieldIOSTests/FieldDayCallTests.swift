@@ -35,7 +35,7 @@ final class FieldDayCallTests: XCTestCase {
     private func makeModel() async throws -> AppModel {
         try secrets.save(Data("test-session".utf8), for: StoreAccount.session)
         let registry = FakeRegistry()
-        registry.lastMine = .success(MineResult(deviceId: "phone", status: "active", bound: true, allowedApp: "IOS"))
+        registry.lastMine = .success(MineResult(deviceId: "phone", status: "active", bound: true, allowedApp: "field-ios"))
         let key = SoftwareDeviceKey(key: P256.Signing.PrivateKey(), storage: .ephemeralTest)
         let model = AppModel(auth: AuthClient(site: StubHTTP.site, store: secrets, http: StubHTTP.client()),
             registry: registry, store: secrets, localStore: store, now: clock.closure) { key }

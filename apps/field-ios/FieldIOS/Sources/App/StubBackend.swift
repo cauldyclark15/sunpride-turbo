@@ -4,7 +4,7 @@ import Foundation
 import Synchronization
 
 /// DEBUG-only fake backend for UI tests, enabled by the launch environment `FIELD_STUB_BACKEND=<scenario>`.
-/// It intercepts every request of the app's own URLSession, so the real AuthClient / ConvexFunctions /
+/// It intercepts every request of the app's own URLSession, so the real AuthClient / ServerAPI /
 /// Enrollment code runs unchanged; bind proofs are verified with the enrolled public key like the server does.
 /// Scenarios: `unregistered` (never registered), `registers` (admin registers after the first lookup),
 /// `revoked`, `supervisor` (registered manager with a team; IOS-020). No real account, token or network is involved.
@@ -54,15 +54,16 @@ final class StubBackend: URLProtocol {
             try plain.delete(StubBiometricCrypto.sealedAccount)
             try KeychainBiometricCrypto.deleteItems(service: service)
         }
+        if let key = try? DeviceKeys.loadOrCreate(store: store) { state.withLock { $0.key = key.publicKeyBase64 } }
         let http = HTTPClient(session: URLSession(configuration: HTTPClient.makeConfiguration(protocolClasses: [StubBackend.self])))
-        let auth = AuthClient(site: environment.siteURL, store: store, http: http)
-        let functions = ConvexFunctions(url: environment.convexURL, auth: auth, http: http)
+        let auth = AuthClient(site: environment.apiOrigin, store: store, http: http)
+        let functions = ServerAPI(url: environment.apiOrigin, auth: auth, http: http)
         // SP-0138: `FIELD_STUB_LIVE=1` shows the location consent notice on Start day / first call;
         // other UI tests see an already-declined notice so no sheet interrupts their flows.
         let consents = StubConsentStore(defaults: UserDefaults(suiteName: consentSuite) ?? .standard,
                                         ask: ProcessInfo.processInfo.environment["FIELD_STUB_LIVE"] == "1")
-        let model = AppModel(auth: auth, registry: ConvexDeviceRegistry(functions: functions), store: store,
-                        pollInterval: .seconds(2), site: environment.siteURL, functions: functions, http: http,
+        let model = AppModel(auth: auth, registry: ServerDeviceRegistry(functions: functions), store: store,
+                        pollInterval: .seconds(2), site: environment.apiOrigin, functions: functions, http: http,
                         biometrics: BiometricGate(vault: store, crypto: crypto),
                         liveSource: StubLocationSource(), consentStore: consents) {
             try DeviceKeys.loadOrCreate(store: store)
@@ -79,12 +80,12 @@ final class StubBackend: URLProtocol {
 
     override func startLoading() {
         let path = request.url?.path ?? ""
-        if Self.scenario == "offline" && (path == "/api/query" || path == "/api/mutation" || path.hasPrefix("/mobile/v1/")) {
+        if Self.scenario == "offline" && (path == "/api/me" || path.hasPrefix("/api/sync/") || path.hasPrefix("/api/devices/")) {
             client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
             return
         }
         let body = Self.body(of: request)
-        let (status, headers, payload) = Self.respond(path: path, body: body, headers: request.allHTTPHeaderFields ?? [:])
+        let (status, headers, payload) = Self.respondV2(path: path, body: body, headers: request.allHTTPHeaderFields ?? [:])
         let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1",
                                        headerFields: headers.merging(["Content-Type": "application/json"]) { a, _ in a })!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
@@ -113,16 +114,108 @@ final class StubBackend: URLProtocol {
             .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "") }
         let exp = Int(Date().timeIntervalSince1970) + 900
-        return "\(segment(["alg": "none"])).\(segment(["aud": "convex", "exp": exp])).stub"
+        return "\(segment(["alg": "none"])).\(segment(["aud": "sunpride", "exp": exp])).stub"
     }
 
-    private static func respond(path: String, body: Data, headers: [String: String]) -> (Int, [String: String], Data) {
+    private static let uploads = Mutex<[String: String]>([:])
+    private static func respondV2(path: String, body: Data, headers: [String: String]) -> (Int, [String: String], Data) {
+        let fields = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        func success(_ value: [String: Any]) -> (Int, [String: String], Data) {
+            var value = value; value["version"] = 2
+            return (200, [:], json(value))
+        }
+        func refused(_ code: String = "forbidden") -> (Int, [String: String], Data) {
+            (403, [:], json(["version": 2, "error": ["code": code, "retryable": false, "action": "none"]]))
+        }
+        func unwrap(_ name: String, _ args: [String: Any]) -> [String: Any]? {
+            let result = function(name, args: args)
+            return result["status"] as? String == "success" ? result["value"] as? [String: Any] : nil
+        }
+        func verified() -> Bool {
+            let h = Dictionary(uniqueKeysWithValues: headers.map { ($0.key.lowercased(), $0.value) })
+            let nonce = h["x-device-nonce"] ?? "", timestamp = h["x-device-timestamp"] ?? ""
+            let message = "POST|\(path)|\(RequestSigner.bodyDigest(body))|\(nonce)|\(timestamp)"
+            return state.withLock { s in
+                let valid = s.bound && s.nonce == nonce && s.key.map {
+                    DeviceKeys.verify(signatureBase64: h["x-device-signature"] ?? "", message: Data(message.utf8), spkiBase64: $0)
+                } == true
+                if valid { s.nonce = nil }
+                return valid
+            }
+        }
+        switch path {
+        case "/api/auth/sign-in":
+            guard fields["password"] as? String == "correct-horse" else { return (401, [:], json(["version": 2])) }
+            state.withLock { $0.key = (fields["deviceKey"] as? [String: Any])?["publicKeySpki"] as? String }
+            return success(["serverTime": now, "sessionToken": "stub-session-token", "sessionExpiresAt": now + 604_800_000,
+                            "accessToken": "stub-opaque-access", "accessExpiresAt": now + 900_000])
+        case "/api/auth/refresh":
+            return success(["serverTime": now, "accessToken": "stub-opaque-access", "accessExpiresAt": now + 900_000])
+        case "/api/auth/sign-out": return success(["revoked": true])
+        case "/api/me":
+            let device: Any = state.withLock { s in
+                s.lookups += 1
+                let registered = ["revoked", "online", "supervisor"].contains(s.scenario) || (s.scenario == "registers" && s.lookups > 1)
+                return registered ? ["id": "stub-device-1", "status": s.scenario == "revoked" ? "revoked" : "active",
+                                     "bound": s.bound, "allowedApp": "field-ios"] as [String: Any] : NSNull()
+            }
+            return success(["serverTime": now, "profile": ["id": "profile-1", "subject": "stub-issuer|seller"],
+                            "scope": ["id": "unit-1", "fingerprint": "stub-scope-1", "epoch": "test"], "device": device])
+        case "/api/devices/challenge":
+            var value = unwrap("mobile/devices:challenge", fields) ?? [:]; value["serverTime"] = now
+            return success(value)
+        case "/api/devices/bind":
+            guard let value = unwrap("mobile/devices:bind", fields) else { return refused() }; return success(value)
+        case "/api/sync/pull":
+            guard verified(), let scope = (fields["scopes"] as? [[String: Any]])?.first,
+                  let projection = scope["projection"] as? String else { return refused() }
+            let delta = fields["since"] is String
+            let params = scope["params"] as? [String: Any] ?? [:]
+            var data: [String: Any] = [:]
+            if projection == "field.bundle" && !delta {
+                let result = respond(path: "/mobile/v1/bootstrap", body: Data(), headers: [:], proofVerified: true)
+                data = (try? JSONSerialization.jsonObject(with: result.2)) as? [String: Any] ?? [:]
+                for key in ["type", "contractVersion", "serverTime", "page", "nextPageCursor", "syncCursor"] { data.removeValue(forKey: key) }
+            } else if projection == "team.summary" {
+                guard let result = unwrap("supervision/mobile:team", params) else { return refused() }; data = result
+            } else if projection == "suggested-order" {
+                guard let result = unwrap("analytics/suggested_orders:forOutlet", params) else { return refused() }; data = result
+            }
+            let close = Int64(FieldDay.nextClose(after: Date()).timeIntervalSince1970 * 1000)
+            return success(["serverTime": now, "snapshotId": delta ? NSNull() : "stub-snapshot", "nextPageCursor": NSNull(),
+                "nextCursor": "stub-cursor-next", "hasMore": false,
+                "bundles": [["scopeId": scope["scopeId"] ?? "unit-1", "scopeFingerprint": "stub-scope-1", "projection": projection,
+                    "params": params, "mode": delta ? "delta" : "snapshot", "complete": true,
+                    "authorization": ["grantId": "stub-grant", "epoch": "test", "expiresAt": close],
+                    "offlineLease": ["expiresAt": close], "data": delta ? NSNull() as Any : data as Any, "changes": []]]])
+        case "/api/media/claims":
+            guard verified(), let digest = fields["sha256"] as? String else { return refused() }
+            uploads.withLock { $0["stub-blob"] = digest }
+            let origin = Bundle.main.object(forInfoDictionaryKey: AppEnvironment.originKey) as? String ?? "https://sunpride.cauldnclark.com"
+            return success(["uploadId": "stub-blob", "uploadToken": "stub-upload", "uploadUrl": origin + "/api/media/uploads/stub-blob", "expiresAt": now + 60_000])
+        case "/api/media/uploads/stub-blob":
+            guard EvidencePhotos.isJpeg(body) else { return refused() }
+            return success(["status": "stored", "blobId": "stub-blob", "sha256": EvidencePhotos.sha256Hex(body), "serverTime": now])
+        case "/api/sync/push":
+            guard verified(), let operations = fields["operations"] as? [[String: Any]] else { return refused() }
+            return success(["serverTime": now, "results": operations.map { op -> [String: Any] in
+                let kind = op["opType"] as? String ?? ""
+                return ["clientOpId": op["clientOpId"] ?? "", "opType": kind, "status": "applied", "code": NSNull(), "retryable": false,
+                    "ack": ["entityId": kind == "evidence.attach" ? "stub-evidence-1" : kind == "visit.activity" ? "stub-activity-1" : "stub-visit-1",
+                            "eventIds": ["stub-event-1"], "serverTime": now, "movementId": NSNull()]]
+            }])
+        default: return (404, [:], Data())
+        }
+    }
+
+    private static func respond(path: String, body: Data, headers: [String: String], proofVerified: Bool = false) -> (Int, [String: String], Data) {
         switch path {
         case "/api/auth/sign-in/email":
             let fields = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
             guard fields?["password"] as? String == "correct-horse" else { return (401, [:], json(["code": "INVALID"])) }
             return (200, [:], json(["redirect": false, "token": "stub-session-token", "user": ["id": "stub-user"]]))
-        case "/api/auth/convex/token":
+        case "/legacy/auth/token":
             return (200, [:], json(["token": fakeJWT()]))
         case "/api/auth/sign-out":
             return (200, [:], json(["success": true]))
@@ -141,8 +234,7 @@ final class StubBackend: URLProtocol {
                                       message: Data(message.utf8), spkiBase64: $0)
                 } == true
             }
-            guard valid, h["x-mobile-body-digest"] == digest,
-                  h["x-mobile-contract-version"] == "1" else { return (401, [:], json(["code": "unauthorized"])) }
+            guard proofVerified || (valid && h["x-mobile-body-digest"] == digest && h["x-mobile-contract-version"] == "1") else { return (401, [:], json(["code": "unauthorized"])) }
             let supervisorRole = state.withLock { s in s.nonce = nil; return s.supervisor }
             let now = Int64(Date().timeIntervalSince1970 * 1000)
             let today = BootstrapClient.manilaDay(Date())
@@ -222,8 +314,7 @@ final class StubBackend: URLProtocol {
                                       message: Data(message.utf8), spkiBase64: $0)
                 } == true
             }
-            guard valid, h["x-mobile-body-digest"] == digest,
-                  h["x-mobile-contract-version"] == "1" else { return (401, [:], json(["code": "unauthorized"])) }
+            guard proofVerified || (valid && h["x-mobile-body-digest"] == digest && h["x-mobile-contract-version"] == "1") else { return (401, [:], json(["code": "unauthorized"])) }
             state.withLock { $0.nonce = nil }
             let now = Int64(Date().timeIntervalSince1970 * 1000)
             if path == "/mobile/v1/pull" {
@@ -320,7 +411,7 @@ final class StubBackend: URLProtocol {
             case "visits/evidence:attach":
                 guard args["visitId"] as? String == "stub-visit-1", args["source"] as? String == "mobile",
                       EvidencePhotos.offered([]).contains(where: { $0.code == args["photoType"] as? String }) else {
-                    return ["status": "error", "errorMessage": "Uncaught ConvexError: invalid_request", "errorData": "invalid_request"]
+                    return ["status": "error", "errorMessage": "invalid_request", "errorData": "invalid_request"]
                 }
                 return ["status": "success", "value": ["evidenceId": "stub-evidence-1"]]
             case "mobile/devices:bind":
@@ -330,7 +421,7 @@ final class StubBackend: URLProtocol {
                       DeviceKeys.verify(signatureBase64: proof,
                                         message: Data("BIND|stub-device-1|\(credential)|\(nonce)|\(timestamp)".utf8),
                                         spkiBase64: key) else {
-                    return ["status": "error", "errorMessage": "Uncaught ConvexError: Invalid device proof"]
+                    return ["status": "error", "errorMessage": "Invalid device proof"]
                 }
                 s.nonce = nil
                 s.bound = true
@@ -339,7 +430,7 @@ final class StubBackend: URLProtocol {
                 // The server refuses a field seller (no people.read); the stub mirrors that refusal.
                 let reads = teamReads.withLock { $0 += 1; return $0 }
                 guard s.supervisor, let day = args["serviceDate"] as? String, reads <= (teamRefuseAfter ?? .max) else {
-                    return ["status": "error", "errorMessage": "Uncaught ConvexError: Not authorized", "errorData": "Not authorized"]
+                    return ["status": "error", "errorMessage": "Not authorized", "errorData": "Not authorized"]
                 }
                 return ["status": "success", "value": teamSummary(day: day, directOnly: args["directOnly"] as? Bool ?? true)]
             default:

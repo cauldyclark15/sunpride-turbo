@@ -50,7 +50,7 @@ final class ActivityRulesTests: XCTestCase {
             cursor: "cursor", leaseExpiresAt: expiry, cacheExpiresAt: expiry, for: partition)
         try secrets.save(Data("test-session".utf8), for: StoreAccount.session)
         let registry = FakeRegistry()
-        registry.lastMine = .success(MineResult(deviceId: "phone", status: "active", bound: true, allowedApp: "IOS"))
+        registry.lastMine = .success(MineResult(deviceId: "phone", status: "active", bound: true, allowedApp: "field-ios"))
         let key = SoftwareDeviceKey(key: P256.Signing.PrivateKey(), storage: .ephemeralTest)
         model = AppModel(auth: AuthClient(site: StubHTTP.site, store: secrets, http: StubHTTP.client()),
             registry: registry, store: secrets, localStore: store, now: clock.closure) { key }
@@ -123,12 +123,12 @@ final class ActivityRulesTests: XCTestCase {
         let auth = AuthClient(site: StubHTTP.site, store: secrets, http: http)
         let key = SoftwareDeviceKey(key: P256.Signing.PrivateKey(), storage: .ephemeralTest)
         let client = BootstrapClient(site: StubHTTP.site, auth: auth,
-            registry: ConvexDeviceRegistry(functions: ConvexFunctions(url: StubHTTP.cloud, auth: auth, http: http)),
+            registry: ServerDeviceRegistry(functions: ServerAPI(url: StubHTTP.cloud, auth: auth, http: http)),
             http: http, key: key)
         func serve(_ first: Data, _ second: Data) {
             let jwt = StubHTTP.jwt(exp: Date().timeIntervalSince1970 + 900)
-            StubURLProtocol.install { request in
-                if request.path == "/api/auth/convex/token" { return .reply(.json(200, ["token": jwt])) }
+            StubURLProtocol.installLegacy { request in
+                if request.path == "/legacy/auth/token" { return .reply(.json(200, ["token": jwt])) }
                 if request.path == "/api/mutation" {
                     return .reply(.json(200, ["status": "success", "value": [
                         "nonce": UUID().uuidString.lowercased(), "expiresAt": 1_790_380_860_000]]))

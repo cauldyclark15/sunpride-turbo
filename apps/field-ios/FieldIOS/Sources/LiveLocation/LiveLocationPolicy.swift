@@ -2,7 +2,7 @@ import CoreLocation
 import Foundation
 
 /// SP-0138 live map (iOS field app). Mirrors the server's `LOCATION_POLICY`
-/// (`packages/backend/convex/location/model.ts`). Sharing runs ONLY during the work day: from the day's
+/// (the server live-location rule). Sharing runs ONLY during the work day: from the day's
 /// first call Start (or "Start day") until "End day", sign-out or the 10 PM Manila daily close; never otherwise.
 enum LiveLocationPolicy {
     /// While moving: about one ping a minute, or sooner after 50 m.

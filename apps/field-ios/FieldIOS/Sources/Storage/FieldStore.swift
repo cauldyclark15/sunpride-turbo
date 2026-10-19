@@ -821,15 +821,6 @@ final class EncryptedFieldStore: FieldLocalStore {
                 }
                 let existing = try query("SELECT revision FROM delta WHERE \(Self.predicate) AND entity=? AND id=?", p(partition) + [.text(change.entity), .text(change.id)]) { sqlite3_column_int64($0, 0) }.first ?? 0
                 guard change.revision > existing else { continue }
-                let pending = try query("SELECT i.body FROM intents i JOIN outbox o ON o.subject=i.subject AND o.device=i.device AND o.scope=i.scope AND o.request_id=i.request_id WHERE i.subject=? AND i.device=? AND i.scope=? AND o.status IN ('pending','deferred')", p(partition)) { Self.data($0, 0) }
-                let protected = pending.contains { body in
-                    guard let op = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
-                          let payload = op["payload"] as? [String: Any] else { return false }
-                    if payload["visitId"] as? String == change.id || payload["plannedVisitId"] as? String == change.id { return true }
-                    guard let id = op["clientRequestId"] as? String, let uuid = UUID(uuidString: id) else { return false }
-                    return (try? ack(for: uuid, in: partition))?.entityId == change.id
-                }
-                if protected { continue }
                 try run("INSERT OR REPLACE INTO delta(subject,device,scope,entity,id,revision,body) VALUES (?,?,?,?,?,?,?)",
                         p(partition) + [.text(change.entity), .text(change.id), .integer(change.revision), change.value.map(Value.blob) ?? .null])
             }
@@ -873,7 +864,15 @@ final class EncryptedFieldStore: FieldLocalStore {
         }
     }
     func deltaValue(entity: String, id: String, for partition: StorePartition) throws -> Data? {
-        try query("SELECT body FROM delta WHERE \(Self.predicate) AND entity=? AND id=?", p(partition) + [.text(entity), .text(id)]) {
+        let pending = try query("SELECT i.body FROM intents i JOIN outbox o ON o.subject=i.subject AND o.device=i.device AND o.scope=i.scope AND o.request_id=i.request_id WHERE i.subject=? AND i.device=? AND i.scope=? AND o.status IN ('pending','deferred')", p(partition)) { Self.data($0, 0) }
+        if pending.contains(where: { body in
+            guard let op = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+                  let payload = op["payload"] as? [String: Any] else { return false }
+            if payload["visitId"] as? String == id || payload["plannedVisitId"] as? String == id { return true }
+            guard let raw = op["clientRequestId"] as? String, let uuid = UUID(uuidString: raw) else { return false }
+            return (try? ack(for: uuid, in: partition))?.entityId == id
+        }) { return nil }
+        return try query("SELECT body FROM delta WHERE \(Self.predicate) AND entity=? AND id=?", p(partition) + [.text(entity), .text(id)]) {
             sqlite3_column_type($0, 0) == SQLITE_NULL ? nil : Self.data($0, 0)
         }.first ?? nil
     }

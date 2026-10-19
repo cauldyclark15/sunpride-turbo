@@ -1,7 +1,7 @@
 import Foundation
 
 /// The client's productive-call rule, mirrored from the server's governed
-/// `packages/backend/convex/sfa/productive_call.ts` (rule version productive-call/2026-10-02) so
+/// `apps/api/src/domains/visits/productive.js` (rule version productive-call/2026-10-02) so
 /// the phone counts a call exactly as the manager scorecard and Daily Sales Report do:
 ///
 /// - only a closed call at a route-plan store is a call;

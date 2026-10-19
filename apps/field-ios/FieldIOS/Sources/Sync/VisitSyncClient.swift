@@ -32,46 +32,23 @@ final class VisitSyncClient {
               object["kind"] as? String == item.intent.kind else { throw Failure.invalidResponse }
         return object
     }
-    private func body(deviceId: String, items: [OutboxItem]) throws -> Data {
+    private func body(deviceId: String, scopeId: String, items: [OutboxItem]) throws -> Data {
         guard (1...20).contains(items.count) else { throw Failure.invalidResponse }
-        return try JSONSerialization.data(withJSONObject: ["type": "push.request", "contractVersion": 1,
-            "deviceId": deviceId, "operations": try items.map(operation)], options: [.sortedKeys])
+        return try NativeV2.push(deviceId: deviceId, scopeId: scopeId, operations: items.map {
+            try NativeV2.operation(try operation($0) as! [String: Any])
+        })
     }
     private func post(path: String, body: Data, deviceId: String) async throws -> Data {
-        for attempt in 0..<2 {
-            let jwt = try await auth.convexToken(forceRefresh: attempt > 0)
-            let challenge: ChallengeResult
-            do { challenge = try await registry.challenge(deviceId: deviceId) }
-            catch MobileError.rateLimited { throw Failure.throttled }
-            guard challenge.expiresAt.isFinite, challenge.expiresAt > 30_000,
-                  challenge.expiresAt < 9_007_199_254_740_991 else { throw Failure.invalidResponse }
-            let timestamp = Int64(challenge.expiresAt) - 30_000
-            let request = try RequestSigner(key: key).request(site: site, path: path, body: body,
-                deviceId: deviceId, nonce: challenge.nonce, timestamp: timestamp, jwt: jwt)
-            let (data, response) = try await http.send(request)
-            if let version = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["contractVersion"] as? Int,
-               version != 1 { throw Failure.updateRequired }
-            if let error = try? BootstrapV1.decodeFailure(data) {
-                switch error.error.code.rawValue {
-                case "device_revoked": throw Failure.revoked
-                case "version_unsupported": throw Failure.updateRequired
-                case "rebootstrap_required", "invalid_cursor", "scope_changed": throw Failure.rebootstrap
-                default: break
-                }
-            }
-            if response.statusCode == 401 {
-                auth.invalidateToken()
-                if attempt == 0 { continue }
-                throw Failure.unauthorized // A masked 401 does not establish revocation.
-            }
-            if response.statusCode == 429 { throw Failure.throttled }
-            if response.statusCode == 409 { throw Failure.rebootstrap }
-            guard response.statusCode == 200 else {
-                throw response.statusCode >= 500 ? Failure.retryable : Failure.invalidResponse
-            }
-            return data
-        }
-        throw Failure.unauthorized
+        do {
+            return try await NativeGateway(site: site, auth: auth, registry: registry, http: http, key: key)
+                .post(path, body: body, deviceId: deviceId)
+        } catch let error as NativeFailure {
+            if error.withdraws { throw Failure.revoked }
+            if error.action == "rebootstrap" || ["scope_changed", "cursor_invalid", "cursor_expired", "snapshot_changed", "rebootstrap_required"].contains(error.code) { throw Failure.rebootstrap }
+            if error.action == "update" { throw Failure.updateRequired }
+            throw error.retryable ? Failure.retryable : Failure.invalidResponse
+        } catch MobileError.rateLimited { throw Failure.throttled }
+        catch MobileError.unauthorized { throw Failure.unauthorized }
     }
     private func withBackoff(_ send: () async throws -> Data) async throws -> Data {
         for attempt in 0..<3 {
@@ -118,15 +95,18 @@ final class VisitSyncClient {
             let boundary = try store.deferredOutbox(for: partition).first?.sequence ?? .max
             let batch = Array(pending.prefix(while: { $0.sequence < boundary }).prefix(20))
             guard !batch.isEmpty else { return }
-            let bytes = try body(deviceId: partition.deviceId, items: batch)
-            let data = try await withBackoff { try await self.post(path: "/mobile/v1/push", body: bytes, deviceId: partition.deviceId) }
+            guard let employee = try store.snapshot(for: partition)?.employee else { throw Failure.rebootstrap }
+            let bytes = try body(deviceId: partition.deviceId, scopeId: employee.orgUnitId ?? "unscoped", items: batch)
+            let data = try await withBackoff { try await self.post(path: "/api/sync/push", body: bytes, deviceId: partition.deviceId) }
             try Task.checkCancellation()
             let result: BootstrapV1.PushResultEnvelope
-            do { result = try JSONDecoder().decode(BootstrapV1.PushResultEnvelope.self, from: data) }
+            do { result = try JSONDecoder().decode(BootstrapV1.PushResultEnvelope.self, from: NativeV2.legacyResults(data)) }
+            catch let error as Failure { throw error }
             catch { throw Failure.invalidResponse }
             guard result.results.count == batch.count else { throw Failure.invalidResponse }
             for (item, outcome) in zip(batch, result.results) {
                 try Task.checkCancellation()
+                guard try !store.isHeld(partition) else { return }
                 guard outcome.clientRequestId == item.intent.requestId.uuidString.lowercased(),
                       outcome.kind.rawValue == item.intent.kind else { throw Failure.invalidResponse }
                 switch outcome.status.rawValue {
@@ -137,7 +117,7 @@ final class VisitSyncClient {
                 case "rejected", "conflict":
                     let allowedCodes: Set<String> = ["invalid_request", "invalid_plan", "conflict", "dependency_missing",
                         "unsupported_operation", "out_of_scope", "evidence_pending_review", "invalid_transition", "call_open", "mcp_order",
-                        "wrong_date"]
+                        "wrong_date", "idempotency_conflict", "stock_conflict", "load_not_posted"]
                     let raw = outcome.reason.flatMap { allowedCodes.contains($0) ? $0 : nil }
                         ?? outcome.code?.rawValue ?? outcome.status.rawValue
                     try store.recordRejection(code: allowedCodes.contains(raw) ? raw : "unknown_code",
@@ -156,8 +136,16 @@ final class VisitSyncClient {
             try Task.checkCancellation()
             guard let cursor = try store.cursor(for: partition), !cursor.isEmpty,
                   seen.insert(cursor).inserted else { throw Failure.rebootstrap }
-            let body = try JSONEncoder().encode(PullRequest(deviceId: partition.deviceId, cursor: cursor))
-            let data = try await withBackoff { try await self.post(path: "/mobile/v1/pull", body: body, deviceId: partition.deviceId) }
+            guard let employee = try store.snapshot(for: partition)?.employee else { throw Failure.rebootstrap }
+            let scopeId = employee.orgUnitId ?? "unscoped"
+            let body = try NativeV2.pull(deviceId: partition.deviceId, scopeId: scopeId, projection: "field.bundle",
+                params: ["dayFrom": BootstrapClient.manilaDay(Date())], since: cursor, limit: 50)
+            let raw = try await withBackoff { try await self.post(path: "/api/sync/pull", body: body, deviceId: partition.deviceId) }
+            let decoded = try NativeV2.bundle(raw, scopeId: scopeId, projection: "field.bundle", mode: "delta")
+            guard NativeV2.legacyEpoch + (decoded.bundle["scopeFingerprint"] as? String ?? "") == partition.scope else { throw Failure.rebootstrap }
+            let data = try NativeV2.bytes(["type": "pull.response", "contractVersion": 1,
+                "serverTime": decoded.envelope["serverTime"] as Any, "changes": decoded.bundle["changes"] as Any,
+                "nextCursor": decoded.envelope["nextCursor"] as Any, "hasMore": decoded.envelope["hasMore"] as Any])
             try Task.checkCancellation()
             let page: PullPage
             do { page = try JSONDecoder().decode(PullPage.self, from: data) }
@@ -165,6 +153,7 @@ final class VisitSyncClient {
             guard page.type == "pull.response", page.contractVersion == 1,
                   page.serverTime > 0, !page.nextCursor.isEmpty,
                   (!page.hasMore || page.nextCursor != cursor), page.changes.count <= 50 else { throw Failure.invalidResponse }
+            guard try !store.isHeld(partition) else { return }
             try store.applyDelta(page.changes, nextCursor: page.nextCursor, for: partition)
             if !page.hasMore { return }
         }
@@ -189,9 +178,16 @@ final class VisitSyncClient {
             try Task.checkCancellation()
             let batch = try store.pendingPings(for: partition, limit: LiveLocationPolicy.maxBatch)
             guard !batch.isEmpty else { return rejected }
-            let bytes = try JSONSerialization.data(withJSONObject: ["type": "location.request", "contractVersion": 1,
-                "deviceId": partition.deviceId, "pings": batch.map(\.wireObject)], options: [.sortedKeys])
-            let data = try await withBackoff { try await self.post(path: "/mobile/v1/location", body: bytes, deviceId: partition.deviceId) }
+            let me = try await ServerAPI(url: site, auth: auth, http: http).currentMe()
+            guard let scope = me["scope"] as? [String: Any], let scopeId = scope["id"] as? String,
+                  NativeV2.legacyEpoch + (scope["fingerprint"] as? String ?? "") == partition.scope else { throw Failure.rebootstrap }
+            let operations: [[String: Any]] = batch.map { ping in
+                ["clientOpId": ping.clientPingId.uuidString.lowercased(), "opType": "location.record",
+                 "clientTime": ping.recordedAt, "dependsOn": [], "payload": ping.wireObject]
+            }
+            let bytes = try NativeV2.push(deviceId: partition.deviceId, scopeId: scopeId, operations: operations)
+            let raw = try await withBackoff { try await self.post(path: "/api/sync/push", body: bytes, deviceId: partition.deviceId) }
+            let data = try NativeV2.legacyResults(raw, location: true)
             try Task.checkCancellation()
             let response: LocationResponse
             do { response = try JSONDecoder().decode(LocationResponse.self, from: data) }
@@ -202,6 +198,7 @@ final class VisitSyncClient {
                   response.results.allSatisfy({ ["accepted", "duplicate", "rejected"].contains($0.status) })
             else { throw Failure.invalidResponse }
             rejected += response.results.filter { $0.status == "rejected" }.map { $0.code ?? "unknown_code" }
+            guard try !store.isHeld(partition) else { return rejected }
             try store.removePings(batch.map(\.clientPingId), for: partition)
         }
         throw Failure.retryable // bounded; the rest goes on the next upload

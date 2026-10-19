@@ -1,6 +1,6 @@
 import Foundation
 
-/// Wraps a secret (session token, Convex JWT) so string interpolation, `dump`, `print` and debugger
+/// Wraps a secret (session token, access token) so string interpolation, `dump`, `print` and debugger
 /// descriptions never reveal it. Read `.value` only at the point the header is written.
 struct Redacted<Value: Sendable>: Sendable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
     let value: Value

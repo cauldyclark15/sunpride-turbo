@@ -46,7 +46,7 @@ final class EnrollmentTests: XCTestCase {
         Enrollment(registry: registry, store: store, pollInterval: poll, now: clock.closure)
     }
 
-    private func device(_ status: String = "active", bound: Bool = false, app: String = "IOS") -> MineResult {
+    private func device(_ status: String = "active", bound: Bool = false, app: String = "field-ios") -> MineResult {
         MineResult(deviceId: "dev-1", status: status, bound: bound, allowedApp: app)
     }
 
@@ -222,10 +222,10 @@ final class AppModelTests: XCTestCase {
         let store = InMemoryStore()
         let registry = FakeRegistry()
         let clock = TestClock()
-        StubURLProtocol.install { request -> StubURLProtocol.Outcome in
+        StubURLProtocol.installLegacy { request -> StubURLProtocol.Outcome in
             switch request.path {
             case "/api/auth/sign-in/email": return .reply(.json(200, [:], headers: ["set-auth-token": "s"]))
-            case "/api/auth/convex/token": return .reply(.json(200, ["token": StubHTTP.jwt(exp: clock.now.timeIntervalSince1970 + 900)]))
+            case "/legacy/auth/token": return .reply(.json(200, ["token": StubHTTP.jwt(exp: clock.now.timeIntervalSince1970 + 900)]))
             default: return .reply(.json(200, [:]))
             }
         }
@@ -238,11 +238,11 @@ final class AppModelTests: XCTestCase {
         await model.signIn(email: "a@b.c", password: "p")
         XCTAssertEqual(model.pill.label, "Signed in — phone not registered")
 
-        registry.lastMine = .success(MineResult(deviceId: "d", status: "active", bound: true, allowedApp: "IOS"))
+        registry.lastMine = .success(MineResult(deviceId: "d", status: "active", bound: true, allowedApp: "field-ios"))
         await model.enrollment.check()
         XCTAssertEqual(model.pill.label, "Ready")
 
-        registry.lastMine = .success(MineResult(deviceId: "d", status: "revoked", bound: true, allowedApp: "IOS"))
+        registry.lastMine = .success(MineResult(deviceId: "d", status: "revoked", bound: true, allowedApp: "field-ios"))
         await model.enrollment.check()
         XCTAssertEqual(model.pill.label, "Phone removed")
 
@@ -253,7 +253,7 @@ final class AppModelTests: XCTestCase {
     }
 
     func testWrongPasswordShowsClearError() async {
-        StubURLProtocol.install { _ in .reply(.json(401, ["code": "INVALID_EMAIL_OR_PASSWORD"])) }
+        StubURLProtocol.installLegacy { _ in .reply(.json(401, ["code": "INVALID_EMAIL_OR_PASSWORD"])) }
         let store = InMemoryStore()
         let auth = AuthClient(site: StubHTTP.site, store: store, http: StubHTTP.client())
         let model = AppModel(auth: auth, registry: FakeRegistry(), store: store) {

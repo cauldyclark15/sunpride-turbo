@@ -6,8 +6,8 @@
 #
 # Signing: jc's own paid team FV2R5JV6YD ("Apple Development"), automatic provisioning, development
 # export (installs on phones registered to that team). Nothing is uploaded to App Store Connect or
-# TestFlight — that needs jc's OK. Endpoints default to the beta backend in Config/Beta.xcconfig and are
-# overridden by SUNPRIDE_BETA_CONVEX_SITE_URL / SUNPRIDE_BETA_CONVEX_URL / SUNPRIDE_BETA_WEB_URL.
+# TestFlight — that needs jc's OK. The server address defaults to Config/Beta.xcconfig
+# (https://sunpride.cauldnclark.com) and is overridden by SUNPRIDE_BETA_API_URL.
 #
 # Optional: SUNPRIDE_BETA_INSTALL_UDID=<device udid> installs the exported app on that phone afterwards.
 set -euo pipefail
@@ -22,20 +22,14 @@ if ! [[ "$BUILD" =~ ^[1-9][0-9]{0,3}$ ]]; then
 fi
 VERSION="1.0.0-beta.$BUILD"
 
-check_url() { # name value suffix
-  if [[ -n "$2" && ! "$2" =~ ^https://[a-z0-9.-]+$3/?$ ]]; then
-    printf '%s must be an https URL ending in %s\n' "$1" "$3" >&2
-    exit 1
-  fi
-}
-check_url SUNPRIDE_BETA_CONVEX_SITE_URL "${SUNPRIDE_BETA_CONVEX_SITE_URL:-}" '\.convex\.site'
-check_url SUNPRIDE_BETA_CONVEX_URL "${SUNPRIDE_BETA_CONVEX_URL:-}" '\.convex\.cloud'
-check_url SUNPRIDE_BETA_WEB_URL "${SUNPRIDE_BETA_WEB_URL:-}" ''
-
-overrides=("SUNPRIDE_BETA_BUILD=$BUILD")
-[[ -n "${SUNPRIDE_BETA_CONVEX_SITE_URL:-}" ]] && overrides+=("CONVEX_SITE_URL=${SUNPRIDE_BETA_CONVEX_SITE_URL%/}")
-[[ -n "${SUNPRIDE_BETA_CONVEX_URL:-}" ]] && overrides+=("CONVEX_URL=${SUNPRIDE_BETA_CONVEX_URL%/}")
-[[ -n "${SUNPRIDE_BETA_WEB_URL:-}" ]] && overrides+=("FIELD_WEB_URL=${SUNPRIDE_BETA_WEB_URL%/}")
+# One Sunpride server origin for sign-in, sync and photos. HTTPS only; no local fallbacks.
+ORIGIN="${SUNPRIDE_BETA_API_URL:-https://sunpride.cauldnclark.com}"
+if [[ ! "$ORIGIN" =~ ^https://[a-z0-9.-]+/?$ ]]; then
+  printf 'SUNPRIDE_BETA_API_URL must be the HTTPS Sunpride server origin\n' >&2
+  exit 1
+fi
+ORIGIN="${ORIGIN%/}"
+overrides=("SUNPRIDE_BETA_BUILD=$BUILD" "SUNPRIDE_API_ORIGIN=$ORIGIN" "FIELD_WEB_URL=$ORIGIN")
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/sunpride-ios-beta.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
@@ -67,13 +61,18 @@ read_key() { /usr/libexec/PlistBuddy -c "Print :$1" "$PLIST_INFO"; }
 # Refuse a build that is not the beta: wrong bundle, unexpanded or DEV/localhost endpoints, wrong version.
 [[ "$(read_key CFBundleIdentifier)" == "com.sunpride.field.beta" ]] || { printf 'Not the beta bundle id\n' >&2; exit 1; }
 [[ "$(read_key FIELD_VERSION_LABEL)" == "$VERSION" ]] || { printf 'Version label mismatch\n' >&2; exit 1; }
-for key in CONVEX_SITE_URL CONVEX_URL; do
+for key in SUNPRIDE_API_ORIGIN; do
   value="$(read_key "$key")"
-  if [[ ! "$value" =~ ^https://[a-z0-9-]+\.convex\.(site|cloud)$ ]]; then
-    printf '%s is not a beta https Convex URL; refusing to publish.\n' "$key" >&2
+  if [[ "$value" != "$ORIGIN" ]]; then
+    printf '%s is not the selected HTTPS server origin; refusing to publish.\n' "$key" >&2
     exit 1
   fi
 done
+# Gate: no retired-backend text anywhere in the shipped bundle (binary strings included).
+if grep -rIli 'c''onvex' "$APP" >/dev/null 2>&1 || strings -a "$APP/Sunpride Field (Beta)" | grep -qi 'c''onvex'; then
+  printf 'The beta bundle still mentions the retired backend; refusing to publish.\n' >&2
+  exit 1
+fi
 codesign --verify --deep --strict "$APP"
 TEAM="$(codesign -dv "$APP" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
 [[ "$TEAM" == "FV2R5JV6YD" ]] || { printf 'Signed by team %s, expected FV2R5JV6YD\n' "$TEAM" >&2; exit 1; }

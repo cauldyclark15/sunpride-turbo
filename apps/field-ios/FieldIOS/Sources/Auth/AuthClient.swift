@@ -1,12 +1,12 @@
 import Foundation
 
-/// Better Auth session (Keychain only) and the short-lived Convex JWT (memory only).
+/// Better Auth session (Keychain only) and the short-lived access token (memory only).
 ///
-/// Wire (docs/runbooks/NATIVE_FIELD_DEV.md, proven by packages/backend/scripts/mobile_fake_device.ts):
-/// - `POST {site}/api/auth/sign-in/email` JSON `{email,password}` with **no Origin header** → the session
-///   token comes from `set-auth-token` when present, otherwise the top-level JSON `token` (DEV).
-/// - `GET {site}/api/auth/convex/token` with `Authorization: Bearer <session>` → `{token}` (15-minute JWT).
-/// - `POST {site}/api/auth/sign-out` with the session bearer.
+/// Wire (apps/api/src/core/auth.js, native credentials):
+/// - `POST {origin}/api/auth/sign-in` JSON `{email,password}` with **no Origin header** →
+///   `{version:2, serverTime, sessionToken, sessionExpiresAt, accessToken, accessExpiresAt}`.
+/// - `POST {origin}/api/auth/refresh` with the session bearer → a fresh short-lived access token.
+/// - `POST {origin}/api/auth/sign-out` with the session bearer.
 @MainActor
 final class AuthClient {
     /// Refresh this long before the JWT's `exp` so an in-flight call never carries an expiring token.
@@ -16,6 +16,7 @@ final class AuthClient {
     private let store: SecretStore
     private let http: HTTPClient
     private let now: @Sendable () -> Date
+    private var epoch: UInt64 = 0
     private var jwt: Redacted<String>?
     private var jwtExpiry: Date = .distantPast
     private var refreshTask: Task<Redacted<String>, Error>?
@@ -31,16 +32,31 @@ final class AuthClient {
     /// Test/diagnostic view of the cached JWT expiry; never exposes the token.
     var cachedTokenExpiry: Date? { jwt == nil ? nil : jwtExpiry }
 
-    private struct SignInBody: Encodable { let email: String; let password: String }
-    private struct TokenBody: Decodable { let token: String }
+    func signingKey() throws -> any DeviceSigningKey { try DeviceKeys.loadOrCreate(store: store) }
+    var keyId: String { get throws { RequestSigner.bodyDigest(try DeviceKeys.loadOrCreate(store: store).publicKeySPKI) } }
+    private func accept(_ data: Data) throws -> Redacted<String> {
+        let value = try NativeV2.validate(data)
+        guard let token = value["accessToken"] as? String, !token.isEmpty, token.count <= 4096,
+              !token.contains(where: \.isWhitespace), let server = value["serverTime"] as? Double,
+              let expiry = value["accessExpiresAt"] as? Double, expiry > server,
+              expiry - server <= 86_400_000 else { throw MobileError.invalidResponse }
+        jwt = Redacted(token)
+        jwtExpiry = now().addingTimeInterval((expiry - server) / 1000)
+        return Redacted(token)
+    }
 
     func signIn(email: String, password: String) async throws {
         let trimmed = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        var request = URLRequest(url: site.appending(path: "api/auth/sign-in/email"))
+        var request = URLRequest(url: site.appending(path: "api/auth/sign-in"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // Never set Origin: DEV rejects `Origin: null`, and forging a web origin is forbidden.
-        request.httpBody = try JSONEncoder().encode(SignInBody(email: trimmed, password: password))
+        epoch &+= 1
+        let ticket = epoch
+        refreshTask?.cancel(); refreshTask = nil
+        let key = try DeviceKeys.loadOrCreate(store: store)
+        request.httpBody = try NativeV2.bytes(["version": 2, "app": NativeV2.app, "email": trimmed, "password": password,
+            "deviceKey": ["keyId": RequestSigner.bodyDigest(key.publicKeySPKI), "publicKeySpki": key.publicKeyBase64]])
         let (body, response) = try await http.send(request)
         switch response.statusCode {
         case 200..<300: break
@@ -50,25 +66,19 @@ final class AuthClient {
         case 500...: throw MobileError.server
         default: throw MobileError.invalidResponse
         }
-        // Prefer the response header; DEV's crossDomain + convex plugins return the session in JSON instead.
-        // An invalid present header is not replaced by a body token.
-        let token = response.value(forHTTPHeaderField: "set-auth-token")
-            ?? (try? JSONDecoder().decode(TokenBody.self, from: body).token)
+        guard ticket == epoch else { throw CancellationError() }
+        let token = try NativeV2.validate(body)["sessionToken"] as? String
         guard let token, !token.isEmpty, token.count <= 4096, !token.contains(where: \.isWhitespace) else {
             throw MobileError.invalidResponse
         }
-        clearMemory()
-        do { try store.save(Data(token.utf8), for: StoreAccount.session) } catch { throw MobileError.storage }
-        do {
-            _ = try await convexToken(forceRefresh: true)
-        } catch MobileError.sessionExpired {
-            throw MobileError.unauthorized
-        }
+        _ = try accept(body)
+        do { try store.save(Data(token.utf8), for: StoreAccount.session) }
+        catch { clearMemory(); throw MobileError.storage }
     }
 
-    /// Returns a Convex JWT, refreshing when missing, within `refreshMargin` of expiry, or when forced.
+    /// Returns the access token, refreshing when missing, within `refreshMargin` of expiry, or when forced.
     /// Concurrent callers share one refresh.
-    func convexToken(forceRefresh: Bool = false) async throws -> Redacted<String> {
+    func bearerToken(forceRefresh: Bool = false) async throws -> Redacted<String> {
         if !forceRefresh, let jwt, jwtExpiry.timeIntervalSince(now()) > Self.refreshMargin { return jwt }
         if let refreshTask { return try await refreshTask.value }
         let task = Task { try await self.exchange() }
@@ -83,8 +93,11 @@ final class AuthClient {
             clearMemory()
             throw MobileError.notSignedIn
         }
-        var request = URLRequest(url: site.appending(path: "api/auth/convex/token"))
-        request.httpMethod = "GET"
+        let ticket = epoch
+        var request = URLRequest(url: site.appending(path: "api/auth/refresh"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try NativeV2.bytes(["version": 2, "app": NativeV2.app, "deviceKeyId": keyId])
         request.setValue("Bearer \(session)", forHTTPHeaderField: "Authorization")
         let (body, response) = try await http.send(request)
         if response.statusCode == 401 || response.statusCode == 403 {
@@ -96,16 +109,12 @@ final class AuthClient {
         guard (200..<300).contains(response.statusCode) else {
             throw response.statusCode >= 500 ? MobileError.server : MobileError.invalidResponse
         }
-        guard let token = try? JSONDecoder().decode(TokenBody.self, from: body).token,
-              let expiry = Self.expiry(ofJWT: token), expiry > now() else {
-            throw MobileError.invalidResponse
-        }
-        jwt = Redacted(token)
-        jwtExpiry = expiry
-        return Redacted(token)
+        try Task.checkCancellation()
+        guard ticket == epoch else { throw CancellationError() }
+        return try accept(body)
     }
 
-    /// Reads only the public `exp` claim. The signature is verified by Convex, not the phone.
+    /// Reads only the public `exp` claim. The signature is verified by the server, not the phone.
     nonisolated static func expiry(ofJWT token: String) -> Date? {
         let parts = token.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count == 3 else { return nil }
@@ -117,13 +126,14 @@ final class AuthClient {
         return Date(timeIntervalSince1970: exp)
     }
 
-    /// Drops the in-memory JWT (e.g. after a 401 from Convex) without touching the session.
+    /// Drops the in-memory JWT (e.g. after a 401 from the server) without touching the session.
     func invalidateToken() { clearMemory() }
 
     /// Local lockout always wins: memory and Keychain session are wiped before the best-effort remote call.
     /// Returns whether the server acknowledged the sign-out.
     @discardableResult
     func signOut() async -> Bool {
+        epoch &+= 1
         let session = (try? store.read(StoreAccount.session)).flatMap { $0 }.flatMap { String(data: $0, encoding: .utf8) }
         refreshTask?.cancel()
         refreshTask = nil
@@ -134,7 +144,7 @@ final class AuthClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(session)", forHTTPHeaderField: "Authorization")
-        request.httpBody = Data("{}".utf8)
+        request.httpBody = try? NativeV2.bytes(["version": 2])
         guard let (_, response) = try? await http.send(request) else { return false }
         return (200..<300).contains(response.statusCode)
     }
