@@ -547,6 +547,24 @@ describe("90-day Sunpride demo", () => {
     ).toBe(1);
     await db`delete from sessions where id=${session}`;
   }, 60_000);
+  test("reset also preserves legacy outside references that have no declared foreign key", async () => {
+    const orderId = crypto.randomUUID(),
+      lineId = crypto.randomUUID();
+    await db`insert into orders(id,client_request_id,order_number,customer_code,salesperson_subject,status,subtotal,total) values(${orderId},'outside-fixture','OUTSIDE-FIXTURE','OUTSIDE-CUSTOMER','outside-person','approved',0,0)`;
+    await db`insert into order_lines(id,order_id,product_code,description,quantity,unit_price,line_total) values(${lineId},${orderId},'SMP-PCH-227','Outside order using a sample product',1,0,0)`;
+    const before = await fingerprint();
+    await expect(resetDemo(db)).rejects.toThrow(
+      "Reset refused: non-sample order_lines references sample products",
+    );
+    expect(await fingerprint()).toEqual(before);
+    expect(
+      await number("select count(*) as n from order_lines where id=$1", [
+        lineId,
+      ]),
+    ).toBe(1);
+    await db`delete from order_lines where id=${lineId}`;
+    await db`delete from orders where id=${orderId}`;
+  }, 60_000);
   test("CLI --reset removes exactly owned rows; second fresh run has identical database counts and sums", async () => {
     const before = await fingerprint();
     const proc = Bun.spawn(

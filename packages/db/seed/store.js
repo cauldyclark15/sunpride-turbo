@@ -230,17 +230,40 @@ export async function resetDemo(db) {
     await t`insert into seed_owned_reset select table_name,row_id::uuid from sample_data_rows where batch=${BATCH}`;
     await t`analyze seed_owned_reset`;
     const fks = await foreignKeys(t);
+    // Frozen legacy tables also retain business references as codes/subjects rather
+    // than declared FKs. Preserve outside rows that still depend on those masters.
+    const legacyRefs = [
+      ["orders", "customer_code", "customers", "code"],
+      ["order_lines", "product_code", "products", "code"],
+      ["inventory_balances", "product_code", "products", "code"],
+      ["inventory_balances", "warehouse_code", "inventory_locations", "code"],
+      ["visits", "customer_code", "customers", "code"],
+      ["orders", "salesperson_subject", "profiles", "auth_subject"],
+      ["visits", "salesperson_subject", "profiles", "auth_subject"],
+      ["sales_assignments", "salesperson_subject", "profiles", "auth_subject"],
+      ["sales_assignments", "customer_code", "customers", "code"],
+      ["daily_sku_metrics", "product_code", "products", "code"],
+      ["daily_customer_metrics", "customer_code", "customers", "code"],
+      ["rollup_contribution_skus", "product_code", "products", "code"],
+      ["rollup_contributions", "customer_code", "customers", "code"],
+    ].map(([child, column_name, parent, parent_column]) => ({
+      child,
+      column_name,
+      parent,
+      parent_column,
+    }));
+    const refs = [...fks, ...legacyRefs];
     // Take table locks before the preflight so a concurrent writer cannot add a dependency
     // between inspection and deletion. No constraints/triggers are disabled.
     const locked = new Set([
       ...tables,
-      ...fks
+      ...refs
         .filter((/** @type {any} */ f) => tables.has(f.parent))
         .map((/** @type {any} */ f) => String(f.child)),
     ]);
     for (const table of [...locked].sort())
       await t.unsafe(`lock table ${ident(table)} in share row exclusive mode`);
-    for (const f of fks) {
+    for (const f of refs) {
       if (!tables.has(f.parent)) continue;
       const [external] = await t.unsafe(
         `select 1 from ${ident(f.child)} c

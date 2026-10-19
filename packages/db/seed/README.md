@@ -186,8 +186,8 @@ Salted Argon2id hashes, Postgres change-sequence values and migration metadata a
 intentionally not byte-identical business data.
 
 Reset validates marker identities, obtains the same batch advisory lock, builds a
-temporary indexed ownership map, checks every actual foreign key for non-sample
-dependents, locks affected tables, and deletes child before parent. It never
+temporary indexed ownership map, checks every actual foreign key and known legacy product/customer-code and
+salesperson-subject references for non-sample dependents, locks affected tables, and deletes child before parent. It never
 TRUNCATEs, disables constraints, deletes by an `SMP` name prefix or adopts existing
 rows into its ownership list. Non-sample rows and other sample batches survive.
 If someone has created a session or another external record referring to sample
