@@ -1,8 +1,8 @@
 "use client";
 
 import { Button, Input } from "@heroui/react";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
+import { api } from "./master-data/api";
+import type { Id } from "./master-data/model";
 import {
   Card,
   DataTable,
@@ -13,11 +13,12 @@ import {
   WorkspaceIcon,
   type DataColumn,
 } from "@sunpride/ui";
-import { useMutation, useQuery } from "convex/react";
-import type { FunctionArgs } from "convex/server";
+import { useMutation, useQuery } from "./master-data/api";
+import type { FunctionArgs } from "./master-data/api";
 import { useState, type FormEvent } from "react";
 import { AdminSelectField } from "./org-admin";
 import { formatManilaDate, futureManilaDateToUtcMs } from "../lib/manila-date";
+import { SetupSearch } from "./master-data/setup-health";
 
 type TeamAction = "create" | "add" | "remove" | "deactivate";
 type TeamMutations = {
@@ -73,10 +74,12 @@ export async function performTeamAction(
 }
 
 export function TeamsAdmin() {
+  const [search, setSearch] = useState<string | undefined>(undefined);
   const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
   const canManage = permissions?.capabilities.includes("admin.manage") ?? false;
   const [cursors, setCursors] = useState<(string | null)[]>([null]);
   const teams = useQuery(api.teams.queries.list, {
+    ...(search ? { q: search } : {}),
     paginationOpts: {
       numItems: 25,
       cursor: cursors[cursors.length - 1] ?? null,
@@ -158,7 +161,7 @@ export function TeamsAdmin() {
       label: "Unit",
       render: (row) =>
         units?.find((unit) => unit._id === row.orgUnitId)?.name ??
-        row.orgUnitId,
+        "Unit unavailable",
     },
     {
       key: "status",
@@ -214,6 +217,14 @@ export function TeamsAdmin() {
         }
         flush
       >
+        <SetupSearch
+          label="Search teams"
+          value={search ?? ""}
+          onChange={(value) => {
+            setSearch(value);
+            setCursors([null]);
+          }}
+        />
         {teams === undefined ? (
           <p className="p-4 text-sm text-muted">Loading teams…</p>
         ) : (
@@ -446,7 +457,7 @@ export function TeamsAdmin() {
                   Removing{" "}
                   {detail?.members.find(
                     (m) => m.profile._id === historyProfileId,
-                  )?.profile.name ?? historyProfileId}
+                  )?.profile.name ?? "Selected person"}
                 </p>
               </>
             ) : null}

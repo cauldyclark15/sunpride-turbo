@@ -1,8 +1,8 @@
 "use client";
 
 import { Button } from "@heroui/react";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
+import { api } from "./master-data/api";
+import type { Id } from "./master-data/model";
 import {
   Card,
   DataTable,
@@ -13,10 +13,11 @@ import {
   WorkspaceIcon,
   type DataColumn,
 } from "@sunpride/ui";
-import { useMutation, useQuery } from "convex/react";
-import type { FunctionArgs } from "convex/server";
+import { useMutation, useQuery } from "./master-data/api";
+import type { FunctionArgs } from "./master-data/api";
 import { useState, type FormEvent } from "react";
 import { AdminSelectField } from "./org-admin";
+import { SetupSearch } from "./master-data/setup-health";
 
 export type DeviceAction = "suspend" | "revoke" | "reinstate";
 type DeviceStatus = "active" | "suspended" | "revoked";
@@ -103,6 +104,9 @@ const statusTone = (status: DeviceStatus) =>
       : ("danger" as const);
 
 const historyLabel: Record<string, string> = {
+  "people.devices.suspend": "Suspended",
+  "people.devices.revoke": "Revoked",
+  "people.devices.reinstate": "Reinstated",
   "device.registered": "Registered",
   "device.bound": "Signed in on phone",
   "device.suspended": "Suspended",
@@ -119,6 +123,7 @@ const operationLabel: Record<string, string> = {
 };
 
 export function DevicesAdmin() {
+  const [search, setSearch] = useState<string | undefined>(undefined);
   const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
   const canManage = permissions?.capabilities.includes("admin.manage") ?? false;
   const [statusFilter, setStatusFilter] = useState<DeviceStatus | "all">("all");
@@ -127,6 +132,7 @@ export function DevicesAdmin() {
     api.mobile.devices.list,
     canManage
       ? {
+          ...(search ? { q: search } : {}),
           paginationOpts: {
             numItems: 25,
             cursor: cursors[cursors.length - 1] ?? null,
@@ -257,6 +263,14 @@ export function DevicesAdmin() {
         flush
       >
         <div className="border-b border-separator p-4">
+          <SetupSearch
+            label="Search phones"
+            value={search ?? ""}
+            onChange={(value) => {
+              setSearch(value);
+              setCursors([null]);
+            }}
+          />
           <AdminSelectField
             label="Status"
             value={statusFilter}
@@ -331,10 +345,9 @@ export function DevicesAdmin() {
               </dl>
               {device.status !== "active" ? (
                 <p className="rounded-xl bg-warning-soft p-3 text-[13px] text-warning-soft-foreground">
-                  The server now refuses this phone. Anything recorded on it
-                  after {formatManilaDateTime(device.lastSeenAt)} has not
-                  reached the server and cannot be recovered from here. Record
-                  missing visits through the supervisor process.
+                  The server now refuses this phone. Work may remain only on the
+                  phone, or may already have reached the office. Reconcile the
+                  received operations before supervised recovery or recapture.
                 </p>
               ) : null}
               <h4 className="text-[11px] font-medium uppercase tracking-wide text-muted">

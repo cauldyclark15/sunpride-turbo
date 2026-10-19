@@ -1,20 +1,22 @@
 "use client";
 
 import { Button, Input, ListBox, Select } from "@heroui/react";
-import { api } from "@sunpride/backend/api";
-import type { Doc, Id } from "@sunpride/backend/data-model";
+import { api } from "./master-data/api";
+import type { Doc, Id } from "./master-data/model";
 import {
   Card,
   DataTable,
   EmptyPanel,
   FormField,
+  Pager,
   StatusPill,
   WorkspaceIcon,
   type DataColumn,
 } from "@sunpride/ui";
-import { useMutation, useQuery } from "convex/react";
-import type { FunctionArgs } from "convex/server";
+import { useMutation, useQuery } from "./master-data/api";
+import type { FunctionArgs } from "./master-data/api";
 import { useState, type FormEvent } from "react";
+import { SetupSearch } from "./master-data/setup-health";
 import {
   formatManilaDate,
   futureManilaDateToUtcMs,
@@ -143,6 +145,8 @@ export async function performOrgAction(
 }
 
 export function OrgAdmin() {
+  const [search, setSearch] = useState<string | undefined>(undefined);
+  const [page, setPage] = useState(1);
   const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
   const canManage = permissions?.capabilities.includes("admin.manage") ?? false;
   const [asOf, setAsOf] = useState(() => Date.now());
@@ -344,11 +348,44 @@ export function OrgAdmin() {
         ) : (
           <DataTable
             bare
-            rows={rows}
+            rows={rows
+              .filter(
+                (row) =>
+                  !search ||
+                  `${row.name} ${row.code}`
+                    .toLowerCase()
+                    .includes(search.toLowerCase()),
+              )
+              .slice((page - 1) * 25, page * 25)}
             columns={columns}
             empty={<EmptyPanel title="No units" />}
           />
         )}
+        <SetupSearch
+          label="Search organization"
+          value={search ?? ""}
+          onChange={(value) => {
+            setSearch(value);
+            setPage(1);
+          }}
+        />
+        <Pager
+          label="Organization pages"
+          page={page}
+          canPrevious={page > 1}
+          canNext={
+            page * 25 <
+            rows.filter(
+              (row) =>
+                !search ||
+                `${row.name} ${row.code}`
+                  .toLowerCase()
+                  .includes(search.toLowerCase()),
+            ).length
+          }
+          onPrevious={() => setPage((old) => old - 1)}
+          onNext={() => setPage((old) => old + 1)}
+        />
       </Card>
       {choice ? (
         <Card

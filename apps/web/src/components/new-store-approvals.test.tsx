@@ -1,8 +1,8 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { getFunctionName } from "convex/server";
+import { fixtureName as getFunctionName } from "./master-data/fixtures";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Id } from "@sunpride/backend/data-model";
+import type { Id } from "./master-data/model";
 import { decideNewStore, NewStoreApprovals } from "./new-store-approvals";
 
 const state = vi.hoisted(() => ({
@@ -10,7 +10,8 @@ const state = vi.hoisted(() => ({
   queries: [] as { name: string; args: unknown }[],
   target: null as unknown,
 }));
-vi.mock("convex/react", () => ({
+vi.mock("./master-data/api", async (original) => ({
+  ...(await original<typeof import("./master-data/api")>()),
   useQuery: (reference: unknown, args: unknown) => {
     const name = getFunctionName(reference as never);
     state.queries.push({ name, args });

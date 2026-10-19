@@ -1,8 +1,11 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { getFunctionName } from "convex/server";
+import {
+  fixtureName as getFunctionName,
+  fixtureValue,
+} from "./master-data/fixtures";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Doc, Id } from "@sunpride/backend/data-model";
+import type { Doc, Id } from "./master-data/model";
 import { OutletAdmin, performOutletAction } from "./outlet-admin";
 
 const state = vi.hoisted(() => ({
@@ -13,11 +16,12 @@ const state = vi.hoisted(() => ({
   nullIndex: 0,
   emptyIndex: 0,
 }));
-vi.mock("convex/react", () => ({
+vi.mock("./master-data/api", async (original) => ({
+  ...(await original<typeof import("./master-data/api")>()),
   useQuery: (reference: unknown, args: unknown) => {
     const name = getFunctionName(reference as never);
     state.queries.push({ name, args });
-    return state.values[name];
+    return fixtureValue(reference, state.values[name]);
   },
   useMutation: () => vi.fn(),
 }));

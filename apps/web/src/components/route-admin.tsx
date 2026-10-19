@@ -8,12 +8,14 @@ import {
   StatusPill,
   WorkspaceIcon,
 } from "@sunpride/ui";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
-import { useMutation, useQuery } from "convex/react";
-import type { FunctionArgs } from "convex/server";
+import { api } from "./master-data/api";
+import type { Id } from "./master-data/model";
+import { useMutation, useQuery } from "./master-data/api";
+import type { FunctionArgs } from "./master-data/api";
 import { useState, type FormEvent } from "react";
 import { formatManilaDate, futureManilaDateToUtcMs } from "../lib/manila-date";
+import { SetupSearch } from "./master-data/setup-health";
+import { useSetupParam } from "./master-data/location";
 
 type Action =
   "create" | "edit" | "move" | "duplicate" | "assign" | "end" | "deactivate";
@@ -114,6 +116,8 @@ export async function performRouteAction(
   return mutations.deactivate({ routeId, effectiveTo: date, reason });
 }
 export function RouteAdmin() {
+  const [search, setSearch] = useState<string | undefined>(undefined);
+  const unassigned = useSetupParam("unassigned") === "true";
   const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
   const canRead = permissions?.capabilities.includes("route.read") ?? false;
   const canManage = permissions?.capabilities.includes("route.manage") ?? false;
@@ -132,9 +136,11 @@ export function RouteAdmin() {
   );
   const routes = useQuery(
     api.territories.routes.list,
-    canRead && territoryId
+    canRead && (territoryId || unassigned)
       ? {
-          territoryId,
+          ...(territoryId ? { territoryId } : {}),
+          ...(unassigned ? { unassigned: "true" } : {}),
+          ...(search ? { q: search } : {}),
           paginationOpts: { numItems: 25, cursor: cursors.at(-1) ?? null },
         }
       : "skip",
@@ -203,6 +209,14 @@ export function RouteAdmin() {
           <p>Route access required.</p>
         ) : (
           <>
+            <SetupSearch
+              label="Search routes"
+              value={search ?? ""}
+              onChange={(value) => {
+                setSearch(value);
+                setCursors([null]);
+              }}
+            />
             <FormField label="Territory">
               <select
                 aria-label="Territory"
@@ -223,12 +237,12 @@ export function RouteAdmin() {
                 ))}
               </select>
             </FormField>
-            {!territoryId && (
+            {!territoryId && !unassigned && (
               <p className="text-[13px] text-muted">
                 Choose a territory to see its routes
               </p>
             )}
-            {territoryId && (
+            {(territoryId || unassigned) && (
               <>
                 <ul className="overflow-hidden rounded-xl border border-border">
                   {routes?.page.map((row) => (
@@ -285,7 +299,7 @@ export function RouteAdmin() {
                   Territory:{" "}
                   {territories?.page.find(
                     (t) => t._id === detail.territory?.territoryId,
-                  )?.name ?? detail.territory?.territoryId}
+                  )?.name ?? "Territory unavailable"}
                 </p>
                 <p>
                   Effective {formatManilaDate(detail.route.effectiveFrom)}
@@ -301,8 +315,8 @@ export function RouteAdmin() {
                 <ol>
                   {history?.territories.map((row) => (
                     <li key={row._id}>
-                      {row.territoryId} · {formatManilaDate(row.effectiveFrom)}{" "}
-                      · {row.reason}
+                      {row.territoryName ?? "Territory unavailable"} ·{" "}
+                      {formatManilaDate(row.effectiveFrom)} · {row.reason}
                     </li>
                   ))}
                 </ol>
@@ -311,7 +325,9 @@ export function RouteAdmin() {
                   {detail.salespeople.map((row) => (
                     <li key={row._id}>
                       {people?.page.find((p) => p._id === row.profileId)
-                        ?.name ?? row.profileId}{" "}
+                        ?.name ??
+                        row.personName ??
+                        "Salesperson unavailable"}{" "}
                       · {row.primary ? "Primary" : "Secondary"}{" "}
                       <Button
                         variant="outline"
@@ -446,7 +462,11 @@ export function RouteAdmin() {
                       <option value="">Select assignment</option>
                       {detail?.salespeople.map((row) => (
                         <option key={row._id} value={row._id}>
-                          {row.profileId}
+                          {row.personName ??
+                            people?.page.find(
+                              (person) => person._id === row.profileId,
+                            )?.name ??
+                            "Salesperson unavailable"}
                         </option>
                       ))}
                     </select>
