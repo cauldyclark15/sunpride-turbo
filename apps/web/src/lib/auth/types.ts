@@ -40,3 +40,41 @@ export type SessionStatus =
   | "refused"
   /** The API could not answer (network, 5xx). */
   | "error";
+
+type RawMe = {
+  version?: number;
+  serverTime?: number;
+  user?: { id?: string; email?: string } | null;
+  profile?:
+    (Partial<SessionProfile> & { status?: string; userId?: string }) | null;
+  scope?: SessionScope | null;
+  permissions?: string[];
+  capabilities?: string[];
+  device?: unknown;
+};
+
+/**
+ * Accepts both `/api/me` shapes: the documented one (`profile.active`,
+ * `permissions`) and the Bun API's (`user`, `profile.status`, `capabilities`).
+ * Returns `null` when the server knows the login but has no profile for it.
+ */
+export function toMe(raw: RawMe): Me | null {
+  const p = raw.profile;
+  if (!p || !p.id) return null;
+  return {
+    version: raw.version,
+    serverTime: raw.serverTime,
+    profile: {
+      id: p.id,
+      subject: p.subject ?? raw.user?.id ?? p.userId ?? p.id,
+      name: p.name ?? raw.user?.email ?? "",
+      email: p.email ?? raw.user?.email,
+      role: p.role ?? "viewer",
+      orgUnitId: p.orgUnitId ?? null,
+      active: p.active ?? p.status === "active",
+    },
+    scope: raw.scope ?? null,
+    permissions: raw.permissions ?? raw.capabilities ?? [],
+    device: raw.device,
+  };
+}
