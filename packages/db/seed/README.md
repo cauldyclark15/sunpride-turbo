@@ -195,7 +195,49 @@ data, reset refuses and rolls back rather than cascading into their data. Reconc
 those dependent records explicitly; do not bypass the guard. The temporary index
 is dropped on transaction completion, not an additive schema migration.
 
-## Verify
+## Client trial accounts
+
+After migrating and seeding the sample company, run from the repository root:
+
+```sh
+DATABASE_URL=… bun packages/db/seed/trial-accounts.js --per-role 3
+DATABASE_URL=… bun packages/db/seed/trial-accounts.js --per-role 3 --rotate
+```
+
+The first command creates 27 private logins: three each for Administrator, Sales
+manager, Supervisor, Field agent, Van seller, Approver, Operations, Analyst and
+Viewer. No trial login has the super-admin role. Managers and supervisors share
+the manager application role; agents and van sellers share sales. Supervisors
+are limited to a sample team's territory; sales managers retain regional scope.
+Existing sample people without logins are used before extra people are created.
+Existing route/plan/profile IDs and historical signed snapshots are preserved.
+Extra van sellers receive separate empty sample trucks and planned trips, not
+fabricated loads or a second active trip on another seller's truck.
+
+The API is not started or deployed by this command. Passwords are independently
+generated and Argon2id-hashed. The CLI prints only counts and the output path.
+Credentials are retained in `~/.sunpride-keys/trial-accounts.json`, partitioned by
+database identity, and the client instructions default to
+`~/Downloads/sunpride-trial-accounts.txt`. Both files are atomically replaced with
+mode 0600. `--out` chooses another instruction-file path. Keep both files private.
+Normal repeats preserve passwords; `--rotate` replaces them and revokes their
+sessions. A tester-changed password is not overwritten or reprinted as the old
+password by a normal repeat.
+
+Every newly created database row uses the demo batch's ownership markers, so it
+participates in the same dependency-checked reset. Trigger-created sample order
+queues are also marked; composite-key outside dependencies still block reset.
+The current integrated VISITS migration additionally makes raw observation and
+execution-event rows unconditionally append-only. That pre-existing guard also
+blocks deletion of the sample company. Trial code does not disable triggers or
+weaken real evidence protection; a platform-approved sample-reset exception is
+needed before a full reset can succeed on that schema.
+
+Library: `createTrialAccounts(db, { perRole, rotate, recordPath, outPath })`.
+Tests use isolated private paths and a throwaway acct database, never the shared
+credential record. Run `bun test seed/trial-accounts.test.js` in `packages/db`.
+
+## Demo seed verification
 
 ```sh
 cd packages/db
