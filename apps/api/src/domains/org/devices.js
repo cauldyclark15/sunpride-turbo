@@ -1,5 +1,8 @@
 import { requireCapability } from "../../core/capabilities.js";
 import { access } from "./readers.js";
+import { ApiError } from "../../core/errors.js";
+import { createPublicKey } from "node:crypto";
+import { sha256Hex } from "../../core/util.js";
 import {
   dto,
   get,
@@ -14,6 +17,34 @@ import {
 
 /** @typedef {import('./model.js').Ctx} Ctx */
 /** @typedef {import('./model.js').Row} Row */
+/** Admin registration never replaces a bound key or revives a removed device. @param {Ctx} c @param {Row} b */
+export async function registerDevice(c, b) {
+  await requireCapability(c, "admin.manage");
+  const profile = await access(c, "people", uuid(b.profileId), "admin.manage");
+  if (profile.status !== "active") rule("Choose an active person");
+  if (!["field-ios", "field-android", "van-android"].includes(b.app)) rule("Choose a supported app");
+  const publicKeySpki = required(b.publicKeySpki, "Phone public key", 512);
+  const bytes = Buffer.from(publicKeySpki, "base64");
+  if (publicKeySpki !== b.publicKeySpki || bytes.length !== 91 || bytes.toString("base64") !== publicKeySpki) rule("Invalid phone public key");
+  try {
+    const key = createPublicKey({ key: bytes, format: "der", type: "spki" });
+    if (key.asymmetricKeyType !== "ec" || key.asymmetricKeyDetails?.namedCurve !== "prime256v1") rule("Invalid phone public key");
+  } catch { rule("Invalid phone public key"); }
+  const keyId = sha256Hex(bytes);
+  if (b.keyId !== undefined && b.keyId !== keyId) rule("Phone key identifier does not match");
+  const tag = required(b.inventoryTag, "Phone label", 100);
+  const existing = await c.db`select * from registered_devices where profile_id=${profile.id} and app=${b.app} and status='active'`;
+  if (existing.length) {
+    if (existing[0].key_id === keyId && existing[0].inventory_tag === tag) return existing[0].id;
+    throw new ApiError("device_exists", 409, "This person already has an active phone for this app");
+  }
+  // A shared phone may be registered for several people: every lookup, binding and proof is scoped to the
+  // signed-in profile, and each person binds their own credential. One person never gets two active phones.
+  const [row] = await c.db`insert into registered_devices(profile_id,app,platform,inventory_tag,public_key_spki,key_id,org_unit_id,status)
+    values(${profile.id},${b.app},${b.app === "field-ios" ? "ios" : "android"},${tag},${publicKeySpki},${keyId},${profile.org_unit_id},'active') returning id`;
+  return row.id;
+}
+
 const REASONS = {
   suspend: ["lost", "stolen", "suspected_compromise", "other"],
   revoke: [

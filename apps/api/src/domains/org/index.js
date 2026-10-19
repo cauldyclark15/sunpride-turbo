@@ -47,7 +47,7 @@ import {
 } from "./outlets.js";
 import { catalogCommand } from "./catalog.js";
 import { currentStandards, foundation, setStandard } from "./standards.js";
-import { deviceCommand, deviceReport } from "./devices.js";
+import { deviceCommand, deviceReport, registerDevice } from "./devices.js";
 import { supervisorOptions, roster, notifications } from "./extra-readers.js";
 import { setupHealth } from "./setup.js";
 import { readEvidence } from "./evidence.js";
@@ -203,6 +203,7 @@ export function install(router, platform) {
                 payload: { table, id: materializeId },
               });
         const entityId =
+          (path === "people/devices/register" && typeof value === "string" ? value : null) ??
           body.outletId ??
           body.profileId ??
           body.unitId ??
@@ -495,6 +496,7 @@ export function install(router, platform) {
     );
   command("catalog/foundation", "admin.manage", foundation);
   command("catalog/set-standard", "admin.manage", setStandard);
+  command("people/devices/register", "admin.manage", registerDevice);
   for (const action of ["suspend", "revoke", "reinstate"])
     command(`people/devices/${action}`, "admin.manage", (c, b) =>
       deviceCommand(c, /** @type {any} */ (action), b),
