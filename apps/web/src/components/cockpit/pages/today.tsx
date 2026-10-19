@@ -139,7 +139,7 @@ export function TodayView({
       <div className="grid items-start gap-4 lg:grid-cols-5">
         <Panel
           title="Needs you now"
-          question="The five most urgent items, with who owns each."
+          question="Up to five urgent items, with who owns each."
           className="lg:col-span-3"
           actions={
             <Link href={link("/decide")} className={buttonClass}>
@@ -151,7 +151,7 @@ export function TodayView({
         </Panel>
         <Panel
           title="Sales vs target by channel"
-          question="Month to date against the target due by today."
+          question="Selected day against its daily target."
           className="lg:col-span-2"
         >
           {data.byChannel.length ? (
@@ -165,7 +165,7 @@ export function TodayView({
                       )}
                       className="font-medium text-foreground hover:underline"
                     >
-                      {row.label}
+                      {humanize(row.label)}
                     </Link>
                     <span className="tabular-nums text-foreground">
                       {formatPhp(row.sales)}
@@ -203,7 +203,7 @@ export function TodayView({
                       )
                     ) : (
                       <>
-                        Target to date {formatPhp(row.target)} ·{" "}
+                        Daily target {formatPhp(row.target)} ·{" "}
                         {humanize(row.status)}
                       </>
                     )}

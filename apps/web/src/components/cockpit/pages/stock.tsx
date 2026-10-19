@@ -24,6 +24,9 @@ import type { StockResponse, StockRow } from "../types";
 import { usePageQuery } from "./shared";
 
 const STATUS_RANK: Record<string, number> = {
+  behind: 0,
+  watch: 1,
+  unknown: 4,
   out: 0,
   low: 1,
   overstock: 2,
@@ -162,7 +165,7 @@ export function StockView({ data, csv }: { data: StockResponse; csv: string }) {
       <Panel
         csvHref={csv}
         title="Every product"
-        question="Shortest cover first. Quantities are cases and pieces."
+        question="Stock exceptions first. Quantities are cases and pieces."
         flush
       >
         <DrillTable

@@ -481,6 +481,25 @@ describe("90-day Sunpride demo", () => {
       ),
     ).toBe(1);
   });
+  test("canonical order scope and money fields reconcile to their legacy mirrors", async () => {
+    expect(
+      await number(
+        `select count(*) n from orders where org_unit_id is null or salesperson_profile_id is null or outlet_id is null or territory_id is null or channel_key is null or service_date is null or total_centavos<>round(total*100) or total_centavos is null`,
+      ),
+    ).toBe(0);
+  });
+  test("field captures do not invent a national warehouse source", async () => {
+    expect(
+      await number(
+        `select count(*) n from orders where order_type in ('field','return') and source_location_id is not null`,
+      ),
+    ).toBe(0);
+    const [supervisor] =
+      await db`select p.org_unit_id from profiles p where p.email='supervisor@sunpride.test'`;
+    const [agent] =
+      await db`select p.org_unit_id from profiles p where p.email='agent@sunpride.test'`;
+    expect(supervisor.org_unit_id).toBe(agent.org_unit_id);
+  });
   test("stored agent/day money and return metrics reconcile to their source rows", async () => {
     expect(
       await number(`with source as (select p.id profile_id,(o.created_at at time zone 'Asia/Manila')::date date,sum(o.total) sales,count(*) filter(where o.order_type='return') returns from orders o join profiles p on p.auth_subject=o.salesperson_subject where o.status not in ('draft','rejected','voided') group by 1,2)

@@ -41,6 +41,45 @@ const kpiValues = (kpis: Kpi[]) =>
 afterEach(() => vi.unstubAllEnvs());
 
 describe("pages render their contract fixture", () => {
+  it("shows missing coaching minimums without an unfinished 'of' label", () => {
+    const data = analyticsFixture("coverage", MTD, NOW);
+    data.rows[0]!.workWith = { done: 0, required: null };
+    expect(
+      html(<CoverageView data={data} groupBy="agent" csv="/csv" />),
+    ).toContain("0 recorded · no minimum");
+  });
+  it("exposes the decision continuation cursor rather than hiding remaining work", () => {
+    const data = analyticsFixture("exceptions", MTD, NOW);
+    data.next = "another-page";
+    expect(
+      html(
+        <DecideView
+          data={data}
+          kind={null}
+          severity={null}
+          onMore={() => {}}
+        />,
+      ),
+    ).toContain("Next items");
+  });
+  it("uses exact case-and-piece suggested quantities instead of raw float cases", () => {
+    const data = analyticsFixture(
+      "store",
+      { ...MTD, storeId: "store-001" },
+      NOW,
+    );
+    data.suggestedOrder = [
+      {
+        productId: "p1",
+        qtyCases: 1 / 24,
+        quantityDisplay: "0 cases + 1 pieces",
+        reason: "Demand",
+      },
+    ];
+    const out = html(<StoreView data={data} />);
+    expect(out).toContain("0 cases + 1 pieces");
+    expect(out).not.toContain("0.041666666");
+  });
   it("Today: KPI row, channels, field board, vans and the top exceptions", () => {
     const data = analyticsFixture("today", { date: "2026-10-19" }, NOW);
     const out = html(<TodayView data={data} now={NOW} />);

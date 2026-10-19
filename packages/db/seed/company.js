@@ -116,7 +116,7 @@ export function company(d, hashes) {
   const accounts = [
     ["admin", "admin", "Sample Admin", root, "SCDM"],
     ["manager", "manager", "Sample Maria Sales Manager", region, "SCDM"],
-    ["supervisor", "manager", "Sample Elena Supervisor", region, "CDS"],
+    ["supervisor", "manager", "Sample Elena Supervisor", units[0], "CDS"],
     ["agent", "sales", "Sample Ana Mercado", units[0], "DS"],
     ["van", "sales", "Sample Paolo Van Seller", units[1], "PMOT"],
     ["approver", "approver", "Sample Finance Approver", root, "SCDM"],
@@ -394,11 +394,12 @@ export function company(d, hashes) {
     };
   });
   const factors = [1, 1.03, 0.98, 0.96];
-  const lists = CHANNELS.map((channel, i) => {
-    const list = d.add("price_lists", channel, {
+  const lists = [...CHANNELS, null].map((channel, i) => {
+    const key = channel ?? "default";
+    const list = d.add("price_lists", key, {
       organization_id: org,
-      code: `SMP-${channel.toUpperCase()}`,
-      name: `Sample ${channel} prices`,
+      code: `SMP-${key.toUpperCase()}`,
+      name: `Sample ${key} prices`,
       channel_key: channel,
       currency: "PHP",
       status: "active",
@@ -407,13 +408,13 @@ export function company(d, hashes) {
     });
     for (const p of products)
       for (const uom of ["PC", "CASE"])
-        d.add("price_list_lines", `${channel}-${p.code}-${uom}`, {
+        d.add("price_list_lines", `${key}-${p.code}-${uom}`, {
           organization_id: org,
           price_list_id: list.id,
           product_id: p.id,
           uom,
           unit_price_minor:
-            Math.round(p.piecePriceMinor * factors[i]) *
+            Math.round(p.piecePriceMinor * (factors[i] ?? 1)) *
             (uom === "CASE" ? p.caseQty : 1),
           effective_from: d.epoch,
         });

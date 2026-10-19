@@ -35,6 +35,12 @@ export function generateDemo(
   vans(data, c, stock);
   stock.finish();
   management(data, c, e);
+  // Keep the legacy analytics mirrors and ORDERS' canonical centavo facts equal.
+  for (const order of data.rows("orders")) {
+    order.subtotal_centavos = Math.round(Number(order.subtotal) * 100);
+    order.total_centavos = Math.round(Number(order.total) * 100);
+    order.amount_known = true;
+  }
   // The commercial orders already exist in this historical fixture. Own the
   // trigger-created bridge rows and mark them captured, never replay 90 days.
   for (const activity of data.rows("visit_activities")) {

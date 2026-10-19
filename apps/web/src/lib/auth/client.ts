@@ -38,7 +38,39 @@ export async function fetchMe(
   fetchImpl?: FetchImpl,
 ): Promise<Me | null> {
   try {
-    return await apiFetch<Me>("/api/me", { signal, fetchImpl });
+    const response = await apiFetch<
+      | Me
+      | {
+          user: { id: string; email: string };
+          profile: {
+            id: string;
+            name: string;
+            role: string;
+            orgUnitId: string | null;
+            status: string;
+          } | null;
+          capabilities: string[];
+        }
+    >("/api/me", { signal, fetchImpl });
+    if ("capabilities" in response) {
+      if (!response.profile)
+        throw new ApiError({
+          code: "profile_unavailable",
+          status: 403,
+          message: "No active profile is available for this account.",
+        });
+      return {
+        profile: {
+          ...response.profile,
+          subject: response.user.id,
+          email: response.user.email,
+          active: response.profile.status === "active",
+        },
+        scope: null,
+        permissions: response.capabilities,
+      };
+    }
+    return response;
   } catch (raw) {
     const error = normalizeError(raw);
     if (error.status === 401) return null;

@@ -12,6 +12,7 @@ export default function nextConfig(phase: string): NextConfig {
   const proxyApi =
     phase === PHASE_DEVELOPMENT_SERVER || Boolean(process.env.API_ORIGIN);
   return {
+    devIndicators: false,
     transpilePackages: ["@sunpride/ui", "@sunpride/backend"],
     async rewrites() {
       if (!proxyApi) return [];

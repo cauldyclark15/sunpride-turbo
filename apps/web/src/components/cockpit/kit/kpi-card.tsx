@@ -33,9 +33,6 @@ export const TARGETED = new Set([
   "mtdSales",
   "sales",
   "attainment",
-  "balanceToSell",
-  "perDayNeeded",
-  "salesCentavos",
 ]);
 
 export const SET_TARGET_HREF = "/sales?tab=targets";
@@ -118,7 +115,15 @@ export function KpiCard({
         {formatKpiValue(kpi)}
       </p>
       {kpi.value === null ? (
-        <p className="mt-2 text-[12.5px] text-muted">Not measured yet</p>
+        <p className="mt-2 text-[12.5px] text-muted">
+          {["cashRemitted", "cashVariance", "stockVarianceCases"].includes(
+            kpi.key,
+          )
+            ? "Pending trip settlement"
+            : kpi.key === "perDayNeeded"
+              ? "Not applicable to this period"
+              : "Not measured yet"}
+        </p>
       ) : (
         <div className="mt-auto">
           {share !== null ? (

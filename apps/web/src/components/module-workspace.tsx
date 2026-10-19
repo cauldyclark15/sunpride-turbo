@@ -133,7 +133,7 @@ function AllowedModuleWorkspace({
     canAccessWebModule(tab.href.slice(1), role),
   );
   return (
-    <div className="grid gap-4">
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4">
       {/* Inventory and the rebuilt Orders workspace draw their own header. */}
       {module === "inventory" || module === "orders" ? null : (
         <PageHeader title={TITLES[module]} />

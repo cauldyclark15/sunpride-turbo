@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { csvHref, useAnalytics } from "../api";
 import {
+  formatCases,
   formatCount,
   formatDayTime,
   formatDelta,
@@ -49,7 +50,7 @@ export function storeColumns(now: number): DrillColumn<StoreRow>[] {
         <span className="flex flex-col">
           <span>{r.name}</span>
           <span className="text-[12px] font-normal text-muted">
-            {r.code} · {r.channel} · {r.territory}
+            {r.code} · {humanize(r.channel)} · {r.territory}
           </span>
         </span>
       ),
@@ -429,7 +430,7 @@ export function StoreView({
             <p className="text-[13px] text-muted">
               {[
                 s.code,
-                s.channel,
+                humanize(s.channel),
                 s.territory,
                 s.agent ? `Served by ${s.agent}` : null,
                 s.address,
@@ -479,7 +480,7 @@ export function StoreView({
           question="What to offer on the next visit."
         >
           {data.suggestedOrder.length ? (
-            <ul className="grid gap-2">
+            <ul className="grid max-h-96 gap-2 overflow-y-auto pr-1">
               {data.suggestedOrder.map((item) => (
                 <li
                   key={item.productId}
@@ -494,7 +495,7 @@ export function StoreView({
                     </span>
                   </span>
                   <span className="shrink-0 font-semibold tabular-nums text-foreground">
-                    {item.qtyCases} cs
+                    {item.quantityDisplay ?? formatCases(item.qtyCases)}
                   </span>
                 </li>
               ))}

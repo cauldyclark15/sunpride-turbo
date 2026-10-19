@@ -1404,7 +1404,7 @@ function coverage(query: Query, clock: Clock): CoverageResponse {
           ),
           workWith: {
             done: sum((r) => r.workWith.done),
-            required: sum((r) => r.workWith.required),
+            required: sum((r) => r.workWith.required ?? 0),
           },
           weekly: weeks.map((_, i) => {
             const values = members
@@ -1424,7 +1424,7 @@ function coverage(query: Query, clock: Clock): CoverageResponse {
   const visited = rows.reduce((s, r) => s + r.visited, 0);
   const productive = rows.reduce((s, r) => s + r.productive, 0);
   const wwDone = rows.reduce((s, r) => s + r.workWith.done, 0);
-  const wwRequired = rows.reduce((s, r) => s + r.workWith.required, 0);
+  const wwRequired = rows.reduce((s, r) => s + (r.workWith.required ?? 0), 0);
   return {
     ...head,
     kpis: [

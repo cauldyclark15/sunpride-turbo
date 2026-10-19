@@ -173,7 +173,7 @@ export type CoverageRow = {
   firstCallAt: number | null;
   lastCallAt: number | null;
   timeInMarketMin: number | null;
-  workWith: { done: number; required: number };
+  workWith: { done: number; required: number | null };
   weekly: Array<number | null>;
   status: KpiStatus;
 };
@@ -284,6 +284,7 @@ export type StoreResponse = ResponseHeader & {
   suggestedOrder: Array<{
     productId: string;
     qtyCases: number;
+    quantityDisplay?: string;
     reason: string;
   }>;
 };

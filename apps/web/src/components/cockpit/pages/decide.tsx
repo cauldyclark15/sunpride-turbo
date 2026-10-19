@@ -142,12 +142,16 @@ export function DecideView({
   now: nowProp,
   link = (href) => href,
   onFilter,
+  onMore,
+  onFirst,
 }: {
   data: ExceptionsResponse;
   kind: ExceptionKind | null;
   severity: Severity | null;
   now?: number;
   link?: (href: string) => string;
+  onMore?: () => void;
+  onFirst?: () => void;
   onFilter?: (patch: {
     kind?: ExceptionKind | null;
     severity?: Severity | null;
@@ -229,6 +233,26 @@ export function DecideView({
               : "Nothing waiting"
           }
         />
+        {data.next || onFirst ? (
+          <div className="mt-4 flex items-center justify-between border-t border-border pt-3 text-[13px]">
+            <span>
+              Showing {formatCount(data.items.length)} items
+              {data.next ? " · more waiting" : ""}
+            </span>
+            <div className="flex gap-3">
+              {onFirst ? (
+                <button type="button" onClick={onFirst}>
+                  Back to first
+                </button>
+              ) : null}
+              {data.next ? (
+                <button type="button" onClick={onMore}>
+                  Next items
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
       </Panel>
       <Drawer
         open={open !== null}
@@ -246,6 +270,7 @@ export function DecidePage() {
     "kind",
     "severity",
     "ownerProfileId",
+    "cursor",
   ]);
   const kind = (EXCEPTION_KINDS as readonly string[]).includes(
     params.get("kind") ?? "",
@@ -275,7 +300,11 @@ export function DecidePage() {
             kind={kind}
             severity={severity}
             link={link}
-            onFilter={(patch) => set(patch)}
+            onFilter={(patch) => set({ ...patch, cursor: null })}
+            onMore={() => set({ cursor: data.next })}
+            onFirst={
+              params.has("cursor") ? () => set({ cursor: null }) : undefined
+            }
           />
         )}
       </PageData>

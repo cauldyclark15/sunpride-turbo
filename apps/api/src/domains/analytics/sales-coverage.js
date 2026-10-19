@@ -486,6 +486,7 @@ export async function coveragePage(db, p, s, group) {
   const weeks = [...new Set(dates(p.from, p.to).map(weekStart))].map(
     (weekStart) => ({ weekStart }),
   );
+  const weekByRow = new Map([...facts.planned, ...facts.visits].map((/** @type {any} */ row) => [row,weekStart(dateOf(row.service_date))]));
   const groups = new Map();
   for (const person of people) {
     if (
@@ -558,11 +559,11 @@ export async function coveragePage(db, p, s, group) {
           visitSummary({
             planned: selected.planned.filter(
               (/** @type {any} */ r) =>
-                weekStart(dateOf(r.service_date)) === w.weekStart,
+                weekByRow.get(r) === w.weekStart,
             ),
             visits: selected.visits.filter(
               (/** @type {any} */ r) =>
-                weekStart(dateOf(r.service_date)) === w.weekStart,
+                weekByRow.get(r) === w.weekStart,
             ),
             coaching: [],
           }).compliance,

@@ -14,6 +14,7 @@ import {
 import {
   readStores,
   readProducts,
+  units,
   readVisits,
   readAvailability,
   readMoney,
@@ -42,7 +43,7 @@ async function storeFacts(db, p, s) {
     ],
   );
   const visits =
-    await db`select v.outlet_id,max(coalesce(v.started_at,v.checked_in_at)) as last_visit from visit_executions v join analytics_store_scope o on o.id=v.outlet_id join analytics_people pe on pe.id=v.assignee_profile_id where v.deleted_at is null and v.service_date<=${p.to} and v.org_unit_id in ${db(s.ids.length ? s.ids : [null])} and pe.current_unit_id in ${db(s.ids.length ? s.ids : [null])} and o.owner_unit_id in ${db(s.ids.length ? s.ids : [null])} and (${s.ownProfileId}::uuid is null or pe.id=${s.ownProfileId}) group by v.outlet_id`;
+    await db`with stores as materialized(select id,owner_unit_id from analytics_store_scope), people as materialized(select id,current_unit_id from analytics_people) select v.outlet_id,max(coalesce(v.started_at,v.checked_in_at)) as last_visit from visit_executions v join stores o on o.id=v.outlet_id join people pe on pe.id=v.assignee_profile_id where v.deleted_at is null and v.service_date<=${p.to} and v.org_unit_id in ${db(s.ids.length ? s.ids : [null])} and pe.current_unit_id in ${db(s.ids.length ? s.ids : [null])} and o.owner_unit_id in ${db(s.ids.length ? s.ids : [null])} and (${s.ownProfileId}::uuid is null or pe.id=${s.ownProfileId}) group by v.outlet_id`;
   const rows = stores.map((/** @type {any} */ o) => {
     const c = current.rows.find((/** @type {any} */ r) => r.key === o.id),
       prev = prior.rows.find((/** @type {any} */ r) => r.key === o.id),
@@ -211,7 +212,7 @@ export async function storePage(ctx, p, s) {
   const [sales, prior, visitFacts, av, money, products] = await Promise.all([
     readSales(db, p, s, "store", `store:${id}`),
     readSales(db, { ...p, ...p.compare }, s, "store", `store:${id}`),
-    readVisits(db, p, s),
+    readVisits(db, { ...p, storeId: id }, s),
     readAvailability(db, p, s),
     readMoney(db, p, s),
     readProducts(db),
@@ -320,6 +321,9 @@ export async function storePage(ctx, p, s) {
     );
     suggestions.push({
       productId: product.id,
+      quantityDisplay: sellingBase
+        ? units(product, Math.round(suggestion.quantity * sellingBase)).display
+        : "Quantity unavailable",
       qtyCases:
         caseBase && sellingBase
           ? (suggestion.quantity * sellingBase) / caseBase
@@ -329,27 +333,38 @@ export async function storePage(ctx, p, s) {
         : suggestion.reason + "; case size not set",
     });
   }
+  const orderIds = [
+    ...new Set(history.map((/** @type {any} */ row) => row.order_id)),
+  ];
+  const orderNumbers =
+    await db`select id,order_number from orders where id in ${db(orderIds.length ? orderIds : [null])}`;
   const orderMap = new Map();
   for (const h of history) {
     if (!orderMap.has(h.order_id))
       orderMap.set(h.order_id, {
         orderId: h.order_id,
+        number:
+          orderNumbers.find((/** @type {any} */ row) => row.id === h.order_id)
+            ?.order_number ?? "Order",
+        lines: 0,
         at: ms(h.created_at),
         status: h.status,
         totalCentavos: 0,
       });
     orderMap.get(h.order_id).totalCentavos += Number(h.sales_centavos);
+    orderMap.get(h.order_id).lines += 1;
   }
   const week = (/** @type {string} */ d) =>
     addDays(d, -((new Date(d).getUTCDay() + 6) % 7));
   const weekly = new Map();
-  for (const r of sales.days) {
-    const w = week(r.key);
-    weekly.set(w, (weekly.get(w) ?? 0) + r.sales);
+  for (const r of history) {
+    const w = week(dateOf(r.service_date));
+    weekly.set(w, (weekly.get(w) ?? 0) + Number(r.sales_centavos));
   }
   return {
     store: {
       id: store.id,
+      storeId: store.id,
       code: store.code,
       name: store.name,
       channel: store.channel,
@@ -419,9 +434,9 @@ export async function storePage(ctx, p, s) {
         "Authorized customer aging balance; shared customer amount is not an outlet-specific debt.",
       ),
     ],
-    salesTrend: [...new Set(dates(p.from, p.to).map(week))].map(
-      (weekStart) => ({ weekStart, sales: weekly.get(weekStart) ?? 0 }),
-    ),
+    salesTrend: [
+      ...new Set(dates(week(addDays(p.to, -77)), p.to).map(week)),
+    ].map((weekStart) => ({ weekStart, sales: weekly.get(weekStart) ?? 0 })),
     visits: visits
       .sort(
         (/** @type {any} */ a, /** @type {any} */ b) =>
@@ -430,7 +445,9 @@ export async function storePage(ctx, p, s) {
       .slice(0, 10)
       .map((/** @type {any} */ v) => ({
         visitId: v.id,
-        at: ms(v.started_at),
+        at: ms(v.started_at) ?? ms(v.checked_in_at),
+        agent: v.agent_name,
+        outcome: v.state.replaceAll("_", " ").replaceAll("-", " "),
         state: v.state,
         onPlan: v.onPlan,
         productive: v.productive,

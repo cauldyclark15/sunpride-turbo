@@ -131,6 +131,52 @@ describe("auth actions", () => {
     expect(store.keys()).toEqual([]);
   });
 
+  it("adapts CORE's real web profile and capabilities without turning off active people", async () => {
+    const result = await fetchMe(undefined, async () =>
+      json(200, {
+        user: { id: "u1", email: "ana@example.com" },
+        profile: {
+          id: "p1",
+          name: "Ana",
+          role: "manager",
+          orgUnitId: "unit",
+          status: "active",
+        },
+        capabilities: ["report.read"],
+      }),
+    );
+    expect(result?.profile).toMatchObject({
+      subject: "u1",
+      active: true,
+      name: "Ana",
+    });
+    expect(result?.permissions).toEqual(["report.read"]);
+  });
+  it("does not activate disabled or missing web profiles", async () => {
+    const result = await fetchMe(undefined, async () =>
+      json(200, {
+        user: { id: "u1", email: "ana@example.com" },
+        profile: {
+          id: "p1",
+          name: "Ana",
+          role: "manager",
+          orgUnitId: "unit",
+          status: "disabled",
+        },
+        capabilities: [],
+      }),
+    );
+    expect(result?.profile.active).toBe(false);
+    await expect(
+      fetchMe(undefined, async () =>
+        json(200, {
+          user: { id: "u1", email: "ana@example.com" },
+          profile: null,
+          capabilities: [],
+        }),
+      ),
+    ).rejects.toMatchObject({ status: 403, code: "profile_unavailable" });
+  });
   it("fetchMe maps 401 to null and other failures to errors", async () => {
     expect(
       await fetchMe(undefined, async () => json(401, undefined)),

@@ -195,6 +195,10 @@ export const STATUS_LABEL: Record<KpiStatus, string> = {
 
 const KNOWN_LABELS: Record<string, string> = {
   ...STATUS_LABEL,
+  gt: "General trade",
+  pmot: "Public market & open trade",
+  kas: "Key accounts",
+  supermarket: "Supermarkets",
   no_plan: "No plan",
   not_started: "Not started",
   in_call: "In a call",

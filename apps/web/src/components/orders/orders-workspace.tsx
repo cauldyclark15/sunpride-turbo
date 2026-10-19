@@ -182,7 +182,7 @@ export function OrdersWorkspace() {
     apply(next);
   }
   return (
-    <div className="grid gap-5">
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-widest text-muted">
@@ -312,7 +312,7 @@ export function OrdersWorkspace() {
             <div className="rounded-xl border border-border p-4">
               <p className="text-sm text-muted">Missing prices</p>
               <strong>{summary?.unpriced ?? "—"}</strong>
-              <Link href="/pricing" className="text-xs underline">
+              <Link href="/pricing" className="ml-2 text-xs underline">
                 Fix channel prices
               </Link>
             </div>

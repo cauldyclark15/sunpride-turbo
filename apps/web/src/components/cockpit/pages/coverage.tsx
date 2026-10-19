@@ -151,13 +151,18 @@ export function coverageColumns(
       render: (r) => (
         <span
           className={
-            r.workWith.done < r.workWith.required ? "text-[#a15c07]" : ""
+            r.workWith.required !== null &&
+            r.workWith.done < r.workWith.required
+              ? "text-[#a15c07]"
+              : ""
           }
         >
-          {r.workWith.done} of {r.workWith.required}
+          {r.workWith.required == null
+            ? `${r.workWith.done} recorded · no minimum`
+            : `${r.workWith.done} of ${r.workWith.required}`}
         </span>
       ),
-      sort: (r) => r.workWith.done / Math.max(1, r.workWith.required),
+      sort: (r) => r.workWith.done / Math.max(1, r.workWith.required ?? 0),
     },
     {
       key: "status",

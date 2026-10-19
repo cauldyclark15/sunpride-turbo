@@ -31,7 +31,7 @@ export async function readStores(db, s, channel = null) {
 /** @param {any} db @param {any} p @param {any} s */
 export async function readVisits(db, p, s) {
   s.visitReads ??= new Map();
-  const key = JSON.stringify([p.from, p.to, p.channel, s.ownProfileId]);
+  const key = JSON.stringify([p.from, p.to, p.channel, p.storeId ?? null, s.ownProfileId]);
   if (!s.visitReads.has(key)) {
     const work = (s.visitQueue ?? Promise.resolve()).then(() =>
       queryVisits(db, p, s),
@@ -48,20 +48,22 @@ export async function readVisits(db, p, s) {
 async function queryVisits(db, p, s) {
   const ids = s.ids.length ? s.ids : [null];
   const [planned, visits, coaching] = await Promise.all([
-    db`select v.*,o.name as store_name,o.territory_id,pe.current_unit_id as org_unit_id from planned_visits v
-      join analytics_people pe on pe.id=v.assignee_profile_id join analytics_store_scope o on o.id=v.outlet_id
-      where v.deleted_at is null and v.status='planned' and v.service_date between ${p.from} and ${p.to}
+    db`with people as materialized(select * from analytics_people), stores as materialized(select * from analytics_store_scope)
+      select v.*,o.name as store_name,o.territory_id,pe.current_unit_id as org_unit_id from planned_visits v
+      join people pe on pe.id=v.assignee_profile_id join stores o on o.id=v.outlet_id
+      where v.deleted_at is null and v.status='planned' and v.service_date between ${p.from} and ${p.to} and (${p.storeId ?? null}::uuid is null or v.outlet_id=${p.storeId ?? null})
       and pe.current_unit_id in ${db(ids)} and o.owner_unit_id in ${db(ids)}
       and (${s.ownProfileId}::uuid is null or pe.id=${s.ownProfileId}) and (${p.channel}::text is null or o.channel=${p.channel})`,
-    db`select v.*,o.name as store_name,o.territory_id,st.productive_call_rule,
+    db`with people as materialized(select * from analytics_people), stores as materialized(select * from analytics_store_scope)
+      select v.*,pe.name as agent_name,o.name as store_name,o.territory_id,st.productive_call_rule,
       coalesce(a.kinds,'{}') as activity_kinds,coalesce(a.activities,'[]') as activities,
       coalesce(c.amount,0) as collections_centavos,coalesce(c.n,0) as collection_count
-      from visit_executions v join analytics_people pe on pe.id=v.assignee_profile_id
-      join analytics_store_scope o on o.id=v.outlet_id
+      from visit_executions v join people pe on pe.id=v.assignee_profile_id
+      join stores o on o.id=v.outlet_id
       left join lateral(select array_agg(activity_kind) as kinds,jsonb_agg(jsonb_build_object('kind',activity_kind,'activity',activity,'deviceTime',extract(epoch from device_time)*1000)) as activities from visit_activities where visit_id=v.id and deleted_at is null) a on true
       left join lateral(select sum(amount_minor) as amount,count(*) as n from field_collections where visit_id=v.id and deleted_at is null and status!='rejected') c on true
       left join lateral(select productive_call_rule from position_standards where position_id=pe.current_position_id and deleted_at is null and effective_from<=v.service_date::timestamp at time zone 'Asia/Manila' and (effective_to is null or effective_to>v.service_date::timestamp at time zone 'Asia/Manila') order by effective_from desc limit 1) st on true
-      where v.deleted_at is null and v.service_date between ${p.from} and ${p.to}
+      where v.deleted_at is null and v.service_date between ${p.from} and ${p.to} and (${p.storeId ?? null}::uuid is null or v.outlet_id=${p.storeId ?? null})
       and v.org_unit_id in ${db(ids)} and pe.current_unit_id in ${db(ids)} and o.owner_unit_id in ${db(ids)}
       and (${s.ownProfileId}::uuid is null or pe.id=${s.ownProfileId}) and (${p.channel}::text is null or o.channel=${p.channel})`,
     db`select w.* from work_with_sessions w join analytics_people pe on pe.id=w.trainer_profile_id where w.status='completed' and w.service_date between ${p.from} and ${p.to} and w.org_unit_id in ${db(ids)} and pe.current_unit_id in ${db(ids)} and (${s.ownProfileId}::uuid is null or pe.id=${s.ownProfileId}) and (${p.channel}::text is null or pe.channel_scope=${p.channel})`,
@@ -148,14 +150,18 @@ export function visitSummary(facts) {
 }
 /** @param {any} db @param {any} p @param {any} s */
 export async function readCollections(db, p, s) {
-  return db`select c.* from field_collections c join analytics_people pe on pe.id=c.assignee_profile_id join analytics_store_scope o on o.id=c.outlet_id
+  // Freeze each small authorization roster once. Inlining the lateral store
+  // view lets the planner rescan every outlet for every collection row.
+  return db`with people as materialized(select id,current_unit_id from analytics_people),
+    stores as materialized(select id,owner_unit_id,channel from analytics_store_scope)
+    select c.* from field_collections c join people pe on pe.id=c.assignee_profile_id join stores o on o.id=c.outlet_id
     where c.deleted_at is null and c.status!='rejected' and (c.device_time at time zone 'Asia/Manila')::date between ${p.from} and ${p.to}
     and c.org_unit_id in ${db(s.ids.length ? s.ids : [null])} and pe.current_unit_id in ${db(s.ids.length ? s.ids : [null])} and o.owner_unit_id in ${db(s.ids.length ? s.ids : [null])}
     and (${s.ownProfileId}::uuid is null or pe.id=${s.ownProfileId}) and (${p.channel}::text is null or o.channel=${p.channel})`;
 }
 /** Latest shelf observation per SKU/store, not every repeated audit. @param {any} db @param {any} p @param {any} s */
 export async function readAvailability(db, p, s) {
-  return db`select distinct on(a.outlet_id,a.product_id) a.* from merchandising_availability a join analytics_store_scope o on o.id=a.outlet_id where a.deleted_at is null and a.service_date between ${p.from} and ${p.to} and a.org_unit_id in ${db(s.ids.length ? s.ids : [null])} and o.owner_unit_id in ${db(s.ids.length ? s.ids : [null])} and (${p.channel}::text is null or o.channel=${p.channel}) and (${s.ownProfileId}::uuid is null or exists(select 1 from merchandising_audits m where m.id=a.audit_id and m.assignee_profile_id=${s.ownProfileId})) order by a.outlet_id,a.product_id,a.service_date desc,a.created_at desc`;
+  return db`with stores as materialized(select id,owner_unit_id,channel from analytics_store_scope) select distinct on(a.outlet_id,a.product_id) a.* from merchandising_availability a join stores o on o.id=a.outlet_id where a.deleted_at is null and a.service_date between ${p.from} and ${p.to} and a.org_unit_id in ${db(s.ids.length ? s.ids : [null])} and o.owner_unit_id in ${db(s.ids.length ? s.ids : [null])} and (${p.channel}::text is null or o.channel=${p.channel}) and (${s.ownProfileId}::uuid is null or exists(select 1 from merchandising_audits m where m.id=a.audit_id and m.assignee_profile_id=${s.ownProfileId})) order by a.outlet_id,a.product_id,a.service_date desc,a.created_at desc`;
 }
 /** @param {any} db @param {any} p @param {any} s */
 export async function readMoney(db, p, s) {
