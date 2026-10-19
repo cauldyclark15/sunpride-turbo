@@ -1,4 +1,5 @@
 import { tx } from "@sunpride/db/client";
+import { registerSamplePhone } from "./sample-devices.js";
 import { capabilitiesFor } from "./capabilities.js";
 import {
   SESSION_COOKIE,
@@ -202,6 +203,8 @@ export function installAuth(router) {
         user?.password_hash ?? DUMMY_HASH,
       );
       if (!user || !ok || user.disabled_at) return null;
+      if (native && deviceKeyId)
+        await registerSamplePhone(t, user.id, app, body.deviceKey);
       const session = await createSession(t, user.id, app, deviceKeyId);
       const access = native ? await createAccess(t, session.id) : null;
       return { user, session, access };
