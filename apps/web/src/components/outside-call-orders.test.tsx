@@ -1,36 +1,46 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { getFunctionName } from "convex/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { OutsideCallOrders } from "./outside-call-orders";
 
 const state = vi.hoisted(() => ({
   values: {} as Record<string, unknown>,
-  queries: [] as { name: string; args: unknown }[],
+  permissions: [] as string[],
+  profile: { id: "", role: "" },
+  queries: [] as unknown[],
   target: null as unknown,
+  error: null as { message: string } | null,
 }));
-vi.mock("convex/react", () => ({
-  useQuery: (reference: unknown, args: unknown) => {
-    const name = getFunctionName(reference as never);
-    state.queries.push({ name, args });
-    return args === "skip" ? undefined : state.values[name];
+vi.mock("../lib/api", () => ({
+  useApi: (key: unknown[]) => {
+    state.queries.push(key);
+    return {
+      data: key ? state.values[String(key[1])] : undefined,
+      error: key?.[1] === "outside-calls" ? state.error : null,
+    };
   },
-  useMutation: () => vi.fn(),
+  useLive: vi.fn(),
+  apiFetch: vi.fn(),
+  mutate: vi.fn(),
+}));
+vi.mock("../lib/auth", () => ({
+  useSession: () => ({ profile: state.profile }),
+  usePermissions: () => ({ can: (c: string) => state.permissions.includes(c) }),
 }));
 vi.mock("react", async (original) => {
   const actual = await original<typeof import("react")>();
   return {
     ...actual,
-    useState: (initial: unknown) => {
-      if (initial === null && state.target) return [state.target, vi.fn()];
-      return [
-        typeof initial === "function" ? (initial as () => unknown)() : initial,
-        vi.fn(),
-      ];
-    },
+    useState: (initial: unknown) => [
+      initial === null && state.target
+        ? state.target
+        : typeof initial === "function"
+          ? (initial as () => unknown)()
+          : initial,
+      vi.fn(),
+    ],
   };
 });
-
 const order = {
   _id: "po-1",
   poNumber: "PO-1001",
@@ -56,38 +66,45 @@ const page = (rows: unknown[]) => ({
   page: rows,
   isDone: true,
   continueCursor: "",
+  total: rows.length,
 });
 const render = () => renderToStaticMarkup(createElement(OutsideCallOrders));
-const named = (name: string) =>
-  state.queries.filter((query) => query.name === name).map((q) => q.args);
-
 beforeEach(() => {
   state.queries = [];
   state.target = null;
+  state.error = null;
+  state.permissions = ["order.encode", "visit.read"];
+  state.profile = { id: "admin-profile", role: "operations" };
   state.values = {
-    "lib/capabilities:currentPermissions": {
-      capabilities: ["order.encode", "visit.read"],
+    "outside-calls": page([row]),
+    "outside-options": {
+      outlets: [
+        {
+          _id: "o1",
+          name: "Puregold Cubao",
+          code: "SP000123",
+          status: "active",
+        },
+        {
+          _id: "o2",
+          name: "Closed store",
+          code: "SP000999",
+          status: "inactive",
+        },
+      ],
+      products: [
+        {
+          _id: "p1",
+          name: "Pineapple Juice 1L",
+          code: "P-1",
+          uom: "CS",
+          active: true,
+        },
+        { _id: "p9", name: "Retired", code: "P-9", uom: "CS", active: false },
+      ],
     },
-    "domains/profiles:current": { _id: "admin-profile", role: "operations" },
-    "orders/outside_calls:list": page([row]),
-    "orders/outside_calls:mine": page([]),
-    "outlets/queries:list": page([
-      { _id: "o1", name: "Puregold Cubao", code: "SP000123", status: "active" },
-      { _id: "o2", name: "Closed store", code: "SP000999", status: "inactive" },
-    ]),
-    "domains/masterData:products": [
-      {
-        _id: "p1",
-        name: "Pineapple Juice 1L",
-        code: "P-1",
-        uom: "CS",
-        active: true,
-      },
-      { _id: "p9", name: "Retired", code: "P-9", uom: "CS", active: false },
-    ],
   };
 });
-
 describe("Outside-call POs (CALL-09)", () => {
   it("gives the sales admin the encode form and the scoped list with cancel", () => {
     const view = render();
@@ -103,37 +120,25 @@ describe("Outside-call POs (CALL-09)", () => {
     expect(view).toContain("not counted as calls");
     expect(view).toMatch(/>Cancel PO<\/button>/);
     expect(view).not.toContain("Record activity");
-    // No store chosen yet, so no salesperson lookup.
-    expect(named("orders/outside_calls:candidates")).toEqual(["skip"]);
-    expect(named("orders/outside_calls:mine")).toEqual(["skip"]);
+    // No selected store, hence no candidate request; there is only one server-scoped list.
+    expect(state.queries).toContain(null);
+    expect(
+      state.queries.filter((x) => Array.isArray(x) && x[1] === "outside-calls"),
+    ).toHaveLength(1);
   });
-
   it("shows the salesperson only their own POs with Record activity", () => {
-    state.values["lib/capabilities:currentPermissions"] = {
-      capabilities: ["visit.read", "visit.record"],
-    };
-    state.values["domains/profiles:current"] = {
-      _id: "ana-profile",
-      role: "sales",
-    };
-    state.values["orders/outside_calls:mine"] = page([row]);
+    state.permissions = ["visit.read", "visit.record"];
+    state.profile = { id: "ana-profile", role: "sales" };
     const view = render();
     expect(view).toContain("My outside-call POs");
     expect(view).not.toContain("Encode a store PO");
     expect(view).toMatch(/>Record activity<\/button>/);
     expect(view).not.toContain("Cancel PO");
-    expect(named("orders/outside_calls:list")).toEqual(["skip"]);
+    expect(state.queries).toHaveLength(1);
   });
-
   it("shows the activity form with every other productive activity", () => {
-    state.values["lib/capabilities:currentPermissions"] = {
-      capabilities: ["visit.read", "visit.record"],
-    };
-    state.values["domains/profiles:current"] = {
-      _id: "ana-profile",
-      role: "sales",
-    };
-    state.values["orders/outside_calls:mine"] = page([row]);
+    state.permissions = ["visit.read", "visit.record"];
+    state.profile = { id: "ana-profile", role: "sales" };
     state.target = { id: "po-1", action: "record" };
     const view = render();
     expect(view).toContain("How you reached the store");
@@ -142,16 +147,10 @@ describe("Outside-call POs (CALL-09)", () => {
     expect(view).toContain("purchase order is always included");
     expect(view).toContain("Save activity");
   });
-
   it("shows a recorded activity to supervisors without actions", () => {
-    state.values["lib/capabilities:currentPermissions"] = {
-      capabilities: ["visit.read", "visit.record"],
-    };
-    state.values["domains/profiles:current"] = {
-      _id: "manager-profile",
-      role: "manager",
-    };
-    state.values["orders/outside_calls:list"] = page([
+    state.permissions = ["visit.read", "visit.record"];
+    state.profile = { id: "manager-profile", role: "manager" };
+    state.values["outside-calls"] = page([
       {
         ...row,
         order: {
@@ -174,9 +173,23 @@ describe("Outside-call POs (CALL-09)", () => {
     expect(view).not.toContain("Record activity");
     expect(view).not.toContain("Cancel PO");
   });
-
   it("renders nothing without access", () => {
-    state.values["lib/capabilities:currentPermissions"] = { capabilities: [] };
+    state.permissions = [];
     expect(render()).toBe("");
+    expect(state.queries).toEqual([null]);
+  });
+  it("shows a server refusal instead of an empty successful list", () => {
+    state.error = { message: "Your access changed" };
+    expect(render()).toContain("Your access changed");
+    expect(render()).not.toContain("PO PO-1001");
+  });
+  it("keeps a next page visible even when the current filtered page is empty", () => {
+    state.values["outside-calls"] = {
+      ...page([]),
+      isDone: false,
+      continueCursor: "20",
+    };
+    expect(render()).toContain("Outside-call PO pages");
+    expect(render()).toContain("No POs here.");
   });
 });

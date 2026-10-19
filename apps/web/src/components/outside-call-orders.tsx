@@ -9,9 +9,9 @@ import {
   StatusPill,
   WorkspaceIcon,
 } from "@sunpride/ui";
-import { api } from "@sunpride/backend/api";
-import type { Id } from "@sunpride/backend/data-model";
-import { useMutation, useQuery } from "convex/react";
+import { apiFetch, mutate, useApi, useLive } from "../lib/api";
+import { usePermissions, useSession } from "../lib/auth";
+import type { Candidates, OutsideOptions, OutsidePage } from "./orders/model";
 import { useState, type FormEvent } from "react";
 import { formatManilaDate } from "../lib/manila-date";
 import {
@@ -38,39 +38,48 @@ const blankLine = (): DraftLine => ({ productId: "", quantity: "" });
  * An outside call never counts toward the day's calls.
  */
 export function OutsideCallOrders() {
-  const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
-  const profile = useQuery(api.domains.profiles.current, {});
-  const has = (name: string) =>
-    permissions?.capabilities.includes(name) ?? false;
+  const { profile } = useSession();
+  const { can: has } = usePermissions();
   const canEncode = has("order.encode");
   const canRecord = has("visit.record");
   const canRead = has("visit.read");
   const ownOnly = profile?.role === "sales";
   const [status, setStatus] = useState<OutsideCallStatus>("awaiting_activity");
   const [cursors, setCursors] = useState<(string | null)[]>([null]);
-  const listArgs = {
-    status,
-    paginationOpts: { cursor: cursors.at(-1) ?? null, numItems: 20 },
-  };
-  const listed = useQuery(
-    api.orders.outside_calls.list,
-    canRead && profile && !ownOnly ? listArgs : "skip",
+  const query = { status, cursor: cursors.at(-1) ?? undefined };
+  const listed = useApi<OutsidePage>(
+    canRead && profile ? ["orders", "outside-calls", query] : null,
+    ({ signal }) =>
+      apiFetch("/api/v1/orders/outside-calls/list", { query, signal }),
   );
-  const mine = useQuery(
-    api.orders.outside_calls.mine,
-    canRecord && ownOnly ? listArgs : "skip",
-  );
-  const cancel = useMutation(api.orders.outside_calls.cancel);
-  const record = useMutation(api.orders.outside_calls.recordActivity);
+  useLive(["orders"], [["orders"]]);
+  const cancel = (body: { orderId: string; reason: string }) =>
+    mutate(
+      "/api/v1/orders/outside-calls/cancel",
+      { ...body, idempotencyKey: target?.requestKey },
+      { invalidate: [["orders"]] },
+    );
+  const record = (body: {
+    orderId: string;
+    contact: string;
+    codes: string[];
+    note?: string;
+  }) =>
+    mutate(
+      "/api/v1/orders/outside-calls/record-activity",
+      { ...body, idempotencyKey: target?.requestKey },
+      { invalidate: [["orders"]] },
+    );
   const [target, setTarget] = useState<{
-    id: Id<"outsideCallOrders">;
+    id: string;
     action: "cancel" | "record";
+    requestKey: string;
   } | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   if (!canRead && !canEncode) return null;
-  const result = ownOnly ? mine : listed;
+  const result = listed.error ? undefined : listed.data;
   const rows = result?.page;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -127,7 +136,9 @@ export function OutsideCallOrders() {
               ))}
             </select>
           </FormField>
-          {rows === undefined ? (
+          {listed.error ? (
+            <p role="alert">{listed.error.message}</p>
+          ) : rows === undefined ? (
             <p className="text-sm text-muted">Loading POs…</p>
           ) : rows.length === 0 ? (
             <p className="text-sm text-muted">No POs here.</p>
@@ -136,7 +147,7 @@ export function OutsideCallOrders() {
               {rows.map((row) => {
                 const { order } = row;
                 const own =
-                  !!profile && profile._id === order.salespersonProfileId;
+                  !!profile && profile.id === order.salespersonProfileId;
                 return (
                   <li
                     key={order._id}
@@ -191,7 +202,11 @@ export function OutsideCallOrders() {
                             variant="outline"
                             className="h-8"
                             onPress={() =>
-                              setTarget({ id: order._id, action: "record" })
+                              setTarget({
+                                id: order._id,
+                                action: "record",
+                                requestKey: crypto.randomUUID(),
+                              })
                             }
                           >
                             Record activity
@@ -202,7 +217,11 @@ export function OutsideCallOrders() {
                           variant="outline"
                           className="h-8"
                           onPress={() =>
-                            setTarget({ id: order._id, action: "cancel" })
+                            setTarget({
+                              id: order._id,
+                              action: "cancel",
+                              requestKey: crypto.randomUUID(),
+                            })
                           }
                         >
                           Cancel PO
@@ -323,19 +342,26 @@ export function EncodeOutsideCallPo() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
-  const outlets = useQuery(api.outlets.queries.list, {
-    paginationOpts: { cursor: null, numItems: 100 },
-  });
-  const products = useQuery(api.domains.masterData.products, { limit: 100 });
-  const candidates = useQuery(
-    api.orders.outside_calls.candidates,
-    outletId && /^\d{4}-\d{2}-\d{2}$/.test(serviceDate)
-      ? { outletId: outletId as Id<"outlets">, serviceDate }
-      : "skip",
+  const { can } = usePermissions();
+  const options = useApi<OutsideOptions>(
+    can("order.encode") ? ["orders", "outside-options"] : null,
+    "/api/v1/orders/outside-calls/options",
   );
-  const encode = useMutation(api.orders.outside_calls.encode);
-  const activeProducts = (products ?? []).filter((product) => product.active);
-  const activeOutlets = (outlets?.page ?? []).filter(
+  const candidatesQuery = useApi<Candidates>(
+    can("order.encode") && outletId && /^\d{4}-\d{2}-\d{2}$/.test(serviceDate)
+      ? ["orders", "outside-candidates", outletId, serviceDate]
+      : null,
+    ({ signal }) =>
+      apiFetch("/api/v1/orders/outside-calls/candidates", {
+        query: { outletId, serviceDate },
+        signal,
+      }),
+  );
+  const candidates = candidatesQuery.data;
+  const activeProducts = (options.data?.products ?? []).filter(
+    (product) => product.active,
+  );
+  const activeOutlets = (options.data?.outlets ?? []).filter(
     (outlet) => outlet.status === "active",
   );
 
@@ -348,14 +374,16 @@ export function EncodeOutsideCallPo() {
     const form = event.currentTarget;
     try {
       const fields = encodeFieldsFromForm(new FormData(form));
-      const parsed = parsePoLines<Id<"products">>(lines);
-      const result = await encode({
-        ...fields,
-        outletId: fields.outletId as Id<"outlets">,
-        salespersonProfileId: fields.salespersonProfileId as Id<"profiles">,
-        clientRequestId: requestId,
-        lines: parsed,
-      });
+      const parsed = parsePoLines<string>(lines);
+      const result = await mutate<{ replayed: boolean }>(
+        "/api/v1/orders/outside-calls/encode",
+        {
+          ...fields,
+          clientRequestId: requestId,
+          lines: parsed,
+        },
+        { invalidate: [["orders"]], idempotencyKey: requestId },
+      );
       setNotice(
         result.replayed
           ? "This PO was already saved."
@@ -388,6 +416,11 @@ export function EncodeOutsideCallPo() {
           For a PO a store sent on a day it is not in the salesperson&apos;s
           plan. A PO from a planned store is entered at the visit.
         </p>
+        {(options.error || candidatesQuery.error) && (
+          <p role="alert">
+            {(options.error ?? candidatesQuery.error)?.message}
+          </p>
+        )}
         <div className="grid gap-3 sm:grid-cols-2">
           <FormField label="Store">
             <select
