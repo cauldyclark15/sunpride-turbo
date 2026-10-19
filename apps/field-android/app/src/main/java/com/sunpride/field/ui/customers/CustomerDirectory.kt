@@ -118,7 +118,7 @@ object CustomerDirectory {
         "visit.checkIn" -> if (p.text("plannedVisitId") == null || p.text("plannedVisitId") == "null")
             "Unplanned call started" else "Call started"
         "visit.checkOut" -> when (p.text("outcome")) {
-            "completed" -> "Call ended · Productive"
+            "completed" -> "Call ended · Completed"
             "nonproductive" -> "Call ended · Not productive" + (p.text("reasonCode")?.let { " ($it)" } ?: "")
             else -> "Call ended"
         }

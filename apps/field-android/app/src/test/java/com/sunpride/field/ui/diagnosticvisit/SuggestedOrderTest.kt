@@ -1,7 +1,7 @@
 package com.sunpride.field.ui.diagnosticvisit
 
 import com.sunpride.field.auth.AuthFailure
-import com.sunpride.field.auth.ConvexFunctionError
+import com.sunpride.field.auth.ServerError
 import com.sunpride.field.storage.CallSheet
 import com.sunpride.field.storage.CallSheetHeader
 import com.sunpride.field.storage.CallSheetProduct
@@ -135,7 +135,7 @@ class SuggestedOrderTest {
 
     @Test fun aRefusalDurablyReplacesSavedSuggestionsUntilALiveAnswer() {
         for ((refusal, message) in listOf<Pair<() -> String, String>>(
-            { throw ConvexFunctionError("Forbidden") } to SuggestedOrderRepository.NOT_ALLOWED,
+            { throw ServerError("Forbidden") } to SuggestedOrderRepository.NOT_ALLOWED,
             { throw AuthFailure(AuthFailure.Kind.REFUSED) } to SuggestedOrderRepository.NOT_ALLOWED,
             { throw AuthFailure(AuthFailure.Kind.SESSION_EXPIRED) } to SuggestedOrderRepository.SIGN_IN,
             { "{}" } to SuggestedOrderRepository.UNREADABLE)) {
@@ -162,7 +162,7 @@ class SuggestedOrderTest {
             override fun write(key: String, json: String, savedAt: Long) = throw IllegalStateException("db")
             override fun block(key: String, reason: String, at: Long) = throw IllegalStateException("db")
         }
-        val refused = SuggestedOrderRepository.load(outlet, day, cache, 1) { throw ConvexFunctionError(null) }
+        val refused = SuggestedOrderRepository.load(outlet, day, cache, 1) { throw ServerError(null) }
         assertNull(refused.order); assertEquals(SuggestedOrderRepository.NOT_ALLOWED, refused.message)
         val reopened = SuggestedOrderRepository.load(outlet, day, cache, 2, offline)
         assertNull(reopened.order); assertEquals(SuggestedOrderRepository.NOT_ALLOWED, reopened.message)
@@ -171,7 +171,7 @@ class SuggestedOrderTest {
     /** Release counterexample: reads keep working while the refusal-marker write fails. */
     @Test fun readableCacheMustNotReturnAfterFailedDenialWrite() {
         for ((refusal, message) in listOf<Pair<() -> String, String>>(
-            { throw ConvexFunctionError("Forbidden") } to SuggestedOrderRepository.NOT_ALLOWED,
+            { throw ServerError("Forbidden") } to SuggestedOrderRepository.NOT_ALLOWED,
             { throw AuthFailure(AuthFailure.Kind.REFUSED) } to SuggestedOrderRepository.NOT_ALLOWED,
             { throw AuthFailure(AuthFailure.Kind.INVALID_CREDENTIALS) } to SuggestedOrderRepository.SIGN_IN,
             { "{}" } to SuggestedOrderRepository.UNREADABLE)) {
@@ -224,7 +224,7 @@ class SuggestedOrderTest {
             }
         }
         assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS))
-        assertNull(SuggestedOrderRepository.load(outlet, day, cache, 3) { throw ConvexFunctionError("Forbidden") }.order)
+        assertNull(SuggestedOrderRepository.load(outlet, day, cache, 3) { throw ServerError("Forbidden") }.order)
         release.countDown()
         val late = older.get(5, java.util.concurrent.TimeUnit.SECONDS)
         assertNull(late.order); assertEquals(SuggestedOrderRepository.NOT_ALLOWED, late.message)
@@ -267,7 +267,7 @@ class SuggestedOrderTest {
             override fun block(key: String, reason: String, at: Long) = throw IllegalStateException("disk full")
         }
         assertNotNull(SuggestedOrderRepository.load(outlet, day, refusedCache, 1) { text }.order)
-        assertNull(SuggestedOrderRepository.load(outlet, day, refusedCache, 2) { throw ConvexFunctionError("Forbidden") }.order)
+        assertNull(SuggestedOrderRepository.load(outlet, day, refusedCache, 2) { throw ServerError("Forbidden") }.order)
         val cache = Cache()
         val (inFlight, release) = held(cache, 3)
         var purged = false
@@ -320,7 +320,7 @@ class SuggestedOrderTest {
         val (inFlight, release) = held(cache, 1)
         SuggestedOrderRepository.retire() // A → B
         SuggestedOrderRepository.retire() // B → A (released)
-        assertNull(SuggestedOrderRepository.load(outlet, day, cache, 2) { throw ConvexFunctionError("Forbidden") }.order)
+        assertNull(SuggestedOrderRepository.load(outlet, day, cache, 2) { throw ServerError("Forbidden") }.order)
         release.countDown()
         val late = inFlight.get(5, java.util.concurrent.TimeUnit.SECONDS)
         assertNull(late.order)
@@ -350,7 +350,7 @@ class SuggestedOrderTest {
     @Test fun aLatchedRefusalIsPerStoreAndDay() {
         val cache = Cache()
         assertNotNull(SuggestedOrderRepository.load(outlet, day, cache, 1) { text }.order)
-        SuggestedOrderRepository.load("other", day, cache, 2) { throw ConvexFunctionError(null) }
+        SuggestedOrderRepository.load("other", day, cache, 2) { throw ServerError(null) }
         assertNotNull(SuggestedOrderRepository.load(outlet, day, cache, 3, offline).order)
     }
 
@@ -365,7 +365,7 @@ class SuggestedOrderTest {
         assertNotNull(offline.order)
         assertEquals("Offline — showing suggestions loaded at 9:05 AM", offline.message)
         // Refused, signed out or unreadable: never show saved suggestions.
-        val refused = SuggestedOrderRepository.load(outlet, day, cache, 1) { throw ConvexFunctionError(null) }
+        val refused = SuggestedOrderRepository.load(outlet, day, cache, 1) { throw ServerError(null) }
         assertNull(refused.order); assertEquals(SuggestedOrderRepository.NOT_ALLOWED, refused.message)
         val expired = SuggestedOrderRepository.load(outlet, day, cache, 1) {
             throw AuthFailure(AuthFailure.Kind.SESSION_EXPIRED)

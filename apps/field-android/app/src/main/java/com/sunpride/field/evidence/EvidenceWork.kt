@@ -42,7 +42,7 @@ class EvidenceUploadWorker(context: Context, parameters: WorkerParameters) : Cor
         val app = applicationContext
         return try {
             val report = testUpload?.invoke() ?: run {
-                val backend = LiveFieldBackend(AppEnvironment(BuildConfig.CONVEX_SITE_URL, BuildConfig.CONVEX_URL),
+                val backend = LiveFieldBackend(AppEnvironment(BuildConfig.SUNPRIDE_API_ORIGIN),
                     SessionVaults.app(app), app) { KeystoreDeviceKey.loadOrCreate(app) }
                 if (!backend.isSignedIn) return Result.success()
                 backend.uploadEvidence()

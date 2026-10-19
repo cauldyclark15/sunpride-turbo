@@ -241,7 +241,7 @@ class CallSheetControllerTest {
                 else SuggestedOrderRepository.load(a, day, cache, 1) {
                     if (calls.incrementAndGet() == 1) {
                         entered.countDown(); check(release.await(5, java.util.concurrent.TimeUnit.SECONDS)); json
-                    } else throw com.sunpride.field.auth.ConvexFunctionError("Forbidden")
+                    } else throw com.sunpride.field.auth.ServerError("Forbidden")
                 }
         }
         val controller = FieldController(backend, this, Dispatchers.IO, Dispatchers.Unconfined, now = { 100L })

@@ -27,7 +27,7 @@ class MainActivity : FragmentActivity() {
         setTheme(R.style.Theme_SunprideField)
         super.onCreate(savedInstanceState)
         com.sunpride.field.diagnostics.CrashBreadcrumbs.install(applicationContext)
-        val environment = AppEnvironment(BuildConfig.CONVEX_SITE_URL, BuildConfig.CONVEX_URL)
+        val environment = AppEnvironment(BuildConfig.SUNPRIDE_API_ORIGIN)
         val dark = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
         applySystemBars(dark)
         val app = applicationContext

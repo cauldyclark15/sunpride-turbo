@@ -1,12 +1,14 @@
 package com.sunpride.field.ui.today
 
 import com.sunpride.field.auth.AuthFailure
-import com.sunpride.field.auth.ConvexFunctionError
+import com.sunpride.field.auth.ServerError
 import com.sunpride.field.storage.ProductiveCall
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DaySalesTest {
@@ -34,6 +36,11 @@ class DaySalesTest {
         val bare = DaySalesCodec.decode(report(daily = null, pct = null, rule = null))
         assertEquals("No target set", DaySalesText.target(bare)); assertNull(bare.productiveCallRule)
         assertNull(DaySalesCodec.decode(report(rule = "made_up")).productiveCallRule)
+        assertTrue(bare.ruleMissing)
+        assertFalse(DaySalesCodec.decode(report()).ruleMissing)
+        // An explicit null rule from the v2 server is the same "not set" answer.
+        val explicitNull = JSONObject(report()).put("calls", JSONObject().put("productiveCallRule", JSONObject.NULL)).toString()
+        assertTrue(DaySalesCodec.decode(explicitNull).ruleMissing)
     }
 
     @Test fun rejectsMalformedAmounts() {
@@ -53,7 +60,7 @@ class DaySalesTest {
 
     @Test fun refusalWrongDayAndNoCopyNeverShowFigures() {
         val cache = Cache().apply { write(day, report(), 1L) }
-        val refused = DaySalesRepository.load(day, cache, 2L) { throw ConvexFunctionError("Forbidden") }
+        val refused = DaySalesRepository.load(day, cache, 2L) { throw ServerError("Forbidden") }
         assertNull(refused.sales); assertEquals("Not available for your account", refused.message)
         val wrongDay = DaySalesRepository.load(day, Cache(), 2L) { report(date = "2026-10-04") }
         assertNull(wrongDay.sales)

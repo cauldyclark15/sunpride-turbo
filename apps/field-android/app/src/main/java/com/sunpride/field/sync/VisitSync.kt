@@ -2,8 +2,8 @@ package com.sunpride.field.sync
 
 import com.sunpride.field.AppEnvironment
 import com.sunpride.field.auth.AuthClient
-import com.sunpride.field.auth.ConvexFunctions
-import com.sunpride.field.auth.ConvexDeviceApi
+import com.sunpride.field.auth.ServerFunctions
+import com.sunpride.field.auth.ServerDeviceApi
 import com.sunpride.field.auth.JSON_MEDIA
 import com.sunpride.field.auth.defaultHttpClient
 import com.sunpride.field.device.DeviceSigner
@@ -25,17 +25,19 @@ import kotlin.math.min
 import kotlin.random.Random
 
 interface VisitTransport {
+    fun prepare(path: String, body: ByteArray): WireRequest = WireRequest(path, body)
     fun challenge(deviceId: String): Pair<String, Long>
     fun token(refresh: Boolean): String
     fun post(path: String, bytes: ByteArray, headers: Map<String, String>, bearer: String): Pair<Int, String>
 }
 
 class LiveVisitTransport(environment: AppEnvironment, private val auth: AuthClient,
-    functions: ConvexFunctions, private val http: OkHttpClient = defaultHttpClient()) : VisitTransport {
-    private val devices = ConvexDeviceApi(functions)
-    private val site = environment.siteUrl.trimEnd('/')
-    override fun challenge(deviceId: String) = devices.challenge(deviceId)
-    override fun token(refresh: Boolean) = auth.convexToken(forceRefresh = refresh)
+    private val functions: ServerFunctions, private val http: OkHttpClient = defaultHttpClient()) : VisitTransport {
+    override fun prepare(path: String, body: ByteArray) = V2Wire.visit(path, body, functions.api.syncMe())
+    private val devices = ServerDeviceApi(functions)
+    private val site = environment.apiOrigin.trimEnd('/')
+    override fun challenge(deviceId: String) = syncBoundary { devices.challenge(deviceId) }
+    override fun token(refresh: Boolean) = syncBoundary { auth.accessToken(forceRefresh = refresh) }
     override fun post(path: String, bytes: ByteArray, headers: Map<String, String>, bearer: String): Pair<Int, String> {
         val request = Request.Builder().url(site + path).header("Authorization", "Bearer $bearer").apply {
             headers.forEach { (key, value) -> header(key, value) }
@@ -45,18 +47,19 @@ class LiveVisitTransport(environment: AppEnvironment, private val auth: AuthClie
     }
 }
 
-/** Only a transport-owned 401 gets one new JWT, nonce and signature; uncertain outcomes retain original bytes. */
+/** Only a transport-owned 401 gets one new access token, nonce and signature; uncertain outcomes retain original bytes. */
 class SignedVisitGateway(private val transport: VisitTransport, private val signer: DeviceSigner,
     private val deviceId: String, private val monotonic: () -> Long = { System.nanoTime() / 1_000_000 }) {
     fun post(path: String, bytes: ByteArray): Pair<Int, String> {
+        val wire = transport.prepare(path, bytes)
         for (attempt in 0..1) {
             val bearer = transport.token(attempt != 0)
             val start = monotonic()
             val (nonce, expiry) = transport.challenge(deviceId)
             val stamp = expiry - 60_000 + (monotonic() - start)
-            val headers = RequestSigner.headers(signer, deviceId, path, bytes, nonce, stamp)
-            val result = transport.post(path, bytes, headers, bearer)
-            if (result.first != 401) return result
+            val headers = RequestSigner.headers(signer, deviceId, wire.path, wire.bytes, nonce, stamp)
+            val result = transport.post(wire.path, wire.bytes, headers, bearer)
+            if (result.first != 401) return result.first to if (result.first in 200..299) wire.decode(result.second) else result.second
         }
         return 401 to ""
     }
@@ -188,7 +191,7 @@ class VisitSync(private val gateway: SignedVisitGateway, private val store: Fiel
         return BootstrapFailure(when {
             code == 401 -> BootstrapFailure.Kind.UNAUTHORIZED
             code == 409 || reason in setOf("rebootstrap_required", "invalid_cursor") -> BootstrapFailure.Kind.RESTART
-            reason == "device_revoked" || reason == "scope_changed" -> BootstrapFailure.Kind.REMOVED
+            reason in setOf("device_revoked", "device_suspended", "scope_withdrawn") -> BootstrapFailure.Kind.REMOVED
             reason == "version_unsupported" -> BootstrapFailure.Kind.UPDATE_REQUIRED
             else -> BootstrapFailure.Kind.RETRYABLE
         })

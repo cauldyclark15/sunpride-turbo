@@ -65,7 +65,7 @@ object LocationShare {
 
     fun backend(context: Context): LiveFieldBackend {
         val app = context.applicationContext
-        return LiveFieldBackend(AppEnvironment(BuildConfig.CONVEX_SITE_URL, BuildConfig.CONVEX_URL),
+        return LiveFieldBackend(AppEnvironment(BuildConfig.SUNPRIDE_API_ORIGIN),
             SessionVaults.app(app), app) { KeystoreDeviceKey.loadOrCreate(app) }
     }
 

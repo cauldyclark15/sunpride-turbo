@@ -64,6 +64,11 @@ class CustomerScreensTest {
         rule.onNodeWithTag("customer-empty").assertTextContains("Sync to download", substring = true)
     }
 
+    @Test fun syncedEmptyDirectorySaysNothingIsPlannedInsteadOfAskingForASync() {
+        content { CustomerSearchScreen(TodayData(stale = false, lastSynced = 1_790_000_000_000L), onOpen = {}) }
+        rule.onNodeWithTag("customer-empty").assertTextContains("No outlets are on your plan", substring = true)
+    }
+
     @Test fun detailShowsSummaryRoutePlanTasksAndHistory() {
         content { CustomerDetailScreen(pena, data, onNavigate = { true }, onDial = { true }, now = now) }
         rule.onNodeWithTag("customer-header").assertTextContains("Peña Sari-Sari Store", substring = true)

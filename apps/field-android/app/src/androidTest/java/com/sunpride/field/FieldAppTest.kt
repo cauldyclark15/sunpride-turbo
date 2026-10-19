@@ -33,7 +33,7 @@ import org.junit.Test
 
 class FieldAppTest {
     @get:Rule val rule = createAndroidComposeRule<androidx.activity.ComponentActivity>()
-    private val configured = AppEnvironment("https://team.convex.site", "https://team.convex.cloud")
+    private val configured = AppEnvironment("https://sunpride.cauldnclark.com")
     private val alias = "sunpride-field-device-ui-test"
 
     /** Real Keystore key, scripted server answers; no network, no real account. */
@@ -87,7 +87,7 @@ class FieldAppTest {
         rule.onNodeWithTag("enrollment-title").assertTextContains("Register phone")
         rule.onNodeWithTag("sync-status").assertDoesNotExist()
         rule.onNodeWithTag("public-key").assertTextContains(signer.publicKeyBase64)
-        rule.onNodeWithTag("key-fingerprint").assertTextContains(fingerprint(signer.publicKeySpki).replace(":", "").chunked(4).joinToString(" "), substring = true)
+        rule.onNodeWithTag("key-fingerprint").assertTextContains(fingerprint(signer.publicKeySpki).filter { it.isLetterOrDigit() }.chunked(4).joinToString(" "), substring = true)
         rule.onNodeWithTag("copy-key").assertIsEnabled()
         rule.onNodeWithTag("check-again").assertIsEnabled()
         rule.onNodeWithTag("account-open").performClick()
@@ -339,7 +339,7 @@ class FieldAppTest {
     }
 
     @Test fun missingEndpointsShowVisibleError() {
-        rule.setContent { FieldApp(AppEnvironment("", ""), dark = false, debug = true, backend = ScriptedBackend(EnrollmentState.Unregistered)) }
+        rule.setContent { FieldApp(AppEnvironment(""), dark = false, debug = true, backend = ScriptedBackend(EnrollmentState.Unregistered)) }
         rule.onNodeWithTag("environment-error").assertIsDisplayed()
         rule.onNodeWithTag("sync-status").assertDoesNotExist()
     }

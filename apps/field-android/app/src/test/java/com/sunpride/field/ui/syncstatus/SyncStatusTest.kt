@@ -34,7 +34,9 @@ class SyncStatusTest {
         assertEquals("Late · held for review", pending.label(nextMorning))
         assertEquals("Held · needs review", pending.copy(held = 1).label(close))
         assertEquals("Needs review · not synced", pending.copy(review = 1).label(close))
-        assertEquals("Sync before 10 PM", pending.copy(offline = true).label(before))
+        // Offline is said out loud, with the deadline kept, so "Sync now" doing nothing is never a mystery.
+        assertEquals("Offline · sync before 10 PM", pending.copy(offline = true).label(before))
+        assertEquals("Late · held for review", pending.copy(offline = true).label(close))
         assertTrue(closeTime(close).contains("10:00 PM · Asia/Manila"))
         assertEquals("Finish the open call first", SyncStatus.plainReason("call_open"))
         assertEquals("Visit stores in plan order", SyncStatus.plainReason("mcp_order"))

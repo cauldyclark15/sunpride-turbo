@@ -17,12 +17,10 @@ class LocationCaptureTest {
         LocationFix(14.6, 121.0, accuracy, now - age, provider, mock)
 
     @Test fun policyMirrorsTheServerLocationPolicy() {
-        val source = listOf("../../../packages/backend/convex/visits/policy.ts", "../../packages/backend/convex/visits/policy.ts")
+        val source = listOf("../../api/src/domains/visits/location.js", "../api/src/domains/visits/location.js")
             .map(::File).first { it.exists() }.readText()
-        assertTrue(source.contains("version: \"${LocationPolicy.VERSION}\""))
-        assertTrue(source.contains("maxAccuracyMeters: ${LocationPolicy.MAX_ACCURACY_METERS.toInt()},"))
-        assertTrue(source.contains("maxFixAgeMs: 60_000,"))
-        assertEquals(60_000L, LocationPolicy.MAX_FIX_AGE_MS)
+        assertTrue(source.contains("fix.accuracyMeters > ${LocationPolicy.MAX_ACCURACY_METERS.toInt()} ||"))
+        assertTrue(source.contains("Math.abs(deviceTime - fix.fixTime) > ${LocationPolicy.MAX_FIX_AGE_MS})"))
     }
 
     @Test fun wireCarriesCoordinatesAccuracyTimeProviderAndMockIndicator() {

@@ -2,10 +2,10 @@ package com.sunpride.field.auth
 
 /**
  * SP-0128 fingerprint/face sign-in. The password is never stored. When the person turns biometric
- * sign-in on, the Better Auth session token is re-sealed under a Keystore key that needs a strong
+ * sign-in on, the server session token is re-sealed under a Keystore key that needs a strong
  * biometric (never the screen lock, so new enrollments invalidate it) for every use, and the ordinary copy is removed.
  * At launch the system prompt unlocks it into this process's memory only; server calls still exchange
- * that session for a short-lived Convex JWT exactly as before.
+ * that session for a short-lived access token exactly as before.
  */
 enum class BiometricAvailability { AVAILABLE, NOT_ENROLLED, UNAVAILABLE }
 

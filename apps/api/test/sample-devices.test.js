@@ -127,3 +127,54 @@ test("all three apps are supported, with distinct app registration", async () =>
     rows.find((/** @type {any} */ d) => d.app === "field-ios").platform,
   ).toBe("ios");
 });
+test("one shared demo phone can carry several sample accounts, each with its own row and its own bind", async () => {
+  const key = await deviceKey();
+  const a = await person(),
+    b = await person(),
+    real = await person(false);
+  const ids = [];
+  for (const p of [a, b]) {
+    const { body } = await login(p, key);
+    const [d] =
+      await h.db`select * from registered_devices where profile_id=${p.profile.id}`;
+    expect(d.key_id).toBe(key.keyId);
+    expect(
+      (await bind(h, body.accessToken, d.id, key)).body.bindingStatus,
+    ).toBe("bound");
+    ids.push(d.id);
+  }
+  expect(new Set(ids).size).toBe(2);
+  await login(real, key);
+  expect(
+    (
+      await h.db`select * from registered_devices where profile_id=${real.profile.id}`
+    ).length,
+  ).toBe(0);
+});
+test("after an admin revokes a sample phone, a new phone registers; the revoked key is never restored and a suspension still blocks", async () => {
+  const p = await person(),
+    oldKey = await deviceKey(),
+    newKey = await deviceKey();
+  await login(p, oldKey);
+  await h.db`update registered_devices set status='revoked' where profile_id=${p.profile.id}`;
+  await login(p, oldKey);
+  expect(
+    (
+      await h.db`select status from registered_devices where profile_id=${p.profile.id}`
+    ).map((/** @type {any} */ r) => r.status),
+  ).toEqual(["revoked"]);
+  const { body } = await login(p, newKey);
+  const [fresh] =
+    await h.db`select * from registered_devices where profile_id=${p.profile.id} and status='active'`;
+  expect(fresh.key_id).toBe(newKey.keyId);
+  expect(
+    (await bind(h, body.accessToken, fresh.id, newKey)).body.bindingStatus,
+  ).toBe("bound");
+  await h.db`update registered_devices set status='suspended' where id=${fresh.id}`;
+  await login(p, await deviceKey());
+  expect(
+    (
+      await h.db`select status from registered_devices where profile_id=${p.profile.id} order by created_at`
+    ).map((/** @type {any} */ r) => r.status),
+  ).toEqual(["revoked", "suspended"]);
+});

@@ -77,11 +77,10 @@ Settings (Gradle property, environment variable or `apps/field-android/local.pro
 
 | Setting                            | Meaning                                                                         |
 | ---------------------------------- | ------------------------------------------------------------------------------- |
-| `SUNPRIDE_BETA_CONVEX_SITE_URL`    | Beta backend site URL. Empty → the DEV value, with a build warning              |
-| `SUNPRIDE_BETA_CONVEX_URL`         | Beta backend functions URL. Empty → the DEV value, with a build warning         |
+| `SUNPRIDE_BETA_API_ORIGIN`         | Sunpride server origin. Empty → `https://sunpride.cauldnclark.com`              |
 | `SUNPRIDE_BETA_WEB_URL`            | Web app address for "Report an issue" (`/issues/new` is added). Empty → hidden  |
 | `SUNPRIDE_BETA_BUILD`              | Build number N: version `1.0.0-beta.N`, version code N. Bump for every hand-out |
 | `SUNPRIDE_BETA_SIGNING_PROPERTIES` | Path to the signing properties file (default `~/.sunpride-keys/...`)            |
 
 The beta installs beside the DEV app as `com.sunpride.field.beta`, named "Sunpride Field (Beta)".
-Every phone still needs an admin to register it (the "Register phone" screen) before it syncs.
+Sample-company accounts register their phone on first sign-in; a real account's phone still needs an admin to register it (the "Register phone" screen) before it syncs.

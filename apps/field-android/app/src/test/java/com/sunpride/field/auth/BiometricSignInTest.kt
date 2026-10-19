@@ -425,14 +425,14 @@ class BiometricSignInTest {
     @Test fun signOutNeverReopensAnOrdinaryCopyWhoseRemovalFailed() {
         val disk = RefusingPlain()
         val cold = enabledWithStuckOrdinaryCopy(disk)
-        val auth = AuthClient(com.sunpride.field.AppEnvironment("", ""), cold)
+        val auth = AuthClient(com.sunpride.field.AppEnvironment(""), cold)
         assertTrue(runCatching { auth.signOut() }.exceptionOrNull() is SessionStorageFailure)
         assertNull(cold.readSession())
         memory = SessionMemory()
         val reopened = LockableSessionVault(disk, sealed, memory)
         assertNull("sign-out must not reopen the kept ordinary copy", reopened.readSession())
         assertEquals(BiometricGate.Step.OPEN, BiometricGate(reopened, crypto).step)
-        assertFalse(AuthClient(com.sunpride.field.AppEnvironment("", ""), reopened).isSignedIn)
+        assertFalse(AuthClient(com.sunpride.field.AppEnvironment(""), reopened).isSignedIn)
     }
 
     @Test fun signOutWithoutBiometricsStillFailsClosedWhenTheOrdinaryCopyStays() {
@@ -488,7 +488,7 @@ class BiometricSignInTest {
         val worker = vault()
         assertNull(worker.readSession())
         // AuthClient.isSignedIn is false: workers return early instead of treating it as signed out.
-        assertTrue(AuthClient(com.sunpride.field.AppEnvironment("https://x.convex.site", "https://x.convex.cloud"), worker)
+        assertTrue(AuthClient(com.sunpride.field.AppEnvironment("https://sunpride.cauldnclark.com"), worker)
             .isSignedIn.not())
         assertTrue(worker.biometricOn)
     }

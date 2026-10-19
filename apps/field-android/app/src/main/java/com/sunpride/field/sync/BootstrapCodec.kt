@@ -68,10 +68,10 @@ object BootstrapCodec {
         return o.toString().toByteArray(Charsets.UTF_8)
     }
     fun error(text: String): MobileError = guard {
-        val o = JSONObject(text); version(o, "error.response"); o.num("serverTime")
+        val o = JSONObject(text); if (o.optInt("version") != 2) version(o, "error.response"); o.num("serverTime")
         // Runtime HTTP gateway currently emits flat fields; frozen schema fixtures use nested `error`.
         val e = if (o.has("error")) o.obj("error") else o
-        e.str("message"); MobileError(e.str("code"), e.bool("retryable"), o)
+        MobileError(e.str("code"), e.bool("retryable"), o)
     }
     private fun strings(a: JSONArray) {
         for (i in 0 until a.length()) if (a.opt(i) !is String) throw WireFailure("Invalid array item")
@@ -126,14 +126,14 @@ object BootstrapCodec {
             (0 until a.length()).map { CallSheetCodec.decode(a.getJSONObject(it)) }
         }
         val visitOutlets = visits.map { JSONObject(it.json).getString("outletId") }.toSet()
-        require(callSheets.all { it.outletId in visitOutlets })
+        require(o.has("v2SnapshotId") || callSheets.all { it.outletId in visitOutlets })
         require(callSheets.map { it.outletId }.distinct().size == callSheets.size)
         fun <T> scopedRows(key: String, decode: (JSONObject) -> T, id: (T) -> String): List<T> {
             if (!o.has(key)) return emptyList()
             val a = o.arr(key)
             require(a.length() <= 200)
             return (0 until a.length()).map { decode(a.getJSONObject(it)) }.also { rows ->
-                require(rows.all { id(it) in visitOutlets })
+                require(o.has("v2SnapshotId") || rows.all { id(it) in visitOutlets })
                 require(rows.map(id).distinct().size == rows.size)
             }
         }
@@ -203,14 +203,22 @@ object BootstrapCodec {
         require((terms.keys + summaries.keys).all { id -> outlets.any { it.id == id } })
         // Every page of one download carries the same rule set (the server's signed manifest).
         val ruleSets = pages.mapNotNull { it.activityRules }.distinct()
-        require(ruleSets.size <= 1)
         val typeSets = pages.mapNotNull { it.photoTypes }.distinct()
-        require(typeSets.size <= 1)
+        val v2 = first.raw.has("v2SnapshotId")
+        if (!v2) { require(ruleSets.size <= 1); require(typeSets.size <= 1) }
+        val rules = ruleSets.flatten().groupBy { it.intent }.map { (_, rows) ->
+            require(rows.distinct().size == 1); rows.first()
+        }
+        val types = typeSets.flatten().groupBy { it.code }.map { (_, rows) ->
+            require(rows.distinct().size == 1); rows.first()
+        }
+        val authorized = pages.flatMap { it.visits }.map { JSONObject(it.json).getString("outletId") }.toSet()
+        require((sheets.map { it.outletId } + terms.keys + summaries.keys).all { it in authorized })
         require(sheets.groupBy { it.outletId }.values.all { it.distinct().size == 1 })
         return ScopedSnapshot(first.employee.toString(), pages.firstNotNullOfOrNull { it.route },
             unique(pages.flatMap { it.visits }), outlets,
             unique(pages.flatMap { it.customers }), unique(pages.flatMap { it.tasks }), sheets.distinctBy { it.outletId },
-            ruleSets.singleOrNull() ?: emptyList(), typeSets.singleOrNull() ?: emptyList(),
+            rules, types,
             catalog, availability)
     }
     private inline fun <T> guard(block: () -> T): T = try { block() }

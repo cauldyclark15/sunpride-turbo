@@ -67,7 +67,8 @@ fun CustomerSearchScreen(data: TodayData, onOpen: (String) -> Unit, modifier: Mo
         }
         when {
             data.customers.isEmpty() -> item(key = "empty") {
-                Text("Sync to download the outlets on your plan",
+                Text(if (data.lastSynced != null) "No outlets are on your plan for today and the next two days"
+                    else "Sync to download the outlets on your plan",
                     style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("customer-empty"))
             }
             results.isEmpty() -> item(key = "no-match") {

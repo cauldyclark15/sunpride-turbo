@@ -1,14 +1,16 @@
 package com.sunpride.field.evidence
 
 import com.sunpride.field.auth.AuthFailure
-import com.sunpride.field.auth.ConvexFunctionError
-import com.sunpride.field.auth.ConvexFunctions
+import com.sunpride.field.auth.ServerError
+import com.sunpride.field.auth.ServerFunctions
 import com.sunpride.field.auth.defaultHttpClient
 import com.sunpride.field.storage.EvidencePhotoRow
 import com.sunpride.field.storage.EvidencePhotos
 import com.sunpride.field.storage.FieldStore
 import com.sunpride.field.storage.StoreScope
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.currentCoroutineContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -21,7 +23,8 @@ import java.util.concurrent.ConcurrentHashMap
 interface EvidenceApi {
     /** Returns the one-time upload URL and its claim reference. */
     fun uploadUrl(visitId: String): Pair<String, String>
-    /** POSTs the bytes; returns the Convex storage ID. */
+    fun uploadUrl(visitId: String, row: EvidencePhotoRow): Pair<String, String> = uploadUrl(visitId)
+    /** POSTs the bytes; returns the server upload ID. */
     fun upload(url: String, bytes: ByteArray, mime: String): String
     /** Returns the server evidence ID (the same ID again for a retried, already attached photo). */
     fun attach(claim: String, visitId: String, storageId: String, row: EvidencePhotoRow): String
@@ -30,33 +33,53 @@ interface EvidenceApi {
 /** A storage POST that reached the server and was refused; retried a bounded number of times. */
 class EvidenceUploadFailure : Exception("Upload refused", null)
 
-class ConvexEvidenceApi(private val functions: ConvexFunctions,
+class ServerEvidenceApi(private val functions: ServerFunctions,
     private val http: OkHttpClient = defaultHttpClient()) : EvidenceApi {
-    override fun uploadUrl(visitId: String): Pair<String, String> {
-        val value = functions.mutation("visits/evidence:generateUploadUrl", JSONObject().put("visitId", visitId))
-            as? JSONObject ?: throw AuthFailure(AuthFailure.Kind.SERVER)
-        val url = value.optString("url"); val claim = value.optString("uploadTokenRef")
-        if (!url.startsWith("https://") || claim.isBlank()) throw AuthFailure(AuthFailure.Kind.SERVER)
-        return url to claim
+    private val claims = ConcurrentHashMap<String, JSONObject>()
+    override fun uploadUrl(visitId: String): Pair<String, String> = error("Photo metadata required")
+    override fun uploadUrl(visitId: String, row: EvidencePhotoRow): Pair<String, String> {
+        val me = functions.api.me(); val device = me.getJSONObject("device").getString("id")
+        val value = functions.api.signed("/api/media/claims", JSONObject().put("version", 2)
+            .put("deviceId", device).put("purpose", "visit-photo").put("ownerId", visitId)
+            .put("mime", row.mime).put("size", row.sizeBytes).put("sha256", row.sha256),
+            requireNotNull(functions.signer).invoke(), device)
+        val url = value.getString("uploadUrl")
+        val uri = java.net.URI(url)
+        // Upload credentials must never follow a server-provided cross-origin URL.
+        require(uri.path == "/api/media/uploads/${value.getString("uploadId")}")
+        require(uri.scheme == "https" || (uri.scheme == "http" && uri.host in setOf("localhost", "127.0.0.1")))
+        require(uri.userInfo == null && uri.query == null && uri.fragment == null)
+        require(functions.uploadOrigin(url))
+        claims[url] = value
+        return url to value.getString("uploadId")
     }
     override fun upload(url: String, bytes: ByteArray, mime: String): String {
-        // The signed URL is its own authority: no bearer is sent to the storage endpoint.
-        val request = Request.Builder().url(url).post(bytes.toRequestBody(mime.toMediaType())).build()
-        return try {
-            http.newCall(request).execute().use { response ->
-                if (response.code !in 200..299) throw EvidenceUploadFailure()
-                runCatching { JSONObject(response.body?.string().orEmpty()).getString("storageId") }
-                    .getOrNull()?.takeIf { it.isNotBlank() } ?: throw EvidenceUploadFailure()
-            }
-        } catch (_: IOException) { throw AuthFailure(AuthFailure.Kind.OFFLINE) }
+        val claim = claims.remove(url) ?: throw EvidenceUploadFailure()
+        val request = Request.Builder().url(url).header("Authorization", "Bearer ${claim.getString("uploadToken")}")
+            .put(bytes.toRequestBody(mime.toMediaType())).build()
+        return try { http.newCall(request).execute().use { response ->
+            if (response.code !in 200..299) throw EvidenceUploadFailure()
+            val o = JSONObject(response.body?.string().orEmpty())
+            check(o.getInt("version") == 2 && o.getString("status") == "stored" &&
+                o.getString("sha256") == EvidencePhotos.sha256Hex(bytes))
+            o.getString("blobId")
+        } } catch (_: IOException) { throw AuthFailure(AuthFailure.Kind.OFFLINE) }
     }
     override fun attach(claim: String, visitId: String, storageId: String, row: EvidencePhotoRow): String {
-        val value = functions.mutation("visits/evidence:attach", JSONObject()
-            .put("uploadTokenRef", claim).put("visitId", visitId).put("storageId", storageId)
-            .put("mime", row.mime).put("size", row.sizeBytes).put("checksum", row.sha256)
-            .put("capturedAt", row.capturedAt).put("photoType", row.photoType).put("source", "mobile"))
-            as? JSONObject ?: throw AuthFailure(AuthFailure.Kind.SERVER)
-        return value.optString("evidenceId").takeIf { it.isNotBlank() } ?: throw AuthFailure(AuthFailure.Kind.SERVER)
+        val me = functions.api.me(); val device = me.getJSONObject("device").getString("id")
+        val payload = JSONObject().put("visitId", visitId).put("blobId", storageId).put("checksum", row.sha256)
+            .put("mime", row.mime).put("size", row.sizeBytes).put("capturedAt", row.capturedAt)
+            .put("photoType", row.photoType).put("source", "mobile")
+        val op = JSONObject().put("clientOpId", row.localId).put("opType", "evidence.attach")
+            .put("clientTime", row.capturedAt).put("dependsOn", org.json.JSONArray()).put("payload", payload)
+        val body = com.sunpride.field.sync.V2Wire.push(device, me.getJSONObject("scope").getString("id"), org.json.JSONArray().put(op))
+        val response = functions.api.signed("/api/sync/push", body, requireNotNull(functions.signer).invoke(), device)
+        val results = response.getJSONArray("results"); check(results.length() == 1)
+        val result = results.getJSONObject(0)
+        check(result.getString("clientOpId") == row.localId && result.getString("opType") == "evidence.attach")
+        if (result.getString("status") !in setOf("applied", "duplicate"))
+            throw ServerError(result.optString("code"))
+        return result.getJSONObject("ack").getString("entityId")
     }
 }
 
@@ -105,10 +128,20 @@ class EvidenceUploader(private val store: FieldStore, private val scope: StoreSc
                     report = report.copy(review = report.review + 1); continue
                 }
                 try {
-                    val (url, claim) = api.uploadUrl(visitId)
+                    currentCoroutineContext().ensureActive()
+                    if (store.syncHealth() == "held_for_review") return report.copy(waiting = store.pendingPhotos().size)
+                    val (url, claim) = api.uploadUrl(visitId, photo)
+                    currentCoroutineContext().ensureActive()
+                    if (store.syncHealth() == "held_for_review") return report.copy(waiting = store.pendingPhotos().size)
                     val storageId = api.upload(url, bytes, photo.mime)
+                    currentCoroutineContext().ensureActive()
+                    if (store.syncHealth() == "held_for_review") return report.copy(waiting = store.pendingPhotos().size)
                     val evidenceId = api.attach(claim, visitId, storageId, photo)
+                    currentCoroutineContext().ensureActive()
+                    if (store.syncHealth() == "held_for_review") return report.copy(waiting = store.pendingPhotos().size)
                     store.markPhotoUploaded(photo.localId, evidenceId, now())
+                    currentCoroutineContext().ensureActive()
+                    if (store.syncHealth() == "held_for_review") return report.copy(waiting = store.pendingPhotos().size)
                     // The server holds the photo now; the phone copy is no longer needed.
                     runCatching { files.delete(photo.localId) }
                     report = report.copy(uploaded = report.uploaded + 1)
@@ -116,7 +149,7 @@ class EvidenceUploader(private val store: FieldStore, private val scope: StoreSc
                 catch (e: AuthFailure) {
                     // Offline, signed out or server busy: nothing changes; try again later.
                     return report.copy(waiting = store.pendingPhotos().size, retryLater = true)
-                } catch (e: ConvexFunctionError) {
+                } catch (e: ServerError) {
                     if (e.code in FINAL) {
                         store.reviewPhoto(photo.localId, e.code!!)
                         report = report.copy(review = report.review + 1)

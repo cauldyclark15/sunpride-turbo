@@ -168,7 +168,7 @@ class DiagnosticVisitTest {
             override val requiresPermission = false
             override suspend fun fix(): JSONObject? = null
         }
-        rule.setContent { FieldApp(AppEnvironment("https://team.convex.site", "https://team.convex.cloud"),
+        rule.setContent { FieldApp(AppEnvironment("https://sunpride.cauldnclark.com"),
             dark = false, debug = true, backend = backend, visitLocation = location) }
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("customers-open").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithTag("customers-open").performScrollTo().performClick()
@@ -208,7 +208,7 @@ class DiagnosticVisitTest {
             override val requiresPermission = false
             override suspend fun fix(): JSONObject? = null
         }
-        rule.setContent { FieldApp(AppEnvironment("https://team.convex.site", "https://team.convex.cloud"),
+        rule.setContent { FieldApp(AppEnvironment("https://sunpride.cauldnclark.com"),
             dark = false, debug = true, backend = backend, visitLocation = location) }
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-open").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithTag("diagnostic-open").performScrollTo().performClick()
@@ -270,7 +270,7 @@ class DiagnosticVisitTest {
             override val requiresPermission = false
             override suspend fun fix(): JSONObject? = null
         }
-        rule.setContent { FieldApp(AppEnvironment("https://team.convex.site", "https://team.convex.cloud"),
+        rule.setContent { FieldApp(AppEnvironment("https://sunpride.cauldnclark.com"),
             dark = false, debug = true, backend = backend, visitLocation = location) }
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-open").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithTag("diagnostic-open").performScrollTo().performClick()
@@ -322,7 +322,7 @@ class DiagnosticVisitTest {
         store.close()
         val backend = Backend()
         val location = object : VisitLocation { override val requiresPermission = false; override suspend fun fix(): JSONObject? = null }
-        rule.setContent { FieldApp(AppEnvironment("https://team.convex.site", "https://team.convex.cloud"),
+        rule.setContent { FieldApp(AppEnvironment("https://sunpride.cauldnclark.com"),
             dark = false, debug = true, backend = backend, visitLocation = location) }
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-open").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithTag("diagnostic-open").performScrollTo().performClick()
@@ -391,7 +391,7 @@ class DiagnosticVisitTest {
         } } finally { store.close() }
         val backend = Backend()
         val location = object : VisitLocation { override val requiresPermission = false; override suspend fun fix(): JSONObject? = null }
-        rule.setContent { FieldApp(AppEnvironment("https://team.convex.site", "https://team.convex.cloud"),
+        rule.setContent { FieldApp(AppEnvironment("https://sunpride.cauldnclark.com"),
             dark = false, debug = true, backend = backend, visitLocation = location) }
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-open").fetchSemanticsNodes().isNotEmpty() }
         backend.queueVisit("visit.checkIn", null, null, null, "planned-1", "outlet-1", emptyList(), null, null, null, null, null)
@@ -451,7 +451,7 @@ class DiagnosticVisitTest {
         store.close()
         val backend = Backend()
         val location = object : VisitLocation { override val requiresPermission = false; override suspend fun fix(): JSONObject? = null }
-        rule.setContent { FieldApp(AppEnvironment("https://team.convex.site", "https://team.convex.cloud"),
+        rule.setContent { FieldApp(AppEnvironment("https://sunpride.cauldnclark.com"),
             dark = false, debug = true, backend = backend, visitLocation = location) }
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-open").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithTag("diagnostic-open").performScrollTo().performClick()
@@ -518,7 +518,7 @@ class DiagnosticVisitTest {
             override val requiresPermission = false
             override suspend fun fix(): JSONObject? = null
         }
-        rule.setContent { FieldApp(AppEnvironment("https://team.convex.site", "https://team.convex.cloud"),
+        rule.setContent { FieldApp(AppEnvironment("https://sunpride.cauldnclark.com"),
             dark = false, debug = true, backend = backend, visitLocation = location) }
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-open").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithTag("diagnostic-open").performScrollTo().performClick()
@@ -567,7 +567,7 @@ class DiagnosticVisitTest {
         store.close()
         val backend = Backend(emptyList(), listOf(VisitDisplay("Walk-in outlet", "Unplanned", "Reason required", "outlet-9")))
         val location = object : VisitLocation { override val requiresPermission = false; override suspend fun fix(): JSONObject? = null }
-        rule.setContent { FieldApp(AppEnvironment("https://team.convex.site", "https://team.convex.cloud"),
+        rule.setContent { FieldApp(AppEnvironment("https://sunpride.cauldnclark.com"),
             dark = false, debug = true, backend = backend, visitLocation = location) }
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("unplanned-open").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithTag("unplanned-open").performScrollTo().performClick()
@@ -645,7 +645,7 @@ class DiagnosticVisitTest {
         }
         store.close()
         val location = object : VisitLocation { override val requiresPermission = false; override suspend fun fix(): JSONObject? = null }
-        rule.setContent { FieldApp(AppEnvironment("https://team.convex.site", "https://team.convex.cloud"),
+        rule.setContent { FieldApp(AppEnvironment("https://sunpride.cauldnclark.com"),
             dark = false, debug = true, backend = backend, visitLocation = location) }
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-open").fetchSemanticsNodes().size == 2 }
         rule.onAllNodesWithTag("diagnostic-open")[0].assertTextContains("First", substring = true)
@@ -700,7 +700,7 @@ class DiagnosticVisitTest {
                 .put("accuracyMeters", 10).put("fixTime", System.currentTimeMillis())
                 .put("provider", "gps").put("mockSignal", true)
         }
-        rule.setContent { FieldApp(AppEnvironment("https://team.convex.site", "https://team.convex.cloud"),
+        rule.setContent { FieldApp(AppEnvironment("https://sunpride.cauldnclark.com"),
             dark = dark, debug = true, backend = Backend(), visitLocation = location) }
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-open").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithTag("diagnostic-open").performScrollTo().performClick()
