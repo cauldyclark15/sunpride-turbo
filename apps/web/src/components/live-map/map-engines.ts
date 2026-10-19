@@ -17,7 +17,7 @@ import {
 /**
  * The two map engines behind the live map (SP-0135): Google Maps when
  * NEXT_PUBLIC_GOOGLE_MAPS_KEY is set, else Leaflet + OpenStreetMap (dev, tests, no key).
- * Both are created once and redrawn in place as the Convex subscription updates, so a
+ * Both are created once and redrawn in place as API invalidations arrive, so a
  * new ping moves a marker without rebuilding the map.
  */
 export type MapLayers = {
