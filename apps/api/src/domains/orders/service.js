@@ -383,7 +383,8 @@ export async function transition(ctx, id, status, reason, input = {}) {
     ["submitted", "pending_approval", "voided"].includes(status) &&
     ctx.actor.role !== "super_admin" &&
     row.created_by_subject !== ctx.actor.subject &&
-    row.salesperson_profile_id !== ctx.actor.profileId
+    row.salesperson_profile_id !== ctx.actor.profileId &&
+    !(status === "voided" && row.outside_call_id)
   )
     fail("Only the requester can change this order");
   if (status === "approved" && !row.amount_known)

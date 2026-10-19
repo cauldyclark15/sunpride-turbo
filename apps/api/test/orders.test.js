@@ -407,6 +407,23 @@ describe("orders and governed prices on Postgres", () => {
     expect((await h.db`select count(*) as n from visit_executions`)[0].n).toBe(
       "0",
     );
+    const office = await person("operations", "Second Office Encoder", unit);
+    const cancelled = await api(office, "orders/outside-calls/cancel", {
+      orderId: r.body.orderId,
+      reason: "Buyer withdrew the PO",
+      idempotencyKey: crypto.randomUUID(),
+    });
+    expect(cancelled.status).toBe(200);
+    expect(
+      (
+        await h.db`select status from outside_call_orders where id=${r.body.orderId}`
+      )[0].status,
+    ).toBe("cancelled");
+    expect(
+      (
+        await h.db`select status from orders where outside_call_id=${r.body.orderId}`
+      )[0].status,
+    ).toBe("voided");
   });
   test("credit includes pending orders from every salesperson and unknown wins", async () => {
     await h.db`update customers set credit_limit=10 where code='ACCT'`;
