@@ -1,5 +1,5 @@
 -- 0108_integration: SAP integration events and snapshots.
--- Generated from packages/backend/convex/schema.ts (via the v2 backend inventory).
+-- Domain baseline; typed row definitions live in packages/db/src/tables/.
 -- Tables: sap_inventory_snapshots, integration_events, connector_heartbeats.
 
 -- sapInventorySnapshots

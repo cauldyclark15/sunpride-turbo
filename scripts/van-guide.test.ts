@@ -31,8 +31,12 @@ const handheld = sources(
   [".kt"],
 );
 const web = sources(join(root, "apps/web/src"), [".tsx", ".ts"]);
+const projection = readFileSync(
+  join(root, "apps/api/src/domains/van/projection.js"),
+  "utf8",
+);
 const model = readFileSync(
-  join(root, "packages/backend/convex/van/model.ts"),
+  join(root, "apps/api/src/domains/van/model.js"),
   "utf8",
 );
 
@@ -112,7 +116,8 @@ const NOT_SCREEN_WORDS = new Set([
 /** Guide shorthand for labels the app builds from data ("Print copy 2", "This is truck SMP-TRK-01 · ABC 123"). */
 const TEMPLATES: Record<string, string> = {
   "Print copy N": "Print copy $copy",
-  "Printed · N reprints left": "Printed · ${saved.reprintsLeft} reprints left",
+  "Sent to printer · N reprints left":
+    "Sent to printer · ${saved.reprintsLeft} reprints left",
   "This is truck …": "This is truck ${",
   "This is the … route": "This is the ${",
   "Charged to account · due …": "Charged to account · due $dueDate",
@@ -145,7 +150,7 @@ describe("van-sales operating guide", () => {
   });
 
   test("cash tolerance matches the backend policy", () => {
-    const minor = model.match(/cashVarianceToleranceMinor:\s*(\d+)n/)?.[1];
+    const minor = projection.match(/toleranceMinor:\s*"(\d+)"/)?.[1];
     expect(minor).toBeDefined();
     const pesos = (Number(minor) / 100).toFixed(2);
     expect(guide).toContain(`₱${pesos}`);
@@ -193,7 +198,7 @@ describe("van-sales operating guide", () => {
     expect(guide).toContain(
       "counting error, wrong change given, customer paid short, customer overpaid, cash lost or stolen, fake bill or coin, or other",
     );
-    expect(listed("LOAD_DISCREPANCY_REASONS")).toEqual([
+    expect(listed("LOAD_REASONS")).toEqual([
       "short_loaded",
       "over_loaded",
       "damaged_at_loading",
@@ -205,7 +210,7 @@ describe("van-sales operating guide", () => {
   test("payment methods match the backend list", () => {
     for (const label of [
       "Cash",
-      "Check",
+      "Cheque",
       "GCash",
       "Bank transfer",
       "Credit (charge to account)",

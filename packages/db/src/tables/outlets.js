@@ -7,14 +7,35 @@
  * bigint/numeric come back as string from Bun.sql.
  */
 
-export const OUTLET_STATUS = /** @type {const} */ (["prospect", "active", "inactive"]);
-export const OUTLET_ENROLMENT_STATUS = /** @type {const} */ (["provisional", "approved", "rejected"]);
-export const OUTLET_PIN_STATUS = /** @type {const} */ (["pending", "verified", "rejected", "superseded"]);
-export const OUTLET_ENROLMENTS_STATUS = /** @type {const} */ (["pending", "approved", "rejected"]);
-export const OUTLET_ENROLMENT_EVENT_KIND = /** @type {const} */ (["proposed", "approved", "rejected"]);
+export const OUTLET_STATUS = /** @type {const} */ ([
+  "prospect",
+  "active",
+  "inactive",
+]);
+export const OUTLET_ENROLMENT_STATUS = /** @type {const} */ ([
+  "provisional",
+  "approved",
+  "rejected",
+]);
+export const OUTLET_PIN_STATUS = /** @type {const} */ ([
+  "pending",
+  "verified",
+  "rejected",
+  "superseded",
+]);
+export const OUTLET_ENROLMENTS_STATUS = /** @type {const} */ ([
+  "pending",
+  "approved",
+  "rejected",
+]);
+export const OUTLET_ENROLMENT_EVENT_KIND = /** @type {const} */ ([
+  "proposed",
+  "approved",
+  "rejected",
+]);
 
 /**
- * `outlets` (Convex `outlets`)
+ * `outlets`
  * @typedef {Object} OutletRow
  * @property {string} id
  * @property {string} organizationId
@@ -40,7 +61,7 @@ export const OUTLET_ENROLMENT_EVENT_KIND = /** @type {const} */ (["proposed", "a
  */
 
 /**
- * `outlet_contacts` (Convex `outlets`, child of `outlets`)
+ * `outlet_contacts` (child of `outlets`)
  * @typedef {Object} OutletContactRow
  * @property {string} id
  * @property {string} outletId
@@ -54,7 +75,7 @@ export const OUTLET_ENROLMENT_EVENT_KIND = /** @type {const} */ (["proposed", "a
  */
 
 /**
- * `outlet_photos` (Convex `outlets`, child of `outlets`)
+ * `outlet_photos` (child of `outlets`)
  * @typedef {Object} OutletPhotoRow
  * @property {string} id
  * @property {string} outletId
@@ -67,7 +88,7 @@ export const OUTLET_ENROLMENT_EVENT_KIND = /** @type {const} */ (["proposed", "a
  */
 
 /**
- * `outlet_customer_links` (Convex `outletCustomerLinks`)
+ * `outlet_customer_links`
  * @typedef {Object} OutletCustomerLinkRow
  * @property {string} id
  * @property {string} outletId
@@ -84,7 +105,7 @@ export const OUTLET_ENROLMENT_EVENT_KIND = /** @type {const} */ (["proposed", "a
  */
 
 /**
- * `outlet_pins` (Convex `outletPins`)
+ * `outlet_pins`
  * @typedef {Object} OutletPinRow
  * @property {string} id
  * @property {string} outletId
@@ -109,7 +130,7 @@ export const OUTLET_ENROLMENT_EVENT_KIND = /** @type {const} */ (["proposed", "a
  */
 
 /**
- * `outlet_assignments` (Convex `outletAssignments`)
+ * `outlet_assignments`
  * @typedef {Object} OutletAssignmentRow
  * @property {string} id
  * @property {string} outletId
@@ -130,7 +151,7 @@ export const OUTLET_ENROLMENT_EVENT_KIND = /** @type {const} */ (["proposed", "a
  */
 
 /**
- * `outlet_enrolments` (Convex `outletEnrolments`)
+ * `outlet_enrolments`
  * @typedef {Object} OutletEnrolmentRow
  * @property {string} id
  * @property {string} organizationId
@@ -156,7 +177,7 @@ export const OUTLET_ENROLMENT_EVENT_KIND = /** @type {const} */ (["proposed", "a
  */
 
 /**
- * `outlet_enrolment_photos` (Convex `outletEnrolments`, child of `outlet_enrolments`)
+ * `outlet_enrolment_photos` (child of `outlet_enrolments`)
  * @typedef {Object} OutletEnrolmentPhotoRow
  * @property {string} id
  * @property {string} outletEnrolmentId
@@ -169,7 +190,7 @@ export const OUTLET_ENROLMENT_EVENT_KIND = /** @type {const} */ (["proposed", "a
  */
 
 /**
- * `outlet_enrolment_events` (Convex `outletEnrolmentEvents`)
+ * `outlet_enrolment_events`
  * @typedef {Object} OutletEnrolmentEventRow
  * @property {string} id
  * @property {string} organizationId
@@ -187,7 +208,7 @@ export const OUTLET_ENROLMENT_EVENT_KIND = /** @type {const} */ (["proposed", "a
  */
 
 /**
- * `outlet_code_settings` (Convex `outletCodeSettings`)
+ * `outlet_code_settings`
  * @typedef {Object} OutletCodeSettingRow
  * @property {string} id
  * @property {string} organizationId

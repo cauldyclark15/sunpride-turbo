@@ -1,5 +1,5 @@
 -- 0113_field_reports: DAR / ROAR field day reports.
--- Generated from packages/backend/convex/schema.ts (via the v2 backend inventory).
+-- Domain baseline; typed row definitions live in packages/db/src/tables/.
 -- Tables: field_day_reports.
 
 -- fieldDayReports

@@ -2,7 +2,7 @@
 
 ## F-023 scope and authority
 
-This playbook is for the new Bun API + PostgreSQL 17 + Next web + Android stack. The legacy `docs/runbooks/DEPLOYMENT.md` describes the retired stack and must not be used for this release. No legacy backend command, migration or credentials are needed. This document is our release design, not proof that QA/staging/production have already been provisioned or accepted. Public showcase remains unchanged by a lane.
+This playbook is for the new Bun API + PostgreSQL 17 + Next web + Android stack. Use the API/SQL deployment steps below; retired hosting instructions have been removed. No legacy backend command, migration or credentials are needed. This document is our release design, not proof that QA/staging/production have already been provisioned or accepted. Public showcase remains unchanged by a lane.
 
 SAP owns prices, credit, inventory value and posting. Contracts are versioned in `sap-interface-catalogue.md`. A QA SAP adapter is a separate certified deployment speaking that contract; point production only at that adapter, never at the sample server.
 

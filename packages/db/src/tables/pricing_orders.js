@@ -9,21 +9,73 @@
 
 export const PRICE_LIST_STATUS = /** @type {const} */ (["active", "inactive"]);
 export const PRICE_LIST_SOURCE = /** @type {const} */ (["sample", "office"]);
-export const PROMOTION_RULE_KIND = /** @type {const} */ (["buy_x_get_y", "percent_off", "bundle"]);
+export const PROMOTION_RULE_KIND = /** @type {const} */ ([
+  "buy_x_get_y",
+  "percent_off",
+  "bundle",
+]);
 export const PROMOTION_STATUS = /** @type {const} */ (["active", "inactive"]);
 export const PROMOTION_SOURCE = /** @type {const} */ (["sample", "office"]);
-export const FIELD_ORDER_PRICING_PRICE_LIST_SOURCE = /** @type {const} */ (["sample", "office"]);
-export const FIELD_ORDER_PRICING_CREDIT_STATUS = /** @type {const} */ (["within", "over", "no_limit", "unknown"]);
-export const ORDER_STATUS = /** @type {const} */ (["draft", "submitted", "pending_approval", "approved", "rejected", "sent_to_sap", "fulfilled", "posted", "partially_voided", "voided", "returned", "review_required"]);
-export const OUTSIDE_CALL_ORDER_RECEIVED_VIA = /** @type {const} */ (["email", "viber", "phone", "fax", "other"]);
-export const OUTSIDE_CALL_ORDER_STATUS = /** @type {const} */ (["awaiting_activity", "activity_recorded", "cancelled"]);
-export const OUTSIDE_CALL_ORDER_ACTIVITY_CONTACT = /** @type {const} */ (["phone", "message", "in_person", "other"]);
-export const VISIT_STATUS = /** @type {const} */ (["planned", "completed", "cancelled"]);
-export const WORKFLOW_INSTANCE_STATUS = /** @type {const} */ (["pending", "approved", "rejected"]);
-export const APPROVAL_DECISION = /** @type {const} */ (["pending", "approved", "rejected"]);
+export const FIELD_ORDER_PRICING_PRICE_LIST_SOURCE = /** @type {const} */ ([
+  "sample",
+  "office",
+]);
+export const FIELD_ORDER_PRICING_CREDIT_STATUS = /** @type {const} */ ([
+  "within",
+  "over",
+  "no_limit",
+  "unknown",
+]);
+export const ORDER_STATUS = /** @type {const} */ ([
+  "draft",
+  "submitted",
+  "pending_approval",
+  "approved",
+  "rejected",
+  "sent_to_sap",
+  "fulfilled",
+  "posted",
+  "partially_voided",
+  "voided",
+  "returned",
+  "review_required",
+]);
+export const OUTSIDE_CALL_ORDER_RECEIVED_VIA = /** @type {const} */ ([
+  "email",
+  "viber",
+  "phone",
+  "fax",
+  "other",
+]);
+export const OUTSIDE_CALL_ORDER_STATUS = /** @type {const} */ ([
+  "awaiting_activity",
+  "activity_recorded",
+  "cancelled",
+]);
+export const OUTSIDE_CALL_ORDER_ACTIVITY_CONTACT = /** @type {const} */ ([
+  "phone",
+  "message",
+  "in_person",
+  "other",
+]);
+export const VISIT_STATUS = /** @type {const} */ ([
+  "planned",
+  "completed",
+  "cancelled",
+]);
+export const WORKFLOW_INSTANCE_STATUS = /** @type {const} */ ([
+  "pending",
+  "approved",
+  "rejected",
+]);
+export const APPROVAL_DECISION = /** @type {const} */ ([
+  "pending",
+  "approved",
+  "rejected",
+]);
 
 /**
- * `price_lists` (Convex `priceLists`)
+ * `price_lists`
  * @typedef {Object} PriceListRow
  * @property {string} id
  * @property {string} organizationId
@@ -42,7 +94,7 @@ export const APPROVAL_DECISION = /** @type {const} */ (["pending", "approved", "
  */
 
 /**
- * `price_list_lines` (Convex `priceListLines`)
+ * `price_list_lines`
  * @typedef {Object} PriceListLineRow
  * @property {string} id
  * @property {string} organizationId
@@ -59,7 +111,7 @@ export const APPROVAL_DECISION = /** @type {const} */ (["pending", "approved", "
  */
 
 /**
- * `promotions` (Convex `promotions`)
+ * `promotions`
  * @typedef {Object} PromotionRow
  * @property {string} id
  * @property {string} organizationId
@@ -79,7 +131,7 @@ export const APPROVAL_DECISION = /** @type {const} */ (["pending", "approved", "
  */
 
 /**
- * `field_order_pricings` (Convex `fieldOrderPricings`)
+ * `field_order_pricings`
  * @typedef {Object} FieldOrderPricingRow
  * @property {string} id
  * @property {string} organizationId
@@ -106,7 +158,7 @@ export const APPROVAL_DECISION = /** @type {const} */ (["pending", "approved", "
  */
 
 /**
- * `field_order_pricing_lines` (Convex `fieldOrderPricings`, child of `field_order_pricings`)
+ * `field_order_pricing_lines` (child of `field_order_pricings`)
  * @typedef {Object} FieldOrderPricingLineRow
  * @property {string} id
  * @property {string} fieldOrderPricingId
@@ -123,7 +175,7 @@ export const APPROVAL_DECISION = /** @type {const} */ (["pending", "approved", "
  */
 
 /**
- * `orders` (Convex `orders`)
+ * `orders`
  * @typedef {Object} OrderRow
  * @property {string} id
  * @property {string | null} organizationId
@@ -154,7 +206,7 @@ export const APPROVAL_DECISION = /** @type {const} */ (["pending", "approved", "
  */
 
 /**
- * `order_lines` (Convex `orderLines`)
+ * `order_lines`
  * @typedef {Object} OrderLineRow
  * @property {string} id
  * @property {string} orderId
@@ -170,7 +222,7 @@ export const APPROVAL_DECISION = /** @type {const} */ (["pending", "approved", "
  */
 
 /**
- * `outside_call_orders` (Convex `outsideCallOrders`)
+ * `outside_call_orders`
  * @typedef {Object} OutsideCallOrderRow
  * @property {string} id
  * @property {string} organizationId
@@ -202,7 +254,7 @@ export const APPROVAL_DECISION = /** @type {const} */ (["pending", "approved", "
  */
 
 /**
- * `outside_call_order_lines` (Convex `outsideCallOrders`, child of `outside_call_orders`)
+ * `outside_call_order_lines` (child of `outside_call_orders`)
  * @typedef {Object} OutsideCallOrderLineRow
  * @property {string} id
  * @property {string} outsideCallOrderId
@@ -219,7 +271,7 @@ export const APPROVAL_DECISION = /** @type {const} */ (["pending", "approved", "
  */
 
 /**
- * `visits` (Convex `visits`)
+ * `visits`
  * @typedef {Object} VisitRow
  * @property {string} id
  * @property {string} salespersonSubject
@@ -233,7 +285,7 @@ export const APPROVAL_DECISION = /** @type {const} */ (["pending", "approved", "
  */
 
 /**
- * `workflow_instances` (Convex `workflowInstances`)
+ * `workflow_instances`
  * @typedef {Object} WorkflowInstanceRow
  * @property {string} id
  * @property {string} entityType
@@ -247,7 +299,7 @@ export const APPROVAL_DECISION = /** @type {const} */ (["pending", "approved", "
  */
 
 /**
- * `approvals` (Convex `approvals`)
+ * `approvals`
  * @typedef {Object} ApprovalRow
  * @property {string} id
  * @property {string} workflowId
@@ -260,7 +312,7 @@ export const APPROVAL_DECISION = /** @type {const} */ (["pending", "approved", "
  */
 
 /**
- * `metrics` (Convex `metrics`)
+ * `metrics`
  * @typedef {Object} MetricRow
  * @property {string} id
  * @property {string} key

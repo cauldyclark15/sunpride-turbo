@@ -1,5 +1,5 @@
 -- 0112_supervision: Work-with, per diem, talk sheets, trainer forms.
--- Generated from packages/backend/convex/schema.ts (via the v2 backend inventory).
+-- Domain baseline; typed row definitions live in packages/db/src/tables/.
 -- Tables: work_with_sessions, work_with_session_observations, per_diem_validations, talk_sheets, talk_sheet_items, trainer_forms, trainer_form_evaluation_sessions.
 
 -- workWithSessions

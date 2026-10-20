@@ -1,5 +1,5 @@
 -- 0106_merchandising: Merchandising audits and assortments.
--- Generated from packages/backend/convex/schema.ts (via the v2 backend inventory).
+-- Domain baseline; typed row definitions live in packages/db/src/tables/.
 -- Tables: outlet_assortments, outlet_assortment_products, merchandising_audits, merchandising_audit_missing_products, merchandising_audit_evidence, merchandising_availability, merchandising_availability_evidence, merchandising_compliance_checks, merchandising_compliance_check_evidence, competitor_observations, competitor_observation_evidence.
 
 -- outletAssortments [synced]

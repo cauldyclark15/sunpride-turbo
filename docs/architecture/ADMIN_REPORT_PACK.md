@@ -67,12 +67,9 @@ units inside their selected scope.
 **Sample data and the switch to real data.** `source: "sample"` rows are made up (codes
 `SAMPLE-*`, names end in "(sample)"). As soon as one `source: "office"` row of a kind exists for a
 month, every sample row of that kind and month is ignored everywhere. Seed/reset (lead, beta
-deployment, from `packages/backend`):
+isolated PostgreSQL database):
 
-```bash
-bunx convex run analytics/admin_pack_sample:seed '{"month":"2026-10"}'   # each region gets a set; re-run is a no-op
-bunx convex run analytics/admin_pack_sample:reset '{}'                   # removes sample rows only; repeat until isDone
-```
+Use the idempotent PostgreSQL sample seed in `packages/db/seed/run.js` on an isolated database; never reset a shared database. Current command shapes are documented in the owning API domain.
 
 The sample uses existing key-account customers (channel "Key Accounts"/"KA"/"Modern Trade") so
 AR reckoning matches their field collections; with none, it invents `SAMPLE-KA-*` accounts.

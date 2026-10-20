@@ -5,10 +5,14 @@ import { join } from "node:path";
 import { createDb, tx } from "../src/client.js";
 import { migrate, MIGRATIONS_DIR } from "../src/migrate.js";
 
+const lane = process.env.SP_LANE ?? "core";
+if (!/^[a-z0-9_]+$/.test(lane)) throw new Error("Invalid SP_LANE");
 const baseUrl = (
-  await Bun.file(`${process.env.HOME}/.sunpride-keys/pg-lane-core-url`).text()
+  await Bun.file(
+    `${process.env.HOME}/.sunpride-keys/pg-lane-${lane}-url`,
+  ).text()
 ).trim();
-const name = `sunpride_lane_core_t${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
+const name = `sunpride_lane_${lane}_t${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
 const admin = createDb(baseUrl, { max: 1 });
 /** @type {import('../src/client.js').Db} */
 let db;

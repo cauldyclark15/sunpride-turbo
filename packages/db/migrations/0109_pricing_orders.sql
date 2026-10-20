@@ -1,5 +1,5 @@
 -- 0109_pricing_orders: Price lists, promotions, orders, workflows.
--- Generated from packages/backend/convex/schema.ts (via the v2 backend inventory).
+-- Domain baseline; typed row definitions live in packages/db/src/tables/.
 -- Tables: price_lists, price_list_lines, promotions, field_order_pricings, field_order_pricing_lines, orders, order_lines, outside_call_orders, outside_call_order_lines, visits, workflow_instances, approvals, metrics.
 
 -- priceLists [synced]

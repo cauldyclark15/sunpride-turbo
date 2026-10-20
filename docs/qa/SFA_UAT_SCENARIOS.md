@@ -14,17 +14,9 @@ answers. Where they differ, the call answers win.
 
 ## How to use this document
 
-- Each scenario has an ID (`UAT-<area>-<nn>`), the role that runs it, preconditions,
-  steps, and the expected result. Testers record Pass / Fail / Blocked and the defect
-  number on the sign-off sheet at the end.
-- `Automated:` lines name the convex-test that proves the same server behaviour on every
-  commit. A green automated test does not replace the UAT run: UAT proves the screens,
-  the phone and the people's workflow. `Manual only:` marks steps no automated test covers.
-- `packages/backend/convex/acceptance/uat_catalog.test.ts` fails the build if a scenario
-  loses its automated or manual marker, or if a referenced test is renamed or deleted.
-- The full pilot day is automated as one story in
-  `packages/backend/convex/acceptance/sfa_pilot.acceptance.test.ts` (scenarios
-  `UAT-E2E-01` to `UAT-E2E-03`).
+These are required business scenarios, not a current feature inventory or automated execution report. Record Pass / Fail / Blocked, build, role, data and evidence for the actual v2 release. Do not infer that a removed server test still proves a scenario. Current API sources are `apps/api/test/coverage.test.js`, `devices.test.js`, `visits.test.js`, `sync.test.js`, `fieldsync.test.js`, `van.test.js`, `vanops.test.js` and `sap.test.js`; run the file-isolated package runner with `SP_LANE=<lane>`.
+
+Retained native test references are source pointers only. Physical offline/camera/printing and public deployment need their own proof. Android field uses the assigned Redmi, van uses the H10P; iOS delivery is paused. Rehearsals use marked sample data until client inputs arrive, and mock SAP is explicitly not production SAP access.
 
 ## Environment and roles
 
@@ -34,7 +26,7 @@ answers. Where they differ, the call answers win.
 | Field app    | Native Android field app first (salesperson's own phone), iPhone second         |
 | Time zone    | Asia/Manila; the selling day closes at 10:00 PM                                 |
 | Working week | Monday to Saturday (Saturday is a selling day; collection day for key accounts) |
-| SAP          | SAP connector against the agreed SAP test company, never production             |
+| SAP          | Local mock SAP for rehearsal; real SAP test-company proof separately             |
 
 | UAT role                  | App role (system)        | Used for                                           |
 | ------------------------- | ------------------------ | -------------------------------------------------- |
@@ -89,7 +81,6 @@ completed; Medium = workaround exists; Low = cosmetic.
   unit and position. 3) Sign in as the salesperson and open Field › Coverage.
 - Expected: each person sees only their own unit's people and stores; a salesperson
   cannot open administration; an unassigned invited person is refused scoped screens.
-- Automated: `packages/backend/convex/coverage/plans.test.ts` — "enforces current plan and outlet scope, and analyst remains read-only"
 - Manual only: invitation emails and first sign-in on each tester's own device.
 
 ### UAT-SET-02 · Enrol and revoke a salesperson's phone
@@ -99,8 +90,6 @@ completed; Medium = workaround exists; Low = cosmetic.
   binding on the phone. 4) Administrator revokes the phone, then the salesperson tries to sync.
 - Expected: only an administrator of the person's unit can approve; after revocation the
   phone cannot sync, and queued work on the phone is kept, not deleted.
-- Automated: `packages/backend/convex/mobile/devices.test.ts` — "requires an administrator in the employee's stored unit, not a sales or foreign administrator"
-- Automated: `packages/backend/convex/mobile/devices.test.ts` — "revokes without deleting queued sync state; replacement requires explicit revocation"
 - Manual only: install and enrolment on the tester's own Android phone.
 
 ### UAT-SET-03 · Salesperson adds a new store; supervisor approves it
@@ -112,9 +101,6 @@ completed; Medium = workaround exists; Low = cosmetic.
 - Expected: the store is provisional until approved; the system issues the customer code
   (the salesperson never types it); the proposer cannot approve their own store; a
   rejected store is deactivated.
-- Automated: `packages/backend/convex/outlets/enrolment.test.ts` — "requires a CIS or photo, valid files, the field's own territory and a contact"
-- Automated: `packages/backend/convex/outlets/enrolment.test.ts` — "lets an in-scope manager approve, issuing the next free system code and verifying the pin"
-- Automated: `packages/backend/convex/outlets/enrolment.test.ts` — "never lets the proposer decide, and rejection deactivates the provisional store"
 - Open item: the customer code format is still to be agreed with Sunpride.
 
 ### B. Master Coverage Plan (MCP)
@@ -128,8 +114,6 @@ completed; Medium = workaround exists; Low = cosmetic.
 - Expected: invalid rows (inactive store, duplicate sequence, wrong route) are refused
   with a clear message and nothing is saved; after submit the plan is frozen for the
   salesperson.
-- Automated: `packages/backend/convex/coverage/plans.test.ts` — "allows draft edits, freezes submission, requires return reason and resubmission"
-- Automated: `packages/backend/convex/coverage/plans.test.ts` — "rejects invalid route, inactive outlet, and duplicate sequence atomically"
 
 ### UAT-MCP-02 · Supervisor approves; nobody approves their own plan
 
@@ -138,9 +122,6 @@ completed; Medium = workaround exists; Low = cosmetic.
   the review, checks stores, days and exceptions, and approves.
 - Expected: step 1 is refused; after approval the plan shows approved by the supervisor
   with its version and signature, and the approved stores and route are frozen as signed.
-- Automated: `packages/backend/convex/coverage/plans.test.ts` — "rejects self-approval by preparer and by submitter"
-- Automated: `packages/backend/convex/coverage/plans.test.ts` — "lets the direct supervisor approve and records the capacity"
-- Automated: `packages/backend/convex/coverage/plans.test.ts` — "freezes customer/link/route/outlet snapshots and refuses approved edits"
 
 ### UAT-MCP-03 · Supervisor returns a plan; salesperson fixes and resubmits
 
@@ -148,7 +129,6 @@ completed; Medium = workaround exists; Low = cosmetic.
 - Steps: 1) Supervisor returns the plan without a reason (refused), then with a reason. 2) Salesperson edits and resubmits. 3) Supervisor approves.
 - Expected: a return needs a reason; the returned plan is editable again; the history
   shows submit, return and resubmit with who and when.
-- Automated: `packages/backend/convex/coverage/plans.test.ts` — "allows draft edits, freezes submission, requires return reason and resubmission"
 
 ### UAT-MCP-04 · Manager approves while the supervisor is away
 
@@ -157,7 +137,6 @@ completed; Medium = workaround exists; Low = cosmetic.
   the manager on a new plan.
 - Expected: the manager can approve only while the away period is in effect; outside it,
   the request goes back to the supervisor.
-- Automated: `packages/backend/convex/coverage/plans.test.ts` — "routes to the supervisor's manager only while an away period is in effect"
 
 ### UAT-MCP-05 · Late plans show on the deadline list
 
@@ -165,7 +144,6 @@ completed; Medium = workaround exists; Low = cosmetic.
 - Steps: open Field › Coverage deadlines in the last week and in the first week of the month.
 - Expected: people without a submitted MCP show as due, then overdue; approvals later
   than the first week of the month show as late.
-- Automated: `packages/backend/convex/coverage/plans.test.ts` — "lists people without a submitted MCP as due or overdue and tracks approval lateness"
 
 ### C. Visit generation
 
@@ -176,9 +154,6 @@ completed; Medium = workaround exists; Low = cosmetic.
   downloads. 2) Supervisor opens the same person's day.
 - Expected: exactly the signed stores for today appear, in MCP order, using the approved
   store details (not later edits); yesterday is never back-filled.
-- Automated: `packages/backend/convex/coverage/activation.test.ts` — "refuses future approved plans, then activates once due and generates only signed outlet visits"
-- Automated: `packages/backend/convex/coverage/activation.test.ts` — "includes today's signed visit when activation runs after Manila midnight"
-- Automated: `packages/backend/convex/mobile/bootstrap.test.ts` — "returns own signed plan, scoped outlet and link; no legacy price or order capture"
 
 ### D. Field execution on the phone
 
@@ -189,7 +164,6 @@ completed; Medium = workaround exists; Low = cosmetic.
 - Expected: check-in is accepted at any distance (no fixed radius, per the 2 October
   call); the location fix and the distance are recorded and far fixes are flagged for
   the supervisor, never refused.
-- Automated: `packages/backend/convex/visits/commands.test.ts` — "has no distance limit: far fixes and bad pin data are recorded and flagged, never refused"
 - Manual only: real GPS on the tester's phone.
 
 ### UAT-FLD-02 · Follow the MCP order: one open call at a time
@@ -200,8 +174,6 @@ completed; Medium = workaround exists; Low = cosmetic.
   then check in at the second.
 - Expected: steps 1 and 2 are refused with a clear message; step 3 works; Start, End and
   time spent per store are recorded.
-- Automated: `packages/backend/convex/visits/commands.test.ts` — "follows the MCP order: an earlier planned stop must be closed first"
-- Automated: `packages/backend/convex/visits/commands.test.ts` — "allows one open call at a time and records Start, End and time per account"
 
 ### UAT-FLD-03 · Record the call and its productivity
 
@@ -211,9 +183,6 @@ completed; Medium = workaround exists; Low = cosmetic.
 - Expected: any one listed activity makes the call productive; a visit with no activity
   still counts as a call but not productive; the truck seller's merchandising counts only
   with the no-sales-due-to-inventory marker.
-- Automated: `packages/backend/convex/sfa/productive_call.test.ts` — "makes a call productive with any ONE listed activity, not a full checklist"
-- Automated: `packages/backend/convex/sfa/productive_call.test.ts` — "counts a visited store with no activity as a nonproductive call"
-- Automated: `packages/backend/convex/sfa/productive_call.test.ts` — "lets a truck seller's merchandising count only with the no-sales-due-to-inventory marker"
 
 ### UAT-FLD-04 · Work a whole morning offline, then sync
 
@@ -222,9 +191,6 @@ completed; Medium = workaround exists; Low = cosmetic.
   two stores. 3) Close and reopen the app. 4) Turn the network back on and sync. 5) Sync again.
 - Expected: work is kept on the phone through the restart; on reconnect both calls reach
   the server once, in order; a second sync creates nothing new; the phone shows all synced.
-- Automated: `packages/backend/convex/acceptance/sfa_pilot.acceptance.test.ts` — "UAT-E2E-02 offline replay is idempotent, payload conflicts and missing dependencies reject, and MCP call order is enforced"
-- Automated: `packages/backend/convex/mobile/push.test.ts` — "replays a batch across calls and clock advance without new domain/event/change rows"
-- Automated: `packages/backend/convex/mobile/chaos.test.ts` — "drains a two-store offline day exactly once under 40 seeded mixes of airplane mode, lost requests, lost acks, duplicates and restart replays"
 - Manual only: airplane mode, app restart and reconnect on the real phone (device protocol in `docs/qa/OFFLINE_CHAOS_TESTS.md`).
 
 ### E. Orders
@@ -236,7 +202,6 @@ completed; Medium = workaround exists; Low = cosmetic.
   order for the store in Commercial › Orders. 3) The salesperson tries to approve it. 4) The order approver approves it.
 - Expected: the order is pending approval; self-approval is refused; once approved it is
   queued for SAP.
-- Automated: `packages/backend/convex/acceptance/sfa_pilot.acceptance.test.ts` — "UAT-E2E-01 happy pilot day signs MCP, syncs a call, posts an approved order to SAP and monitors completion"
 - Known gap: the phone does not yet create the sales order itself (order capture is off in
   the field app; it records an order intent). The order is entered in the web app for the
   pilot. Phone order entry is a later phase (2 October call, question 18).
@@ -247,8 +212,6 @@ completed; Medium = workaround exists; Low = cosmetic.
 - Steps: 1) A store not in today's MCP sends a PO. 2) Sales admin encodes it in
   Commercial › Outside-call POs. 3) Salesperson records the activity for it. 4) Try to encode a PO for a store that is in today's MCP.
 - Expected: steps 2 and 3 work; step 4 is refused (that store is a planned call).
-- Automated: `packages/backend/convex/orders/outside_calls.test.ts` — "sales admin encodes a PO for a store outside the day's MCP; the salesperson records the activity"
-- Automated: `packages/backend/convex/orders/outside_calls.test.ts` — "refuses stores in the day's plan, wrong salespeople, duplicates and bad lines"
 
 ### F. SAP posting
 
@@ -259,8 +222,6 @@ completed; Medium = workaround exists; Low = cosmetic.
   order and Integration › SAP; check the document in the SAP test company.
 - Expected: the order shows sent to SAP with the SAP document number; the same order is
   never posted twice.
-- Automated: `packages/backend/convex/acceptance/sfa_pilot.acceptance.test.ts` — "UAT-E2E-01 happy pilot day signs MCP, syncs a call, posts an approved order to SAP and monitors completion"
-- Automated: `packages/backend/convex/integration/sap.test.ts` — "returns only pending outbound connector tasks"
 - Manual only: the document in the SAP test company.
 
 ### UAT-SAP-02 · SAP is down: the order waits and retries
@@ -269,7 +230,6 @@ completed; Medium = workaround exists; Low = cosmetic.
 - Steps: 1) Stop the connector or make SAP refuse the document. 2) Approve an order. 3) Restore SAP.
 - Expected: the order stays approved and waiting, retries with growing delays, and posts
   once SAP is back; after ten failures it moves to the dead-letter list for the admin.
-- Automated: `packages/backend/convex/acceptance/sfa_pilot.acceptance.test.ts` — "UAT-E2E-03b SAP failures keep the approved order pending with exponential backoff and dead-letter the tenth failure"
 - Manual only: stopping and restoring the real connector.
 
 ### G. Sync
@@ -280,8 +240,6 @@ completed; Medium = workaround exists; Low = cosmetic.
 - Steps: 1) Sales admin moves a store to another territory. 2) Salesperson syncs.
 - Expected: the moved store disappears from the phone (it is not shown with the new
   owner's details); visits recorded on the phone stay.
-- Automated: `packages/backend/convex/mobile/pull.test.ts` — "emits a tombstone rather than a foreign projection after outlet transfer"
-- Automated: `packages/backend/convex/mobile/pull.test.ts` — "projects own upsert/tombstone and skips foreign-only pages with continuation"
 
 ### UAT-SYN-02 · Work synced after the 10 PM close goes to the supervisor
 
@@ -289,8 +247,6 @@ completed; Medium = workaround exists; Low = cosmetic.
 - Steps: 1) Record a call offline and keep the phone offline past 10:00 PM. 2) Sync. 3) Supervisor opens the late-sync queue and decides it.
 - Expected: the call is accepted but flagged late and held for review; only the
   supervisor (not a viewer, not the salesperson) decides it, once.
-- Automated: `packages/backend/convex/acceptance/sfa_pilot.acceptance.test.ts` — "UAT-E2E-03a a pilot call arriving after the 22:00 Manila close enters the supervisor late queue and can be decided"
-- Automated: `packages/backend/convex/visits/commands.test.ts` — "accepts work after the 10 PM close, flags it late and holds it for supervisor review"
 
 ### H. Supervisor monitoring and exceptions
 
@@ -300,8 +256,6 @@ completed; Medium = workaround exists; Low = cosmetic.
 - Steps: open Field › Supervision for today; filter by channel; open one salesperson.
 - Expected: each field person in scope shows calls done against plan; no one outside the
   supervisor's scope appears.
-- Automated: `packages/backend/convex/supervision/supervision.test.ts` — "summarizes each field person in the supervisor's scope"
-- Automated: `packages/backend/convex/supervision/supervision.test.ts` — "filters by channel and direct reports, and never widens scope"
 
 ### UAT-SUP-02 · Supervisor traces the route on the map
 
@@ -309,8 +263,6 @@ completed; Medium = workaround exists; Low = cosmetic.
 - Steps: open the activity map for a salesperson's day.
 - Expected: check-ins are plotted at the verified store pins in check-in order, with
   planned stops not visited shown.
-- Automated: `packages/backend/convex/supervision/supervision.test.ts` — "plots check-ins at verified outlet pins in check-in order"
-- Automated: `packages/backend/convex/supervision/supervision.test.ts` — "adds planned stops not visited and hides raw fixes from viewers"
 
 ### UAT-SUP-03 · Supervisor decides field exceptions
 
@@ -319,10 +271,6 @@ completed; Medium = workaround exists; Low = cosmetic.
 - Expected: open location exceptions are listed first, with missed stops and calls out of
   MCP order; the decision and its author are shown; a viewer can read but not decide; the
   salesperson cannot approve their own exception.
-- Automated: `packages/backend/convex/supervision/supervision.test.ts` — "lists open geofence evidence first with the informational exceptions"
-- Automated: `packages/backend/convex/supervision/supervision.test.ts` — "flags a call checked in after a later MCP stop"
-- Automated: `packages/backend/convex/supervision/supervision.test.ts` — "lets a viewer read the queue but not decide"
-- Automated: `packages/backend/convex/visits/commands.test.ts` — "approves an exception independently, never self-approves, retaining original proof"
 
 ### UAT-SUP-04 · Daily reports build themselves from the day
 
@@ -330,9 +278,6 @@ completed; Medium = workaround exists; Low = cosmetic.
 - Steps: after the day, open Field › Daily sales report and DAR / ROAR.
 - Expected: the route seller's ROAR is built from the day's visits; reports are due by
   10:00 PM and late after; the DSR counts orders that became sales.
-- Automated: `packages/backend/convex/field_reports/reports.test.ts` — "generates a route seller's ROAR from the day's visits"
-- Automated: `packages/backend/convex/field_reports/reports.test.ts` — "is due by 10 PM Manila, late after, missing once a selling day closes"
-- Automated: `packages/backend/convex/dsr/dsr.test.ts` — "builds the Annex B sheet from orders and visits"
 
 ### I. Full pilot day (end to end)
 
@@ -343,22 +288,18 @@ completed; Medium = workaround exists; Low = cosmetic.
   UAT-SAP-01 and UAT-SUP-01 in order for one salesperson and six stores.
 - Expected: every step succeeds with the same data flowing through; the supervisor sees
   the completed call and the order reaches SAP.
-- Automated: `packages/backend/convex/acceptance/sfa_pilot.acceptance.test.ts` — "UAT-E2E-01 happy pilot day signs MCP, syncs a call, posts an approved order to SAP and monitors completion"
 
 ### UAT-E2E-02 · Offline day with replays
 
 - Role: Salesperson
 - Steps: run UAT-FLD-04, then UAT-FLD-02, with the phone offline.
 - Expected: as in those scenarios.
-- Automated: `packages/backend/convex/acceptance/sfa_pilot.acceptance.test.ts` — "UAT-E2E-02 offline replay is idempotent, payload conflicts and missing dependencies reject, and MCP call order is enforced"
 
 ### UAT-E2E-03 · Exceptions day
 
 - Role: Salesperson, Supervisor, SAP admin
 - Steps: run UAT-SYN-02, UAT-SUP-03 and UAT-SAP-02.
 - Expected: as in those scenarios.
-- Automated: `packages/backend/convex/acceptance/sfa_pilot.acceptance.test.ts` — "UAT-E2E-03a a pilot call arriving after the 22:00 Manila close enters the supervisor late queue and can be decided"
-- Automated: `packages/backend/convex/acceptance/sfa_pilot.acceptance.test.ts` — "UAT-E2E-03b SAP failures keep the approved order pending with exponential backoff and dead-letter the tenth failure"
 
 ## Open items for Sunpride (affect expected results)
 

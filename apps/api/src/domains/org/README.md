@@ -19,7 +19,7 @@ This domain installs the v2 HTTP master-data/setup surface and identity/scope ho
 
 ## HTTP wire
 
-All paths below are relative to `/api/v1/`. GET parameters accept epoch-millisecond `asOf`. JSON objects such as `paginationOpts` are JSON encoded in the query string. Dates in returned DTOs are epoch milliseconds; bigint values are serialized as decimal strings. IDs have `id` and `_id` aliases for the local web editor DTOs, not Convex-generated types. Money is integer centavos (`creditLimitCentavos`), and unknown amounts stay absent/null.
+All paths below are relative to `/api/v1/`. GET parameters accept epoch-millisecond `asOf`. JSON objects such as `paginationOpts` are JSON encoded in the query string. Dates in returned DTOs are epoch milliseconds; bigint values are serialized as decimal strings. IDs have `id` and `_id` aliases for the local web editor DTOs, not server-generated types. Money is integer centavos (`creditLimitCentavos`), and unknown amounts stay absent/null.
 
 List families: `people/list`, `people/invitations/list`, `people/devices/list`, `org/teams/list`, `territories/list`, `territories/routes/list`, `outlets/list`, `catalog/products/list`, `catalog/customers/list`. All apply `q` before LIMIT and use UUID keyset cursors. Search uses generated tsvectors where available, with escaped substring matching for names/codes. Details and bounded histories are installed beside these families; exact route names are in `index.js`.
 

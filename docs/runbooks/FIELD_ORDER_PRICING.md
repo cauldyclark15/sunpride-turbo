@@ -58,7 +58,7 @@ unit's own price already reflects its conversion. Neither app applies promotions
 
 ## Beta sample data (made up, clearly marked)
 
-`convex/pricing/sample.ts` (internal functions only):
+`apps/api/src/domains/orders/index.js` (internal functions only):
 
 - `seed({ cursor })` — four lists marked `source: "sample"` with `SAMPLE-` codes: Key Accounts
   (4% below standard), Route Sales / PMOT (standard), Public Market (4% above), and the default
@@ -72,12 +72,7 @@ unit's own price already reflects its conversion. Neither app applies promotions
 
 The lead runs them on the beta backend after deploying (never from a lane):
 
-```bash
-cd packages/backend
-bunx convex run pricing/sample:seed '{"cursor":null}'              # repeat with continueCursor until isDone
-bunx convex run pricing/sample:seedCreditLimits '{"cursor":null}'   # same
-bunx convex run pricing/sample:reset '{}'                           # when real data arrives
-```
+Use the idempotent seed `packages/db/seed/run.js` only on an authorized isolated database. Current routes and command shapes are defined by the owning v2 API domain.
 
 ## Replacing the sample with real data
 

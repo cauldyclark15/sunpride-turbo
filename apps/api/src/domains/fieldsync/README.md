@@ -29,7 +29,7 @@ Migration `0230_fieldsync.sql` adds only this lane's state, the live-head moveme
 
 The bounded effective-day manifest also detects a scheduled employee/outlet/territory/route assignment, pin, assortment or price becoming current without a new write. Its invalidation is committed before the request is refused. Bootstrapping again cannot make an older cursor valid. Global reference invalidation is deliberately broader than necessary; it trades extra snapshots for no stale authorization/catalog.
 
-VISITS and INVENTORY still need to call the existing core `recordChange` seam when their rows change. Accepted entity names are `visit`, `activity`, `inventory`, scoped as `profile:<profileId>` or `unit:<unitId>`; no Convex document shapes are serialized. ORG must install its real scope hooks. Pricing comes from ORDERS. These seam owners remain placeholders in the isolated lane and are mocked in the integration tests, as the shared brief requires.
+VISITS and INVENTORY still need to call the existing core `recordChange` seam when their rows change. Accepted entity names are `visit`, `activity`, `inventory`, scoped as `profile:<profileId>` or `unit:<unitId>`; no Bun API document shapes are serialized. ORG must install its real scope hooks. Pricing comes from ORDERS. These seam owners remain placeholders in the isolated lane and are mocked in the integration tests, as the shared brief requires.
 
 ## Location commands and reads
 
@@ -62,6 +62,6 @@ Topic `location` is capability-gated and emitted by one durable coalesced job no
 
 ## Web mount and proof
 
-`LiveMapWorkspace` and `LiveMapView` exports/props are retained, so the existing `/live-map` mount in `module-workspace.tsx` needs no change. Components now use the Bun data layer and their own DTOs, not Convex hooks/generated types. The map shows planned/visited/productive, last movement age, a provisional idle check-in prompt, prior day and seven-day coverage, scoped filters, signed route order and off-plan visits. Denied reads hide cached positions. The Google Maps browser-key path and Google-load-failure -> Leaflet/OpenStreetMap fallback are unchanged.
+`LiveMapWorkspace` and `LiveMapView` exports/props are retained, so the existing `/live-map` mount in `module-workspace.tsx` needs no change. Components now use the Bun data layer and their own DTOs, not Bun API hooks/generated types. The map shows planned/visited/productive, last movement age, a provisional idle check-in prompt, prior day and seven-day coverage, scoped filters, signed route order and off-plan visits. Denied reads hide cached positions. The Google Maps browser-key path and Google-load-failure -> Leaflet/OpenStreetMap fallback are unchanged.
 
 Tests execute the real core HTTP/device-proof/cursor/operation harness against disposable lane Postgres databases, with only the absent ORG/pricing seams mocked. Web proof is the component/model suite, not a native device run or a hosted Home/Reports walkthrough. There are no installs, shared database migrations, pushes or deployments in this lane.

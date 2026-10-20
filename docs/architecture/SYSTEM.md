@@ -1,45 +1,32 @@
 # System architecture
 
-## Deployment boundary
+## Current runtime
 
-Sunpride Turbo plans four user-facing products on one Convex backend: management web, native iOS field, native Android field, and separate Android van POS. Only the web app exists in the target product set today; the native apps are planned at `apps/field-ios`, `apps/field-android` and `apps/van-sales-android` ([ADR-010](../decisions/ADR-010-NATIVE-FIELD-APPS-IOS-AND-ANDROID.md)). The existing `apps/pwa` is frozen legacy code, to be retired after the native pilot ([ADR-004](../decisions/ADR-004-NATIVE-ANDROID-FIELD-AND-POS.md)). The connector runs inside the client network and only initiates outbound HTTPS calls; Convex never opens a connection into the SAP network.
+The management web and its installable office app use a Bun HTTP API backed by native PostgreSQL 17 plus pgvector. Android field and van clients keep encrypted SQLite/Room stores and durable ordered outboxes. iOS source is retained but paused. The frozen field browser pilot displays a retirement notice without deleting retained evidence.
 
-```text
-Next.js management web ───────┐
-Native iOS field (planned) ─────┤
-Native Android field (planned) ─┼──► Better Auth + Convex functions + Convex database
-Android van POS (planned) ─────┘                 ▲
-             native clients: mobile sync gateway │ signed outbound HTTPS
-Local SAP ◄── Bun connector + SQLite queue ─────┘
-```
+- Web: same-origin `/api/v1`, `/api/auth`, `/api/me`, `/api/media` and authenticated `/ws` invalidation.
+- Native: v2 bearer/device authentication and `POST /api/sync/pull` / `POST /api/sync/push`.
+- Database: UUID primary keys, SQL constraints, transaction-owned audit, change log and durable receipts.
+- Jobs: in-process schedules plus durable `jobs`; realtime fan-out uses PostgreSQL LISTEN/NOTIFY.
+- SAP: one mediation domain in `apps/api/src/domains/integration`, currently against `apps/sap-mock`.
 
-The connector polls/acknowledges via Convex; SAP remains inside the client network. Native clients use the [versioned mobile sync gateway](../decisions/ADR-021-MOBILE-SYNC-GATEWAY.md), not a live PWA connection. The [decision index](../decisions/README.md) and [SFA delivery sequence](../delivery/SFA_DELIVERY_SEQUENCE.md) record the target and rollout.
+SAP remains the business system of record for pricing, credit, inventory value and financial posting. Local replicas retain provenance/version/effective dates. Offline transactions are provisional until sync and accounting acceptance. The local movement ledger records physical execution without claiming that a local receipt is a final SAP or BIR document.
 
-## Charter module coverage
+## Invariants
 
-1. Master Data — products, customers, warehouses, territories, pricing references.
-2. Inventory — lot-aware receiving, reservations, transfers, manufacturing, counts, rolling-truck custody, POS issues/reversals, operational balances, and reconciliation.
-3. Sales Force Automation — assignments, planned visits, completion and notes.
-4. Native Mobile — local encrypted storage, transactional outbox, explicit sync, retry and conflict states (legacy PWA frozen).
-5. Orders — idempotent order creation, lines, status lifecycle, SAP document number.
-6. SAP Integration — versioned contracts, HMAC authentication, heartbeat, retry, dead letter.
-7. Workflow/Approval — workflow instances, decisions, authority checks, comments.
-8. Security/Admin — Better Auth identity, application profiles, server-side roles, audit log.
-9. Dashboards/Analytics — maintained aggregate metrics rather than unbounded count scans.
+Every business write rechecks current capability and stored scope. Domain changes, command receipts and required audit/change facts commit together. `postMovement` in `apps/api/src/domains/inventory/posting.js` is the sole ordinary writer of stock movements, exact allocations and balances. External calls are post-commit effects, not part of the stock transaction. Retry identical bytes with the original key; changed content under the same key conflicts.
 
-The UI additionally exposes Analytics as its own navigation surface, while it remains part of the charter’s dashboard/analytics module.
+Master data and approval snapshots are server-owned. Phones record facts and retain pending/review/held work; neither a reconnect nor an empty delta proves that all work was accepted. Scope changes and authorization withdrawal must not resurrect stale cached records. Raw location evidence is independent of certification and productive-call policy.
 
-## Data ownership
+## Source map
 
-- SAP is authoritative for approved ERP master data, accounting/financial inventory outcomes, closed-period policy, and final SAP document identifiers.
-- Convex is authoritative for operational physical inventory, exact lot allocation, application identity/profile, approval state, integration tracking, and audit events. See ADR-003.
-- Native apps' encrypted local databases and outboxes are device-local working stores, not independent systems of record. The legacy PWA's IndexedDB is likewise only a cache.
-- Bun SQLite is connector delivery state. Completed records are retained for deduplication and operations evidence.
+| Area | Source |
+| --- | --- |
+| Platform/auth/devices/sync/media | `apps/api/src/core` |
+| Domain business behavior | `apps/api/src/domains` |
+| Database and seeds | `packages/db` |
+| Web transport/auth | `apps/web/src/lib/api`, `apps/web/src/lib/auth` |
+| Android products | `apps/field-android`, `apps/van-sales-android` |
+| SAP contracts | `packages/integration-contracts/sap/v1` |
 
-## Write paths
-
-- Online web order: authenticated Convex mutation → workflow + approval → outbound integration event.
-- Offline rolling-truck sale (planned Android van POS): local database transaction validates/decrements the cached truck projection and writes sale + sequenced outbox → device-bound, idempotent gateway push → authoritative Convex POS order + exact FEFO issue movement on acceptance.
-- SAP inbound event: connector queue → signed Convex HTTP action → event-id and payload deduplication → master projection, explicit movement command, or reconciliation snapshot.
-- Approved order: Convex event → connector SQLite queue → SAP adapter → signed acknowledgement → order marked `sent_to_sap`.
-- Inventory posting: Convex document + movement + allocations + ledger + summaries + command + audit + integration effect in one transaction → connector retry queue → SAP movement acknowledgement.
+The binding [backend](BACKEND_V2.md) and [analytics](ANALYTICS_V2.md) contracts win over older design notes. For release operations use [release and cutover](../spec/release-and-cutover.md); the native database listens on 5432. Source presence is not proof of deployment, full-route offline acceptance, printing, or production SAP connectivity.

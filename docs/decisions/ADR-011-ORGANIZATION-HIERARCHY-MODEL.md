@@ -4,7 +4,7 @@ Status: accepted (2026-09-25, JC lead) — provisional items marked inline
 
 ## Context
 
-ADR-005 already makes `orgUnitTypes` the configurable levels and `orgUnits` the nodes. The seeded National → Region → Area → Territory path is a starting configuration, not a fixed taxonomy. The blueprint §3 explicitly warns against hard-coded hierarchy names; §42 requires subtree rather than nationwide visibility. The client memo calls for standards across territories and territory expansion (memo §§1, IV), but does not define the canonical reporting tree. A present-day `parentId` alone cannot reconstruct yesterday's chain after a reorganization (`packages/backend/convex/schema.ts:1186-1215`).
+ADR-005 already makes `orgUnitTypes` the configurable levels and `orgUnits` the nodes. The seeded National → Region → Area → Territory path is a starting configuration, not a fixed taxonomy. The blueprint §3 explicitly warns against hard-coded hierarchy names; §42 requires subtree rather than nationwide visibility. The client memo calls for standards across territories and territory expansion (memo §§1, IV), but does not define the canonical reporting tree. A present-day `parentId` alone cannot reconstruct yesterday's chain after a reorganization (`packages/db/MAPPING.md`).
 
 ## Decision
 

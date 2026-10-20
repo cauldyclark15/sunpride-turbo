@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { CASH_VARIANCE_REASONS } from "../../../../packages/backend/convex/van/model";
+import { CASH_VARIANCE_REASONS } from "../../../api/src/domains/van/model.js";
 import {
   requestCashCode,
   VAN_CASH_VARIANCE_REASONS,

@@ -12,7 +12,7 @@ that the four-product shape is the plan of record.
 
 ## Decision
 
-Sunpride Turbo ships four user-facing products on one Convex backend:
+Sunpride Turbo ships four user-facing products on one Bun API backend:
 
 | Product                                                  | Stack                    | Users                                                              | Job                                                                                                                                                                                             |
 | -------------------------------------------------------- | ------------------------ | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -26,7 +26,7 @@ Sunpride Turbo ships four user-facing products on one Convex backend:
   never screens or state, with the field apps.
 - Both field apps are built together against one contract set. Neither platform may ship a
   workflow the other does not have without a recorded exception.
-- Native apps are clients, never systems of record (ADR-003); they reach Convex only through the
+- Native apps are clients, never systems of record (ADR-003); they reach Bun API only through the
   mobile gateway and the sync protocol (bootstrap, outbox, delta pull).
 
 ## Consequences

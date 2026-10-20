@@ -1,6 +1,6 @@
 /**
  * ANA-003 supervisor productivity dashboard: web mirror of the pure figure rules in
- * `packages/backend/convex/analytics/productivity_model.ts` (a test keeps them equal), plus
+ * `apps/api/src/domains/analytics/index.js` (a test keeps them equal), plus
  * display helpers. The server is authoritative for every per-person figure; the web only
  * sums people into team totals and formats. Amounts are PHP centavos.
  */

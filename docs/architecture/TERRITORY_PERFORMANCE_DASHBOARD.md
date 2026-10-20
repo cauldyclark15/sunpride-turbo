@@ -1,6 +1,6 @@
 # Territory performance dashboard (`ANA-004`)
 
-Where: web **Reports** (`/analytics`), below the totals. Backend: `packages/backend/convex/analytics/territory.ts` (`list`, `figures`); pure rules in `analytics/territory_model.ts`, mirrored by `apps/web/src/lib/territory-performance.ts` (a test keeps them equal).
+Where: web **Reports** (`/analytics`), below the totals. Backend: `apps/api/src/domains/analytics/index.js` (`list`, `figures`); pure rules in `analytics/territory_model.ts`, mirrored by `apps/web/src/lib/territory-performance.ts` (a test keeps them equal).
 
 Who: people holding `people.read` + `visit.read` + `report.read` — super admin, admin, manager, analyst, viewer — for territories whose **current** owner unit is inside their own organizational scope, never wider. Field `sales` never sees it (the panel is hidden and the server refuses).
 

@@ -1,6 +1,5 @@
 import React, { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { getFunctionName } from "convex/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ModuleWorkspace } from "./module-workspace";
 
@@ -28,45 +27,6 @@ const state = vi.hoisted(() => ({
   tab: "plan",
   setupSection: "routes",
   hookCalls: 0,
-}));
-vi.mock("convex/react", () => ({
-  useQuery: (ref: unknown, args: unknown) => {
-    const name = getFunctionName(ref as never);
-    state.calls.push({ name, args });
-    if (args === "skip") return undefined;
-    if (name === "domains/profiles:current") return state.profile;
-    if (name === "domains/orders:list" || name === "domains/workflows:pending")
-      return [];
-    if (name === "lib/capabilities:currentPermissions")
-      return state.permissions;
-    if (name === "coverage/plans:list") return [];
-    if (name === "coverage/plans:detail")
-      return {
-        plan: {
-          _id: "selected-plan",
-          version: 1,
-          status: "draft",
-          preparedBy: "someone",
-          preparedAt: 1,
-          assigneeProfileId: "manager",
-        },
-        slots: [],
-        warnings: [],
-      };
-    if (name === "coverage/discovery:list")
-      return { page: state.discoveryPage, continueCursor: "0", isDone: true };
-    if (name === "coverage/activation:plannedForMonth") return [];
-    if (name === "people/queries:list")
-      return {
-        page: [
-          { _id: "seller", name: "Sales", orgUnitId: "unit", status: "active" },
-        ],
-        isDone: true,
-      };
-    if (name === "people/queries:history") return [{ effectiveFrom: 0 }];
-    return undefined;
-  },
-  useMutation: () => vi.fn(async () => ({})),
 }));
 vi.mock("./coverage-data", () => ({
   useCoverageQuery: (ref: unknown, args: unknown) => {
@@ -218,7 +178,7 @@ vi.mock("./outlet-assignments", () => ({
   OutletAssignments: () => createElement("p", null, "Mounted assignments"),
 }));
 vi.mock("./imports-workspace", () => ({ ImportsWorkspace: () => null }));
-// v2: ModuleWorkspace gates on the session from GET /api/me (lib/auth), not a Convex profile.
+// ModuleWorkspace gates on the session from GET /api/me (lib/auth).
 vi.mock("../lib/auth/session", () => ({
   useSession: () => ({
     profile: {

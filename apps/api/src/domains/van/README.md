@@ -57,7 +57,7 @@ Export `canClaimMedia(db, actor, {purpose,ownerId,deviceId})` from `media.js`. V
 ## Mounts
 
 - `VanTripsWorkspace({initialDate?,initialTripId?})` exported from `components/van/index.ts`; mount on the COCKPIT lane's Vans & cash page. Pass the route's `date`/`tripId` query values for hydration; selections update both URL values. It shows variance-first trucks, sales versus prior day, trend, target-needs-setup, drill-through settlement, cash hand-in, CSV and print.
-- `VanVoidApproval`, `VanCashApproval`, `VanStockApproval`, `VanDamageApprovals` retain original names/props and existing `/workflows` mounts. All use the API/auth data layer; no Convex runtime/types in these components. The shared module-workspace SSR test only gained the new permissions-provider mock, with no test or assertion removed.
+- `VanVoidApproval`, `VanCashApproval`, `VanStockApproval`, `VanDamageApprovals` retain original names/props and existing `/workflows` mounts. All use the API/auth data layer; no Bun API runtime/types in these components. The shared module-workspace SSR test only gained the new permissions-provider mock, with no test or assertion removed.
 - The target link proposes `/sales-targets`; COCKPIT should align this with its final Sales & targets slug.
 
 ## Remaining integration / deliberate limits

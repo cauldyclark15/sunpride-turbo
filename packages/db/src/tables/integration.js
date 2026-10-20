@@ -7,13 +7,31 @@
  * bigint/numeric come back as string from Bun.sql.
  */
 
-export const SAP_INVENTORY_SNAPSHOT_RESOLUTION_STATUS = /** @type {const} */ (["pending", "matched", "different", "unmapped"]);
-export const INTEGRATION_EVENT_DIRECTION = /** @type {const} */ (["inbound", "outbound"]);
-export const INTEGRATION_EVENT_STATUS = /** @type {const} */ (["pending", "processing", "completed", "failed", "dead_letter"]);
-export const CONNECTOR_HEARTBEAT_STATUS = /** @type {const} */ (["online", "degraded", "offline"]);
+export const SAP_INVENTORY_SNAPSHOT_RESOLUTION_STATUS = /** @type {const} */ ([
+  "pending",
+  "matched",
+  "different",
+  "unmapped",
+]);
+export const INTEGRATION_EVENT_DIRECTION = /** @type {const} */ ([
+  "inbound",
+  "outbound",
+]);
+export const INTEGRATION_EVENT_STATUS = /** @type {const} */ ([
+  "pending",
+  "processing",
+  "completed",
+  "failed",
+  "dead_letter",
+]);
+export const CONNECTOR_HEARTBEAT_STATUS = /** @type {const} */ ([
+  "online",
+  "degraded",
+  "offline",
+]);
 
 /**
- * `sap_inventory_snapshots` (Convex `sapInventorySnapshots`)
+ * `sap_inventory_snapshots`
  * @typedef {Object} SapInventorySnapshotRow
  * @property {string} id
  * @property {string} organizationId
@@ -35,7 +53,7 @@ export const CONNECTOR_HEARTBEAT_STATUS = /** @type {const} */ (["online", "degr
  */
 
 /**
- * `integration_events` (Convex `integrationEvents`)
+ * `integration_events`
  * @typedef {Object} IntegrationEventRow
  * @property {string} id
  * @property {string} eventId
@@ -62,7 +80,7 @@ export const CONNECTOR_HEARTBEAT_STATUS = /** @type {const} */ (["online", "degr
  */
 
 /**
- * `connector_heartbeats` (Convex `connectorHeartbeats`)
+ * `connector_heartbeats`
  * @typedef {Object} ConnectorHeartbeatRow
  * @property {string} id
  * @property {string} connectorId

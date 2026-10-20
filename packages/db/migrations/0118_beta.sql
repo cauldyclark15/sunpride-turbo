@@ -1,5 +1,5 @@
 -- 0118_beta: Beta sample-data markers.
--- Generated from packages/backend/convex/schema.ts (via the v2 backend inventory).
+-- Domain baseline; typed row definitions live in packages/db/src/tables/.
 -- Tables: sample_data_rows, sample_data_changes.
 
 -- sampleDataRows

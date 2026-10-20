@@ -7,11 +7,23 @@
  * bigint/numeric come back as string from Bun.sql.
  */
 
-export const IMPORT_RUN_IMPORT_TYPE = /** @type {const} */ (["products", "opening_stock", "stock_adjustment", "cycle_count", "mcp"]);
-export const IMPORT_RUN_STATUS = /** @type {const} */ (["previewed", "committing", "completed", "failed", "submitted"]);
+export const IMPORT_RUN_IMPORT_TYPE = /** @type {const} */ ([
+  "products",
+  "opening_stock",
+  "stock_adjustment",
+  "cycle_count",
+  "mcp",
+]);
+export const IMPORT_RUN_STATUS = /** @type {const} */ ([
+  "previewed",
+  "committing",
+  "completed",
+  "failed",
+  "submitted",
+]);
 
 /**
- * `import_runs` (Convex `importRuns`)
+ * `import_runs`
  * @typedef {Object} ImportRunRow
  * @property {string} id
  * @property {string} organizationId
@@ -43,7 +55,7 @@ export const IMPORT_RUN_STATUS = /** @type {const} */ (["previewed", "committing
  */
 
 /**
- * `import_run_locations` (Convex `importRuns`, child of `import_runs`)
+ * `import_run_locations` (child of `import_runs`)
  * @typedef {Object} ImportRunLocationRow
  * @property {string} id
  * @property {string} importRunId
@@ -54,7 +66,7 @@ export const IMPORT_RUN_STATUS = /** @type {const} */ (["previewed", "committing
  */
 
 /**
- * `import_run_errors` (Convex `importRunErrors`)
+ * `import_run_errors`
  * @typedef {Object} ImportRunErrorRow
  * @property {string} id
  * @property {string} organizationId

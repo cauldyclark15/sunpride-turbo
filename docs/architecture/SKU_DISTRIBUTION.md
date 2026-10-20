@@ -1,6 +1,6 @@
 # SKU distribution dashboard (`ANA-006`)
 
-Backend: `packages/backend/convex/analytics/sku.ts` (queries `territory` and `gaps`) and `analytics/sku_model.ts` (pure rules). Web: Reports → **SKU distribution** (`apps/web/src/components/analytics/sku-distribution.tsx`, rules mirrored in `apps/web/src/lib/sku-distribution.ts` and kept equal by a test).
+Backend: `apps/api/src/domains/analytics/index.js` (queries `territory` and `gaps`) and `analytics/sku_model.ts` (pure rules). Web: Reports → **SKU distribution** (`apps/web/src/components/analytics/sku-distribution.tsx`, rules mirrored in `apps/web/src/lib/sku-distribution.ts` and kept equal by a test).
 
 ## What it shows
 

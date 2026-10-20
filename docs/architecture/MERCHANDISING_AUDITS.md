@@ -1,6 +1,6 @@
 # Merchandising audits (CVX-030)
 
-Backend: `packages/backend/convex/merchandising/`. Tables in `convex/schema.ts`.
+Backend: `apps/api/src/domains/retail/index.js`. Tables in `packages/db/MAPPING.md`.
 
 ## What is stored
 

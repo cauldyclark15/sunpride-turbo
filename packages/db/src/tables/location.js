@@ -8,14 +8,34 @@
  */
 
 export const LOCATION_PING_KIND = /** @type {const} */ (["field", "van"]);
-export const LOCATION_PING_PROVIDER = /** @type {const} */ (["gps", "network", "fused", "unknown"]);
-export const LOCATION_PING_TRIGGER = /** @type {const} */ (["start", "moving", "still", "stop"]);
+export const LOCATION_PING_PROVIDER = /** @type {const} */ ([
+  "gps",
+  "network",
+  "fused",
+  "unknown",
+]);
+export const LOCATION_PING_TRIGGER = /** @type {const} */ ([
+  "start",
+  "moving",
+  "still",
+  "stop",
+]);
 export const LIVE_LOCATION_KIND = /** @type {const} */ (["field", "van"]);
-export const LIVE_LOCATION_PROVIDER = /** @type {const} */ (["gps", "network", "fused", "unknown"]);
-export const LIVE_LOCATION_TRIGGER = /** @type {const} */ (["start", "moving", "still", "stop"]);
+export const LIVE_LOCATION_PROVIDER = /** @type {const} */ ([
+  "gps",
+  "network",
+  "fused",
+  "unknown",
+]);
+export const LIVE_LOCATION_TRIGGER = /** @type {const} */ ([
+  "start",
+  "moving",
+  "still",
+  "stop",
+]);
 
 /**
- * `location_pings` (Convex `locationPings`)
+ * `location_pings`
  * @typedef {Object} LocationPingRow
  * @property {string} id
  * @property {string} organizationId
@@ -47,7 +67,7 @@ export const LIVE_LOCATION_TRIGGER = /** @type {const} */ (["start", "moving", "
  */
 
 /**
- * `live_locations` (Convex `liveLocations`)
+ * `live_locations`
  * @typedef {Object} LiveLocationRow
  * @property {string} id
  * @property {string} organizationId

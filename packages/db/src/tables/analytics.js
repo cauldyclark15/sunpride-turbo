@@ -7,16 +7,40 @@
  * bigint/numeric come back as string from Bun.sql.
  */
 
-export const ROLLUP_CONTRIBUTION_SOURCE_KIND = /** @type {const} */ (["order", "visit", "planned"]);
-export const ROLLUP_REFRESHE_SOURCE_KIND = /** @type {const} */ (["order", "visit", "planned"]);
-export const ADMIN_PACK_RECORD_SOURCE = /** @type {const} */ (["sample", "office"]);
-export const ADMIN_PACK_RECORD_KIND = /** @type {const} */ (["program_allocation", "priority_document", "adp_claim", "ar_balance"]);
-export const SALES_TARGET_SUBJECT_KIND = /** @type {const} */ (["employee", "team", "territory"]);
+export const ROLLUP_CONTRIBUTION_SOURCE_KIND = /** @type {const} */ ([
+  "order",
+  "visit",
+  "planned",
+]);
+export const ROLLUP_REFRESHE_SOURCE_KIND = /** @type {const} */ ([
+  "order",
+  "visit",
+  "planned",
+]);
+export const ADMIN_PACK_RECORD_SOURCE = /** @type {const} */ ([
+  "sample",
+  "office",
+]);
+export const ADMIN_PACK_RECORD_KIND = /** @type {const} */ ([
+  "program_allocation",
+  "priority_document",
+  "adp_claim",
+  "ar_balance",
+]);
+export const SALES_TARGET_SUBJECT_KIND = /** @type {const} */ ([
+  "employee",
+  "team",
+  "territory",
+]);
 export const SALES_TARGET_PERIOD = /** @type {const} */ (["daily", "monthly"]);
-export const SALES_TARGET_METRIC = /** @type {const} */ (["sales_value", "calls", "productive_calls"]);
+export const SALES_TARGET_METRIC = /** @type {const} */ ([
+  "sales_value",
+  "calls",
+  "productive_calls",
+]);
 
 /**
- * `daily_territory_metrics` (Convex `dailyTerritoryMetrics`)
+ * `daily_territory_metrics`
  * @typedef {Object} DailyTerritoryMetricRow
  * @property {string} id
  * @property {string} organizationId
@@ -42,7 +66,7 @@ export const SALES_TARGET_METRIC = /** @type {const} */ (["sales_value", "calls"
  */
 
 /**
- * `daily_customer_metrics` (Convex `dailyCustomerMetrics`)
+ * `daily_customer_metrics`
  * @typedef {Object} DailyCustomerMetricRow
  * @property {string} id
  * @property {string} organizationId
@@ -69,7 +93,7 @@ export const SALES_TARGET_METRIC = /** @type {const} */ (["sales_value", "calls"
  */
 
 /**
- * `daily_sku_metrics` (Convex `dailySkuMetrics`)
+ * `daily_sku_metrics`
  * @typedef {Object} DailySkuMetricRow
  * @property {string} id
  * @property {string} organizationId
@@ -87,7 +111,7 @@ export const SALES_TARGET_METRIC = /** @type {const} */ (["sales_value", "calls"
  */
 
 /**
- * `rollup_contributions` (Convex `rollupContributions`)
+ * `rollup_contributions`
  * @typedef {Object} RollupContributionRow
  * @property {string} id
  * @property {"order" | "visit" | "planned"} sourceKind
@@ -118,7 +142,7 @@ export const SALES_TARGET_METRIC = /** @type {const} */ (["sales_value", "calls"
  */
 
 /**
- * `rollup_contribution_skus` (Convex `rollupContributions`, child of `rollup_contributions`)
+ * `rollup_contribution_skus` (child of `rollup_contributions`)
  * @typedef {Object} RollupContributionSkuRow
  * @property {string} id
  * @property {string} rollupContributionId
@@ -135,7 +159,7 @@ export const SALES_TARGET_METRIC = /** @type {const} */ (["sales_value", "calls"
  */
 
 /**
- * `rollup_refreshes` (Convex `rollupRefreshes`)
+ * `rollup_refreshes`
  * @typedef {Object} RollupRefresheRow
  * @property {string} id
  * @property {"order" | "visit" | "planned"} sourceKind
@@ -146,7 +170,7 @@ export const SALES_TARGET_METRIC = /** @type {const} */ (["sales_value", "calls"
  */
 
 /**
- * `agent_daily_metrics` (Convex `agentDailyMetrics`)
+ * `agent_daily_metrics`
  * @typedef {Object} AgentDailyMetricRow
  * @property {string} id
  * @property {string} organizationId
@@ -191,7 +215,7 @@ export const SALES_TARGET_METRIC = /** @type {const} */ (["sales_value", "calls"
  */
 
 /**
- * `agent_metric_refreshes` (Convex `agentMetricRefreshes`)
+ * `agent_metric_refreshes`
  * @typedef {Object} AgentMetricRefresheRow
  * @property {string} id
  * @property {string} profileId
@@ -202,7 +226,7 @@ export const SALES_TARGET_METRIC = /** @type {const} */ (["sales_value", "calls"
  */
 
 /**
- * `suggested_order_promotions` (Convex `suggestedOrderPromotions`)
+ * `suggested_order_promotions`
  * @typedef {Object} SuggestedOrderPromotionRow
  * @property {string} id
  * @property {string} organizationId
@@ -220,7 +244,7 @@ export const SALES_TARGET_METRIC = /** @type {const} */ (["sales_value", "calls"
  */
 
 /**
- * `admin_pack_records` (Convex `adminPackRecords`)
+ * `admin_pack_records`
  * @typedef {Object} AdminPackRecordRow
  * @property {string} id
  * @property {string} organizationId
@@ -235,7 +259,7 @@ export const SALES_TARGET_METRIC = /** @type {const} */ (["sales_value", "calls"
  */
 
 /**
- * `sales_targets` (Convex `salesTargets`)
+ * `sales_targets`
  * @typedef {Object} SalesTargetRow
  * @property {string} id
  * @property {string} organizationId

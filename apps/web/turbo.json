@@ -9,7 +9,7 @@
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/docs/training/**",
-        "$TURBO_ROOT$/packages/backend/convex/**",
+        "$TURBO_ROOT$/apps/api/src/**",
         "$TURBO_ROOT$/packages/ui/src/**"
       ]
     }

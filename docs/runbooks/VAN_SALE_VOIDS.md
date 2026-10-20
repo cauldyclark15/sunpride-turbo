@@ -31,9 +31,9 @@ If any part fails, nothing is written. A sale can be voided only once; tapping t
 
 | Setting            | Default                                            | Where                                                    |
 | ------------------ | -------------------------------------------------- | -------------------------------------------------------- |
-| Approval required  | Yes, for every void                                | `VAN_POLICY.voidRequiresApproval`, `convex/van/model.ts` |
+| Approval required  | Yes, for every void                                | `VAN_POLICY.voidRequiresApproval`, `apps/api/src/domains/van/model.js` |
 | Approval threshold | ₱0.00 (every amount)                               | `VAN_POLICY.voidApprovalThresholdMinor`                  |
-| Reasons            | The six above                                      | `VOID_REASONS`, `convex/van/model.ts`                    |
+| Reasons            | The six above                                      | `VOID_REASONS`, `apps/api/src/domains/van/model.js`                    |
 | Whole sale only    | Yes; part of a sale goes through a customer return | —                                                        |
 | Which sales        | Only sales on the trip the handheld is on now      | handheld                                                 |
 

@@ -32,9 +32,9 @@ After the count is saved the trip takes **no more sales and no voids** (the supe
 
 | Setting              | Default                                    | Where                                                          |
 | -------------------- | ------------------------------------------ | -------------------------------------------------------------- |
-| Approval above       | ₱50.00 difference either way               | `VAN_POLICY.cashVarianceToleranceMinor`, `convex/van/model.ts` |
+| Approval above       | ₱50.00 difference either way               | `VAN_POLICY.cashVarianceToleranceMinor`, `apps/api/src/domains/van/model.js` |
 | Approval required    | Yes                                        | `VAN_POLICY.cashVarianceRequiresApproval`                      |
-| Reasons              | The seven above                            | `CASH_VARIANCE_REASONS`, `convex/van/model.ts`                 |
+| Reasons              | The seven above                            | `CASH_VARIANCE_REASONS`, `apps/api/src/domains/van/model.js`                 |
 | Count by             | Bills and coins (Philippine denominations) | handheld `CashDenominations.PHP`                               |
 | Change fund          | Not part of the count                      | handheld screen text                                           |
 | Recount after saving | Not on the phone; the office corrects it   | —                                                              |
