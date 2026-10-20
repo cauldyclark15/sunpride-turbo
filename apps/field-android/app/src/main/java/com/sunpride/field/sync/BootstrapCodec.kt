@@ -212,7 +212,10 @@ object BootstrapCodec {
         val types = typeSets.flatten().groupBy { it.code }.map { (_, rows) ->
             require(rows.distinct().size == 1); rows.first()
         }
-        val authorized = pages.flatMap { it.visits }.map { JSONObject(it.json).getString("outletId") }.toSet()
+        // V2Wire already checks the signed-in scope/epoch before exposing this roster.
+        // V2 includes scoped off-route stores; v1 authorizes call sheets only through planned visits.
+        val authorized = if (v2) outlets.map { it.id }.toSet()
+            else pages.flatMap { it.visits }.map { JSONObject(it.json).getString("outletId") }.toSet()
         require((sheets.map { it.outletId } + terms.keys + summaries.keys).all { it in authorized })
         require(sheets.groupBy { it.outletId }.values.all { it.distinct().size == 1 })
         return ScopedSnapshot(first.employee.toString(), pages.firstNotNullOfOrNull { it.route },

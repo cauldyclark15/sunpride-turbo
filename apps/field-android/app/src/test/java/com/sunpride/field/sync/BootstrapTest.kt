@@ -119,6 +119,29 @@ class BootstrapTest {
         o.getJSONArray("callSheets").getJSONObject(0).getJSONObject("header").put("address", "")
         assertEquals("", BootstrapCodec.page(o.toString()).callSheets.single().header.address)
     }
+    private fun v2OffRoute(): JSONObject = JSONObject(fixture("bootstrap-call-sheet-response.json")).apply {
+        // This marker is added by the production V2Wire boundary after scope/epoch validation.
+        put("v2SnapshotId", "validated-v2-snapshot")
+        getJSONArray("outlets").put(JSONObject(getJSONArray("outlets").getJSONObject(0).toString()).put("id", "outlet-2"))
+        getJSONArray("callSheets").put(JSONObject(getJSONArray("callSheets").getJSONObject(0).toString()).put("outletId", "outlet-2"))
+    }
+    @Test fun F310_v2ScopedOffRouteSheetsDoNotRequireAPlannedVisit() {
+        val snapshot = BootstrapCodec.snapshot(listOf(BootstrapCodec.page(v2OffRoute().toString())))
+        assertEquals(1, snapshot.visits.size)
+        assertEquals(listOf("outlet-1", "outlet-2"), snapshot.callSheets.map { it.outletId })
+        assertEquals(2, snapshot.outlets.size)
+    }
+    @Test fun F310_v2ScopedRosterCanHaveNoPlanWhileV1RemainsPlannedOnly() {
+        val o = v2OffRoute().put("plannedVisits", org.json.JSONArray())
+        assertEquals(2, BootstrapCodec.snapshot(listOf(BootstrapCodec.page(o.toString()))).callSheets.size)
+        o.remove("v2SnapshotId")
+        assertThrows(WireFailure::class.java) { BootstrapCodec.page(o.toString()) }
+    }
+    @Test fun F310_v2NeverAcceptsSheetsOutsideTheAuthorizedOutletRoster() {
+        val o = v2OffRoute()
+        o.getJSONArray("callSheets").getJSONObject(1).put("outletId", "foreign-outlet")
+        assertThrows(IllegalArgumentException::class.java) { BootstrapCodec.snapshot(listOf(BootstrapCodec.page(o.toString()))) }
+    }
     @Test fun multipageCallSheetsMergeAndPromoteOnlyAtFinalCursor() {
         val one = page(fixture("bootstrap-call-sheet-response.json"), 1, "page-2", null)
         val two = JSONObject(fixture("bootstrap-call-sheet-response.json"))
