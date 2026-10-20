@@ -20,7 +20,7 @@ async function credentials() {
 }
 
 beforeAll(async () => {
-  process.env.SP_LANE = "acct";
+  process.env.SP_LANE ??= "smasters";
   // The DB checker must not transitively typecheck every unrelated API installer.
   const harnessPath = new URL(
     "../../../apps/api/test/harness.js",
@@ -64,11 +64,11 @@ afterAll(async () => {
   if (dir) await rm(dir, { recursive: true, force: true });
 }, 120_000);
 
-test("three accounts per client persona, seven distinct application roles and no super-admin", async () => {
-  expect(first.created).toBe(27);
-  expect(first.total).toBe(27);
+test("F-008 three trial accounts per persona plus two area and two regional managers; no new app roles", async () => {
+  expect(first.created).toBe(31);
+  expect(first.total).toBe(31);
   expect(first.counts).toEqual(
-    Object.fromEntries(TRIAL_ROLES.map((r) => [r.slug, 3])),
+    Object.fromEntries(TRIAL_ROLES.map((r) => [r.slug, r.count ?? 3])),
   );
   const rows =
     await h.db`select p.role,count(*)::int n from users u join profiles p on p.user_id=u.id where u.email like '%@trial.sunpride.test' group by p.role`;
@@ -76,7 +76,7 @@ test("three accounts per client persona, seven distinct application roles and no
     Object.fromEntries(rows.map((/** @type {any} */ r) => [r.role, r.n])),
   ).toEqual({
     admin: 3,
-    manager: 6,
+    manager: 10,
     sales: 6,
     approver: 3,
     operations: 3,
@@ -202,7 +202,7 @@ test("CLI --rotate issues new credentials, revokes old sessions and prints no se
   expect(await p.exited).toBe(0);
   expect(error.length).toBe(0);
   const result = JSON.parse(output);
-  expect(result.rotated).toBe(27);
+  expect(result.rotated).toBe(31);
   expect(result.created).toBe(0);
   const text = await readFile(outPath, "utf8");
   for (const a of await credentials()) {
@@ -229,7 +229,7 @@ test("private files are mode 0600 and include sign-in, account and demo instruct
   ).toBe(true);
   expect(text.includes("https://sunpride.cauldnclark.com/account")).toBe(true);
   expect(text.includes("bottom left → Account → Change password")).toBe(true);
-  expect(text.split(" · ").length).toBe(55);
+  expect(text.split(" · ").length).toBe(63);
 });
 
 test("a tester-changed password is preserved and no stale password is handed out", async () => {
@@ -248,6 +248,36 @@ test("a tester-changed password is preserved and no stale password is handed out
   const line = text.split("\n").find((line) => line.includes(a.email)) ?? "";
   expect(line.includes(a.password)).toBe(false);
   expect(line.includes("Password changed by tester")).toBe(true);
+});
+
+test("F-008 five-tier chain and area/regional trial scope are effective data, not title permissions", async () => {
+  const { rowId } = await import("./store.js");
+  const scopePath = new URL(
+    "../../../apps/api/src/domains/org/scope.js",
+    import.meta.url,
+  ).href;
+  const { scopeFilterForActor } = await import(scopePath);
+  const chain = await h.db`with recursive reporting as (
+    select p.id,p.name,a.supervisor_id,1 depth from profiles p join employee_assignments a on a.profile_id=p.id where p.id=${rowId("profiles", "agent")} and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now()) and a.deleted_at is null
+    union all select p.id,p.name,a.supervisor_id,r.depth+1 from reporting r join profiles p on p.id=r.supervisor_id join employee_assignments a on a.profile_id=p.id where r.depth<10 and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now()) and a.deleted_at is null
+  ) select * from reporting order by depth`;
+  expect(chain.length).toBe(5);
+  for (const a of (await credentials()).filter((a) =>
+    ["areamanager", "regionalmanager"].includes(a.persona),
+  )) {
+    const [p] = await h.db`select * from profiles where id=${a.profileId}`;
+    const scope = await scopeFilterForActor(h.db, {
+      role: p.role,
+      orgUnitId: p.org_unit_id,
+    });
+    expect(scope.unitIds.includes(rowId("org_units", "territory-0"))).toBe(
+      true,
+    );
+    expect(scope.unitIds.includes(rowId("org_units", "national"))).toBe(false);
+    expect(scope.unitIds.includes(rowId("org_units", "territory-3"))).toBe(
+      a.persona === "regionalmanager",
+    );
+  }
 });
 
 test("seed reset removes all created trial rows and adopted demo people; outside sessions still guard reset", async () => {
