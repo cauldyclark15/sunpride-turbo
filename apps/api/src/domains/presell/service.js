@@ -535,7 +535,7 @@ export async function board(ctx) {
       r.handoff_status !== "cancelled",
   );
   const summarize = (/** @type {any[]} */ rs) => ({
-    drops: rs.length,
+    drops: rs.filter((r) => r.drop_id != null).length,
     proofs: rs.filter((r) => r.proof_id).length,
     withinSla: rs.filter((r) => r.within_sla === true).length,
     exceptions: rs.filter(

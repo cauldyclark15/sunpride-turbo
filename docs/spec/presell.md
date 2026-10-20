@@ -16,7 +16,7 @@ Confirmation writes a durable `delivery_handoffs` outbox in the same transaction
 
 ## F-303 — dispatch and the configured driver step
 
-Dispatch is inside the existing Vans & cash workspace, under Pre-sell dispatch. It answers which deliveries need action: target/prior weekday/eight-day trend, unconfirmed/failed/door-variance exceptions, truck/driver assignment, complete drop reordering and a printable driver manifest. Scheduling requires the existing trip's scope and confirmed day. Released runs freeze assignment and sequence.
+Dispatch is inside the existing Vans & cash workspace, under Pre-sell dispatch. It answers which deliveries need action: target/prior weekday/eight-day trend, unconfirmed/failed/door-variance exceptions, truck/driver assignment, complete drop reordering and a printable driver manifest. Scheduling requires the existing trip's scope and confirmed day. Released runs freeze assignment and sequence. Metric denominators count actual delivery drops, not unconfirmed requested dates; pending requests remain visible in the action list.
 
 The existing van POS downloads `deliveryDrops` additively in its v2 bundle, stores them with the existing encrypted trip snapshot and adds `delivery.confirm` / `delivery.timing` to its existing outbox. Frozen v1 schemas are unchanged. Driver delivery is the `driver_delivery` CALLFLOW profile: check-in → delivery confirmation → check-out. The authoritative proof writer calls the existing shared engine's `advance`; arbitrary `call.step` cannot mark delivery complete. Existing no-order semantics are retained: a delivery-only call uses the explicit controlled reason “Delivery only — no new sale at the door”; it never invents a new van sale.
 

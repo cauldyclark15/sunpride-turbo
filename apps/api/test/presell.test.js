@@ -396,6 +396,28 @@ test("F-302 source-order withdrawal prevents delayed handoff and retry; cancella
     (await h.db`select status from orders where id=${f.order.id}`)[0].status,
   ).toBe("voided");
 });
+test("F-301 F-303 board counts real drops, not unconfirmed delivery requests", async () => {
+  const deliveryDay = day(now + 17 * DAY);
+  const f = await fixture({ deliveryDay });
+  const manager = await person("manager", f.unit);
+  const path = "presell/board?date=" + deliveryDay;
+  const before = await api(manager, path);
+  expect(before.status).toBe(200);
+  expect(
+    before.body.rows.find((/** @type {any} */ r) => r.id === f.order.id)
+      .confirmed_delivery_date,
+  ).toBeNull();
+  expect(before.body.current.drops).toBe(0);
+  expect(before.body.current.proofs).toBe(0);
+  expect(before.body.trend.at(-1).drops).toBe(0);
+  await release(f);
+  const after = await api(manager, path);
+  expect(after.status).toBe(200);
+  expect(after.body.current.drops).toBe(1);
+  expect(after.body.current.proofs).toBe(0);
+  expect(after.body.trend.at(-1).drops).toBe(1);
+});
+
 test("F-303 dispatch freezes sequence and returns an ordered printable driver manifest", async () => {
   const f = await fixture(),
     drop = await dispatched(f);
