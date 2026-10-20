@@ -21,6 +21,9 @@ import {
 } from "./data.js";
 import { suggestLine, historyDays } from "./suggested-order.js";
 import { ApiError } from "../../core/errors.js";
+import { releasesAt } from "../availability/masters.js";
+import { callSnapshot } from "../availability/calls.js";
+import { bounded } from "../fieldsync/model.js";
 import { historicalFacts } from "./history.js";
 
 /** @param {any} db @param {any} p @param {any} s */
@@ -220,16 +223,24 @@ export async function storePage(ctx, p, s) {
   const visits = visitFacts.visits.filter(
       (/** @type {any} */ r) => r.outlet_id === id,
     ),
-    observations = av.filter((/** @type {any} */ a) => a.outlet_id === id),
-    shelf = observations.filter((/** @type {any} */ a) => a.required);
-  const osa = shelf.length
-    ? pct(
-        shelf.filter((/** @type {any} */ a) =>
-          ["available", "low_stock"].includes(a.status),
-        ).length,
-        shelf.length,
-      )
-    : null;
+    observations = av.filter((/** @type {any} */ a) => a.outlet_id === id);
+  const retail = (
+    await releasesAt(db, "msl", Date.parse(p.to + "T23:59:59+08:00"))
+  ).length
+    ? await callSnapshot({ ...ctx, app: "web" }, store.id, p.to, false)
+    : { lines: [] };
+  const retailChecks = bounded(
+    await db`select c.* from availability_checks c join analytics_people pe on pe.id=c.profile_id where c.outlet_id=${id} and c.service_date between ${p.from} and ${p.to} and c.org_unit_id in ${db(s.ids.length ? s.ids : [null])} and pe.current_unit_id in ${db(s.ids.length ? s.ids : [null])} and (${s.ownProfileId ?? null}::uuid is null or c.profile_id=${s.ownProfileId ?? null}) order by c.device_time desc,c.id desc limit 30001`,
+    30000,
+  );
+  const lastCalls = new Map();
+  for (const c of retailChecks)
+    if (!lastCalls.has(`${c.profile_id}:${c.call_key}`))
+      lastCalls.set(`${c.profile_id}:${c.call_key}`, c);
+  const osa = pct(
+    [...lastCalls.values()].reduce((n, c) => n + c.present_count, 0),
+    [...lastCalls.values()].reduce((n, c) => n + c.required_count, 0),
+  );
   const ar =
     money.rows.find((/** @type {any} */ r) => r.accountId === store.customer_id)
       ?.balance ?? null;
@@ -246,6 +257,7 @@ export async function storePage(ctx, p, s) {
     db`select b.* from inventory_balances b join inventory_locations l on l.id=b.location_id where l.allows_sale and l.org_unit_id in ${db(s.ids.length ? s.ids : [null])} and b.deleted_at is null and l.deleted_at is null`,
   ]);
   const productIds = new Set([
+    ...retail.lines.map((/** @type {any} */ r) => r.productId),
     ...assortment.map((/** @type {any} */ a) => a.product_id),
     ...history.map((/** @type {any} */ r) => r.product_id),
   ]);
@@ -319,18 +331,25 @@ export async function storePage(ctx, p, s) {
         leadTimeDays: 1,
       },
     );
+    const retailLine = retail.lines.find(
+      (/** @type {any} */ r) => r.productId === product.id,
+    );
+    const recommendedBase = retailLine
+      ? retailLine.quantityBase
+      : sellingBase
+        ? Math.round(suggestion.quantity * sellingBase)
+        : null;
     suggestions.push({
       productId: product.id,
-      quantityDisplay: sellingBase
-        ? units(product, Math.round(suggestion.quantity * sellingBase)).display
-        : "Quantity unavailable",
+      quantityDisplay:
+        recommendedBase != null
+          ? units(product, recommendedBase).display
+          : "Quantity unavailable",
       qtyCases:
-        caseBase && sellingBase
-          ? (suggestion.quantity * sellingBase) / caseBase
-          : null,
-      reason: caseBase
-        ? suggestion.reason
-        : suggestion.reason + "; case size not set",
+        caseBase && recommendedBase != null ? recommendedBase / caseBase : null,
+      reason:
+        (retailLine ? retailLine.reasons.join("; ") : suggestion.reason) +
+        (caseBase ? "" : "; case size not set"),
     });
   }
   const orderIds = [

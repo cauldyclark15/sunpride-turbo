@@ -179,6 +179,7 @@ export type CoverageRow = {
 };
 
 export type CoverageResponse = ResponseHeader & {
+  availability?: import("../availability/types").RetailAvailability;
   kpis: Kpi[];
   weeks: Array<{ weekStart: string }>;
   rows: CoverageRow[];
@@ -299,7 +300,7 @@ export type StockRow = {
   valueCentavos: number | null;
   avgDailySalesCases: number | null;
   daysCover: number | null;
-  numericDistributionPct: number | null;
+  buyingReachPct: number | null;
   oosStores: number;
   status: string;
 };

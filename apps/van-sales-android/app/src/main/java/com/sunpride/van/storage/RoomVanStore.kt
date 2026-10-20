@@ -120,6 +120,38 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         dao.insertOutbox(row)
         return row
     }
+    /** F-211/F-219: resolved MSL and objectives ride the authorized trip snapshot. */
+    suspend fun retailCall(outletId: String): com.sunpride.retail.RetailCall? {
+        if(!canSync())return null
+        val a=dao.trip(s,d)?.let {JSONObject(it.json).optJSONArray("_availability")} ?: return null
+        return (0 until a.length()).map {a.getJSONObject(it)}.firstOrNull {it.getString("outletId")==outletId}
+            ?.let(com.sunpride.retail.RetailAvailability::decode)
+    }
+    suspend fun retailSaved(callKey: String): Boolean = dao.outboxRows(s,d).any { it.kind=="availability.record" && it.status in setOf("pending","sending","done") &&
+        JSONObject(it.operationJson).getJSONObject("payload").getString("callKey")==callKey }
+    /** Checklist and seller decisions share one encrypted transaction; no sale is posted here. */
+    suspend fun saveRetail(call: com.sunpride.retail.RetailCall,callKey: String,answers: List<com.sunpride.retail.ShelfAnswer>,quantities: Map<String,Long>) = db.withTransaction {
+        val t=writable();check(selling(t));check(retailCall(call.outletId)==call);check(!retailSaved(callKey)) {"Availability already saved"}
+        com.sunpride.retail.RetailAvailability.validate(call,answers)
+        require(quantities.keys.all {id->call.lines.any {it.productId==id}} && quantities.values.all {it in 0L..1_000_000_000L})
+        val checkId=UUID.randomUUID().toString();val at=clock()
+        var previous: String? = null
+        suspend fun queue(kind: String,payload: JSONObject) {
+            val request=UUID.randomUUID().toString();val created=maxOf(at,Math.addExact(dao.latestCreatedAt(s,d) ?: 0L,1L))
+            payload.put("deviceTime",at)
+            val op=JSONObject().put("kind",kind).put("clientRequestId",request).put("payload",payload)
+            previous?.let { op.put("dependsOn",JSONArray().put(it)) }
+            dao.insertOutbox(OutboxRow(s,d,request,t.tripId,kind,op.toString(),created,null,capturedStatus))
+            previous=request
+        }
+        queue("availability.record",com.sunpride.retail.RetailAvailability.payload(call,answers,checkId,callKey,at).put("tripId",t.tripId))
+        for(answer in answers.filter {it.state=="absent"}) {
+            val q=quantities[answer.productId] ?: 0L
+            queue("availability.proposal",JSONObject().put("decisionId",UUID.randomUUID().toString()).put("checkId",checkId)
+                .put("productId",answer.productId).put("decision",if(q>0)"accepted" else "dismissed").put("quantityBase",q)
+                .put("orderKey",if(q>0)callKey else JSONObject.NULL))
+        }
+    }
     suspend fun startTrip(vehicleConfirmed: Boolean, routeConfirmed: Boolean, driverName: String?, helperName: String?, odometerKm: Double?, note: String?): String = db.withTransaction {
         val t = writable(); require(vehicleConfirmed && routeConfirmed)
         check(t.status == "loaded") { "Load must be posted before starting" }
@@ -255,6 +287,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
      */
     suspend fun commitSale(request: CheckoutRequest, expectedTotalMinor: Long): SaleReceipt = db.withTransaction {
         dao.saleRows(s,d).singleOrNull { it.saleId == request.saleId }?.let { return@withTransaction savedReceipt(it,request) }
+        request.customerId?.let { check(retailCall(it)==null || retailSaved(request.saleId)) {"Check every MSL line before checkout"} }
         val context = checkoutContext()
         val result = CheckoutRules.evaluate(request,context)
         if (!result.ok) throw CheckoutRefused(result.issues)
@@ -535,7 +568,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         dao.clearPriceListLine(s,d)
         dao.clearPromotion(s,d)
         b.trip?.let { t -> dao.insertTrip(TripRow(s,d,t.tripId,t.tripNumber,t.status,t.serviceDate,o.getJSONObject("trip").put("_damageRecords",o.optJSONArray("damageRecords") ?: JSONArray())
-            .put("_vanOps",o.optJSONObject("vanOps")?:JSONObject.NULL).put("_callFlows",grant?.optJSONObject("callFlows") ?: JSONObject()).put("_serverCalls",grant?.optJSONArray("callFlowCalls") ?: JSONArray()).toString(),b.load?.loadId,b.load?.status)) }
+            .put("_availability",grant?.optJSONArray("availability") ?: JSONArray()).put("_vanOps",o.optJSONObject("vanOps")?:JSONObject.NULL).put("_callFlows",grant?.optJSONObject("callFlows") ?: JSONObject()).put("_serverCalls",grant?.optJSONArray("callFlowCalls") ?: JSONArray()).toString(),b.load?.loadId,b.load?.status)) }
         b.load?.let { l -> VanBootstrapCodec.objects(o.getJSONObject("load").getJSONArray("lines")).forEach { line ->
             val parsed = VanBootstrapCodec.line(line)
             dao.insertLoadLine(LoadLineRow(s,d,l.loadId,parsed.lineNumber,parsed.productId,parsed.expectedBase,parsed.actualBase,line.toString()))

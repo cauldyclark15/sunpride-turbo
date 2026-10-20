@@ -34,6 +34,7 @@ import { MastersWorkspace } from "./spec-masters/workspace";
 import { FiscalWorkspace } from "./fiscal/fiscal-workspace";
 import { SetupHealth, SetupSearch } from "./master-data/setup-health";
 import { setSetupParam, useSetupParam } from "./master-data/location";
+import { AvailabilityEditor } from "./availability/editor";
 
 const readableError = (error: unknown) =>
   error instanceof Error ? error.message : "Access update failed. Try again.";
@@ -48,6 +49,7 @@ const tabs = [
   ["routes", "Routes"],
   ["outlets", "Outlets"],
   ["assignments", "Assignments"],
+  ["availability", "Trade Marketing"],
   ["devices", "Phones"],
   ["callflow", "Call flows"],
   ["field-masters", "Field masters"],
@@ -97,6 +99,8 @@ export function AdminWorkspace() {
         <FiscalWorkspace />
       ) : activeTab === "fleet" ? (
         <IntegrityFleet />
+      ) : activeTab === "availability" ? (
+        <AvailabilityEditor />
       ) : activeTab === "devices" ? (
         <DevicesAdmin />
       ) : (

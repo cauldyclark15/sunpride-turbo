@@ -14,6 +14,7 @@ import {
 import { issueDocument } from "../fiscal/series.js";
 import { enforceAuthority } from "../fiscal/authority.js";
 import { configuredTender } from "../fiscal/tenders.js";
+import { requireAvailability } from "../availability/callflow.js";
 import { postMovement } from "../inventory/posting.js";
 import { resolvePrice } from "../orders/pricing.js";
 import { requestOverride as consumeApproval } from "./seams.js";
@@ -540,6 +541,13 @@ async function sale(db, trip, actor, p, opId) {
   const customer = await outletFor(db, actor, p.customer.outletId);
   if (p.settlementVersion === 1)
     await requireTemperature(db, trip, p.deviceTime, "delivery", customer.id);
+  await requireAvailability(
+    db,
+    actor.profileId,
+    customer.id,
+    saleId,
+    Number(p.deviceTime),
+  );
   const at = Number(p.deviceTime),
     quoted = [];
   let total = 0n,

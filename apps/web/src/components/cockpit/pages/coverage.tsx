@@ -29,6 +29,7 @@ import type {
   TimelineKind,
 } from "../types";
 import { buttonClass, Segmented, usePageQuery } from "./shared";
+import { AvailabilityCoverage } from "../../availability/coverage";
 
 function heatClass(pct: number | null | undefined) {
   if (pct === null || pct === undefined)
@@ -190,6 +191,7 @@ export function CoverageView({
   return (
     <div className="grid gap-4">
       <KpiGrid kpis={data.kpis} />
+      {data.availability && <AvailabilityCoverage data={data.availability} />}
       <Panel
         csvHref={csv}
         title={

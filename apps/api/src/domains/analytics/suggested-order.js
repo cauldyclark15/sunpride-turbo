@@ -1,3 +1,4 @@
+import { suggest as availabilitySuggest } from "../availability/rules.js";
 import { addDays, daysBetween } from "./measures.js";
 export const HISTORY_DAYS = 84,
   MIN_HISTORY_DAYS = 28,
@@ -35,19 +36,33 @@ export function suggestLine(f, s) {
             ordinary * daysBetween(f.lastPurchaseDate, s.asOfDate),
         )
       : 0;
-  const ico = Math.max(
-    0,
-    Math.round(demand * (s.nextVisitDays + s.leadTimeDays) - stock),
+  const recommendation = availabilitySuggest(
+    {
+      historyDailyBase: ordinary,
+      stockBase: stock,
+      minimumBase: f.minimumBase ?? 0,
+      absent: f.absent ?? false,
+      focus: f.focus,
+      upliftPct: f.upliftPct,
+      availableBase:
+        f.available == null ? null : Math.max(0, Math.floor(f.available)),
+    },
+    { coverDays: s.nextVisitDays + s.leadTimeDays },
   );
-  const quantity =
-    f.available == null
-      ? ico
-      : Math.min(ico, Math.max(0, Math.floor(f.available)));
+  const quantity = recommendation.quantityBase;
   return {
     quantity,
     status:
-      ico === 0 ? "enough_stock" : quantity === 0 ? "unavailable" : "suggest",
-    reason: `${f.historyQuantity} ${f.unit} / ${s.historyDays} days × ${s.nextVisitDays + s.leadTimeDays} days of cover${f.upliftPct ? ` with ${f.upliftPct}% promotion` : ""}, less ${Math.round(stock * 100) / 100} ${f.unit} ${usable ? "observed" : "estimated"} stock${f.available == null ? "; selling-location availability unknown" : quantity < ico ? `; capped at ${quantity} available` : ""}`,
+      recommendation.status === "enough_stock"
+        ? "enough_stock"
+        : quantity === 0
+          ? "unavailable"
+          : "suggest",
+    reason:
+      recommendation.reasons.join("; ") +
+      (f.available == null
+        ? "; selling-location availability unknown"
+        : `; capped at ${quantity} available`),
   };
 }
 export { addDays };

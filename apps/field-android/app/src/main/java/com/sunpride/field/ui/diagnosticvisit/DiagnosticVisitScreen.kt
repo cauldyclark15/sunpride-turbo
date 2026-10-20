@@ -191,6 +191,13 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                 }
             }
             if (checkedIn && !checkedOut) {
+                controller.retailCall?.let { call ->
+                    SectionCard("Availability · required") {
+                        Column(Modifier.padding(16.dp)) {
+                            com.sunpride.retail.RetailAvailabilityStep(call,controller.busy,controller.retailSaved) { answers,quantities -> controller.saveRetail(answers,quantities) }
+                        }
+                    }
+                }
                 SectionCard("Call sheet") {
                     if (controller.diagnosticCallSheet == null) Text(
                         "No call sheet set up for this account yet. Ask your office.",

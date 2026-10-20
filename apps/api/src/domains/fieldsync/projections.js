@@ -1,3 +1,4 @@
+import { callSnapshot } from "../availability/calls.js";
 import { tx } from "@sunpride/db/client";
 import { checkDayManifest } from "./manifest.js";
 import {
@@ -214,6 +215,18 @@ async function bundleData(ctx) {
     order by pv.service_date,s.sequence,pv.id limit 501`,
     500,
   );
+  const retailEnabled =
+    ctx.app === "field-android" &&
+    (
+      await db`select 1 from availability_releases where kind='msl' and status='published' and effective_from<=${new Date(ctx.now)} and (effective_to is null or effective_to>${new Date(ctx.now)}) limit 1`
+    ).length > 0;
+  const retailContext = {
+    ...ctx,
+    availabilityHistory: new Map(),
+    availabilityOutletIds: [
+      ...new Set(planned.map((/** @type {any} */ p) => p.outlet_id)),
+    ],
+  };
   const outlets = new Map();
   const routeRows = new Map();
   for (const p of planned) {
@@ -239,6 +252,14 @@ async function bundleData(ctx) {
       territoryId: s.territoryId ?? null,
       territoryCode: s.territoryCode ?? null,
     });
+    if (retailEnabled) {
+      const cached = outlets.get(p.outlet_id);
+      cached.availability = await callSnapshot(
+        retailContext,
+        p.outlet_id,
+        date,
+      );
+    }
     if (s.routeId && s.routeCode)
       routeRows.set(s.routeId, { id: s.routeId, code: s.routeCode });
   }
@@ -296,6 +317,29 @@ async function bundleData(ctx) {
       and a.effective_from<=${new Date(ctx.now)} and (a.effective_to is null or a.effective_to>${new Date(ctx.now)}) limit 5001`,
     5000,
   );
+  // SEAM(MASTERS): the resolved published MSL/focus audience authorizes these
+  // additional orderable SKUs without inventing a second product master.
+  for (const outlet of outlets.values())
+    if (outlet.availability?.lines?.length) {
+      if (!accounts.some((/** @type {any} */ a) => a.outlet_id === outlet.id))
+        accounts.push({
+          outlet_id: outlet.id,
+          revision: 1,
+          header_account_name: outlet.name,
+        });
+      for (const l of outlet.availability.lines)
+        if (
+          !lines.some(
+            (/** @type {any} */ a) =>
+              a.outlet_id === outlet.id && a.product_id === l.productId,
+          )
+        )
+          lines.push({
+            outlet_id: outlet.id,
+            product_id: l.productId,
+            pricing: null,
+          });
+    }
   const productIds = [
     ...new Set(
       [...lines, ...assortment].map((/** @type {any} */ l) => l.product_id),

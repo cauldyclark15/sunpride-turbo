@@ -253,7 +253,8 @@ export async function stockPage(db, p, s) {
       valueCentavos: knownSum(bs, "sap_value_minor"),
       avgDailySalesCases: avg === null ? null : Math.round(avg * 100) / 100,
       daysCover,
-      numericDistributionPct: pct(salesRow?.stores ?? 0, Number(universe.n)),
+      // F-214: purchasing reach is not evidence that an outlet stocks this SKU.
+      buyingReachPct: pct(salesRow?.stores ?? 0, Number(universe.n)),
       oosStores: av.length
         ? av.filter((/** @type {any} */ a) =>
             ["out_of_stock", "not_carried"].includes(a.status),

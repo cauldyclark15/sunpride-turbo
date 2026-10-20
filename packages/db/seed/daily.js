@@ -11,6 +11,7 @@ import { management } from "./management.js";
 import { ensureCallflowSamples } from "./callflow.js";
 import { seedTpm } from "./tpm.js";
 import { ensureIntegrityFleet } from "./integrity-fleet.js";
+import { seedAvailability } from "./availability.js";
 import {
   BATCH,
   Dataset,
@@ -1006,8 +1007,10 @@ export async function advanceDemo(db, { date = todayManila() } = {}) {
   )
     days.push(await advanceDay(db, day, original.startDate));
   await seedFiscal(db);
+  const availability = await seedAvailability(db, date);
   return {
     batch: BATCH,
+    availability,
     through: date,
     advanced: days.filter((d) => !d.duplicate).length,
     days,

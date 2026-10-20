@@ -99,11 +99,16 @@ export async function checkDayManifest(ctx) {
       await db`select id,product_id,revision from product_catalogue_versions where effective_from<=${at} and (effective_to is null or effective_to>${at}) order by id limit 10001`,
       10000,
     );
+    const retail =
+      await db`select id,version,payload from availability_releases where status='published' and kind in ('msl','focus','rules') and effective_from<=${at} and (effective_to is null or effective_to>${at}) order by id`;
+    const retailOutlets =
+      await db`select id,channel,subchannel,classification from outlets where id in (select outlet_id from planned_visits where assignee_profile_id=${ctx.actor.profileId} and service_date>=${date}::date and service_date<${date}::date+3 and status='planned' and deleted_at is null) order by id`;
     const stamp = sha256Hex(
       canonicalJson({
         callflow,
         approvals,
-        universe,
+        universe,        retail,
+        retailOutlets,
         visits,
         catalogue,
         person,
