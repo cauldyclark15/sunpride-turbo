@@ -2,6 +2,7 @@
 import { useState, type FormEvent } from "react";
 import { mutate, useApi, useLive } from "../../lib/api";
 import { usePermissions } from "../../lib/auth";
+import { CompanyIdentity } from "./identity";
 
 type Device = {
   id: string;
@@ -471,8 +472,135 @@ export function IntegrityFleet() {
           }}
         />
       </section>
+      <DeviceAssessment devices={result.data?.devices ?? []} />
+      <CompanyIdentity />
       <IntegrityPolicy />
     </div>
+  );
+}
+
+/** F-024: review cannot clear adverse native provenance or certify imported MDM. */
+export function DeviceAssessment({ devices }: { devices: Device[] }) {
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function submit(
+    e: FormEvent<HTMLFormElement>,
+    kind: "assessment" | "exception",
+  ) {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    setBusy(true);
+    setMessage("");
+    try {
+      await mutate(
+        `/api/v1/integrity/devices/${kind}`,
+        kind === "assessment"
+          ? {
+              deviceId: f.get("deviceId"),
+              source: f.get("source"),
+              rooted: f.get("rooted") === "on",
+              tampered: f.get("tampered") === "on",
+            }
+          : {
+              deviceId: f.get("deviceId"),
+              reasonCode: f.get("reasonCode"),
+              expiresAt: Date.parse(String(f.get("expiresAt"))),
+            },
+        { invalidate: [["integrity"]] },
+      );
+      setMessage(
+        kind === "assessment"
+          ? "Assessment recorded. Original phone signals remain unchanged."
+          : "Expiring exception recorded. The original concern stays in history.",
+      );
+    } catch (e) {
+      setMessage(
+        e instanceof Error ? e.message : "Could not record the review.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  const phones = (
+    <>
+      <option value="">Choose phone</option>
+      {devices.map((d) => (
+        <option key={d.id} value={d.id}>
+          {d.person} · {phoneLabel(d.label)}
+        </option>
+      ))}
+    </>
+  );
+  return (
+    <section className={box}>
+      <h2 className="font-semibold">Review phone integrity</h2>
+      <p className="text-sm text-muted">
+        A different administrator must review the phone. Imported or manually
+        entered checks are not hardware attestation; a clean office check cannot
+        erase an adverse phone report.
+      </p>
+      <form
+        className="grid gap-3"
+        onSubmit={(e) => void submit(e, "assessment")}
+      >
+        <label>
+          Phone to assess
+          <select className={input} name="deviceId" required>
+            {phones}
+          </select>
+        </label>
+        <label>
+          Assessment evidence reference
+          <input className={input} name="source" required maxLength={150} />
+        </label>
+        <label>
+          <input type="checkbox" name="rooted" /> Rooted device reported
+        </label>
+        <label>
+          <input type="checkbox" name="tampered" /> Tampering reported
+        </label>
+        <button className={button} disabled={busy}>
+          Record assessment
+        </button>
+      </form>
+      <form
+        className="grid gap-3 border-t border-border pt-4"
+        onSubmit={(e) => void submit(e, "exception")}
+      >
+        <h3>Time-limited supervised exception</h3>
+        <label>
+          Phone for exception
+          <select className={input} name="deviceId" required>
+            {phones}
+          </select>
+        </label>
+        <label>
+          Reason
+          <select className={input} name="reasonCode">
+            <option value="supervised_recovery">
+              Supervised evidence recovery
+            </option>
+            <option value="verified_false_positive">
+              Reviewed false positive
+            </option>
+            <option value="supervised_repair">Supervised repair</option>
+          </select>
+        </label>
+        <label>
+          Expires within 24 hours
+          <input
+            className={input}
+            name="expiresAt"
+            type="datetime-local"
+            required
+          />
+        </label>
+        <button className={button} disabled={busy}>
+          Approve expiring exception
+        </button>
+      </form>
+      {message ? <p role="status">{message}</p> : null}
+    </section>
   );
 }
 

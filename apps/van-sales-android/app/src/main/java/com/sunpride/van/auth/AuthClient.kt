@@ -49,6 +49,12 @@ class AuthClient(
         vault.saveSession(session) // validate everything before changing durable credentials
         access = bearer; refreshAt = clock()+lifetime-REFRESH_MARGIN_MS
     }
+    /** F-007: no browser cookie/token is retained; only the install-bound API exchange. */
+    @Synchronized fun acceptCompanySession(o: JSONObject) {
+        val session=token(o,"sessionToken"); val bearer=token(o,"accessToken"); val duration=lifetime(o)
+        if(o.optString("status") != "signed_in" || !session.startsWith("sps_") || !bearer.startsWith("spa_") || o.getLong("sessionExpiresAt") <= o.getLong("serverTime")) throw AuthFailure(AuthFailure.Kind.SERVER)
+        invalidateAccessToken(); vault.saveSession(session); access=bearer; refreshAt=clock()+duration-REFRESH_MARGIN_MS
+    }
     @Synchronized fun accessToken(forceRefresh: Boolean = false): String {
         if (vault.readSession() == null) { invalidateAccessToken(); throw AuthFailure(AuthFailure.Kind.SESSION_EXPIRED) }
         if (!forceRefresh && access != null && clock() < refreshAt) return access!!

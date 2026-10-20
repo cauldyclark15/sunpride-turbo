@@ -54,6 +54,7 @@ interface FieldBackend {
     val isSignedIn: Boolean
     fun loadSigner(): DeviceSigner
     fun signIn(email: String, password: String)
+    fun companySignIn(tokens: JSONObject) { error("Company sign-in unavailable") }
     fun signOut()
     fun changePassword(current: String, next: String, confirm: String) { error("Password change unavailable") }
     fun refreshEnrollment(signer: DeviceSigner): EnrollmentState
@@ -874,6 +875,7 @@ class LiveFieldBackend(
     override val isSignedIn get() = auth.isSignedIn
     override fun loadSigner() = signerLoader()
     override fun signIn(email: String, password: String) = auth.signIn(email, password)
+    override fun companySignIn(tokens: JSONObject) = auth.acceptCompanySession(tokens)
     override fun changePassword(current: String, next: String, confirm: String) = auth.changePassword(current, next, confirm)
     override fun signOut() {
         // SP-0136: sharing stops before anything else (the account key is still readable here).
@@ -1458,6 +1460,19 @@ class FieldController(
             return@launch
         }
         busy = false
+        refresh()
+    }
+
+    var companySignInPending by mutableStateOf(false)
+        private set
+    fun updateCompanyWaiting(value: Boolean) { companySignInPending=value }
+    fun companyKey(): JSONObject = backend.loadSigner().let { JSONObject().put("keyId", com.sunpride.field.device.RequestSigner.bodyDigest(it.publicKeySpki)).put("publicKeySpki",it.publicKeyBase64) }
+    fun signCompanyMessage(message: String): String = backend.loadSigner().sign(message)
+    fun companySignIn(tokens: JSONObject) = scope.launch(ui) {
+        ++sessionGeneration; busy=true; error=null
+        try { withContext(io) { backend.companySignIn(tokens) }; state=EnrollmentState.Unregistered }
+        catch(e: Exception) { error=userMessage(e); return@launch }
+        finally { busy=false; companySignInPending=false }
         refresh()
     }
 

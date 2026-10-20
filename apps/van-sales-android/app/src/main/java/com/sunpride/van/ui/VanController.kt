@@ -288,6 +288,15 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         repository.signIn(email.trim(),password)
         if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow()
     }
+    var companySignInPending by mutableStateOf(false)
+        private set
+    fun updateCompanyWaiting(value: Boolean) { companySignInPending=value }
+    fun companyKey(): org.json.JSONObject = repository.companyKey()
+    fun signCompanyMessage(message: String): String = repository.signCompanyMessage(message)
+    fun companySignIn(tokens: org.json.JSONObject) = command {
+        repository.companySignIn(tokens)
+        if(repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow()
+    }
     fun changePassword(current: String, next: String, confirm: String) = command(failure = {
         (it as? PasswordChangeFailure)?.problem?.words ?: "Could not change your password. Try again shortly."
     }) {

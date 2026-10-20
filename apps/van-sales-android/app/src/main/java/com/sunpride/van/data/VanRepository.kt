@@ -224,6 +224,12 @@ class VanRepository private constructor(private val context: Context, private va
             session.value = SessionState(true,true); enroll(); Unit
         }
     }
+    fun companyKey(): JSONObject = loadSigner().let { JSONObject().put("keyId",com.sunpride.van.device.RequestSigner.bodyDigest(it.publicKeySpki)).put("publicKeySpki",it.publicKeyBase64) }
+    fun signCompanyMessage(message: String): String = loadSigner().sign(message)
+    suspend fun companySignIn(tokens: JSONObject): Unit = authLock.withLock { withContext(Dispatchers.IO) {
+        cutover(); current.value?.hold(); current.value=null; gateway=null
+        auth.acceptCompanySession(tokens); session.value=SessionState(true,true); enroll(); Unit
+    } }
     suspend fun changePassword(currentPassword: String, newPassword: String, confirm: String): Unit = authLock.withLock {
         withContext(Dispatchers.IO) {
             PasswordChange.problem(currentPassword,newPassword,confirm)?.let { throw PasswordChangeFailure(it) }

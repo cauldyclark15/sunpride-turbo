@@ -7,6 +7,7 @@ import {
 import { ApiError, forbidden, invalid } from "../../core/errors.js";
 import { randomToken, sha256Hex } from "../../core/util.js";
 import { loadProfile } from "../../core/hooks.js";
+import { installNativeOidc } from "./native-oidc.js";
 
 /** F-007: OIDC authorization code + S256 PKCE + nonce; no implicit email linking. */
 const b64 = (/** @type {string|Uint8Array} */ s) =>
@@ -134,6 +135,7 @@ export async function validateIdToken(c, p, token, nonce, d) {
 }
 /** @param {any} router */
 export function installOidc(router) {
+  installNativeOidc(router);
   router.get("/api/auth/oidc/providers", async (/** @type {any} */ c) => ({
     providers:
       await c.db`select code,label from identity_providers where effective_from<=now() and (effective_to is null or effective_to>now()) order by label`,
@@ -148,7 +150,17 @@ export function installOidc(router) {
       state = randomToken(""),
       nonce = randomToken(""),
       verifier = randomToken("");
-    await c.db`insert into oidc_requests(state_hash,provider_id,nonce,verifier,expires_at) values (${sha256Hex(state)},${p.id},${nonce},${verifier},now()+interval '5 minutes')`;
+    const nativeSecret = c.url.searchParams.get("native");
+    let nativeId = null;
+    if (nativeSecret) {
+      if (nativeSecret.length > 256) throw invalid();
+      const [native] =
+        await c.db`update native_oidc_requests set browser_started_at=now() where secret_hash=${sha256Hex(nativeSecret)} and provider_id=${p.id} and expires_at>now() and consumed_at is null and browser_started_at is null returning id`;
+      if (!native)
+        throw forbidden("Company sign-in expired. Start again on the phone.");
+      nativeId = native.id;
+    }
+    await c.db`insert into oidc_requests(state_hash,provider_id,nonce,verifier,expires_at,native_request_id) values (${sha256Hex(state)},${p.id},${nonce},${verifier},now()+interval '5 minutes',${nativeId})`;
     const secure =
       new URL(p.redirect_uri).protocol === "https:" ? "; Secure" : "";
     c.cookies.push(
@@ -207,13 +219,31 @@ export function installOidc(router) {
     const claims = await validateIdToken(c, p, tokens.id_token, r.nonce, d);
     const session = await tx(c.db, async (t) => {
       const [identity] =
-        await t`select u.id from federated_identities f join users u on u.id=f.user_id where f.issuer=${p.issuer} and f.subject=${claims.sub} and u.disabled_at is null for update of u`;
+        await t`select u.id,f.id as identity_id from federated_identities f join users u on u.id=f.user_id where f.issuer=${p.issuer} and f.subject=${claims.sub} and f.effective_from<=now() and (f.effective_to is null or f.effective_to>now()) and u.disabled_at is null for update of u`;
       if (!identity || (await loadProfile(t, identity.id))?.status !== "active")
         throw forbidden("This identity has not been assigned access");
+      if (r.native_request_id) {
+        const ready =
+          await t`update native_oidc_requests set user_id=${identity.id},identity_id=${identity.identity_id} where id=${r.native_request_id} and expires_at>now() and consumed_at is null returning id`;
+        if (!ready.length) throw forbidden("Phone sign-in expired");
+        return null;
+      }
       const s = await createSession(t, identity.id, "web", null);
       await t`insert into audit_logs(subject,action,entity_type,entity_id,details) values (${identity.id},'auth.oidc_signed_in','user',${identity.id},${{ provider: p.code }})`;
       return s;
     });
+    if (!session)
+      return new Response(
+        '<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Company sign-in complete</title><main><h1>Company sign-in complete</h1><p>Return to the Sunpride app to finish checking your phone.</p></main></html>',
+        {
+          headers: {
+            "content-type": "text/html;charset=utf-8",
+            "cache-control": "no-store",
+            "referrer-policy": "no-referrer",
+            "content-security-policy": "default-src 'none'",
+          },
+        },
+      );
     setSessionCookie(c, session.token, SESSION_TTL_MS);
     c.cookies.push(
       "sp_oidc=; Path=/api/auth/oidc; HttpOnly; SameSite=Lax; Max-Age=0",

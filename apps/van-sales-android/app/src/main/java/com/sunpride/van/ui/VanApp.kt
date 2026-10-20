@@ -95,7 +95,7 @@ import kotlinx.coroutines.delay
     }
     val context = LocalContext.current
     ScreenFrame("Sign in",action = if (c.busy) "Signing in…" else "Sign in",actionTag = "sign-in",
-        enabled = !c.busy && (c.environment.isReady || c.fixtureMode) && email.isNotBlank() && password.isNotEmpty(),
+        enabled = !c.busy && !c.companySignInPending && (c.environment.isReady || c.fixtureMode) && email.isNotBlank() && password.isNotEmpty(),
         onAction = { val secret = password; password = ""; showPassword = false; c.signIn(email,secret) },message = c.message) {
         Image(painterResource(R.drawable.sunpride_logo),contentDescription = "Sunpride",
             modifier = Modifier.size(96.dp).clip(SunprideTokens.shapes.large).testTag("sign-in-logo"))
@@ -106,6 +106,8 @@ import kotlinx.coroutines.delay
         LabeledField("Email",email,{ email = it },"email",enabled = !c.busy,maxLength = 254)
         LabeledField("Password",password,{ password = it },"password",password = true,enabled = !c.busy,maxLength = 1024,
             revealed = showPassword,onToggleReveal = { showPassword = !showPassword })
+        com.sunpride.integrity.CompanySignIn(c.environment.siteUrl,"van-android",c.environment.isReady && !c.busy,
+            c::companyKey,c::signCompanyMessage,c::updateCompanyWaiting,{ c.companySignIn(it) })
         ListRow("Test printer & scanner","Check this handheld before signing in","sign-in-printer",onClick = { c.open(Page.PRINTER) })
         c.features.reportIssueUrl?.let { url -> ListRow("Report an issue","Tell the Sunpride team what went wrong","report-issue",onClick = { openLink(context,url) }) }
     }

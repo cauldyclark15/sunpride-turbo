@@ -51,6 +51,15 @@ class AuthClient(private val environment: AppEnvironment, private val vault: Ses
         vault.saveSession(session)
         access = token; refreshAt = expiry - REFRESH_MARGIN_MS
     }
+    /** F-007: accept only the install-bound exchange, through the same encrypted session vault. */
+    @Synchronized fun acceptCompanySession(o: JSONObject) {
+        if (o.optInt("version") != 2 || o.optString("status") != "signed_in") throw AuthFailure(AuthFailure.Kind.SERVER)
+        val session = credential(o,"sessionToken","sps_")
+        val token = credential(o,"accessToken","spa_")
+        val expiry = o.getLong("accessExpiresAt"); requireExpiry(o,expiry)
+        if(o.getLong("sessionExpiresAt") <= o.getLong("serverTime")) throw AuthFailure(AuthFailure.Kind.SERVER)
+        invalidateAccessToken(); vault.saveSession(session); access=token; refreshAt=expiry-REFRESH_MARGIN_MS
+    }
     /** The short-lived opaque access token, held in memory and refreshed from the stored session. */
     @Synchronized fun accessToken(forceRefresh: Boolean = false): String {
         access?.let { if (!forceRefresh && clock() < refreshAt && isSignedIn) return it }

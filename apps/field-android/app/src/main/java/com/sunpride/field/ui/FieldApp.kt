@@ -290,10 +290,12 @@ fun FieldApp(
             when {
                 locked -> UnlockScreen(biometrics!!.busy, onUnlock = biometrics::unlock,
                     onPassword = biometrics::usePassword, modifier = modifier)
-                controller.state == EnrollmentState.SignedOut -> SignInScreen(environment, controller.busy,
+                controller.state == EnrollmentState.SignedOut -> SignInScreen(environment, controller.busy || controller.companySignInPending,
                     controller.error ?: biometrics?.message,
                     { email, password -> controller.signIn(email, password) { biometrics?.passwordSignedIn() } }, modifier,
-                    onBiometric = biometrics?.takeIf { it.canRetry }?.let { gate -> gate::unlock })
+                    onBiometric = biometrics?.takeIf { it.canRetry }?.let { gate -> gate::unlock },
+                    companyContent = { com.sunpride.integrity.CompanySignIn(environment.apiOrigin,"field-android",environment.isReady && !controller.busy,
+                        controller::companyKey,controller::signCompanyMessage,controller::updateCompanyWaiting, { controller.companySignIn(it) }) })
                 page == "account" -> AccountScreen(controller.key, signOut,
                     onBack = { page = "home" }, onSupport = { page = "support" }, modifier = modifier,
                     showKeyDetails = FieldFeature.PHONE_KEY_DETAILS in features,
@@ -475,7 +477,8 @@ fun SunprideLogo(modifier: Modifier = Modifier) {
 
 @Composable
 private fun SignInScreen(environment: AppEnvironment, busy: Boolean, error: String?,
-    onSignIn: (String, String) -> Unit, modifier: Modifier = Modifier, onBiometric: (() -> Unit)? = null) {
+    onSignIn: (String, String) -> Unit, modifier: Modifier = Modifier, onBiometric: (() -> Unit)? = null,
+    companyContent: (@Composable () -> Unit)? = null) {
     var email by rememberSaveable { mutableStateOf("") }
     // Never saved: the password and its visibility live only while this screen is shown.
     var password by remember { mutableStateOf("") }
@@ -511,6 +514,7 @@ private fun SignInScreen(environment: AppEnvironment, busy: Boolean, error: Stri
                         EyeGlyph(crossed = showPassword)
                     }
                 })
+            companyContent?.invoke()
             if (error != null) Text(error, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("auth-error"))
         }
         androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp))

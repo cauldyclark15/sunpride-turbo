@@ -91,7 +91,7 @@ export async function createSession(db, userId, app, deviceKeyId) {
 }
 
 /** @param {any} db @param {string} sessionId */
-async function createAccess(db, sessionId) {
+export async function createAccess(db, sessionId) {
   const token = randomToken("spa_");
   const expiresAt = Date.now() + ACCESS_TTL_MS;
   await db`insert into access_tokens (token_hash, session_id, expires_at)

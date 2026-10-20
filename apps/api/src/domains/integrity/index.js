@@ -461,6 +461,36 @@ export function install(router, platform) {
       return { id: p.id };
     }),
   );
+  router.get("/api/v1/integrity/identity", async (/** @type {any} */ c) => {
+    await requireCapability(c, "admin.manage");
+    if (c.actor.role !== "super_admin") throw forbidden();
+    const providers =
+      await c.db`select * from identity_providers order by created_at desc limit 501`;
+    const links =
+      await c.db`select f.id,f.issuer,f.subject,f.effective_from,f.effective_to,f.source_ref,p.name as person from federated_identities f join profiles p on p.user_id=f.user_id order by f.created_at desc limit 501`;
+    const people =
+      await c.db`select id,name from profiles where user_id is not null and status='active' and deleted_at is null order by name limit 501`;
+    return {
+      providers: providers.slice(0, 500),
+      links: links.slice(0, 500),
+      people: people.slice(0, 500),
+      truncated: [providers, links, people].some((rows) => rows.length > 500),
+    };
+  });
+  router.post("/api/v1/integrity/identity/unlink", (/** @type {any} */ ctx) =>
+    command(ctx, async (c) => {
+      await requireCapability(c, "admin.manage");
+      if (c.actor.role !== "super_admin") throw forbidden();
+      if (!isUuid(c.body.id)) throw invalid();
+      const [link] =
+        await c.db`update federated_identities set effective_to=greatest(now(),effective_from+interval '1 microsecond') where id=${c.body.id} and effective_to is null returning *`;
+      if (!link) throw conflict("This identity link is already retired");
+      await audit(c, "identity.unlinked", link.id, {
+        reason: text(c.body.reason, 300),
+      });
+      return { id: link.id };
+    }),
+  );
   router.post("/api/v1/integrity/identity/link", (/** @type {any} */ c) =>
     command(c, async (local) => {
       await requireNationalScope(local, ["admin"]);
@@ -475,8 +505,24 @@ export function install(router, platform) {
         await local.db`select * from profiles where id=${local.body.profileId} and status='active' and deleted_at is null`;
       if (!p?.user_id) throw invalid("Choose a person with a login");
       await requireCapability(local, "admin.manage", p.org_unit_id);
+      const issuer = text(local.body.issuer, 500, false);
+      const subject = text(local.body.subject, 512, false);
+      const at = local.body.effectiveFrom ?? Date.now();
+      if (!Number.isSafeInteger(at) || at < Date.now() - 60_000)
+        throw invalid("Choose a prospective effective time");
+      const configured =
+        await local.db`select id from identity_providers where issuer=${issuer} and (effective_to is null or effective_to>${new Date(at)})`;
+      if (!configured.length)
+        throw invalid("Configure this identity provider first");
+      await local.db`select pg_advisory_xact_lock(hashtext(${`identity-link:${issuer}:${subject}`}))`;
+      const prior =
+        await local.db`select id from federated_identities where issuer=${issuer} and subject=${subject} and (effective_to is null or effective_to>${new Date(at)})`;
+      if (prior.length)
+        throw conflict(
+          "This exact identity is already linked; retire its existing link first",
+        );
       const [f] =
-        await local.db`insert into federated_identities(issuer,subject,user_id) values (${text(local.body.issuer, 500, false)},${text(local.body.subject, 512, false)},${p.user_id}) returning id`;
+        await local.db`insert into federated_identities(issuer,subject,user_id,effective_from,source_ref) values (${issuer},${subject},${p.user_id},${new Date(at)},${local.body.sourceRef ? text(local.body.sourceRef, 200) : "Explicit administrator mapping"}) returning id`;
       await audit(local, "identity.linked", f.id, { profileId: p.id });
       return { id: f.id };
     }),
