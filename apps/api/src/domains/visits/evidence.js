@@ -1,4 +1,5 @@
 import { tx } from "@sunpride/db/client";
+import { fieldAdapter } from "../callflow/engine.js";
 import {
   accessVisit,
   ORGANIZATION,
@@ -97,6 +98,7 @@ export async function attach(ctx) {
   const [row] =
     await ctx.db`insert into field_evidence_files (organization_id,org_unit_id,storage_id,visit_id,owner_profile_id,outlet_id,mime,size_bytes,checksum,captured_at,photo_type,uploaded_at,status)
     values (${ORGANIZATION},${visit.org_unit_id},${blob.id},${visit.id},${ctx.actor.profileId},${visit.outlet_id},${p.mime},${p.size},${p.checksum},${new Date(p.capturedAt)},${p.photoType},${new Date(ctx.now)},'pending') returning id`;
+  await fieldAdapter(ctx, visit.id, "photo", row.id);
   const eventId = await event(
     ctx,
     visit,

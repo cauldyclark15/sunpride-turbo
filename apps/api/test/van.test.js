@@ -583,6 +583,7 @@ test("full van bundle uses exact root keys, own scope and typed policy", async (
       "priceLines",
       "damageRecords",
       "promotions",
+      "callFlowCalls", // F-107 additive v2 execution snapshot; frozen v1 stays unchanged
     ].sort(),
   );
   expect(d.policy.voidApproval.key).toHaveLength(43);

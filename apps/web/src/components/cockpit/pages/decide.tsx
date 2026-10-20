@@ -1,5 +1,7 @@
 "use client";
 
+import { CallFlowReviews, CallFlowReport } from "../../callflow-admin";
+
 import Link from "next/link";
 import { useCallback, useState } from "react";
 import { useAnalytics } from "../api";
@@ -308,6 +310,8 @@ export function DecidePage() {
           />
         )}
       </PageData>
+      <CallFlowReviews />
+      <CallFlowReport />
     </CockpitPage>
   );
 }

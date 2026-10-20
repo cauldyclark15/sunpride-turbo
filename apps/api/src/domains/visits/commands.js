@@ -1,5 +1,14 @@
 import { requireCapability } from "../../core/capabilities.js";
 import { canonicalJson } from "../../core/util.js";
+import {
+  beginCall,
+  closeCall,
+  definitionAt,
+  fieldAdapter,
+  ownedCall,
+  PROFILE_FIELD,
+  profileAt,
+} from "../callflow/engine.js";
 import { rulesAt, missingKinds, ACTIVITY_KINDS } from "./rules.js";
 import { recordLocation } from "./location.js";
 import { validateAccountCapture } from "./capture.js";
@@ -81,6 +90,7 @@ export async function checkIn(ctx) {
     await ctx.db`select 1 from visit_executions where organization_id=${ORGANIZATION} and client_visit_id=${p.clientVisitId}`;
   if (same.length) reject("idempotency_conflict");
   let planned = null;
+  let deviated = false;
   if (p.plannedVisitId != null) {
     const [row] =
       await ctx.db`select v.*, s.sequence, s.approved_snapshot as slot_snapshot, s.service_date as slot_date,
@@ -130,7 +140,17 @@ export async function checkIn(ctx) {
       and v.replaced_by_visit_id is null and s.sequence<${row.sequence}
       and not exists(select 1 from visit_executions e where e.planned_visit_id=v.id and e.deleted_at is null
         and e.state in ('checked-out','completed','skipped','rescheduled','missed')) limit 1`;
-    if (earlier.length) reject("mcp_order");
+    deviated = earlier.length > 0;
+    if (
+      deviated &&
+      (!p.sequenceReason?.trim() ||
+        !(await definitionAt(
+          ctx.db,
+          await profileAt(ctx.db, ctx.app, outlet, p.deviceTime),
+          p.deviceTime,
+        )))
+    )
+      reject("mcp_order");
     planned = row;
   } else text(p.unplannedReason, 500);
   const links =
@@ -145,6 +165,18 @@ export async function checkIn(ctx) {
     values (${ORGANIZATION},${p.clientVisitId},${p.plannedVisitId ?? null},${planned?.plan_id ?? null},${planned?.plan_slot_id ?? null},${planned?.plan_version ?? null},
       ${ctx.actor.profileId},${p.outletId},${owner},${assignment.route_id},${links[0]?.customer_id ?? null},${p.serviceDate},${planned ? "planned" : "unplanned"},
       array(select jsonb_array_elements_text(${{ values: p.intents }}::jsonb->'values')),'checked-in',${planned ? null : text(p.unplannedReason, 500)},'pending',${RULE_VERSION},${new Date(ctx.now)},${new Date(ctx.now)},${new Date(p.deviceTime)},${ctx.device.id},${{ rules }}::jsonb->'rules') returning *`;
+  await beginCall(ctx, {
+    channelProfile: PROFILE_FIELD,
+    clientCallId: p.clientVisitId,
+    outlet,
+    unitId: owner,
+    visitId: visit.id,
+    serviceDate: p.serviceDate,
+    planned: !!planned,
+    plannedVisitId: p.plannedVisitId,
+    sequence: planned?.sequence,
+    deviated,
+  });
   await recordLocation(ctx, visit, "check_in", p.location, p.deviceTime);
   await touchVisit(ctx, visit);
   const eventId = await event(
@@ -282,6 +314,7 @@ export async function activity(ctx) {
     );
     ctx.publish("call_sheets");
   }
+  await fieldAdapter(ctx, visit.id, p.activity.kind, row.id);
   await ctx.db`update visit_executions set state='in-progress' where id=${visit.id}`;
   await touchVisit(ctx, visit);
   const eventId = await event(
@@ -347,6 +380,7 @@ export async function checkOut(ctx) {
     p.outcome === "nonproductive" || !evaluated.productive
       ? "nonproductive"
       : "pending";
+  await closeCall(ctx, await ownedCall(ctx, { visitId: visit.id }));
   await recordLocation(ctx, visit, "check_out", p.location, p.deviceTime);
   await ctx.db`update visit_executions set state='checked-out',outcome=${p.outcome},reason_code=${p.reasonCode ?? null},
     activity_rule_version=${rules
@@ -400,6 +434,7 @@ export async function collection(ctx) {
     "collection.recorded",
     { after: "recorded" },
   );
+  await fieldAdapter(ctx, visit.id, "collection", row.id);
   await ctx.change("collection", row.id, visit.org_unit_id);
   await changed(ctx, visit, "collection");
   return { entityId: row.id, eventIds: [eventId] };

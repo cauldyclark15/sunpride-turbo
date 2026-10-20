@@ -1,4 +1,5 @@
 import { tx } from "@sunpride/db/client";
+import { configurationsForApp } from "../callflow/engine.js";
 import { ApiError } from "../../core/errors.js";
 import { resolvePrice, creditCheck } from "../orders/pricing.js";
 import { currentDeviceActor, tripFor, outletFor } from "./access.js";
@@ -123,6 +124,7 @@ export async function bundle(ctx, env) {
       priceLines: [],
       damageRecords: [],
       promotions: [],
+      callFlowCalls: [],
     };
     if (!trips.length) return empty;
     const trip = await tripFor(db, actor, trips[0].id, "van.operate");
@@ -188,7 +190,7 @@ export async function bundle(ctx, env) {
       await db`select o.id,a.sequence from outlets o left join outlet_assignments a on a.outlet_id=o.id and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now()) and a.deleted_at is null where o.status='active' and o.deleted_at is null and (a.route_id=${trip.route_id} or (a.route_id is null and o.custodian_org_unit_id=${trip.org_unit_id})) order by a.sequence nulls last,o.code limit 601`,
       600,
     );
-    const customers = [],
+    /** @type {any[]} */ const customers = [],
       priceLines = [];
     const priceKeys = new Set();
     for (const candidate of candidates) {
@@ -277,6 +279,19 @@ export async function bundle(ctx, env) {
         priceListId,
       });
     }
+    const flowOutlets = customers.length
+      ? await db`select id,classification,channel from outlets where id in ${db(customers.map((c) => c.outletId))}`
+      : [];
+    const flowConfigs = await configurationsForApp(
+      db,
+      ctx.app,
+      flowOutlets,
+      ctx.now,
+      { profileId: actor.profileId, deviceId: device.id },
+    );
+    for (const customer of customers)
+      if (flowConfigs.has(customer.outletId))
+        customer.callFlow = flowConfigs.get(customer.outletId);
     /** @type {any[]} */ const damages = complete(
       await db`select * from van_damage_records where trip_id=${trip.id} and deleted_at is null order by recorded_at desc limit 501`,
       500,
@@ -343,6 +358,11 @@ export async function bundle(ctx, env) {
         recordedAt: new Date(d.recorded_at).getTime(),
         decisionNote: d.decision_note,
       })),
+      callFlowCalls: complete(
+        await db`select client_call_id as "clientCallId",outlet_id as "outletId",state
+        from call_executions where trip_id=${trip.id} and profile_id=${actor.profileId} and device_id=${device.id} order by started_at,id limit 501`,
+        500,
+      ),
       promotions: [],
     };
   });

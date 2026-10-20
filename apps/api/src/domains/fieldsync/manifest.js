@@ -71,8 +71,35 @@ export async function checkDayManifest(ctx) {
         and p.effective_from<=${at} and (p.effective_to is null or p.effective_to>${at}) order by l.id limit 5001`,
       5000,
     );
+    const callflow = bounded(
+      await db`select 'definition' as kind,id,version from call_flow_definitions where effective_from<=${at} and (effective_to is null or effective_to>${at})
+      union all select 'policy',id,version from call_flow_policies where effective_from<=${at} and (effective_to is null or effective_to>${at})
+      union all select 'reason',id,version from no_order_reasons where effective_from<=${at} and (effective_to is null or effective_to>${at})
+      union all select 'binding',id,version from call_flow_channel_bindings where app=${ctx.app} and effective_from<=${at} and (effective_to is null or effective_to>${at}) order by kind,id limit 1001`,
+      1000,
+    );
+    const approvals = bounded(
+      await db`select r.id,d.id as decision_id from call_flow_reviews r join call_flow_decisions d on d.review_id=r.id
+      where r.profile_id=${ctx.actor.profileId} and r.device_id=${ctx.device.id} and r.consumed_by is null and r.expires_at>${at} and d.decision='approve' order by r.id limit 12001`,
+      12000,
+    );
+    const universe = callflow.length
+      ? bounded(
+          await db`select o.id,o.change_seq,a.id as assignment_id,a.change_seq as assignment_revision,own.id as owner_id,own.change_seq as owner_revision
+      from outlets o join outlet_assignments a on a.outlet_id=o.id join territory_salespeople s on s.territory_id=a.territory_id
+      join territory_ownerships own on own.territory_id=a.territory_id
+      where s.profile_id=${ctx.actor.profileId} and own.org_unit_id=${ctx.actor.orgUnitId} and o.deleted_at is null and a.deleted_at is null and s.deleted_at is null and own.deleted_at is null
+      and a.effective_from<=${at} and (a.effective_to is null or a.effective_to>${at})
+      and s.effective_from<=${at} and (s.effective_to is null or s.effective_to>${at})
+      and own.effective_from<=${at} and (own.effective_to is null or own.effective_to>${at}) order by o.id limit 501`,
+          500,
+        )
+      : [];
     const stamp = sha256Hex(
       canonicalJson({
+        callflow,
+        approvals,
+        universe,
         visits,
         person,
         assignments,
