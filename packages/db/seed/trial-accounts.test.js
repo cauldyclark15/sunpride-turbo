@@ -262,6 +262,12 @@ test("F-008 five-tier chain and area/regional trial scope are effective data, no
     union all select p.id,p.name,a.supervisor_id,r.depth+1 from reporting r join profiles p on p.id=r.supervisor_id join employee_assignments a on a.profile_id=p.id where r.depth<10 and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now()) and a.deleted_at is null
   ) select * from reporting order by depth`;
   expect(chain.length).toBe(5);
+  const ranks =
+    await h.db`select child_type.level as child_level,parent_type.level as parent_level from org_unit_parent_edges e join org_units child on child.id=e.unit_id join org_units parent on parent.id=e.parent_id join org_unit_types child_type on child_type.organization_id=child.organization_id and child_type.code=child.type_code join org_unit_types parent_type on parent_type.organization_id=parent.organization_id and parent_type.code=parent.type_code where e.effective_from<=now() and (e.effective_to is null or e.effective_to>now()) and e.deleted_at is null`;
+  expect(ranks.length).toBeGreaterThan(0);
+  expect(
+    ranks.every((/** @type {any} */ r) => r.child_level > r.parent_level),
+  ).toBe(true);
   for (const a of (await credentials()).filter((a) =>
     ["areamanager", "regionalmanager"].includes(a.persona),
   )) {
@@ -278,6 +284,42 @@ test("F-008 five-tier chain and area/regional trial scope are effective data, no
       a.persona === "regionalmanager",
     );
   }
+});
+
+test("F-008 reruns preserve office-edited reporting, parent history and type ranks", async () => {
+  const { rowId } = await import("./store.js"),
+    { tx } = await import("../src/client.js"),
+    { seedFieldHierarchy } = await import("./field-hierarchy.js");
+  const unitId = rowId("org_units", "territory-0"),
+    regionId = rowId("org_units", "visayas"),
+    personId = rowId("profiles", "supervisor"),
+    nationalId = rowId("profiles", "trial-nationalmanager");
+  await expect(
+    (async () =>
+      await tx(h.db, async (db) => {
+        await db`update employee_assignments set effective_to=now() where profile_id=${personId} and effective_to is null and deleted_at is null`;
+        const [assignment] =
+          await db`insert into employee_assignments(profile_id,org_unit_id,role,position_id,supervisor_id,effective_from,actor_subject,reason) select profile_id,org_unit_id,role,position_id,${nationalId},now(),'client:retained','Office-edited reporting' from employee_assignments where profile_id=${personId} order by effective_to desc limit 1 returning id`;
+        await db`update org_unit_parent_edges set effective_to=now() where unit_id=${unitId} and effective_to is null and deleted_at is null`;
+        const [edge] =
+          await db`insert into org_unit_parent_edges(unit_id,parent_id,effective_from,actor_subject,reason) values(${unitId},${regionId},now(),'client:retained','Office-edited parent') returning id`;
+        await db`update org_units set parent_id=${regionId} where id=${unitId}`;
+        await db`update org_unit_types set level=4 where organization_id='sunpride' and code='territory'`;
+        await seedFieldHierarchy(db);
+        const [a] =
+          await db`select supervisor_id,effective_to from employee_assignments where id=${assignment.id}`;
+        const [e] =
+          await db`select parent_id,effective_to from org_unit_parent_edges where id=${edge.id}`;
+        const [type] =
+          await db`select level from org_unit_types where organization_id='sunpride' and code='territory'`;
+        expect(a.supervisor_id).toBe(nationalId);
+        expect(a.effective_to).toBeNull();
+        expect(e.parent_id).toBe(regionId);
+        expect(e.effective_to).toBeNull();
+        expect(type.level).toBe(4);
+        throw new Error("rollback F-008 edited examples");
+      }))(),
+  ).rejects.toThrow("rollback F-008 edited examples");
 });
 
 test("seed reset removes all created trial rows and adopted demo people; outside sessions still guard reset", async () => {

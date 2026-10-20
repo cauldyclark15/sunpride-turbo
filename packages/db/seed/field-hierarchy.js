@@ -9,6 +9,24 @@ export async function seedFieldHierarchy(db) {
     await db`select 1 from sample_data_rows where batch=${BATCH} and key='audit_logs:manifest'`;
   if (!manifest) throw new Error("Field hierarchy requires the sample company");
   await db`select pg_advisory_xact_lock(4310080)`;
+  // This is a bootstrap, not a nightly repair job. Later office edits are authoritative.
+  const [initialized] =
+    await db`select 1 from sample_data_rows where batch=${BATCH} and key='audit_logs:trial-field-hierarchy-initialized'`;
+  if (initialized) return;
+  const [territoryType] =
+    await db`select t.* from org_unit_types t where t.organization_id='sunpride' and t.code='territory'`;
+  if (territoryType && territoryType.level <= 2) {
+    const [owned] =
+      await db`select 1 from sample_data_rows where batch=${BATCH} and table_name='org_unit_types' and row_id=${territoryType.id}`;
+    const [foreignUnit] =
+      await db`select 1 from org_units u where u.organization_id='sunpride' and u.type_code='territory' and not exists(select 1 from sample_data_rows m where m.batch=${BATCH} and m.table_name='org_units' and m.row_id=u.id::text) limit 1`;
+    if (!owned || foreignUnit)
+      throw new Error(
+        "Sample hierarchy cannot change a territory type used by non-sample units",
+      );
+    // Leave room for Area between Region and Territory, using the existing owned type.
+    await db`update org_unit_types set level=3 where id=${territoryType.id}`;
+  }
   /** @param {string} table @param {string} key @param {Record<string,any>} values @returns {Promise<import('./store.js').Row>} */
   async function ensure(table, key, values) {
     const [marker] =
@@ -54,6 +72,12 @@ export async function seedFieldHierarchy(db) {
     const [owned] =
       await db`select 1 from sample_data_rows where batch=${BATCH} and table_name='org_units' and row_id=${id}`;
     if (!owned) throw new Error("Sample territory ownership is missing");
+    const [seeded] =
+      await db`select 1 from sample_data_rows where batch=${BATCH} and key=${`org_unit_parent_edges:trial-sample-area-${i}`}`;
+    if (seeded) continue;
+    const [outsideEdge] =
+      await db`select 1 from org_unit_parent_edges e where e.unit_id=${id} and e.deleted_at is null and (e.effective_to is null or e.effective_to>${from}) and not exists(select 1 from sample_data_rows m where m.batch=${BATCH} and m.table_name='org_unit_parent_edges' and m.row_id=e.id::text) limit 1`;
+    if (outsideEdge) continue;
     const [done] =
       await db`select 1 from org_unit_parent_edges where unit_id=${id} and parent_id=${area.id} and effective_to is null`;
     if (done) continue;
@@ -132,6 +156,12 @@ export async function seedFieldHierarchy(db) {
       positions.get("regionalmanager").id,
     ],
   ]) {
+    const [seeded] =
+      await db`select 1 from sample_data_rows where batch=${BATCH} and key=${`employee_assignments:trial-hierarchy-${person.id}`}`;
+    if (seeded) continue;
+    const [outsideAssignment] =
+      await db`select 1 from employee_assignments a where a.profile_id=${person.id} and a.deleted_at is null and (a.effective_to is null or a.effective_to>${from}) and not exists(select 1 from sample_data_rows m where m.batch=${BATCH} and m.table_name='employee_assignments' and m.row_id=a.id::text) limit 1`;
+    if (outsideAssignment) continue;
     const [done] =
       await db`select 1 from employee_assignments where profile_id=${person.id} and supervisor_id is not distinct from ${parent} and position_id=${position} and effective_to is null and deleted_at is null`;
     if (done) continue;
@@ -148,4 +178,14 @@ export async function seedFieldHierarchy(db) {
     });
     await db`update profiles set position_id=${position} where id=${person.id}`;
   }
+  await ensure("audit_logs", "field-hierarchy-initialized", {
+    subject: ACTOR,
+    action: "sample.field_hierarchy",
+    entity_type: "organization",
+    entity_id: root.id,
+    details: {
+      specId: "F-008",
+      sourceReference: "Invented editable five-tier field hierarchy",
+    },
+  });
 }
