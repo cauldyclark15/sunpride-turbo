@@ -334,7 +334,7 @@ test("F-106 outside exception is separately approved before capture and consumed
   expect(r.consumed_by).not.toBe(null);
   expect((await push(f, accepted.op))[0].status).toBe("duplicate");
 });
-test("F-107 F-120 van calls run the same engine through signed API operations", async () => {
+test("F-107 F-120 F-205 van calls run the same engine through signed API operations", async () => {
   const f = await fixture({ app: "van-android" });
   const trip = crypto.randomUUID(),
     vehicle = crypto.randomUUID(),
@@ -350,6 +350,36 @@ test("F-107 F-120 van calls run the same engine through signed API operations", 
     values (${vehicle},'sunpride',${f.unit},${vehicle},'SAMPLE',${truck},${depot},'active','fixture')`;
   await h.db`insert into van_trips(id,organization_id,org_unit_id,trip_number,vehicle_id,truck_location_id,source_location_id,service_date,salesperson_profile_id,salesperson_subject,status,started_at,started_device_id,created_by)
  values (${trip},'sunpride',${f.unit},${trip},${vehicle},${truck},${depot},${f.day},${f.d.profile.id},${f.d.userId},'active',now(),null,'fixture')`;
+  const route = crypto.randomUUID(),
+    offRoute = crypto.randomUUID(),
+    early = new Date(f.now - DAY);
+  for (const id of [route, offRoute]) {
+    await h.db`insert into routes(id,organization_id,code,name,status,effective_from,created_by) values (${id},'sunpride',${id},'Sample route','active',${early},'fixture')`;
+    await h.db`insert into route_territories(route_id,territory_id,effective_from,actor_subject,reason) values (${id},${f.territory},${early},'fixture','Sample route')`;
+  }
+  await h.db`update van_trips set route_id=${route} where id=${trip}`;
+  await h.db`update outlet_assignments set route_id=${offRoute},sequence=1 where outlet_id=${f.outlet}`;
+  const bundle = await signedPost(h, f.d, "/api/sync/pull", {
+    version: 2,
+    app: "van-android",
+    deviceId: f.d.deviceId,
+    since: null,
+    pageCursor: null,
+    scopes: [
+      {
+        scopeId: f.unit,
+        projection: "van.bundle",
+        params: { serviceDate: f.day },
+      },
+    ],
+    limit: 100,
+  });
+  expect(bundle.res.status).toBe(200);
+  const offered = bundle.body.bundles[0].data.customers.find(
+    (/** @type {any} */ o) => o.outletId === f.outlet,
+  );
+  expect(offered?.source).toBe("scoped");
+  expect(offered?.callFlow.definition.channelProfile).toBe("van_selling");
   const c = await configuration(h.db, "van_selling", { id: f.outlet }, f.now);
   if (!c) throw new Error("No van definition");
   const clientCallId = crypto.randomUUID();

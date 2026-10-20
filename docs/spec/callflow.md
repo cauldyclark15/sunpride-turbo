@@ -44,7 +44,7 @@ The shared effective-dated list is snapshotted at check-in. Every no-order close
 
 ## F-204 F-205: sequence, off-route and reporting
 
-An earlier unfinished planned stop blocks the next stop unless a nonblank sequence-deviation reason is recorded. The call retains the original planned visit/sequence and is tagged `deviated`, not relabeled unplanned. An unplanned store requires its own reason, has no planned-visit identity and is reported separately; it cannot inflate planned-stop adherence. Field bootstrap includes the current authorized territory universe so an off-route call is a real store selection, not an invented outlet ID.
+An earlier unfinished planned stop blocks the next stop unless a nonblank sequence-deviation reason is recorded. The call retains the original planned visit/sequence and is tagged `deviated`, not relabeled unplanned. An unplanned store requires its own reason, has no planned-visit identity and is reported separately; it cannot inflate planned-stop adherence. Field bootstrap includes the current authorized territory universe, and configured van bootstrap includes the current owned-unit outlet universe, so an off-route call is a real store selection, not an invented outlet ID. Other-route and unassigned stores are tagged scoped/unplanned, never incorrectly labeled as planned-route stops.
 
 Existing per-operation domain authorization still runs. Reference/manifest checks include effective flow versions, approved unused exceptions and the current outlet universe; reaching a future effective boundary or receiving approval forces a refreshed snapshot. A cached trip or store is never a grant.
 
