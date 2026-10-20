@@ -24,6 +24,7 @@ export const KIND_LABEL: Record<ExceptionKind, string> = {
   per_diem_review: "Per diem review",
   new_store: "New store",
   dormant_key_store: "Key store gone quiet",
+  dormant_store: "Dormant store",
 };
 
 const SEVERITY_LABEL: Record<Severity, string> = {

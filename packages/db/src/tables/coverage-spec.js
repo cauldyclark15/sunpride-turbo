@@ -45,4 +45,28 @@
  * @typedef {{id:string,profileId:string,orgUnitId:string,kind:string,entityId:string,
  * actorId:string,deviceId:string|null,detail:Record<string,unknown>,createdAt:Date,updatedAt:Date}} WorkforceEvent
  */
+/** F-210 additive row contracts (0453). Cases carry the policy version/hash and cycle source used.
+ * @typedef {{id:string,orgUnitId:string,version:number,label:string,sourceRef:string,
+ * missedCycles:number,fallbackCycleDays:number,contentHash:string,effectiveFrom:Date,effectiveTo:Date|null,
+ * createdBy:string,createdAt:Date,updatedAt:Date}} DormancyPolicy
+ * @typedef {{id:string,outletId:string,orgUnitId:string,policyId:string,policyVersion:number,policyHash:string,
+ * cycleDays:number,cycleSource:'class_frequency'|'outlet_cadence'|'policy_fallback',thresholdCycles:number,
+ * missedCycles:number,lastPurchaseOn:Date,detectedOn:Date,status:'open'|'recovered'|'closed',
+ * recoveredOn:Date|null,recoveryPurchaseOn:Date|null,closedReason:string|null,closedBy:string|null,
+ * closedAt:Date|null,createdAt:Date,updatedAt:Date}} OutletDormancyCase
+ * @typedef {{id:string,caseId:string,kind:'recovery_visit'|'win_back_offer'|'owner_review'|'close',
+ * note:string,dueOn:Date|null,actorId:string,clientKey:string,requestHash:string,createdAt:Date,updatedAt:Date}} OutletDormancyAction
+ */
+/** F-615 additive row contracts (0454). Amounts are integers in the metric's unit (centavos, counts, basis points).
+ * @typedef {{id:string,month:string,metric:'sales_value'|'volume'|'coverage_stores'|'distribution_points'|'calls'|'msl_compliance',
+ * productCode:string|null,unit:string,parentLevel:'company'|'channel'|'territory',parentKey:string,parentLabel:string,
+ * childLevel:'channel'|'territory'|'agent',parentAmount:bigint,method:'prior_actual'|'equal'|'same_rate'|'manual',
+ * basisFrom:Date|null,basisTo:Date|null,version:number,status:'submitted'|'published'|'rejected'|'superseded',
+ * sourceRef:string,contentHash:string,preparedBy:string,clientKey:string,requestHash:string,decidedBy:string|null,
+ * decidedAt:Date|null,decisionReason:string|null,createdAt:Date,updatedAt:Date}} TargetCascade
+ * @typedef {{id:string,cascadeId:string,childKey:string,childLabel:string,basis:bigint|null,amount:bigint,
+ * createdAt:Date,updatedAt:Date}} TargetCascadeLine
+ * @typedef {{id:string,cascadeId:string,kind:'submitted'|'published'|'rejected'|'superseded',actorId:string,
+ * detail:Record<string,unknown>,createdAt:Date,updatedAt:Date}} TargetCascadeEvent
+ */
 export {};

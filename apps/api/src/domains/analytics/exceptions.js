@@ -28,6 +28,7 @@ export const KINDS = [
   "per_diem_review",
   "new_store",
   "dormant_key_store",
+  "dormant_store",
 ];
 /** @param {any} ctx @param {any} p @param {any} s @param {any} [prefetched] */
 export async function exceptionsFor(ctx, p, s, prefetched = {}) {
@@ -450,6 +451,35 @@ export async function exceptionsFor(ctx, p, s, prefetched = {}) {
         { lastBuyingDate: dateOf(last.d) },
         `/stores/store?storeId=${o.id}`,
       );
+  }
+  // F-210: persisted cycle-based dormancy cases, separate from the period-comparison key-store insight.
+  const dormantCases =
+    await db`select k.id,k.outlet_id,k.missed_cycles,k.threshold_cycles,k.cycle_days,k.last_purchase_on,k.detected_on,k.created_at,(select count(*)::int from outlet_dormancy_actions a where a.case_id=k.id) as actions
+      from outlet_dormancy_cases k join analytics_store_scope s on s.id=k.outlet_id where k.status='open' and s.owner_unit_id in ${db(ids)}
+      and (${s.ownProfileId}::uuid is null or exists(select 1 from territory_salespeople ts where ts.territory_id=s.territory_id and ts.profile_id=${s.ownProfileId} and ts.deleted_at is null and ts.effective_from<=now() and (ts.effective_to is null or ts.effective_to>now())))
+      order by k.detected_on,k.id limit 500`;
+  for (const k of dormantCases) {
+    const o = stores.find((/** @type {any} */ r) => r.id === k.outlet_id);
+    if (!o) continue;
+    add(
+      "dormant_store",
+      k.id,
+      k.actions ? "low" : "medium",
+      `${o.name} has not bought for ${k.threshold_cycles}+ cycles`,
+      k.actions
+        ? "A win-back action is recorded; follow it through or close the case."
+        : "No win-back action yet. Plan a recovery visit or offer, or close with a reason.",
+      { type: "store", id: o.id, label: o.name },
+      storeOwner(o),
+      null,
+      +new Date(k.created_at),
+      {
+        lastPurchaseOn: dateOf(k.last_purchase_on),
+        cycleDays: k.cycle_days,
+        missedCycles: k.missed_cycles,
+      },
+      "/stores#dormancy",
+    );
   }
   const rank = /** @type {Record<string,number>} */ ({
     high: 0,

@@ -14,11 +14,14 @@ export function checkMonth(month) {
 /** All target subjects, server scoped. @param {any} db @param {any} s */
 export async function subjects(db, s) {
   const ids = s.ids.length ? s.ids : [null];
-  const [people, territories, channels] = await Promise.all([
-    db`select id::text as key,name as label,channel_scope as channel,current_unit_id as unit_id from analytics_people where status='active' and current_unit_id in ${db(ids)} and (${s.ownProfileId}::uuid is null or id=${s.ownProfileId})`,
-    db`select t.id::text as key,t.name as label,t.channel,o.org_unit_id as unit_id from territories t join territory_ownerships o on o.territory_id=t.id where t.deleted_at is null and o.deleted_at is null and o.effective_from<=now() and (o.effective_to is null or o.effective_to>now()) and o.org_unit_id in ${db(ids)}`,
-    db`select distinct channel as key,channel as label from analytics_store_scope where owner_unit_id in ${db(ids)} and channel is not null`,
-  ]);
+  // Sequential on purpose: callers pass a transaction handle, and concurrent queries on one
+  // Bun.SQL transaction were observed to leave it idle in transaction holding actor row locks (F-615).
+  const people =
+    await db`select id::text as key,name as label,channel_scope as channel,current_unit_id as unit_id from analytics_people where status='active' and current_unit_id in ${db(ids)} and (${s.ownProfileId}::uuid is null or id=${s.ownProfileId})`;
+  const territories =
+    await db`select t.id::text as key,t.name as label,t.channel,o.org_unit_id as unit_id from territories t join territory_ownerships o on o.territory_id=t.id where t.deleted_at is null and o.deleted_at is null and o.effective_from<=now() and (o.effective_to is null or o.effective_to>now()) and o.org_unit_id in ${db(ids)}`;
+  const channels =
+    await db`select distinct channel as key,channel as label from analytics_store_scope where owner_unit_id in ${db(ids)} and channel is not null`;
   return {
     company: [{ key: "company", label: "Company" }],
     channel: channels,
@@ -177,7 +180,7 @@ async function validateRow(db, s, row) {
   return null;
 }
 /** @param {any} ctx @param {any} t @param {string} month @param {any} row */
-async function writeTarget(ctx, t, month, row) {
+export async function writeTarget(ctx, t, month, row) {
   await t`select pg_advisory_xact_lock(hashtext(${`target:${month}:${row.level}:${row.key}`}))`;
   const [previous] =
     await t`select * from sales_targets where month=${month} and level=${row.level} and target_key=${row.key} and deleted_at is null for update`;

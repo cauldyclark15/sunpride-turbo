@@ -82,6 +82,10 @@ export const CAPABILITIES = Object.freeze({
     "sales",
   ],
   "workforce.approve": ["super_admin", "manager"],
+  // F-210: owner/manager win-back actions on cycle-based dormancy cases.
+  "dormancy.act": ["super_admin", "admin", "manager"],
+  // F-615: a cascade is published only by a different person than its preparer.
+  "target.approve": ["super_admin", "manager", "approver"],
   "visit.locationException.approve": ["super_admin", "manager"],
   "visit.read": ALL,
   "order.create": ["super_admin", "manager", "sales"],

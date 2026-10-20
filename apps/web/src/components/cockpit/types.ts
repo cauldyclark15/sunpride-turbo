@@ -54,6 +54,7 @@ export const EXCEPTION_KINDS = [
   "per_diem_review",
   "new_store",
   "dormant_key_store",
+  "dormant_store",
 ] as const;
 export type ExceptionKind = (typeof EXCEPTION_KINDS)[number];
 export type Severity = "high" | "medium" | "low";

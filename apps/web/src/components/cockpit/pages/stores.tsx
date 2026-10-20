@@ -1,5 +1,7 @@
 "use client";
 
+import { DormancyPanel } from "../../dormancy-panel";
+
 import Link from "next/link";
 import { useState } from "react";
 import { csvHref, useAnalytics } from "../api";
@@ -303,6 +305,9 @@ export function StoresPage() {
           />
         )}
       </PageData>
+      <div className="mt-6">
+        <DormancyPanel />
+      </div>
     </CockpitPage>
   );
 }

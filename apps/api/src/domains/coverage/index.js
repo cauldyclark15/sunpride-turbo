@@ -25,6 +25,8 @@ import { installPjp } from "./pjp.js";
 import { readAdherence } from "./adherence.js";
 import { installProductivePolicies } from "../visits/productive-policies.js";
 import { installWorkforce } from "./workforce.js";
+import { installDormancy } from "./dormancy.js";
+import { installTargetCascade } from "./target-cascade.js";
 
 const reads = [
   "permissions",
@@ -202,6 +204,8 @@ export function install(router, platform) {
   installPjp(router, platform);
   installProductivePolicies(router, platform);
   installWorkforce(router, platform);
+  installDormancy(router, platform);
+  installTargetCascade(router, platform);
   router.get("/api/v1/coverage/adherence", (c) =>
     tx(c.db, (db) =>
       readAdherence({ ...c, db }, Object.fromEntries(c.url.searchParams)),

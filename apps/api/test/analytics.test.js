@@ -252,7 +252,8 @@ test("agent-day schema and governed call evidence", async () => {
 test("exceptions schema, every kind has a count, actionable workflow paths", async () => {
   const r = await get(url("exceptions"));
   assertHeader(r);
-  expect(Object.keys(r.counts)).toHaveLength(16);
+  // F-210 adds the persisted cycle-based "dormant_store" kind beside the period insight.
+  expect(Object.keys(r.counts)).toHaveLength(17);
   for (const e of r.items) assertException(e);
   expect(
     r.items.some((/** @type {any} */ e) => e.kind === "order_approval"),

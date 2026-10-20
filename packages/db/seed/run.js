@@ -4,6 +4,7 @@ import { seedDemo, resetDemo } from "./index.js";
 import { seedCoverageSpec } from "./coverage-spec.js";
 import { seedProductiveSpec } from "./productive-spec.js";
 import { seedWorkforceSpec } from "./workforce-spec.js";
+import { seedDormancySpec } from "./dormancy-spec.js";
 
 const args = process.argv.slice(2);
 let reset = false;
@@ -34,9 +35,16 @@ if (
     const coverageSpec = reset ? null : await seedCoverageSpec(db);
     const productiveSpec = reset ? null : await seedProductiveSpec(db);
     const workforceSpec = reset ? null : await seedWorkforceSpec(db);
+    const dormancySpec = reset ? null : await seedDormancySpec(db);
     console.log(
       JSON.stringify(
-        { ...result, coverageSpec, productiveSpec, workforceSpec },
+        {
+          ...result,
+          coverageSpec,
+          productiveSpec,
+          workforceSpec,
+          dormancySpec,
+        },
         null,
         2,
       ),
