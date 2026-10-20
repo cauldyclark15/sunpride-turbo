@@ -70,9 +70,9 @@ class PresellLiveDeviceTest {
         rule.onNodeWithTag("order-delivery-date").performScrollTo().performTextInput(fixture.getString("requestedDeliveryDate"))
         hideKeyboard()
         rule.onNodeWithTag("order-save").performClick();waitTag("order-review")
-        shot("field-requested-date")
         rule.onNodeWithTag("order-review").performClick();waitTag("order-requested-delivery")
-        rule.onNodeWithTag("order-requested-delivery").assertTextEquals("Requested delivery · ${fixture.getString("requestedDeliveryDate")}\nOffice confirmation pending")
+        rule.onNodeWithTag("order-requested-delivery").performScrollTo().assertTextEquals("Requested delivery · ${fixture.getString("requestedDeliveryDate")}\nOffice confirmation pending")
+        shot("field-requested-date")
         rule.onNodeWithTag("order-submit").performClick()
         rule.waitUntil(60_000){backend.orderDrafts().any{it.requestedDeliveryDate==fixture.getString("requestedDeliveryDate")&&it.submittedRequestId!=null}}
         shot("field-order-queued")
