@@ -5,6 +5,7 @@ import {
   expect,
   mock,
   spyOn,
+  setSystemTime,
   test,
 } from "bun:test";
 import { tx } from "@sunpride/db/client";
@@ -173,6 +174,11 @@ async function api(path, body) {
 }
 
 beforeEach(async () => {
+  // Exercise a deterministic selling hour, even when CI runs after the real 22:00 close.
+  // Tomorrow keeps SQL-issued auth/challenge timestamps valid on the real DB clock.
+  setSystemTime(
+    new Date(midnight(manilaDate(Date.now())) + DAY_MS + 12 * 3_600_000),
+  );
   now = Date.now();
   date = manilaDate(now);
   h = await startHarness({
@@ -186,7 +192,11 @@ beforeEach(async () => {
   f = await fixture();
 });
 afterEach(async () => {
-  await h?.close();
+  try {
+    await h?.close();
+  } finally {
+    setSystemTime();
+  }
 });
 
 describe("FIELDSYNC projections through real core proof/cursor harness", () => {
@@ -378,7 +388,7 @@ describe("FIELDSYNC projections through real core proof/cursor harness", () => {
       ["O3", "foreign-subject", null, 300],
     ]) {
       const [order] =
-        await h.db`insert into orders(organization_id,client_request_id,order_number,customer_code,salesperson_subject,status,subtotal,total,source_location_id) values ('sunpride',${crypto.randomUUID()},${number},'C1',${subject},'approved',${amount},${amount},${source}) returning id`;
+        await h.db`insert into orders(organization_id,client_request_id,order_number,customer_code,salesperson_subject,status,subtotal,total,source_location_id,created_at) values ('sunpride',${crypto.randomUUID()},${number},'C1',${subject},'approved',${amount},${amount},${source},${new Date(now)}) returning id`;
       await h.db`insert into order_lines(order_id,product_code,description,quantity,unit_price,line_total) values (${order.id},'SKU1','Sample product',1,${amount},${amount})`;
     }
     const result = await pull("field.sales", {
@@ -697,6 +707,8 @@ describe("location work/consent boundary and retention", () => {
     const first = await purgeExpired(h.db, now);
     expect(first.deleted).toBe(500);
     expect(first.more).toBe(true);
+    // The domain clock is pinned; make its continuation due on the real SQL scheduler clock.
+    await h.db`update jobs set run_at=now() where kind='fieldsync.location-purge' and status='pending'`;
     await h.app.scheduler.drain();
     const [n] = await h.db`select count(*)::int as n from location_pings`;
     expect(n.n).toBe(1);
@@ -764,7 +776,7 @@ describe("location work/consent boundary and retention", () => {
     const idle = await api("/api/v1/location/live");
     expect(idle.body.positions[0].idleFlag).toBe(true);
     expect(idle.body.positions[0].freshness).toBe("fresh");
-    await h.db`update visit_executions set last_server_time=now() where id=${f.visit}`;
+    await h.db`update visit_executions set last_server_time=${new Date(Date.now())} where id=${f.visit}`;
     const active = await api("/api/v1/location/live");
     expect(active.body.positions[0].idleFlag).toBe(false);
     expect(active.body.positions[0].status).toBe("at-store");
@@ -909,8 +921,8 @@ describe("projection completeness, scheduled fences and authorized inventory", (
   test("governed targets and day sales stay consistent with field.sales", async () => {
     await h.db`insert into sales_targets(organization_id,subject_kind,profile_id,period,metric,value,effective_from,source_ref,created_by)
       values ('sunpride','employee',${who.profile.id},'daily','sales_value',1000,${new Date(midnight(date))},'sample target','test')`;
-    await h.db`insert into orders(organization_id,client_request_id,order_number,customer_code,salesperson_subject,status,subtotal,total)
-      values ('sunpride',${crypto.randomUUID()},'TARGET-O1','C1',${who.userId},'approved',125.50,125.50)`;
+    await h.db`insert into orders(organization_id,client_request_id,order_number,customer_code,salesperson_subject,status,subtotal,total,created_at)
+      values ('sunpride',${crypto.randomUUID()},'TARGET-O1','C1',${who.userId},'approved',125.50,125.50,${new Date(now)})`;
     await h.db`insert into order_lines(order_id,product_code,description,quantity,unit_price,line_total) select id,'SKU1','Sample product',1,125.50,125.50 from orders where order_number='TARGET-O1'`;
     const report = await pull("field.sales", {
       profileId: who.profile.id,
