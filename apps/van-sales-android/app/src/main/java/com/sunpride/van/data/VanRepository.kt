@@ -40,7 +40,7 @@ class VanRepository private constructor(private val context: Context, private va
         else combine(st.db.rows().observeSyncMeta(st.scope.fullAuthSubject,st.scope.deviceId),pulse) { metas,now ->
             if (metas.singleOrNull()?.authorizes(now) == true && st.canSync()) st else null
         }
-    }
+    }.distinctUntilChanged()
     private val session = MutableStateFlow(SessionState())
     private val enrollment = MutableStateFlow<EnrollmentState>(EnrollmentState.SignedOut)
     val sessionState: StateFlow<SessionState> = session.asStateFlow()
@@ -163,6 +163,15 @@ class VanRepository private constructor(private val context: Context, private va
             session.value = SessionState(true,true); enroll(); Unit
         }
     }
+    suspend fun changePassword(currentPassword: String, newPassword: String, confirm: String): Unit = authLock.withLock {
+        withContext(Dispatchers.IO) {
+            PasswordChange.problem(currentPassword,newPassword,confirm)?.let { throw PasswordChangeFailure(it) }
+            if (stubMode == null) auth.changePassword(currentPassword,newPassword,confirm)
+        }
+    }
+    suspend fun setLocationConsent(enabled: Boolean): Unit = authLock.withLock { withContext(Dispatchers.IO) {
+        if (stubMode == null) api.locationConsent(enabled)
+    } }
     suspend fun refreshEnrollment(): EnrollmentState = authLock.withLock { withContext(Dispatchers.IO) { enroll() } }
     suspend fun signOut(): Unit = authLock.withLock {
         withContext(Dispatchers.IO) {
@@ -187,8 +196,8 @@ class VanRepository private constructor(private val context: Context, private va
     }
     /**
      * VAN-011: validate and save a sale on this phone in one encrypted transaction (see `RoomVanStore.commitSale`).
-     * Throws [com.sunpride.van.pos.CheckoutRefused] with typed reasons; never needs the network. No upload is
-     * scheduled: the van gateway has no sale operation yet, so the sale's outbox row stays parked.
+     * Throws [com.sunpride.van.pos.CheckoutRefused] with typed reasons; never needs the network.
+     * v2 captures queue immediately; pre-v2 evidence remains parked in its separate held partition.
      */
     suspend fun completeSale(request: com.sunpride.van.pos.CheckoutRequest, expectedTotalMinor: Long): SaleReceipt =
         withContext(Dispatchers.IO) { store().commitSale(request,expectedTotalMinor).also { schedule() } }

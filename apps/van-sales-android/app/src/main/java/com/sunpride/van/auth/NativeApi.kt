@@ -8,11 +8,15 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.IOException
 
-/** Cookie-free v2 reads/device commands. A 401 gets exactly one access refresh. */
+/** Cookie-free v2 reads/device commands and explicit location consent. One access refresh on 401. */
 class NativeApi(private val environment: AppEnvironment, private val auth: AuthClient,
     private val http: OkHttpClient = defaultHttpClient()) {
+    fun locationConsent(enabled: Boolean) {
+        val o=request("/api/v1/location/consent",JSONObject().put("enabled",enabled))
+        if (o.opt("enabled") != enabled || o.optLong("effectiveFrom",0) <= 0) throw AuthFailure(AuthFailure.Kind.SERVER)
+    }
     fun request(path: String, body: JSONObject? = null, headers: Map<String,String> = emptyMap()): JSONObject {
-        require(path in setOf("/api/me","/api/devices/challenge","/api/devices/bind"))
+        require(path in setOf("/api/me","/api/devices/challenge","/api/devices/bind","/api/v1/location/consent"))
         if (!environment.isReady) throw AuthFailure(AuthFailure.Kind.NOT_CONFIGURED)
         for (attempt in 0..1) {
             val builder = Request.Builder().url(environment.siteUrl.trimEnd('/')+path)
@@ -32,7 +36,7 @@ class NativeApi(private val environment: AppEnvironment, private val auth: AuthC
                             val code = o.optJSONObject("error")?.optString("code")?.takeIf { Regex("[a-z_]{1,64}").matches(it) }
                             throw NativeApiFailure(code, response.code)
                         }
-                        if (o.optInt("version") != 2) throw AuthFailure(AuthFailure.Kind.SERVER)
+                        if (path != "/api/v1/location/consent" && o.optInt("version") != 2) throw AuthFailure(AuthFailure.Kind.SERVER)
                         return o
                     }
                 }

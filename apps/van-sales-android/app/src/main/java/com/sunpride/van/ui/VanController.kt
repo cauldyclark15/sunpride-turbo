@@ -127,6 +127,18 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     private var storeScope: com.sunpride.van.storage.StoreScope? = null
     /** Start trip waiting for the consent page to be answered. */
     private var pendingStart: (suspend () -> Unit)? = null
+    private var syncFailureNotice: SyncFailureNotice? = null
+    private fun rememberSyncFailure(text: String): String {
+        syncFailureNotice=SyncFailureNotice(text,System.currentTimeMillis())
+        return text
+    }
+    private fun acceptSyncStatus(status: SyncStatus) {
+        sync=status
+        val notice=syncFailureNotice
+        if (notice != null && notice.resolved(status) && message==notice.text) {
+            message=null; syncFailureNotice=null
+        }
+    }
 
     suspend fun run(restore: Boolean = true): Unit = coroutineScope {
         scope = this
@@ -142,7 +154,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         launch { repository.policy.collect { policy = it } }
         launch { repository.damageRecords.collect { damageRecords = it } }
         launch { repository.seller.collect { seller = it } }
-        launch { repository.syncStatus.collect { sync = it } }
+        launch { repository.syncStatus.collect(::acceptSyncStatus) }
         launch { repository.onHold.collect { onHold = it } }
         launch { repository.cashCounted.collect { cashCounted = it } }
         launch { repository.stockCounted.collect { stockCounted = it } }
@@ -159,8 +171,8 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 // A sync refusal is not a connection problem; say what actually happened.
-                message = if (e is com.sunpride.van.sync.VanSyncFailure) syncMessage(e)
-                    else AuthMessages.forFailure(e,"Could not connect. Saved work stays on this phone. Try again.")
+                message = rememberSyncFailure(if (e is com.sunpride.van.sync.VanSyncFailure) syncMessage(e)
+                    else AuthMessages.forFailure(e,"Could not connect. Saved work stays on this phone. Try again."))
             }
             finally { busy = false; initialized = true; refreshSharing() }
         } else { initialized = true; refreshSharing() }
@@ -204,6 +216,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     }
     fun back() {
         val target = when (page) {
+            Page.CHANGE_PASSWORD -> Page.ACCOUNT
             Page.WALK_IN, Page.CUSTOMER -> Page.CUSTOMERS
             Page.CHECKOUT -> Page.SALE
             Page.SALE -> Page.CUSTOMER
@@ -222,9 +235,16 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         repository.signIn(email.trim(),password)
         if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow()
     }
+    fun changePassword(current: String, next: String, confirm: String) = command(failure = {
+        (it as? PasswordChangeFailure)?.problem?.words ?: "Could not change your password. Try again shortly."
+    }) {
+        repository.changePassword(current,next,confirm)
+        page = Page.ACCOUNT
+        message = "Password changed. Your other sign-ins have ended."
+    }
     fun signOut() = command { stopSharing(); repository.signOut(); page = Page.HOME; sale = null; pickingForSale = false; lastReceipt = null; savedSales = emptyList(); printMessage = null; returnDraft = null; lastReturn = null; cashSummary = null; cashDraft = CashDraft(CashReconciliationRules.newReconciliationId()); stockSummary = null; stockDraft = StockDraft(StockReconciliationRules.newCountId()); closeSummary = null; closeDraft = CloseDraft(TripCloseRules.newCloseId()) }
     fun checkAgain() = command(failure = { AuthMessages.forFailure(it,AuthMessages.CHECK_FALLBACK) }) { repository.refreshEnrollment(); if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow() }
-    fun syncNow() = command("Sync finished. Check the waiting and review counts.",failure = ::syncMessage) { repository.syncNow() }
+    fun syncNow() = command("Sync finished. Check the waiting and review counts.",failure = { rememberSyncFailure(syncMessage(it)) }) { repository.syncNow() }
     // Pending state is read from the store (VanRules.status), never from a stale one-off message.
     fun confirmLoad(lines: List<LoadActual>) = command { repository.confirmLoad(lines) }
     fun startTrip(truck: Boolean, route: Boolean, driver: String, helper: String, odometer: Double?, note: String) {
@@ -259,9 +279,27 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     /** Today's "Location sharing" row: the consent page (also to turn it off). */
     fun openLocationSharing() { pendingStart = null; open(Page.LOCATION_CONSENT) }
     /** The seller agreed; the screen then asks Android for the location permission and calls [finishLocationConsent]. */
-    fun acceptLocationSharing() { storeScope?.let { locationSharing.setConsent(it,true) }; refreshSharing() }
-    /** The seller turned it off (consent withdrawn): sharing stops at once and the `stop` ping is recorded. */
-    fun withdrawLocationSharing() { storeScope?.let { locationSharing.setConsent(it,false) }; refreshSharing(); finishLocationConsent() }
+    fun acceptLocationSharing(onReady: () -> Unit = {}) = changeLocationConsent(true,onReady)
+    /** Stop locally immediately, including offline; notify the office without ever re-enabling locally. */
+    fun withdrawLocationSharing() = changeLocationConsent(false,::finishLocationConsent)
+    private fun changeLocationConsent(accepted: Boolean, onReady: () -> Unit) {
+        val sc=storeScope ?: return
+        if (busy) return
+        if (!accepted) { locationSharing.setConsent(sc,false); refreshSharing() }
+        scope?.launch {
+            busy=true; message=null
+            var saved=false
+            try {
+                repository.setLocationConsent(accepted)
+                if (accepted) locationSharing.setConsent(sc,true)
+                refreshSharing(); saved=true
+            } catch (e: CancellationException) { throw e }
+              catch (_: Exception) { message=if (accepted) "Could not reach the office. Location sharing is still off. Connect and try again."
+                  else "Location sharing is off on this phone. Could not tell the office yet. Connect and try again." }
+            finally { busy=false }
+            if (saved) onReady()
+        }
+    }
     /** After the consent page: run a waiting Start trip, else back to Today. */
     fun finishLocationConsent() {
         refreshSharing()
@@ -275,16 +313,28 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
                 message = if (tripClosed) VanRules.stockMessage(StockProblem.TRIP_CLOSED) else if (stockCounted) VanRules.stockMessage(StockProblem.STOCK_COUNTED) else "Not enough stock on the truck"
             } else {
                 repository.recordDamage(product.productId,qty,reason,note.takeIf { it.isNotBlank() },photoSha256)
-                message = "Damage saved — waiting for sync"; onSaved()
+                message = "Damage saved on this phone."; onSaved()
             }
         } catch (e: StockRefused) { message = VanRules.stockMessage(e.problem) }
     }
     fun discardDamagePhoto(sha: String) { scope?.launch { runCatching { repository.discardDamagePhoto(sha) } } }
     fun startSale(customer: Customer) {
-        if (tripClosed) { message = TRIP_CLOSED_MESSAGE; return }
-        if (!VanRules.canSell(trip)) { message = VanRules.checkoutMessage(CheckoutProblem.TRIP_NOT_SELLING,null); return }
-        if (cashCounted) { message = VanRules.checkoutMessage(CheckoutProblem.CASH_COUNTED,null); return }
-        if (stockCounted) { message = VanRules.checkoutMessage(CheckoutProblem.STOCK_COUNTED,null); return }
+        if (tripClosed) {
+            message = TRIP_CLOSED_MESSAGE
+            return
+        }
+        if (!VanRules.canSell(trip)) {
+            message = VanRules.checkoutMessage(CheckoutProblem.TRIP_NOT_SELLING,null)
+            return
+        }
+        if (cashCounted) {
+            message = VanRules.checkoutMessage(CheckoutProblem.CASH_COUNTED,null)
+            return
+        }
+        if (stockCounted) {
+            message = VanRules.checkoutMessage(CheckoutProblem.STOCK_COUNTED,null)
+            return
+        }
         if (sale?.customer?.outletId != customer.outletId) sale = SaleDraft(CheckoutRules.newSaleId(),customer,emptyList())
         selectedCustomer = customer; open(Page.SALE)
     }
@@ -386,6 +436,10 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         printing = true; printMessage = "Printing…"
         s.launch {
             try {
+                if (!explicit && printer.diagnostics().paper == PaperState.NOT_REPORTED) {
+                    printMessage = "Not printed. Check the paper, then tap Print receipt."
+                    return@launch
+                }
                 val result = repository.printReceipt(printer,saleId,explicit,reason)
                 printMessage = VanRules.printMessage(result)
                 lastPrint = LastPrint(System.currentTimeMillis(),printMessage!!,result is PrintJobResult.Printed)

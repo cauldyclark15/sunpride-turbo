@@ -22,9 +22,10 @@ import com.sunpride.van.location.locationSettingsIntent
     val context = LocalContext.current
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { c.finishLocationConsent() }
     val agree = {
-        c.acceptLocationSharing()
-        val missing = c.locationSharing.missingPermissions()
-        if (missing.isEmpty()) c.finishLocationConsent() else permissions.launch(missing.toTypedArray())
+        c.acceptLocationSharing {
+            val missing = c.locationSharing.missingPermissions()
+            if (missing.isEmpty()) c.finishLocationConsent() else permissions.launch(missing.toTypedArray())
+        }
     }
     val on = c.locationConsented
     ScreenFrame(LocationConsentText.TITLE,c::back,action = if (on && c.sharing != SharingState.NEEDS_PERMISSION) "Done" else "Turn on location sharing",

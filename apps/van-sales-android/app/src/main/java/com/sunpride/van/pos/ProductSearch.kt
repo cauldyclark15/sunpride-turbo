@@ -93,10 +93,12 @@ class ProductSearch(products: List<Product>, stock: List<TruckStock>, prices: Li
         val gtins: Set<String> = barcodes.mapNotNull(BarcodeKeys::gtin14).toSet()
     }
 
+    private val stockByProduct = stock.associateBy { it.productId }
+    private val pricesByProduct = prices.groupBy { it.productId }
     private val entries: List<Entry> = products.map { product ->
-        val available = stock.firstOrNull { it.productId == product.productId }?.availableBase ?: 0L
+        val available = stockByProduct[product.productId]?.availableBase ?: 0L
         val code = normalize(product.code); val name = normalize(product.name)
-        Entry(PosProductHit(product, available, PriceResolver.resolve(product, prices, now, customer), MatchKind.ALL),
+        Entry(PosProductHit(product, available, PriceResolver.resolve(product, pricesByProduct[product.productId].orEmpty(), now, customer), MatchKind.ALL),
             code, compact(code), name, words(name) + words(code), product.barcodes, "$code $name")
     }
     private val order = compareBy<Pair<Entry, MatchKind>>({ it.second.ordinal }, { !it.first.hit.onTruck }, { it.first.name }, { it.first.code })

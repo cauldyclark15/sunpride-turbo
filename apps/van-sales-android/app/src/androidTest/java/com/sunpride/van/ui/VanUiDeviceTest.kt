@@ -78,6 +78,37 @@ class VanUiDeviceTest {
         rule.waitUntil(10_000) { c.trip?.startPending == true && !c.busy }
         sync(); rule.waitUntil(10_000) { c.trip?.status == "active" }
     }
+    @Test fun accountPasswordFormChecksMismatchEyesAndClearsSecretsAfterSubmit() {
+        mount(); open(Page.ACCOUNT)
+        rule.onNodeWithTag("open-change-password").performClick()
+        rule.onNodeWithTag("change-password").assertIsNotEnabled()
+        rule.onNodeWithTag("current-password").performTextInput("fixture-old")
+        rule.onNodeWithTag("new-password").performTextInput("fixture-new")
+        rule.onNodeWithTag("confirm-password").performTextInput("not-matching"); hideKeyboard()
+        rule.onNodeWithTag("current-password-toggle").performClick()
+        rule.onNodeWithTag("current-password-toggle").assertContentDescriptionEquals("Hide password")
+        rule.onNodeWithTag("current-password-toggle").performClick()
+        rule.onNodeWithTag("change-password").performClick()
+        rule.onNodeWithTag("message").assertTextEquals("The new passwords do not match.")
+        rule.onNodeWithTag("confirm-password").performTextClearance()
+        rule.onNodeWithTag("confirm-password").performTextInput("fixture-new"); hideKeyboard()
+        rule.onNodeWithTag("change-password").performClick()
+        rule.waitUntil(10_000) { !c.busy && c.page == Page.ACCOUNT }
+        rule.onNodeWithTag("message").assertTextEquals("Password changed. Your other sign-ins have ended.")
+        rule.onNodeWithTag("open-change-password").performClick()
+        listOf("current-password","new-password","confirm-password").forEach { rule.onNodeWithTag(it).assertTextEquals(when(it) { "current-password" -> "Current password"; "new-password" -> "New password"; else -> "Confirm new password" },"") }
+        rule.onNodeWithTag("change-password").assertIsNotEnabled()
+    }
+    @Test fun unknownPaperNeverAutomaticallyPrintsASale() {
+        val printer = com.sunpride.van.printing.FakeReceiptPrinter(com.sunpride.van.printing.PaperState.NOT_REPORTED)
+        mount(printer = printer); loadAndStart()
+        val juice = c.products.single { it.code == "SP-PJ-1L" }
+        rule.runOnUiThread { c.startSale(c.customers.first { it.source == "route" }); c.addToSale(juice.productId,1); c.completeSale(com.sunpride.van.pos.PaymentInput("cash",10000),6850) }
+        rule.waitUntil(10_000) { c.page == Page.SALE_DONE && !c.printing && c.savedSales.isNotEmpty() }
+        assertTrue(printer.documents.isEmpty())
+        rule.onNodeWithTag("print-status",useUnmergedTree = true).performScrollTo().assertTextEquals("Not printed. Check the paper, then tap Print receipt.")
+        rule.onNodeWithTag("sale-print").assertExists()
+    }
     @Test fun signInWithPracticeInputsReachesAssignedTrip() {
         mount(restore = false)
         rule.onNodeWithTag("sign-in").assertIsNotEnabled()

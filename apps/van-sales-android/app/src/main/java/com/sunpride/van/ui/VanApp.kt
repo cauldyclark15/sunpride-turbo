@@ -53,6 +53,8 @@ import kotlinx.coroutines.delay
             !controller.session.signedIn -> SignInScreen(controller)
             controller.enrollment !is EnrollmentState.Ready -> EnrollmentScreen(controller)
             else -> when (controller.page) {
+                Page.ACCOUNT -> AccountScreen(controller)
+                Page.CHANGE_PASSWORD -> ChangePasswordScreen(controller)
                 Page.HOME -> HomeScreen(controller)
                 Page.LOAD -> CheckLoadScreen(controller)
                 Page.START -> StartTripScreen(controller)

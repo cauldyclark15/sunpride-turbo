@@ -88,12 +88,12 @@ class TripCloseStore(private val store: RoomVanStore) {
                 .put("varianceLines", it.varianceLines).put("shortBase", it.shortBase.toString()).put("overBase", it.overBase.toString()) } ?: JSONObject.NULL)
             .put("exceptions", exceptions).put("exceptionsReviewed", reviewed)
             // The office checks it received every operation of the trip before it closes the trip there.
-            .put("operations", JSONArray(ops.map { JSONObject().put("kind", it.kind).put("clientRequestId", it.clientRequestId).put("status", it.status) }))
+            .put("operations", JSONArray(ops.filter { !s.startsWith("v2|") || it.status == "done" }.map { JSONObject().put("kind", it.kind).put("clientRequestId", it.clientRequestId).put("status", it.status) }))
             .put("deviceTime", now)
             .apply { request.endOdometerKm?.let { put("endOdometerKm", it) } }
             .apply { note?.let { put("note", it) } }
         val op = JSONObject().put("kind", TRIP_CLOSE_KIND).put("clientRequestId", key).put("payload", payload).toString()
-        // Deliberately not sent through VanWireSchema: the gateway has no trip.close kind yet, like the counts.
+        // The old frozen v1 validator has no close kind; V2VanCodec supplies the live v2 envelope.
         dao.insertOutbox(OutboxRow(s, d, key, t.tripId, TRIP_CLOSE_KIND, op, at, null, store.capturedStatus))
         TripCloseResult(request.closeId, t.tripNumber, checklist.exceptions, reviewed, request.endOdometerKm, note, ops.size, at, false)
     }
