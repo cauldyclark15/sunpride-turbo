@@ -33,8 +33,9 @@ function sellingDays(first, last) {
   return n;
 }
 
-/** @param {import('./store.js').Dataset} d @param {import('./company.js').Company} c @param {import('./execution.js').Execution} e */
-export function management(d, c, e) {
+/** @param {import('./store.js').Dataset} d @param {import('./company.js').Company} c @param {import('./execution.js').Execution} e
+ * @param {{targetsOnly?:boolean}} [options] */
+export function management(d, c, e, options = {}) {
   const targetMonths = e.months.slice(-3);
   for (const month of targetMonths) {
     const current = month === d.anchorDate.slice(0, 7);
@@ -53,7 +54,10 @@ export function management(d, c, e) {
       (a) => e.agentSales.get(`${month}-${a.index}`) ?? 0,
     );
     const territoryActuals = [0, 1, 2, 3].map((t) =>
-      actuals.slice(t * 3, t * 3 + 3).reduce((a, b) => a + b, 0),
+      c.agents.reduce(
+        (sum, a, i) => sum + (a.territoryIndex === t ? actuals[i] : 0),
+        0,
+      ),
     );
     const weak = Math.min(
       total,
@@ -65,25 +69,20 @@ export function management(d, c, e) {
       ...apportion(total - weak, territoryActuals.slice(0, 3)),
       weak,
     ];
-    /** @type {number[]} */
-    const agentTargets = [];
-    for (let ti = 0; ti < 4; ti++)
-      agentTargets.push(
-        ...apportion(
-          territoryTargets[ti],
-          actuals
-            .slice(ti * 3, ti * 3 + 3)
-            .map(
-              (amount, j) =>
-                amount /
-                ([1, 6].includes(ti * 3 + j)
-                  ? 0.7
-                  : ti * 3 + j === 0
-                    ? 1.2
-                    : 1),
-            ),
+    /** @type {Map<number,number>} */
+    const agentTargets = new Map();
+    for (let ti = 0; ti < 4; ti++) {
+      const agents = c.agents.filter((a) => a.territoryIndex === ti);
+      const amounts = apportion(
+        territoryTargets[ti],
+        agents.map(
+          (a) =>
+            (e.agentSales.get(`${month}-${a.index}`) ?? 0) /
+            ([1, 6].includes(a.index) ? 0.7 : a.index === 0 ? 1.2 : 1),
         ),
       );
+      agents.forEach((a, i) => agentTargets.set(a.index, amounts[i]));
+    }
     const channels = apportion(
       total,
       CHANNELS.map((ch) => e.channelSales.get(`${month}-${ch}`) ?? 0),
@@ -96,7 +95,7 @@ export function management(d, c, e) {
         profile_id: a.id,
         team_id: null,
         territory_id: null,
-        amount: agentTargets[a.index],
+        amount: agentTargets.get(a.index) ?? 0,
       })),
       ...c.territories.map((t, i) => ({
         level: "territory",
@@ -153,6 +152,7 @@ export function management(d, c, e) {
       });
     }
   }
+  if (options.targetsOnly) return;
   // AR snapshots reconcile to invoice orders, BO credits and exact FIFO collection
   // allocations as of each period cutoff. These are not unrelated invented balances.
   const allocations = d

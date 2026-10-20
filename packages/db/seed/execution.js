@@ -56,8 +56,9 @@ function planDigest(d, plan) {
     .digest("hex");
 }
 
-/** @param {import('./store.js').Dataset} d @param {import('./company.js').Company} c @param {import('./stock.js').StockBook} stock */
-export function execution(d, c, stock) {
+/** @param {import('./store.js').Dataset} d @param {import('./company.js').Company} c @param {import('./stock.js').StockBook} stock
+ * @param {{daily?:boolean,historical?:boolean,blocked?:Set<string>,routeStops?:Map<string,Set<string>>,dayOffset?:number}} [options] */
+export function execution(d, c, stock, options = {}) {
   const dates = Array.from({ length: d.days }, (_, i) => plusDays(d.start, i));
   const months = [...new Set(dates.map((date) => date.slice(0, 7)))];
   /** @type {Map<string, import('./store.js').Row>} */
@@ -143,9 +144,10 @@ export function execution(d, c, stock) {
   /** @param {Map<string, number>} map @param {string} key @param {number} amount */
   const addSum = (map, key, amount) =>
     map.set(key, (map.get(key) ?? 0) + amount);
-  for (const [dayIndex, date] of dates.entries()) {
+  for (const [di, date] of dates.entries()) {
+    const dayIndex = di + (options.dayOffset ?? 0);
     if (weekday(date) === 0) continue;
-    const today = date === d.anchorDate,
+    const today = !options.historical && date === d.anchorDate,
       month = date.slice(0, 7);
     for (const a of c.agents) {
       const plan = /** @type {import('./store.js').Row} */ (
@@ -154,12 +156,14 @@ export function execution(d, c, stock) {
       const eligible = c.stores.filter(
         (s) =>
           s.territoryIndex === a.territoryIndex &&
+          (!options.routeStops || options.routeStops.get(a.id)?.has(s.id)) &&
           (a.positionCode === "KAS"
             ? ["kas", "supermarket"].includes(s.channel)
             : a.positionCode.startsWith("PMOT")
               ? ["gt", "pmot"].includes(s.channel)
               : true),
       );
+      if (!eligible.length) continue;
       const visitsDone =
         Math.floor((dayIndex + 1) * a.dailyCalls * a.compliance) -
         Math.floor(dayIndex * a.dailyCalls * a.compliance);
@@ -203,6 +207,7 @@ export function execution(d, c, stock) {
         // Rotate a 75-store universe without duplicate stores on a person's day.
         const s =
           eligible[(dayIndex * 7 + a.index * 13 + sequence) % eligible.length];
+        if (options.blocked?.has(`${a.id}:${s.id}`)) continue;
         const key = `${a.index}-${date}-${sequence}`;
         const snapshot = {
           source: "sample",
@@ -221,7 +226,8 @@ export function execution(d, c, stock) {
             "territory_ownerships",
             String(a.territoryIndex),
           ),
-          employeeAssignmentId: rowId("employee_assignments", a.id),
+          employeeAssignmentId:
+            a.assignmentId ?? rowId("employee_assignments", a.id),
           orgUnitId: a.org_unit_id,
           activityKind: "outlet_visit",
           approvedAssigneeProfileId: a.id,
@@ -443,7 +449,9 @@ export function execution(d, c, stock) {
             {
               organization_id: org,
               client_request_id: `sample:${key}`,
-              order_number: `SMP-SO-${orderCounter}`,
+              order_number: options.daily
+                ? `SMP-SO-${date}-${a.index}-${sequence}`
+                : `SMP-SO-${orderCounter}`,
               order_type: "field",
               org_unit_id: a.org_unit_id,
               salesperson_profile_id: a.id,
@@ -639,7 +647,9 @@ export function execution(d, c, stock) {
               {
                 organization_id: org,
                 client_request_id: `sample:return-${key}`,
-                order_number: `SMP-BO-${orderCounter}`,
+                order_number: options.daily
+                  ? `SMP-BO-${date}-${a.index}-${sequence}`
+                  : `SMP-BO-${orderCounter}`,
                 order_type: "return",
                 org_unit_id: a.org_unit_id,
                 salesperson_profile_id: a.id,
@@ -885,6 +895,19 @@ export function execution(d, c, stock) {
       plan.approved_at,
     );
   }
+  if (options.daily)
+    return {
+      dates,
+      months,
+      plans,
+      invoices,
+      monthlySales,
+      agentSales,
+      channelSales,
+      dayFacts,
+      completed: completedCounter,
+      productive: productiveCounter,
+    };
   // Future month's submitted plan does not overlap any effective approved assignment.
   const month = nextMonth(d.anchorDate.slice(0, 7)),
     a = c.agents[0];

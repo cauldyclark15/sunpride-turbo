@@ -147,6 +147,8 @@ async function ensureTodayPlan(db, person, template, slug) {
   const [source] =
     await db`select * from coverage_plans where assignee_profile_id=${template.id} and status='active' and deleted_at is null order by local_month desc limit 1`;
   if (!source) throw new Error("Trial sample field plan is missing");
+  const [version] =
+    await db`select coalesce(max(version),0)::int n from coverage_plans where assignee_profile_id=${person.id} and local_month=${today.slice(0, 7)}`;
   const plan = await copyTrialRow(
     db,
     "coverage_plans",
@@ -156,7 +158,7 @@ async function ensureTodayPlan(db, person, template, slug) {
       assignee_profile_id: person.id,
       org_unit_id: person.org_unit_id,
       local_month: today.slice(0, 7),
-      version: 1,
+      version: version.n + 1,
       requested_from: new Date(at(today)).toISOString(),
       effective_from: new Date(at(today)).toISOString(),
       requested_to: new Date(at(plusDays(today, 1))).toISOString(),
@@ -223,7 +225,7 @@ async function ensureTodayPlan(db, person, template, slug) {
     await addTrialRow(db, "planned_visits", `${slug}-${today}-${i}`, {
       generation_key: `sample:trial:${slug}:${today}:${i}`,
       plan_id: plan.id,
-      plan_version: 1,
+      plan_version: plan.version,
       plan_slot_id: slot.id,
       assignee_profile_id: person.id,
       outlet_id: s.outlet_id,

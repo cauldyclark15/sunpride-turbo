@@ -252,3 +252,60 @@ CLI seed and reset, non-sample preservation, cascade refusal, every real foreign
 key, ledger/cost/version chains, pricing/UOM/product references, call timing and
 planning, AR reconciliation, target totals and headline tolerances. It never
 seeds, migrates or resets the shared development database.
+
+## Keep the company current without a reset
+
+```sh
+DATABASE_URL=… bun packages/db/seed/daily.js
+DATABASE_URL=… bun packages/db/seed/daily.js --through 2026-10-20
+DATABASE_URL=… bun packages/db/seed/daily.js --date 2026-10-20
+```
+
+Library: `advanceDemo(db, {date})`. Both CLI date options mean an inclusive end
+(date defaults to today in Manila); they fill every missing day after the original
+manifest's anchor, never skip over a gap. Future dates are refused. Sundays close
+past sample work and carry a new month's budget forward, but create no selling
+calls or trips. Each date has an atomic manifest and the seed's advisory lock;
+repeats and concurrent invocations add nothing, and a failed day rolls back while
+already completed earlier days remain resumable.
+
+The daily writer reuses `execution`, `vans` and `management` with persisted sample
+people and masters. It follows each person's effective assigned routes (including
+copied trial people), caps stops to unique eligible stores and leaves existing
+plans or tester-operated people alone. An active non-sample coverage plan is never
+superseded. New day-sized sample revisions use the production coverage digest and
+signature verifier, preserving old signed content and historical visits. Today's
+snapshot retains both completed and unstarted calls, with no future activity
+instants even when run before the history generator's reference noon.
+
+Stock is added, loaded, issued and unloaded only through the integrated production
+`postMovement` path, with fresh receipts funding demand and expiry-safe sample lots.
+It never replaces balances. Production-created UUIDs and numeric sync-feed rows
+receive explicit identity-bound `daily-native` ownership markers understood by the
+same guarded reset. Outbound inventory events are retained as explicitly blocked
+sample events (`dead_letter`, "never transmit to SAP"), not fake SAP acknowledgments.
+
+Wholly sample-owned past trips are counted, unloaded, remitted and closed. A trip
+with tester payments, counts, operations, sales, damage or stock ledger work is left
+alone. Past synthetic open calls are closed nonproductively only when no real
+activity/evidence was appended. New-month targets reconcile across company,
+channel, territory and agent levels; an opening Sunday inherits the prior sample
+budget rather than creating zero targets. Pending approvals and other performance
+exceptions remain available for the office to decide.
+
+No passwords, users, profiles, sessions or registered devices are changed by this
+command, and no reset or credential-file access occurs. A tester's call or existing
+plan protects their whole day, a conservative superset of skipping the same stop.
+Real rows remain outside the sample ownership list and still block a reset when
+they depend on sample masters.
+
+The machine wrapper is `~/.hermes/scripts/sunpride-demo-daily.sh`: it runs from
+`/Users/jc/cnc/.worktrees/sunpride-v2-serve`, reads the existing private DB key
+without printing it, and appends safe summaries to
+`~/.hermes/cache/scratch/sp-v2/demo-daily.log`. Merge this lane into that worktree
+before scheduling it. The wrapper does not install a cron job.
+
+`SP_LANE=core bun test seed/daily.test.js` uses its own migrated throwaway core
+DB, temporary private trial-account files, real posting and reset, and verifies
+catch-up, idempotency, identities/devices, tester preservation, production MCP
+signatures, ledger reconciliation and new-month targets. It never resets live data.

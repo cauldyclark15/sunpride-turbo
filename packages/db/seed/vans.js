@@ -3,22 +3,25 @@ import { ACTOR, ORGANIZATION as org, at, plusDays, weekday } from "./store.js";
 /** Financial settlement has no canonical table in the frozen base schema. Its exact
  * centavo facts are preserved as tracked sample.van_settlement audit records, never
  * disguised as SAP events or a different domain's stock values.
- * @param {import('./store.js').Dataset} d @param {import('./company.js').Company} c @param {import('./stock.js').StockBook} stock */
-export function vans(d, c, stock) {
-  const vehicles = [0, 1].map((i) =>
-    d.add("vehicles", String(i), {
-      organization_id: org,
-      org_unit_id: c.units[i + 1].id,
-      vehicle_code: `SMP-VAN-${i + 1}`,
-      plate_number: `DEMO-${i + 1}`,
-      name: `Sample Cebu Truck ${i + 1}`,
-      truck_location_id: stock.locations[i + 1].id,
-      home_location_id: stock.locations[0].id,
-      status: "active",
-      created_by: ACTOR,
-    }),
-  );
-  const sellers = [c.agents[4], c.agents[7]];
+ * @param {import('./store.js').Dataset} d @param {import('./company.js').Company} c @param {import('./stock.js').StockBook} stock
+ * @param {{daily?:boolean,historical?:boolean,vehicles?:import('./store.js').Row[],sellers?:import('./company.js').Company["agents"]}} [options] */
+export function vans(d, c, stock, options = {}) {
+  const vehicles =
+    options.vehicles ??
+    [0, 1].map((i) =>
+      d.add("vehicles", String(i), {
+        organization_id: org,
+        org_unit_id: c.units[i + 1].id,
+        vehicle_code: `SMP-VAN-${i + 1}`,
+        plate_number: `DEMO-${i + 1}`,
+        name: `Sample Cebu Truck ${i + 1}`,
+        truck_location_id: stock.locations[i + 1].id,
+        home_location_id: stock.locations[0].id,
+        status: "active",
+        created_by: ACTOR,
+      }),
+    );
+  const sellers = options.sellers ?? [c.agents[4], c.agents[7]];
   const yesterday = plusDays(d.anchorDate, -1),
     shortDate = plusDays(d.anchorDate, -3);
   // A Sunday shortage is recorded against Saturday's selling trip; never invent
@@ -34,8 +37,8 @@ export function vans(d, c, stock) {
     for (const [vi, vehicle] of vehicles.entries()) {
       const seller = sellers[vi],
         key = `${date}-${vi}`,
-        today = date === d.anchorDate;
-      const unclosed = vi === 1 && date === yesterday;
+        today = !options.historical && date === d.anchorDate;
+      const unclosed = !options.daily && vi === 1 && date === yesterday;
       const start = new Date(at(date, 6 * 60)).toISOString(),
         end = new Date(at(date, 18 * 60)).toISOString();
       const routeSession = d.add(
@@ -330,7 +333,8 @@ export function vans(d, c, stock) {
         (sum, o) => sum + Math.round(Number(o.total) * 100),
         0,
       );
-      const short = vi === 0 && date === shortTripDate ? 125_000 : 0;
+      const short =
+        !options.daily && vi === 0 && date === shortTripDate ? 125_000 : 0;
       const vanCount = d.add(
         "van_stock_counts",
         key,

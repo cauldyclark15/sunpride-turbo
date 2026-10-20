@@ -218,21 +218,46 @@ export async function resetDemo(db) {
     const markers =
       await t`select * from sample_data_rows where batch=${BATCH}`;
     if (!markers.length) return { deleted: 0 };
+    // Production posting uses random UUIDs and its sync feed uses numeric sequences.
+    // These explicit markers still bind table + exact identity, never a name prefix.
+    const nativeTables = new Set([
+      "inventory_movements",
+      "inventory_movement_lines",
+      "inventory_allocations",
+      "inventory_ledger_entries",
+      "inventory_commands",
+      "inventory_balances",
+      "inventory_lot_balances",
+      "audit_logs",
+      "integration_events",
+      "change_log",
+    ]);
     const tables = new Set(
-      markers.map((/** @type {any} */ m) => String(m.table_name)),
+      markers
+        .filter((/** @type {any} */ m) => m.table_name !== "change_log")
+        .map((/** @type {any} */ m) => String(m.table_name)),
     );
     for (const m of markers) {
       const key = String(m.key);
       ident(m.table_name);
       if (
         !key.startsWith(`${m.table_name}:`) ||
-        rowId(m.table_name, key.slice(m.table_name.length + 1)) !== m.row_id ||
+        (rowId(m.table_name, key.slice(m.table_name.length + 1)) !== m.row_id &&
+          !(
+            nativeTables.has(m.table_name) &&
+            key === `${m.table_name}:daily-native:${m.row_id}` &&
+            (m.table_name === "change_log"
+              ? /^[1-9][0-9]*$/.test(m.row_id)
+              : /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
+                  m.row_id,
+                ))
+          )) ||
         rowId("sample_data_rows", key) !== m.id
       )
         throw new Error("Invalid sample ownership marker; reset refused");
     }
     await t`create temporary table seed_owned_reset (table_name text not null, row_id uuid not null, primary key(table_name,row_id)) on commit drop`;
-    await t`insert into seed_owned_reset select table_name,row_id::uuid from sample_data_rows where batch=${BATCH}`;
+    await t`insert into seed_owned_reset select table_name,row_id::uuid from sample_data_rows where batch=${BATCH} and table_name<>'change_log'`;
     await t`analyze seed_owned_reset`;
     const fks = await foreignKeys(t);
     // Frozen legacy tables also retain business references as codes/subjects rather
@@ -292,6 +317,9 @@ export async function resetDemo(db) {
       );
       deleted += result.length;
     }
+    const feed =
+      await t`delete from change_log r using sample_data_rows m where m.batch=${BATCH} and m.table_name='change_log' and r.seq=m.row_id::bigint returning r.seq`;
+    deleted += feed.length;
     await t`delete from sample_data_rows where batch=${BATCH}`;
     return { deleted };
   });
