@@ -78,7 +78,10 @@ export async function startHarness(opts = {}) {
     async close() {
       await app.stop();
       await db.close();
-      await admin.unsafe(`drop database if exists ${name} with (force)`);
+      // F-025: clients are closed. Let PostgreSQL drain maintenance/parallel
+      // workers without requiring the application to signal another role.
+      // A leaked client still makes ordinary DROP fail rather than being hidden.
+      await admin.unsafe(`drop database if exists ${name}`);
       await admin.close();
       await rm(filesDir, { recursive: true, force: true });
       resetHooks();
