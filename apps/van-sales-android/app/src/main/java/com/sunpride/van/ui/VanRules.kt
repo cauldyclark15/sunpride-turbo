@@ -26,6 +26,8 @@ object VanRules {
             "loaded" -> "Loaded — ready to start"
             "active" -> "On route"
             "closing" -> "Closing…"
+            "reconciling" -> "Cash counted — hand it to the cashier"
+            "review_required" -> "Supervisor is reviewing this trip"
             "closed" -> "Trip closed"
             "cancelled" -> "Trip cancelled"
             else -> "Check with your supervisor"
