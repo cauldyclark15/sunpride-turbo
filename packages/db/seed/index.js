@@ -116,14 +116,11 @@ export function generateDemo(
 /** F-310 F-316: additive rows must be counted in the original manifest as well as marked.
  * @param {any} db @param {any} summary */
 async function retailSummary(db, summary) {
-  const added = await ensureRetailSamples(db);
-  if (!added.added) return summary;
-  const rows = { ...summary.rows };
-  for (const [table, count] of Object.entries(added.rows))
-    rows[table] = (rows[table] ?? 0) + Number(count);
-  const updated = { ...summary, rows };
-  await db`update audit_logs set details=${JSON.stringify({ source: "sample", ...updated })} where id=${rowId("audit_logs", "manifest")}`;
-  return updated;
+  await ensureRetailSamples(db);
+  // F-020 F-310: the original audit manifest is immutable. Derive the additive
+  // inventory from ownership markers on every replay instead of rewriting it.
+  const counts = await db`select table_name,count(*)::int as n from sample_data_rows where batch=${BATCH} group by table_name`;
+  return { ...summary, rows: Object.fromEntries(counts.map((/** @type {any} */ r) => [r.table_name, r.n])) };
 }
 /**
  * Seed the deterministic demo in one transaction. Identity hashes are intentionally salted

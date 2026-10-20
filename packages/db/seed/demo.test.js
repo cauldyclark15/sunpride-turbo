@@ -86,6 +86,15 @@ async function fingerprint() {
 // F-023 every write lives in the caller lane's uniquely named throwaway DB,
 // dropped in afterAll; the default remains seed for the historical seed-only harness.
 describe("90-day Sunpride demo", () => {
+  test("F-020 F-310 additive retail seeding never rewrites the immutable audit manifest", async () => {
+    const [before] = await db`select details,updated_at from audit_logs where id=${rowId("audit_logs", "manifest")}`;
+    const repeated = await seedDemo(db, { anchorDate: ANCHOR });
+    const [after] = await db`select details,updated_at from audit_logs where id=${rowId("audit_logs", "manifest")}`;
+    expect(after).toEqual(before);
+    expect(repeated.duplicate).toBe(true);
+    const counts = await db`select table_name,count(*)::int as n from sample_data_rows where batch=${BATCH} group by table_name`;
+    expect(repeated.rows).toEqual(Object.fromEntries(counts.map((r) => [r.table_name, r.n])));
+  });
   test("fresh fully migrated database seeds in under sixty seconds", () => {
     expect(seedMs).toBeLessThan(60_000);
     expect(first.products).toBe(40);
