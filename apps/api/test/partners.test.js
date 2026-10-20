@@ -111,7 +111,7 @@ async function fixture() {
   });
   const who = { access: login.body.accessToken, deviceId, key };
   expect((await bind(h, who.access, deviceId, key)).res.status).toBe(200);
-  return { p, portal, staff, outlet, who };
+  return { p, portal, staff, outlet, who, day: today() };
 }
 /** @param {string} type @param {any} payload */
 const op = (type, payload) => ({
@@ -131,6 +131,7 @@ const push = (f, operations) =>
 /** @param {any} f @param {string} [kind] */
 async function complete(f, kind = "merchandising") {
   const at = Date.now() - 600000;
+  f.day = today(at);
   const config = await configuration(h.db, PROFILE_FIELD, f.outlet, at);
   if (!config) throw new Error("Missing call configuration");
   const fix = {
@@ -205,10 +206,7 @@ async function complete(f, kind = "merchandising") {
 }
 /** @param {any} f */
 const evidenceOf = (f) =>
-  request(
-    f.portal,
-    `/evidence?partnerId=${f.p.id}&from=${today()}&to=${today()}`,
-  );
+  request(f.portal, `/evidence?partnerId=${f.p.id}&from=${f.day}&to=${f.day}`);
 
 test("F-322 canonical distributor model isolates two agencies and distributors on every ordinary route", async () => {
   const a = await fixture(),
@@ -413,8 +411,8 @@ test("F-319 immutable billing export reauthorizes, replays and requires independ
   const b = {
     partnerId: f.p.id,
     requestKey: crypto.randomUUID(),
-    from: today(),
-    to: today(),
+    from: f.day,
+    to: f.day,
   };
   const saved = await request(f.portal, "/billing/build", b);
   expect(saved.res.status).toBe(200);
@@ -469,8 +467,8 @@ test("F-319 office cannot approve its own billing package and evidence changes i
   const b = await request(office, "/billing/build", {
     partnerId: f.p.id,
     requestKey: crypto.randomUUID(),
-    from: today(),
-    to: today(),
+    from: f.day,
+    to: f.day,
   });
   const input = {
     partnerId: f.p.id,
@@ -491,6 +489,34 @@ test("F-319 office cannot approve its own billing package and evidence changes i
   expect(r.res.status).toBe(409);
   expect(r.body.error.code).toBe("stale_evidence");
 });
+test("F-319 F-322 office read access cannot generate billing or replay without current write permission", async () => {
+  const f = await fixture();
+  await complete(f);
+  const reader = await person("operations");
+  expect(
+    (
+      await request(
+        reader,
+        `/evidence?partnerId=${f.p.id}&from=${f.day}&to=${f.day}`,
+      )
+    ).res.status,
+  ).toBe(200);
+  const body = {
+    partnerId: f.p.id,
+    from: f.day,
+    to: f.day,
+    requestKey: crypto.randomUUID(),
+  };
+  expect((await request(reader, "/billing/build", body)).res.status).toBe(403);
+  const [empty] =
+    await h.db`select count(*)::int n from partner_billing_periods where distributor_id=${f.p.id}`;
+  expect(empty.n).toBe(0);
+  const writer = await person("admin");
+  expect((await request(writer, "/billing/build", body)).res.status).toBe(200);
+  await h.db`update profiles set role='operations' where id=${writer.id}`;
+  expect((await request(writer, "/billing/build", body)).res.status).toBe(403);
+});
+
 test("F-322 membership expiry and suspension cannot fall back to employee capabilities", async () => {
   const f = await fixture();
   await h.db`update distributors set status='suspended' where id=${f.p.id}`;
@@ -562,6 +588,42 @@ test("F-322 office invitations use existing signup identities, forbid employee a
   ).toBe(409);
 });
 
+test("F-322 invited field and portal users can really sign up and retain their partner boundary", async () => {
+  const f = await fixture();
+  expect(
+    (await h.fetch("/api/v1/org/tree", { headers: { cookie: office.cookie } }))
+      .status,
+  ).toBe(200);
+  for (const access of ["field", "portal"]) {
+    const email = `${crypto.randomUUID()}@invited-partner.test`;
+    const invited = await request(office, "/invite", {
+      partnerId: f.p.id,
+      requestKey: crypto.randomUUID(),
+      name: "Invited sample partner",
+      email,
+      access,
+    });
+    expect(invited.res.status).toBe(200);
+    const signup = await h.fetch("/api/auth/sign-up", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    expect(signup.status).toBe(201);
+    const headers = {
+      cookie: signup.headers.get("set-cookie")?.split(";")[0] ?? "",
+    };
+    const me = await h.fetch("/api/me", { headers });
+    expect(me.status).toBe(200);
+    const body = await me.json();
+    expect(body.partner.id).toBe(f.p.id);
+    expect(body.partner.kind).toBe("agency");
+    if (access === "portal") expect(body.capabilities).toEqual([]);
+    else expect(body.capabilities).toContain("visit.record");
+    expect((await h.fetch("/api/v1/org/tree", { headers })).status).toBe(403);
+  }
+});
+
 test("F-319 F-322 sample agency seed is additive, idempotent and keeps working logins in a 0600 record", async () => {
   const f = await fixture();
   const source = await person("sales");
@@ -595,6 +657,22 @@ test("F-319 F-322 sample agency seed is additive, idempotent and keeps working l
     headers: { cookie: res.headers.get("set-cookie")?.split(";")[0] ?? "" },
   });
   expect((await me.json()).partner.kind).toBe("agency");
+  const [member] =
+    await h.db`select m.distributor_id from distributor_users m join profiles p on p.id=m.profile_id where p.email=${account.email} and m.effective_to is null`;
+  expect(
+    (
+      await request(office, "/invite", {
+        partnerId: member.distributor_id,
+        name: account.name,
+        email: account.email,
+        access: "portal",
+        requestKey: crypto.randomUUID(),
+      })
+    ).res.status,
+  ).toBe(200);
+  const renewed = await ensurePartnerSamples(h.db, { credentialsPath });
+  expect(renewed.accounts).toBe(3);
+  expect(renewed.memberships).toBe(4);
 }, 30000);
 
 test("F-322 withdrawing staff blocks frozen export and billing command replay, not just fresh queries", async () => {
@@ -602,8 +680,8 @@ test("F-322 withdrawing staff blocks frozen export and billing command replay, n
   await complete(f);
   const body = {
     partnerId: f.p.id,
-    from: today(),
-    to: today(),
+    from: f.day,
+    to: f.day,
     requestKey: crypto.randomUUID(),
   };
   const built = await request(f.portal, "/billing/build", body);
@@ -776,8 +854,8 @@ test("F-319 non-sample billing requires the operational incident evidence feed",
   await h.db`update distributors set source='office' where id=${f.p.id}`;
   const built = await request(f.portal, "/billing/build", {
     partnerId: f.p.id,
-    from: today(),
-    to: today(),
+    from: f.day,
+    to: f.day,
     requestKey: crypto.randomUUID(),
   });
   expect(built.res.status).toBe(e.body.retailIssueFeedAvailable ? 200 : 422);

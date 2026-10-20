@@ -60,8 +60,14 @@ export function bound(rows, max) {
     );
   return rows;
 }
-/** @param {any} c @param {string} id @param {string} [grant] @param {boolean} [write] */
-export async function authorize(c, id, grant = "portal", write = false) {
+/** @param {any} c @param {string} id @param {string} [grant] @param {boolean} [write] Office-only action. @param {boolean} [mutation] Internal callers need write capability even when an external billing grant is allowed. */
+export async function authorize(
+  c,
+  id,
+  grant = "portal",
+  write = false,
+  mutation = false,
+) {
   uuid(id);
   if (!c.actor) fail("Sign in to continue", "unauthenticated", 401);
   const m = await partnerContext(c.db, c.actor);
@@ -83,7 +89,7 @@ export async function authorize(c, id, grant = "portal", write = false) {
   } else
     await requireCapability(
       c,
-      write ? "integration.manage" : "integration.read",
+      write || mutation ? "integration.manage" : "integration.read",
       p.org_unit_id,
     );
   return p;
@@ -110,7 +116,7 @@ export async function command(
     const actor = c.actor ? await actorFor(db, c.actor.userId) : null;
     const cc = { ...c, db, actor, now: Date.now() };
     await db`select id from distributors where id=${id} for update`;
-    const p = await authorize(cc, id, grant, office);
+    const p = await authorize(cc, id, grant, office, true);
     const [old] =
       await db`select * from partner_commands where distributor_id=${id} and actor_id=${actor?.profileId} and request_key=${key}`;
     if (old) {

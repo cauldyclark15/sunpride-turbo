@@ -242,6 +242,12 @@ export async function ensurePartnerSamples(
     });
     const [count] =
       await t`select count(*)::int n from distributor_users where distributor_id=${agency}`;
-    return { status: "ready", partners: 1, accounts: count.n, credentialsPath };
+    return {
+      status: "ready",
+      partners: 1,
+      accounts: accounts.length,
+      memberships: count.n,
+      credentialsPath,
+    };
   });
 }
