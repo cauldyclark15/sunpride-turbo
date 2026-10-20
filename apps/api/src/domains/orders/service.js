@@ -7,6 +7,7 @@ import { recordChange } from "../../core/sync.js";
 import { writeAudit } from "../org/audit.js";
 import { enqueueRefresh } from "../analytics/refresh.js";
 import { accessibleOrder, outletContext, scoped } from "./access.js";
+import { eligibilityFacts } from "../tpm/campaigns.js";
 import {
   activePromotions,
   applyPromotions,
@@ -175,36 +176,22 @@ export async function quote(ctx, input) {
   const promo = applyPromotions(
     priced,
     await activePromotions(ctx.db, ORGANIZATION, input.at ?? ctx.now),
+    await eligibilityFacts(ctx, input),
   );
   // Freeze NET line facts too: analytics sum(order_lines) must equal order.total.
   if (promo.knownSubtotalCentavos > MAX_CENTAVOS)
     fail("Order amount exceeds the supported accounting range");
-  const applied = promo.promotionsApplied[0];
-  const indexes = new Set(applied?.lineIndexes ?? []);
-  const weights = priced.map((l, i) =>
-    indexes.has(i) ? BigInt(l.lineTotalCentavos ?? 0) : 0n,
-  );
-  const weight = weights.reduce((a, b) => a + b, 0n);
-  const discount = BigInt(applied?.discountCentavos ?? 0);
-  const allocations = weights.map((w) =>
-    weight ? (discount * w) / weight : 0n,
-  );
-  let remainder = discount - allocations.reduce((a, b) => a + b, 0n);
-  for (let i = 0; i < allocations.length && remainder > 0n; i++)
-    if (weights[i] > 0n) {
-      allocations[i] = allocations[i] + 1n;
-      remainder--;
-    }
+  const allocations = promo.lineDiscounts;
   const net = priced.map((l, i) => ({
     ...l,
     grossLineTotalCentavos: l.lineTotalCentavos,
-    discountCentavos: safe(allocations[i] ?? 0n),
+    discountCentavos: allocations[i] ?? 0,
     lineTotalCentavos:
       l.lineTotalCentavos === null
         ? null
-        : l.lineTotalCentavos - safe(allocations[i] ?? 0n),
+        : l.lineTotalCentavos - (allocations[i] ?? 0),
   }));
-  for (const gift of applied?.freeGoods ?? []) {
+  for (const gift of promo.promotionsApplied.flatMap((p) => p.freeGoods)) {
     const [p] =
       await ctx.db`select * from products where id = ${uuid(gift.productId)} and active and deleted_at is null`;
     if (!p || (p.organization_id && p.organization_id !== ORGANIZATION))
