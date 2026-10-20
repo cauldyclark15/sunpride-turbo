@@ -10,6 +10,12 @@ F-025: the 90-day seed/reset gate runs against a disposable database on the nati
 
 The native host's 1GB WAL setting caused repeated WAL-pressure checkpoints 16-25 seconds apart during the unchanged reset regression. Repeated full-page images amplified the write volume. On its APFS filesystem, the one/two-write measurements were 39/81 microseconds for `open_datasync` versus 20/22 microseconds for `fdatasync`.
 
+## Application-local bulk plans
+
+The seed writer also sets `jit=off` and `work_mem=64MB` inside its own transaction, matching the existing reset and analytics transaction pattern. Native bulk imports should not spend their bounded test window compiling large transient plans or spilling small-memory hash/sort work. These settings are not application-role defaults or global server changes.
+
+`seed/performance-settings.test.js` installs a database-side guard at the actual order insert, executes `seedDemo`, and checks that the caller's original JIT/work-memory settings return after commit and replay. The guard fails against the former writer and passes against the tuned writer. The full 90-day seed's existing performance assertion remains unchanged.
+
 ## Apply as the operator, not the application
 
 The reproducible operator script is `packages/db/scripts/tune-native-postgres.sql`. It refuses a non-loopback server, any port other than 5432, a server outside PostgreSQL 17, or a non-superuser. It is not a schema migration. Confirm free disk headroom first: `max_wal_size` is a soft checkpoint target, not a hard disk-usage limit.

@@ -137,6 +137,10 @@ export async function seedDemo(
   new Dataset(anchorDate, days);
   const result = await tx(db, async (t) => {
     await t`select pg_advisory_xact_lock(4310090)`;
+    // F-025: bulk fixture plans must not pay native JIT/startup or spill costs.
+    // Keep the tuning local, as reset/read-model work does; all guards still run.
+    await t`set local jit=off`;
+    await t`set local work_mem='64MB'`;
     const [existing] =
       await t`select a.details from audit_logs a join sample_data_rows m on m.row_id=a.id::text where m.batch=${BATCH} and m.key='audit_logs:manifest'`;
     if (existing) {
