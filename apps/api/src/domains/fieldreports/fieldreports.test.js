@@ -40,6 +40,7 @@ mock.module("../org/scope.js", () => ({
       ?.custodian_org_unit_id ?? null,
 }));
 mock.module("../visits/productive.js", () => ({
+  DEFAULT_PRODUCTIVE_RULE: "any_listed_activity",
   isProductive: (/** @type {any} */ facts) => ({
     productive: facts.activities.some(
       (/** @type {any} */ a) =>
@@ -709,6 +710,11 @@ test("native field.sales and team.summary projections use signed v2 pull and sco
         await get("dsr.report.day", { profileId: rep.id, serviceDate: d }),
       );
       expect(data.totals.mtdSales).toBe(report.totals.mtdSales);
+      expect(data.calls).toEqual({
+        productiveCallRule: report.calls.productiveCallRule,
+        calls: report.calls.calls,
+        productiveCalls: report.calls.productiveCalls,
+      });
       expect(Object.keys(data).sort()).toEqual([
         "calls",
         "serviceDate",

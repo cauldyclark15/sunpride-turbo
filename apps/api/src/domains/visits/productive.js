@@ -1,5 +1,8 @@
 /** Client clarification, 2 Oct 2026. Pure shared rule; completion is not productivity. */
 export const RULE_VERSION = "productive-call/2026-10-02";
+// Documented beta default when an effective position standard has no rule. Unknown non-null rules
+// still fail closed; a completion or note alone never earns productive-call credit.
+export const DEFAULT_PRODUCTIVE_RULE = "any_listed_activity";
 export const PRODUCTIVE_CODES = Object.freeze([
   "purchase_order",
   "merchandising",
@@ -23,7 +26,8 @@ export function isProductive(visitFacts, positionRule) {
   const rule =
     positionRule.productiveCallRule ??
     positionRule.productive_call_rule ??
-    positionRule.rule;
+    positionRule.rule ??
+    DEFAULT_PRODUCTIVE_RULE;
   if (!visitFacts.inRoutePlan) return { productive: false, reason: "off_plan" };
   if (!["checked-out", "completed"].includes(visitFacts.state))
     return { productive: false, reason: "not_closed" };

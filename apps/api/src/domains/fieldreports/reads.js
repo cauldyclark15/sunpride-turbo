@@ -1,4 +1,4 @@
-import { isProductive } from "../visits/productive.js";
+import { DEFAULT_PRODUCTIVE_RULE, isProductive } from "../visits/productive.js";
 import { authorizedOrders } from "../fieldsync/projections.js";
 import {
   addDays,
@@ -85,7 +85,7 @@ async function readExecution(c, p, d) {
     }));
     const rule = {
       ...dto(st ?? {}),
-      productiveCallRule: st?.productive_call_rule ?? "any_listed_activity",
+      productiveCallRule: st?.productive_call_rule ?? DEFAULT_PRODUCTIVE_RULE,
     };
     const collections = collectionsBy.get(v.id) ?? [];
     if (collections.length > 500)
@@ -432,7 +432,7 @@ export async function dsr(c, a) {
       dailyCallsTarget: x.standard?.daily_calls_target ?? null,
       productiveCallTargetPct: x.standard?.productive_call_target_pct ?? null,
       productiveCallRule:
-        x.standard?.productive_call_rule ?? "any_listed_activity",
+        x.standard?.productive_call_rule ?? DEFAULT_PRODUCTIVE_RULE,
     },
     customers: [...customers.values()],
     categories: [...categories.values()],
