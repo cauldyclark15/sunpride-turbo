@@ -7,7 +7,7 @@ import { install as imports } from "../src/domains/imports/index.js";
 import { MIGRATION_HEADERS } from "../src/domains/imports/migration-headers.js";
 import { seedDemo } from "../../../packages/db/seed/index.js";
 import { seedSpecMasters } from "../../../packages/db/seed/spec-masters.js";
-import { rowId, todayManila } from "../../../packages/db/seed/store.js";
+import { rowId, todayManila, plusDays } from "../../../packages/db/seed/store.js";
 /** @type {import('./harness.js').Harness} */ let h;
 let cookie = "",
   unit = "",
@@ -61,9 +61,11 @@ const review = (row, action, more = {}) =>
   });
 beforeAll(async () => {
   h = await startHarness({ installers: [org, masters, imports] });
-  await seedDemo(h.db, { days: 2, anchorDate: todayManila() });
-  // F-013/F-022: even a future-dated demo manifest must not hide current setup.
-  await h.db`update audit_logs set created_at=now()+interval '1 day' where id=${rowId("audit_logs", "manifest")}`;
+  // F-020 F-013/F-022: generate the future fixture through its writer, never
+  // mutate the now-immutable audit log to simulate a future manifest.
+  await seedDemo(h.db, { days: 2, anchorDate: plusDays(todayManila(), 1) });
+  const [futureManifest] = await h.db`select created_at from audit_logs where id=${rowId("audit_logs", "manifest")}`;
+  expect(new Date(futureManifest.created_at).getTime()).toBeGreaterThan(Date.now());
   await tx(h.db, seedSpecMasters);
   const password = (
     await Bun.file(`${process.env.HOME}/.sunpride-keys/v2-test-password`).text()
