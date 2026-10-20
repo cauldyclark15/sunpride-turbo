@@ -1,5 +1,13 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { startHarness, createUser } from "./harness.js";
+import {
+  startHarness,
+  createUser,
+  deviceKey,
+  registerDevice,
+  nativeSignIn,
+  bind,
+  signedPost,
+} from "./harness.js";
 import { install as org } from "../src/domains/org/index.js";
 import { install as distributors } from "../src/domains/distributors/index.js";
 import { install as orders } from "../src/domains/orders/index.js";
@@ -29,7 +37,7 @@ async function user(role, name) {
   const email = `${name}@distributor.test`;
   const id = await createUser(h, email, password);
   const [p] =
-    await h.db`insert into profiles(user_id,auth_subject,name,email,role,status,org_unit_id) values(${id},${id},${name},${email},${role},'active',${role === "distributor" ? null : unit}) returning id`;
+    await h.db`insert into profiles(user_id,auth_subject,name,email,role,status,org_unit_id) values(${id},${id},${name},${email},${role},'active',${unit}) returning id`;
   const res = await h.fetch("/api/auth/sign-in", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -224,7 +232,33 @@ beforeAll(async () => {
       await h.db`insert into distributors(code,name,org_unit_id,status,sap_customer_code,source) values(${code},${`Sample ${code}`},${unit},'accredited',${`MOCK-${code}`},'sample') returning *`;
     if (code === "A") a = d;
     else b = d;
-    await h.db`insert into distributor_users(distributor_id,profile_id,grants) values(${d.id},${code === "A" ? alice.id : bob.id},${h.db.array(["read", "order", "stock", "secondary", "claim", "finance", "documents", "dsr", "settlement"], "TEXT")})`;
+    expect(
+      (
+        await post(
+          admin,
+          "invite",
+          {
+            email: `${code === "A" ? "alice" : "bob"}@distributor.test`,
+            name: code,
+            grants: [
+              "read",
+              "order",
+              "stock",
+              "secondary",
+              "claim",
+              "finance",
+              "documents",
+              "dsr",
+              "settlement",
+            ],
+          },
+          d.id,
+        )
+      ).status,
+    ).toBe(200);
+    const [scope] =
+      await h.db`select device_org_unit_id from distributors where id=${d.id}`;
+    d.device_org_unit_id = scope.device_org_unit_id;
     expect(
       (await post(admin, "policy", { settings: settings() }, d.id)).status,
     ).toBe(200);
@@ -247,7 +281,15 @@ beforeAll(async () => {
       }
     }
   }
-  await h.db`insert into distributor_users(distributor_id,profile_id,grants) values(${a.id},${reader.id},${h.db.array(["read"], "TEXT")})`;
+  expect(
+    (
+      await post(admin, "invite", {
+        email: "reader@distributor.test",
+        name: "Reader",
+        grants: ["read"],
+      })
+    ).status,
+  ).toBe(200);
   for (const [kind, externalCode, entityId] of [
     ["product", "SKU", sku],
     ["outlet", "SHOP", store],
@@ -853,7 +895,20 @@ describe("W4 claims, AR and controlled documents", () => {
     const [d] =
       await h.db`insert into distributors(code,name,org_unit_id,source) values('APPLICANT','Sample applicant',${unit},'sample') returning *`;
     const applicant = await user("distributor", "applicant");
-    await h.db`insert into distributor_users(distributor_id,profile_id,grants) values(${d.id},${applicant.id},${h.db.array(["read", "documents"], "TEXT")})`;
+    expect(
+      (
+        await post(
+          admin,
+          "invite",
+          {
+            email: "applicant@distributor.test",
+            name: "Applicant",
+            grants: ["read", "documents"],
+          },
+          d.id,
+        )
+      ).status,
+    ).toBe(200);
     expect(
       (await post(admin, "policy", { settings: settings() }, d.id)).status,
     ).toBe(200);
@@ -926,6 +981,21 @@ describe("W4 claims, AR and controlled documents", () => {
 
 describe("W4 health, reconciliation and shared-engine seams", () => {
   test("F-411 DOI reconciles declared stock to net retailer offtake with zero-sales unknown", async () => {
+    const incomplete = await get(alice, "stock-health");
+    expect(incomplete.body.rows[0].daysOfInventory).toBeNull();
+    expect(incomplete.body.offtakeComplete).toBe(false);
+    expect(
+      (
+        await post(alice, "secondary/stage", {
+          adapter: "canonical",
+          sourceKey: "complete-window",
+          rows: [],
+          complete: true,
+          from: dayAdd(today(), -27),
+          to: today(),
+        })
+      ).status,
+    ).toBe(200);
     const hlt = await get(alice, "stock-health");
     expect(hlt.status).toBe(200);
     expect(hlt.body.rows[0].onHandBase).toBe(1200);
@@ -944,6 +1014,10 @@ describe("W4 health, reconciliation and shared-engine seams", () => {
         await post(admin, "financial/sync", {
           source: "sample",
           version: 1,
+          complete: true,
+          sourceKey: "primary-complete",
+          from: today(),
+          to: today(),
           movements: [
             {
               sourceKey: "SHIP1",
@@ -1022,5 +1096,226 @@ describe("W4 health, reconciliation and shared-engine seams", () => {
     expect(x.body.engine).toBe("van");
     expect(x.body.vans.map((/** @type {any} */ v) => v.id)).toEqual([van]);
     expect(x.body.ready).toBe(false);
+  });
+});
+
+describe("W4 hardening counterexamples", () => {
+  test("F-407 signed core sync uses the partner-only device scope and rechecks empty deltas", async () => {
+    const key = await deviceKey(),
+      deviceId = await registerDevice(h, {
+        profileId: alice.id,
+        orgUnitId: a.device_org_unit_id,
+        key,
+      });
+    const signed = await nativeSignIn(
+      h,
+      "alice@distributor.test",
+      password,
+      "field-android",
+      { keyId: key.keyId, publicKeySpki: key.publicKeySpki },
+    );
+    expect(signed.res.status).toBe(200);
+    const who = { access: signed.body.accessToken, deviceId, key };
+    expect((await bind(h, who.access, deviceId, key)).res.status).toBe(200);
+    const payload = {
+      version: 2,
+      scopes: [
+        {
+          scopeId: a.device_org_unit_id,
+          projection: "distributor.bundle",
+          params: { distributorId: a.id },
+        },
+      ],
+      limit: 100,
+    };
+    const snapshot = await signedPost(h, who, "/api/sync/pull", payload);
+    expect(snapshot.res.status).toBe(200);
+    expect(snapshot.body.bundles[0].data.configuration.distributorId).toBe(
+      a.id,
+    );
+    expect(snapshot.body.bundles[0].data).not.toHaveProperty("credit");
+    const nativeMe = await h.fetch("/api/me", {
+      headers: {
+        authorization: `Bearer ${who.access}`,
+        "x-app": "field-android",
+        "x-device-key-id": key.keyId,
+      },
+    });
+    expect((await nativeMe.json()).scope.orgUnitIds).toEqual([
+      a.device_org_unit_id,
+    ]);
+    const foreign = await signedPost(h, who, "/api/sync/pull", {
+      ...payload,
+      scopes: [{ ...payload.scopes[0], params: { distributorId: b.id } }],
+    });
+    expect(foreign.res.status).toBe(403);
+    const delta = await signedPost(h, who, "/api/sync/pull", {
+      ...payload,
+      since: snapshot.body.nextCursor,
+    });
+    expect(delta.res.status).toBe(409);
+    expect(delta.body.error.code).toBe("rebootstrap_required");
+    const [membership] =
+      await h.db`select id from distributor_users where distributor_id=${a.id} and profile_id=${alice.id} and effective_to is null`;
+    expect(
+      (await post(admin, "revoke", { membershipId: membership.id })).status,
+    ).toBe(200);
+    const denied = await signedPost(h, who, "/api/sync/pull", payload);
+    expect(denied.res.status).toBe(403);
+    expect(
+      (
+        await post(admin, "invite", {
+          email: "alice@distributor.test",
+          name: "Alice",
+          grants: [
+            "read",
+            "order",
+            "stock",
+            "secondary",
+            "claim",
+            "finance",
+            "documents",
+            "dsr",
+            "settlement",
+          ],
+        })
+      ).status,
+    ).toBe(200);
+  });
+  test("F-402 office staff are still restricted by the partner supervising unit", async () => {
+    const [u] =
+      await h.db`insert into org_units(organization_id,code,name,type_code,parent_id,status,effective_from) values('sunpride','OTHER','Other area','REGION',${unit},'active','2020-01-01') returning id`;
+    const clerk = await user("operations", "other-area");
+    await h.db`update profiles set org_unit_id=${u.id} where id=${clerk.id}`;
+    expect((await api(clerk, "distributors")).body.rows).toHaveLength(0);
+    expect((await get(clerk, "workspace")).status).toBe(403);
+  });
+  test("F-406 received facts cannot be edited and source replay survives a changed pack", async () => {
+    const row = invoice({ quantity: 2 });
+    expect((await ingest([row])).body.posted).toBe(1);
+    const [original] =
+      await h.db`select * from distributor_secondary_current where distributor_id=${a.id} and invoice_number=${row.invoiceNumber}`;
+    await expect(
+      Promise.resolve(
+        h.db`update distributor_secondary_lines set quantity_base=1 where id=${original.id}`,
+      ),
+    ).rejects.toThrow();
+    expect(
+      (
+        await sync({
+          products: [
+            {
+              productId: sku,
+              uom: "CS",
+              unitsPerUom: 12,
+              priceCentavos: 12000,
+              availableBase: 24000,
+            },
+          ],
+        })
+      ).status,
+    ).toBe(200);
+    expect((await ingest([row])).body.duplicate).toBe(1);
+    const returned = invoice({
+      kind: "return",
+      originalInvoiceNumber: row.invoiceNumber,
+      quantity: 1,
+    });
+    expect((await ingest([returned])).body.posted).toBe(1);
+    const [fact] =
+      await h.db`select * from distributor_secondary_current where distributor_id=${a.id} and invoice_number=${returned.invoiceNumber}`;
+    expect(Number(fact.quantity_base)).toBe(24);
+    expect(Number(fact.units_per_uom)).toBe(24);
+    expect(
+      (
+        await ingest([
+          {
+            ...row,
+            revision: 2,
+            previousHash: original.payload_hash,
+            quantity: 1,
+          },
+        ])
+      ).body.rejected,
+    ).toBe(1);
+    expect((await sync()).status).toBe(200);
+  });
+  test("F-405 received declaration quantities and document bytes are append-only", async () => {
+    const [line] =
+      await h.db`select l.id from distributor_stock_lines l join distributor_stock_declarations d on d.id=l.declaration_id where d.distributor_id=${a.id} limit 1`;
+    await expect(
+      Promise.resolve(
+        h.db`update distributor_stock_lines set quantity_base=1 where id=${line.id}`,
+      ),
+    ).rejects.toThrow();
+    const doc = await document(alice, "claim");
+    await expect(
+      Promise.resolve(
+        h.db`update distributor_documents set content=${Buffer.from("changed")} where id=${doc.body.id}`,
+      ),
+    ).rejects.toThrow();
+  });
+  test("F-403 F-404 concurrent confirmation cannot overrun stock or credit after a master refresh", async () => {
+    const [pending] =
+      await h.db`select coalesce(sum(total_centavos),0)::text as n from orders where purchasing_distributor_id=${a.id} and status not in ('rejected','voided','fulfilled','posted')`;
+    expect(
+      (
+        await sync({
+          credit: {
+            checkedAt: new Date().toISOString(),
+            limitCentavos: Number(pending.n) + 34000,
+            exposureCentavos: 10000,
+          },
+        })
+      ).status,
+    ).toBe(200);
+    const [x, y] = await Promise.all([
+      post(alice, "orders", {
+        poNumber: crypto.randomUUID(),
+        lines: [{ productId: sku, quantity: 1 }],
+      }),
+      post(alice, "orders", {
+        poNumber: crypto.randomUUID(),
+        lines: [{ productId: sku, quantity: 1 }],
+      }),
+    ]);
+    expect([x.status, y.status].sort()).toEqual([200, 422]);
+    const before = await get(alice, "credit");
+    expect((await sync()).status).toBe(200);
+    const after = await get(alice, "credit");
+    expect(after.body.exposureCentavos).toBe(before.body.exposureCentavos);
+  });
+  test("F-416 incomplete source periods never assert a balanced bridge", async () => {
+    const x = await get(
+      alice,
+      `reconciliation?from=${dayAdd(today(), -1)}&to=${dayAdd(today(), -1)}`,
+    );
+    expect(x.status).toBe(200);
+    expect(x.body.feeds.primaryComplete).toBe(false);
+    expect(
+      x.body.rows.every((/** @type {any} */ r) => r.status === "incomplete"),
+    ).toBe(true);
+  });
+  test("F-412 a source key conflict never mutates staged raw rows", async () => {
+    const sourceKey = crypto.randomUUID(),
+      row = invoice();
+    const first = await post(alice, "secondary/stage", {
+      sourceKey,
+      adapter: "canonical",
+      rows: [row],
+    });
+    expect(first.status).toBe(200);
+    expect(
+      (
+        await post(alice, "secondary/stage", {
+          sourceKey,
+          adapter: "canonical",
+          rows: [{ ...row, amountCentavos: 1 }],
+        })
+      ).status,
+    ).toBe(409);
+    const [retained] =
+      await h.db`select raw from distributor_staging_lines where run_id=${first.body.id}`;
+    expect(retained.raw).toEqual(row);
   });
 });

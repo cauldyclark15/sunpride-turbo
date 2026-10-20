@@ -24,7 +24,7 @@ export async function sapCreditCheck(c, d, addCentavos = 0) {
   const limit = integer(credit.limitCentavos),
     sapExposure = integer(credit.exposureCentavos);
   const [pending] =
-    await c.db`select coalesce(sum(total_centavos),0)::text as amount from orders where purchasing_distributor_id=${d.id} and status not in ('rejected','voided','fulfilled','posted') and created_at>=${m.received_at}`;
+    await c.db`select coalesce(sum(total_centavos),0)::text as amount from orders where purchasing_distributor_id=${d.id} and status not in ('rejected','voided','fulfilled','posted')`;
   const commitments = integer(Number(pending.amount));
   const exposure = integer(sapExposure + commitments);
   return {

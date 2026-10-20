@@ -14,6 +14,21 @@ import {
 /** @param {any} v */
 const day = (v) =>
   v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10);
+/** @param {any} c @param {string} id @param {string} from @param {string} to */
+export async function feedCoverage(c, id, from, to) {
+  const days = Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1;
+  const [secondary] =
+    await c.db`select count(*)::integer as n from generate_series(${from}::date,${to}::date,interval '1 day') day where exists(select 1 from distributor_ingest_runs r where r.distributor_id=${id} and r.complete and day::date between r.period_from and r.period_to and not exists(select 1 from distributor_staging_lines s where s.run_id=r.id and s.status not in ('posted','duplicate')))`;
+  const [primary] =
+    await c.db`select count(*)::integer as n from generate_series(${from}::date,${to}::date,interval '1 day') day where exists(select 1 from distributor_primary_feed_receipts r where r.distributor_id=${id} and day::date between r.period_from and r.period_to)`;
+  return {
+    days,
+    secondaryDays: secondary.n,
+    primaryDays: primary.n,
+    secondaryComplete: secondary.n === days,
+    primaryComplete: primary.n === days,
+  };
+}
 /** F-411: complete declared snapshots, net distributor offtake, no-sales ≠ zero DOI.
  * @param {any} c @param {any} d */
 export async function stockHealth(c, d) {
@@ -31,8 +46,8 @@ export async function stockHealth(c, d) {
     await c.db`select product_id,sum(case when kind='sale' then quantity_base else -quantity_base end)::text as qty, sum(case when kind='sale' then amount_centavos else -amount_centavos end)::text as amount from distributor_secondary_current where distributor_id=${d.id} and sale_date between ${start}::date and ${end}::date group by product_id`;
   const prior =
     await c.db`select product_id,sum(case when kind='sale' then quantity_base else -quantity_base end)::text as qty from distributor_secondary_current where distributor_id=${d.id} and sale_date>=${priorStart}::date and sale_date<${start}::date group by product_id`;
-  const [submitted] =
-    await c.db`select count(*)::integer as n from distributor_ingest_runs where distributor_id=${d.id}`;
+  const feeds = await feedCoverage(c, d.id, start, end);
+  const feedComplete = feeds.secondaryComplete;
   const freshness = decl
     ? Math.round(
         (Date.parse(end) - Date.parse(day(decl.stock_date))) / 86400000,
@@ -62,7 +77,7 @@ export async function stockHealth(c, d) {
             0,
           )
         : null;
-    const net = submitted.n ? Number(s?.qty ?? 0) : null;
+    const net = feedComplete ? Number(s?.qty ?? 0) : null;
     const doi =
       !stale && onHand !== null && net !== null && net > 0
         ? onHand / (net / window)
@@ -125,13 +140,15 @@ export async function stockHealth(c, d) {
       })),
       nextAction: stale
         ? "Submit a fresh complete stock declaration"
-        : near > 0
-          ? "Review dated batches first"
-          : state === "understock"
-            ? "Raise a primary order"
-            : state === "overstock" || state === "no_sales"
-              ? "Review retailer offtake"
-              : "Keep declaring daily",
+        : !feedComplete
+          ? "Complete the secondary-sales feed period"
+          : near > 0
+            ? "Review dated batches first"
+            : state === "understock"
+              ? "Raise a primary order"
+              : state === "overstock" || state === "no_sales"
+                ? "Review retailer offtake"
+                : "Keep declaring daily",
     });
   }
   const trend =
@@ -147,6 +164,8 @@ export async function stockHealth(c, d) {
         }
       : null,
     freshnessDays: freshness,
+    offtakeComplete: feedComplete,
+    completeOfftakeDays: feeds.secondaryDays,
     stale,
     source:
       "Distributor declarations and invoice-line offtake; not SAP valuation",
@@ -171,6 +190,8 @@ export async function reconciliation(c, d, params) {
     fail("Choose a past period of at most 366 days");
   const p = await policy(c, d.id),
     openingDate = dayAdd(from, -1);
+  const feeds = await feedCoverage(c, d.id, from, to),
+    sourcesComplete = feeds.primaryComplete && feeds.secondaryComplete;
   const [open] =
     await c.db`select * from distributor_stock_declarations where distributor_id=${d.id} and stock_date=${openingDate} order by revision desc limit 1`;
   const [close] =
@@ -225,7 +246,7 @@ export async function reconciliation(c, d, params) {
       await c.db`select id,version from distributor_primary_movements where distributor_id=${d.id} and product_id=${id} and movement_date between ${from}::date and ${to}::date order by id`;
     const secondaryVersions =
       await c.db`select id,payload_hash from distributor_secondary_current where distributor_id=${d.id} and product_id=${id} and sale_date between ${from}::date and ${to}::date order by id`;
-    const hash = digest({ facts, primaryVersions, secondaryVersions });
+    const hash = digest({ facts, primaryVersions, secondaryVersions, feeds });
     const [review] =
       await c.db`select r.*,p.name as owner_name from distributor_reconciliation_reviews r join profiles p on p.id=r.assigned_to where r.distributor_id=${d.id} and r.period_from=${from} and r.period_to=${to} and r.product_id=${id} order by r.created_at desc,r.id desc limit 1`;
     rows.push({
@@ -234,7 +255,7 @@ export async function reconciliation(c, d, params) {
       name: product?.name,
       contentHash: hash,
       status:
-        variance === null
+        variance === null || !sourcesComplete
           ? "incomplete"
           : Math.abs(variance) <= p.reconciliationToleranceBase
             ? "balanced"
@@ -247,8 +268,9 @@ export async function reconciliation(c, d, params) {
             stale: review.content_hash !== hash,
           }
         : null,
-      nextAction:
-        variance === null
+      nextAction: !sourcesComplete
+        ? "Synchronize complete primary and secondary feeds"
+        : variance === null
           ? "Submit exact opening and closing declarations"
           : Math.abs(variance) > p.reconciliationToleranceBase
             ? "Explain and assign the variance"
@@ -258,6 +280,7 @@ export async function reconciliation(c, d, params) {
   return {
     period: { from, to },
     openingDate,
+    feeds,
     openingPresent: !!open,
     closingPresent: !!close,
     toleranceBase: p.reconciliationToleranceBase,

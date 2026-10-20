@@ -29,7 +29,7 @@ export async function quote(c, d, b) {
     const quantity = integer(input.quantity, 1, 1000000),
       quantityBase = integer(quantity * integer(p.unitsPerUom, 1));
     const [reserved] =
-      await c.db`select coalesce(sum(l.quantity_base),0)::text as n from order_lines l join orders o on o.id=l.order_id where o.purchasing_distributor_id=${d.id} and o.created_at>=${m.received_at} and o.status not in ('rejected','voided','fulfilled','posted') and l.product_id=${p.productId}`;
+      await c.db`select coalesce(sum(l.quantity_base),0)::text as n from order_lines l join orders o on o.id=l.order_id where o.purchasing_distributor_id=${d.id} and o.status not in ('rejected','voided','fulfilled','posted') and l.product_id=${p.productId}`;
     const available = Math.max(
       0,
       integer(p.availableBase) - Number(reserved.n),

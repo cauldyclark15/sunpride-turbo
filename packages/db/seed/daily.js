@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { createDb, tx } from "../src/client.js";
+import { seedDistributors } from "./distributors.js";
 import { company } from "./company.js";
 import { execution } from "./execution.js";
 import { vans } from "./vans.js";
@@ -1017,7 +1018,11 @@ if (import.meta.main) {
   } else {
     const db = createDb(process.env.DATABASE_URL, { max: 1 });
     try {
-      console.log(JSON.stringify(await advanceDemo(db, { date }), null, 2));
+      const result = await advanceDemo(db, { date });
+      const distributorSamples = await seedDistributors(db, {
+        anchorDate: date,
+      });
+      console.log(JSON.stringify({ ...result, distributorSamples }, null, 2));
     } catch {
       console.error(
         "Demo daily advance failed; no partial day was committed. Check sample ownership, migrations and active sample masters.",

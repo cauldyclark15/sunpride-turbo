@@ -191,9 +191,26 @@ export async function stageSecondary(c, d, b) {
                 })),
               )
             : fail("Choose csv, canonical or invoice_json");
-  if (!rows.length || rows.length > 500)
-    fail("Import between 1 and 500 invoice lines");
-  const hash = digest(rows);
+  const complete = b.complete === true,
+    periodFrom = complete ? date(b.from) : "",
+    periodTo = complete ? date(b.to) : "";
+  if (
+    complete &&
+    (periodFrom > periodTo ||
+      periodTo > today(c.now) ||
+      Date.parse(periodTo) - Date.parse(periodFrom) > 365 * 86400000)
+  )
+    fail("Choose a complete-feed period of at most 366 past days");
+  if ((!rows.length && !complete) || rows.length > 500)
+    fail(
+      "Import up to 500 lines, or explicitly declare a complete zero-sales period",
+    );
+  if (
+    complete &&
+    rows.some((r) => date(r.date) < periodFrom || date(r.date) > periodTo)
+  )
+    fail("Invoice dates fall outside the complete feed period");
+  const hash = digest({ rows, complete, periodFrom, periodTo });
   const [old] =
     await c.db`select * from distributor_ingest_runs where distributor_id=${d.id} and source_key=${source}`;
   if (old) {
@@ -206,7 +223,7 @@ export async function stageSecondary(c, d, b) {
     return { id: old.id, duplicate: true };
   }
   const [run] =
-    await c.db`insert into distributor_ingest_runs(distributor_id,source_key,payload_hash,adapter,submitted_by) values(${d.id},${source},${hash},${adapter},${c.actor.profileId}) returning id`;
+    await c.db`insert into distributor_ingest_runs(distributor_id,source_key,payload_hash,adapter,submitted_by,complete,period_from,period_to) values(${d.id},${source},${hash},${adapter},${c.actor.profileId},${complete},${complete ? periodFrom : null},${complete ? periodTo : null}) returning id`;
   for (const [i, row] of rows.entries())
     await c.db`insert into distributor_staging_lines(run_id,ordinal,raw) values(${run.id},${i},${row})`;
   return { id: run.id, lines: rows.length };
@@ -234,10 +251,34 @@ export async function processSecondary(c, d, b) {
         kind = text(r.kind);
       if (day > today(c.now) || !["sale", "return"].includes(kind))
         fail("Check transaction date and sale/return kind");
+      const sourceHash = digest(r);
+      const [prior] =
+        await c.db`select * from distributor_secondary_lines where distributor_id=${d.id} and invoice_number=${invoice} and line_key=${lineKey} order by revision desc limit 1`;
+      if (
+        prior &&
+        Number(prior.revision) === revision &&
+        prior.source_payload_hash === sourceHash
+      ) {
+        counts.duplicate++;
+        await c.db`update distributor_staging_lines set status='duplicate',reason=null,fact_id=${prior.id},updated_at=now() where id=${row.id}`;
+        continue;
+      }
       const productId = await resolve(c, d.id, "product", r.productCode),
         outletId = await resolve(c, d.id, "outlet", r.outletCode),
         locationId = await resolve(c, d.id, "location", r.locationCode);
       const p = await product(c, d.id, productId);
+      if (kind === "return") {
+        const originals =
+          await c.db`select distinct uom,units_per_uom from distributor_secondary_current where distributor_id=${d.id} and invoice_number=${text(r.originalInvoiceNumber, "Original invoice")} and outlet_id=${outletId} and product_id=${productId} and kind='sale'`;
+        if (
+          originals.length !== 1 ||
+          originals[0].uom !== r.uom ||
+          !originals[0].units_per_uom
+        )
+          fail("Original sale pack facts are missing or ambiguous");
+        p.uom = originals[0].uom;
+        p.unitsPerUom = Number(originals[0].units_per_uom);
+      }
       await outlet(c, d.id, outletId);
       await location(c, d.id, locationId);
       if (r.uom !== p.uom) fail("UOM must match the assigned catalog unit");
@@ -269,8 +310,6 @@ export async function processSecondary(c, d, b) {
         amount,
       };
       const hash = digest(facts);
-      const [prior] =
-        await c.db`select * from distributor_secondary_lines where distributor_id=${d.id} and invoice_number=${invoice} and line_key=${lineKey} order by revision desc limit 1`;
       let id;
       if (
         prior &&
@@ -300,8 +339,22 @@ export async function processSecondary(c, d, b) {
         if (Number(sold.n) < quantityBase + Number(returned.n))
           fail("Return exceeds matching original retailer sale");
       }
+      if (prior?.kind === "sale") {
+        const [returned] =
+          await c.db`select coalesce(sum(quantity_base),0)::text as n from distributor_secondary_current where distributor_id=${d.id} and original_invoice_number=${prior.invoice_number} and outlet_id=${prior.outlet_id} and product_id=${prior.product_id} and kind='return'`;
+        const [siblings] =
+          await c.db`select coalesce(sum(quantity_base),0)::text as n from distributor_secondary_current where distributor_id=${d.id} and invoice_number=${prior.invoice_number} and outlet_id=${prior.outlet_id} and product_id=${prior.product_id} and kind='sale' and id<>${prior.id}`;
+        const replacement =
+          kind === "sale" &&
+          outletId === prior.outlet_id &&
+          productId === prior.product_id
+            ? quantityBase
+            : 0;
+        if (Number(returned.n) > Number(siblings.n) + replacement)
+          fail("Correction would orphan or exceed recorded returns");
+      }
       const [fact] =
-        await c.db`insert into distributor_secondary_lines(distributor_id,invoice_number,line_key,revision,source_key,payload_hash,sale_date,kind,original_invoice_number,outlet_id,product_id,location_id,batch,uom,quantity_base,amount_centavos,supersedes_id) values(${d.id},${invoice},${lineKey},${revision},${run.source_key},${hash},${day},${kind},${original},${outletId},${productId},${locationId},${batch},${r.uom},${quantityBase},${amount},${prior?.id ?? null}) returning id`;
+        await c.db`insert into distributor_secondary_lines(distributor_id,invoice_number,line_key,revision,source_key,payload_hash,sale_date,kind,original_invoice_number,outlet_id,product_id,location_id,batch,uom,quantity_base,amount_centavos,supersedes_id,source_payload_hash,quantity_units,units_per_uom) values(${d.id},${invoice},${lineKey},${revision},${run.source_key},${hash},${day},${kind},${original},${outletId},${productId},${locationId},${batch},${r.uom},${quantityBase},${amount},${prior?.id ?? null},${sourceHash},${quantity},${p.unitsPerUom}) returning id`;
       id = fact.id;
       counts.posted++;
       await c.db`update distributor_staging_lines set status='posted',reason=null,fact_id=${id},updated_at=now() where id=${row.id}`;

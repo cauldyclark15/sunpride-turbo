@@ -1,4 +1,5 @@
 import { tx } from "@sunpride/db/client";
+import { nextDayClose } from "../../core/scope.js";
 import { actorFor } from "../../core/context.js";
 import { requireCapability } from "../../core/capabilities.js";
 import { scopeFilterForActor } from "../org/scope.js";
@@ -61,14 +62,14 @@ async function partners(c) {
   if (!c.actor) fail("Sign in to continue", "unauthenticated", 401);
   if (c.actor.role === "distributor")
     return {
-      rows: await c.db`select d.id,d.code,d.name,d.status,d.source,u.grants from distributors d join distributor_users u on u.distributor_id=d.id where u.profile_id=${c.actor.profileId} and u.effective_from<=now() and (u.effective_to is null or u.effective_to>now()) and d.effective_from<=now() and (d.effective_to is null or d.effective_to>now()) and d.status not in ('suspended','rejected') order by d.name`,
+      rows: await c.db`select d.id,d.code,d.name,d.status,d.source,u.grants from distributors d join distributor_users u on u.distributor_id=d.id where u.profile_id=${c.actor.profileId} and d.device_org_unit_id=${c.actor.orgUnitId} and u.effective_from<=now() and (u.effective_to is null or u.effective_to>now()) and d.effective_from<=now() and (d.effective_to is null or d.effective_to>now()) and d.status not in ('suspended','rejected') order by d.name`,
       next: null,
     };
   await requireCapability(c, "integration.read");
   const { unitIds } = await scopeFilterForActor(c.db, c.actor);
   const after = c.url.searchParams.get("after") ?? "";
   const rows =
-    await c.db`select id,code,name,status,source from distributors where (${unitIds === null} or org_unit_id::text in (select jsonb_array_elements_text(${JSON.stringify(unitIds ?? [])}::jsonb))) and code>${after} order by code limit 201`;
+    await c.db`select id,code,name,status,source from distributors where (${unitIds === null} or org_unit_id::text in (select jsonb_array_elements_text(${JSON.stringify(unitIds ?? [])}::text::jsonb))) and code>${after} order by code limit 201`;
   return {
     rows: rows.slice(0, 200),
     next: rows.length > 200 ? rows[199].code : null,
@@ -149,6 +150,29 @@ function csv(rows, columns) {
 export function install(router, platform) {
   router.get("/api/v1/distributors", (c) => read(c, partners));
   router.post("/api/v1/distributors/create", createDistributor);
+  router.get("/api/v1/distributors/setup", (c) =>
+    read(c, async (cc) => {
+      const d = await authorize(
+        cc,
+        uuid(c.url.searchParams.get("distributorId")),
+        "read",
+        true,
+      );
+      const [m] =
+        await cc.db`select id,version,payload,source,source_key,effective_from,received_at from distributor_master_versions where distributor_id=${d.id} and effective_to is null order by version desc limit 1`;
+      const [p] =
+        await cc.db`select settings,version from distributor_policies where distributor_id=${d.id} and effective_to is null`;
+      const users =
+        await cc.db`select u.id,p.name,p.email,u.grants,u.effective_to from distributor_users u join profiles p on p.id=u.profile_id where u.distributor_id=${d.id} order by u.created_at desc limit 201`;
+      return {
+        distributor: d,
+        master: m ?? null,
+        policy: p ?? null,
+        users: users.slice(0, 200),
+        usersTruncated: users.length > 200,
+      };
+    }),
+  );
   /** @param {string} path @param {string} grant @param {(c:any,d:any,b:any)=>Promise<any>} fn @param {boolean} [office] */
   const post = (path, grant, fn, office = false) =>
     router.post(`/api/v1/distributors/${path}`, (c) =>
@@ -260,6 +284,10 @@ export function install(router, platform) {
   post("documents/read", "documents", acknowledgeDocument);
   get("documents", "documents", async (c, d) => ({
     rows: (await workspace(c, d)).documents,
+    receipts:
+      c.actor.role !== "distributor"
+        ? await c.db`select r.document_id,p.name,r.created_at from distributor_document_reads r join distributor_documents doc on doc.id=r.document_id join profiles p on p.id=r.profile_id where doc.distributor_id=${d.id} order by r.created_at desc limit 501`
+        : [],
   }));
   router.get("/api/v1/distributors/documents/:id", async (c) => {
     const result = await read(c, async (cc) => {
@@ -335,22 +363,45 @@ export function install(router, platform) {
       }
     },
   );
-  platform.registerProjection(
-    "distributor.bundle",
-    async (/** @type {any} */ c) => {
+  platform.registerProjection("distributor.bundle", {
+    leaseExpiresAt: (/** @type {any} */ c) => c.partnerLeaseExpiresAt ?? c.now,
+    snapshot: async (/** @type {any} */ c) =>
+      read(c, async (cc) => {
+        if (
+          cc.actor?.scopeEpoch !== c.actor.scopeEpoch ||
+          cc.actor?.orgUnitId !== c.actor.orgUnitId
+        )
+          fail("Partner scope changed", "scope_changed", 409);
+        const d = await authorize(cc, uuid(c.params?.distributorId), "dsr");
+        if (d.status !== "accredited")
+          fail("Distributor is not accredited", "out_of_scope", 403);
+        const config = await distributorCallflowConfig(cc, d),
+          m = await master(cc, d.id);
+        c.partnerLeaseExpiresAt = Math.min(
+          nextDayClose(c.now),
+          config.validUntil ? new Date(config.validUntil).getTime() : Infinity,
+          d.effective_to ? new Date(d.effective_to).getTime() : Infinity,
+        );
+        return {
+          data: wire({
+            configuration: config,
+            catalog: m.payload.products,
+            masterVersion: Number(m.version),
+          }),
+          next: null,
+        };
+      }),
+    // CORE calls scopeKeys on EVERY delta, including an empty one. Never renew a
+    // held/revoked partner's authorization merely because no change row exists.
+    scopeKeys: async (/** @type {any} */ c) => {
       const d = await authorize(c, uuid(c.params?.distributorId), "dsr");
       if (d.status !== "accredited")
         fail("Distributor is not accredited", "out_of_scope", 403);
-      const config = await distributorCallflowConfig(c, d),
-        m = await master(c, d.id);
-      return {
-        data: wire({
-          configuration: config,
-          catalog: m.payload.products,
-          masterVersion: Number(m.version),
-        }),
-        next: null,
-      };
+      fail(
+        "Refresh the complete partner configuration; shared call-flow deltas are not integrated yet",
+        "rebootstrap_required",
+        409,
+      );
     },
-  );
+  });
 }

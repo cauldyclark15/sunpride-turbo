@@ -83,9 +83,16 @@ export async function authorize(c, id, grant = "read", office = false) {
   if (c.actor.role === "distributor") {
     if (office) fail("Sunpride permission required", "forbidden", 403);
     const [member] =
-      await c.db`select * from distributor_users where distributor_id=${id} and profile_id=${c.actor.profileId} and effective_from<=now() and (effective_to is null or effective_to>now())`;
+      await c.db`select u.* from distributor_users u join profiles p on p.id=u.profile_id where u.distributor_id=${id} and u.profile_id=${c.actor.profileId} and u.effective_from<=now() and (u.effective_to is null or u.effective_to>now()) and p.user_id=${c.actor.userId} and p.status='active' and p.role='distributor' and p.deleted_at is null and p.org_unit_id=${d.device_org_unit_id}`;
+    if (c.device?.id) {
+      const [device] =
+        await c.db`select id from registered_devices where id=${c.device.id} and profile_id=${c.actor.profileId} and status='active' and bound_subject=${c.actor.subject} and org_unit_id=${d.device_org_unit_id}`;
+      if (!device) fail("Partner device access changed", "out_of_scope", 403);
+    }
     if (
       !member ||
+      !d.device_org_unit_id ||
+      c.actor.orgUnitId !== d.device_org_unit_id ||
       !member.grants.includes(grant) ||
       ["suspended", "rejected"].includes(d.status)
     )

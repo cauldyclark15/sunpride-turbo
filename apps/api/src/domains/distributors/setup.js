@@ -14,6 +14,7 @@ import {
   PARTNER_GRANTS,
 } from "./model.js";
 import { sapCreditCheck, enqueueSapPosting } from "./seams.js";
+import { ensurePartnerDeviceScope } from "./identity-seam.js";
 
 /** F-401: create an applicant organization. @param {any} c */
 export async function createDistributor(c) {
@@ -53,8 +54,12 @@ export async function invite(c, d, b) {
     name = text(b.name, "Name");
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail("Enter a valid email");
   const grants = list(b.grants, PARTNER_GRANTS.length).map((g) => text(g));
-  if (!grants.length || grants.some((g) => !PARTNER_GRANTS.includes(g)))
+  if (
+    !grants.includes("read") ||
+    grants.some((g) => !PARTNER_GRANTS.includes(g))
+  )
     fail("Choose supported partner grants");
+  const deviceScope = await ensurePartnerDeviceScope(c, d);
   const [existing] =
     await c.db`select * from profiles where lower(email)=${email}`;
   if (existing && existing.role !== "distributor")
@@ -65,13 +70,15 @@ export async function invite(c, d, b) {
     );
   const [p] = existing
     ? [existing]
-    : await c.db`insert into profiles(name,email,role,status,employment_type) values(${name},${email},'distributor','active','third_party') returning *`;
+    : await c.db`insert into profiles(name,email,role,status,employment_type,org_unit_id) values(${name},${email},'distributor','active','third_party',${deviceScope}) returning *`;
   const [current] =
     await c.db`select * from distributor_users where profile_id=${p.id} and (effective_to is null or effective_to>now())`;
   if (current && current.distributor_id !== d.id)
     fail("Account already belongs to another distributor", "conflict", 409);
   if (current)
     await c.db`update distributor_users set effective_to=now() where id=${current.id}`;
+  // SEAM(ORG): retire native cursors when partner grants or membership change.
+  await c.db`update profiles set org_unit_id=${deviceScope},scope_epoch=scope_epoch+1 where id=${p.id}`;
   const [m] =
     await c.db`insert into distributor_users(distributor_id,profile_id,grants) values(${d.id},${p.id},${c.db.array(grants, "TEXT")}) returning id`;
   if (!p.user_id) {
@@ -85,6 +92,7 @@ export async function revoke(c, d, b) {
   const [m] =
     await c.db`update distributor_users set effective_to=now() where id=${uuid(b.membershipId)} and distributor_id=${d.id} and effective_from<now() and (effective_to is null or effective_to>now()) returning id`;
   if (!m) fail("Active membership not found");
+  await c.db`update profiles set scope_epoch=scope_epoch+1 where id=(select profile_id from distributor_users where id=${m.id})`;
   return { id: m.id };
 }
 /** F-402: immutable full snapshots with monotonic replay, exact shared outlet ids and SAP provenance.
@@ -370,6 +378,39 @@ export async function syncFinancial(c, d, b) {
       continue;
     }
     await c.db`insert into distributor_primary_movements(distributor_id,source_key,version,movement_date,product_id,quantity_base,kind,source,received_at) values(${d.id},${key},${version},${day},${productId},${qty},${item.kind},${b.source},now()) on conflict(distributor_id,source_key) do update set version=excluded.version,movement_date=excluded.movement_date,product_id=excluded.product_id,quantity_base=excluded.quantity_base,kind=excluded.kind,source=excluded.source,received_at=now(),updated_at=now()`;
+  }
+  if (b.complete === true) {
+    const from = date(b.from),
+      to = date(b.to),
+      key = text(b.sourceKey, "SAP feed source key");
+    if (
+      from > to ||
+      to > new Date(c.now + 28800000).toISOString().slice(0, 10) ||
+      Date.parse(to) - Date.parse(from) > 365 * 86400000
+    )
+      fail("Choose a complete SAP feed period of at most 366 past days");
+    if (
+      (b.movements ?? []).some(
+        (/** @type {any} */ r) => date(r.date) < from || date(r.date) > to,
+      )
+    )
+      fail("Primary movements fall outside the declared complete period");
+    const hash = digest({
+      source: b.source,
+      from,
+      to,
+      movements: b.movements ?? [],
+    });
+    const [old] =
+      await c.db`select * from distributor_primary_feed_receipts where distributor_id=${d.id} and source_key=${key} order by version desc limit 1`;
+    if (
+      old &&
+      (Number(old.version) > version ||
+        (Number(old.version) === version && old.payload_hash !== hash))
+    )
+      fail("SAP feed version conflict", "version_conflict", 409);
+    if (!old || Number(old.version) < version)
+      await c.db`insert into distributor_primary_feed_receipts(distributor_id,source_key,version,payload_hash,period_from,period_to,source) values(${d.id},${key},${version},${hash},${from},${to},${b.source})`;
   }
   return {
     arItems: (b.arItems ?? []).length,
