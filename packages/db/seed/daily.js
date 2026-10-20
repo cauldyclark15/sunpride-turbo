@@ -12,6 +12,7 @@ import { ensureCallflowSamples } from "./callflow.js";
 import { seedTpm } from "./tpm.js";
 import { ensureIntegrityFleet } from "./integrity-fleet.js";
 import { seedAvailability } from "./availability.js";
+import { seedModernTrade } from "./modern-trade.js";
 import {
   BATCH,
   Dataset,
@@ -1035,10 +1036,11 @@ if (import.meta.main) {
     const db = createDb(process.env.DATABASE_URL, { max: 1 });
     try {
       const result = await advanceDemo(db, { date });
+      const modernTrade = await seedModernTrade(db);
       const distributorSamples = await seedDistributors(db, {
         anchorDate: date,
       });
-      console.log(JSON.stringify({ ...result, distributorSamples }, null, 2));
+      console.log(JSON.stringify({ ...result, distributorSamples, modernTrade }, null, 2));
     } catch {
       console.error(
         "Demo daily advance failed; no partial day was committed. Check sample ownership, migrations and active sample masters.",

@@ -1,5 +1,6 @@
 import { resolveSapPrice } from "../integration/replicas.js";
 import { sapCreditCheck } from "../integration/credit.js";
+import { resolveAccountPrice } from "../mt/sap.js";
 import {
   channel,
   divide,
@@ -11,10 +12,12 @@ import {
 
 /** F-016 SAP condition replica is authoritative. Signature is the shared ORDERS seam.
  * @param {any} db
- * @param {{organizationId:string,productId:string,uom:string,channelKey:string|null,customerCode:string|null,at:number}} q
+ * @param {{organizationId:string,productId:string,uom:string,channelKey:string|null,customerCode:string|null,outletId?:string|null,at:number}} q
  * @returns {Promise<{unitPriceCentavos:number|null,priceListId:string|null,source:string,taxCode?:string,taxBasisPoints?:number,taxInclusive?:boolean,sapKey?:string,sapVersion?:number,effectiveFrom?:number,effectiveTo?:number|null}>}
  */
 export async function resolvePrice(db, q) {
+  const accountPrice = await resolveAccountPrice(db, q);
+  if (accountPrice) return accountPrice;
   let key = channel(q.channelKey);
   if (!key && q.customerCode) {
     const [c] =

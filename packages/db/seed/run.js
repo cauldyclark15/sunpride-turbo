@@ -7,6 +7,7 @@ import { seedSapDemo } from "./sap.js";
 import { seedDistributors } from "./distributors.js";
 import { seedFiscal } from "./fiscal.js";
 import { seedAvailability } from "./availability.js";
+import { seedModernTrade } from "./modern-trade.js";
 
 const args = process.argv.slice(2);
 let reset = false;
@@ -39,6 +40,7 @@ if (
   const db = createDb(process.env.DATABASE_URL, { max: 1 });
   try {
     const result = reset ? await resetDemo(db) : await seedDemo(db, options);
+    const mt = reset ? null : await seedModernTrade(db);
     if (!reset) await seedAvailability(db, options.anchorDate);
     if (!reset) await seedFiscal(db);
     if (!reset)
@@ -50,7 +52,7 @@ if (
     const distributorSamples = distributors
       ? await seedDistributors(db, { anchorDate: options.anchorDate })
       : null;
-    console.log(JSON.stringify({ ...result, distributorSamples }, null, 2));
+    console.log(JSON.stringify({ ...result, distributorSamples, modernTrade: mt }, null, 2));
   } catch (error) {
     // Do not dump a SQL exception: its query/parameters can contain password hashes.
     const message = error instanceof Error ? error.message : "Unknown error";

@@ -120,6 +120,19 @@ beforeEach(() => {
 });
 
 describe("service worker cache rules", () => {
+  it("F-611 never caches customer portal HTML, RSC, invoices, deductions or original documents", () => {
+    for (const path of [
+      "/portal",
+      "/portal/login",
+      "/api/v1/portal/overview",
+      "/api/v1/mt/intake/document?id=x",
+    ])
+      expect(sw.classify(request(path, { navigate: true }))).toBe("none");
+    expect(
+      sw.classify(request("/portal?_rsc=1", { headers: { rsc: "1" } })),
+    ).toBe("none");
+    expect(sw.handle(request("/api/v1/portal/overview"))).toBeNull();
+  });
   it("caches only same-origin GET reads it owns", () => {
     expect(sw.classify(request("/api/v1/analytics/today?date=x"))).toBe("data");
     expect(sw.classify(request("/api/v1/orders"))).toBe("data");

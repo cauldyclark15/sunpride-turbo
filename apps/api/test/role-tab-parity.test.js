@@ -37,6 +37,13 @@ const calls = {
     "/api/v1/tpm/deductions",
     "/api/v1/tpm/incentives",
   ],
+  // F-306 F-307 F-309: real mounted reads for the MT Work tab.
+  "modern-trade": [
+    "/api/v1/mt/options",
+    "/api/v1/mt/intake",
+    "/api/v1/mt/terms",
+    "/api/v1/mt/deductions",
+  ],
   orders: [
     "/api/v1/orders/list",
     "/api/v1/orders/filter-options",

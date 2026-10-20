@@ -171,6 +171,7 @@ export const MODULE_ROLES = {
   decide: ownerReaders,
   // Work.
   orders: orderActors, // order.create, order.approve, order.encode
+  "modern-trade": ownerReaders, // report.read; each command has its own capability gate
   workflows: approvers, // order.approve + van.*.approve
   "sales-force": MCP_PANEL_ROLES["mcp.read"], // all roles with MCP read
   supervision: supervisors, // people.read + visit.read

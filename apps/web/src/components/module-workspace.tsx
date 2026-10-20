@@ -28,6 +28,7 @@ import { ImportsWorkspace } from "./imports-workspace";
 import { InventoryWorkspace } from "./inventory-workspace";
 import { LiveMapWorkspace } from "./live-map/live-map-workspace";
 import { OutsideCallOrders } from "./outside-call-orders";
+import { ModernTradeWorkspace } from "./modern-trade";
 import { PanelErrorBoundary } from "./panel-error-boundary";
 import { ProgrammeWorkspace } from "./programme/programme-workspace";
 import { SupervisionWorkspace } from "./supervision/supervision-workspace";
@@ -64,6 +65,7 @@ const TITLES = {
   inventory: "Inventory",
   imports: "Imports",
   "outside-calls": "Outside-call POs",
+  "modern-trade": "Modern trade",
   "van-trips": "Van trips",
   "live-map": "Live map",
   admin: "Administration",
@@ -142,7 +144,9 @@ function AllowedModuleWorkspace({
   return (
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4">
       {/* Inventory and the rebuilt Orders workspace draw their own header. */}
-      {module === "inventory" || module === "orders" ? null : (
+      {module === "inventory" ||
+      module === "orders" ||
+      module === "modern-trade" ? null : (
         <PageHeader title={TITLES[module]} />
       )}
       {tabs.length > 1 ? (
@@ -155,6 +159,11 @@ function AllowedModuleWorkspace({
       <ModuleContent module={module} />
     </div>
   );
+}
+
+function OrdersRoute() {
+  const query = useSearchParams();
+  return <OrdersWorkspace initialOrderId={query.get("orderId")} />;
 }
 
 export function VanTripRoute() {
@@ -170,9 +179,11 @@ export function VanTripRoute() {
 function ModuleContent({ module }: { module: WebModuleSlug }): ReactNode {
   switch (module) {
     case "orders":
-      return <OrdersWorkspace />;
+      return <OrdersRoute />;
     case "distributors":
       return <DistributorWorkspace />;
+    case "modern-trade":
+      return <ModernTradeWorkspace />;
     case "workflows":
       return (
         <>

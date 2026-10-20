@@ -93,11 +93,13 @@ function queryFor(filters: Filters, cursor?: string) {
 }
 
 /** Which orders need a decision, and what is keeping booked sales from moving? */
-export function OrdersWorkspace() {
+export function OrdersWorkspace({
+  initialOrderId = null,
+}: { initialOrderId?: string | null } = {}) {
   const { can } = usePermissions();
   const [filters, setFilters] = useState(initial);
   const [cursors, setCursors] = useState<string[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(initialOrderId);
   const closeDrawer = useCallback(() => setSelected(null), []);
   const params = queryFor(filters, cursors.at(-1));
   const list = useApi<OrderPage>(
@@ -683,7 +685,7 @@ export function OrderDrawer({
                       <li key={i}>
                         {l.productCode} ·{" "}
                         {l.source === "sample"
-                          ? "Sample channel price"
+                          ? "Sample approved price"
                           : l.source === "office"
                             ? "Office channel price"
                             : l.source === "promotion"

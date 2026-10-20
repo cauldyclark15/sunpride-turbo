@@ -42,7 +42,11 @@ function classify(request) {
     path === "/api/v1/distributors" ||
     path.startsWith("/api/v1/distributors/") ||
     path === "/distributor" ||
-    path === "/distributors"
+    path === "/distributors" ||
+    path === "/portal" ||
+    path.startsWith("/portal/") ||
+    path.startsWith("/api/v1/portal/") ||
+    path.startsWith("/api/v1/mt/")
   )
     return "none";
   if (path === "/sw.js" || path === "/ws") return "none";
