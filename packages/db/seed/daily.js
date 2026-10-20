@@ -195,13 +195,38 @@ async function markNative(db, table, value) {
   await db`insert into sample_data_rows(id,batch,table_name,row_id,key) values(${rowId("sample_data_rows", key)},${BATCH},${table},${value},${key}) on conflict(batch,key) do nothing`;
 }
 
-/** No production balance owned by a tester may be updated by the daily sample posting.
- * @param {Db} db @param {string[]} locations @param {string[]} products */
-async function guardBalances(db, locations, products) {
+/** F-025: fence the exact balance keys the canonical writer can mutate. A tester's
+ * different lot/status at the same depot is not touched by an explicit-lot unload.
+ * Omitted lots remain conservative because the writer may allocate eligible lots.
+ * @param {Db} db @param {import('../../../apps/api/src/domains/inventory/posting.js').MovementLine[]} lines */
+export async function guardBalances(db, lines) {
+  const touches = lines.flatMap((line) =>
+    [
+      {
+        location_id: line.fromLocationId,
+        stock_status: line.fromStockStatus ?? line.stockStatus ?? "available",
+      },
+      {
+        location_id: line.toLocationId,
+        stock_status: line.toStockStatus ?? line.stockStatus ?? "available",
+      },
+    ]
+      .filter((key) => key.location_id)
+      .map((key) => ({
+        ...key,
+        product_id: line.productId,
+        lot_id: line.lotId ?? null,
+      })),
+  );
+  if (!touches.length) return;
   for (const table of ["inventory_balances", "inventory_lot_balances"]) {
     const rows = await db.unsafe(
-      `select r.id from ${ident(table)} r where r.location_id=any($1::uuid[]) and r.product_id=any($2::uuid[]) and not exists(select 1 from sample_data_rows m where m.batch=$3 and m.table_name=$4 and m.row_id=r.id::text) limit 1`,
-      [`{${locations.join(",")}}`, `{${products.join(",")}}`, BATCH, table],
+      `select r.id from ${ident(table)} r join jsonb_to_recordset($1::text::jsonb)
+       as touched(location_id uuid,product_id uuid,lot_id uuid,stock_status text)
+       on r.location_id=touched.location_id and r.product_id=touched.product_id
+       ${table === "inventory_lot_balances" ? "and (touched.lot_id is null or r.lot_id=touched.lot_id) and r.stock_status=touched.stock_status" : ""}
+       where not exists(select 1 from sample_data_rows m where m.batch=$2 and m.table_name=$3 and m.row_id=r.id::text) limit 1`,
+      [JSON.stringify(touches), BATCH, table],
     );
     if (rows.length) throw new Error("Demo refused to change non-sample stock");
   }
@@ -622,6 +647,9 @@ async function advanceDay(db, date, originalStart) {
     const { postMovement } = await import(
       new URL("domains/inventory/posting.js", api).href
     );
+    const { stockLock } = await import(
+      new URL("domains/inventory/common.js", api).href
+    );
     const { setHooks } = await import(new URL("core/hooks.js", api).href);
     const { identityHooks } = await import(
       new URL("domains/org/identity.js", api).href
@@ -676,20 +704,9 @@ async function advanceDay(db, date, originalStart) {
       },
       finish() {},
       async post(/** @type {any} */ e) {
-        await guardBalances(
-          t,
-          [
-            ...new Set(
-              e.lines
-                .flatMap((/** @type {any} */ l) => [
-                  l.fromLocationId,
-                  l.toLocationId,
-                ])
-                .filter(Boolean),
-            ),
-          ],
-          e.lines.map((/** @type {any} */ l) => l.productId),
-        );
+        // Use the posting owner's lock before checking ownership, not after it.
+        await stockLock(t, "sunpride");
+        await guardBalances(t, e.lines);
         const result = await postMovement(t, {
           kind: e.kind,
           sourceType: "sample",

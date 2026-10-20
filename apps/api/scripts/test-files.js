@@ -1,5 +1,6 @@
 import { Glob } from "bun";
 import { resolve } from "node:path";
+import { testFileConcurrency } from "./test-file-concurrency.js";
 
 // Bun module mocks are process-global. A file is the isolation boundary, while
 // each file's harness retains its own SP_LANE-derived disposable database.
@@ -37,8 +38,10 @@ async function run(file) {
 }
 const regular = files.filter((file) => !file.includes("performance.test.js"));
 let next = 0;
+const concurrency = testFileConcurrency(process.env.SP_TEST_CONCURRENCY);
+console.log(`Test-file concurrency: ${concurrency}`);
 await Promise.all(
-  Array.from({ length: Math.min(4, regular.length) }, async () => {
+  Array.from({ length: Math.min(concurrency, regular.length) }, async () => {
     while (next < regular.length) await run(regular[next++]);
   }),
 );

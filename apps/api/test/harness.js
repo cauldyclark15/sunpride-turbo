@@ -21,6 +21,24 @@ async function laneUrl() {
   ).trim();
 }
 
+/** F-025: FORCE closes our disposable clients, but a retiring PostgreSQL worker
+ * can belong to the bootstrap role on the native shared engine. Only that exact
+ * signal-permission failure retries an ordinary owner-authorized DROP. Other
+ * failures, including an occupied database on fallback, remain hard failures.
+ * @param {any} admin @param {string} name */
+export async function dropTestDatabase(admin, name) {
+  if (!/^sunpride_lane_[a-z0-9_]+_t[a-f0-9]{12}$/.test(name))
+    throw new Error("Refusing to drop a non-harness database");
+  try {
+    await admin.unsafe(`drop database if exists ${name} with (force)`);
+  } catch (error) {
+    const pg = /** @type {any} */ (error);
+    if (pg.errno !== "42501" || pg.routine !== "TerminateOtherDBBackends")
+      throw error;
+    await admin.unsafe(`drop database if exists ${name}`);
+  }
+}
+
 /**
  * Throwaway database + migrated schema + API on a random free port.
  * @param {{ env?: Record<string,string|undefined>, installers?: any[], listen?: boolean }} [opts]
@@ -78,7 +96,7 @@ export async function startHarness(opts = {}) {
     async close() {
       await app.stop();
       await db.close();
-      await admin.unsafe(`drop database if exists ${name} with (force)`);
+      await dropTestDatabase(admin, name);
       await admin.close();
       await rm(filesDir, { recursive: true, force: true });
       resetHooks();
