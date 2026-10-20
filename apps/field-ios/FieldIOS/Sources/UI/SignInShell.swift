@@ -74,7 +74,7 @@ struct SignInShell: View {
                 .padding(.bottom, pinnedAction ? 64 : 16)
             }
             .background(SunprideTokens.background)
-            .toolbar(.hidden, for: .navigationBar)
+            .calmScreenChrome()
             .safeAreaInset(edge: .bottom) {
                 if pinnedAction {
                     Group {

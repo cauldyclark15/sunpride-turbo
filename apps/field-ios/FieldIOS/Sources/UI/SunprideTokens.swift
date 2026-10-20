@@ -77,3 +77,18 @@ enum SunprideTokens {
         static let caption: Font = .system(.caption)
     }
 }
+
+
+extension View {
+    /// Every full screen hides the navigation bar for the calm layout. Without a bar nothing sat behind the
+    /// status bar, so scrolled text ran under the clock and battery (live walk: Team list under "8:04").
+    /// This keeps the bar hidden and paints the screen background behind the status bar only.
+    func calmScreenChrome() -> some View {
+        toolbar(.hidden, for: .navigationBar)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                Color.clear.frame(height: 0)
+                    .background(SunprideTokens.background, ignoresSafeAreaEdges: .top)
+                    .accessibilityHidden(true)
+            }
+    }
+}

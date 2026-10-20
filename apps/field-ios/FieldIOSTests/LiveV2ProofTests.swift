@@ -40,4 +40,13 @@ final class LiveV2ProofTests: XCTestCase {
         try NativeV2.bytes(state).write(to: docs.appending(path: "v2-proof-state.json"), options: .atomic)
         model.enrollment.signedOut() // stop this process's polling; the persisted session stays
     }
+
+    /// Leaves the installed app signed out (the state the suite's real-app sign-in screen tests expect).
+    func testLiveSignOut() async throws {
+        guard ProcessInfo.processInfo.environment["SUNPRIDE_V2_LIVE"] == "1" else { throw XCTSkip("Opt-in live proof") }
+        let model = AppModel.live(environment: try AppEnvironment.bundled(Bundle(for: AppModel.self)))
+        await model.signOut()
+        XCTAssertFalse(model.signedIn)
+        model.enrollment.signedOut()
+    }
 }

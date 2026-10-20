@@ -68,7 +68,7 @@ struct CustomerSearchScreen: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .background(SunprideTokens.background)
-        .toolbar(.hidden, for: .navigationBar)
+        .calmScreenChrome()
     }
 
     private func countLabel(all: Int, shown: Int) -> String {
@@ -124,7 +124,7 @@ struct CustomerDetailScreen: View {
             .padding(16)
         }
         .background(SunprideTokens.background)
-        .toolbar(.hidden, for: .navigationBar)
+        .calmScreenChrome()
         .directionsChoice(directions)
     }
 

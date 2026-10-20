@@ -115,7 +115,7 @@ struct PhotoCaptureScreen: View {
             }
             .ignoresSafeArea()
         }
-        .toolbar(.hidden, for: .navigationBar)
+        .calmScreenChrome()
     }
 
     private func shoot() {

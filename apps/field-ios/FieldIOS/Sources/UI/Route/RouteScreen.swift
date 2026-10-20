@@ -63,7 +63,7 @@ struct RouteScreen: View {
             .padding(16)
         }
         .background(SunprideTokens.background)
-        .toolbar(.hidden, for: .navigationBar)
+        .calmScreenChrome()
         .directionsChoice(directions)
         .sheet(item: $selected) { stop in RouteStopSheet(model: model, stop: stop) }
         .task {

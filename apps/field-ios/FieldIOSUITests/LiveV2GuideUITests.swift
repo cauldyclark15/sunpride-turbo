@@ -210,7 +210,14 @@ final class LiveV2GuideUITests: XCTestCase {
         XCTAssertTrue(element("teamTitle").waitForExistence(timeout: 20))
         _ = wait(30) { !self.element("teamLoading").exists }
         shot("team")
+        if tap("teamAll", timeout: 5) {
+            _ = wait(30) { !self.element("teamLoading").exists }
+            shot("team-whole-area")
+        }
         let person = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'teamPerson-'")).firstMatch
-        if person.exists { app.swipeUp(); shot("team-lower") }
+        if person.waitForExistence(timeout: 10) {
+            app.swipeUp(); shot("team-lower")
+            reveal(person); person.tap(); Thread.sleep(forTimeInterval: 2); shot("team-person"); back()
+        }
     }
 }

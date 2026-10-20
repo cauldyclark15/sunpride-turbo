@@ -314,7 +314,7 @@ struct DiagnosticVisitScreen: View {
                 .background(SunprideTokens.background)
             }
         }
-        .toolbar(.hidden, for: .navigationBar)
+        .calmScreenChrome()
         // A change to what End would record invalidates the confirmation.
         .onChange(of: outcome) { review = nil }
         .onChange(of: reason) { review = nil }
