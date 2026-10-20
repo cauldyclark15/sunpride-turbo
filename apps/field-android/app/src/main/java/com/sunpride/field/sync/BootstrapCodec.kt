@@ -212,7 +212,10 @@ object BootstrapCodec {
         val types = typeSets.flatten().groupBy { it.code }.map { (_, rows) ->
             require(rows.distinct().size == 1); rows.first()
         }
-        val authorized = pages.flatMap { it.visits }.map { JSONObject(it.json).getString("outletId") }.toSet()
+        // V2 explicitly authorizes assigned off-plan outlets in the bound snapshot. The
+        // legacy v1 contract still limits these facts to signed planned-visit outlets.
+        val authorized = if (v2) outlets.map { it.id }.toSet()
+            else pages.flatMap { it.visits }.map { JSONObject(it.json).getString("outletId") }.toSet()
         require((sheets.map { it.outletId } + terms.keys + summaries.keys).all { it in authorized })
         require(sheets.groupBy { it.outletId }.values.all { it.distinct().size == 1 })
         return ScopedSnapshot(first.employee.toString(), pages.firstNotNullOfOrNull { it.route },

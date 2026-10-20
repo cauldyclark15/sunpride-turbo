@@ -21,7 +21,7 @@ class PresellLiveDeviceTest {
     @get:Rule val rule=createAndroidComposeRule<ComponentActivity>()
     private fun waitTag(tag:String) {
         try {rule.waitUntil(60_000){rule.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()}}
-        catch(e:Throwable) {runCatching {shot("field-failed-$tag")};throw e}
+        catch(e:Throwable) {runCatching {if(rule.onAllNodesWithTag("email").fetchSemanticsNodes().isEmpty()) shot("field-failed-$tag")};throw e}
     }
     private fun transportGate(name:String) {
         val context=rule.activity.applicationContext
@@ -50,15 +50,20 @@ class PresellLiveDeviceTest {
         rule.setContent{FieldApp(environment,false,backend=backend,features=FieldFeatures.ALL,visitLocation=location)}
         waitTag("email");rule.onNodeWithTag("email").performTextInput(fixture.getString("email"))
         rule.onNodeWithTag("password").performTextInput(fixture.getString("password"));hideKeyboard();rule.onNodeWithTag("sign-in").performClick()
-        rule.waitUntil(60_000){rule.onAllNodesWithText(fixture.getString("outletName")).fetchSemanticsNodes().isNotEmpty()}
+        waitTag("customers-open");rule.onNodeWithTag("customers-open").performScrollTo().performClick()
+        waitTag("customer-search");rule.onNodeWithTag("customer-search").performTextInput(fixture.getString("outletName"));hideKeyboard()
+        waitTag("customer-result");rule.onNodeWithTag("customer-result").assertTextContains(fixture.getString("outletName"),substring=true).performClick()
+        waitTag("customer-header");rule.onNodeWithTag("customer-header").assertTextContains(fixture.getString("outletName"),substring=true)
+        waitTag("customer-visit")
         transportGate("offline")
         check(runCatching {java.net.Socket().use {it.connect(java.net.InetSocketAddress("127.0.0.1",4560),2000)}}.isFailure)
-        rule.onNodeWithText(fixture.getString("outletName")).performScrollTo().performClick();waitTag("diagnostic-title")
+        rule.onNodeWithTag("customer-visit").performScrollTo().performClick();waitTag("diagnostic-title")
         if(rule.onAllNodesWithTag("unplanned-reason").fetchSemanticsNodes().isNotEmpty()) rule.onNodeWithTag("unplanned-reason").performScrollTo().performTextInput("Sample pre-sell buyer appointment outside the plan")
         if(rule.onAllNodesWithTag("sequence-reason").fetchSemanticsNodes().isNotEmpty()) rule.onNodeWithTag("sequence-reason").performScrollTo().performTextInput("Buyer appointment first")
         if(rule.onAllNodesWithTag("intent-sell").fetchSemanticsNodes().isNotEmpty() && runCatching {rule.onNodeWithTag("intent-sell").assertIsSelected()}.isFailure) rule.onNodeWithTag("intent-sell").performScrollTo().performClick()
         hideKeyboard()
         rule.onNodeWithTag("diagnostic-checkin").performClick();waitTag("diagnostic-checkout")
+        check(backend.visitStates().any {it.first.kind=="visit.checkIn"&&JSONObject(it.first.serializedOperation).getJSONObject("payload").optString("outletId")==fixture.getString("outletId")}) {"Selected outlet differs from persisted check-in"}
         rule.onNodeWithTag("order-new").performScrollTo().performClick();waitTag("order-title")
         if(fixture.has("productCode")&&!fixture.isNull("productCode")) rule.onNodeWithTag("order-search").performScrollTo().performTextInput(fixture.getString("productCode"))
         rule.onNodeWithTag("order-qty-${fixture.getString("productId")}").performScrollTo().performTextInput("2")

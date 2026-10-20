@@ -6,6 +6,8 @@ This extends the existing field order draft, immutable visit activity and commer
 
 Requested delivery dates are captured offline with the order and validated against an effective-dated Manila cut-off/lead/horizon policy using capture time, not upload time. Commercial capture freezes the policy. Confirmation is an independently authorized office action after the existing source order is approved or posted. Requested and confirmed dates remain separate. The confirmed date must be on/after the request and within its frozen SLA. An immutable handoff cannot be silently rescheduled under the same order identity.
 
+For v2, the shared snapshot decoder binds call sheets, terms and summaries to the server-authorized outlet snapshot, including assigned off-plan outlets on a day with no planned visit. Facts outside that outlet set still fail closed. The frozen legacy v1 path remains planned-only; no scope is invented locally.
+
 ## F-302 — handoff, not another order or ledger
 
 Confirmation writes a durable `delivery_handoffs` outbox in the same transaction as the confirmed promise. Its snapshot includes the existing canonical order lines, exact base-unit conversions, requested/confirmed days and policy. Retry is idempotent; the worker locks the outbox, rechecks source-order state and creates exactly one drop with its line allocation. A source order that has been voided cannot be released. Unassigned handoffs may be cancelled without deleting or changing the original order. Source order access is rechecked before office replay and detail/manifest reads.
