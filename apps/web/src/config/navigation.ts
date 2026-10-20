@@ -38,6 +38,7 @@ export const WORKSPACE_SLUGS = [
   "inventory",
   "imports",
   "outside-calls",
+  "modern-trade",
   "van-trips",
   "live-map",
   "admin",
@@ -81,6 +82,7 @@ export function isWebModuleSlug(slug: string): boolean {
 const moduleTabs: Record<string, WorkspaceModuleTab[]> = {
   work: [
     { id: "orders", label: "Orders", href: "/orders" },
+    { id: "modern-trade", label: "Modern trade", href: "/modern-trade" },
     { id: "workflows", label: "Approvals", href: "/workflows" },
     { id: "sales-force", label: "Coverage plans", href: "/sales-force" },
     { id: "supervision", label: "Supervision", href: "/supervision" },

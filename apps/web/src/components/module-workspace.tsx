@@ -26,6 +26,7 @@ import { ImportsWorkspace } from "./imports-workspace";
 import { InventoryWorkspace } from "./inventory-workspace";
 import { LiveMapWorkspace } from "./live-map/live-map-workspace";
 import { OutsideCallOrders } from "./outside-call-orders";
+import { ModernTradeWorkspace } from "./modern-trade";
 import { PanelErrorBoundary } from "./panel-error-boundary";
 import { SupervisionWorkspace } from "./supervision/supervision-workspace";
 import { TrainingWorkspace } from "./training/trainer-forms";
@@ -61,6 +62,7 @@ const TITLES = {
   inventory: "Inventory",
   imports: "Imports",
   "outside-calls": "Outside-call POs",
+  "modern-trade": "Modern trade",
   "van-trips": "Van trips",
   "live-map": "Live map",
   admin: "Administration",
@@ -164,6 +166,8 @@ function ModuleContent({ module }: { module: WebModuleSlug }): ReactNode {
   switch (module) {
     case "orders":
       return <OrdersWorkspace />;
+    case "modern-trade":
+      return <ModernTradeWorkspace />;
     case "workflows":
       return (
         <>

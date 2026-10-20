@@ -4,6 +4,7 @@ import { company } from "./company.js";
 import { execution } from "./execution.js";
 import { vans } from "./vans.js";
 import { management } from "./management.js";
+import { seedModernTrade } from "./modern-trade.js";
 import {
   BATCH,
   Dataset,
@@ -1017,7 +1018,9 @@ if (import.meta.main) {
   } else {
     const db = createDb(process.env.DATABASE_URL, { max: 1 });
     try {
-      console.log(JSON.stringify(await advanceDemo(db, { date }), null, 2));
+      const result = await advanceDemo(db, { date });
+      const modernTrade = await seedModernTrade(db);
+      console.log(JSON.stringify({ ...result, modernTrade }, null, 2));
     } catch {
       console.error(
         "Demo daily advance failed; no partial day was committed. Check sample ownership, migrations and active sample masters.",

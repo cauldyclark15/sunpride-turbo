@@ -20,7 +20,35 @@ export function installSettings(router) {
       } catch (e) {
         if (!(e instanceof ApiError) || e.status !== 403) throw e;
       }
+    const storeRows =
+      await c.db`select o.id as outlet_id,o.name as outlet_name,o.code as outlet_code,l.customer_id,c.name as customer_name from outlets o join outlet_customer_links l on l.outlet_id=o.id join customers c on c.id=l.customer_id where o.deleted_at is null and o.status='active' and l.deleted_at is null and l.effective_from<=now() and (l.effective_to is null or l.effective_to>now()) and c.active and c.deleted_at is null order by o.name limit 2001`;
+    if (storeRows.length > 2000)
+      throw new ApiError("capacity", 422, "Narrow the branch mapping choices");
+    const stores = [];
+    for (const row of storeRows)
+      try {
+        await outletContext(c, row.outlet_id, "masterdata.manage");
+        stores.push(row);
+      } catch (e) {
+        if (!(e instanceof ApiError) || e.status !== 403) throw e;
+      }
+    const externalUsers = [];
+    if (c.actor?.capabilities.has("admin.manage")) {
+      const members =
+        await c.db`select m.*,u.email from mt_portal_memberships m join users u on u.id=m.user_id where m.effective_to is null and u.disabled_at is null order by m.name limit 501`;
+      if (members.length > 500)
+        throw new ApiError("capacity", 422, "Narrow the portal access roster");
+      for (const m of members)
+        try {
+          await scopeAccess(c, m.scope_kind, m.scope_key, "admin.manage");
+          externalUsers.push({ id: m.user_id, name: m.name, email: m.email });
+        } catch (e) {
+          if (!(e instanceof ApiError) || e.status !== 403) throw e;
+        }
+    }
     return {
+      stores,
+      externalUsers,
       profiles,
       types:
         await c.db`select * from mt_deduction_types order by code,effective_from desc limit 501`,
@@ -28,7 +56,7 @@ export function installSettings(router) {
   });
   for (const kind of ["parser", "deduction-type"])
     router.post(`/api/v1/mt/settings/${kind}`, async (/** @type {any} */ c) => {
-      const b = c.body;
+      const b = c.body ?? {};
       return command(
         c,
         `settings.${kind}`,
@@ -109,7 +137,7 @@ export function installSettings(router) {
       );
     });
   router.post("/api/v1/mt/bindings/save", async (/** @type {any} */ c) => {
-    const b = c.body;
+    const b = c.body ?? {};
     return command(
       c,
       "bindings.save",
@@ -138,7 +166,7 @@ export function installSettings(router) {
     );
   });
   router.post("/api/v1/mt/portal/access", async (/** @type {any} */ c) => {
-    const b = c.body,
+    const b = c.body ?? {},
       kind = choice(
         b.scopeKind,
         ["account", "banner", "branch"],

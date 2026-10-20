@@ -13,6 +13,16 @@ export async function sapConditionPrice(term, condition) {
     source: "sample",
   };
 }
+/** SEAM(SAP): MT credit is unknown until SAP's credit-call adapter is wired.
+ * Never turn locally captured open orders into a credit certificate.
+ * @param {any} db @param {{customerCode:string}} q */
+export async function resolveAccountCredit(db, q) {
+  const [bound] =
+    await db`select 1 from mt_account_bindings b join customers c on c.id=b.customer_id where c.code=${q.customerCode} and b.effective_from<=now() and (b.effective_to is null or b.effective_to>now()) limit 1`;
+  return bound
+    ? { status: /** @type {const} */ ("unknown"), limit: null, exposure: null }
+    : null;
+}
 /** F-307: branch > banner > account, effective approved conditions only; ambiguity fails closed.
  * null means there is no MT account binding (normal channel pricing remains unchanged).
  * @param {any} db @param {any} q @returns {Promise<any>} */

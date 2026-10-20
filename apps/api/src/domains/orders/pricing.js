@@ -1,4 +1,4 @@
-import { resolveAccountPrice } from "../mt/sap.js";
+import { resolveAccountPrice, resolveAccountCredit } from "../mt/sap.js";
 import {
   channel,
   divide,
@@ -64,6 +64,8 @@ export async function resolvePrice(db, q) {
  * @returns {Promise<{status:'within'|'over'|'no_limit'|'unknown',limit:number|null,exposure:number|null}>}
  */
 export async function creditCheck(db, q) {
+  const accountCredit = await resolveAccountCredit(db, q);
+  if (accountCredit) return accountCredit;
   const [customer] =
     await db`select id, (credit_limit * 100)::bigint as limit_centavos from customers where code = ${q.customerCode} and deleted_at is null`;
   const rawLimit = customer ? Number(customer.limit_centavos) : null;

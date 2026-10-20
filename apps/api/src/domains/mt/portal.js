@@ -2,6 +2,7 @@ import { ApiError } from "../../core/errors.js";
 import { text, uuid } from "../orders/validation.js";
 import { bindings, within } from "./hierarchy.js";
 import { audit, command } from "./common.js";
+import { deliveryStatus } from "./delivery.js";
 
 /** External customer identities get no employee profile/capabilities. Recheck membership
  * and session on every read/write, including receipt replay and hierarchy changes.
@@ -53,7 +54,7 @@ async function milestones(db, p) {
         ),
       )
       .map((/** @type {any} */ h) => ({
-        stage: h.to_status === "fulfilled" ? "delivered" : h.to_status,
+        stage: h.to_status,
         at: h.created_at,
       })),
   ];
@@ -82,7 +83,7 @@ export function installPortal(router) {
     const invoices =
       await c.db`select id,binding_id,invoice_number,amount_centavos,issued_on,due_on,source,source_version,received_at from mt_invoice_replicas where binding_id in ${c.db(ids)} order by issued_on desc limit 501`;
     const deductions =
-      await c.db`select d.id,d.binding_id,d.amount_centavos,d.status,d.claim_reference,d.due_on,t.label,m.reference,m.received_on,(current_date-m.received_on)::int as age_days,i.invoice_number
+      await c.db`select d.id,d.binding_id,d.amount_centavos,d.status,d.claim_reference,d.due_on,t.label,m.reference,m.received_on,((now() at time zone 'Asia/Manila')::date-m.received_on)::int as age_days,i.invoice_number
       from mt_deductions d join mt_deduction_types t on t.id=d.type_id join mt_remittances m on m.id=d.remittance_id left join mt_invoice_replicas i on i.id=d.invoice_id where d.binding_id in ${c.db(ids)} order by d.due_on,d.id limit 501`;
     if (po.length > 500 || invoices.length > 500 || deductions.length > 500)
       throw new ApiError(
@@ -91,7 +92,8 @@ export function installPortal(router) {
         "Account archive exceeds this view. Ask the account team for an export",
       );
     const purchaseOrders = [];
-    for (const p of po)
+    for (const p of po) {
+      const delivery = await deliveryStatus(c.db, p.order_id);
       purchaseOrders.push({
         id: p.id,
         poNumber: p.po_number ?? "Awaiting review",
@@ -101,9 +103,10 @@ export function installPortal(router) {
         orderNumber: p.order_number ?? null,
         amountCentavos:
           p.total_centavos === null ? null : Number(p.total_centavos),
-        milestones: await milestones(c.db, p),
-        deliverySource: "Order status; delivery proof feed not connected",
+        milestones: [...(await milestones(c.db, p)), ...delivery.milestones],
+        deliverySource: delivery.source,
       });
+    }
     const safeDeductions = [];
     for (const d of deductions)
       safeDeductions.push({
@@ -140,7 +143,7 @@ export function installPortal(router) {
   router.post(
     "/api/v1/portal/disputes/submit",
     async (/** @type {any} */ c) => {
-      const b = c.body;
+      const b = c.body ?? {};
       const authorize = async (/** @type {any} */ cc) => {
         const { allowed } = await portalAccess(cc);
         const [d] =

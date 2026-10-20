@@ -36,6 +36,15 @@ function classify(request) {
   if (url.origin !== self.location.origin) return "none";
   if (request.headers.get("range")) return "none";
   const path = url.pathname;
+  // F-611: external account data and financial evidence require live authorization.
+  // Never serve portal HTML/RSC or MT API responses from a previous identity offline.
+  if (
+    path === "/portal" ||
+    path.startsWith("/portal/") ||
+    path.startsWith("/api/v1/portal/") ||
+    path.startsWith("/api/v1/mt/")
+  )
+    return "none";
   if (path === "/sw.js" || path === "/ws") return "none";
   if (path.startsWith("/api/")) {
     if (path.startsWith("/api/auth/")) return "none";

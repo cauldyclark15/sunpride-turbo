@@ -6,10 +6,18 @@ import { uuid } from "../orders/validation.js";
  * Keys are opaque upstream account keys, not employee org units.
  * @param {any} db @param {number} [at] */
 export async function bindings(db, at = Date.now()) {
-  return db`select b.*,c.code as customer_code,c.name as customer_name,o.name as outlet_name
+  const rows =
+    await db`select b.*,c.code as customer_code,c.name as customer_name,o.name as outlet_name
     from mt_account_bindings b join customers c on c.id=b.customer_id join outlets o on o.id=b.outlet_id
     where b.effective_from<=${new Date(at)} and (b.effective_to is null or b.effective_to>${new Date(at)})
     and c.active and c.deleted_at is null and o.status='active' and o.deleted_at is null order by b.label limit 2001`;
+  if (rows.length > 2000)
+    throw new ApiError(
+      "capacity",
+      422,
+      "Account hierarchy exceeds supported size",
+    );
+  return rows;
 }
 /** @param {any} c @param {string} id @param {string} [cap] */
 export async function bindingAccess(c, id, cap = "report.read") {

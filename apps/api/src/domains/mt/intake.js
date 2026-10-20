@@ -158,7 +158,7 @@ export function installIntake(router) {
     return doc;
   });
   router.post("/api/v1/mt/intake/preview", async (/** @type {any} */ c) => {
-    const b = c.body;
+    const b = c.body ?? {};
     return command(
       c,
       "intake.preview",
@@ -227,7 +227,7 @@ export function installIntake(router) {
   });
   for (const action of ["fix", "confirm"])
     router.post(`/api/v1/mt/intake/${action}`, async (/** @type {any} */ c) => {
-      const b = c.body;
+      const b = c.body ?? {};
       const result = await command(
         c,
         `intake.${action}`,
@@ -244,6 +244,16 @@ export function installIntake(router) {
               "This PO changed. Reload before continuing",
             );
           const old = await view(cc, row);
+          if (
+            action === "confirm" &&
+            (old.exceptions.length ||
+              old.lines.some((/** @type {any} */ l) => l.exceptions.length))
+          )
+            throw new ApiError(
+              "validation_exceptions",
+              422,
+              "Save corrected lines and validate all exceptions before confirmation",
+            );
           const input =
             action === "fix"
               ? b
@@ -285,7 +295,7 @@ export function installIntake(router) {
             },
             { intake: true },
           );
-          await cc.db`update inbound_purchase_orders set status='confirmed',order_id=${order.id},confirmed_at=now(),revision=revision+1,updated_at=now() where id=${row.id}`;
+          await cc.db`update inbound_purchase_orders set status='confirmed',po_identity=${binding.branch_key + "|" + data.poNumber.toLowerCase()},order_id=${order.id},confirmed_at=now(),revision=revision+1,updated_at=now() where id=${row.id}`;
           await audit(cc, "po.confirmed", row.id);
           return {
             id: row.id,

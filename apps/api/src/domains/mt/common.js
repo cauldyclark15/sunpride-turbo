@@ -49,6 +49,8 @@ export async function audit(c, action, id, note = "Modern trade updated") {
  * @param {(c:any)=>Promise<any>} authorize @param {(c:any)=>Promise<any>} work
  * @param {boolean} [portal] */
 export async function command(c, action, b, authorize, work, portal = false) {
+  if (!b || typeof b !== "object" || Array.isArray(b))
+    throw new ApiError("invalid_request", 400, "A command object is required");
   if (!c.user)
     throw new ApiError("unauthenticated", 401, "Sign in to continue");
   const key = text(

@@ -3,6 +3,7 @@ import { ApiError } from "../../core/errors.js";
 import { date, text, uuid } from "../orders/validation.js";
 import { bindingAccess } from "./hierarchy.js";
 import { command, audit, money } from "./common.js";
+import { deductionFlow } from "./metrics.js";
 
 /** @param {any} c @param {string} id @param {string} [cap] */
 export async function deductionAccess(c, id, cap = "order.encode") {
@@ -29,7 +30,7 @@ async function view(c, r) {
   const { binding } = await deductionAccess(c, r.id, "report.read");
   const [meta] =
     await c.db`select t.label as type_label,p.name as owner_name,m.reference,m.received_on,
-    (current_date-m.received_on)::int as age_days,(current_date-d.due_on)::int as overdue_days,i.invoice_number
+    ((now() at time zone 'Asia/Manila')::date-m.received_on)::int as age_days,((now() at time zone 'Asia/Manila')::date-d.due_on)::int as overdue_days,i.invoice_number
     from mt_deductions d join mt_deduction_types t on t.id=d.type_id join profiles p on p.id=d.owner_profile_id
     join mt_remittances m on m.id=d.remittance_id left join mt_invoice_replicas i on i.id=d.invoice_id where d.id=${r.id}`;
   return {
@@ -71,13 +72,14 @@ export function installDeductions(router) {
         unlinked: open.filter((r) => !r.claim_reference && !r.disputes.length)
           .length,
       },
+      flow: deductionFlow(rows, c.now),
       freshness: Date.now(),
     };
   });
   router.post(
     "/api/v1/mt/remittances/capture",
     async (/** @type {any} */ c) => {
-      const b = c.body;
+      const b = c.body ?? {};
       return command(
         c,
         "remittance.capture",
@@ -147,7 +149,7 @@ export function installDeductions(router) {
     },
   );
   router.post("/api/v1/mt/deductions/update", async (/** @type {any} */ c) => {
-    const b = c.body;
+    const b = c.body ?? {};
     const cap = b.resolve ? "order.approve" : "order.encode";
     return command(
       c,
@@ -195,7 +197,7 @@ export function installDeductions(router) {
             );
         }
         const note = text(b.note, "Work note", 1000);
-        await cc.db`update mt_deductions set owner_profile_id=${owner},type_id=${type.id},claim_reference=${claim},due_on=${m.received_on}::date+${type.sla_days}::int,
+        await cc.db`update mt_deductions set owner_profile_id=${owner},type_id=${type.id},claim_reference=${claim},due_on=${new Date(m.received_on).toISOString().slice(0, 10)}::date+${type.sla_days}::int,
         status=${b.resolve ? "resolved" : row.status},resolution=${b.resolve ? note : null},updated_at=now() where id=${row.id}`;
         await cc.db`insert into mt_deduction_events(deduction_id,actor_user_id,action,note) values(${row.id},${cc.user.id},${b.resolve ? "resolved" : "updated"},${note})`;
         await audit(cc, "deduction.updated", row.id);
@@ -204,7 +206,7 @@ export function installDeductions(router) {
     );
   });
   router.post("/api/v1/mt/disputes/respond", async (/** @type {any} */ c) => {
-    const b = c.body;
+    const b = c.body ?? {};
     return command(
       c,
       "dispute.respond",

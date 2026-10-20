@@ -45,7 +45,7 @@ export function installTerms(router) {
     return { rows };
   });
   router.post("/api/v1/mt/terms/save", async (/** @type {any} */ c) => {
-    const b = c.body,
+    const b = c.body ?? {},
       kind = choice(
         b.scopeKind,
         ["account", "banner", "branch"],
@@ -139,7 +139,7 @@ export function installTerms(router) {
   });
   for (const action of ["submit", "approve", "reject"])
     router.post(`/api/v1/mt/terms/${action}`, async (/** @type {any} */ c) => {
-      const b = c.body,
+      const b = c.body ?? {},
         cap = action === "submit" ? "masterdata.manage" : "order.approve";
       return command(
         c,
@@ -172,6 +172,42 @@ export function installTerms(router) {
         },
       );
     });
+  router.post("/api/v1/mt/terms/end", async (/** @type {any} */ c) => {
+    const b = c.body ?? {};
+    return command(
+      c,
+      "terms.end",
+      b,
+      (cc) => termAccess(cc, b.id, "order.approve"),
+      async (cc) => {
+        const term = await termAccess(cc, b.id, "order.approve"),
+          end = instant(b.effectiveTo);
+        if (
+          term.status !== "approved" ||
+          term.source !== "sample" ||
+          end.getTime() <= cc.now ||
+          end <= new Date(term.effective_from) ||
+          (term.effective_to && end > new Date(term.effective_to))
+        )
+          throw new ApiError(
+            "invalid_request",
+            400,
+            "Only a future end for approved sample terms can be requested here",
+          );
+        if (term.requested_by === cc.user.id)
+          throw new ApiError(
+            "self_approval",
+            422,
+            "A different approver must close these conditions",
+          );
+        const note = text(b.note, "End-of-terms reason", 1000);
+        await cc.db`update mt_trade_terms set effective_to=${end},updated_at=now() where id=${term.id}`;
+        await cc.db`insert into mt_term_events(term_id,actor_user_id,action,note) values(${term.id},${cc.user.id},'ended',${note})`;
+        await audit(cc, "terms.ended", term.id);
+        return { id: term.id };
+      },
+    );
+  });
   router.get("/api/v1/mt/options", async (/** @type {any} */ c) => {
     await requireCapability(c, "report.read");
     const rows = await bindings(c.db, c.now);

@@ -124,6 +124,52 @@ afterAll(async () => {
   await h?.close();
 });
 
+test("F-306 rounded invalid quantities require an explicit fix; duplicate business POs roll back the canonical order", async () => {
+  const bad = await preview("PRECISION", {
+    contentBase64: Buffer.from(
+      `po_number,delivery_date,sku,uom,quantity\nPRECISION,${day()},P1,PC,1.0004`,
+    ).toString("base64"),
+  });
+  const detail = await api(admin, `intake?id=${bad.body.id}`);
+  expect(detail.body.lines[0].exceptions.length).toBeGreaterThan(0);
+  expect(
+    (
+      await api(admin, "intake/confirm", {
+        id: bad.body.id,
+        revision: 1,
+        idempotencyKey: crypto.randomUUID(),
+      })
+    ).status,
+  ).toBe(422);
+  const first = await preview("BUSINESS-KEY");
+  expect(
+    (
+      await api(admin, "intake/confirm", {
+        id: first.body.id,
+        revision: 1,
+        idempotencyKey: crypto.randomUUID(),
+      })
+    ).status,
+  ).toBe(200);
+  const duplicate = await preview("BUSINESS-KEY", {
+    filename: "changed.csv",
+    contentBase64: Buffer.from(
+      `po_number,delivery_date,sku,uom,quantity\nBUSINESS-KEY,${day()},P1,PC,3`,
+    ).toString("base64"),
+  });
+  const [before] = await h.db`select count(*)::int n from orders`;
+  expect(
+    (
+      await api(admin, "intake/confirm", {
+        id: duplicate.body.id,
+        revision: 1,
+        idempotencyKey: crypto.randomUUID(),
+      })
+    ).status,
+  ).toBe(409);
+  expect((await h.db`select count(*)::int n from orders`)[0].n).toBe(before.n);
+});
+
 test("F-306 CSV quoted cells, sample EDI and structured email normalize; mixed PO and malformed files do not invent facts", async () => {
   expect(csv('sku,note\nP1,"a,b"\n')).toEqual([
     ["sku", "note"],

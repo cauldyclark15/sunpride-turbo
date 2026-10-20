@@ -26,6 +26,13 @@ const report = (name, args = {}) =>
  * Browser proof additionally exercises the real mounted hooks, including dependent reads.
  * @type {Record<string,string[]>} */
 const calls = {
+  // F-306 F-307 F-309: real mounted reads for the MT Work tab.
+  "modern-trade": [
+    "/api/v1/mt/options",
+    "/api/v1/mt/intake",
+    "/api/v1/mt/terms",
+    "/api/v1/mt/deductions",
+  ],
   orders: [
     "/api/v1/orders/list",
     "/api/v1/orders/filter-options",
