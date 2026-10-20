@@ -380,7 +380,7 @@ test("F-107 F-120 F-205 van calls run the same engine through signed API operati
   const offered = bundle.body.bundles[0].data.customers.find(
     (/** @type {any} */ o) => o.outletId === f.outlet,
   );
-  expect(offered?.source).toBe("scoped");
+  expect(offered?.source).toBe("unplanned");
   expect(offered?.callFlow.definition.channelProfile).toBe("van_selling");
   const c = await configuration(h.db, "van_selling", { id: f.outlet }, f.now);
   if (!c) throw new Error("No van definition");
