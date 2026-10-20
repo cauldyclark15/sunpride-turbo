@@ -585,7 +585,6 @@ export async function coveragePage(db, p, s, group) {
         g.ids,
       ),
       dwellMin: a.dwellMin,
-      orderCalls: a.orderCalls,
       completedCalls: a.completedCalls,
       dropSize: (() => {
         const rs = sales.rows.filter((/** @type {any} */ r) =>

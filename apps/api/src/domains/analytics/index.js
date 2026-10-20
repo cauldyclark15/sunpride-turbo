@@ -55,42 +55,13 @@ export function install(router, installCtx) {
               (/** @type {any} */ k) =>
                 !["strikeRate", "linesPerCall"].includes(k.key),
             ),
-            retail.orderStrike,
-            retail.callLines,
+            base.kpis.find((/** @type {any} */ k) => k.key === "strikeRate"),
+            base.kpis.find((/** @type {any} */ k) => k.key === "linesPerCall"),
             ...retail.cards,
           ],
-          rows: base.rows.map((/** @type {any} */ row) => {
-            const calls = retail.details.callMetrics.filter(
-              (/** @type {any} */ c) =>
-                (group === "agent" ? c.profileId : c.territoryId) === row.key,
-            );
-            return {
-              ...row,
-              productivityRatePct: row.strikeRatePct,
-              strikeRatePct: calls.length
-                ? Math.round(
-                    (calls.reduce(
-                      (/** @type {number} */ n, /** @type {any} */ c) =>
-                        n + c.orders,
-                      0,
-                    ) /
-                      calls.length) *
-                      1000,
-                  ) / 10
-                : null,
-              linesPerCall: calls.length
-                ? Math.round(
-                    (calls.reduce(
-                      (/** @type {number} */ n, /** @type {any} */ c) =>
-                        n + c.lines,
-                      0,
-                    ) /
-                      calls.length) *
-                      10,
-                  ) / 10
-                : null,
-            };
-          }),
+          // F-208: call conversion belongs to the canonical visit/order projection,
+          // not the smaller availability-universe cohort.
+          rows: base.rows,
           availability: retail.details,
         };
       },

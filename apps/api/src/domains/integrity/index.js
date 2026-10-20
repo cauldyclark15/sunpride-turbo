@@ -186,7 +186,7 @@ export function install(router, platform) {
     }),
   );
   router.get("/api/v1/integrity/queue", readQueue);
-  router.get("/api/v1/analytics/fraud", readQueue);
+  // F-606: the analytics owner composes this canonical queue at /analytics/fraud.
   router.post("/api/v1/integrity/run", async (/** @type {any} */ c) => {
     await requireNationalScope(c, ["admin"]);
     await requireCapability(c, "integrity.review");

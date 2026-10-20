@@ -65,7 +65,7 @@ async function queryVisits(db, p, s) {
       select v.*,pe.name as agent_name,o.name as store_name,o.territory_id,st.productive_call_rule,
       coalesce(a.kinds,'{}') as activity_kinds,coalesce(a.activities,'[]') as activities,
       coalesce(c.amount,0) as collections_centavos,coalesce(c.n,0) as collection_count,
-      coalesce(oc.n,0) as linked_order_count,coalesce(sale.orders,0) as accepted_orders,coalesce(sale.lines,0) as accepted_lines
+      coalesce(sale.orders,0) as linked_order_count,coalesce(sale.orders,0) as accepted_orders,coalesce(sale.lines,0) as accepted_lines
       from visit_executions v join people pe on pe.id=v.assignee_profile_id
       join stores o on o.id=v.outlet_id
       left join lateral(select array_agg(activity_kind) as kinds,jsonb_agg(jsonb_build_object('kind',activity_kind,'activity',activity,'deviceTime',extract(epoch from device_time)*1000)) as activities from visit_activities where visit_id=v.id and deleted_at is null) a on true
@@ -76,15 +76,10 @@ async function queryVisits(db, p, s) {
           select captured.id from orders captured where captured.source_activity_id in(select id from visit_activities where visit_id=v.id and outlet_id=v.outlet_id and deleted_at is null)
           union select fc.order_id from field_order_captures fc where fc.visit_id=v.id)
         and ord.deleted_at is null and ord.status not in ('draft','rejected','voided')
-        and ord.salesperson_subject in (pe.auth_subject,pe.user_id::text)
+        and (ord.salesperson_subject in (pe.auth_subject,pe.user_id::text) or (ord.salesperson_profile_id=v.assignee_profile_id and ord.created_by_subject in (pe.auth_subject,pe.user_id::text)))
+        and ord.customer_code=o.customer_code
         and (ord.outlet_id is null or ord.outlet_id=v.outlet_id)
         and (ord.source_location_id is null or exists(select 1 from inventory_locations loc where loc.id=ord.source_location_id and loc.deleted_at is null and loc.org_unit_id in ${db(ids)}))) sale on true
-      -- F-208: strike rate is an actual linked, authorized non-draft order, not an activity qualification.
-      left join lateral(select count(*) as n from orders so join visit_activities va on va.id=so.source_activity_id left join inventory_locations il on il.id=so.source_location_id
-        where va.visit_id=v.id and va.activity_kind='order_intent' and va.deleted_at is null and so.deleted_at is null and so.status not in ('draft','rejected','voided')
-        and so.salesperson_profile_id=v.assignee_profile_id and so.outlet_id=v.outlet_id and so.customer_code=o.customer_code
-        and so.org_unit_id in ${db(ids)} and so.created_by_subject in (pe.user_id::text,pe.auth_subject)
-        and (so.source_location_id is null or (il.deleted_at is null and il.active and il.org_unit_id in ${db(ids)}))) oc on true
       left join lateral(select productive_call_rule from position_standards where position_id=pe.current_position_id and deleted_at is null and effective_from<=v.service_date::timestamp at time zone 'Asia/Manila' and (effective_to is null or effective_to>v.service_date::timestamp at time zone 'Asia/Manila') order by effective_from desc limit 1) st on true
       where v.deleted_at is null and v.service_date between ${p.from} and ${p.to} and (${p.storeId ?? null}::uuid is null or v.outlet_id=${p.storeId ?? null})
       and v.org_unit_id in ${db(ids)} and pe.current_unit_id in ${db(ids)} and o.owner_unit_id in ${db(ids)}
@@ -181,15 +176,20 @@ export function visitSummary(facts) {
     compliance: pct(visited, planned.length),
     productiveRate: pct(productive, calls),
     productivePct: pct(productive, calls),
-    completedCalls: visits.filter((/** @type {any} */ v) => v.closed).length,
+    completedCalls: visits.filter((/** @type {any} */ v) => v.closed ?? v.call)
+      .length,
     orderCalls: visits.filter(
-      (/** @type {any} */ v) => v.closed && Number(v.accepted_orders) > 0,
+      (/** @type {any} */ v) =>
+        (v.closed ?? v.call) &&
+        Number(v.accepted_orders ?? v.linked_order_count) > 0,
     ).length,
     strikeRate: pct(
       visits.filter(
-        (/** @type {any} */ v) => v.closed && Number(v.accepted_orders) > 0,
+        (/** @type {any} */ v) =>
+          (v.closed ?? v.call) &&
+          Number(v.accepted_orders ?? v.linked_order_count) > 0,
       ).length,
-      visits.filter((/** @type {any} */ v) => v.closed).length,
+      visits.filter((/** @type {any} */ v) => v.closed ?? v.call).length,
     ),
     dwellMin: dwell(visits),
     callLines: sum(

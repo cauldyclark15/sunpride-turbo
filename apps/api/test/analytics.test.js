@@ -80,8 +80,6 @@ const contracts = /** @type {Record<string,string[]>} */ ({
     "offPlanVisits",
 
     "productiveRate",
-    "strikeRate",
-    "linesPerCall",
     "timeInMarket",
     "workWithDone",
     "strikeRate",
