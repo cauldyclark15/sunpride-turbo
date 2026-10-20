@@ -114,6 +114,15 @@ class CheckoutRulesTest {
     }
 
     // ── VAN-012 payment methods ──
+    @Test fun F_111_cardNumberSeparatorsNeverTurnAPanIntoAnApprovalReference() {
+        val card=PaymentMethod("card","Card",PaymentKind.OTHER,true,"Terminal approval reference")
+        val configured=context(policy=policy.copy(paymentMethods=methods+card))
+        for(reference in listOf("4111111111111111","4111 1111 1111 1111","4111.1111.1111.1111","4111/1111/1111/1111","4111_1111_1111_1111","AUTH4111111111111111")) {
+            val result=CheckoutRules.evaluate(request(CartLine("p1",1),payment=PaymentInput("card",reference=reference)),configured)
+            assertTrue(reference,CheckoutProblem.REFERENCE_INVALID in problems(result))
+        }
+        assertTrue(CheckoutRules.evaluate(request(CartLine("p1",1),payment=PaymentInput("card",reference="AUTH-123456")),configured).ok)
+    }
     @Test fun cashPaymentIsPaidWithChangeAndNoReference() {
         val pay = CheckoutRules.evaluate(request(CartLine("p1",1),payment = PaymentInput("cash",10_000,"IGNORED")),context()).quote!!.payment
         assertEquals(PaymentState.PAID,pay.state); assertEquals(1_500L,pay.changeMinor); assertEquals(10_000L,pay.tenderedMinor)

@@ -31,6 +31,7 @@ class V2AuthorizationStoreTest {
         o.put("truckStock",org.json.JSONArray().put(JSONObject().put("productId",product).put("availableBase",available.toString()).put("damagedBase","0")))
         o.put("_v2",JSONObject().put("subject",scope.fullAuthSubject).put("scopeFingerprint","fingerprint").put("epoch","epoch")
             .put("cursor","cursor-$time").put("leaseExpiresAt",at+1000).put("cacheExpiresAt",at+1000))
+        FiscalFixture.add(o,scope.deviceId)
         return o.toString()
     }
     @Test fun everyV2BusinessCaptureQueuesAndReplaysWithFrozenMoneyAndAckBeforeDone()=runBlocking {

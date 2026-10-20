@@ -30,6 +30,7 @@ import { TeamsAdmin } from "./teams-admin";
 import { DevicesAdmin } from "./devices-admin";
 import { CallFlowAdmin } from "./callflow-admin";
 import { MastersWorkspace } from "./spec-masters/workspace";
+import { FiscalWorkspace } from "./fiscal/fiscal-workspace";
 import { SetupHealth, SetupSearch } from "./master-data/setup-health";
 import { setSetupParam, useSetupParam } from "./master-data/location";
 
@@ -49,6 +50,7 @@ const tabs = [
   ["devices", "Phones"],
   ["callflow", "Call flows"],
   ["field-masters", "Field masters"],
+  ["fiscal", "Fiscal & authority"],
 ] as const;
 type AdminTab = (typeof tabs)[number][0];
 
@@ -89,6 +91,8 @@ export function AdminWorkspace() {
         <CallFlowAdmin />
       ) : activeTab === "field-masters" ? (
         <MastersWorkspace />
+      ) : activeTab === "fiscal" ? (
+        <FiscalWorkspace />
       ) : activeTab === "devices" ? (
         <DevicesAdmin />
       ) : (

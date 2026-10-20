@@ -16,6 +16,7 @@ import { install as integration } from "./integration/index.js";
 import { install as callflow } from "./callflow/index.js";
 import { install as distributors } from "./distributors/index.js";
 import { install as masters } from "./masters/index.js";
+import { install as fiscal } from "./fiscal/index.js";
 /** @type {Array<(router: any, ctx: any) => void>} */
 export const domainInstallers = [
   org,
@@ -35,4 +36,5 @@ export const domainInstallers = [
   distributors,
   tpm,
   masters,
+  fiscal,
 ];

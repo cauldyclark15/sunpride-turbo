@@ -137,6 +137,28 @@ test("native collection reduces its own credit invoice, not unrelated office deb
     money.rows.find((/** @type {any} */ r) => r.code === "C0").balance,
   ).toBe(20000);
 });
+test("F-111 Maya and card confirmations govern collected money and credit exposure", async () => {
+  const initial = value(await page("money"), "collectionsToday");
+  const maya = await sale(1000, "maya"),
+    card = await sale(2000, "card");
+  expect(value(await page("money"), "collectionsToday")).toBe(initial);
+  for (const saleId of [maya, card]) {
+    const [payment] =
+      await h.db`select id from van_payments where sale_id=${saleId}`;
+    await h.db`insert into fiscal_tender_confirmations(payment_id,decision,reason,actor_profile_id) values(${payment.id},'confirmed','Provider matched',${f.boss})`;
+  }
+  expect(value(await page("money"), "collectionsToday")).toBe(initial + 3000);
+  const refund = id();
+  await h.db`insert into van_payments(id,trip_id,sale_id,kind,method,amount_centavos,facts) values(${refund},${trip.id},${card},'void_refund','card',500,${{ reference: "REFUND-123" }})`;
+  expect(value(await page("money"), "collectionsToday")).toBe(initial + 3000);
+  await h.db`insert into fiscal_tender_confirmations(payment_id,decision,reason,actor_profile_id) values(${refund},'confirmed','Provider refund matched',${f.boss})`;
+  expect(value(await page("money"), "collectionsToday")).toBe(initial + 2500);
+  const collection = id();
+  await h.db`insert into van_payments(id,trip_id,sale_id,kind,method,amount_centavos,facts) values(${collection},${trip.id},${creditSale},'collection','card',500,${{ reference: "AUTH-TEST" }})`;
+  expect(value(await page("money"), "arTotal")).toBe(20000);
+  await h.db`insert into fiscal_tender_confirmations(payment_id,decision,reason,actor_profile_id) values(${collection},'confirmed','Provider matched',${f.boss})`;
+  expect(value(await page("money"), "arTotal")).toBe(19500);
+});
 test("current store owner and stored truck and trip scope gate every native fact", async () => {
   await h.db`update inventory_locations set org_unit_id=${f.b} where id=${location.id}`;
   const scoped = await page("today", f.a),

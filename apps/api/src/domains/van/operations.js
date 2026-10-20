@@ -6,6 +6,14 @@ import {
   enqueueVanCreditMemo,
   enqueueVanSettlement,
 } from "../integration/posting.js";
+import {
+  invoiceForSale,
+  taxSnapshot,
+  enqueueSapPosting,
+} from "../fiscal/transactions.js";
+import { issueDocument } from "../fiscal/series.js";
+import { enforceAuthority } from "../fiscal/authority.js";
+import { configuredTender } from "../fiscal/tenders.js";
 import { postMovement } from "../inventory/posting.js";
 import { resolvePrice } from "../orders/pricing.js";
 import { currentDeviceActor, tripFor, outletFor } from "./access.js";
@@ -223,6 +231,7 @@ async function dispatchOperation(ctx, env) {
     ctx.actor,
     ctx.device.id,
   );
+  await db`select set_config('sunpride.actor',${actor.userId},true)`;
   const trip = await tripFor(db, actor, uuid(p.tripId), "van.operate", true);
   if (
     trip.salesperson_profile_id !== actor.profileId ||
@@ -370,16 +379,27 @@ async function dispatchOperation(ctx, env) {
         await db`select * from van_sales where id=${saleId} and trip_id=${trip.id} for update`;
       if (!s || s.receipt.payment.kind !== "credit")
         refuse("Choose a credit sale from this trip", "invalid_request");
+      const [voided] =
+        await db`select 1 from van_sale_voids where sale_id=${saleId} limit 1`;
+      if (voided) refuse("A void invoice cannot receive a collection");
       const amount = integer(p.amountMinor, true),
-        method = choice(p.method, ["cash", "check", "gcash", "bank_transfer"]);
+        method = choice(
+          p.method,
+          PAYMENT_METHODS.filter((m) => m.kind !== "credit").map((m) => m.code),
+        );
       const [r] =
-        await db`select coalesce(sum(amount_centavos),0)::text as paid from van_payments where sale_id=${saleId} and kind='collection'`;
+        await db`select coalesce(sum(v.amount_centavos),0)::text as paid from van_payments v left join fiscal_tender_confirmations c on c.payment_id=v.id where v.sale_id=${saleId} and v.kind='collection' and c.decision is distinct from 'rejected'`;
       if (BigInt(r.paid) + amount > BigInt(s.total_centavos))
         refuse(
           "Collection exceeds the remaining credit sale",
           "invalid_request",
         );
-      if (method !== "cash") text(p.reference, 100, true);
+      const tender = await configuredTender(
+        db,
+        trip.org_unit_id,
+        { ...p, method },
+        Number(p.deviceTime),
+      );
       const id = await payment(
         db,
         trip,
@@ -387,6 +407,41 @@ async function dispatchOperation(ctx, env) {
         "collection",
         saleId,
       );
+      if (!p.fiscal)
+        refuse("Download an Official Receipt range before collecting");
+      const [registration] =
+        await db`select r.*,a.registration_snapshot from fiscal_allocations a join fiscal_series s on s.id=a.series_id join fiscal_registrations r on r.id=s.registration_id where a.id=${uuid(p.fiscal.allocationId)}`;
+      if (!registration || registration.org_unit_id !== trip.org_unit_id)
+        refuse("Collection range belongs to another branch");
+      const document = await issueDocument(db, {
+        actor,
+        deviceId: device.id,
+        vehicleId: trip.vehicle_id,
+        allocationId: p.fiscal.allocationId,
+        serial: p.fiscal.serial,
+        documentType: "official_receipt",
+        sourceType: "van_collection",
+        sourceId: id,
+        at: p.deviceTime,
+        snapshot: {
+          saleId,
+          invoiceNumber: s.receipt_number,
+          payment: {
+            method,
+            label: tender.label,
+            referenceLabel: tender.referenceLabel ?? null,
+            reference: text(p.reference, 100),
+            amountMinor: String(amount),
+            status: method === "cash" ? "recorded" : "awaiting_confirmation",
+          },
+          totalMinor: String(amount),
+          tax: taxSnapshot(
+            String(amount),
+            registration.registration_snapshot?.taxBasisPoints,
+          ),
+        },
+      });
+      await enqueueSapPosting(db, document);
       result = { entityId: id };
       break;
     }
@@ -435,8 +490,9 @@ async function sale(db, trip, actor, p, opId) {
   }
   const receiptNumber = text(p.receiptNumber, 100, true);
   if (
-    !receiptNumber?.startsWith(trip.trip_number + "-") ||
-    !/^.+-[0-9A-F]{8}-\d{4,9}$/.test(receiptNumber)
+    !p.fiscal &&
+    (!receiptNumber?.startsWith(trip.trip_number + "-") ||
+      !/^.+-[0-9A-F]{8}-\d{4,9}$/.test(receiptNumber))
   )
     refuse("Receipt does not belong to this trip", "invalid_request");
   if (p.currency !== "PHP")
@@ -480,9 +536,11 @@ async function sale(db, trip, actor, p, opId) {
       refuse("The selling price changed", "stock_conflict");
     const gross = extend(unitPrice, paid, product.quantityScale),
       discount = integer(l.discountMinor ?? "0");
-    // Fail closed: the frozen protocol has no governed promotion evaluator or discount capability seam.
-    if (discount !== 0n || l.promotion)
-      refuse("Discount needs a governed promotion", "invalid_request");
+    if (discount > gross || l.promotion)
+      refuse(
+        "Discount exceeds the gross or promotion needs the programme seam",
+        "invalid_request",
+      );
     const lineTotal = gross - discount;
     if (
       integer(l.totalMinor) !== lineTotal ||
@@ -510,10 +568,26 @@ async function sale(db, trip, actor, p, opId) {
   safeNumber(total);
   if (integer(p.totalMinor) !== total)
     refuse("Sale total does not reconcile", "invalid_request");
+  if (discounts > 0n)
+    await enforceAuthority(db, actor, {
+      orgUnitId: trip.org_unit_id,
+      kind: "discount",
+      channel: customer.channel,
+      amountCentavos: String(discounts),
+      overrideId: p.overrideId,
+      operationId: opId,
+      facts: {
+        saleId,
+        customerId: customer.id,
+        lines: p.lines,
+        totalMinor: p.totalMinor,
+      },
+      offlineCode: p.offlineCode,
+    });
   const pay = p.payment;
   if (!pay || integer(pay.amountMinor) !== total)
     refuse("Payment must match the sale total", "invalid_request");
-  const method = PAYMENT_METHODS.find((m) => m.code === pay.method);
+  const method = await configuredTender(db, trip.org_unit_id, p.payment, at);
   if (!method || pay.kind !== method.kind)
     refuse("Payment method is invalid", "invalid_request");
   if (method.referenceRequired) text(pay.reference, 100, true);
@@ -570,6 +644,23 @@ async function sale(db, trip, actor, p, opId) {
     payment: { ...pay, label: method.label },
     soldAt: at,
   };
+  const fiscal = await invoiceForSale(
+    db,
+    actor,
+    trip,
+    p,
+    receipt,
+    trip.started_device_id,
+  );
+  if (fiscal.document_number !== receiptNumber)
+    refuse(
+      "Invoice number does not match the allocated serial",
+      "invalid_request",
+    );
+  Object.assign(receipt, {
+    fiscalDocumentId: fiscal.id,
+    tax: fiscal.snapshot.tax,
+  });
   await db`insert into van_sales(id,trip_id,receipt_number,outlet_id,customer_code,total_centavos,discount_centavos,receipt,captured_request) values(${saleId},${trip.id},${receiptNumber},${customer.id},${customer.customerCode},${String(total)},${String(discounts)},${receipt},${p})`;
   if (creditDecisionId)
     await db`update van_sales set sap_credit_decision_id=${creditDecisionId} where id=${saleId}`;
@@ -660,6 +751,10 @@ async function voidSale(db, trip, actor, env, p, opId) {
   );
   await enqueueVanVoidCreditMemo(db, trip, v.id);
   await payment(db, trip, s.receipt.payment, "void_refund", id);
+  const [fiscal] =
+    await db`select id from fiscal_documents where source_type='van_sale' and source_id=${id}`;
+  if (fiscal)
+    await db`insert into fiscal_document_events(document_id,kind,request_key,reason,actor_profile_id,facts) values(${fiscal.id},'void',${opId},${facts.reasonCode},${actor.profileId},${{ approvalId }})`;
   return { entityId: v.id, movementId };
 }
 /** @param {any} db @param {any} trip @param {any} actor @param {any} p @param {string} opId */

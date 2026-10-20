@@ -5,6 +5,7 @@ import { seedFieldHierarchy } from "./field-hierarchy.js";
 import { seedDemo, resetDemo } from "./index.js";
 import { seedSapDemo } from "./sap.js";
 import { seedDistributors } from "./distributors.js";
+import { seedFiscal } from "./fiscal.js";
 
 const args = process.argv.slice(2);
 let reset = false;
@@ -37,6 +38,7 @@ if (
   const db = createDb(process.env.DATABASE_URL, { max: 1 });
   try {
     const result = reset ? await resetDemo(db) : await seedDemo(db, options);
+    if (!reset) await seedFiscal(db);
     if (!reset)
       await tx(db, async (t) => {
         await seedFieldHierarchy(t);

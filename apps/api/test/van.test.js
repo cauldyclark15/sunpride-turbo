@@ -9,7 +9,12 @@ import {
 import { actorFor } from "../src/core/context.js";
 import { tx } from "@sunpride/db/client";
 import { runDueJobs } from "../src/core/jobs.js";
-import { today, units, extend } from "../src/domains/van/model.js";
+import {
+  today,
+  units,
+  extend,
+  PAYMENT_METHODS,
+} from "../src/domains/van/model.js";
 import {
   stockCountCode,
   approvalCodeFor,
@@ -171,6 +176,24 @@ beforeAll(async () => {
     await h.db`insert into inventory_locations(id,organization_id,org_unit_id,site_code,code,name,type,active,allows_picking,allows_receiving,allows_sale,allows_production) values(${id},'sunpride',${unit},'CEBU',${code},${code},${type},true,true,true,true,false)`;
   await h.db`insert into inventory_balances(product_code,warehouse_code,on_hand,reserved,available,as_of,organization_id,product_id,location_id,physical_base,weighted_average_cost_minor) values('SAMPLE','TRUCK',0,0,0,now(),'sunpride',${product},${truck},0,10000)`;
   await h.db`insert into outlets(id,organization_id,code,name,status,custodian_org_unit_id,channel,created_by) values(${outlet},'sunpride','STORE','Sample store','active',${unit},'GT','fixture')`;
+  await h.db`insert into sample_data_rows(batch,table_name,row_id,key) values('fiscal-test','org_units',${unit},'branch')`;
+  for (const method of PAYMENT_METHODS)
+    await h.db`insert into fiscal_tender_rules(org_unit_id,method,label,reference_label,enabled,effective_from,sample,entered_by) values(${unit},${method.code},${method.label},${method.referenceLabel},true,now()-interval '1 day',true,${manager.profile.id})`;
+  const [reg] =
+    await h.db`insert into fiscal_registrations(org_unit_id,entity_name,branch_name,tin,address,document_type,status,effective_from,entered_by,sample) values(${unit},'SAMPLE','Sample branch','SAMPLE TIN','Sample address','sales_invoice','sample_not_filed',now()-interval '1 day',${manager.profile.id},true) returning id`;
+  const [series] =
+    await h.db`insert into fiscal_series(registration_id,prefix,first_serial,last_serial,next_allocate,effective_from) values(${reg.id},'TEST-SI',1,1000,1,now()-interval '1 day') returning id`;
+  const { allocateDocumentNumber } =
+    await import("../src/domains/fiscal/series.js");
+  await tx(h.db, async (db) =>
+    allocateDocumentNumber(db, {
+      actor: await actorFor(db, who.userId),
+      deviceId: who.deviceId,
+      seriesId: series.id,
+      requestKey: crypto.randomUUID(),
+      count: 1000,
+    }),
+  );
 }, 30000);
 afterAll(async () => {
   await h?.close();
@@ -196,11 +219,18 @@ function op(type, payload) {
     opType: type,
     clientTime: at,
     dependsOn: [],
-    payload: { ...payload, deviceTime: at },
+    payload: Object.assign(payload, { deviceTime: at }),
   };
 }
 /** @param {any[]} operations */
 async function push(operations) {
+  for (const op of operations)
+    if (op.opType === "sale.record" && !op.payload.fiscal) {
+      const [a] =
+        await h.db`select a.*,s.prefix from fiscal_allocations a join fiscal_series s on s.id=a.series_id where a.device_id=${who.deviceId} order by a.created_at limit 1`;
+      op.payload.fiscal = { allocationId: a.id, serial: String(a.next_issue) };
+      op.payload.receiptNumber = `${a.prefix}-${String(a.next_issue).padStart(9, "0")}`;
+    }
   return signedPost(h, who, "/api/sync/push", {
     version: 2,
     app: "van-android",

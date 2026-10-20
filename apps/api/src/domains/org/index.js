@@ -169,6 +169,7 @@ export function install(router, platform) {
             return receipt.result;
           }
         }
+        await t`select set_config('sunpride.actor',${actor?.userId ?? actor?.subject ?? "system:org"},true)`;
         const value = await fn(current, body);
         const table =
           path === "people/assign"

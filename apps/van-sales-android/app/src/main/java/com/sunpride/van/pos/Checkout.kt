@@ -179,7 +179,7 @@ object CheckoutRules {
                     val normalized = PaymentReference.normalize(input.reference)
                     when {
                         input.reference.isNullOrBlank() -> return null.also { issues += CheckoutIssue(CheckoutProblem.REFERENCE_MISSING) }
-                        normalized == null -> return null.also { issues += CheckoutIssue(CheckoutProblem.REFERENCE_INVALID) }
+                        normalized == null || method.code == "card" && normalized.count { it.isDigit() } >= 12 -> return null.also { issues += CheckoutIssue(CheckoutProblem.REFERENCE_INVALID) }
                         PaymentReference.key(method.code,normalized) in context.usedReferences ->
                             return null.also { issues += CheckoutIssue(CheckoutProblem.REFERENCE_ALREADY_USED) }
                         else -> normalized

@@ -3,6 +3,8 @@ import {
   configurationsForApp,
   hasConfiguredFlowsForApp,
 } from "../callflow/engine.js";
+import { tenderPolicy } from "../fiscal/tenders.js";
+import { fiscalBundle } from "../fiscal/transactions.js";
 import { ApiError } from "../../core/errors.js";
 import { resolvePrice } from "../orders/pricing.js";
 import { masterId } from "../integration/replicas.js";
@@ -321,7 +323,11 @@ export async function bundle(ctx, env) {
     return {
       serviceDate,
       seller: empty.seller,
-      policy: policy(env, trip.id),
+      policy: {
+        ...policy(env, trip.id),
+        paymentMethods: await tenderPolicy(db, trip.org_unit_id),
+        fiscal: await fiscalBundle(db, actor, trip, device.id),
+      },
       trip: {
         tripId: trip.id,
         tripNumber: trip.trip_number,

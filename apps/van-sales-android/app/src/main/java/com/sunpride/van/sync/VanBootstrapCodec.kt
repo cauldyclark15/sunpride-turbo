@@ -102,10 +102,14 @@ object VanBootstrapCodec {
     fun decode(text: String): VanBootstrap = try {
         val o = JSONObject(text)
         o.remove("_v2")
-        // F-616: validate the new metadata independently while preserving strict frozen v1 fields.
+        // F-019 F-616: validate negotiated extensions without changing frozen v1.
         val legacy = JSONObject(o.toString())
         objects(legacy.getJSONArray("products")).forEach { it.remove("catalogue") }
+        legacy.getJSONObject("policy").remove("fiscal")
         VanWireSchema.validate(legacy)
+        if (o.getJSONObject("policy").has("fiscal")) {
+            com.sunpride.van.fiscal.FiscalNumbers.ranges(o.getJSONObject("policy"))
+        }
         if (o.getString("type") != "van.bootstrap.response") throw VanWireFailure()
         val day = o.getString("serviceDate"); LocalDate.parse(day)
         val t = o.optJSONObject("trip")?.let(::trip)

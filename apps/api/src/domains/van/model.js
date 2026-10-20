@@ -51,7 +51,7 @@ export const PAYMENT_METHODS = [
   },
   {
     code: "check",
-    label: "Check",
+    label: "Cheque",
     kind: "other",
     referenceRequired: true,
     referenceLabel: "Check number",
@@ -62,6 +62,20 @@ export const PAYMENT_METHODS = [
     kind: "other",
     referenceRequired: true,
     referenceLabel: "GCash reference number",
+  },
+  {
+    code: "maya",
+    label: "Maya",
+    kind: "other",
+    referenceRequired: true,
+    referenceLabel: "Maya confirmation reference",
+  },
+  {
+    code: "card",
+    label: "Card",
+    kind: "other",
+    referenceRequired: true,
+    referenceLabel: "Terminal approval (never card number)",
   },
   {
     code: "bank_transfer",

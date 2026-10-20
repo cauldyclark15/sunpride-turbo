@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { createDb, tx } from "../src/client.js";
 import { seedDistributors } from "./distributors.js";
+import { seedFiscal } from "./fiscal.js";
 import { company } from "./company.js";
 import { seedSpecMasters } from "./spec-masters.js";
 import { execution } from "./execution.js";
@@ -1000,6 +1001,7 @@ export async function advanceDemo(db, { date = todayManila() } = {}) {
     day = plusDays(day, 1)
   )
     days.push(await advanceDay(db, day, original.startDate));
+  await seedFiscal(db);
   return {
     batch: BATCH,
     through: date,

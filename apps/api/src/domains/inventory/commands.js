@@ -47,6 +47,7 @@ export async function execute(ctx, action) {
     const actor = ctx.actor ? await actorFor(t, ctx.actor.userId) : null;
     const c = { ...ctx, db: t, actor };
     await requireCapability(c, spec.cap);
+    await t`select set_config('sunpride.actor',${actor?.userId ?? "system:inventory"},true)`;
     const prepared = await spec.prepare(c, body); // persisted scope before replay, every time
     const hash = sha256Hex(canonicalJson({ action, body }));
     const [prior] =
