@@ -35,7 +35,21 @@ function classify(request) {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return "none";
   if (request.headers.get("range")) return "none";
-  const path = url.pathname;
+  let path;
+  try {
+    path = decodeURIComponent(url.pathname);
+  } catch {
+    return "none";
+  }
+  // F-319 F-322: partner data must never survive current authorization denial.
+  if (
+    ["/agency", "/agencies", "/distributor", "/distributors"].some(
+      (p) => path === p || path.startsWith(p + "/"),
+    ) ||
+    path.startsWith("/api/v1/partners") ||
+    path.startsWith("/api/v1/distributors")
+  )
+    return "none";
   if (path === "/sw.js" || path === "/ws") return "none";
   if (path.startsWith("/api/")) {
     if (path.startsWith("/api/auth/")) return "none";

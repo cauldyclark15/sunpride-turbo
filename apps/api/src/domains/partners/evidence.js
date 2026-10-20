@@ -2,12 +2,14 @@ import { outletOwnerUnit } from "../org/scope.js";
 import { requireCapability } from "../../core/capabilities.js";
 import { authorize, bound, date, day, digest, fail, today } from "./model.js";
 import { partnerContext } from "./boundary.js";
+import { retailAvailable, retailEvidence } from "./retail-seam.js";
 
 /** F-319: derive billable work ONLY from canonical attendance/call evidence.
  * Never trust an agency-uploaded attendance sheet or a completed label alone.
  * @param {any} c @param {string} id @param {string} from @param {string} to */
 export async function evidence(c, id, from, to) {
   const partner = await authorize(c, id);
+  const retailReady = await retailAvailable(c.db);
   date(from);
   date(to);
   if (
@@ -86,6 +88,7 @@ export async function evidence(c, id, from, to) {
     const reviews =
       await c.db`select r.id,r.kind,d.decision from call_flow_reviews r join call_executions x on x.id=r.call_id
       left join call_flow_decisions d on d.review_id=r.id where x.visit_id=${v.id}`;
+    const retail = await retailEvidence(c.db, v, retailReady);
     const contract = contracts.find((/** @type {any} */ k) => activeAt(k, at));
     const required = [
       ...new Set([
@@ -139,6 +142,29 @@ export async function evidence(c, id, from, to) {
       issues.push("Checkout location needs review");
     if (missing.length) issues.push("Required activity evidence is missing");
     if (negative) issues.push("Execution compliance needs action");
+    if (
+      retail.audits.some(
+        (/** @type {any} */ a) =>
+          a.component_score !== null && Number(a.component_score) < 100,
+      )
+    )
+      issues.push("Retail execution audit needs action");
+    for (const item of retail.cases.filter(
+      (/** @type {any} */ item) =>
+        !["resolved", "rejected"].includes(item.status),
+    ))
+      issues.push(
+        `${item.kind === "incident" ? "Field incident" : "Retail follow-up"} needs action`,
+      );
+    if (
+      kinds.some(
+        (/** @type {any} */ a) =>
+          new Date(a.device_time).getTime() < at ||
+          (v.ended_at &&
+            new Date(a.device_time).getTime() > new Date(v.ended_at).getTime()),
+      )
+    )
+      issues.push("Activity capture time is outside the call");
     if (v.late_review_status && v.late_review_status !== "accepted")
       issues.push("Late evidence needs office review");
     if (reviews.some((/** @type {any} */ r) => r.decision !== "approve"))
@@ -164,6 +190,7 @@ export async function evidence(c, id, from, to) {
       dwellMs: dwell,
       issues,
       sources: {
+        retail,
         visitRevision: String(v.change_seq),
         activities: kinds.map((/** @type {any} */ a) => ({
           id: a.id,
@@ -198,14 +225,31 @@ export async function evidence(c, id, from, to) {
           day(p.service_date) === serviceDate &&
           allowedOutlets.has(p.outlet_id),
       );
-      const contract = contracts.find((/** @type {any} */ k) =>
-        activeAt(k, Math.max(start, new Date(m.effective_from).getTime())),
+      // A legitimate first call may follow a mid-day contract publication.
+      // Use its actual governing version, never the service-day midnight.
+      const contract = calls.length
+        ? contracts.find(
+            (/** @type {any} */ k) => k.id === calls[0].sources.contractId,
+          )
+        : contracts.find((/** @type {any} */ k) =>
+            activeAt(
+              k,
+              Math.max(
+                start,
+                new Date(m.effective_from).getTime(),
+                Math.min(c.now, start + 86400000 - 1),
+              ),
+            ),
+          );
+      const consistentContract = calls.every(
+        (v) => v.sources.contractId === contract?.id,
       );
       const compliant = calls.filter((v) => v.compliant).length;
       const minimum = contract?.minimum_calls ?? null;
       const qualified =
         minimum !== null &&
         compliant >= minimum &&
+        consistentContract &&
         calls.every((v) => !v.issues.length);
       rows.push({
         profileId: m.profile_id,
@@ -215,7 +259,12 @@ export async function evidence(c, id, from, to) {
         attended: calls.filter((v) => v.attended).length,
         completed: calls.filter((v) => v.completed).length,
         compliant,
-        issues: calls.reduce((n, v) => n + v.issues.length, 0),
+        issues:
+          calls.reduce((n, v) => n + v.issues.length, 0) +
+          (consistentContract ? 0 : 1),
+        billingIssue: consistentContract
+          ? null
+          : "Multiple contract versions govern this day; office review required",
         target: minimum,
         eligible: qualified,
         amountCentavos: qualified ? Number(contract.rate_centavos) : 0,
@@ -249,6 +298,7 @@ export async function evidence(c, id, from, to) {
     },
     source:
       "System visit, location, required-activity and independent review evidence; not agency-reported attendance.",
+    retailIssueFeedAvailable: retailReady,
     evidenceHash: digest({ from, to, rows }),
   };
 }

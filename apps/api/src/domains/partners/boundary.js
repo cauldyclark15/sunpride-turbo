@@ -96,6 +96,19 @@ export async function enforcePartnerHttp(c) {
     return;
   if (path === "/api/v1/partners" || path.startsWith("/api/v1/partners/"))
     return;
+  // SEAM(DISTRIBUTOR): its existing bundle authorizes the exact membership,
+  // dsr grant, private device scope and catalog. Never route it to field.bundle.
+  if (
+    m.partner_kind === "distributor" &&
+    m.grants.includes("dsr") &&
+    [
+      "/api/sync/pull",
+      "/api/devices/challenge",
+      "/api/devices/bind",
+      "/api/devices/mine",
+    ].includes(path)
+  )
+    return;
   if (
     m.partner_kind === "agency" &&
     m.grants.includes("field") &&
@@ -109,6 +122,9 @@ export async function enforcePartnerHttp(c) {
         "/api/devices/bind",
         "/api/devices/mine",
         "/api/media/claims",
+        "/api/v1/location/consent",
+        "/api/v1/location/end-day",
+        "/api/v1/callflow/geofence/request",
       ].includes(path)
     )
       return;
@@ -119,9 +135,9 @@ export async function enforcePartnerHttp(c) {
   );
 }
 
-/** Runs INSIDE every op transaction, before even idempotent receipts.
- * @param {any} db @param {any} actor @param {any} op */
-export async function enforcePartnerOp(db, actor, op) {
+/** Runs inside self-command transactions; no other person's data is granted.
+ * @param {any} db @param {any} actor */
+export async function enforcePartnerSelf(db, actor) {
   const m = await partnerContext(db, actor);
   if (!m) return;
   // Shared locks serialize withdrawal against business writes in this transaction.
@@ -136,6 +152,14 @@ export async function enforcePartnerOp(db, actor, op) {
     actor.role !== "sales"
   )
     throw forbidden("Partner operation is not permitted", "out_of_scope");
+  return current;
+}
+
+/** Runs INSIDE every op transaction, before even idempotent receipts.
+ * @param {any} db @param {any} actor @param {any} op */
+export async function enforcePartnerOp(db, actor, op) {
+  const member = await enforcePartnerSelf(db, actor);
+  if (!member) return;
   if (
     ![
       "visit.checkIn",
@@ -143,6 +167,8 @@ export async function enforcePartnerOp(db, actor, op) {
       "visit.checkOut",
       "evidence.attach",
       "merchandising.record",
+      "task.complete",
+      "location.record",
     ].includes(op.opType)
   )
     throw forbidden(
@@ -150,6 +176,18 @@ export async function enforcePartnerOp(db, actor, op) {
       "out_of_scope",
     );
   const p = op.payload;
+  if (op.opType === "location.record") {
+    const at = Number(p.recordedAt ?? op.clientTime);
+    if (
+      new Date(member.effective_from).getTime() > at ||
+      (member.effective_to && new Date(member.effective_to).getTime() <= at)
+    )
+      throw forbidden(
+        "Location predates your agency assignment",
+        "out_of_scope",
+      );
+    return;
+  }
   let outletId = p.outletId;
   if (op.opType !== "visit.checkIn") {
     if (!isUuid(p.visitId))
@@ -202,18 +240,24 @@ export async function enforcePartnerOp(db, actor, op) {
 export async function enforcePartnerPull(db, actor, scopes, delta) {
   const m = await partnerContext(db, actor);
   if (!m) return null;
+  const distributor =
+    m.partner_kind === "distributor" &&
+    actor.role === "distributor" &&
+    m.grants.includes("dsr") &&
+    scopes.every((s) => s.projection === "distributor.bundle");
   if (
-    m.partner_kind !== "agency" ||
-    actor.role !== "sales" ||
-    !m.grants.includes("field") ||
-    scopes.some((s) => s.projection !== "field.bundle")
+    !distributor &&
+    (m.partner_kind !== "agency" ||
+      actor.role !== "sales" ||
+      !m.grants.includes("field") ||
+      scopes.some((s) => s.projection !== "field.bundle"))
   )
     throw forbidden(
       "This sync topic is outside your organisation",
       "out_of_scope",
     );
   // No unit-wide delta identifiers or tombstones escape to an external login.
-  if (delta)
+  if (delta && !distributor)
     throw forbidden(
       "Refresh your assigned day snapshot",
       "rebootstrap_required",
@@ -250,6 +294,9 @@ export async function enforcePartnerMedia(db, actor, claim) {
   if (!m) return;
   if (claim.purpose !== "visit-photo" || !isUuid(claim.ownerId))
     throw forbidden("Partner media unavailable", "out_of_scope");
+  const [device] =
+    await db`select id from registered_devices where id=${claim.deviceId} and profile_id=${actor.profileId} and status='active' and bound_subject=${actor.subject} and org_unit_id=${actor.orgUnitId}`;
+  if (!device) throw forbidden("Partner device access ended", "out_of_scope");
   const [v] =
     await db`select outlet_id,assignee_profile_id,started_at from visit_executions where id=${claim.ownerId} and deleted_at is null`;
   if (!v || v.assignee_profile_id !== actor.profileId)

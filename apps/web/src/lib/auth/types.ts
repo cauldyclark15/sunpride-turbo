@@ -21,6 +21,7 @@ export type SessionScope = {
 };
 
 export type Me = {
+  partner?: { id: string; kind: "agency" | "distributor"; name: string };
   version?: number;
   serverTime?: number;
   profile: SessionProfile;
@@ -42,6 +43,7 @@ export type SessionStatus =
   | "error";
 
 type RawMe = {
+  partner?: Me["partner"] | null;
   version?: number;
   serverTime?: number;
   user?: { id?: string; email?: string } | null;
@@ -62,6 +64,7 @@ export function toMe(raw: RawMe): Me | null {
   const p = raw.profile;
   if (!p || !p.id) return null;
   return {
+    ...(raw.partner ? { partner: raw.partner } : {}),
     version: raw.version,
     serverTime: raw.serverTime,
     profile: {

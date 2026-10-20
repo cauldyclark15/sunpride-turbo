@@ -120,14 +120,22 @@ async function setOutlet(c, p, b) {
   const from = new Date(b.effectiveFrom ?? c.now);
   if (!Number.isFinite(from.getTime()) || from.getTime() < c.now - 1000)
     fail("Store access must start now or in the future");
-  const [old] =
-    await c.db`select * from partner_outlet_assignments where distributor_id=${p.id} and outlet_id=${outletId} and (effective_to is null or effective_to>now()) for update`;
-  if (old) {
-    if (new Date(old.effective_from).getTime() >= from.getTime())
-      fail("Access is already scheduled", "conflict", 409);
-    await c.db`update partner_outlet_assignments set effective_to=${from} where id=${old.id}`;
+  const pending =
+    await c.db`select * from partner_outlet_assignments where distributor_id=${p.id} and outlet_id=${outletId} and (effective_to is null or effective_to>now()) and (effective_to is null or effective_to>effective_from) order by effective_from for update`;
+  let id = null;
+  for (const old of pending) {
+    if (new Date(old.effective_from).getTime() >= from.getTime()) {
+      // Withdraw/replace pending access too: it must never silently return later.
+      await c.db`update partner_outlet_assignments set effective_to=effective_from where id=${old.id}`;
+      id ??= old.id;
+    } else if (
+      !old.effective_to ||
+      new Date(old.effective_to).getTime() > from.getTime()
+    ) {
+      await c.db`update partner_outlet_assignments set effective_to=${from} where id=${old.id}`;
+      id ??= old.id;
+    }
   }
-  let id = old?.id;
   if (b.allowed !== false) {
     const [g] =
       await c.db`insert into partner_outlet_assignments(distributor_id,outlet_id,effective_from) values(${p.id},${outletId},${from}) returning id`;
@@ -179,6 +187,11 @@ async function setContract(c, p, b) {
 async function buildBilling(c, p, b) {
   await authorize(c, p.id, "billing");
   const e = await evidence(c, p.id, date(b.from), date(b.to));
+  if (p.source !== "sample" && !e.retailIssueFeedAvailable)
+    fail(
+      "Connect operational incident evidence before building agency billing",
+      "needs_setup",
+    );
   const [old] =
     await c.db`select id from partner_billing_periods where distributor_id=${p.id} and period_from=${b.from}::date and period_to=${b.to}::date and evidence_hash=${e.evidenceHash}`;
   if (old) return { id: old.id, evidenceHash: e.evidenceHash, duplicate: true };
@@ -342,6 +355,7 @@ export function install(router, ctx) {
     command(c, "F-319.billing.build", buildBilling, {
       office: false,
       grant: "billing",
+      replay: (cc, p, response) => billing(cc, p.id, response.id),
     }),
   );
   router.get("/api/v1/partners/setup", (/** @type {any} */ c) =>
@@ -363,7 +377,11 @@ export function install(router, ctx) {
       const contracts =
         await cc.db`select * from partner_contracts where distributor_id=${id} order by version desc limit 100`;
       const outlets =
-        await cc.db`select g.id,g.outlet_id,o.name,g.effective_from,g.effective_to from partner_outlet_assignments g join outlets o on o.id=g.outlet_id where g.distributor_id=${id} and (g.effective_to is null or g.effective_to>now()) order by o.name`;
+        await cc.db`select g.id,g.outlet_id,o.name,g.effective_from,g.effective_to from partner_outlet_assignments g join outlets o on o.id=g.outlet_id
+          left join outlet_assignments a on a.outlet_id=o.id and a.deleted_at is null and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now())
+          left join territory_ownerships own on own.territory_id=a.territory_id and own.deleted_at is null and own.effective_from<=now() and (own.effective_to is null or own.effective_to>now())
+          where g.distributor_id=${id} and o.deleted_at is null and coalesce(own.org_unit_id,o.custodian_org_unit_id)=${agency.org_unit_id}
+            and g.effective_from<=now() and (g.effective_to is null or g.effective_to>now()) order by o.name`;
       const periods =
         await cc.db`select x.id,x.period_from,x.period_to,x.evidence_hash,d.decision from partner_billing_periods x left join partner_billing_decisions d on d.period_id=x.id where x.distributor_id=${id} order by x.created_at desc limit 100`;
       return { staff, contracts, outlets, periods, outletOptions: candidates };

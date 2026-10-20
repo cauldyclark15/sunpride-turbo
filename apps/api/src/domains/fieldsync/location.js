@@ -1,4 +1,5 @@
 import { tx } from "@sunpride/db/client";
+import { enforcePartnerSelf } from "../partners/boundary.js";
 import { requireCapability } from "../../core/capabilities.js";
 import { invalid, forbidden } from "../../core/errors.js";
 import { isUuid } from "../../core/util.js";
@@ -218,6 +219,7 @@ export async function consent(ctx) {
   )
     throw invalid("Start sharing during your work day");
   const result = await tx(ctx.db, async (db) => {
+    await enforcePartnerSelf(db, actor);
     await personLock(db, actor.profileId);
     if (start) {
       const date = manilaDate(startedAt);
@@ -254,6 +256,7 @@ export async function endDay(ctx) {
   const actor = await requireCapability(ctx, "visit.record");
   const date = manilaDate(ctx.now);
   await tx(ctx.db, async (db) => {
+    await enforcePartnerSelf(db, actor);
     await personLock(db, actor.profileId);
     const [first] =
       await db`select min(checked_in_at) as at from visit_executions where assignee_profile_id=${actor.profileId} and service_date=${date}::date and deleted_at is null`;

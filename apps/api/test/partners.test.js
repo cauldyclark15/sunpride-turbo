@@ -25,6 +25,7 @@ import { scopeOf } from "../src/core/scope.js";
 import { ensurePartnerSamples } from "../../../packages/db/seed/partners.js";
 import { BATCH } from "../../../packages/db/seed/store.js";
 import { stat } from "node:fs/promises";
+import { publish } from "../src/core/realtime.js";
 import {
   configuration,
   PROFILE_FIELD,
@@ -37,6 +38,7 @@ const password = "partner-test-only-password";
 const early = new Date(Date.now() - 30 * 86400000);
 beforeAll(async () => {
   h = await startHarness({
+    listen: true,
     installers: [org, visits, fieldsync, partners, callflow],
   });
   unit = await ensureRoot(h.db);
@@ -562,10 +564,12 @@ test("F-322 office invitations use existing signup identities, forbid employee a
 
 test("F-319 F-322 sample agency seed is additive, idempotent and keeps working logins in a 0600 record", async () => {
   const f = await fixture();
+  const source = await person("sales");
   const [position] =
     await h.db`insert into positions(organization_id,code,label,category,active) values('sunpride',${crypto.randomUUID()},'Sample merchandiser','field',true) returning id`;
-  await h.db`update profiles set position_id=${position.id} where id=${f.staff.id}`;
-  for (const p of [office, f.staff])
+  await h.db`update profiles set position_id=${position.id} where id=${source.id}`;
+  await h.db`insert into territory_salespeople(territory_id,profile_id,effective_from,actor_subject,reason) select territory_id,${source.id},effective_from,actor_subject,reason from territory_salespeople where profile_id=${f.staff.id}`;
+  for (const p of [office, source])
     await h.db`insert into sample_data_rows(batch,table_name,row_id,key) values(${BATCH},'profiles',${p.id},${`partner-fixture:${p.id}`})`;
   const credentialsPath = `${h.filesDir}/sample-agency-credentials.json`;
   const first = await ensurePartnerSamples(h.db, { credentialsPath });
@@ -592,3 +596,211 @@ test("F-319 F-322 sample agency seed is additive, idempotent and keeps working l
   });
   expect((await me.json()).partner.kind).toBe("agency");
 }, 30000);
+
+test("F-322 withdrawing staff blocks frozen export and billing command replay, not just fresh queries", async () => {
+  const f = await fixture();
+  await complete(f);
+  const body = {
+    partnerId: f.p.id,
+    from: today(),
+    to: today(),
+    requestKey: crypto.randomUUID(),
+  };
+  const built = await request(f.portal, "/billing/build", body);
+  expect(built.res.status).toBe(200);
+  const [m] =
+    await h.db`select id from distributor_users where distributor_id=${f.p.id} and profile_id=${f.staff.id} and effective_to is null`;
+  expect(
+    (
+      await request(office, "/revoke", {
+        partnerId: f.p.id,
+        membershipId: m.id,
+        requestKey: crypto.randomUUID(),
+      })
+    ).res.status,
+  ).toBe(200);
+  expect(
+    (
+      await request(
+        f.portal,
+        `/billing/export?partnerId=${f.p.id}&periodId=${built.body.id}`,
+      )
+    ).res.status,
+  ).toBe(403);
+  expect((await request(f.portal, "/billing/build", body)).res.status).toBe(
+    403,
+  );
+});
+
+test("F-322 a previously issued media upload token cannot bypass device or membership withdrawal", async () => {
+  const f = await fixture(),
+    v = await complete(f),
+    bytes = new Uint8Array([255, 216, 255, 217]);
+  const hash = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
+  const claim = await signedPost(h, f.who, "/api/media/claims", {
+    version: 2,
+    purpose: "visit-photo",
+    ownerId: v.visitId,
+    mime: "image/jpeg",
+    size: bytes.length,
+    sha256: hash,
+  });
+  expect(claim.res.status).toBe(200);
+  await h.db`update registered_devices set status='revoked' where id=${f.who.deviceId}`;
+  const upload = await h.fetch(`/api/media/uploads/${claim.body.uploadId}`, {
+    method: "PUT",
+    headers: {
+      authorization: `Bearer ${claim.body.uploadToken}`,
+      "content-type": "image/jpeg",
+    },
+    body: bytes,
+  });
+  expect(upload.status).toBe(403);
+  const [file] =
+    await h.db`select status from files where id=${claim.body.uploadId}`;
+  expect(file.status).not.toBe("stored");
+});
+
+test("F-322 real WebSocket fanout reauthorizes after partner access is withdrawn", async () => {
+  const f = await fixture(),
+    topic = `partner:${f.p.id}`;
+  const ws = new WebSocket(
+    h.origin.replace("http", "ws") + "/ws",
+    /** @type {any} */ ({ headers: { cookie: f.portal.cookie } }),
+  );
+  /** @type {any[]} */ const messages = [];
+  ws.addEventListener("message", (e) =>
+    messages.push(JSON.parse(String(e.data))),
+  );
+  const next = async (/** @type {(m:any)=>boolean} */ pred) => {
+    for (let n = 0; n < 200; n++) {
+      const i = messages.findIndex(pred);
+      if (i >= 0) return messages.splice(i, 1)[0];
+      await Bun.sleep(10);
+    }
+    throw new Error("Socket event not received");
+  };
+  try {
+    await new Promise((resolve, reject) => {
+      ws.addEventListener("open", () => resolve(undefined));
+      ws.addEventListener("error", () => reject(new Error("Socket refused")));
+    });
+    ws.send(
+      JSON.stringify({
+        type: "subscribe",
+        topics: [topic, "visits", `partner:${crypto.randomUUID()}`],
+      }),
+    );
+    expect((await next((m) => m.type === "subscribed")).topics).toEqual([
+      topic,
+    ]);
+    await publish(h.db, topic);
+    expect((await next((m) => m.type === "invalidate")).topic).toBe(topic);
+    await h.db`update distributor_users set effective_to=now() where profile_id=${f.portal.id} and distributor_id=${f.p.id}`;
+    await publish(h.db, topic);
+    await Bun.sleep(300);
+    expect(messages.filter((m) => m.type === "invalidate")).toEqual([]);
+  } finally {
+    ws.close();
+  }
+});
+
+test("F-322 agency field staff retain their own consent commands but never the team location feed", async () => {
+  const f = await fixture();
+  const headers = {
+    authorization: `Bearer ${f.who.access}`,
+    "content-type": "application/json",
+  };
+  const changed = await h.fetch("/api/v1/location/consent", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ enabled: true }),
+  });
+  expect(changed.status).toBe(200);
+  const current = await h.fetch("/api/v1/location/consent", { headers });
+  expect((await current.json()).enabled).toBe(true);
+  expect((await h.fetch("/api/v1/location/live", { headers })).status).toBe(
+    403,
+  );
+  await h.db`update distributor_users set effective_to=now() where profile_id=${f.staff.id} and distributor_id=${f.p.id}`;
+  expect(
+    (
+      await h.fetch("/api/v1/location/consent", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ enabled: false }),
+      })
+    ).status,
+  ).toBe(403);
+});
+
+test("F-319 daily billing follows the actual mid-day contract version, not the earlier midnight rate", async () => {
+  const f = await fixture();
+  await complete(f);
+  const beginning = new Date(Date.now() - 660000);
+  await h.db`update partner_contracts set effective_to=${beginning} where distributor_id=${f.p.id}`;
+  await h.db`insert into partner_contracts(distributor_id,version,source_ref,sample,rate_centavos,minimum_calls,minimum_dwell_ms,required_kinds,effective_from,created_by) values(${f.p.id},2,'SAMPLE mid-day contract',true,70000,1,180000,array['merchandising'],${beginning},${office.id})`;
+  const e = await evidenceOf(f);
+  expect(e.body.rows[0].contractVersion).toBe(2);
+  expect(e.body.summary.amountCentavos).toBe(70000);
+});
+
+test("F-322 ending store access also cancels pending grants without reactivation or deleted history", async () => {
+  const f = await fixture(),
+    future = new Date(Date.now() + 3600000);
+  const scheduled = await request(office, "/outlet/set", {
+    partnerId: f.p.id,
+    outletId: f.outlet.id,
+    allowed: true,
+    effectiveFrom: future.toISOString(),
+    requestKey: crypto.randomUUID(),
+  });
+  expect(scheduled.res.status).toBe(200);
+  const ended = await request(office, "/outlet/set", {
+    partnerId: f.p.id,
+    outletId: f.outlet.id,
+    allowed: false,
+    requestKey: crypto.randomUUID(),
+  });
+  expect(ended.res.status).toBe(200);
+  const [count] =
+    await h.db`select count(*)::int total,count(*) filter(where effective_from<=${future} and (effective_to is null or effective_to>${future}))::int future_active,count(*) filter(where effective_from=effective_to)::int cancelled from partner_outlet_assignments where distributor_id=${f.p.id} and outlet_id=${f.outlet.id}`;
+  expect(count).toEqual({ total: 2, future_active: 0, cancelled: 1 });
+});
+
+test("F-319 non-sample billing requires the operational incident evidence feed", async () => {
+  const f = await fixture();
+  await complete(f);
+  const e = await evidenceOf(f);
+  expect(typeof e.body.retailIssueFeedAvailable).toBe("boolean");
+  await h.db`update distributors set source='office' where id=${f.p.id}`;
+  const built = await request(f.portal, "/billing/build", {
+    partnerId: f.p.id,
+    from: today(),
+    to: today(),
+    requestKey: crypto.randomUUID(),
+  });
+  expect(built.res.status).toBe(e.body.retailIssueFeedAvailable ? 200 : 422);
+  if (!e.body.retailIssueFeedAvailable)
+    expect(built.body.error.code).toBe("needs_setup");
+});
+
+test("F-319 MERCH canonical operational cases are read through the staff-and-visit seam, never the QA tracker", async () => {
+  const f = await fixture(),
+    v = await complete(f);
+  // Exact columns consumed from MERCH migration 0540; fixture tables only.
+  await h.db`create table if not exists retail_execution_audits(id uuid primary key default gen_random_uuid(),organization_id text not null default 'sunpride',visit_id uuid not null,outlet_id uuid not null,profile_id uuid not null,org_unit_id uuid not null,kind text not null,request_key uuid not null,payload_hash text not null,master_version_id uuid,component_score numeric,captured_at timestamptz not null,facts jsonb not null,actor_subject text not null,created_at timestamptz default now(),updated_at timestamptz default now())`;
+  await h.db`create table if not exists retail_action_cases(id uuid primary key default gen_random_uuid(),audit_id uuid not null,outlet_id uuid not null,kind text not null,status text not null default 'open',owner_profile_id uuid,due_at timestamptz not null,facts jsonb not null,created_at timestamptz default now(),updated_at timestamptz default now())`;
+  const [audit] =
+    await h.db`insert into retail_execution_audits(visit_id,outlet_id,profile_id,org_unit_id,kind,request_key,payload_hash,captured_at,facts,actor_subject) values(${v.visitId},${f.outlet.id},${f.staff.id},${unit},'issue_log',${crypto.randomUUID()},'fixture',now(),${{ source: "sample" }},${f.staff.userId}) returning id`;
+  await h.db`insert into retail_action_cases(audit_id,outlet_id,kind,status,due_at,facts) values(${audit.id},${f.outlet.id},'incident','open',now(),${{ source: "sample" }})`;
+  const e = await evidenceOf(f);
+  expect(e.res.status).toBe(200);
+  expect(e.body.retailIssueFeedAvailable).toBe(true);
+  expect(e.body.visits[0].issues).toContain("Field incident needs action");
+  expect(e.body.summary.amountCentavos).toBe(0);
+  await h.db`update retail_action_cases set status='resolved' where audit_id=${audit.id}`;
+  const resolved = await evidenceOf(f);
+  expect(resolved.body.summary.amountCentavos).toBe(65000);
+  expect(resolved.body.evidenceHash).not.toBe(e.body.evidenceHash);
+});

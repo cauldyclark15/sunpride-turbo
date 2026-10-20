@@ -57,6 +57,7 @@ const calls = {
     "/api/v1/orders/outside-calls/list?status=awaiting_activity",
   ],
   "van-trips": [`/api/v1/van/trips?date=${date}`],
+  agencies: ["/api/v1/partners"], // F-319 F-322: dependent agency reads are covered by partners.test.js
 };
 beforeAll(async () => {
   h = await startHarness({ installers: domainInstallers });

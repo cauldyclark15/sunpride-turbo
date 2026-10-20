@@ -95,12 +95,12 @@ export async function read(c, fn) {
     return wire(await fn({ ...c, db, actor, now: Date.now() }));
   });
 }
-/** @param {any} c @param {string} action @param {(c:any,p:any,b:any)=>Promise<any>} fn @param {{grant?:string,office?:boolean}} [options] */
+/** @param {any} c @param {string} action @param {(c:any,p:any,b:any)=>Promise<any>} fn @param {{grant?:string,office?:boolean,replay?:(c:any,p:any,response:any)=>Promise<any>}} [options] */
 export async function command(
   c,
   action,
   fn,
-  { grant = "portal", office = true } = {},
+  { grant = "portal", office = true, replay } = {},
 ) {
   const b = c.body ?? {},
     id = uuid(b.partnerId),
@@ -120,6 +120,7 @@ export async function command(
           "idempotency_conflict",
           409,
         );
+      if (replay) await replay(cc, p, old.response);
       return { ...old.response, duplicate: true };
     }
     const response = wire(await fn(cc, p, b));

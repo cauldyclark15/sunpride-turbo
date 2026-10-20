@@ -71,7 +71,11 @@ async function claim(ctx) {
     throw invalid("Invalid sha256");
   const device = await verifyDeviceProof(ctx);
   const actor = /** @type {import('./context.js').Actor} */ (ctx.actor);
-  await enforcePartnerMedia(ctx.db, actor, { purpose, ownerId });
+  await enforcePartnerMedia(ctx.db, actor, {
+    purpose,
+    ownerId,
+    deviceId: device.id,
+  });
   if (
     !(await hooks.canClaimMedia(ctx.db, actor, {
       purpose,
@@ -121,6 +125,7 @@ async function upload(ctx) {
   await enforcePartnerMedia(ctx.db, uploader, {
     purpose: file.purpose,
     ownerId: file.owner_id,
+    deviceId: file.device_id,
   });
   const contentType = ctx.req.headers
     .get("content-type")
@@ -173,6 +178,7 @@ async function upload(ctx) {
     await enforcePartnerMedia(ctx.db, currentUploader, {
       purpose: file.purpose,
       ownerId: file.owner_id,
+      deviceId: file.device_id,
     });
     const dir = join(root, digest.slice(0, 2));
     await mkdir(dir, { recursive: true });

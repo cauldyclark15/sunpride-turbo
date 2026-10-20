@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, writeFile, rename } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { tx } from "../src/client.js";
@@ -25,37 +25,46 @@ export async function ensurePartnerSamples(
     ),
   } = {},
 ) {
-  const [database] = await db`select current_database() as name`;
-  await mkdir(dirname(credentialsPath), { recursive: true, mode: 0o700 });
-  /** @type {Record<string,any>} */ let record = {};
-  try {
-    record = JSON.parse(await readFile(credentialsPath, "utf8"));
-  } catch (e) {
-    if (/** @type {any} */ (e).code !== "ENOENT") throw e;
-  }
-  record[database.name] ??= {};
-  const accounts = [
-    ["portal", "Agency coordinator", "agency"],
-    ["merch1", "Agency merchandiser 1", "sales"],
-    ["merch2", "Agency merchandiser 2", "sales"],
-  ];
-  for (const [key, name, role] of accounts)
-    record[database.name][key] ??= {
-      email: `${key}@agency.sunpride.test`,
-      name,
-      role,
-      password: crypto.randomUUID() + crypto.randomUUID(),
-    };
-  await writeFile(credentialsPath, JSON.stringify(record, null, 2) + "\n", {
-    mode: 0o600,
-  });
-  await chmod(credentialsPath, 0o600);
   return tx(db, async (t) => {
     await t`select pg_advisory_xact_lock(4310550)`;
+    const [database] = await t`select current_database() as name`;
+    await mkdir(dirname(credentialsPath), { recursive: true, mode: 0o700 });
+    /** @type {Record<string,any>} */ let record = {};
+    try {
+      record = JSON.parse(await readFile(credentialsPath, "utf8"));
+    } catch (e) {
+      if (/** @type {any} */ (e).code !== "ENOENT") throw e;
+    }
+    record[database.name] ??= {};
+    const accounts = [
+      ["portal", "Agency coordinator", "agency"],
+      ["merch1", "Agency merchandiser 1", "sales"],
+      ["merch2", "Agency merchandiser 2", "sales"],
+    ];
+    for (const [key, name, role] of accounts) {
+      const [retained] =
+        await t`select id from users where id=${rowId("users", `agency-${key}`)}`;
+      if (retained && !record[database.name][key])
+        throw new Error(
+          "Retained sample agency credentials are missing; refusing to replace them",
+        );
+      record[database.name][key] ??= {
+        email: `${key}@agency.sunpride.test`,
+        name,
+        role,
+        password: crypto.randomUUID() + crypto.randomUUID(),
+      };
+    }
+    const temporary = `${credentialsPath}.${crypto.randomUUID()}`;
+    await writeFile(temporary, JSON.stringify(record, null, 2) + "\n", {
+      mode: 0o600,
+    });
+    await rename(temporary, credentialsPath);
+    await chmod(credentialsPath, 0o600);
     const [office] =
-      await t`select p.* from profiles p join sample_data_rows m on m.table_name='profiles' and m.row_id=p.id::text and m.batch=${BATCH} where p.role='super_admin' and p.status='active' and p.deleted_at is null limit 1`;
+      await t`select p.* from profiles p join sample_data_rows m on m.table_name='profiles' and m.row_id=p.id::text and m.batch=${BATCH} where p.role in ('super_admin','admin') and p.status='active' and p.deleted_at is null order by (p.role='super_admin') desc limit 1`;
     const [source] =
-      await t`select p.* from profiles p join sample_data_rows m on m.table_name='profiles' and m.row_id=p.id::text and m.batch=${BATCH} where p.role='sales' and p.position_id is not null and p.status='active' and p.deleted_at is null order by p.name limit 1`;
+      await t`select p.* from profiles p join sample_data_rows m on m.table_name='profiles' and m.row_id=p.id::text and m.batch=${BATCH} where p.role='sales' and p.position_id is not null and p.status='active' and p.deleted_at is null and not exists(select 1 from distributor_users u where u.profile_id=p.id) order by p.name limit 1`;
     if (!office || !source)
       return { status: "needs_sample_company", partners: 0, credentialsPath };
     const beginning = new Date("2026-01-01T00:00:00+08:00");
