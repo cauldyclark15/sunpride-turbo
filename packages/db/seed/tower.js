@@ -1,4 +1,4 @@
-import { Dataset, persist, plusDays, BATCH, rowId } from "./store.js";
+import { Dataset, persist, plusDays, BATCH } from "./store.js";
 import { company } from "./company.js";
 
 /** F-601–F-608 clearly fictional source replicas; no operational orders/inventory overwritten.
@@ -63,12 +63,12 @@ export function towerSamples(d, c) {
               campaign_ref: kind === "promotion_plan" ? "SAMPLE-LAUNCH" : null,
               channel: o.channel,
               account_name: `Sample distributor account ${dist + 1}`,
-              lineage: JSON.stringify({
+              lineage: {
                 source: "invented_sample",
                 feature: "F-603",
                 invoiceLine: key,
                 notSap: true,
-              }),
+              },
             },
             at,
           );
@@ -114,7 +114,7 @@ export function towerSamples(d, c) {
         source_revision: "1",
         source_type: "sample",
         effective_from: d.epoch,
-        payload: JSON.stringify(payload),
+        payload,
       });
     d.add("analytics_integrity_findings", `tower-integrity-${o.id}`, {
       org_unit_id: o.custodian_org_unit_id,
@@ -130,7 +130,7 @@ export function towerSamples(d, c) {
       detail: "Fictional review case; not a detector result or accusation.",
       status: "open",
       occurred_at: `${d.anchorDate}T10:00:00+08:00`,
-      evidence: JSON.stringify({ sample: true, source: "invented_case" }),
+      evidence: { sample: true, source: "invented_case" },
       review_href: "/decide",
     });
   }
