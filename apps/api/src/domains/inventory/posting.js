@@ -1,3 +1,4 @@
+import { enqueueMovementPosting } from "../integration/posting.js";
 import { ApiError } from "../../core/errors.js";
 import { actorFor } from "../../core/context.js";
 import { recordChange } from "../../core/sync.js";
@@ -269,8 +270,8 @@ export async function postMovement(tx, input) {
     sourceType: input.sourceType,
     sourceId: input.sourceId,
   });
-  await tx`insert into integration_events (event_id,direction,event_type,status,attempts,payload,received_at,organization_id,schema_version,payload_hash,source_document_id,movement_id,next_attempt_at)
-    values (${`inventory-${movementId}`},'outbound',${`inventory.${input.kind}.posted`},'pending',0,${{ movementId, kind: input.kind, sourceType: input.sourceType, sourceId: input.sourceId }},${now},${org},2,${hash},${input.sourceId},${movementId},${now})`;
+  // F-119 replace the retired transport event with the single SAP outbox effect.
+  await enqueueMovementPosting(tx, movementId);
   for (const [entityId, unit] of changed)
     await recordChange(tx, {
       entity: "inventory_balances",

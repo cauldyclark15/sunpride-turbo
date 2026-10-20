@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { startMock } from "../src/server.js";
-import { sampleMasters } from "../src/sample.js";
+import { sampleMasters, sampleMaster } from "../src/sample.js";
 import {
   schemas,
   validate,
@@ -151,6 +151,35 @@ test("F-001 mock fails/rejects before posting, and accepted response loss retain
   const found = await fetch(sap.origin + "/v1/postings/" + b.effectId);
   expect(found.status).toBe(200);
   expect((await found.json()).effectId).toBe(b.effectId);
+});
+
+test("F-101 goods posting refuses an unmapped depot and exact replay succeeds after the SAP master is published", async () => {
+  const b = envelope("goods_movement");
+  b.effectId = "mapping-proof";
+  b.document.amountCentavos = null;
+  b.document.lines[0].toLocationCode = "SAMPLE-NEW-DEPOT";
+  expect((await post("/v1/postings/goods_movement", b)).status).toBe(422);
+  expect((await fetch(sap.origin + "/v1/postings/" + b.effectId)).status).toBe(
+    404,
+  );
+  const master = sampleMaster("location", "SAMPLE-NEW-DEPOT", {
+    locationCode: "SAMPLE-NEW-DEPOT",
+    plant: "SAMPLE-PLANT",
+    storageLocation: "SAMPLE-NEW",
+    status: "active",
+  });
+  expect((await post("/control/masters", { items: [master] })).status).toBe(
+    200,
+  );
+  const accepted = await post("/v1/postings/goods_movement", b);
+  expect(accepted.status).toBe(200);
+  expect((await accepted.json()).payloadHash).toBe(payloadHash(b));
+  expect((await post("/v1/postings/goods_movement", b)).status).toBe(200);
+  expect(
+    sap.db
+      .query("select count(*) as n from receipts where effect=?")
+      .get(b.effectId).n,
+  ).toBe(1);
 });
 test("F-112 reservations are shared across channels, exact retries do not reserve twice, previews never reserve", async () => {
   await post("/control/credit", {

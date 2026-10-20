@@ -14,6 +14,8 @@ import {
 } from "./store.js";
 
 const ANCHOR = "2026-10-19";
+// F-023 honor the caller lane for isolated migration/seed verification.
+const LANE = (process.env.SP_LANE ?? "seed").replace(/[^a-z0-9_]/g, "");
 /** @type {import('../src/client.js').Db} */
 let db;
 /** @type {import('../src/client.js').Db} */
@@ -27,9 +29,11 @@ const sentinel = crypto.randomUUID();
 
 beforeAll(async () => {
   const base = (
-    await Bun.file(`${process.env.HOME}/.sunpride-keys/pg-lane-seed-url`).text()
+    await Bun.file(
+      `${process.env.HOME}/.sunpride-keys/pg-lane-${LANE}-url`,
+    ).text()
   ).trim();
-  dbName = `sunpride_lane_seed_t${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
+  dbName = `sunpride_lane_${LANE}_t${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
   admin = createDb(base, { max: 1 });
   await admin.unsafe(`create database ${ident(dbName)}`);
   const url = new URL(base);
@@ -79,8 +83,8 @@ async function fingerprint() {
   return { counts: [...counts], sums };
 }
 
-// These tests intentionally use only pg-lane-seed-url, never the schema/core keys or a
-// shared dev DB. Every write lives in a uniquely named throwaway DB dropped in afterAll.
+// F-023 every write lives in the caller lane's uniquely named throwaway DB,
+// dropped in afterAll; the default remains seed for the historical seed-only harness.
 describe("90-day Sunpride demo", () => {
   test("fresh fully migrated database seeds in under sixty seconds", () => {
     expect(seedMs).toBeLessThan(60_000);

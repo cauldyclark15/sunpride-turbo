@@ -219,6 +219,9 @@ export function startMock(opts) {
               status,
               limitCentavos: account?.credit_limit ?? null,
               exposureCentavos: exposureBefore,
+              projectedExposureCentavos: Number.isSafeInteger(total)
+                ? total
+                : null,
               source: "sample",
             });
             db.query("insert into decisions values(?,?,?)").run(
@@ -265,6 +268,29 @@ export function startMock(opts) {
             if (old) {
               if (old.hash !== hash) throw new Error("payload_conflict");
               return JSON.parse(old.result);
+            }
+            if (b.kind === "goods_movement") {
+              for (const line of b.document.lines) {
+                for (const code of [
+                  line.fromLocationCode,
+                  line.toLocationCode,
+                ].filter(Boolean)) {
+                  const location = db
+                    .query(
+                      "select body from masters where kind='location' and json_extract(body,'$.data.locationCode')=? and json_extract(body,'$.effectiveFrom')<=? order by version desc limit 1",
+                    )
+                    .get(code, Date.now());
+                  const master = location ? JSON.parse(location.body) : null;
+                  if (
+                    !master ||
+                    master.deleted ||
+                    master.data.status !== "active" ||
+                    (master.effectiveTo !== null &&
+                      master.effectiveTo <= Date.now())
+                  )
+                    throw new Error("mapping_rejected");
+                }
+              }
             }
             const credit = b.document.facts.creditDecision;
             if (
@@ -317,7 +343,10 @@ export function startMock(opts) {
         return error("not_found", 404);
       } catch (e) {
         const conflict = e instanceof Error && e.message === "payload_conflict";
-        if (e instanceof Error && e.message === "credit_rejected")
+        if (
+          e instanceof Error &&
+          ["credit_rejected", "mapping_rejected"].includes(e.message)
+        )
           return error("rejected", 422);
         return error(
           conflict ? "payload_conflict" : "invalid_contract",

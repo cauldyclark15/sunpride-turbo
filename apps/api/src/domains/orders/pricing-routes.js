@@ -43,6 +43,8 @@ const listView = (r) => ({
 });
 /** @param {any} c @param {any} b */
 async function saveList(c, b) {
+  if (c.env?.SAP_MODE != null)
+    fail("SAP owns prices; use the replicated conditions", "sap_read_only");
   const code = text(b.priceListCode ?? b.code, "Price list code", 80),
     name = text(b.name ?? code, "Price list name", 160);
   const from = instant(b.effectiveFrom),

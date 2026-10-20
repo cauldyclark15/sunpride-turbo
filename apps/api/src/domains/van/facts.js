@@ -1,3 +1,4 @@
+import { enqueueVanPayment } from "../integration/posting.js";
 import { uuid, refuse, integer, safeNumber } from "./model.js";
 
 /** @param {any} db @param {string} id @param {number} [at] */
@@ -147,5 +148,6 @@ export async function payment(db, trip, p, kind, saleId, returnId = null) {
   await db`insert into van_payments(id,trip_id,sale_id,return_id,kind,method,amount_centavos,facts)
     values(${id},${trip.id},${saleId},${returnId},${kind},${p.method},${String(amount)},${p})`;
   safeNumber(amount);
+  await enqueueVanPayment(db, trip, id);
   return id;
 }

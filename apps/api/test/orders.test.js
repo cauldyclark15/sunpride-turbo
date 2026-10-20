@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 import { tx } from "@sunpride/db/client";
+import { startMock } from "../../sap-mock/src/server.js";
+import { ingestMaster } from "../src/domains/integration/replicas.js";
+import { sampleMaster } from "../../sap-mock/src/sample.js";
 import { hooks } from "../src/core/hooks.js";
 import { registerOp } from "../src/core/sync.js";
 import { sha256Hex } from "../src/core/util.js";
@@ -30,6 +33,7 @@ mock.module("../src/domains/org/audit.js", () => ({
     await db`insert into audit_logs(subject,action,entity_type,entity_id,details) values(${e.subject},${e.action},${e.entityType},${e.entityId},${e.details})`;
   },
 }));
+/** @type {ReturnType<typeof startMock>} */ let sap;
 /** @type {any[]} */
 const refreshes = [];
 mock.module("../src/domains/analytics/refresh.js", () => ({
@@ -38,6 +42,8 @@ mock.module("../src/domains/analytics/refresh.js", () => ({
   },
 }));
 const { install } = await import("../src/domains/orders/index.js");
+const { configureSap } =
+  await import("../src/domains/integration/transport.js");
 const { drainFieldOrders } =
   await import("../src/domains/orders/field-queue.js");
 const { resolvePrice, creditCheck, applyPromotions } =
@@ -82,7 +88,11 @@ async function api(who, path, body) {
     headers: { cookie: who.cookie, "content-type": "application/json" },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
-  return { status: res.status, body: await res.json() };
+  const result = { status: res.status, body: await res.json() };
+  // F-016 fixture adapter: office import is a sample staging feed, not price authority.
+  if (path === "pricing/price-lists/import" && result.body.ok)
+    await replicatePrices();
+  return result;
 }
 /** @param {any} [over] */
 async function create(over = {}) {
@@ -94,8 +104,54 @@ async function create(over = {}) {
     ...over,
   });
 }
+/** F-016 retain legacy import safety tests, then ingest their exact fixtures as SAP conditions. */
+async function replicatePrices() {
+  const rows =
+    await h.db`select l.*,p.code as product_code,pl.code as list_code,pl.channel_key from price_list_lines l join price_lists pl on pl.id=l.price_list_id join products p on p.id=l.product_id where pl.source='office'`;
+  for (const l of rows) {
+    const key = `test:${l.id}`;
+    const [old] =
+      await h.db`select sap_version,payload from sap_replicas where kind='condition' and sap_key=${key} order by sap_version desc limit 1`;
+    const m = sampleMaster(
+      "condition",
+      key,
+      {
+        productCode: l.product_code,
+        uom: l.uom,
+        customerCode: null,
+        channelKey: l.channel_key,
+        currency: "PHP",
+        unitPriceCentavos: Number(l.unit_price_minor),
+        taxCode: "SAMPLE-VAT12",
+        taxBasisPoints: 1200,
+        taxInclusive: true,
+        precedence: 10,
+        priceListCode: l.list_code,
+      },
+      Number(old?.sap_version ?? 0) + 1,
+    );
+    m.effectiveFrom = new Date(l.effective_from).getTime();
+    m.effectiveTo = l.effective_to ? new Date(l.effective_to).getTime() : null;
+    if (
+      old?.payload.data.unitPriceCentavos === m.data.unitPriceCentavos &&
+      old.payload.effectiveTo === m.effectiveTo
+    )
+      continue;
+    await ingestMaster(h.db, m);
+  }
+}
 beforeAll(async () => {
   h = await startHarness({ installers: [install] });
+  sap = startMock({
+    path: h.filesDir + "/orders-sap.sqlite",
+    port: 0,
+    seed: false,
+  });
+  h.env.SAP_ORIGIN = sap.origin;
+  configureSap(h.db, h.env);
+  sap.db
+    .query("insert into credit_accounts values(?,?,?)")
+    .run("ACCT", 100000000, 0);
   profiles = profileStore(h);
   unit = crypto.randomUUID();
   otherUnit = crypto.randomUUID();
@@ -128,6 +184,7 @@ beforeAll(async () => {
   h.setHooks({ rootUnitId: async () => unit });
 });
 afterAll(async () => {
+  sap?.stop();
   await h?.close();
 });
 
@@ -434,8 +491,13 @@ describe("orders and governed prices on Postgres", () => {
       )[0].status,
     ).toBe("voided");
   });
-  test("credit includes pending orders from every salesperson and unknown wins", async () => {
-    await h.db`update customers set credit_limit=10 where code='ACCT'`;
+  test("F-112 SAP exposure includes all channels and unknown wins", async () => {
+    sap.db
+      .query(
+        "update credit_accounts set credit_limit=1000,exposure=1500 where customer=?",
+      )
+      .run("ACCT");
+    await h.db`update customers set credit_limit=99999 where code='ACCT'`; // local limits cannot override SAP
     const r = await create();
     const d = await api(admin, `orders/detail?id=${r.body.id}`);
     expect(d.body.credit.status).toBe("over");
@@ -448,7 +510,11 @@ describe("orders and governed prices on Postgres", () => {
       (await creditCheck(h.db, { customerCode: "ACCT", addCentavos: null }))
         .status,
     ).toBe("unknown");
-    await h.db`update customers set credit_limit=1000 where code='ACCT'`;
+    sap.db
+      .query(
+        "update credit_accounts set credit_limit=100000000,exposure=0 where customer=?",
+      )
+      .run("ACCT");
   });
   test("a conflicting price version rolls the entire multi-row import back", async () => {
     const r = await api(admin, "pricing/price-lists/import", {
@@ -477,8 +543,20 @@ describe("orders and governed prices on Postgres", () => {
     ).toBeNull();
   });
   test("ambiguous channel prices fail closed instead of choosing the newest list", async () => {
-    const [list] =
-      await h.db`insert into price_lists(organization_id,code,name,channel_key,currency,status,source,effective_from) values('sunpride','GT-AMBIG','Ambiguous','gt','PHP','active','office','2020-01-01') returning id`;
+    const ambiguous = sampleMaster("condition", "GT-AMBIG", {
+      productCode: "P1",
+      uom: "PC",
+      customerCode: null,
+      channelKey: "gt",
+      currency: "PHP",
+      unitPriceCentavos: 1250,
+      taxCode: "SAMPLE-VAT12",
+      taxBasisPoints: 1200,
+      taxInclusive: true,
+      precedence: 10,
+      priceListCode: "GT-AMBIG",
+    });
+    await ingestMaster(h.db, ambiguous);
     expect(
       await resolvePrice(h.db, {
         organizationId: "sunpride",
@@ -493,7 +571,7 @@ describe("orders and governed prices on Postgres", () => {
       priceListId: null,
       source: "ambiguous",
     });
-    await h.db`delete from price_lists where id=${list.id}`;
+    await ingestMaster(h.db, { ...ambiguous, version: 2, deleted: true });
   });
   test("promotion CRUD freezes net line totals that reconcile to the order", async () => {
     const p = {
@@ -646,10 +724,10 @@ describe("orders and governed prices on Postgres", () => {
     });
     expect(c.body.results[0].code).toBe("idempotency_conflict");
     expect(
-      await drainFieldOrders({ db: h.db, publish: async () => {} }),
+      await drainFieldOrders({ db: h.db, env: h.env, publish: async () => {} }),
     ).toEqual({ captured: 1, review: 0 });
     expect(
-      await drainFieldOrders({ db: h.db, publish: async () => {} }),
+      await drainFieldOrders({ db: h.db, env: h.env, publish: async () => {} }),
     ).toEqual({ captured: 0, review: 0 });
     expect(
       (
@@ -670,7 +748,7 @@ describe("orders and governed prices on Postgres", () => {
       await h.db`insert into visit_activities(organization_id,org_unit_id,visit_id,assignee_profile_id,outlet_id,activity_kind,activity,device_time,server_time)
       values('sunpride',${unit},${v.id},${v.assignee_profile_id},${outlet},'order_intent',${original},${new Date(new Date(v.checked_in_at).getTime() - 1)},now()) returning id`;
     expect(
-      await drainFieldOrders({ db: h.db, publish: async () => {} }),
+      await drainFieldOrders({ db: h.db, env: h.env, publish: async () => {} }),
     ).toEqual({ captured: 0, review: 1 });
     expect((await h.db`select count(*) as n from orders`)[0].n).toBe(before);
     expect(
@@ -690,9 +768,74 @@ describe("orders and governed prices on Postgres", () => {
       ).status,
     ).toBe(200);
     expect(
-      await drainFieldOrders({ db: h.db, publish: async () => {} }),
+      await drainFieldOrders({ db: h.db, env: h.env, publish: async () => {} }),
     ).toEqual({ captured: 0, review: 1 });
     expect((await h.db`select count(*) as n from orders`)[0].n).toBe(before);
+  });
+  test("F-112/F-119 approved field orders bind SAP credit and only a worker acknowledgement can supply a SAP document number", async () => {
+    const made = await create();
+    expect(
+      (
+        await api(manager, "orders/approve", {
+          id: made.body.id,
+          reason: "Buyer PO and SAP credit checked",
+          idempotencyKey: crypto.randomUUID(),
+        })
+      ).status,
+    ).toBe(200);
+    const [order] = await h.db`select * from orders where id=${made.body.id}`;
+    expect(order.sap_credit_decision_id).toBeTruthy();
+    const [effect] =
+      await h.db`select * from integration_events where source_type='order' and source_id=${order.id}`;
+    expect(effect.status).toBe("pending");
+    expect(effect.payload.document.facts.creditDecision.token).toBeTruthy();
+    const before = await api(admin, "orders/transition", {
+      id: order.id,
+      status: "posted",
+      reason: "Do not trust a typed SAP number",
+      sapDocumentNumber: "FORGED",
+      idempotencyKey: crypto.randomUUID(),
+    });
+    expect(before.status).toBe(422);
+    expect(before.body.error.code).toBe("sap_pending");
+    const [field] =
+      await h.db`select order_id from field_order_captures order by created_at limit 1`;
+    expect(field).toBeDefined();
+    expect(
+      (
+        await api(manager, "orders/approve", {
+          id: field.order_id,
+          reason: "Field order and SAP credit checked",
+          idempotencyKey: crypto.randomUUID(),
+        })
+      ).status,
+    ).toBe(200);
+    const { runOutbox } = await import("../src/domains/integration/outbox.js");
+    await runOutbox(h.db, { env: { SAP_ORIGIN: sap.origin } });
+    const [fieldAck] =
+      await h.db`select sap_document_number,sap_credit_decision_id from orders where id=${field.order_id}`;
+    expect(fieldAck.sap_document_number).toContain("SAMPLE-ORDER-");
+    expect(fieldAck.sap_credit_decision_id).toBeTruthy();
+    const [ack] = await h.db`select * from orders where id=${order.id}`;
+    expect(ack.sap_document_number).toContain("SAMPLE-ORDER-");
+    const posted = await api(admin, "orders/transition", {
+      id: order.id,
+      status: "posted",
+      reason: "SAP acknowledgement reconciled",
+      sapDocumentNumber: "FORGED",
+      idempotencyKey: crypto.randomUUID(),
+    });
+    expect(posted.status).toBe(200);
+    expect(
+      (
+        await h.db`select sap_document_number from orders where id=${order.id}`
+      )[0].sap_document_number,
+    ).toBe(ack.sap_document_number);
+    expect(
+      sap.db
+        .query("select count(*) as n from receipts where effect=?")
+        .get(effect.event_id).n,
+    ).toBe(1);
   });
   test("selling cases convert to exact base pieces; fractional base units fail", async () => {
     const [pc] =

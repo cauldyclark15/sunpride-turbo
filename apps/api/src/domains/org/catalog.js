@@ -27,6 +27,17 @@ export async function catalogCommand(c, action, b) {
   // These are national masters. A scoped operations actor must not modify other regions' catalog.
   await requireNationalScope(c, ["admin", "operations"]);
   required(b.reason, "Reason");
+  if (
+    c.env.SAP_MODE != null &&
+    [
+      "saveProduct",
+      "saveUom",
+      "saveCustomer",
+      "saveBarcode",
+      "saveConversion",
+    ].includes(action)
+  )
+    rule("SAP owns these master fields; correct the record in SAP");
   if (action === "saveUom") {
     if (!["count", "mass", "volume", "length", "area"].includes(b.dimension))
       rule("Invalid dimension");
@@ -65,6 +76,8 @@ export async function catalogCommand(c, action, b) {
     const existing = b.productId
       ? await get(c.db, "products", uuid(b.productId))
       : null;
+    if (existing?.sap_key)
+      rule("SAP owns this material; correct the source record in SAP");
     const base = await get(c.db, "units_of_measure", uuid(b.baseUomId));
     if (!base.active) rule("Inactive base unit");
     const scale = integer(
@@ -146,6 +159,10 @@ export async function catalogCommand(c, action, b) {
   }
   const product = await get(c.db, "products", uuid(b.productId));
   if (!product.active) rule("Inactive product");
+  if (product.sap_key)
+    rule(
+      "SAP owns this material's units and barcodes; correct the source record in SAP",
+    );
   if (action === "saveBarcode") {
     const barcode = required(b.barcode, "Barcode", 100);
     if (!/^[A-Za-z0-9-]+$/.test(barcode))

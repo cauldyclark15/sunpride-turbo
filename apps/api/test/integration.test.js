@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { seedDemo } from "../../../packages/db/seed/index.js";
+import { syncMasters } from "../src/domains/integration/replicas.js";
+import { sampleMaster } from "../../sap-mock/src/sample.js";
+import { startMock } from "../../sap-mock/src/server.js";
 import { domainInstallers } from "../src/domains/index.js";
 import { drainFieldOrders } from "../src/domains/orders/field-queue.js";
 import { manilaDate } from "../src/domains/visits/shared.js";
@@ -15,6 +18,7 @@ import {
 /** No module mocks: real installers, ORG auth/scope/audit, pricing, visit,
  * call-sheet writer, order queue and analytics share one migrated database. */
 /** @type {Awaited<ReturnType<typeof startHarness>>} */ let h;
+/** @type {ReturnType<typeof startMock>} */ let sap;
 /** @type {any} */ let agent;
 /** @type {any} */ let who;
 /** @type {any} */ let visit;
@@ -24,6 +28,39 @@ const date = manilaDate(Date.now());
 beforeAll(async () => {
   h = await startHarness({ installers: domainInstallers });
   await seedDemo(h.db, { anchorDate: date, days: 7 });
+  sap = startMock({
+    path: h.filesDir + "/integration-sap.sqlite",
+    port: 0,
+    seed: false,
+  });
+  h.env.SAP_ORIGIN = sap.origin;
+  process.env.SAP_ORIGIN = sap.origin;
+  // F-016 same sample prices, through the real SAP feed, without changing the
+  // existing integration suite's bounded fixture setup or 60-second gate.
+  const source =
+    await h.db`select l.*,p.code as product_code,pl.code as list_code,pl.channel_key from price_list_lines l join products p on p.id=l.product_id join price_lists pl on pl.id=l.price_list_id`;
+  const items = source.map((/** @type {any} */ l) => ({
+    ...sampleMaster("condition", l.id, {
+      productCode: l.product_code,
+      uom: l.uom,
+      customerCode: null,
+      channelKey: l.channel_key,
+      currency: "PHP",
+      unitPriceCentavos: Number(l.unit_price_minor),
+      taxCode: "SAMPLE-VAT12",
+      taxBasisPoints: 1200,
+      taxInclusive: true,
+      precedence: 10,
+      priceListCode: l.list_code,
+    }),
+    effectiveFrom: new Date(l.effective_from).getTime(),
+    effectiveTo: l.effective_to ? new Date(l.effective_to).getTime() : null,
+  }));
+  await fetch(sap.origin + "/control/masters", {
+    method: "POST",
+    body: JSON.stringify({ items }),
+  });
+  await syncMasters(h.db, h.env);
   const password = (
     await Bun.file(`${process.env.HOME}/.sunpride-keys/v2-test-password`).text()
   ).trim();
@@ -67,6 +104,7 @@ beforeAll(async () => {
   who = { access: tokens.body.accessToken, deviceId, key };
 }, 60000);
 afterAll(async () => {
+  sap?.stop();
   await h?.close();
 });
 /** @param {string} path */
@@ -260,4 +298,93 @@ test("canonical target rows use the exact four levels and centavos", async () =>
   expect(target.subject_kind).toBe("company");
   expect(target.team_id).toBeNull();
   expect(company.total).toBe(Number(target.amount_centavos));
+});
+
+test("F-004 signed SAP master snapshot, incremental revision, tombstone and persistent authorization withdrawal", async () => {
+  const request = {
+    version: 2,
+    app: "field-android",
+    deviceId: who.deviceId,
+    since: null,
+    pageCursor: null,
+    scopes: [
+      { scopeId: agent.org_unit_id, projection: "sap.masters", params: {} },
+    ],
+    limit: 100,
+  };
+  let response = await signedPost(h, who, "/api/sync/pull", request);
+  expect(response.res.status, JSON.stringify(response.body)).toBe(200);
+  const masters = [...response.body.bundles[0].data.masters];
+  while (response.body.hasMore) {
+    response = await signedPost(h, who, "/api/sync/pull", {
+      ...request,
+      pageCursor: response.body.nextPageCursor,
+    });
+    expect(response.res.status).toBe(200);
+    masters.push(...response.body.bundles[0].data.masters);
+  }
+  expect(masters.length).toBeGreaterThan(0);
+  const condition = masters.find(
+    (/** @type {any} */ m) => m.kind === "condition",
+  );
+  expect(condition).toBeDefined();
+  const [source] =
+    await h.db`select payload from sap_replicas where kind='condition' and sap_key=${condition.key} order by sap_version desc limit 1`;
+  const changed = {
+    ...source.payload,
+    version: source.payload.version + 1,
+    data: {
+      ...source.payload.data,
+      unitPriceCentavos: source.payload.data.unitPriceCentavos + 1,
+    },
+  };
+  const posted = await fetch(sap.origin + "/control/masters", {
+    method: "POST",
+    body: JSON.stringify({ items: [changed] }),
+  });
+  expect(posted.status).toBe(200);
+  await syncMasters(h.db, h.env);
+  const delta = await signedPost(h, who, "/api/sync/pull", {
+    ...request,
+    since: response.body.nextCursor,
+  });
+  expect(delta.res.status, JSON.stringify(delta.body)).toBe(200);
+  const revision = delta.body.bundles[0].changes.find(
+    (/** @type {any} */ c) => c.id === condition.id,
+  );
+  expect(revision.op).toBe("upsert");
+  expect(revision.value.data.unitPriceCentavos).toBe(
+    changed.data.unitPriceCentavos,
+  );
+  await fetch(sap.origin + "/control/masters", {
+    method: "POST",
+    body: JSON.stringify({
+      items: [{ ...changed, version: changed.version + 1, deleted: true }],
+    }),
+  });
+  await syncMasters(h.db, h.env);
+  const removed = await signedPost(h, who, "/api/sync/pull", {
+    ...request,
+    since: delta.body.nextCursor,
+  });
+  expect(removed.res.status).toBe(200);
+  expect(
+    removed.body.bundles[0].changes.some(
+      (/** @type {any} */ c) => c.id === condition.id && c.op === "tombstone",
+    ),
+  ).toBe(true);
+  await h.db`update call_sheet_account_lines l set deleted_at=now() from call_sheet_accounts a where a.id=l.call_sheet_account_id and a.outlet_id in(select outlet_id from planned_visits where assignee_profile_id=${agent.id})`;
+  const withdrawn = await signedPost(h, who, "/api/sync/pull", {
+    ...request,
+    since: removed.body.nextCursor,
+  });
+  expect(withdrawn.res.status).toBe(409);
+  expect(withdrawn.body.error.code).toBe("rebootstrap_required");
+  const fresh = await signedPost(h, who, "/api/sync/pull", request);
+  expect(fresh.res.status).toBe(200);
+  const oldAgain = await signedPost(h, who, "/api/sync/pull", {
+    ...request,
+    since: removed.body.nextCursor,
+  });
+  expect(oldAgain.res.status).toBe(409);
 });

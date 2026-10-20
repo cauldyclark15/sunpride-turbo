@@ -984,3 +984,48 @@ test("a counted overage is booked to a lot the product already holds on the truc
   expect(await truckLot(h.db, t, product, "damaged")).toBe(lots[1]);
   expect(await truckLot(h.db, t, product, "available")).toBe(lots[0]);
 });
+
+test("F-119 van invoice, payment, credit memo and settlement are transactionally queued and acknowledged onto their source records", async () => {
+  const { startMock } = await import("../../sap-mock/src/server.js");
+  const { runOutbox } = await import("../src/domains/integration/outbox.js");
+  const sap = startMock({
+    path: h.filesDir + "/van-posting-sap.sqlite",
+    port: 0,
+    seed: false,
+  });
+  try {
+    const events =
+      await h.db`select * from integration_events where source_type in ('van_sale','van_payment','van_return','van_void','van_trip')`;
+    const kinds = new Set(events.map((/** @type {any} */ e) => e.event_type));
+    for (const kind of ["invoice", "payment", "credit_memo", "settlement"])
+      expect(kinds.has(kind)).toBe(true);
+    while (await runOutbox(h.db, { env: { SAP_ORIGIN: sap.origin } })) {}
+    for (const event of events) {
+      const [done] =
+        await h.db`select * from integration_events where id=${event.id}`;
+      expect(
+        done.status,
+        `${event.event_type}: ${done.error_class ?? "no error"}`,
+      ).toBe("completed");
+      expect(done.external_document_number).toContain("SAMPLE-");
+      const rows =
+        event.source_type === "van_sale"
+          ? await h.db`select sap_document_number as n from van_sales where id=${event.source_id}::uuid`
+          : event.source_type === "van_payment"
+            ? await h.db`select sap_document_number as n from van_payments where id=${event.source_id}::uuid`
+            : event.source_type === "van_return"
+              ? await h.db`select sap_document_number as n from van_returns where id=${event.source_id}::uuid`
+              : event.source_type === "van_void"
+                ? await h.db`select sap_document_number as n from van_sale_voids where id=${event.source_id}::uuid`
+                : await h.db`select sap_settlement_document_number as n from van_trips where id=${event.source_id}::uuid`;
+      expect(rows[0].n).toBe(done.external_document_number);
+      expect(
+        sap.db
+          .query("select count(*) as n from receipts where effect=?")
+          .get(event.event_id).n,
+      ).toBe(1);
+    }
+  } finally {
+    sap.stop();
+  }
+});

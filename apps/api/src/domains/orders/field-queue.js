@@ -12,7 +12,7 @@ import { fail, uuid } from "./validation.js";
  * Exact native op is visit.activity with activity.kind=order_intent. Its activity INSERT
  * queues commercial work transactionally via 0271, without a competing op registration.
  * Accepted is an observation, never a price/credit approval. Failed capture is visible review.
- * @param {any} ctx installer ctx or {db,publish}
+ * @param {any} ctx installer ctx or {db,publish,env?}
  * @returns {Promise<{captured:number,review:number}>}
  */
 export async function drainFieldOrders(ctx) {
@@ -41,6 +41,7 @@ export async function drainFieldOrders(ctx) {
           await captureFieldOrder(
             {
               db: t,
+              env: ctx.env ?? process.env,
               actor,
               app: "field-android",
               now: Date.now(),

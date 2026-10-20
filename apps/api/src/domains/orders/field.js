@@ -85,7 +85,7 @@ export async function captureFieldOrder(ctx, { activityId }) {
   const listId = p.lines[0]?.priceListId ?? null;
   const [pricing] =
     await ctx.db`insert into field_order_pricings(organization_id,org_unit_id,visit_id,activity_id,outlet_id,customer_id,client_order_id,price_list_id,price_list_source,currency,priced_at,total_minor,unpriced_lines,credit_status,credit_limit_minor,credit_open_orders_minor,server_time)
-    values(${visit.organization_id},${visit.org_unit_id},${visit.id},${activity.id},${visit.outlet_id},${customer.id},${clientOrderId},${listId},${["sample", "office"].includes(p.lines[0]?.source) ? p.lines[0].source : null},'PHP',${new Date(at)},${p.totalCentavos ?? p.knownSubtotalCentavos},${p.lines.filter((/** @type {any} */ l) => l.unitPriceCentavos === null).length},${p.credit.status},${p.credit.limit},${p.credit.exposure},${new Date(ctx.now)}) returning id`;
+    values(${visit.organization_id},${visit.org_unit_id},${visit.id},${activity.id},${visit.outlet_id},${customer.id},${clientOrderId},${listId},${["sap", "sap_sample"].includes(p.lines[0]?.source) ? "sap" : ["sample", "office"].includes(p.lines[0]?.source) ? p.lines[0].source : null},'PHP',${new Date(at)},${p.totalCentavos ?? p.knownSubtotalCentavos},${p.lines.filter((/** @type {any} */ l) => l.unitPriceCentavos === null).length},${p.credit.status},${p.credit.limit},${p.credit.exposure},${new Date(ctx.now)}) returning id`;
   for (let i = 0; i < p.lines.length; i++) {
     const l = p.lines[i];
     await ctx.db`insert into field_order_pricing_lines(field_order_pricing_id,ordinal,product_id,uom,quantity,unit_price_minor,line_total_minor)

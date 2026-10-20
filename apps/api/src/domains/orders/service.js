@@ -1,4 +1,7 @@
 import { tx } from "@sunpride/db/client";
+import { bindCreditDecision } from "../integration/credit.js";
+import { configureSap } from "../integration/transport.js";
+import { enqueueOrderPosting } from "../integration/posting.js";
 import { requireCapability } from "../../core/capabilities.js";
 import { actorFor } from "../../core/context.js";
 import { ApiError } from "../../core/errors.js";
@@ -89,6 +92,7 @@ export async function command(ctx, action, input, authorize, work) {
     const actor = ctx.actor ? await actorFor(db, ctx.actor.userId) : null;
     if (!actor)
       throw new ApiError("forbidden", 403, "Your access is no longer active");
+    configureSap(db, ctx.env ?? process.env);
     const c = { ...ctx, db, actor };
     await authorize(c);
     await db`select pg_advisory_xact_lock(hashtextextended(${ctx.actor.subject + ":" + key}, 0))`;
@@ -114,6 +118,7 @@ export async function command(ctx, action, input, authorize, work) {
 
 /** Validated, immutable line pricing at capture time. @param {any} ctx @param {any} input */
 export async function quote(ctx, input) {
+  configureSap(ctx.db, ctx.env ?? process.env);
   if (
     !Array.isArray(input.lines) ||
     !input.lines.length ||
@@ -393,6 +398,17 @@ export async function transition(ctx, id, status, reason, input = {}) {
       "price_unknown",
     );
   const before = row.status;
+  if (status === "approved") {
+    const decisionId = await bindCreditDecision(ctx.db, {
+      customerCode: row.customer_code,
+      amountCentavos: Number(row.total_centavos),
+      sourceType: "order",
+      sourceId: row.id,
+      env: ctx.env,
+    });
+    await ctx.db`update orders set sap_credit_decision_id=${decisionId} where id=${row.id}`;
+    row.sap_credit_decision_id = decisionId;
+  }
   if (["approved", "rejected"].includes(status)) {
     const [customer] =
       await ctx.db`select id from customers where code = ${row.customer_code} for update`;
@@ -408,10 +424,11 @@ export async function transition(ctx, id, status, reason, input = {}) {
     await ctx.db`update workflow_instances set status = ${status} where id = ${w.id}`;
     await ctx.db`update approvals set decision = ${status}, approver_subject = ${ctx.actor.subject}, comment = ${note}, decided_at = now() where workflow_id = ${w.id} and decision = 'pending'`;
   }
-  const postingDocument =
-    status === "posted"
-      ? text(input.sapDocumentNumber, "Posting document", 100)
-      : null;
+  // F-119 a typed document number is not a SAP acknowledgement.
+  const postingDocument = status === "posted" ? row.sap_document_number : null;
+  if (status === "posted" && !postingDocument)
+    fail("Wait for SAP to acknowledge this order", "sap_pending");
+  if (status === "approved") await enqueueOrderPosting(ctx.db, row);
   await ctx.db`update orders set status = ${status}, sap_document_number = coalesce(${postingDocument},sap_document_number) where id = ${id}`;
   row.status = status;
   if (status === "pending_approval") await startWorkflow(ctx, row);
