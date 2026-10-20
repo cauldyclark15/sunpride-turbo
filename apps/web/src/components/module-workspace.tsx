@@ -156,6 +156,7 @@ function VanTripRoute() {
     <VanTripsWorkspace
       initialDate={query.get("date") ?? undefined}
       initialTripId={query.get("tripId")}
+      initialDispatch={query.get("view") === "dispatch"}
     />
   );
 }

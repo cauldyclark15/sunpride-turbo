@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { DispatchBoard } from "../presell/dispatch-board";
 import Link from "next/link";
 import { Button } from "@heroui/react";
 import { apiFetch, useApi, useLive } from "../../lib/api";
@@ -478,7 +479,12 @@ export function VanTripsView({
 export function VanTripsWorkspace({
   initialDate,
   initialTripId = null,
-}: { initialDate?: string; initialTripId?: string | null } = {}) {
+  initialDispatch = false,
+}: {
+  initialDate?: string;
+  initialTripId?: string | null;
+  initialDispatch?: boolean;
+} = {}) {
   const permissions = usePermissions();
   const [date, setDate] = useState(
     initialDate ??
@@ -490,6 +496,7 @@ export function VanTripsWorkspace({
       }).format(new Date()),
   );
   const [selected, setSelected] = useState<string | null>(initialTripId);
+  const [dispatch, setDispatch] = useState(initialDispatch);
   const day = useApi<TripsDay>(
     permissions.can("van.read") ? ["van", "trips", date] : null,
     ({ signal }) => apiFetch("/api/v1/van/trips", { query: { date }, signal }),
@@ -513,64 +520,78 @@ export function VanTripsWorkspace({
     return <p>Van settlement is not available for this account.</p>;
   return (
     <main className="grid gap-6">
-      <header className="flex flex-wrap items-end justify-between gap-4 print:hidden">
-        <div>
-          <p className="text-xs uppercase tracking-widest text-muted">
-            Vans & cash
-          </p>
-          <h1 className="text-2xl font-semibold">
-            Is every truck accounted for?
-          </h1>
-        </div>
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="text-xs">
-            Manila day
-            <input
-              aria-label="Trip date"
-              type="date"
-              value={date}
-              onChange={(e) => navigate(e.target.value, null)}
-            />
-          </label>
-          <a
-            className="text-sm underline"
-            href={`/api/v1/van/trips?date=${date}&format=csv`}
-          >
-            Export day CSV
-          </a>
-          <Button variant="outline" onPress={() => window.print()}>
-            Print day
-          </Button>
-        </div>
-      </header>
-      {day.error ? (
-        <p role="alert">
-          {day.error.message}{" "}
-          <button onClick={() => void day.refetch()}>Try again</button>
-        </p>
-      ) : day.data ? (
-        <VanTripsView
-          data={day.data}
-          selected={selected}
-          onSelect={(id) => navigate(date, id)}
-        />
+      <nav className="flex gap-2 print:hidden" aria-label="Truck workspace">
+        <button onClick={() => setDispatch(false)} aria-pressed={!dispatch}>
+          Truck settlement
+        </button>
+        <button onClick={() => setDispatch(true)} aria-pressed={dispatch}>
+          Pre-sell dispatch
+        </button>
+      </nav>
+      {dispatch ? (
+        <DispatchBoard initialDate={date} />
       ) : (
-        <p role="status">Loading truck settlements…</p>
+        <>
+          <header className="flex flex-wrap items-end justify-between gap-4 print:hidden">
+            <div>
+              <p className="text-xs uppercase tracking-widest text-muted">
+                Vans & cash
+              </p>
+              <h1 className="text-2xl font-semibold">
+                Is every truck accounted for?
+              </h1>
+            </div>
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="text-xs">
+                Manila day
+                <input
+                  aria-label="Trip date"
+                  type="date"
+                  value={date}
+                  onChange={(e) => navigate(e.target.value, null)}
+                />
+              </label>
+              <a
+                className="text-sm underline"
+                href={`/api/v1/van/trips?date=${date}&format=csv`}
+              >
+                Export day CSV
+              </a>
+              <Button variant="outline" onPress={() => window.print()}>
+                Print day
+              </Button>
+            </div>
+          </header>
+          {day.error ? (
+            <p role="alert">
+              {day.error.message}{" "}
+              <button onClick={() => void day.refetch()}>Try again</button>
+            </p>
+          ) : day.data ? (
+            <VanTripsView
+              data={day.data}
+              selected={selected}
+              onSelect={(id) => navigate(date, id)}
+            />
+          ) : (
+            <p role="status">Loading truck settlements…</p>
+          )}
+          {selected &&
+            (detail.error ? (
+              <p role="alert">{detail.error.message}</p>
+            ) : detail.data ? (
+              <VanTripDetail trip={detail.data} />
+            ) : (
+              <p role="status">Loading trip detail…</p>
+            ))}
+          <div className="grid gap-5 print:hidden">
+            <VanDamageApprovals />
+            <VanVoidApproval />
+            <VanStockApproval />
+            <VanCashApproval />
+          </div>
+        </>
       )}
-      {selected &&
-        (detail.error ? (
-          <p role="alert">{detail.error.message}</p>
-        ) : detail.data ? (
-          <VanTripDetail trip={detail.data} />
-        ) : (
-          <p role="status">Loading trip detail…</p>
-        ))}
-      <div className="grid gap-5 print:hidden">
-        <VanDamageApprovals />
-        <VanVoidApproval />
-        <VanStockApproval />
-        <VanCashApproval />
-      </div>
     </main>
   );
 }

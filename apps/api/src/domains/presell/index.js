@@ -1,4 +1,5 @@
 import { tx } from "@sunpride/db/client";
+import { manifestHtml } from "./manifest.js";
 import { join } from "node:path";
 import { requireCapability, roleHas } from "../../core/capabilities.js";
 import { ApiError, invalid } from "../../core/errors.js";
@@ -26,9 +27,17 @@ export function install(router, platform) {
       command(ctx, /** @type {keyof typeof actions} */ (name)),
     );
   router.get("/api/v1/presell/board", board);
-  router.get("/api/v1/presell/manifest", (/** @type {any} */ ctx) =>
-    tx(ctx.db, (db) => manifest({ ...ctx, db })),
-  );
+  router.get("/api/v1/presell/manifest", async (/** @type {any} */ ctx) => {
+    const data = await tx(ctx.db, (db) => manifest({ ...ctx, db }));
+    return ctx.url.searchParams.get("format") === "html"
+      ? new Response(manifestHtml(data), {
+          headers: {
+            "content-type": "text/html; charset=utf-8",
+            "cache-control": "private, no-store",
+          },
+        })
+      : data;
+  });
   router.get("/api/v1/presell/settings", async (/** @type {any} */ ctx) => {
     await requireCapability(ctx, "admin.manage");
     const policies =

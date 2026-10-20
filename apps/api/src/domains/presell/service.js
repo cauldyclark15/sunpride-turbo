@@ -601,6 +601,16 @@ export async function manifest(ctx) {
   return {
     label: r.label,
     tripNumber: r.trip.trip_number,
+    truck:
+      (
+        await ctx.db`select plate_number from vehicles where id=${r.trip.vehicle_id}`
+      )[0]?.plate_number ?? "Truck not named",
+    driver:
+      r.trip.driver_name ??
+      (
+        await ctx.db`select name from profiles where id=${r.trip.salesperson_profile_id}`
+      )[0]?.name ??
+      "Driver not named",
     serviceDate: day(r.trip.service_date),
     status: r.status,
     rows,
