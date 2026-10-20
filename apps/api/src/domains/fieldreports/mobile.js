@@ -21,7 +21,11 @@ export function installProjections(platform) {
             todayPct: r.totals.todayPct,
             mtdSales: r.totals.mtdSales,
           },
-          calls: { productiveCallRule: r.calls.productiveCallRule },
+          calls: {
+            productiveCallRule: r.calls.productiveCallRule,
+            calls: r.calls.calls,
+            productiveCalls: r.calls.productiveCalls,
+          },
         },
         next: null,
       };

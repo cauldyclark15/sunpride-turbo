@@ -100,7 +100,7 @@ export function company(d, hashes) {
           ? code === "KAS"
             ? "any_listed_activity"
             : "truck_seller"
-          : null,
+          : "any_listed_activity",
         selling_weekdays: [1, 2, 3, 4, 5, 6],
         notes:
           code === "KAS"

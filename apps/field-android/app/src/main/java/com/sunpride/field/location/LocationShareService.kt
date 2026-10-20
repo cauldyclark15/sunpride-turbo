@@ -12,6 +12,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
+import android.location.LocationRequest
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Handler
@@ -26,11 +29,6 @@ import androidx.work.CoroutineWorker
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkerParameters
-import com.google.android.gms.location.LocationCallback
-import com.google.android.gms.location.LocationRequest
-import com.google.android.gms.location.LocationResult
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
 import com.sunpride.field.AppEnvironment
 import com.sunpride.field.BuildConfig
 import com.sunpride.field.auth.SessionVaults
@@ -169,11 +167,9 @@ class LocationShareService : Service() {
             handler.postDelayed(this, TICK_MS)
         }
     }
-    private val callback = object : LocationCallback() {
-        override fun onLocationResult(result: LocationResult) {
-            if (!checkStillTracking()) return
-            result.locations.sortedBy { it.time }.forEach { onFix(LocationShare.fix(it)) }
-        }
+    private val manager by lazy { getSystemService(Context.LOCATION_SERVICE) as LocationManager }
+    private val callback = LocationListener { location ->
+        if (checkStillTracking()) onFix(LocationShare.fix(location))
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -204,16 +200,32 @@ class LocationShareService : Service() {
 
     @SuppressLint("MissingPermission") // checked by WorkDay.tracking just before
     private fun requestUpdates() {
-        val request = LocationRequest.Builder(Priority.PRIORITY_BALANCED_POWER_ACCURACY, PingCadence.MOVING_INTERVAL_MS)
-            .setMinUpdateIntervalMillis(PingCadence.MIN_SPACING_MS * 2)
-            .setMaxUpdateDelayMillis(3 * PingCadence.MOVING_INTERVAL_MS) // batched delivery saves battery
-            .build()
         try {
-            LocationServices.getFusedLocationProviderClient(this).requestLocationUpdates(request, callback, Looper.getMainLooper())
+            val precise = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            val enabled = manager.getProviders(true).toSet()
+            val providers = TrackingProviders.choose(Build.VERSION.SDK_INT, enabled, precise)
+            if (providers.isEmpty()) { stopNow(); return }
+            providers.forEach { provider ->
+                if (Build.VERSION.SDK_INT >= 31) {
+                    val request = LocationRequest.Builder(PingCadence.MOVING_INTERVAL_MS)
+                        .setQuality(LocationRequest.QUALITY_BALANCED_POWER_ACCURACY)
+                        .setMinUpdateIntervalMillis(PingCadence.MIN_SPACING_MS * 2)
+                        .setMaxUpdateDelayMillis(3 * PingCadence.MOVING_INTERVAL_MS)
+                        .build()
+                    manager.requestLocationUpdates(provider, request, mainExecutor, callback)
+                } else {
+                    @Suppress("DEPRECATION")
+                    manager.requestLocationUpdates(provider, PingCadence.MOVING_INTERVAL_MS, 0f, callback, Looper.getMainLooper())
+                }
+            }
             requesting = true
             startedAt = workDay.state().startedAt
             SafeLog.event(this, "location_started")
-        } catch (_: SecurityException) { stopNow() }
+        } catch (_: Exception) {
+            runCatching { manager.removeUpdates(callback) }
+            SafeLog.event(this, "location_start_refused")
+            stopNow()
+        }
     }
 
     /** False (and the service stops) once End day, sign-out, 10 PM or a revoked permission ended the day. */
@@ -247,7 +259,7 @@ class LocationShareService : Service() {
 
     private fun stopNow() {
         handler.removeCallbacks(tick)
-        if (requesting) runCatching { LocationServices.getFusedLocationProviderClient(this).removeLocationUpdates(callback) }
+        if (requesting) runCatching { manager.removeUpdates(callback) }
         requesting = false
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -255,7 +267,7 @@ class LocationShareService : Service() {
 
     override fun onDestroy() {
         handler.removeCallbacks(tick)
-        if (requesting) runCatching { LocationServices.getFusedLocationProviderClient(this).removeLocationUpdates(callback) }
+        if (requesting) runCatching { manager.removeUpdates(callback) }
         requesting = false
         SafeLog.event(this, "location_stopped")
         super.onDestroy()

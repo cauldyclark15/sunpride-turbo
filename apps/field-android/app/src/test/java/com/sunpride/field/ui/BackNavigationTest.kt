@@ -24,6 +24,8 @@ class BackNavigationTest {
         assertEquals(BackStep.ToPage("home"), BackNavigation.step(BackState(page = "sync")))
         assertEquals(BackStep.ToPage("home"), BackNavigation.step(BackState(page = "account")))
         assertEquals(BackStep.ToPage("account"), BackNavigation.step(BackState(page = "support")))
+        assertEquals(BackStep.ToPage("account"), BackNavigation.step(BackState(page = "change-password")))
+        assertEquals(BackStep.ToPage("home"), BackNavigation.step(BackState(page = "location-battery")))
         assertEquals(BackStep.ToPage("home"), BackNavigation.step(BackState(page = "location-consent")))
         assertEquals(BackStep.ToPage("home"), BackNavigation.step(BackState(page = "location-background")))
         assertEquals(BackStep.Exit, BackNavigation.step(BackState(page = "home")))

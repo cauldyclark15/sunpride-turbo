@@ -25,12 +25,18 @@ data class TodaySummary(
     val rule: String? = null,
     /** The server has no productive-call rule for this seller and counts nothing as productive; match it. */
     val ruleMissing: Boolean = false,
+    val reportedCalls: Int? = null, val reportedProductive: Int? = null,
 ) {
     val planned get() = stops.size
     val done get() = stops.count { it.done }
     fun productive(stop: RouteStop): Boolean =
         !ruleMissing && stop.done && stop.visit.callFacts?.let { ProductiveCall.productive(it, rule) } == true
-    val productive get() = stops.count { productive(it) }
+    // A reinstalled phone has no local activity facts for earlier calls. Use the authorized daily
+    // report only when its completed-call denominator exactly matches this route; never double count.
+    val productivityKnown get() = (reportedCalls == done && reportedProductive != null) ||
+        stops.filter { it.done }.all { it.visit.callFacts != null }
+    val productive get() = if (reportedCalls == done && reportedProductive != null) reportedProductive
+        else stops.count { productive(it) }
     /** Whole percent of finished calls that were productive, rounded down like the server; null before the first call ends. */
     val productivePercent: Int? get() = if (done == 0) null else productive * 100 / done
     val progress: Float get() = if (planned == 0) 0f else done.toFloat() / planned
@@ -50,6 +56,7 @@ data class TodaySummary(
             data.routeCode,
             data.sales.sales?.productiveCallRule,
             data.sales.sales?.ruleMissing == true,
+            data.sales.sales?.reportedCalls, data.sales.sales?.reportedProductive,
         )
     }
 }

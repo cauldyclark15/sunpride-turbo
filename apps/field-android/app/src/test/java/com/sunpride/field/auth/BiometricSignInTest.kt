@@ -51,6 +51,23 @@ class BiometricSignInTest {
         return gate
     }
 
+    @Test fun passwordChangeRetiresDelayedEnableAndRequiresExplicitBiometricSetupAgain() {
+        val v = vault()
+        v.saveSession("fake-session-1")
+        val gate = BiometricGate(v, crypto)
+        crypto.hold = true
+        gate.enable()
+        val old = crypto.held!!
+        v.saveSession("fake-session-1") // production AuthClient successful-password-change path
+        gate.passwordChanged()
+        old()
+        assertFalse(gate.enabled)
+        assertFalse(gate.offer)
+        assertFalse(gate.busy)
+        assertNull(sealed.read())
+        assertEquals("fake-session-1", relaunch().let { vault().readSession() })
+    }
+
     @Test fun withoutBiometricsTheAppOpensAsBefore() {
         vault().saveSession("fake-session-1")
         val gate = relaunch()

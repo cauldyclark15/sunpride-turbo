@@ -29,7 +29,8 @@ fun outcomeLabel(summary: TodaySummary, stop: RouteStop): String? = when {
 }
 
 fun productiveLine(summary: TodaySummary): String = if (summary.ruleMissing && summary.done > 0)
-    "Productive · counted once the office sets your call rule" else summary.productivePercent?.let {
+    "Productive · counted once the office sets your call rule" else if (!summary.productivityKnown)
+    "Productive · earlier calls need an updated report" else summary.productivePercent?.let {
     "Productive ${summary.productive} of ${summary.done} finished · $it%"
 } ?: "Productive · no calls ended yet"
 

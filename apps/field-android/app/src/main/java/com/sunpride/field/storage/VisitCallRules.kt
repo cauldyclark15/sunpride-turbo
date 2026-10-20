@@ -58,13 +58,18 @@ object VisitCallRules {
             throw VisitRuleFailure(VisitRuleFailure.Code.CALL_OPEN)
         if (started(related(plannedId, outletId, day, rows)))
             throw VisitRuleFailure(VisitRuleFailure.Code.ALREADY_STARTED)
+        if (plans.any { ServerVisits.execution(it)?.optString("state") == "in-progress" &&
+                !closed(related(it.id, JSONObject(it.json).getString("outletId"), day, rows)) })
+            throw VisitRuleFailure(VisitRuleFailure.Code.CALL_OPEN)
         if (plannedId == null) return // Unplanned calls have no MCP position.
+        if (plans.any { it.id == plannedId && ServerVisits.closed(it) })
+            throw VisitRuleFailure(VisitRuleFailure.Code.ALREADY_ENDED)
         val ordered = ordered(plans)
         val rank = ordered.indexOfFirst { it.id == plannedId }
         fun position(item: SnapshotItem) = sequence(item) ?: item.listPosition ?: plans.indexOf(item)
         val targetPosition = ordered.getOrNull(rank)?.let { position(it) }
         val earlier = ordered.filter { targetPosition != null && position(it) < targetPosition }
-        if (earlier.any { plan -> !closed(related(plan.id, JSONObject(plan.json).getString("outletId"), day, rows)) })
+        if (earlier.any { plan -> !ServerVisits.closed(plan) && !closed(related(plan.id, JSONObject(plan.json).getString("outletId"), day, rows)) })
             throw VisitRuleFailure(VisitRuleFailure.Code.MCP_ORDER)
     }
     fun requireEnd(clientVisitId: String, end: JSONObject, rows: List<Pair<IntentRow, String>>) {

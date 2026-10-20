@@ -16,6 +16,18 @@ class TodaySummaryTest {
         "o-$name", "p-$name", sequence = sequence, listPosition = listPosition, callFacts = callFacts)
     private fun sales(rule: String?) = DaySalesView(DaySales("2026-10-05", null, 0, null, null, 0, rule))
 
+    @Test fun priorPhoneCallsUseMatchingAuthorizedReportAndNeverInventZeroForMissingFacts() {
+        val stops = listOf(visit("A", "Done", 0), visit("B", "Done", 1), visit("C", sequence = 2))
+        val report = DaySalesView(DaySales("2026-10-20", null, 0, null, null, 0,
+            ProductiveCall.ANY_LISTED_ACTIVITY, reportedCalls = 2, reportedProductive = 1))
+        val s = TodaySummary.of(TodayData(stops, sales = report))
+        assertEquals(1, s.productive)
+        assertEquals("Productive 1 of 2 finished · 50%", productiveLine(s))
+        val stale = TodaySummary.of(TodayData(stops + visit("D", "Done", 3, facts("note")), sales = report))
+        assertFalse(stale.productivityKnown)
+        assertEquals("Productive · earlier calls need an updated report", productiveLine(stale))
+    }
+
     @Test fun stopsFollowPlanOrderAndNumberFromOne() {
         val s = TodaySummary.of(TodayData(listOf(visit("C", sequence = 2), visit("A", sequence = 0),
             visit("B", sequence = 1)), routeCode = "R-07"))

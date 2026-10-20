@@ -132,6 +132,11 @@ class BiometricGate(private val vault: LockableSessionVault, private val crypto:
 
     fun decline() { offer = false }
 
+    /** The backend replaced the session's sealed copy after a password change. Never re-offer automatically. */
+    fun passwordChanged() {
+        retirePending(); offer = false; enabled = vault.biometricOn; message = null; step = Step.OPEN
+    }
+
     /** Account toggle off: the session returns to the ordinary Keystore copy; the biometric key is deleted. */
     fun disable() {
         if (busy) return

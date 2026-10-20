@@ -124,8 +124,10 @@ fun PhotoCaptureScreen(controller: FieldController, modifier: Modifier = Modifie
             androidx.compose.foundation.layout.Spacer(Modifier.height(16.dp))
         }
         androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp))
-        PrimaryBottomButton(if (taking) "Taking photo…" else "Take photo", { shoot() }, Modifier.testTag("photo-take"),
-            type != null && !taking && !controller.busy && (fake != null || capture != null))
+        PrimaryBottomButton(if (taking) "Taking photo…" else if (!granted) "Allow camera" else "Take photo", {
+            if (!granted) permission.launch(Manifest.permission.CAMERA) else shoot()
+        }, Modifier.testTag("photo-take"),
+            type != null && !taking && !controller.busy && (!granted || fake != null || capture != null))
     }
 }
 

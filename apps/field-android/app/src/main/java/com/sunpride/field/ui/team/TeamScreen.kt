@@ -19,11 +19,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.sunpride.field.ui.PrimaryBottomButton
-import com.sunpride.field.ui.SecondaryButton
 import com.sunpride.field.ui.SectionCard
 
 /**
@@ -88,8 +88,25 @@ fun TeamScreen(view: TeamView, directOnly: Boolean, loading: Boolean, now: Long,
 
 @Composable
 private fun FilterButton(label: String, selected: Boolean, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    SecondaryButton(if (selected) "✓ $label" else label, onClick,
-        modifier.semantics { this.selected = selected }, enabled && !selected)
+    // A selected label includes a checkmark: fixed 48dp secondary buttons clipped its second line
+    // on the 360dp Redmi. Keep the tap target, but let text determine any additional height.
+    androidx.compose.material3.Surface(onClick = onClick, enabled = enabled && !selected,
+        modifier = modifier.heightIn(min = 48.dp).semantics {
+            this.selected = selected
+            role = androidx.compose.ui.semantics.Role.Button
+        },
+        shape = MaterialTheme.shapes.small,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.28f)),
+        color = MaterialTheme.colorScheme.surface,
+        contentColor = if (enabled && !selected) MaterialTheme.colorScheme.onSurface
+            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f)) {
+        androidx.compose.foundation.layout.Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 12.dp),
+            contentAlignment = Alignment.Center) {
+            Text(if (selected) "✓ $label" else label, modifier = Modifier.fillMaxWidth(),
+                style = MaterialTheme.typography.labelLarge,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        }
+    }
 }
 
 @Composable

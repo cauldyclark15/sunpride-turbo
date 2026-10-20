@@ -102,15 +102,20 @@ export async function recordLocation(ctx) {
     ctx.now >= closeAt(date);
   if (kind === "field") {
     if (p.tripId) ctx.reject("invalid_request");
-    const [first] =
-      await db`select min(checked_in_at) as at from visit_executions where assignee_profile_id=${ctx.actor.profileId}
-      and service_date=${date}::date and deleted_at is null and org_unit_id=${unitId}`;
-    if (!first?.at || p.recordedAt < (ms(first.at) ?? 0))
-      ctx.reject("invalid_transition");
-    await db`insert into fieldsync_work_days(profile_id,service_date,started_at) values (${ctx.actor.profileId},${date},${first.at})
-      on conflict(profile_id,service_date) do nothing`;
-    const [day] =
+    let [day] =
       await db`select * from fieldsync_work_days where profile_id=${ctx.actor.profileId} and service_date=${date}::date for update`;
+    if (!day) {
+      const [first] =
+        await db`select min(checked_in_at) as at from visit_executions where assignee_profile_id=${ctx.actor.profileId}
+        and service_date=${date}::date and deleted_at is null and org_unit_id=${unitId}`;
+      if (!first?.at) ctx.reject("invalid_transition");
+      await db`insert into fieldsync_work_days(profile_id,service_date,started_at) values (${ctx.actor.profileId},${date},${first.at})
+        on conflict(profile_id,service_date) do nothing`;
+      [day] =
+        await db`select * from fieldsync_work_days where profile_id=${ctx.actor.profileId} and service_date=${date}::date for update`;
+    }
+    if (p.recordedAt < (ms(day.started_at) ?? 0))
+      ctx.reject("invalid_transition");
     if (day.ended_at && p.recordedAt > (ms(day.ended_at) ?? 0))
       ctx.reject("invalid_transition");
     trackingEnded ||=
@@ -195,8 +200,37 @@ export async function consent(ctx) {
   );
   if (typeof ctx.body?.enabled !== "boolean")
     throw invalid("Choose whether location sharing is enabled");
+  if (ctx.body.startDay !== undefined && typeof ctx.body.startDay !== "boolean")
+    throw invalid("Choose whether to start location sharing");
+  const start = ctx.body.startDay === true;
+  const startedAt =
+    ctx.body.startedAt === undefined ? ctx.now : ctx.body.startedAt;
+  if (start) await requireCapability(ctx, "visit.record", actor.orgUnitId);
+  if (
+    start &&
+    (!ctx.body.enabled ||
+      !actor.orgUnitId ||
+      !Number.isSafeInteger(startedAt) ||
+      startedAt > ctx.now + LOCATION_POLICY.maxFutureSkewMs ||
+      ctx.now - startedAt > LOCATION_POLICY.maxAgeMs ||
+      new Date(startedAt + 28_800_000).getUTCHours() < 5 ||
+      startedAt >= closeAt(manilaDate(startedAt)))
+  )
+    throw invalid("Start sharing during your work day");
   const result = await tx(ctx.db, async (db) => {
     await personLock(db, actor.profileId);
+    if (start) {
+      const date = manilaDate(startedAt);
+      const [day] =
+        await db`select * from fieldsync_work_days where profile_id=${actor.profileId} and service_date=${date}::date for update`;
+      if (day?.ended_at && startedAt <= (ms(day.ended_at) ?? 0))
+        throw invalid("Start sharing after the previous day end");
+      if (!day || day.ended_at) {
+        await db`insert into fieldsync_work_days(profile_id,service_date,started_at) values (${actor.profileId},${date},${new Date(startedAt)})
+          on conflict(profile_id,service_date) do update set started_at=excluded.started_at,ended_at=null,end_reason=null,updated_at=now()`;
+        await db`insert into audit_logs(subject,action,entity_type,entity_id,details) values (${actor.subject},'location.start_day','profile',${actor.profileId},${JSON.stringify({ serviceDate: date, startedAt, previousStartedAt: ms(day?.started_at), previousEndedAt: ms(day?.ended_at) })})`;
+      }
+    }
     const [prior] =
       await db`select max(effective_from) as at from fieldsync_location_consents where profile_id=${actor.profileId}`;
     const at = Math.max(ctx.now, (ms(prior?.at) ?? 0) + 1);

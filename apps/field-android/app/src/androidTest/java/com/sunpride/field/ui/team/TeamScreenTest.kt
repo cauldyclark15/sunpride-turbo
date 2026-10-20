@@ -2,6 +2,11 @@ package com.sunpride.field.ui.team
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
@@ -37,6 +42,22 @@ class TeamScreenTest {
                 TeamScreen(view, directOnly, loading, now, onFilter = { filters += it }, onRefresh = { refreshes[0]++ })
             }
         }
+    }
+
+    @Test fun selectedDirectReportsFitsANarrowPhoneWithoutClippingTheLabel() {
+        rule.setContent {
+            MaterialTheme(colorScheme = SunprideTokens.lightColors) {
+                TeamScreen(TeamView(summary()), true, false, now, {}, {},
+                    androidx.compose.ui.Modifier.width(320.dp))
+            }
+        }
+        val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+        rule.onNodeWithText("✓ Direct reports", useUnmergedTree = true).performSemanticsAction(
+            androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        org.junit.Assert.assertTrue(layouts.isNotEmpty())
+        org.junit.Assert.assertFalse(layouts.joinToString { "size=${it.size}, paragraph=${it.multiParagraph.width}x${it.multiParagraph.height}, lines=${it.lineCount}, widthOverflow=${it.didOverflowWidth}, heightOverflow=${it.didOverflowHeight}" },
+            layouts.any { it.hasVisualOverflow })
+        rule.onNodeWithTag("team-direct").assertHeightIsAtLeast(48.dp)
     }
 
     @Test fun showsEachDirectReportsCoverageAndTheDaysExceptions() {

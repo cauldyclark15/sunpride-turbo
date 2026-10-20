@@ -272,6 +272,78 @@ test("full signed check-in → activity → collection → checkout; exact recei
   expect(listing.body.rows.map((/** @type {any} */ r) => r.id)).toEqual([s.id]);
 });
 
+test("missing position rule uses one default for checkout, visit detail and team-day evidence", async () => {
+  const f = await fixture();
+  await h.db`update position_standards set productive_call_rule=null where position_id=(select position_id from profiles where id=${f.d.profile.id})`;
+  const s = await start(f);
+  const activity = op(
+    "visit.activity",
+    {
+      visitId: s.id,
+      deviceTime: f.now + 1,
+      activity: { kind: "merchandising", displayCondition: "compliant" },
+    },
+    [s.operation.clientOpId],
+  );
+  const end = op(
+    "visit.checkOut",
+    {
+      visitId: s.id,
+      deviceTime: f.now + 2,
+      outcome: "completed",
+      reasonCode: null,
+      location: f.fix,
+    },
+    [activity.clientOpId],
+  );
+  expect(
+    (await push(f, [activity, end])).map((/** @type {any} */ r) => r.status),
+  ).toEqual(["applied", "applied"]);
+  const [stored] =
+    await h.db`select productivity from visit_executions where id=${s.id}`;
+  expect(stored.productivity).toBe("pending");
+  const read = await web(f, `/api/v1/visits/detail?visitId=${s.id}`);
+  expect(read.body.productiveCall.productive).toBe(true);
+  const { execution } = await import("../src/domains/fieldreports/reads.js");
+  const { capabilitiesFor } = await import("../src/core/capabilities.js");
+  const [person] =
+    await h.db`select * from profiles where id=${f.d.profile.id}`;
+  const report = await execution(
+    {
+      db: h.db,
+      now: f.now,
+      actor: {
+        ...f.d.profile,
+        profileId: f.d.profile.id,
+        subject: f.d.userId,
+        capabilities: capabilitiesFor(f.d.profile.role),
+      },
+    },
+    person,
+    f.day,
+  );
+  expect(report.summary.productiveCalls).toBe(1);
+  expect(report.visits[0].evaluation.productive).toBe(
+    read.body.productiveCall.productive,
+  );
+  expect(
+    isProductive(
+      { inRoutePlan: true, state: "checked-out", activityKinds: ["note"] },
+      {},
+    ).productive,
+  ).toBe(false);
+  expect(
+    isProductive(
+      {
+        inRoutePlan: true,
+        state: "checked-out",
+        activityKinds: ["merchandising"],
+      },
+      { rule: "unknown" },
+    ).productive,
+  ).toBe(false);
+});
+
 for (const code of PRODUCTIVE_CODES)
   test(`objective ${code} independently qualifies a completed planned call`, () => {
     expect(

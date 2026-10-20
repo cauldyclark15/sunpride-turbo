@@ -99,6 +99,8 @@ class BiometricKeystoreTest {
     }
 
     @Test fun realSystemPromptAppearsAndCancelIsReportedAsCancelled() {
+        assumeTrue("owner absent: real biometric prompts require explicit ownerPresent=true",
+            InstrumentationRegistry.getArguments().getString("ownerPresent") == "true")
         assumeTrue("needs a fingerprint/face enrolled on the phone", strongBiometricEnrolled())
         val outcome = AtomicReference<CryptoOutcome?>()
         val done = CountDownLatch(1)
