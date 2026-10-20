@@ -43,6 +43,6 @@
  * status:'pending'|'approved'|'rejected',preparedBy:string,approvedBy:string|null,approvedAt:Date|null,
  * decisionReason:string|null,createdAt:Date,updatedAt:Date}} AttendanceAdjustment
  * @typedef {{id:string,profileId:string,orgUnitId:string,kind:string,entityId:string,
- * actorId:string,detail:Record<string,unknown>,createdAt:Date,updatedAt:Date}} WorkforceEvent
+ * actorId:string,deviceId:string|null,detail:Record<string,unknown>,createdAt:Date,updatedAt:Date}} WorkforceEvent
  */
 export {};
