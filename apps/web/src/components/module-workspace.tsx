@@ -150,12 +150,12 @@ function AllowedModuleWorkspace({
   );
 }
 
-function VanTripRoute() {
+export function VanTripRoute() {
   const query = useSearchParams();
   return (
     <VanTripsWorkspace
       initialDate={query.get("date") ?? undefined}
-      initialTripId={query.get("tripId")}
+      initialTripId={query.get("tripId") ?? query.get("trip")}
     />
   );
 }

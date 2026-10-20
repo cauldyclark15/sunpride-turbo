@@ -1,4 +1,10 @@
 import { tx } from "@sunpride/db/client";
+import { setRoutePolicy } from "./route-policy.js";
+import { planningChoices } from "./planning.js";
+import { decideObservation } from "./route-evidence.js";
+import { decideSettlement, decideVariance } from "./settlement.js";
+import { reloadAction } from "./reloads.js";
+import { suggestLoad, applySuggestion } from "./load-suggestions.js";
 import { join } from "node:path";
 import { filesDir } from "../../core/media.js";
 import { requireCapability } from "../../core/capabilities.js";
@@ -93,6 +99,15 @@ export function install(router, ctx) {
       ),
     ),
   );
+  router.get("/api/v1/van/planning", (/** @type {any} */ request) =>
+    tx(request.db, async (db) =>
+      planningChoices(
+        db,
+        await currentActor(db, request.actor),
+        request.url.searchParams.get("date"),
+      ),
+    ),
+  );
   router.get("/api/v1/van/damage", damageReview);
   router.get("/api/v1/van/damage-photo", async (/** @type {any} */ request) => {
     const row = await tx(request.db, async (db) => {
@@ -125,6 +140,13 @@ export function install(router, ctx) {
   });
   /** @type {Array<[string,string,(db:any,actor:any,p:any)=>Promise<any>]>} */
   const commands = [
+    ["policies/set", "van.manage", setRoutePolicy],
+    ["observations/decide", "van.stock.approve", decideObservation],
+    ["settlements/decide", "van.stock.approve", decideSettlement],
+    ["variances/decide", "van.stock.approve", decideVariance],
+    ["reloads/action", "van.load.approve", reloadAction],
+    ["loads/suggest", "van.manage", suggestLoad],
+    ["loads/apply-suggestion", "van.manage", applySuggestion],
     ["vehicles/create", "van.manage", createVehicle],
     ["trips/plan", "van.manage", planTrip],
     ["trips/cancel", "van.manage", cancelTrip],

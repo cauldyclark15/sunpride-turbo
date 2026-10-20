@@ -10,7 +10,7 @@ data class VanPolicy(val allowNegativeStock: Boolean = false,
     val voidReasons: List<String> = emptyList(), val voidApproval: VoidApproval? = null,
     val cashReconciliation: CashReconciliationPolicy? = null,
     val stockReconciliation: StockReconciliationPolicy? = null,
-    val tripClose: TripClosePolicy? = null)
+    val tripClose: TripClosePolicy? = null, val operationsVersion: Int = 0)
 /**
  * VAN-024 what must be done before the seller closes the trip on this phone. A policy cached before VAN-024 has
  * none and then [STRICT] applies: every check on.
@@ -102,7 +102,7 @@ data class Promotion(val promotionId: String, val code: String, val name: String
 data class VanBootstrap(val serverTime: Long, val serviceDate: String, val seller: Seller, val policy: VanPolicy,
     val trip: Trip?, val load: Load?, val truckStock: List<TruckStock>, val products: List<Product>, val customers: List<Customer>,
     val priceLines: List<PriceLine> = emptyList(), val damageRecords: List<DamageRecord> = emptyList(),
-    val promotions: List<Promotion> = emptyList())
+    val promotions: List<Promotion> = emptyList(), val vanOpsJson: String? = null)
 data class LoadActual(val lineNumber: Int, val actualBase: Long, val reason: String? = null)
 /**
  * [savedSales]: VAN-011 sales committed on this phone whose office upload is not available yet (parked, never sent);

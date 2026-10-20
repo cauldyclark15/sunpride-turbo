@@ -21,7 +21,7 @@ object VanBootstrapCodec {
         o.optJSONObject("stockReconciliation")?.let { StockReconciliationPolicy(it.getBoolean("approvalRequired"),
             strings(it.getJSONArray("reasons")),nullable(it,"key")) },
         o.optJSONObject("tripClose")?.let { TripClosePolicy(it.getBoolean("requireCashCount"),it.getBoolean("requireStockCount"),
-            it.getBoolean("requireUploadsSent"),it.getBoolean("exceptionsNeedReview")) })
+            it.getBoolean("requireUploadsSent"),it.getBoolean("exceptionsNeedReview")) },o.optInt("operationsVersion",0))
     /** VAN-012: optional; a policy cached before it (or an older server) allows cash only. */
     fun paymentMethods(a: JSONArray): List<PaymentMethod> {
         val methods = objects(a).map { PaymentMethod(it.getString("code"), it.getString("label"), PaymentKind.of(it.getString("kind")),
@@ -101,6 +101,12 @@ object VanBootstrapCodec {
     fun decode(text: String): VanBootstrap = try {
         val o = JSONObject(text)
         o.remove("_v2")
+        // Versioned v2 extension; the frozen v1 validator continues to validate its original fields.
+        val routeOps = o.optJSONObject("vanOps")
+        o.remove("vanOps")
+        val operationsVersion = o.getJSONObject("policy").optInt("operationsVersion",0)
+        o.getJSONObject("policy").remove("operationsVersion")
+        require(operationsVersion in 0..1 && (operationsVersion == 0 || routeOps?.getInt("version") == 1))
         VanWireSchema.validate(o)
         if (o.getString("type") != "van.bootstrap.response") throw VanWireFailure()
         val day = o.getString("serviceDate"); LocalDate.parse(day)
@@ -136,7 +142,7 @@ object VanBootstrapCodec {
         require(stocks.map { it.productId }.distinct().size == stocks.size)
         require(l == null || l.lines.map { it.lineNumber }.distinct().size == l.lines.size)
         VanBootstrap(o.getLong("serverTime"), day, o.getJSONObject("seller").let { Seller(it.getString("profileId"),it.getString("name")) },
-            policy(o.getJSONObject("policy")),t,l,stocks,ps,cs,prices,o.optJSONArray("damageRecords")?.let(::damageRecords) ?: emptyList(),promotions)
+            policy(o.getJSONObject("policy").put("operationsVersion",operationsVersion)),t,l,stocks,ps,cs,prices,o.optJSONArray("damageRecords")?.let(::damageRecords) ?: emptyList(),promotions,routeOps?.toString())
     } catch (_: Exception) { throw VanWireFailure() }
     fun bootstrapRequest(deviceId: String): ByteArray = JSONObject().put("type","van.bootstrap.request").put("contractVersion",1).put("deviceId",deviceId).toString().toByteArray(Charsets.UTF_8)
     /** Concatenate persisted operation JSON verbatim, never parse/re-serialize queued bytes. */

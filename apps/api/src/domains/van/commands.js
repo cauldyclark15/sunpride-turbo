@@ -1,4 +1,5 @@
 import { tx } from "@sunpride/db/client";
+import { routePolicy } from "./route-policy.js";
 import { enqueue } from "../../core/jobs.js";
 import { requireCapability, roleHas } from "../../core/capabilities.js";
 import { invalid, ApiError } from "../../core/errors.js";
@@ -179,12 +180,22 @@ export async function planTrip(db, actor, p) {
     throw invalid("Choose an active van seller");
   await requireCapability({ db, actor }, "van.manage", seller.org_unit_id);
   if (p.routeId) {
-    const [r] =
+    const owners =
       await db`select r.id,o.org_unit_id from routes r join route_territories rt on rt.route_id=r.id join territory_ownerships o on o.territory_id=rt.territory_id
-      where r.id=${uuid(p.routeId)} and r.status='active' and r.deleted_at is null and rt.effective_from<=now() and (rt.effective_to is null or rt.effective_to>now()) and o.effective_from<=now() and (o.effective_to is null or o.effective_to>now())`;
-    if (!r) throw invalid("Route needs active ownership");
-    await requireCapability({ db, actor }, "van.manage", r.org_unit_id);
+      where r.id=${uuid(p.routeId)} and r.status='active' and r.deleted_at is null and rt.deleted_at is null and o.deleted_at is null and rt.effective_from<=now() and (rt.effective_to is null or rt.effective_to>now()) and o.effective_from<=now() and (o.effective_to is null or o.effective_to>now())`;
+    if (!owners.length) throw invalid("Route needs active ownership");
+    for (const owner of owners)
+      await requireCapability({ db, actor }, "van.manage", owner.org_unit_id);
   }
+  const governed =
+    (
+      await db`select 1 from van_policy_versions where org_unit_id=${vehicle.org_unit_id} limit 1`
+    ).length > 0;
+  const version = p.operationsVersion ?? (governed ? 1 : 0);
+  if (![0, 1].includes(version) || (governed && version !== 1))
+    throw invalid(
+      "Use the current cold-chain and offline settlement trip configuration",
+    );
   const [count] =
     await db`select count(*)::int as n from van_trips where vehicle_id=${vehicle.id} and service_date=${serviceDate}`;
   const tripNumber = `TRIP-${serviceDate.replaceAll("-", "")}-${vehicle.vehicle_code}-${count.n + 1}`;
@@ -192,6 +203,25 @@ export async function planTrip(db, actor, p) {
     await db`insert into van_trips(organization_id,org_unit_id,trip_number,vehicle_id,truck_location_id,source_location_id,route_id,service_date,salesperson_profile_id,salesperson_subject,driver_name,helper_name,status,created_by)
     values(${vehicle.organization_id},${vehicle.org_unit_id},${tripNumber},${vehicle.id},${truck.id},${source.id},${p.routeId ?? null},${serviceDate},${seller.id},${seller.user_id},${text(p.driverName, 80)},${text(p.helperName, 80)},'planned',${actor.subject}) returning id`;
   await audit(db, trip, actor, "van.trip.planned", trip.id);
+  if (version === 1) {
+    const [planned] = await db`select * from van_trips where id=${trip.id}`;
+    for (const kind of [
+      "cold_chain",
+      "variance",
+      "returnables",
+      "return_reasons",
+    ])
+      await routePolicy(
+        db,
+        planned,
+        kind,
+        Math.max(
+          Date.now(),
+          new Date(`${serviceDate}T00:00:00+08:00`).getTime(),
+        ),
+      );
+    await db`update van_trips set operations_version=1 where id=${trip.id}`;
+  }
   return { tripId: trip.id, tripNumber };
 }
 /** @param {any} db @param {any} actor @param {any} p */

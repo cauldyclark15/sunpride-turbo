@@ -3,6 +3,7 @@ import { createDb, tx } from "../src/client.js";
 import { company } from "./company.js";
 import { execution } from "./execution.js";
 import { vans } from "./vans.js";
+import { seedVanOps } from "./vanops.js";
 import { management } from "./management.js";
 import {
   BATCH,
@@ -985,6 +986,7 @@ export async function advanceDemo(db, { date = todayManila() } = {}) {
   if (!manifest)
     throw new Error("Demo daily advance requires an existing seeded company");
   const original = JSON.parse(manifest.details);
+  await seedVanOps(db);
   const days = [];
   for (
     let day = plusDays(original.anchorDate, 1);

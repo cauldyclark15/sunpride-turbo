@@ -57,6 +57,32 @@ const quantity = (base: string, display: string) => ({
   pieces: 0,
   display,
 });
+
+it("F-117 F-121 settlement and CSV disclose reloads, warehouse receipt and remaining truck stock", () => {
+  const complete = {
+    ...trip,
+    stock: [
+      {
+        ...trip.stock[0]!,
+        reloaded: quantity("12", "1 cases + 0 pieces"),
+        unloaded: quantity("41", "3 cases + 5 pieces"),
+        remaining: quantity("0", "0 cases + 0 pieces"),
+      },
+    ],
+  };
+  const html = renderToStaticMarkup(
+    createElement(VanTripDetail, { trip: complete }),
+  );
+  for (const label of [
+    "Reloaded",
+    "Warehouse received",
+    "Remaining on truck",
+  ]) {
+    expect(html).toContain(label);
+    expect(tripCsv(complete)).toContain(label);
+  }
+  expect(html).toContain("1 cases + 0 pieces");
+});
 const trip: TripSettlement = {
   tripId: "trip",
   tripNumber: "TRIP-001",

@@ -1,4 +1,5 @@
 import { tx } from "@sunpride/db/client";
+import { routeBundle } from "./route-read.js";
 import { ApiError } from "../../core/errors.js";
 import { resolvePrice, creditCheck } from "../orders/pricing.js";
 import { currentDeviceActor, tripFor, outletFor } from "./access.js";
@@ -281,10 +282,21 @@ export async function bundle(ctx, env) {
       await db`select * from van_damage_records where trip_id=${trip.id} and deleted_at is null order by recorded_at desc limit 501`,
       500,
     );
+    const routeOps = await routeBundle(db, trip);
+    const tripPolicy = policy(env, trip.id);
+    if (routeOps) {
+      tripPolicy.tripClose = {
+        ...tripPolicy.tripClose,
+        requireUploadsSent: false,
+      };
+      tripPolicy.cashReconciliation.approvalRequired = false;
+      tripPolicy.stockReconciliation.approvalRequired = false;
+    }
     return {
       serviceDate,
       seller: empty.seller,
-      policy: policy(env, trip.id),
+      policy: { ...tripPolicy, ...(routeOps ? { operationsVersion: 1 } : {}) },
+      ...(routeOps ? { vanOps: routeOps } : {}),
       trip: {
         tripId: trip.id,
         tripNumber: trip.trip_number,

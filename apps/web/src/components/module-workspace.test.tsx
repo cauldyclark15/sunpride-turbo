@@ -3,12 +3,13 @@ import { describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   profile: null as null | { active: boolean; role: string; name: string },
+  search: "",
 }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/workflows",
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(state.search),
 }));
 vi.mock("convex/react", () => ({
   useQuery: () => undefined,
@@ -30,11 +31,28 @@ import {
   WORKSPACE_TITLES,
   lazyWorkspace,
 } from "./cockpit/lazy-workspace";
-import { AccessDenied, ModuleWorkspace } from "./module-workspace";
+import {
+  AccessDenied,
+  ModuleWorkspace,
+  VanTripRoute,
+} from "./module-workspace";
 
 const html = (node: React.ReactElement) => renderToStaticMarkup(node);
 
 describe("ModuleWorkspace", () => {
+  it("F-105 F-117 preserves the Vans cockpit trip drill-down and explicit tripId links", () => {
+    try {
+      state.search = "trip=cockpit-trip&date=2026-10-20";
+      expect(VanTripRoute().props).toMatchObject({
+        initialTripId: "cockpit-trip",
+        initialDate: "2026-10-20",
+      });
+      state.search = "trip=cockpit-trip&tripId=explicit-trip";
+      expect(VanTripRoute().props.initialTripId).toBe("explicit-trip");
+    } finally {
+      state.search = "";
+    }
+  });
   it("old Home and Reports point at Today and Sales & targets", () => {
     expect(html(<ModuleWorkspace module="dashboard" />)).toContain(
       'href="/today"',

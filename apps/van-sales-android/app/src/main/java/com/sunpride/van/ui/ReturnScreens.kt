@@ -20,6 +20,7 @@ import com.sunpride.van.pos.*
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.launch
 
 /**
  * VAN-019 customer returns. One customer per return: link the receipt it was bought on (or none), add each
@@ -30,10 +31,24 @@ import java.time.format.DateTimeFormatter
     val draft = c.returnDraft
     var note by remember(draft?.returnId) { mutableStateOf("") }
     var adding by remember { mutableStateOf(false) }
+    var customerName by remember(draft?.returnId) {mutableStateOf("")}
+    var signature by remember(draft?.returnId) {mutableStateOf<String?>(null)}
+    var photo by remember(draft?.returnId) {mutableStateOf<String?>(null)}
+    var camera by remember {mutableStateOf(false)}
+    var photoBusy by remember {mutableStateOf(false)}
+    val scope=rememberCoroutineScope()
+    val needsEvidence=c.policy?.operationsVersion==1
+    if(camera) {
+        com.sunpride.van.evidence.DamageCameraScreen({capture->scope.launch {
+            photoBusy=true
+            try {photo=c.repository.prepareReturnPhoto(capture)} finally {photoBusy=false;camera=false}
+        }},{camera=false})
+        return
+    }
     val result = remember(draft,c.customers,c.products,c.returnFacts,c.trip,c.session,note) { c.returnResult(note) }
     val quote = result?.quote
     ScreenFrame("Customer return",c::back,action = if (c.busy) "Saving…" else "Save return",actionTag = "save-return",
-        enabled = !c.busy && result?.ok == true,onAction = { c.saveReturn(note) },message = c.message,
+        enabled = !c.busy && !photoBusy && result?.ok == true && (!needsEvidence || signature!=null && photo!=null && draft?.lines?.all {!it.lotNumber.isNullOrBlank()}==true),onAction = { c.saveReturn(note,signature,photo) },message = c.message,
         footer = when {
             draft == null || draft.lines.isEmpty() -> "No returned products yet"
             quote?.approvalRequired == true -> "Needs office approval"
@@ -88,6 +103,12 @@ import java.time.format.DateTimeFormatter
             }
         }
         LabeledField("Note (optional)",note,{ note = it },"return-note")
+        if(needsEvidence) SectionCard("Return evidence and acknowledgement") {
+            Text("Capture the batch on every line. The photo, customer name and signature are saved offline with this return.")
+            SecondaryButton(if(photo==null) "Take return photo" else "Retake return photo",{camera=true},Modifier.testTag("return-photo"),!photoBusy && !c.busy)
+            if(photo!=null) Text("Photo ready · saved with the return")
+            CustomerSignature(customerName,{customerName=it},{signature=it})
+        }
         SecondaryButton("Cancel return",c::cancelReturn,Modifier.testTag("return-cancel"),!c.busy)
     }
     if (adding && draft != null) ReturnLineDialog(c,onAdd = { c.addReturnLine(it); adding = false },onClose = { adding = false })
@@ -103,7 +124,7 @@ import java.time.format.DateTimeFormatter
     var disposition by remember { mutableStateOf<ReturnDisposition?>(null) }
     var lot by remember { mutableStateOf("") }
     var expiry by remember { mutableStateOf("") }
-    val policy = ReturnPolicy.DEFAULT
+    val policy = c.returnContext().policy
     Dialog(onDismissRequest = onClose,properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxWidth().padding(16.dp).imePadding().navigationBarsPadding().statusBarsPadding(),shape = SunprideTokens.shapes.large) {
             Column(Modifier.padding(16.dp),verticalArrangement = Arrangement.spacedBy(12.dp)) {

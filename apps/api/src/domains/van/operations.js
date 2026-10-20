@@ -1,5 +1,10 @@
 import { postMovement } from "../inventory/posting.js";
-import { resolvePrice, creditCheck } from "../orders/pricing.js";
+import { resolvePrice } from "../orders/pricing.js";
+import {
+  sapCreditCheck as creditCheck,
+  requestOverride as consumeApproval,
+  allocateDocumentNumber,
+} from "./seams.js";
 import { currentDeviceActor, tripFor, outletFor } from "./access.js";
 import { damagePhoto } from "./media.js";
 import {
@@ -13,7 +18,7 @@ import {
   assertTruckStock,
   payment,
 } from "./facts.js";
-import { consumeApproval, stockCountCode } from "./approvals.js";
+import { stockCountCode } from "./approvals.js";
 import {
   integer,
   safeNumber,
@@ -36,8 +41,20 @@ import {
 import { canonicalJson } from "../../core/util.js";
 import { ApiError } from "../../core/errors.js";
 import { OP_CODES } from "../../core/sync.js";
+import {
+  ROUTE_OPS,
+  recordRouteEvidence,
+  requireTemperature,
+} from "./route-evidence.js";
+import { submitSettlement } from "./settlement.js";
+import { saleLots } from "./lots.js";
+import { validateReturnEvidence } from "./return-evidence.js";
+import { receiveReload } from "./reloads.js";
+import { validateBatchCount } from "./batch-count.js";
 
 export const VAN_OPS = [
+  ...ROUTE_OPS,
+  "reload.receive",
   "trip.start",
   "load.confirm",
   "truck.damage",
@@ -220,8 +237,12 @@ async function dispatchOperation(ctx, env) {
     (trip.started_device_id && trip.started_device_id !== device.id)
   )
     refuse("This trip belongs to another seller or device", "out_of_scope");
-  if (dayString(trip.service_date) !== today(ctx.now))
-    refuse("This trip is not for today", "wrong_date");
+  // F-123: retain the capture/service day during a bounded delayed upload.
+  const delayedDays =
+    (Date.parse(today(ctx.now)) - Date.parse(dayString(trip.service_date))) /
+    86400000;
+  if (delayedDays < 0 || delayedDays > 7)
+    refuse("The trip is outside the delayed-upload window", "wrong_date");
   if (
     !Number.isSafeInteger(p.deviceTime) ||
     p.deviceTime !== op.clientTime ||
@@ -230,8 +251,13 @@ async function dispatchOperation(ctx, env) {
   )
     refuse("Capture time is outside the trip day", "wrong_date");
   if (["closed", "cancelled"].includes(trip.status)) refuse("Trip is closed");
+  if ((p.settlementVersion ?? 0) !== trip.operations_version)
+    refuse(
+      "Download the trip's current operations configuration",
+      "invalid_request",
+    );
   if (
-    !["load.confirm", "trip.start"].includes(op.opType) &&
+    !["load.confirm", "trip.start", "temperature.record"].includes(op.opType) &&
     !["active", "closing", "reconciling", "review_required"].includes(
       trip.status,
     )
@@ -255,143 +281,161 @@ async function dispatchOperation(ctx, env) {
       refuse("This trip already has a count", "idempotency_conflict");
   }
   /** @type {any} */ let result;
-  switch (op.opType) {
-    case "trip.start": {
-      const [load] =
-        await db`select status from van_trip_loads where trip_id=${trip.id} and deleted_at is null`;
-      if (trip.status !== "loaded" || load?.status !== "posted")
-        refuse("Post the load before departure", "load_not_posted");
-      if (p.vehicleConfirmed !== true || p.routeConfirmed !== true)
-        refuse("Confirm the truck and route", "invalid_request");
-      if (
-        p.odometerKm !== undefined &&
-        (!Number.isFinite(p.odometerKm) || p.odometerKm < 0)
-      )
-        refuse("Invalid odometer", "invalid_request");
-      await db`update van_trips set status='active',started_at=now(),started_device_id=${device.id},driver_name=coalesce(${text(p.driverName, 80)},driver_name),helper_name=coalesce(${text(p.helperName, 80)},helper_name),start_odometer_km=${p.odometerKm ?? null},start_note=${text(p.note)},updated_at=now() where id=${trip.id}`;
-      result = { entityId: trip.id };
-      break;
+  if (ROUTE_OPS.includes(op.opType)) {
+    if (op.opType !== "temperature.record" || trip.status !== "loading") {
+      if (trip.status === "closing")
+        refuse("The local settlement is already submitted");
     }
-    case "load.confirm": {
-      const [load] =
-        await db`select * from van_trip_loads where id=${uuid(p.loadId)} and trip_id=${trip.id} and deleted_at is null for update`;
-      if (!load || load.status !== "planned" || trip.status !== "loading")
-        refuse("Load cannot be confirmed now");
-      /** @type {any[]} */ const lines =
-        await db`select * from van_trip_load_lines where load_id=${load.id} and deleted_at is null order by line_number`;
-      const supplied = rows(p.lines);
-      if (supplied.length !== lines.length)
-        refuse("Count every load line", "invalid_request");
-      const seen = new Set();
-      let differs = false;
-      for (const input of supplied) {
-        const line = lines.find((l) => l.line_number === input.lineNumber);
-        if (!line || seen.has(input.lineNumber))
-          refuse("Load line is missing or repeated", "invalid_request");
-        seen.add(input.lineNumber);
-        const actual = integer(input.actualBase),
-          changed = actual !== BigInt(line.expected_base);
-        const reason = changed ? choice(input.reason, LOAD_REASONS) : null;
-        differs ||= changed;
-        await db`update van_trip_load_lines set actual_base=${String(actual)},discrepancy_reason=${reason},updated_at=now() where id=${line.id}`;
+    result = await recordRouteEvidence(db, trip, actor, device, p, op);
+  } else
+    switch (op.opType) {
+      case "trip.start": {
+        const [load] =
+          await db`select status from van_trip_loads where trip_id=${trip.id} and deleted_at is null`;
+        if (trip.status !== "loaded" || load?.status !== "posted")
+          refuse("Post the load before departure", "load_not_posted");
+        if (p.vehicleConfirmed !== true || p.routeConfirmed !== true)
+          refuse("Confirm the truck and route", "invalid_request");
+        if (
+          (p.settlementVersion === 1 || p.odometerKm !== undefined) &&
+          (!Number.isFinite(p.odometerKm) || p.odometerKm < 0)
+        )
+          refuse("Invalid odometer", "invalid_request");
+        if (p.settlementVersion === 1)
+          await requireTemperature(db, trip, p.deviceTime, "load_out");
+        await db`update van_trips set status='active',started_at=now(),started_device_id=${device.id},driver_name=coalesce(${text(p.driverName, 80)},driver_name),helper_name=coalesce(${text(p.helperName, 80)},helper_name),start_odometer_km=${p.odometerKm ?? null},start_note=${text(p.note)},updated_at=now() where id=${trip.id}`;
+        result = { entityId: trip.id };
+        break;
       }
-      await db`update van_trip_loads set confirmed_by=${actor.subject},confirmed_at=now(),confirmed_device_id=${device.id},confirm_request_id=${op.clientOpId},updated_at=now() where id=${load.id}`;
-      if (differs) {
-        await db`update van_trip_loads set status='discrepancy' where id=${load.id}`;
-        result = { entityId: load.id };
-      } else result = await finishLoad(db, trip, actor);
-      break;
-    }
-    case "truck.damage": {
-      if (trip.status !== "active")
-        refuse("Start the trip before recording damage");
-      await assertNotCounted(db, trip.id);
-      const product = await productFor(db, uuid(p.productId));
-      const qty = integer(p.quantityBase, true);
-      const reason = choice(p.reason, DAMAGE_REASONS);
-      const approval =
-        qty >= BigInt(DAMAGE_POLICY.approvalFromUnits) * product.quantityScale;
-      const photoId = await damagePhoto(
-        db,
-        actor,
-        device,
-        trip,
-        p.photoSha256,
-        approval || DAMAGE_POLICY.photoRequiredReasons.includes(reason),
-      );
-      const id = crypto.randomUUID(),
-        facts = frozenProduct(product);
-      const movementId = await movement(
-        db,
-        trip,
-        actor,
-        "status_change",
-        id,
-        // One in-place status change keeps the same lots: available → damaged on the truck.
-        // (Two lines via "outside" left the inward line without a lot for lot-tracked stock.)
-        [statusLine(trip, facts, qty, "available", "damaged")],
-        op.clientOpId,
-      );
-      await db`insert into van_damage_records(id,organization_id,trip_id,org_unit_id,truck_location_id,product_id,product_code,uom_code,quantity_scale,quantity_base,reason,note,photo_id,needs_approval,status,recorded_by,recorded_profile_id,device_id,client_request_id,recorded_at,movement_id)
-        values(${id},${trip.organization_id},${trip.id},${trip.org_unit_id},${trip.truck_location_id},${product.id},${product.code},${product.base_code},${String(product.quantityScale)},${String(qty)},${reason},${text(p.note)},${photoId},${approval},${approval ? "pending_approval" : "recorded"},${actor.subject},${actor.profileId},${device.id},${op.clientOpId},now(),${movementId})`;
-      if (photoId)
-        await db`update van_damage_photos set damage_record_id=${id} where id=${photoId}`;
-      await explainStock(db, trip, id, "damage", [
-        { productId: product.id, delta: -qty, facts },
-        { productId: product.id, status: "damaged", delta: qty, facts },
-      ]);
-      result = { entityId: id, movementId };
-      break;
-    }
-    case "sale.record":
-      result = await sale(db, trip, actor, p, op.clientOpId);
-      break;
-    case "sale.void":
-      result = await voidSale(db, trip, actor, env, p, op.clientOpId);
-      break;
-    case "return.record":
-      result = await customerReturn(db, trip, actor, p, op.clientOpId);
-      break;
-    case "payment.record": {
-      await assertNotCounted(db, trip.id);
-      if (trip.status !== "active") refuse("Trip is not on the road");
-      const saleId = uuid(p.saleId);
-      const [s] =
-        await db`select * from van_sales where id=${saleId} and trip_id=${trip.id} for update`;
-      if (!s || s.receipt.payment.kind !== "credit")
-        refuse("Choose a credit sale from this trip", "invalid_request");
-      const amount = integer(p.amountMinor, true),
-        method = choice(p.method, ["cash", "check", "gcash", "bank_transfer"]);
-      const [r] =
-        await db`select coalesce(sum(amount_centavos),0)::text as paid from van_payments where sale_id=${saleId} and kind='collection'`;
-      if (BigInt(r.paid) + amount > BigInt(s.total_centavos))
-        refuse(
-          "Collection exceeds the remaining credit sale",
-          "invalid_request",
+      case "load.confirm": {
+        const [load] =
+          await db`select * from van_trip_loads where id=${uuid(p.loadId)} and trip_id=${trip.id} and deleted_at is null for update`;
+        if (!load || load.status !== "planned" || trip.status !== "loading")
+          refuse("Load cannot be confirmed now");
+        /** @type {any[]} */ const lines =
+          await db`select * from van_trip_load_lines where load_id=${load.id} and deleted_at is null order by line_number`;
+        const supplied = rows(p.lines);
+        if (supplied.length !== lines.length)
+          refuse("Count every load line", "invalid_request");
+        const seen = new Set();
+        let differs = false;
+        for (const input of supplied) {
+          const line = lines.find((l) => l.line_number === input.lineNumber);
+          if (!line || seen.has(input.lineNumber))
+            refuse("Load line is missing or repeated", "invalid_request");
+          seen.add(input.lineNumber);
+          const actual = integer(input.actualBase),
+            changed = actual !== BigInt(line.expected_base);
+          const reason = changed ? choice(input.reason, LOAD_REASONS) : null;
+          differs ||= changed;
+          await db`update van_trip_load_lines set actual_base=${String(actual)},discrepancy_reason=${reason},updated_at=now() where id=${line.id}`;
+        }
+        await db`update van_trip_loads set confirmed_by=${actor.subject},confirmed_at=now(),confirmed_device_id=${device.id},confirm_request_id=${op.clientOpId},updated_at=now() where id=${load.id}`;
+        if (differs) {
+          await db`update van_trip_loads set status='discrepancy' where id=${load.id}`;
+          result = { entityId: load.id };
+        } else result = await finishLoad(db, trip, actor);
+        break;
+      }
+      case "truck.damage": {
+        if (trip.status !== "active")
+          refuse("Start the trip before recording damage");
+        await assertNotCounted(db, trip.id);
+        const product = await productFor(db, uuid(p.productId));
+        const qty = integer(p.quantityBase, true);
+        const reason = choice(p.reason, DAMAGE_REASONS);
+        const approval =
+          qty >=
+          BigInt(DAMAGE_POLICY.approvalFromUnits) * product.quantityScale;
+        const photoId = await damagePhoto(
+          db,
+          actor,
+          device,
+          trip,
+          p.photoSha256,
+          approval || DAMAGE_POLICY.photoRequiredReasons.includes(reason),
         );
-      if (method !== "cash") text(p.reference, 100, true);
-      const id = await payment(
-        db,
-        trip,
-        { ...p, method },
-        "collection",
-        saleId,
-      );
-      result = { entityId: id };
-      break;
+        const id = crypto.randomUUID(),
+          facts = frozenProduct(product);
+        const movementId = await movement(
+          db,
+          trip,
+          actor,
+          "status_change",
+          id,
+          // One in-place status change keeps the same lots: available → damaged on the truck.
+          // (Two lines via "outside" left the inward line without a lot for lot-tracked stock.)
+          [statusLine(trip, facts, qty, "available", "damaged")],
+          op.clientOpId,
+        );
+        await db`insert into van_damage_records(id,organization_id,trip_id,org_unit_id,truck_location_id,product_id,product_code,uom_code,quantity_scale,quantity_base,reason,note,photo_id,needs_approval,status,recorded_by,recorded_profile_id,device_id,client_request_id,recorded_at,movement_id)
+        values(${id},${trip.organization_id},${trip.id},${trip.org_unit_id},${trip.truck_location_id},${product.id},${product.code},${product.base_code},${String(product.quantityScale)},${String(qty)},${reason},${text(p.note)},${photoId},${approval},${approval ? "pending_approval" : "recorded"},${actor.subject},${actor.profileId},${device.id},${op.clientOpId},now(),${movementId})`;
+        if (photoId)
+          await db`update van_damage_photos set damage_record_id=${id} where id=${photoId}`;
+        await explainStock(db, trip, id, "damage", [
+          { productId: product.id, delta: -qty, facts },
+          { productId: product.id, status: "damaged", delta: qty, facts },
+        ]);
+        result = { entityId: id, movementId };
+        break;
+      }
+      case "sale.record":
+        result = await sale(db, trip, actor, p, op.clientOpId);
+        break;
+      case "sale.void":
+        result = await voidSale(db, trip, actor, env, p, op.clientOpId);
+        break;
+      case "return.record":
+        result = await customerReturn(db, trip, actor, p, op.clientOpId);
+        break;
+      case "payment.record": {
+        await assertNotCounted(db, trip.id);
+        if (trip.status !== "active") refuse("Trip is not on the road");
+        const saleId = uuid(p.saleId);
+        const [s] =
+          await db`select * from van_sales where id=${saleId} and trip_id=${trip.id} for update`;
+        if (!s || s.receipt.payment.kind !== "credit")
+          refuse("Choose a credit sale from this trip", "invalid_request");
+        const amount = integer(p.amountMinor, true),
+          method = choice(p.method, [
+            "cash",
+            "check",
+            "gcash",
+            "bank_transfer",
+          ]);
+        const [r] =
+          await db`select coalesce(sum(amount_centavos),0)::text as paid from van_payments where sale_id=${saleId} and kind='collection'`;
+        if (BigInt(r.paid) + amount > BigInt(s.total_centavos))
+          refuse(
+            "Collection exceeds the remaining credit sale",
+            "invalid_request",
+          );
+        if (method !== "cash") text(p.reference, 100, true);
+        const id = await payment(
+          db,
+          trip,
+          { ...p, method },
+          "collection",
+          saleId,
+        );
+        result = { entityId: id };
+        break;
+      }
+      case "reload.receive":
+        result = await receiveReload(db, trip, actor, p, op.clientOpId);
+        break;
+      case "cash.reconcile":
+        result = await countCash(db, trip, env, p, op.clientOpId);
+        break;
+      case "stock.reconcile":
+        result = await countStock(db, trip, actor, env, p, op.clientOpId);
+        break;
+      case "trip.close":
+        result = await closeTrip(db, trip, actor, p, op.clientOpId);
+        break;
+      default:
+        refuse("Unsupported operation", "unsupported_operation");
     }
-    case "cash.reconcile":
-      result = await countCash(db, trip, env, p, op.clientOpId);
-      break;
-    case "stock.reconcile":
-      result = await countStock(db, trip, actor, env, p, op.clientOpId);
-      break;
-    case "trip.close":
-      result = await closeTrip(db, trip, actor, p, op.clientOpId);
-      break;
-    default:
-      refuse("Unsupported operation", "unsupported_operation");
-  }
   await audit(db, trip, actor, op.opType, result.entityId, {
     clientOpId: op.clientOpId,
   });
@@ -422,12 +466,10 @@ async function sale(db, trip, actor, p, opId) {
       );
     return { entityId: saleId };
   }
-  const receiptNumber = text(p.receiptNumber, 100, true);
-  if (
-    !receiptNumber?.startsWith(trip.trip_number + "-") ||
-    !/^.+-[0-9A-F]{8}-\d{4,9}$/.test(receiptNumber)
-  )
-    refuse("Receipt does not belong to this trip", "invalid_request");
+  const receiptNumber = allocateDocumentNumber({
+    tripNumber: trip.trip_number,
+    provided: p.receiptNumber,
+  });
   if (p.currency !== "PHP")
     refuse("Only PHP sales are supported", "invalid_request");
   if (!p.customer?.outletId)
@@ -436,6 +478,8 @@ async function sale(db, trip, actor, p, opId) {
       "invalid_request",
     );
   const customer = await outletFor(db, actor, p.customer.outletId);
+  if (p.settlementVersion === 1)
+    await requireTemperature(db, trip, p.deviceTime, "delivery", customer.id);
   const at = Number(p.deviceTime),
     quoted = [];
   let total = 0n,
@@ -489,6 +533,9 @@ async function sale(db, trip, actor, p, opId) {
       discountMinor: String(discount),
       priceListId: price.priceListId,
       priceSource: price.source,
+      ...(p.settlementVersion === 1
+        ? { allocations: await saleLots(db, trip, product, l, at) }
+        : {}),
     });
   }
   safeNumber(total);
@@ -546,6 +593,7 @@ async function sale(db, trip, actor, p, opId) {
       name: customer.name,
       code: customer.code,
       address: customer.address,
+      classification: customer.classification ?? null,
     },
     seller: { name: actor.name },
     truck: {
@@ -571,7 +619,18 @@ async function sale(db, trip, actor, p, opId) {
     actor,
     "pos_sale",
     saleId,
-    quoted.map((l) => stockLine(trip, l, BigInt(l.quantityBase), false)),
+    quoted.flatMap((l) =>
+      l.allocations?.length
+        ? l.allocations.map((/** @type {any} */ a) =>
+            stockLine(
+              trip,
+              { ...l, lotId: a.lotId },
+              BigInt(a.quantityBase),
+              false,
+            ),
+          )
+        : [stockLine(trip, l, BigInt(l.quantityBase), false)],
+    ),
     opId,
   );
   await explainStock(
@@ -676,6 +735,7 @@ async function customerReturn(db, trip, actor, p, opId) {
     refuse("A voided sale cannot be returned");
   const input = rows(p.lines),
     seen = new Set();
+  if (p.settlementVersion === 1) await validateReturnEvidence(db, trip, p);
   for (const l of input) {
     uuid(l.productId);
     if (seen.has(l.productId))
@@ -691,7 +751,7 @@ async function customerReturn(db, trip, actor, p, opId) {
       await db`select coalesce(sum(l.quantity_base),0)::text as qty from van_return_lines l join van_returns r on r.id=l.return_id where r.sale_id=${saleId} and l.product_id=${l.productId}`;
     if (BigInt(r.qty) + qty > BigInt(original.quantityBase))
       refuse("Returned quantity exceeds the original sale", "invalid_request");
-    const reason = choice(l.reason, [
+    const legacyReasons = [
       "damaged",
       "expired",
       "spoiled",
@@ -699,12 +759,26 @@ async function customerReturn(db, trip, actor, p, opId) {
       "quality_complaint",
       "wrong_item",
       "overstock",
-    ]);
+    ];
+    // F-113 one effective list; custom codes conservatively route goods to warehouse bad-stock receipt.
+    const reason =
+      p.settlementVersion === 1
+        ? String(l.reason)
+        : choice(l.reason, legacyReasons);
     const disposition = choice(l.disposition, [
       "resellable",
       "bad_stock",
       "disposed_at_outlet",
     ]);
+    if (
+      p.settlementVersion === 1 &&
+      !legacyReasons.includes(reason) &&
+      disposition !== "bad_stock"
+    )
+      refuse(
+        "New return reasons require warehouse bad-stock receipt",
+        "invalid_request",
+      );
     if (
       ["expired", "spoiled", "near_expiry", "quality_complaint"].includes(
         reason,
@@ -738,6 +812,47 @@ async function customerReturn(db, trip, actor, p, opId) {
       );
     // Never use refreshed master facts for a linked receipt.
     l.frozen = original;
+    if (p.settlementVersion === 1 && original.allocations?.length) {
+      const allocations = rows(l.allocations, 50),
+        seenLots = new Set();
+      let batchTotal = 0n;
+      for (const a of allocations) {
+        const lotId = uuid(a.lotId),
+          q = integer(a.quantityBase, true);
+        const sold = original.allocations.find(
+          (/** @type {any} */ s) => s.lotId === lotId,
+        );
+        if (
+          !sold ||
+          seenLots.has(lotId) ||
+          sold.batch !== a.batch ||
+          a.batch !== l.lotNumber ||
+          sold.expiresAt !== a.expiresAt ||
+          sold.qualityStatus !== a.qualityStatus
+        )
+          refuse(
+            "Return batch must match the frozen sold batch",
+            "invalid_request",
+          );
+        seenLots.add(lotId);
+        if (
+          l.stockEffect === "available" &&
+          sold.expiresAt !== null &&
+          sold.expiresAt <= p.deviceTime
+        )
+          refuse("Expired returns must stay in bad stock", "invalid_request");
+        const [priorBatch] =
+          await db`select coalesce(sum((a->>'quantityBase')::bigint),0)::text as quantity from van_return_lines l join van_returns r on r.id=l.return_id cross join lateral jsonb_array_elements(coalesce(l.facts->'allocations','[]')) a where r.sale_id=${saleId} and l.product_id=${l.productId} and a->>'lotId'=${lotId}`;
+        if (BigInt(priorBatch.quantity) + q > BigInt(sold.quantityBase))
+          refuse(
+            "Return exceeds this batch's sold quantity",
+            "invalid_request",
+          );
+        batchTotal += q;
+      }
+      if (batchTotal !== qty)
+        refuse("Return batch quantities do not reconcile", "invalid_request");
+    }
   }
   const captured = { ...p, lines: input.map(({ frozen, ...l }) => l) };
   await db`insert into van_returns(id,trip_id,sale_id,return_number,captured_request) values(${id},${trip.id},${saleId},${text(p.returnNumber, 100, true)},${captured})`;
@@ -754,14 +869,24 @@ async function customerReturn(db, trip, actor, p, opId) {
     (
       await Promise.all(
         posting.map((l) =>
-          soldLotLines(
-            db,
-            trip,
-            saleId,
-            l.frozen,
-            BigInt(l.quantityBase),
-            l.stockEffect,
-          ),
+          p.settlementVersion === 1 && l.allocations?.length
+            ? l.allocations.map((/** @type {any} */ a) =>
+                stockLine(
+                  trip,
+                  { ...l.frozen, lotId: a.lotId },
+                  BigInt(a.quantityBase),
+                  true,
+                  l.stockEffect,
+                ),
+              )
+            : soldLotLines(
+                db,
+                trip,
+                saleId,
+                l.frozen,
+                BigInt(l.quantityBase),
+                l.stockEffect,
+              ),
         ),
       )
     ).flat(),
@@ -843,7 +968,7 @@ async function countCash(db, trip, env, p, opId) {
   const variance = declared - expected;
   let approvalId = null;
   if (variance !== 0n) choice(p.reasonCode, CASH_VARIANCE_REASONS);
-  if (variance > 5000n || variance < -5000n)
+  if (p.settlementVersion !== 1 && (variance > 5000n || variance < -5000n))
     approvalId = await consumeApproval(
       db,
       env,
@@ -890,6 +1015,10 @@ async function countStock(db, trip, actor, env, p, opId) {
     }
   }
   const countCode = stockCountCode(trip.id, id, input);
+  const batchCount =
+    p.settlementVersion === 1
+      ? await validateBatchCount(db, trip, input, p.lotLines)
+      : null;
   if (
     p.countCode !== countCode ||
     p.varianceLines !== differing ||
@@ -897,25 +1026,26 @@ async function countStock(db, trip, actor, env, p, opId) {
     integer(p.overBase) !== over
   )
     refuse("Count fingerprint does not match the lines", "invalid_request");
-  const approvalId = differing
-    ? await consumeApproval(
-        db,
-        env,
-        trip,
-        "stock",
-        {
-          countCode,
-          varianceLines: differing,
-          shortBase: String(short),
-          overBase: String(over),
-        },
-        p.approval,
-        opId,
-      )
-    : null;
-  await db`insert into van_stock_counts(id,trip_id,count_code,variance_lines,short_base,over_base,approval_id,facts) values(${id},${trip.id},${countCode},${differing},${String(short)},${String(over)},${approvalId},${{ note: text(p.note) }})`;
-  const postings = [],
-    explanations = [];
+  const approvalId =
+    differing && p.settlementVersion !== 1
+      ? await consumeApproval(
+          db,
+          env,
+          trip,
+          "stock",
+          {
+            countCode,
+            varianceLines: differing,
+            shortBase: String(short),
+            overBase: String(over),
+          },
+          p.approval,
+          opId,
+        )
+      : null;
+  await db`insert into van_stock_counts(id,trip_id,count_code,variance_lines,short_base,over_base,approval_id,facts) values(${id},${trip.id},${countCode},${differing},${String(short)},${String(over)},${approvalId},${{ note: text(p.note), lotLines: batchCount?.lines ?? [] }})`;
+  /** @type {any[]} */ const postings = batchCount?.postings ?? [];
+  const explanations = [];
   for (const l of input) {
     const e = expected.find(
         (e) => e.productId === l.productId && e.status === l.status,
@@ -933,7 +1063,7 @@ async function countStock(db, trip, actor, env, p, opId) {
             BigInt(e.facts.quantityScale),
           ) * (delta < 0n ? -1n : 1n);
     await db`insert into van_stock_count_lines(count_id,product_id,stock_status,expected_base,counted_base,variance_base,value_centavos,facts) values(${id},${l.productId},${l.status},${String(e.expectedBase)},${l.countedBase},${String(delta)},${cost === null ? null : String(cost)},${{ ...e.facts, reasonCode: l.reasonCode }})`;
-    if (delta) {
+    if (delta && !batchCount?.tracked.has(l.productId)) {
       // A found overage has no source to allocate from: book it to a lot this product
       // already holds on the truck (same status first). Untracked products stay lot-less.
       const lotId =
@@ -954,6 +1084,13 @@ async function countStock(db, trip, actor, env, p, opId) {
         facts: e.facts,
       });
     }
+    if (delta && batchCount?.tracked.has(l.productId))
+      explanations.push({
+        productId: l.productId,
+        status: l.status,
+        delta,
+        facts: e.facts,
+      });
   }
   const movementId = await movement(
     db,
@@ -975,6 +1112,7 @@ async function countStock(db, trip, actor, env, p, opId) {
 }
 /** @param {any} db @param {any} trip @param {any} actor @param {any} p @param {string} opId */
 async function closeTrip(db, trip, actor, p, opId) {
+  if (p.settlementVersion === 1) return submitSettlement(db, trip, actor, p);
   uuid(p.closeId);
   const [cash] =
     await db`select * from van_cash_counts where trip_id=${trip.id}`;
