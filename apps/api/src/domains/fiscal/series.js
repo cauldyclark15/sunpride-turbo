@@ -48,14 +48,17 @@ export async function saveRegistration(db, actor, p) {
     "suspended",
     "expired",
   ]);
-  const from = instant(p.effectiveFrom),
-    to = p.effectiveTo ? instant(p.effectiveTo) : null;
+  const from = instant(p.effectiveFrom);
+  let to = p.effectiveTo ? instant(p.effectiveTo) : null;
   if (to && to <= from) refuse("End must follow the start");
   const id = p.id ? uuid(p.id) : crypto.randomUUID();
   const [prior] =
     await db`select * from fiscal_registrations where id=${id} for update`;
   if (prior && prior.org_unit_id !== p.orgUnitId)
     refuse("A registration cannot change branch");
+  // An ordinary filing-status edit must never silently turn an expiring permit into an unlimited one.
+  if (prior && !p.effectiveTo)
+    to = prior.effective_to ? new Date(prior.effective_to) : null;
   const enteredBy = prior?.entered_by ?? actor.profileId;
   const taxBasisPoints =
     p.taxBasisPoints === undefined

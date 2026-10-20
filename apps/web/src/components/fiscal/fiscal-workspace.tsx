@@ -472,7 +472,7 @@ export function FiscalWorkspace({
                         },
                         {
                           name: "effectiveTo",
-                          label: "Permit expiry",
+                          label: "Permit expiry (blank keeps current expiry)",
                           type: "datetime-local",
                           optional: true,
                         },

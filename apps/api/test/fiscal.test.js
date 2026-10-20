@@ -165,6 +165,29 @@ test("F-018 sample register is explicitly not filed; only separate real evidence
     await h.db`select * from fiscal_registrations where id=${separate.id}`;
   expect(verified.verified_by).toBe(verifier.profileId);
   expect(verified.entered_by).toBe(approver.profileId);
+  const expiry = new Date(Date.now() + 86400000).toISOString();
+  await tx(h.db, (db) =>
+    saveRegistration(db, verifier, {
+      ...input,
+      id: separate.id,
+      status: "approved",
+      effectiveTo: expiry,
+    }),
+  );
+  for (const effectiveTo of [undefined, ""]) {
+    await tx(h.db, (db) =>
+      saveRegistration(db, verifier, {
+        ...input,
+        id: separate.id,
+        status: "approved",
+        effectiveTo,
+      }),
+    );
+    const [retained] =
+      await h.db`select effective_to from fiscal_registrations where id=${separate.id}`;
+    expect(retained.effective_to).not.toBeNull();
+    expect(new Date(retained.effective_to).toISOString()).toBe(expiry);
+  }
 });
 test("F-019 concurrent offline reservations are disjoint and replay never resets a consumed range", async () => {
   const reserve = (/** @type {string} */ key) =>
