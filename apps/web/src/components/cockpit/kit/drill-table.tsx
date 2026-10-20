@@ -46,12 +46,17 @@ export function Breadcrumbs({ items }: { items: Crumb[] }) {
 const toolClass =
   "inline-flex h-8 items-center rounded-lg border border-border bg-surface px-3 text-[13px] font-medium text-foreground hover:bg-default-soft";
 
-/** CSV (the server's `format=csv` of the same filters) and print. */
+/** F-601 real Excel workbook (same server filters) and print. */
 export function ExportTools({ csvHref }: { csvHref: string }) {
   return (
     <span className="ck-noprint inline-flex gap-2">
-      <a href={csvHref} download data-csv className={toolClass}>
-        Download CSV
+      <a
+        href={csvHref.replace(/([?&])format=csv(?=&|$)/, "$1format=xlsx")}
+        download
+        data-xlsx
+        className={toolClass}
+      >
+        Download Excel
       </a>
       <button
         type="button"

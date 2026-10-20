@@ -169,6 +169,11 @@ export type CoverageRow = {
   offPlan: number;
   productive: number;
   strikeRatePct: number | null;
+  productiveCallPct?: number | null;
+  dwellMin?: number | null;
+  dropSize?: number | null;
+  rank?: number;
+  distributionGained?: number | null;
   linesPerCall: number | null;
   firstCallAt: number | null;
   lastCallAt: number | null;
@@ -179,6 +184,12 @@ export type CoverageRow = {
 };
 
 export type CoverageResponse = ResponseHeader & {
+  productivityTrend?: Array<{
+    date: string;
+    strikeRatePct: number | null;
+    productiveCallPct: number | null;
+    dwellMin: number | null;
+  }>;
   kpis: Kpi[];
   weeks: Array<{ weekStart: string }>;
   rows: CoverageRow[];
@@ -245,6 +256,7 @@ export type StoresResponse = ResponseHeader & {
 
 // ---------- /analytics/store ----------
 export type StoreResponse = ResponseHeader & {
+  context?: import("./pages/tower").OutletContext;
   store: {
     storeId: string;
     code: string;
@@ -300,6 +312,9 @@ export type StockRow = {
   avgDailySalesCases: number | null;
   daysCover: number | null;
   numericDistributionPct: number | null;
+  buyingReachPct?: number | null;
+  weightedDistributionPct?: number | null;
+  unmeasuredStores?: number;
   oosStores: number;
   status: string;
 };

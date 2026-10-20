@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { FraudPanel, AlertsPanel } from "./tower";
 import { useCallback, useState } from "react";
 import { useAnalytics } from "../api";
 import { formatAge, formatCount, formatDayTime, formatPhp } from "../format";
@@ -308,6 +309,8 @@ export function DecidePage() {
           />
         )}
       </PageData>
+      <FraudPanel query={query} />
+      <AlertsPanel unitId={result.data?.scope.unitId ?? null} />
     </CockpitPage>
   );
 }

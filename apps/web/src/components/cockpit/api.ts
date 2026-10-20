@@ -78,11 +78,11 @@ export function useAnalytics<P extends AnalyticsPage>(
   return result;
 }
 
-/** `format=csv` export of the same view (RFC-4180 with BOM, from the server). */
+/** F-601 real Excel export of the same authorized view; historical helper name retained for callers. */
 export function csvHref(page: AnalyticsPage, query: AnalyticsQuery) {
   return buildApiUrl(analyticsPath(page), {
     ...cleanQuery(query),
-    format: "csv",
+    format: "xlsx",
   });
 }
 

@@ -27,6 +27,7 @@ import {
   usePageQuery,
 } from "./shared";
 import { TargetsEditor } from "./targets-editor";
+import { TradePanel, DemandPanel } from "./tower";
 
 const GROUPS: SalesGroupBy[] = [
   "channel",
@@ -410,6 +411,12 @@ export function SalesPage() {
           )}
         </PageData>
       )}
+      {tab === "performance" ? (
+        <>
+          <TradePanel query={query} />
+          <DemandPanel query={query} />
+        </>
+      ) : null}
     </CockpitPage>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { AvailabilityPanel, PolicyPanel } from "./tower";
 import { csvHref, useAnalytics } from "../api";
 import {
   formatCount,
@@ -19,6 +20,7 @@ import {
   Panel,
   PeriodScopeBar,
   StatusChip,
+  TrendChart,
   type DrillColumn,
 } from "../kit";
 import { manilaToday } from "../period";
@@ -133,6 +135,41 @@ export function coverageColumns(
       sort: (r) => r.strikeRatePct,
     },
     {
+      key: "productive",
+      label: "Productive calls",
+      align: "right",
+      render: (r) => formatPct(r.productiveCallPct ?? null),
+      sort: (r) => r.productiveCallPct ?? null,
+    },
+    {
+      key: "dwell",
+      label: "Time in store",
+      align: "right",
+      render: (r) => formatMinutes(r.dwellMin ?? null),
+      sort: (r) => r.dwellMin ?? null,
+    },
+    {
+      key: "drop",
+      label: "Average drop",
+      align: "right",
+      render: (r) => formatPhp(r.dropSize ?? null),
+      sort: (r) => r.dropSize ?? null,
+    },
+    {
+      key: "rank",
+      label: "Conversion rank",
+      align: "right",
+      render: (r) => r.rank ?? "—",
+      sort: (r) => r.rank ?? null,
+    },
+    {
+      key: "gained",
+      label: "Stocking points gained",
+      align: "right",
+      render: (r) => formatCount(r.distributionGained ?? null),
+      sort: (r) => r.distributionGained ?? null,
+    },
+    {
       key: "tim",
       label: "Day in market",
       align: "right",
@@ -190,6 +227,32 @@ export function CoverageView({
   return (
     <div className="grid gap-4">
       <KpiGrid kpis={data.kpis} />
+      {data.productivityTrend ? (
+        <Panel
+          title="Conversion and productive calls"
+          question="Ordering is one outcome; useful non-selling work is a separate measure."
+        >
+          <TrendChart
+            label="Weekly call productivity"
+            unit="pct"
+            dates={data.productivityTrend.map((r) => r.date)}
+            series={[
+              {
+                key: "strike",
+                label: "Order conversion",
+                kind: "line",
+                values: data.productivityTrend.map((r) => r.strikeRatePct),
+              },
+              {
+                key: "productive",
+                label: "Productive calls",
+                kind: "prior",
+                values: data.productivityTrend.map((r) => r.productiveCallPct),
+              },
+            ]}
+          />
+        </Panel>
+      ) : null}
       <Panel
         csvHref={csv}
         title={
@@ -279,6 +342,8 @@ export function CoveragePage() {
           />
         )}
       </PageData>
+      <AvailabilityPanel query={query} />
+      <PolicyPanel unitId={result.data?.scope.unitId ?? null} />
     </CockpitPage>
   );
 }
