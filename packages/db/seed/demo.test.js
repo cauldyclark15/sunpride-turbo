@@ -93,7 +93,7 @@ describe("90-day Sunpride demo", () => {
     expect(after).toEqual(before);
     expect(repeated.duplicate).toBe(true);
     const counts = await db`select table_name,count(*)::int as n from sample_data_rows where batch=${BATCH} group by table_name`;
-    expect(repeated.rows).toEqual(Object.fromEntries(counts.map((r) => [r.table_name, r.n])));
+    expect(repeated.rows).toEqual(Object.fromEntries(counts.map((/** @type {any} */ r) => [r.table_name, r.n])));
   });
   test("fresh fully migrated database seeds in under sixty seconds", () => {
     expect(seedMs).toBeLessThan(60_000);

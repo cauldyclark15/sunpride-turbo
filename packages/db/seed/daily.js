@@ -1021,19 +1021,15 @@ export async function advanceDemo(db, { date = todayManila() } = {}) {
     day = plusDays(day, 1)
   )
     days.push(await advanceDay(db, day, original.startDate));
-  await seedFiscal(db);
-  const availability = await seedAvailability(db, date);
+
   await ensureRetailSamples(db); // F-310–F-320: include this run's new visits before claiming replay is a no-op.
-  await ensurePartnerSamples(db, { date });
+  // Provision new identities and policy fixtures only through the explicit CLI seed.
+  // An automatic daily advance must preserve every credential and registration.
   return {
     batch: BATCH,
-    availability,
     through: date,
     advanced: days.filter((d) => !d.duplicate).length,
-    coverageSpec: await seedCoverageSpec(db, date),
-    productiveSpec: await seedProductiveSpec(db, date),
-    workforceSpec: await seedWorkforceSpec(db, date),
-    dormancySpec: await seedDormancySpec(db, date),
+
     days,
   };
 }
@@ -1056,11 +1052,18 @@ if (import.meta.main) {
     const db = createDb(process.env.DATABASE_URL, { max: 1 });
     try {
       const result = await advanceDemo(db, { date });
+      await seedFiscal(db);
+      const availability = await seedAvailability(db, date);
       const modernTrade = await seedModernTrade(db);
+      const coverageSpec = await seedCoverageSpec(db, date);
+      const productiveSpec = await seedProductiveSpec(db, date);
+      const workforceSpec = await seedWorkforceSpec(db, date);
+      const dormancySpec = await seedDormancySpec(db, date);
+      const partnerSamples = await ensurePartnerSamples(db, {date});
       const distributorSamples = await seedDistributors(db, {
         anchorDate: date,
       });
-      console.log(JSON.stringify({ ...result, distributorSamples, modernTrade }, null, 2));
+      console.log(JSON.stringify({ ...result, availability, distributorSamples, modernTrade, coverageSpec, productiveSpec, workforceSpec, dormancySpec, partnerSamples }, null, 2));
     } catch {
       console.error(
         "Demo daily advance failed; no partial day was committed. Check sample ownership, migrations and active sample masters.",
