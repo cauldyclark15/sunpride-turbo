@@ -90,6 +90,9 @@ interface FieldBackend {
     fun saveOrderDraft(draftId: String?, clientVisitId: String, checkInRequestId: String,
         quantities: List<Pair<String, Int>>, units: Map<String, String>): OrderDraft =
         saveOrderDraft(draftId, clientVisitId, checkInRequestId, quantities)
+    fun saveOrderDraft(draftId: String?, clientVisitId: String, checkInRequestId: String,
+        quantities: List<Pair<String, Int>>, units: Map<String, String>, requestedDeliveryDate: String?): OrderDraft =
+        saveOrderDraft(draftId, clientVisitId, checkInRequestId, quantities, units)
     fun orderTerms(outletId: String): OrderTerms? = null
     fun discardOrderDraft(draftId: String) { error("No local store") }
     /** SP-0060: the review screen's locally checkable rules for one draft. */
@@ -131,9 +134,9 @@ interface FieldBackend {
 
 /** Shared by the live and test backends so both build drafts exactly the same way. */
 suspend fun saveOrderDraftIn(store: com.sunpride.field.storage.FieldStore, draftId: String?, clientVisitId: String,
-    checkInRequestId: String, quantities: List<Pair<String, Int>>, now: Long, units: Map<String, String> = emptyMap()): OrderDraft {
+    checkInRequestId: String, quantities: List<Pair<String, Int>>, now: Long, units: Map<String, String> = emptyMap(), requestedDeliveryDate: String? = null): OrderDraft {
     val existing = draftId?.let { id -> store.orderDrafts().firstOrNull { it.draftId == id } ?: error("Unknown draft") }
-    val draft = OrderDraftRules.build(store, existing, clientVisitId, checkInRequestId, quantities, now, units = units)
+    val draft = OrderDraftRules.build(store, existing, clientVisitId, checkInRequestId, quantities, now, units = units, requestedDeliveryDate = requestedDeliveryDate ?: existing?.requestedDeliveryDate)
     store.saveOrderDraft(draft, now)
     return draft
 }
@@ -501,6 +504,10 @@ class LiveFieldBackend(
     override fun saveOrderDraft(draftId: String?, clientVisitId: String, checkInRequestId: String,
         quantities: List<Pair<String, Int>>, units: Map<String, String>): OrderDraft = withStore {
         saveOrderDraftIn(it, draftId, clientVisitId, checkInRequestId, quantities, System.currentTimeMillis(), units)
+    }
+    override fun saveOrderDraft(draftId: String?, clientVisitId: String, checkInRequestId: String,
+        quantities: List<Pair<String, Int>>, units: Map<String, String>, requestedDeliveryDate: String?): OrderDraft = withStore {
+        saveOrderDraftIn(it, draftId, clientVisitId, checkInRequestId, quantities, System.currentTimeMillis(), units, requestedDeliveryDate)
     }
     override fun orderTerms(outletId: String): OrderTerms? = withStore { it.orderTerms(outletId) }
     override fun discardOrderDraft(draftId: String) = withStore { it.discardOrderDraft(draftId) }
@@ -1150,7 +1157,7 @@ class FieldController(
         if (diagnostic == visit) diagnosticPhotos = photos
     }
     /** Save the open draft (or a new one) for the open call. [quantities] = productId → whole number. */
-    fun saveOrderDraft(quantities: List<Pair<String, Int>>, units: Map<String, String> = emptyMap(), onSaved: () -> Unit = {}) = scope.launch(ui) {
+    fun saveOrderDraft(quantities: List<Pair<String, Int>>, units: Map<String, String> = emptyMap(), requestedDeliveryDate: String? = null, onSaved: () -> Unit = {}) = scope.launch(ui) {
         val visit = diagnostic ?: return@launch
         if (busy) return@launch
         busy = true; diagnosticError = null
@@ -1159,7 +1166,7 @@ class FieldController(
             val checkin = relatedCall(visit).lastOrNull { (row, state) -> row.kind == "visit.checkIn" && state != "review" }
                 ?.first ?: throw OrderDraftFailure(OrderDraftFailure.Code.CALL_NOT_OPEN)
             val saved = withContext(io) {
-                backend.saveOrderDraft(orderDraftId, checkin.clientVisitId, checkin.requestId, quantities, units)
+                backend.saveOrderDraft(orderDraftId, checkin.clientVisitId, checkin.requestId, quantities, units, requestedDeliveryDate)
             }
             refreshDiagnostic()
             // Switch the editor to the saved draft only once its row is loaded (the editor re-seeds then).
@@ -1167,6 +1174,7 @@ class FieldController(
             onSaved()
         } catch (e: OrderDraftFailure) { diagnosticError = e.code.text }
         catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (e: IllegalArgumentException) { diagnosticError = e.message ?: "Check the requested delivery day." }
         catch (_: Exception) { diagnosticError = "Could not save the order draft. Check the quantities and try again." }
         finally { busy = false }
     }

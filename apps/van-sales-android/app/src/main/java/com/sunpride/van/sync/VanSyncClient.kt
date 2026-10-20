@@ -134,7 +134,7 @@ class VanSyncClient(private val transport: VanTransport, private val signer: Dev
 }
 
 object V2VanCodec {
-    val BUSINESS_OPS = setOf("availability.record","availability.proposal","fiscal.print","trip.start","load.confirm","truck.damage","sale.record","sale.void","return.record","cash.reconcile","stock.reconcile","trip.close","call.start","call.step","call.close") + com.sunpride.van.storage.RouteOpsStore.KINDS
+    val BUSINESS_OPS = setOf("delivery.confirm","delivery.timing","availability.record","availability.proposal","fiscal.print","trip.start","load.confirm","truck.damage","sale.record","sale.void","return.record","cash.reconcile","stock.reconcile","trip.close","call.start","call.step","call.close") + com.sunpride.van.storage.RouteOpsStore.KINDS
     fun operation(row: OutboxRow): JSONObject {
         require(row.kind in BUSINESS_OPS)
         val old = JSONObject(row.operationJson)
@@ -187,13 +187,15 @@ object V2VanCodec {
             customer.optJSONObject("callFlow")?.let { flows.put(customer.getString("outletId"),com.sunpride.callflow.CallFlowEngine.validate(it)) }
             customer.remove("callFlow")
         }
+        val deliveries = data.optJSONArray("deliveryDrops") ?: JSONArray()
+        data.remove("deliveryDrops")
         val serverCalls = data.optJSONArray("callFlowCalls") ?: JSONArray()
         data.remove("callFlowCalls")
         // The frozen DTO validator is reused inside the adapter; no v1 request goes on the network.
         VanBootstrapCodec.decode(data.toString())
         data.put("_v2",JSONObject().put("cursor",o.getString("nextCursor")).put("scopeFingerprint",identity.fingerprint)
             .put("epoch",identity.epoch).put("subject",identity.partitionSubject).put("callFlows",flows).put("callFlowCalls",serverCalls)
-            .put("availability",retail).put("leaseExpiresAt",minOf(lease,expiry)).put("cacheExpiresAt",expiry))
+            .put("deliveryDrops",deliveries).put("availability",retail).put("leaseExpiresAt",minOf(lease,expiry)).put("cacheExpiresAt",expiry))
         return data
     }
 }

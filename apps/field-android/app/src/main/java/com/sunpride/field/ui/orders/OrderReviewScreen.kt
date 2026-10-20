@@ -49,6 +49,7 @@ fun OrderReviewScreen(visit: VisitDisplay, controller: FieldController, modifier
                 color = if (status == OrderStatus.NEEDS_REVIEW) MaterialTheme.colorScheme.error
                     else MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.semantics(mergeDescendants = true) {}.testTag("order-status"))
+            draft.requestedDeliveryDate?.let { Text("Requested delivery · $it\nOffice confirmation pending", modifier = Modifier.testTag("order-requested-delivery")) }
             SectionCard("Products") {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     draft.lines.forEach { line ->

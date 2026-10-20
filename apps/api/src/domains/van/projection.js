@@ -1,5 +1,6 @@
 import { callSnapshot } from "../availability/calls.js";
 import { tx } from "@sunpride/db/client";
+import { deliveryBundle } from "../presell/driver.js";
 import {
   configurationsForApp,
   hasConfiguredFlowsForApp,
@@ -138,6 +139,7 @@ export async function bundle(ctx, env) {
       promotions: [],
       callFlowCalls: [],
       availability: [],
+      deliveryDrops: [],
     };
     if (!trips.length) return empty;
     const trip = await tripFor(db, actor, trips[0].id, "van.operate");
@@ -426,6 +428,7 @@ export async function bundle(ctx, env) {
         from call_executions where trip_id=${trip.id} and profile_id=${actor.profileId} and device_id=${device.id} order by started_at,id limit 501`,
         500,
       ),
+      deliveryDrops: await deliveryBundle(db, actor, trip),
       promotions: [],
     };
   });

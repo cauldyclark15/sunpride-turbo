@@ -630,6 +630,7 @@ test("F-616 full van bundle preserves strict legacy products and explicitly nego
       "promotions",
       "callFlowCalls", // F-107 additive v2 execution snapshot; frozen v1 stays unchanged
       "availability",
+      "deliveryDrops", // F-303 additive v2 delivery snapshot
     ].sort(),
   );
   expect(d.policy.voidApproval.key).toHaveLength(43);

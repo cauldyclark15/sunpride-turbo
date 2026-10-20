@@ -166,6 +166,12 @@ export function VansView({
 }) {
   return (
     <div className="grid gap-4">
+      <a
+        href={link("/van-trips?view=dispatch")}
+        className="w-fit rounded-lg border border-border px-4 py-2 text-sm print:hidden"
+      >
+        Pre-sell dispatch and driver manifests
+      </a>
       <KpiGrid kpis={data.kpis} />
       <Panel
         csvHref={csv}

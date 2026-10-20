@@ -15,6 +15,19 @@ class VanCallStore(private val store: RoomVanStore) {
     private val usable = setOf("pending","sending","done")
     private fun payload(row: OutboxRow) = JSONObject(row.operationJson).getJSONObject("payload")
     private suspend fun trip() = checkNotNull(dao.trip(s,d)) { "No trip assigned" }
+    suspend fun deliveries(): List<JSONObject> {
+        val journal=rows()
+        return CallFlowEngine.objects(JSONObject(trip().json).optJSONArray("_deliveries") ?: org.json.JSONArray()).map { original ->
+            JSONObject(original.toString()).apply {
+                val own=journal.filter { it.kind in setOf("delivery.confirm","delivery.timing") && payload(it).getString("dropId")==getString("dropId") }
+                if(getString("status")=="scheduled" && own.any { it.kind=="delivery.confirm" }) put("status","saved_on_phone")
+                own.filter { it.kind=="delivery.timing" }.forEach { row ->
+                    val event=payload(row);val key=when(event.getString("stage")) { "arrival"->"arrivedAt";"unloading"->"unloadingAt";else->"departedAt" }
+                    put(key,event.getLong("deviceTime"))
+                }
+            }
+        }
+    }
     suspend fun config(outletId: String): JSONObject? = JSONObject(trip().json).optJSONObject("_callFlows")?.optJSONObject(outletId)
     private suspend fun rows(): List<OutboxRow> {
         val tripId=trip().tripId
@@ -32,6 +45,7 @@ class VanCallStore(private val store: RoomVanStore) {
             val adapters = when(row.kind) {
                 "call.start" -> listOf("check_in"); "call.step" -> listOf(payload(row).getString("adapter"))
                 "sale.record" -> listOf("order_build","discount","invoice","payment")
+                "delivery.confirm" -> listOf("delivery_confirm")
                 "return.record" -> listOf("return_pickup"); "call.close" -> listOf("check_out"); else -> emptyList()
             }
             adapters.mapNotNull { CallFlowEngine.keyFor(config,it) }.forEach(done::add)
@@ -59,9 +73,9 @@ class VanCallStore(private val store: RoomVanStore) {
         check(store.canSync()) { "Sync to verify access first" }
         val trip = trip(); check(trip.status == "active" || rows().any { it.kind == "trip.start" }) { "Start the trip first" }
         check(dao.tripClose(s,d,trip.tripId) == null && dao.stockReconciliation(s,d,trip.tripId) == null) { "Trip is closing" }
-        val at = store.now()
+        val at = if(kind == "delivery.confirm") options.getLong("deviceTime") else store.now()
         val payload = JSONObject().put("tripId",trip.tripId).put("outletId",outletId).put("deviceTime",at)
-        options.keys().asSequence().forEach { key -> if (key in setOf("sequenceReason","unplannedReason","zeroSaleReason","shortCallReason","adapter","observation","note","geofenceApprovalId","photoSha256")) payload.put(key,options.get(key)) }
+        options.keys().asSequence().forEach { key -> if (key in setOf("sequenceReason","unplannedReason","zeroSaleReason","shortCallReason","adapter","observation","note","geofenceApprovalId","photoSha256","dropId","signature","receiverName","lines","watermark","stage","reason")) payload.put(key,options.get(key)) }
         when(kind) {
             "call.start" -> {
                 if (current() != null) throw CallFlowRefused("Finish the open call first.")
@@ -79,12 +93,24 @@ class VanCallStore(private val store: RoomVanStore) {
                 payload.put("clientCallId",UUID.randomUUID().toString()).put("flowDefinitionId",config.getJSONObject("definition").getString("id"))
                     .put("callFlowSnapshot",config).put("location",fix)
             }
-            "call.step","call.close" -> {
+            "call.step","call.close","delivery.confirm","delivery.timing" -> {
                 val start = current() ?: throw CallFlowRefused("Check in first.")
                 if (start.getString("outletId") != outletId) throw CallFlowRefused("This is not the open store.")
                 val config = start.getJSONObject("callFlowSnapshot")
                 payload.put("clientCallId",start.getString("clientCallId"))
-                if (kind == "call.close") {
+                if(kind == "delivery.confirm") {
+                    val drop=deliveries().single { it.getString("dropId")==payload.getString("dropId") && it.getString("outletId")==outletId }
+                    check(drop.getString("status")=="scheduled") { "Delivery is already saved or is not assigned." }
+                    payload.put("location",fix)
+                    CallFlowEngine.location(config,fix,at)
+                    checkNotNull(store.evidence).read(payload.getString("photoSha256"),96_000)
+                    com.sunpride.van.delivery.DeliveryProofRules.validate(drop,payload)
+                    CallFlowEngine.advance(config,done(start),"delivery_confirm",hasOrder(start))
+                } else if(kind == "delivery.timing") {
+                    payload.put("location",fix)
+                    val drop=deliveries().single { it.getString("dropId")==payload.getString("dropId") && it.getString("outletId")==outletId }
+                    com.sunpride.van.delivery.DeliveryProofRules.validateTiming(drop,payload.getString("stage"),at,payload.optString("reason"))
+                } else if (kind == "call.close") {
                     val approval = CallFlowEngine.approval(config(outletId) ?: config,"geofence_end",at,rows().map { payload(it).optString("geofenceApprovalId") }.toSet(),config.getJSONObject("policy").optString("id"))
                     if(CallFlowEngine.location(config,fix,at,approval != null))
                         approval?.let { payload.put("geofenceApprovalId",it) }

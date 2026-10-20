@@ -3,6 +3,7 @@ import { ApiError } from "../../core/errors.js";
 import { canonicalJson, sha256Hex } from "../../core/util.js";
 import { outletContext, scoped } from "./access.js";
 import { createOrder } from "./service.js";
+import { capturePromise } from "../presell/promise.js";
 import { date, fail, uuid } from "./validation.js";
 
 /**
@@ -41,7 +42,9 @@ export async function captureFieldOrder(ctx, { activityId }) {
     return { entityId: prior.order_id };
   }
   const at = new Date(activity.device_time).getTime();
-  if (!visit.checked_in_at || at < new Date(visit.checked_in_at).getTime())
+  // F-301: started_at is the captured check-in; checked_in_at is receipt time and may be days later offline.
+  const startedAt = visit.started_at ?? visit.checked_in_at;
+  if (!startedAt || at < new Date(startedAt).getTime())
     fail("Order time is before check-in", "wrong_date");
   if (at > ctx.now + 300_000) fail("Order time is in the future", "wrong_date");
   const day = date(new Date(visit.service_date).toISOString().slice(0, 10));
@@ -81,6 +84,7 @@ export async function captureFieldOrder(ctx, { activityId }) {
     orderType: "field_order",
     status: "pending_approval",
   });
+  await capturePromise(ctx, row, a, at);
   const p = row.pricing_snapshot;
   const listId = p.lines[0]?.priceListId ?? null;
   const [pricing] =

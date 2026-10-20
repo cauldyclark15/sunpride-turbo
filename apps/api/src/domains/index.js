@@ -20,6 +20,7 @@ import { install as masters } from "./masters/index.js";
 import { install as fiscal } from "./fiscal/index.js";
 import { install as availability } from "./availability/index.js";
 import { install as mt } from "./mt/index.js";
+import { install as presell } from "./presell/index.js";
 /** @type {Array<(router: any, ctx: any) => void>} */
 export const domainInstallers = [
   org,
@@ -43,4 +44,5 @@ export const domainInstallers = [
   fiscal,
   integrity,
   mt,
+  presell,
 ];

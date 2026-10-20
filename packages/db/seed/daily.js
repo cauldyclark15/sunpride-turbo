@@ -14,6 +14,7 @@ import { ensureIntegrityFleet } from "./integrity-fleet.js";
 import { seedAvailability } from "./availability.js";
 import { seedModernTrade } from "./modern-trade.js";
 import { extendTowerSamples } from "./tower.js";
+import { ensurePresellSamples, ensurePresellDemo } from "./presell.js";
 import {
   BATCH,
   Dataset,
@@ -1003,6 +1004,8 @@ export async function advanceDemo(db, { date = todayManila() } = {}) {
     throw new Error("Demo daily advance requires an existing seeded company");
   await ensureCallflowSamples(db); // F-006 F-107: additive policies for existing demos, never reset.
   await tx(db, seedSpecMasters);
+  await ensurePresellSamples(db); // F-301 F-303: shared-engine channel profiles and delivery policy.
+  await ensurePresellDemo(db); // F-302: additive marked logistics examples, never a reset.
   const original = JSON.parse(manifest.details);
   await seedVanOps(db);
   const days = [];

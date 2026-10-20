@@ -55,6 +55,8 @@ fun orderAssociation(visit: VisitDisplay, draft: OrderDraft?): String = listOfNo
 @Composable
 fun OrderDraftScreen(visit: VisitDisplay, sheet: CallSheet, controller: FieldController, modifier: Modifier = Modifier) {
     val draft = controller.openOrderDraft
+    var deliveryDate by rememberSaveable(sheet.outletId, controller.orderDraftId) { mutableStateOf(draft?.requestedDeliveryDate ?: "") }
+    val presell = controller.diagnosticFlow?.getJSONObject("definition")?.optString("channelProfile") == "pre_sell"
     val terms = controller.diagnosticOrderTerms
     val catalog = OrderCatalog.of(sheet, terms)
     var query by rememberSaveable(sheet.outletId) { mutableStateOf("") }
@@ -94,6 +96,11 @@ fun OrderDraftScreen(visit: VisitDisplay, sheet: CallSheet, controller: FieldCon
                 Text("${quantities.size} of ${catalog.size} products in this order",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 8.dp).testTag("order-count"))
+            }
+            if (presell || deliveryDate.isNotBlank()) item {
+                OutlinedTextField(deliveryDate, { deliveryDate = it }, label = { Text("Requested delivery day · YYYY-MM-DD") },
+                    modifier = Modifier.fillMaxWidth().testTag("order-delivery-date"), singleLine = true)
+                Text("Requested only. The office confirms the delivery day within the delivery policy.", style = MaterialTheme.typography.bodySmall)
             }
             if (changedPrices) item {
                 Text(OrderDraftFailure.Code.PRICES_CHANGED.text,
@@ -160,10 +167,10 @@ fun OrderDraftScreen(visit: VisitDisplay, sheet: CallSheet, controller: FieldCon
                 Modifier.weight(1f).testTag("order-discard"), !controller.busy, danger = true)
             // SP-0060: once the screen matches the saved draft, the next step is review.
             val unsaved = draft == null || quantities.toSet() != draft.lines.map { it.productId to it.quantity }.toSet() ||
-                draft.lines.any { units[it.productId] != it.uom }
+                draft.lines.any { units[it.productId] != it.uom } || draft.requestedDeliveryDate != deliveryDate.takeIf { it.isNotBlank() }
             if (!unsaved && !changedPrices) PrimaryBottomButton("Review order", { controller.openOrderReview() },
                 Modifier.weight(1f).testTag("order-review"), !controller.busy)
-            else PrimaryBottomButton("Save draft", { controller.saveOrderDraft(quantities, units) },
+            else PrimaryBottomButton("Save draft", { controller.saveOrderDraft(quantities, units, deliveryDate.takeIf { it.isNotBlank() }) },
                 Modifier.weight(1f).testTag("order-save"), !controller.busy && !invalid && quantities.isNotEmpty())
         }
     }

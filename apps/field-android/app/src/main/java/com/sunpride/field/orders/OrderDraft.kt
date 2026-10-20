@@ -69,13 +69,16 @@ data class OrderDraft(
     val priceAvailability: String = OrderDraftRules.PRICE_UNAVAILABLE,
     /** SP-0060: the queued `order_intent` request once submitted; the draft is read-only after that. */
     val submittedRequestId: String? = null, val submittedAt: Long? = null,
-    val priceList: OrderPriceList? = null)
+    val priceList: OrderPriceList? = null,
+    /** F-301 additive local/v2 intent field; absence preserves existing field-selling drafts. */
+    val requestedDeliveryDate: String? = null)
 
 object OrderDraftCodec {
     private fun JSONObject.nullable(key: String): String? = if (!has(key) || isNull(key)) null else getString(key)
     fun encode(d: OrderDraft): String = JSONObject().put("draftId", d.draftId).put("clientVisitId", d.clientVisitId)
         .put("checkInRequestId", d.checkInRequestId).put("plannedVisitId", d.plannedVisitId ?: JSONObject.NULL)
         .put("outletId", d.outletId).put("serviceDate", d.serviceDate)
+        .put("requestedDeliveryDate", d.requestedDeliveryDate ?: JSONObject.NULL)
         .put("customerId", d.customerId ?: JSONObject.NULL).put("customerCode", d.customerCode ?: JSONObject.NULL)
         .put("territoryId", d.territoryId ?: JSONObject.NULL).put("territoryCode", d.territoryCode ?: JSONObject.NULL)
         .put("routeId", d.routeId ?: JSONObject.NULL).put("catalogRevision", d.catalogRevision)
@@ -103,7 +106,7 @@ object OrderDraftCodec {
             o.getLong("createdAt"), o.getLong("updatedAt"), o.getString("priceAvailability"),
             // SP-0061 rows predate submission and omit both keys.
             o.nullable("submittedRequestId"), if (!o.has("submittedAt") || o.isNull("submittedAt")) null else o.getLong("submittedAt"),
-            if (!o.has("priceList") || o.isNull("priceList")) null else OrderTermsCodec.priceList(o.getJSONObject("priceList")))
+            if (!o.has("priceList") || o.isNull("priceList")) null else OrderTermsCodec.priceList(o.getJSONObject("priceList")), o.nullable("requestedDeliveryDate"))
     }
 }
 
@@ -157,7 +160,7 @@ object OrderDraftRules {
      */
     suspend fun build(store: FieldStore, existing: OrderDraft?, clientVisitId: String, checkInRequestId: String,
         quantities: List<Pair<String, Int>>, now: Long, uuid: () -> String = { UUID.randomUUID().toString() },
-        units: Map<String, String> = emptyMap()): OrderDraft {
+        units: Map<String, String> = emptyMap(), requestedDeliveryDate: String? = existing?.requestedDeliveryDate): OrderDraft {
         val checkIn = openCheckIn(store, clientVisitId, checkInRequestId)
         val outletId = checkIn.getString("outletId")
         val sheet = store.callSheet(outletId) ?: throw OrderDraftFailure(OrderDraftFailure.Code.NO_CATALOG)
@@ -179,7 +182,7 @@ object OrderDraftRules {
         val draft = OrderDraft(existing?.draftId ?: uuid().lowercase(), clientVisitId, checkInRequestId,
             checkIn.text("plannedVisitId"), outletId, checkIn.getString("serviceDate"), customerId, customerCode,
             outlet?.text("territoryId"), outlet?.text("territoryCode"), outlet?.text("routeId"), sheet.revision,
-            lines, existing?.createdAt ?: now, now, priceList = terms?.priceList)
+            lines, existing?.createdAt ?: now, now, priceList = terms?.priceList, requestedDeliveryDate = requestedDeliveryDate)
         validate(store, draft, existing)
         return draft
     }
@@ -209,6 +212,7 @@ object OrderDraftRules {
             throw OrderDraftFailure(if (terms != null || draft.priceList != null || draft.lines.any { it.unitPriceMinor != null })
                 OrderDraftFailure.Code.PRICES_CHANGED else OrderDraftFailure.Code.CATALOG_CHANGED)
         val outlet = store.outlets().firstOrNull { it.id == draft.outletId }?.let { JSONObject(it.json) }
+        PresellDates.validate(outlet?.optJSONObject("callFlow"), draft.requestedDeliveryDate, draft.updatedAt)
         require(outlet?.text("customerId") == draft.customerId && outlet?.text("territoryId") == draft.territoryId &&
             outlet?.text("territoryCode") == draft.territoryCode && outlet?.text("routeId") == draft.routeId) {
             "Draft association does not match the cached outlet"

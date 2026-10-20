@@ -326,6 +326,17 @@ class VanRepository private constructor(private val context: Context, private va
     suspend fun closeTrip(request: com.sunpride.van.pos.TripCloseRequest): com.sunpride.van.pos.TripCloseResult =
         withContext(Dispatchers.IO) { TripCloseStore(store()).commit(request).also { schedule() } }
     /** VAN-017: sales saved on the current trip with their print history, newest first. */
+    suspend fun deliveryDrops(): List<JSONObject> = withContext(Dispatchers.IO) { VanCallStore(store()).deliveries() }
+    /** F-303: photo/signature/quantities join the existing durable call outbox; no independent delivery queue. */
+    suspend fun recordDelivery(outletId: String, capture: com.sunpride.van.evidence.DamageCapture, fix: JSONObject, receiver: String, signature: org.json.JSONArray, lines: org.json.JSONArray, dropId: String): String = withContext(Dispatchers.IO) {
+        val st=store(); val seller=checkNotNull(st.seller.first()); val at=System.currentTimeMillis()
+        val customer=st.customers.first().single { it.outletId==outletId }
+        val watermark=JSONObject().put("version",1).put("profileId",seller.profileId).put("outletId",outletId).put("capturedAt",at).put("latitude",fix.getDouble("latitude")).put("longitude",fix.getDouble("longitude"))
+        val bytes=com.sunpride.van.delivery.DeliveryPhotoEncoder.encode(capture,watermark,seller.name,customer.name)
+        check(st === current.value && st.canSync())
+        val photo=photoFiles(st.scope).save(bytes,90_000)
+        VanCallStore(st).record("delivery.confirm",outletId,fix,JSONObject().put("deviceTime",at).put("dropId",dropId).put("signature",signature).put("receiverName",receiver).put("lines",lines).put("watermark",watermark).put("photoSha256",photo.sha256)).also { schedule() }
+    }
     suspend fun savedSales(): List<SavedSale> = withContext(Dispatchers.IO) { val st = store(); RoomReceiptPrintLog(st.db,st.scope).savedSales() }
     /** DEBUG practice data only: the fixture store, so device tests can seed the (still empty) price list. */
     internal fun fixtureStore(): RoomVanStore { check(BuildConfig.DEBUG && stubMode != null); return store() }
