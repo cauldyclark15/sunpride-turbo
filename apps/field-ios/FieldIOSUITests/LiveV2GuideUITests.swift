@@ -220,4 +220,44 @@ final class LiveV2GuideUITests: XCTestCase {
             reveal(person); person.tap(); Thread.sleep(forTimeInterval: 2); shot("team-person"); back()
         }
     }
+
+    /// The installed BETA build (signed IPA, not built by this test run): sign in by typing email and
+    /// password, decline the Face ID offer, reach Today or the registration screen. The login is read once
+    /// from this runner's own container and deleted; the password is typed into the secure field only.
+    func testWalk05BetaSignIn() throws {
+        let beta = XCUIApplication(bundleIdentifier: "com.sunpride.field.beta")
+        struct Login: Decodable { let email: String; let password: String }
+        let file = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appending(path: "v2-proof.json")
+        let data = try Data(contentsOf: file)
+        try FileManager.default.removeItem(at: file)
+        let login = try JSONDecoder().decode(Login.self, from: data)
+        beta.launch()
+        let email = beta.textFields["emailField"]
+        if !email.waitForExistence(timeout: 20) {
+            // An earlier session: sign out through Account so the typed sign-in is what is proven.
+            XCTAssertTrue(beta.buttons["accountButton"].waitForExistence(timeout: 20))
+            beta.buttons["accountButton"].tap()
+            let out = beta.buttons["signOutButton"].firstMatch
+            XCTAssertTrue(out.waitForExistence(timeout: 10)); out.tap()
+            let confirm = beta.alerts.buttons["Sign out"].firstMatch
+            if confirm.waitForExistence(timeout: 5) { confirm.tap() }
+            XCTAssertTrue(email.waitForExistence(timeout: 20))
+        }
+        XCTAssertFalse(beta.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] 'convex' OR label CONTAINS[c] 'configuration'")).firstMatch.exists)
+        Thread.sleep(forTimeInterval: 1)
+        let image = XCTAttachment(screenshot: beta.screenshot()); image.name = "01-beta-sign-in"; image.lifetime = .keepAlways; add(image)
+        email.tap(); email.typeText(login.email)
+        let password = beta.secureTextFields["passwordField"]
+        password.tap(); password.typeText(login.password)
+        beta.buttons["signInButton"].tap()
+        let alert = beta.alerts.firstMatch
+        if alert.waitForExistence(timeout: 15), alert.label.contains("sign in next time") { alert.buttons["Not now"].firstMatch.tap() }
+        let today = beta.descendants(matching: .any)["nextOutlet"].firstMatch
+        let waiting = beta.descendants(matching: .any)["notRegisteredTitle"].firstMatch
+        XCTAssertTrue(wait(90) { today.exists || waiting.exists || beta.buttons["startDayButton"].exists }, "beta signed in")
+        XCTAssertFalse(beta.descendants(matching: .any)["biometricLocked"].exists)
+        Thread.sleep(forTimeInterval: 3)
+        let after = XCTAttachment(screenshot: beta.screenshot()); after.name = "02-beta-today"; after.lifetime = .keepAlways; add(after)
+        walked.append("beta signed in: " + (today.exists ? "Today" : "registration"))
+    }
 }
