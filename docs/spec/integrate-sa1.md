@@ -40,6 +40,10 @@ Programme now describes the 41 affected features from the accepted owner reports
 
 Five unchanged benchmark retries exposed a costly full-join cache-validity check. Same-snapshot SQL profiling measured the old check at 101–112 ms and the strict bidirectional set-difference plan at 52–70 ms. Cache eligibility still requires every line identity and both source versions, plus the unchanged complete date and master-fingerprint checks. New regression cases reject same-count missing/extra identities, swapped version tuples and changed-and-restored source facts. No timing budget or source-authorization predicate changed.
 
+## F-025: shared PostgreSQL memory capacity
+
+The shared Docker database had a 64 MiB `/dev/shm` limit and was 96% full; integrity scans failed to allocate even another 2 MiB. Its runtime tmpfs was expanded to 1 GiB in place using a one-shot, network-isolated local-image namespace helper. PostgreSQL was not restarted and its start time stayed unchanged. `bun packages/db/scripts/ensure-shm.js` verifies capacity and continuity, only increases the limit, removes its helper and is idempotent. Docker still stores the original creation limit: reapply this command after a container restart, or use `--shm-size=1g` at the next planned recreation with the existing data volume. No database data or process was removed to free memory.
+
 ## Deferred owners and acceptance
 
 FISCAL override/financial authority; VANOPS partner loading/settlement; MASTERS taxonomy; COVERAGE/PJP; AVAILABILITY/MSL; INTEGRITY attestation; MT evidence/deductions; TOWER governed performance/incentive projections remain their owners' work. Real SAP accounting/certification and native master adoption remain separately unproved. No phone installation or device test is part of INTEGRATE-SA1.
