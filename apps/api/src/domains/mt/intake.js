@@ -204,7 +204,7 @@ export function installIntake(router) {
           await cc.db`select p.id from mt_po_documents d join inbound_purchase_orders p on p.document_id=d.id where d.binding_id=${binding.id} and d.sha256=${hash}`;
         if (old) return { id: old.id, duplicate: true };
         const [profile] =
-          await cc.db`select columns from mt_intake_profiles where account_key=${binding.account_key} and format=${format} and effective_from<=now() and (effective_to is null or effective_to>now())`;
+          await cc.db`select columns from mt_intake_profiles where account_key=${binding.account_key} and format=${format} and effective_from<=statement_timestamp() and (effective_to is null or effective_to>statement_timestamp())`;
         let parsed;
         try {
           parsed = await parsePurchaseOrder(

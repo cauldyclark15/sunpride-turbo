@@ -277,7 +277,7 @@ export function installTerms(router) {
     if (products.length > 2000)
       throw new ApiError("capacity", 422, "Narrow the product catalog");
     const types =
-      await c.db`select * from mt_deduction_types where effective_from<=now() and (effective_to is null or effective_to>now()) order by label`;
+      await c.db`select * from mt_deduction_types where effective_from<=statement_timestamp() and (effective_to is null or effective_to>statement_timestamp()) order by label`;
     const people =
       await c.db`select id,name,org_unit_id from profiles where status='active' and deleted_at is null order by name limit 2001`;
     const owners = [];

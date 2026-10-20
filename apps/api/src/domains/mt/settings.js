@@ -21,7 +21,7 @@ export function installSettings(router) {
         if (!(e instanceof ApiError) || e.status !== 403) throw e;
       }
     const storeRows =
-      await c.db`select o.id as outlet_id,o.name as outlet_name,o.code as outlet_code,l.customer_id,c.name as customer_name from outlets o join outlet_customer_links l on l.outlet_id=o.id join customers c on c.id=l.customer_id where o.deleted_at is null and o.status='active' and l.deleted_at is null and l.effective_from<=now() and (l.effective_to is null or l.effective_to>now()) and c.active and c.deleted_at is null order by o.name limit 2001`;
+      await c.db`select o.id as outlet_id,o.name as outlet_name,o.code as outlet_code,l.customer_id,c.name as customer_name from outlets o join outlet_customer_links l on l.outlet_id=o.id join customers c on c.id=l.customer_id where o.deleted_at is null and o.status='active' and l.deleted_at is null and l.effective_from<=statement_timestamp() and (l.effective_to is null or l.effective_to>statement_timestamp()) and c.active and c.deleted_at is null order by o.name limit 2001`;
     if (storeRows.length > 2000)
       throw new ApiError("capacity", 422, "Narrow the branch mapping choices");
     const stores = [];
@@ -148,7 +148,7 @@ export function installSettings(router) {
       },
       async (cc) => {
         const [link] =
-          await cc.db`select customer_id from outlet_customer_links where outlet_id=${b.outletId} and effective_from<=now() and (effective_to is null or effective_to>now()) and deleted_at is null`;
+          await cc.db`select customer_id from outlet_customer_links where outlet_id=${b.outletId} and effective_from<=statement_timestamp() and (effective_to is null or effective_to>statement_timestamp()) and deleted_at is null`;
         if (!link || link.customer_id !== uuid(b.customerId))
           throw new ApiError(
             "invalid_request",

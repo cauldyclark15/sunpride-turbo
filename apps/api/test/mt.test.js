@@ -675,7 +675,7 @@ test("F-309 remittance balances, invoice isolation, ownership/SLA and claim agei
   ).toBe(403);
 });
 
-test("F-306 F-611 queued HTTP writes recheck withdrawn office and customer grants after the workflow lock", async () => {
+test("F-306 F-309 F-611 queued HTTP writes recheck withdrawn grants and expired policies after the workflow lock", async () => {
   let [deduction] = await h.db`select id from mt_deductions limit 1`;
   if (!deduction) {
     const [type] = await h.db`select id from mt_deduction_types limit 1`;
@@ -696,7 +696,12 @@ test("F-306 F-611 queued HTTP writes recheck withdrawn office and customer grant
   }
   const outside = await portalUser("queued-customer", "A"),
     office = await person("operations", "queued-office", root);
-  for (const portal of [true, false]) {
+  const [policy] =
+    await h.db`insert into mt_deduction_types(code,label,sla_days,effective_from) values('QUEUE-POLICY','Queued policy control',7,'2020-01-01') returning id`;
+  const [original] =
+    await h.db`select type_id from mt_deductions where id=${deduction.id}`;
+  for (const mode of ["portal", "office", "policy"]) {
+    const portal = mode === "portal";
     let release = () => {},
       signal = () => {};
     const held = new Promise((resolve) => {
@@ -718,15 +723,22 @@ test("F-306 F-611 queued HTTP writes recheck withdrawn office and customer grant
           reference: "QUEUED-DENIED",
           message: "Must be refused after access withdrawal",
         })
-      : api(office, "intake/preview", {
-          idempotencyKey: crypto.randomUUID(),
-          bindingId: branches[0].id,
-          filename: "queued-office.csv",
-          format: "csv",
-          contentBase64: Buffer.from(
-            `po_number,delivery_date,sku,uom,quantity\nQUEUED-OFFICE,${day()},P1,PC,1\n`,
-          ).toString("base64"),
-        });
+      : mode === "policy"
+        ? api(admin, "deductions/update", {
+            idempotencyKey: crypto.randomUUID(),
+            id: deduction.id,
+            typeId: policy.id,
+            note: "Do not use an expired policy after waiting",
+          })
+        : api(office, "intake/preview", {
+            idempotencyKey: crypto.randomUUID(),
+            bindingId: branches[0].id,
+            filename: "queued-office.csv",
+            format: "csv",
+            contentBase64: Buffer.from(
+              `po_number,delivery_date,sku,uom,quantity\nQUEUED-OFFICE,${day()},P1,PC,1\n`,
+            ).toString("base64"),
+          });
     let outcome;
     try {
       let waiting = false;
@@ -742,6 +754,8 @@ test("F-306 F-611 queued HTTP writes recheck withdrawn office and customer grant
       expect(waiting).toBe(true);
       if (portal)
         await h.db`update mt_portal_memberships set effective_to=clock_timestamp() where user_id=${outside.userId}`;
+      else if (mode === "policy")
+        await h.db`update mt_deduction_types set effective_to=clock_timestamp() where id=${policy.id}`;
       else
         await h.db`update profiles set status='disabled' where id=${office.profileId}`;
     } finally {
@@ -749,8 +763,12 @@ test("F-306 F-611 queued HTTP writes recheck withdrawn office and customer grant
       await blocker;
       outcome = await queued;
     }
-    expect(outcome.status).toBe(403);
+    expect(outcome.status).toBe(mode === "policy" ? 400 : 403);
   }
+  expect(
+    (await h.db`select type_id from mt_deductions where id=${deduction.id}`)[0]
+      .type_id,
+  ).toBe(original.type_id);
   expect(
     (
       await h.db`select count(*)::int n from mt_disputes where reference='QUEUED-DENIED'`

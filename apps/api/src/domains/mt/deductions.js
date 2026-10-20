@@ -170,7 +170,7 @@ export function installDeductions(router) {
           cap,
         );
         const [type] =
-          await cc.db`select * from mt_deduction_types where id=${uuid(b.typeId ?? row.type_id)} and effective_from<=now() and (effective_to is null or effective_to>now())`;
+          await cc.db`select * from mt_deduction_types where id=${uuid(b.typeId ?? row.type_id)} and effective_from<=statement_timestamp() and (effective_to is null or effective_to>statement_timestamp())`;
         if (!type)
           throw new ApiError(
             "invalid_request",
