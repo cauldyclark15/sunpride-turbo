@@ -750,9 +750,14 @@ class FieldController(
     var today by mutableStateOf(TodayData()); private set
     var workforceOpen by mutableStateOf(false); private set
     private var workforceData by mutableStateOf(com.sunpride.field.storage.WorkforceView())
-    private var workforceEpoch=Long.MIN_VALUE
+    // Snapshot state, and read BEFORE the guard: a short-circuited read would leave the screen
+    // unsubscribed, so a later load (offline cold start included) would never recompose it.
+    private var workforceEpoch by mutableStateOf(Long.MIN_VALUE)
     val workforceLifetime: Long get()=backend.authorizationEpoch
-    val workforce: com.sunpride.field.storage.WorkforceView get()=if(state is EnrollmentState.Ready && workforceEpoch==backend.authorizationEpoch)workforceData else com.sunpride.field.storage.WorkforceView()
+    val workforce: com.sunpride.field.storage.WorkforceView get() {
+        val data=workforceData;val loadedIn=workforceEpoch
+        return if(state is EnrollmentState.Ready && loadedIn==backend.authorizationEpoch)data else com.sunpride.field.storage.WorkforceView()
+    }
     private var workforceLoading=false
     fun openWorkforce() {workforceOpen=true;error=null;reloadWorkforce()}
     fun reloadWorkforce()=scope.launch(ui) {

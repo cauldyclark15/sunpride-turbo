@@ -68,6 +68,23 @@ class FieldControllerTest {
         block(controller, backend, exported)
     }
 
+    // F-209/F-222: on an offline cold start the screen reads `workforce` before the store load lands.
+    // That first read must subscribe to the loaded data, or the saved grant and queue never appear.
+    @Test fun `F-209_F-222 workforce read before the first load observes the later load`() = run { c, b, _ ->
+        b.results += { EnrollmentState.Ready("dev1") }
+        c.signIn("a@example.test", "fake").join()
+        val reads = mutableSetOf<Any>()
+        val observe = androidx.compose.runtime.snapshots.Snapshot.takeSnapshot { reads += it }
+        try { observe.enter { assertTrue(c.workforce.entries.isEmpty()) } } finally { observe.dispose() }
+        val writes = mutableSetOf<Any>()
+        val handle = androidx.compose.runtime.snapshots.Snapshot.registerApplyObserver { changed, _ -> writes.addAll(changed) }
+        try {
+            c.reloadWorkforce().join()
+            androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+        } finally { handle.dispose() }
+        assertTrue("a pre-load read must be invalidated by the load", reads.any { it in writes })
+    }
+
     @Test fun delayedTodayCannotRepopulateTheScreenAfterRealControllerSignOut() = runBlocking {
         val b = FakeBackend()
         val c = FieldController(b, this, Dispatchers.IO, EmptyCoroutineContext)
