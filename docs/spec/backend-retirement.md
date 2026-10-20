@@ -30,4 +30,4 @@ iOS remains paused. Only the obsolete UI-test name check is removed; the existin
 
 ## Integration
 
-Run `bun install`, the merged API/DB/web/Android/SAP-mock gates and the stack audit. Do not edit the exempt lead-owned contracts or protected instructions as part of merging this lane. Visual before/after evidence and exact executed gate results belong in the external lane report, not in a committed execution log.
+Run `bun install` and `bun run audit:stack`, then lint/typecheck/build the touched packages. Keep already-passing test results; rerun only a changed or previously failing test file. Do not rebuild native apps for this deletion-only integration. The lead runs the full merged gate once before release. Do not edit the exempt lead-owned contracts or protected instructions as part of merging this lane. Visual before/after evidence and exact executed check results belong in the external lane report, not in a committed execution log.
