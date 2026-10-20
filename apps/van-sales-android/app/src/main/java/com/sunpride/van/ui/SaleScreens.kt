@@ -194,7 +194,7 @@ import com.sunpride.van.pos.*
                 modifier = Modifier.testTag("receipt-payment-state"))
         }
         ReceiptPrintCard(c,receipt.saleId)
-        Text("Saved on this phone and taken off the truck stock. Sending sales to the office comes in a later update.",
+        Text("Saved on this phone and taken off the truck stock. It is sent to the office at the next sync.",
             style = MaterialTheme.typography.bodyMedium,modifier = Modifier.testTag("sale-saved-note"))
     }
 }

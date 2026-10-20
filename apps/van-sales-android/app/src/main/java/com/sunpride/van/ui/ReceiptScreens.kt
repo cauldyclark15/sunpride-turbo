@@ -30,11 +30,11 @@ import java.time.format.DateTimeFormatter
 @Composable fun ReceiptPrintCard(c: VanController, saleId: String) {
     val saved = c.savedSales.firstOrNull { it.receipt.saleId == saleId }
     var reprinting by remember { mutableStateOf<SavedSale?>(null) }
-    SectionCard("Printed receipt") {
+    SectionCard("Receipt") {
         Text(c.printMessage ?: when {
             saved == null -> "Getting the receipt…"
             saved.void != null -> if (saved.voidSlipPrinted) "Void slip printed." else "Void slip not printed yet."
-            saved.printed -> "Printed."
+            saved.printed -> "Sent to the printer."
             else -> "Not printed yet."
         },style = MaterialTheme.typography.bodyLarge,modifier = Modifier.testTag("print-status"))
         PrintButtons(c,saved,"sale") { reprinting = it }
@@ -78,8 +78,8 @@ import java.time.format.DateTimeFormatter
                 Text(when {
                     saved.void != null -> if (saved.voidSlipPrinted) "Void slip printed · ${saved.voidSlipsLeft} copies left" else "Void slip not printed"
                     !saved.printed -> "Not printed"
-                    reprints == 0 -> "Printed · ${saved.reprintsLeft} reprints left"
-                    else -> "Printed · reprinted $reprints× · ${saved.reprintsLeft} reprints left"
+                    reprints == 0 -> "Sent to printer · ${saved.reprintsLeft} reprints left"
+                    else -> "Sent to printer · reprinted $reprints× · ${saved.reprintsLeft} reprints left"
                 },style = MaterialTheme.typography.bodyMedium,modifier = Modifier.testTag("receipt-$index-state"))
                 saved.void?.let { Text("VOIDED · ${VoidReasons.label(it.reasonCode)}",style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier.testTag("receipt-$index-void")) }

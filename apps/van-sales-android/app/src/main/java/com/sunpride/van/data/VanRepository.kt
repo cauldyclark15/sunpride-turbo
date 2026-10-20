@@ -238,6 +238,9 @@ class VanRepository private constructor(private val context: Context, private va
         } catch (e: AuthFailure) {
             if (e.kind in setOf(AuthFailure.Kind.REFUSED,AuthFailure.Kind.SESSION_EXPIRED)) {
                 try { current.value?.hold() } finally { current.value = null; gateway = null }
+                // A revoked or expired session goes back to Sign in (work stays held on this phone),
+                // never to an empty Today that reads like "no trip assigned".
+                if (!auth.isSignedIn) { session.value = SessionState(); enrollment.value = EnrollmentState.SignedOut }
             }
             throw e
         }
