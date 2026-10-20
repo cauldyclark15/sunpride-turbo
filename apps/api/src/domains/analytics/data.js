@@ -1,4 +1,5 @@
 import { isProductive } from "../visits/productive.js";
+import { readVanCollections, readVanCredit } from "./van-facts.js";
 import {
   ms,
   num,
@@ -31,7 +32,13 @@ export async function readStores(db, s, channel = null) {
 /** @param {any} db @param {any} p @param {any} s */
 export async function readVisits(db, p, s) {
   s.visitReads ??= new Map();
-  const key = JSON.stringify([p.from, p.to, p.channel, p.storeId ?? null, s.ownProfileId]);
+  const key = JSON.stringify([
+    p.from,
+    p.to,
+    p.channel,
+    p.storeId ?? null,
+    s.ownProfileId,
+  ]);
   if (!s.visitReads.has(key)) {
     const work = (s.visitQueue ?? Promise.resolve()).then(() =>
       queryVisits(db, p, s),
@@ -152,12 +159,14 @@ export function visitSummary(facts) {
 export async function readCollections(db, p, s) {
   // Freeze each small authorization roster once. Inlining the lateral store
   // view lets the planner rescan every outlet for every collection row.
-  return db`with people as materialized(select id,current_unit_id from analytics_people),
+  const field =
+    await db`with people as materialized(select id,current_unit_id from analytics_people),
     stores as materialized(select id,owner_unit_id,channel from analytics_store_scope)
     select c.* from field_collections c join people pe on pe.id=c.assignee_profile_id join stores o on o.id=c.outlet_id
     where c.deleted_at is null and c.status!='rejected' and (c.device_time at time zone 'Asia/Manila')::date between ${p.from} and ${p.to}
     and c.org_unit_id in ${db(s.ids.length ? s.ids : [null])} and pe.current_unit_id in ${db(s.ids.length ? s.ids : [null])} and o.owner_unit_id in ${db(s.ids.length ? s.ids : [null])}
     and (${s.ownProfileId}::uuid is null or pe.id=${s.ownProfileId}) and (${p.channel}::text is null or o.channel=${p.channel})`;
+  return [...field, ...(await readVanCollections(db, p, s))];
 }
 /** Latest shelf observation per SKU/store, not every repeated audit. @param {any} db @param {any} p @param {any} s */
 export async function readAvailability(db, p, s) {
@@ -194,6 +203,7 @@ export async function readMoney(db, p, s) {
     };
     const cs = collections.filter(
       (/** @type {any} */ c) =>
+        !c.trip_id &&
         c.customer_id === store.customer_id &&
         dateOf(c.device_time) >= d.asOfDate,
     );
@@ -232,6 +242,59 @@ export async function readMoney(db, p, s) {
             : "ok",
     };
   });
+  for (const credit of await readVanCredit(db, p, s)) {
+    const amount = Number(credit.balance);
+    if (!Number.isSafeInteger(amount))
+      throw new Error("Van credit exceeds supported money bound");
+    if (amount === 0) continue;
+    let row = rows.find(
+      (/** @type {any} */ row) => row.code === credit.customer_code,
+    );
+    if (!row) {
+      row = {
+        accountId: credit.customer_id,
+        code: credit.customer_code,
+        name: credit.name,
+        channel: credit.channel,
+        agent: credit.agent_name,
+        balance: 0,
+        current: 0,
+        d1_30: 0,
+        d31_60: 0,
+        d61_90: 0,
+        d90p: 0,
+        creditLimit:
+          credit.credit_limit == null
+            ? null
+            : Math.round(Number(credit.credit_limit) * 100),
+        lastPaymentAt: null,
+        status: "ok",
+      };
+      rows.push(row);
+    }
+    const days = credit.due_date ? daysBetween(credit.due_date, p.to) : 0;
+    const bucket =
+      days <= 0
+        ? "current"
+        : days <= 30
+          ? "d1_30"
+          : days <= 60
+            ? "d31_60"
+            : days <= 90
+              ? "d61_90"
+              : "d90p";
+    row[bucket] += amount;
+    row.balance += amount;
+    const last = ms(credit.last_payment);
+    if (last != null)
+      row.lastPaymentAt = Math.max(row.lastPaymentAt ?? 0, last);
+    row.status =
+      row.creditLimit && row.balance > row.creditLimit
+        ? "behind"
+        : row.balance > row.current
+          ? "watch"
+          : "ok";
+  }
   return {
     rows,
     demo: records.some((/** @type {any} */ r) => r.source === "sample"),

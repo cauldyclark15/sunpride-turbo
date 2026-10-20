@@ -98,8 +98,13 @@ export async function bundle(ctx, env) {
         422,
         "Only today's trip can be downloaded",
       );
-    const trips =
-      await db`select id from van_trips where salesperson_profile_id=${actor.profileId} and service_date=${serviceDate} and status<>'cancelled' and deleted_at is null order by created_at desc limit 2`;
+    let trips =
+      await db`select id from van_trips where salesperson_profile_id=${actor.profileId} and service_date=${serviceDate} and status not in ('cancelled','closed') and deleted_at is null order by created_at desc limit 2`;
+    // Sequential trips are allowed after settlement; only multiple OPEN trips are ambiguous.
+    // Keep the latest closed trip visible when the office has not planned the next one yet.
+    if (!trips.length)
+      trips =
+        await db`select id from van_trips where salesperson_profile_id=${actor.profileId} and service_date=${serviceDate} and status='closed' and deleted_at is null order by created_at desc limit 1`;
     if (trips.length > 1)
       throw new ApiError(
         "trip_conflict",

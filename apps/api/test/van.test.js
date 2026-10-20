@@ -947,6 +947,24 @@ test("linked return and void put goods back under the lots the sale took (latest
   expect(untracked[0].lotId).toBeNull();
 });
 
+test("a settled earlier trip does not hide the next same-day trip; two open trips still refuse", async () => {
+  const { bundle } = await import("../src/domains/van/projection.js");
+  const actor = await actorFor(h.db, who.userId);
+  const ctx = {
+    db: h.db,
+    actor,
+    device: { id: who.deviceId },
+    params: { serviceDate: today() },
+  };
+  expect((await bundle(ctx, h.env)).trip?.tripId).toBe(trip.tripId);
+  const conflicting = async () => {
+    await h.db`insert into van_trips(organization_id,org_unit_id,trip_number,vehicle_id,truck_location_id,source_location_id,service_date,salesperson_profile_id,salesperson_subject,status,created_by)
+    select organization_id,org_unit_id,'CONFLICT-PROOF',vehicle_id,truck_location_id,source_location_id,service_date,salesperson_profile_id,salesperson_subject,'planned','fixture' from van_trips where id=${trip.tripId}`;
+  };
+  await expect(conflicting()).rejects.toMatchObject({ errno: "23505" });
+  await h.db`update van_trips set status='closed' where id=${trip.tripId}`;
+  expect((await bundle(ctx, h.env)).trip?.tripId).toBe(trip.tripId);
+});
 test("a counted overage is booked to a lot the product already holds on the truck (same status first)", async () => {
   const other = crypto.randomUUID(),
     t = { truck_location_id: truck };
