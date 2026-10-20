@@ -6,6 +6,7 @@ import { execution } from "./execution.js";
 import { vans } from "./vans.js";
 import { management } from "./management.js";
 import { addCallflowSamples } from "./callflow.js";
+import { tpm, seedTpm } from "./tpm.js";
 export { resetDemo } from "./store.js";
 
 /** @param {{anchorDate?:string,days?:number}} [options] @param {string[]} [hashes] */
@@ -37,6 +38,7 @@ export function generateDemo(
   stock.finish();
   management(data, c, e);
   addCallflowSamples(data);
+  tpm(data);
   // Keep the legacy analytics mirrors and ORDERS' canonical centavo facts equal.
   for (const order of data.rows("orders")) {
     order.subtotal_centavos = Math.round(Number(order.subtotal) * 100);
@@ -124,6 +126,7 @@ export async function seedDemo(
       const summary = JSON.parse(existing.details);
       if (summary.anchorDate !== anchorDate || summary.days !== days)
         throw new Error("Demo options changed; run --reset before reseeding");
+      await seedTpm(t, anchorDate);
       return { ...summary, duplicate: true };
     }
     const [partial] =

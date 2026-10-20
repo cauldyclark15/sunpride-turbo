@@ -855,7 +855,7 @@ describe("orders and governed prices on Postgres", () => {
   });
 });
 
-describe("promotion arithmetic (integer money; no stacking)", () => {
+describe("F-502 legacy promotion arithmetic (integer money; exclusive defaults)", () => {
   const lines = [
     {
       productId: "a",
@@ -903,7 +903,7 @@ describe("promotion arithmetic (integer money; no stacking)", () => {
     expect(r.promotionsApplied[0].freeGoods[0].quantity).toBe(2);
     expect(r.totalCentavos).toBe(2412);
   });
-  test("bundle applies only full sets and chooses one best rule", () => {
+  test("F-502 bundle applies only full sets and honors exclusive precedence", () => {
     const r = applyPromotions(lines, [
       {
         id: "1",
@@ -932,4 +932,70 @@ describe("promotion arithmetic (integer money; no stacking)", () => {
     expect(r.totalCentavos).toBe(1800);
     expect(r.promotionsApplied).toHaveLength(1);
   });
+});
+
+test("F-502 F-504 F-511 real order quote, authority refusal, stacked allocation and budget-backed deferred accrual", async () => {
+  const { setTpmSeams } = await import("../src/domains/tpm/seams.js");
+  const [master] =
+    await h.db`insert into campaigns(code) values('TRANSACTION-PROOF') returning id`;
+  const [version] =
+    await h.db`insert into campaign_versions(campaign_id,version,name,mechanic,status,effective_from,effective_to,budget_centavos,expected_volume_base,expected_roi_bps,source,created_by) values(${master.id},1,'Sample transaction proof','Stacked rebate','active',now()-interval '1 hour',now()+interval '1 day',100000,0,0,'sample',${admin.userId}) returning id`;
+  for (const [i, timing, bps] of [
+    [1, "claimable", 2000],
+    [2, "on_invoice", 1000],
+  ]) {
+    const made = await api(admin, "pricing/promotions/create", {
+      code: "TX-" + i,
+      name: "Transaction " + timing,
+      rule: {
+        kind: "percent_off",
+        item: { productId: product, uom: "PC", quantity: 1 },
+        percentOffBasisPoints: bps,
+      },
+      campaignVersionId: version.id,
+      effectiveFrom: Date.now() - 10000,
+      effectiveTo: Date.now() + 3600000,
+      precedence: i,
+      stacking: "stack",
+      benefitTiming: timing,
+    });
+    expect(made.status).toBe(200);
+  }
+  expect((await create()).status).toBe(422);
+  /** @type {any} */ let authorityFacts;
+  setTpmSeams({
+    requestOverride: async (_c, facts) => {
+      authorityFacts = facts;
+      return { status: "authorized", reference: "test-fiscal" };
+    },
+  });
+  const made = await create();
+  expect(made.status).toBe(200);
+  const detail = await api(admin, "orders/detail?id=" + made.body.id);
+  expect(detail.body.pricing.promotionsApplied).toHaveLength(2);
+  expect(detail.body.totalCentavos).toBe(2300);
+  expect(authorityFacts.totalCentavos).toBe(2300);
+  expect(
+    detail.body.lines.reduce(
+      (/** @type {number} */ n, /** @type {any} */ l) =>
+        n + l.lineTotalCentavos,
+      0,
+    ),
+  ).toBe(2300);
+  const approved = await api(manager, "orders/approve", {
+    id: made.body.id,
+    reason: "Independent approval",
+    idempotencyKey: crypto.randomUUID(),
+  });
+  expect(approved.status).toBe(200);
+  const earnings =
+    await h.db`select * from promotion_earnings where campaign_version_id=${version.id}`;
+  expect(earnings).toHaveLength(1);
+  expect(Number(earnings[0].amount_centavos)).toBe(500);
+  const [committed] =
+    await h.db`select sum(amount_centavos) as n from campaign_commitments where campaign_id=${master.id}`;
+  expect(Number(committed.n)).toBe(700);
+  const [posts] =
+    await h.db`select count(*) as n from tpm_posting_instructions where earning_id=${earnings[0].id}`;
+  expect(Number(posts.n)).toBe(1);
 });

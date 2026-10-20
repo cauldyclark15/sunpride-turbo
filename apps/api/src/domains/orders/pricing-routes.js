@@ -6,6 +6,7 @@ import { recordChange } from "../../core/sync.js";
 import { canonicalJson, sha256Hex } from "../../core/util.js";
 import { audit, command, notify } from "./service.js";
 import { baseQuantity, resolvePrice, validateRule } from "./pricing.js";
+import { schemeUnits, validateScope } from "../tpm/engine.js";
 import {
   ORGANIZATION,
   MAX_CENTAVOS,
@@ -239,6 +240,15 @@ export function installPricingRoutes(router) {
     );
   router.get("/api/v1/pricing/promotions", async (/** @type {any} */ c) => {
     await requireCapability(c, "report.read");
+    // F-503 full scope sets are national master data; field/partner callers use eligibility.
+    await requireNationalScope(c, [
+      "admin",
+      "operations",
+      "manager",
+      "approver",
+      "analyst",
+      "viewer",
+    ]);
     const rows =
       await c.db`select * from promotions where organization_id = ${ORGANIZATION} and deleted_at is null order by code limit 501`;
     if (rows.length > 500) fail("Promotion history exceeds 500 rows");
@@ -249,6 +259,14 @@ export function installPricingRoutes(router) {
         name: r.name,
         priceListId: r.price_list_id,
         rule: r.rule,
+        campaignVersionId: r.campaign_version_id,
+        eligibility: r.eligibility,
+        precedence: r.precedence,
+        stacking: r.stacking,
+        exclusionGroup: r.exclusion_group,
+        excludes: r.excludes,
+        engineVersion: r.engine_version,
+        benefitTiming: r.benefit_timing,
         status: r.status,
         source: r.source,
         effectiveFrom: new Date(r.effective_from).getTime(),
@@ -280,12 +298,7 @@ export function installPricingRoutes(router) {
               from = instant(b.effectiveFrom),
               to = b.effectiveTo == null ? null : instant(b.effectiveTo);
             if (to && to <= from) fail("End date must follow the start date");
-            const units =
-              rule.kind === "bundle"
-                ? rule.components
-                : rule.kind === "buy_x_get_y"
-                  ? [rule.buy, rule.free]
-                  : [rule.item];
+            const units = schemeUnits(rule);
             for (const u of units) {
               const [p] =
                 await cc.db`select * from products where id = ${uuid(u.productId)} and active and deleted_at is null`;
@@ -308,13 +321,61 @@ export function installPricingRoutes(router) {
                 ["active", "inactive"],
                 "Status",
               );
+            const timing = choice(
+              b.benefitTiming ?? "on_invoice",
+              ["on_invoice", "claimable"],
+              "Benefit timing",
+            );
+            if (
+              timing === "claimable" &&
+              (!b.campaignVersionId ||
+                ["buy_x_get_y", "bogo", "free_goods"].includes(rule.kind))
+            )
+              fail(
+                "Claimable monetary benefits need a campaign; free goods need a SAP valuation adapter",
+              );
+            const scope = validateScope(b.eligibility ?? {});
+            const precedence = integer(
+              b.precedence ?? 100,
+              "Precedence",
+              100000,
+            );
+            const stacking = choice(
+              b.stacking ?? "exclusive",
+              ["exclusive", "stack"],
+              "Stacking",
+            );
+            const group =
+              b.exclusionGroup == null
+                ? null
+                : text(b.exclusionGroup, "Exclusion group", 80);
+            const excludes = b.excludes ?? [];
+            if (
+              !Array.isArray(excludes) ||
+              excludes.length > 100 ||
+              excludes.some((x) => typeof x !== "string" || !x || x.length > 80)
+            )
+              fail("Exclusions need promotion codes");
+            const campaign =
+              b.campaignVersionId == null ? null : uuid(b.campaignVersionId);
+            if (campaign) {
+              const [v] =
+                await cc.db`select v.* from campaign_versions v join campaigns c on c.id=v.campaign_id where v.id=${campaign} and c.organization_id=${ORGANIZATION}`;
+              if (
+                !v ||
+                from < new Date(v.effective_from) ||
+                (to && to > new Date(v.effective_to)) ||
+                !to
+              )
+                fail("Scheme must be inside its campaign period");
+            }
             let row;
             if (b.id)
               [row] =
-                await cc.db`update promotions set name=${name},status=${status},effective_to=${to} where id=${uuid(b.id)} and organization_id=${ORGANIZATION} and rule=${rule} and effective_from=${from} and code=${code} and price_list_id is not distinct from ${b.priceListId ?? null} and deleted_at is null returning *`;
+                await cc.db`update promotions set name=${name},status=${status},effective_to=${to} where id=${uuid(b.id)} and organization_id=${ORGANIZATION} and rule=${rule} and effective_from=${from} and code=${code} and price_list_id is not distinct from ${b.priceListId ?? null} and eligibility=${scope} and precedence=${precedence} and stacking=${stacking} and exclusion_group is not distinct from ${group} and excludes=${excludes} and campaign_version_id is not distinct from ${campaign} and benefit_timing=${timing} and deleted_at is null returning *`;
             else
               [row] =
-                await cc.db`insert into promotions(organization_id,code,name,price_list_id,rule_kind,rule,status,source,effective_from,effective_to) values(${ORGANIZATION},${code},${name},${b.priceListId ?? null},${rule.kind},${rule},${status},'office',${from},${to}) returning *`;
+                await cc.db`insert into promotions(organization_id,code,name,price_list_id,rule_kind,rule,status,source,effective_from,effective_to,eligibility,precedence,stacking,exclusion_group,excludes,campaign_version_id,benefit_timing) values(${ORGANIZATION},${code},${name},${b.priceListId ?? null},${rule.kind},${rule},${status},'office',${from},${to},${scope},${precedence},${stacking},${group},${excludes},${campaign},${timing}) returning *`;
             if (!row)
               fail(
                 "Keep the stored rule/start date unchanged or create a new promotion version",

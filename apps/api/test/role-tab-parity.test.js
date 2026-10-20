@@ -28,6 +28,15 @@ const report = (name, args = {}) =>
 const calls = {
   // F-402: Channel Development's initial partner-scoped listing.
   distributors: ["/api/v1/distributors"],
+  "finance-claims": [
+    "/api/v1/tpm/claims",
+    "/api/v1/tpm/summary",
+    "/api/v1/tpm/policies",
+    "/api/v1/tpm/options",
+    "/api/v1/tpm/liabilities",
+    "/api/v1/tpm/deductions",
+    "/api/v1/tpm/incentives",
+  ],
   orders: [
     "/api/v1/orders/list",
     "/api/v1/orders/filter-options",

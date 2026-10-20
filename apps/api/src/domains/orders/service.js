@@ -10,6 +10,9 @@ import { recordChange } from "../../core/sync.js";
 import { writeAudit } from "../org/audit.js";
 import { enqueueRefresh } from "../analytics/refresh.js";
 import { accessibleOrder, outletContext, scoped } from "./access.js";
+import { eligibilityFacts } from "../tpm/campaigns.js";
+import { accrueOrder, reverseOrder } from "../tpm/finance.js";
+import { seams as tpmSeams } from "../tpm/seams.js";
 import {
   activePromotions,
   applyPromotions,
@@ -180,36 +183,38 @@ export async function quote(ctx, input) {
   const promo = applyPromotions(
     priced,
     await activePromotions(ctx.db, ORGANIZATION, input.at ?? ctx.now),
+    await eligibilityFacts(ctx, input),
   );
   // Freeze NET line facts too: analytics sum(order_lines) must equal order.total.
   if (promo.knownSubtotalCentavos > MAX_CENTAVOS)
     fail("Order amount exceeds the supported accounting range");
-  const applied = promo.promotionsApplied[0];
-  const indexes = new Set(applied?.lineIndexes ?? []);
-  const weights = priced.map((l, i) =>
-    indexes.has(i) ? BigInt(l.lineTotalCentavos ?? 0) : 0n,
-  );
-  const weight = weights.reduce((a, b) => a + b, 0n);
-  const discount = BigInt(applied?.discountCentavos ?? 0);
-  const allocations = weights.map((w) =>
-    weight ? (discount * w) / weight : 0n,
-  );
-  let remainder = discount - allocations.reduce((a, b) => a + b, 0n);
-  for (let i = 0; i < allocations.length && remainder > 0n; i++)
-    if (weights[i] > 0n) {
-      allocations[i] = allocations[i] + 1n;
-      remainder--;
-    }
+  const governed = promo.promotionsApplied.filter((p) => p.campaignVersionId);
+  if (governed.length) {
+    const authority = await tpmSeams.requestOverride(ctx, {
+      kind: "discount",
+      channelKey: input.channelKey,
+      outletId: input.outletId ?? null,
+      subtotalCentavos: promo.subtotalCentavos,
+      totalCentavos: promo.totalCentavos,
+      promotions: governed,
+    });
+    if (authority.status !== "authorized")
+      fail(
+        "Finance discount authority must authorize this campaign quote",
+        "authority_required",
+      );
+  }
+  const allocations = promo.lineDiscounts;
   const net = priced.map((l, i) => ({
     ...l,
     grossLineTotalCentavos: l.lineTotalCentavos,
-    discountCentavos: safe(allocations[i] ?? 0n),
+    discountCentavos: allocations[i] ?? 0,
     lineTotalCentavos:
       l.lineTotalCentavos === null
         ? null
-        : l.lineTotalCentavos - safe(allocations[i] ?? 0n),
+        : l.lineTotalCentavos - (allocations[i] ?? 0),
   }));
-  for (const gift of applied?.freeGoods ?? []) {
+  for (const gift of promo.promotionsApplied.flatMap((p) => p.freeGoods)) {
     const [p] =
       await ctx.db`select * from products where id = ${uuid(gift.productId)} and active and deleted_at is null`;
     if (!p || (p.organization_id && p.organization_id !== ORGANIZATION))
@@ -431,6 +436,8 @@ export async function transition(ctx, id, status, reason, input = {}) {
   if (status === "approved") await enqueueOrderPosting(ctx.db, row);
   await ctx.db`update orders set status = ${status}, sap_document_number = coalesce(${postingDocument},sap_document_number) where id = ${id}`;
   row.status = status;
+  if (status === "approved") await accrueOrder(ctx, row);
+  if (status === "voided") await reverseOrder(ctx, row.id);
   if (status === "pending_approval") await startWorkflow(ctx, row);
   if (status === "voided" && before === "pending_approval") {
     await ctx.db`update approvals set decision = 'rejected', approver_subject = ${ctx.actor.subject}, comment = ${note}, decided_at = now()

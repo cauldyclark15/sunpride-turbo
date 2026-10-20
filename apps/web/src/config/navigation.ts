@@ -43,6 +43,8 @@ export const WORKSPACE_SLUGS = [
   "admin",
   "master-data",
   "pricing",
+  "trade-promotions",
+  "finance-claims",
   "sap-integration",
   "programme",
   "distributors",
@@ -85,6 +87,11 @@ const moduleTabs: Record<string, WorkspaceModuleTab[]> = {
   work: [
     { id: "orders", label: "Orders", href: "/orders" },
     { id: "distributors", label: "Distributors", href: "/distributors" },
+    {
+      id: "finance-claims",
+      label: "Claims & Finance",
+      href: "/finance-claims",
+    },
     { id: "workflows", label: "Approvals", href: "/workflows" },
     { id: "sales-force", label: "Coverage plans", href: "/sales-force" },
     { id: "supervision", label: "Supervision", href: "/supervision" },
@@ -101,6 +108,11 @@ const moduleTabs: Record<string, WorkspaceModuleTab[]> = {
     { id: "admin", label: "Admin", href: "/admin" },
     { id: "master-data", label: "Master data", href: "/master-data" },
     { id: "pricing", label: "Prices", href: "/pricing" },
+    {
+      id: "trade-promotions",
+      label: "Trade Marketing",
+      href: "/trade-promotions",
+    },
     { id: "sap-integration", label: "Integration", href: "/sap-integration" },
     // v2 spec F-025: Sunpride Phase 1 traceability (admin and owner only).
     { id: "programme", label: "Programme", href: "/programme" },

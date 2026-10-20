@@ -462,7 +462,8 @@ describe("90-day Sunpride demo", () => {
         `select count(*) as n from price_list_lines l join uom_conversions u on u.product_id=l.product_id join price_list_lines pc on pc.price_list_id=l.price_list_id and pc.product_id=l.product_id and pc.uom='PC' where l.uom='CASE' and l.unit_price_minor<>pc.unit_price_minor*u.numerator/u.denominator`,
       ),
     ).toBe(0);
-    const promos = await db`select rule_kind,rule from promotions`;
+    const promos =
+      await db`select rule_kind,rule from promotions where campaign_version_id is null`;
     expect(promos.length).toBe(3);
     for (const p of promos) {
       expect(p.rule.kind).toBe(p.rule_kind);
@@ -473,6 +474,18 @@ describe("90-day Sunpride demo", () => {
         ]),
       ).toBe(1);
     }
+    const campaigns =
+      await db`select p.*,v.source as campaign_source from promotions p join campaign_versions v on v.id=p.campaign_version_id`;
+    expect(campaigns).toHaveLength(3);
+    for (const p of campaigns) {
+      expect(p.rule_kind).toBe("basket");
+      expect(p.rule.kind).toBe("basket");
+      expect(p.status).toBe("inactive");
+      expect(p.campaign_source).toBe("sample");
+      expect(p.benefit_timing).toBe("claimable");
+    }
+    expect(await number("select count(*) n from claims")).toBe(3);
+    expect(await number("select count(*) n from incentive_statements")).toBe(1);
     for (const r of await db`select barcode from product_barcodes`) {
       const digits = [...r.barcode].map(Number);
       expect(digits.length).toBe(13);

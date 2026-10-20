@@ -1,0 +1,886 @@
+{
+  "engineVersion": 1,
+  "quantityUnit": "selling-unit; up to 3 decimals",
+  "moneyUnit": "PHP centavos",
+  "vectors": [
+    {
+      "name": "F-502 percent",
+      "lines": [
+        {
+          "productId": "SKU-A",
+          "uom": "PC",
+          "quantity": 10,
+          "unitPriceCentavos": 100,
+          "lineTotalCentavos": 1000
+        }
+      ],
+      "promotions": [
+        {
+          "id": "A",
+          "code": "A",
+          "name": "A",
+          "rule": {
+            "kind": "percent_off",
+            "item": {
+              "productId": "SKU-A",
+              "uom": "PC",
+              "quantity": 1
+            },
+            "percentOffBasisPoints": 1000
+          }
+        }
+      ],
+      "facts": {},
+      "expected": {
+        "totalCentavos": 900,
+        "freeQuantity": 0
+      }
+    },
+    {
+      "name": "F-502 value per block",
+      "lines": [
+        {
+          "productId": "SKU-A",
+          "uom": "PC",
+          "quantity": 10,
+          "unitPriceCentavos": 100,
+          "lineTotalCentavos": 1000
+        }
+      ],
+      "promotions": [
+        {
+          "id": "A",
+          "code": "A",
+          "name": "A",
+          "rule": {
+            "kind": "value_off",
+            "item": {
+              "productId": "SKU-A",
+              "uom": "PC",
+              "quantity": 5
+            },
+            "valueCentavos": 75
+          }
+        }
+      ],
+      "facts": {},
+      "expected": {
+        "totalCentavos": 850,
+        "freeQuantity": 0
+      }
+    },
+    {
+      "name": "F-502 quantity off",
+      "lines": [
+        {
+          "productId": "SKU-A",
+          "uom": "PC",
+          "quantity": 10,
+          "unitPriceCentavos": 100,
+          "lineTotalCentavos": 1000
+        }
+      ],
+      "promotions": [
+        {
+          "id": "A",
+          "code": "A",
+          "name": "A",
+          "rule": {
+            "kind": "quantity_off",
+            "item": {
+              "productId": "SKU-A",
+              "uom": "PC",
+              "quantity": 5
+            },
+            "quantityOff": 1
+          }
+        }
+      ],
+      "facts": {},
+      "expected": {
+        "totalCentavos": 800,
+        "freeQuantity": 0
+      }
+    },
+    {
+      "name": "F-502 buy_x_get_y",
+      "lines": [
+        {
+          "productId": "SKU-A",
+          "uom": "PC",
+          "quantity": 10,
+          "unitPriceCentavos": 100,
+          "lineTotalCentavos": 1000
+        }
+      ],
+      "promotions": [
+        {
+          "id": "A",
+          "code": "A",
+          "name": "A",
+          "rule": {
+            "kind": "buy_x_get_y",
+            "buy": {
+              "productId": "SKU-A",
+              "uom": "PC",
+              "quantity": 5
+            },
+            "free": {
+              "productId": "SKU-A",
+              "uom": "PC",
+              "quantity": 1
+            }
+          }
+        }
+      ],
+      "facts": {},
+      "expected": {
+        "totalCentavos": 1000,
+        "freeQuantity": 2
+      }
+    },
+    {
+      "name": "F-502 bogo",
+      "lines": [
+        {
+          "productId": "SKU-A",
+          "uom": "PC",
+          "quantity": 10,
+          "unitPriceCentavos": 100,
+          "lineTotalCentavos": 1000
+        }
+      ],
+      "promotions": [
+        {
+          "id": "A",
+          "code": "A",
+          "name": "A",
+          "rule": {
+            "kind": "bogo",
+            "buy": {
+              "productId": "SKU-A",
+              "uom": "PC",
+              "quantity": 5
+            },
+            "free": {
+              "productId": "SKU-A",
+              "uom": "PC",
+              "quantity": 1
+            }
+          }
+        }
+      ],
+      "facts": {},
+      "expected": {
+        "totalCentavos": 1000,
+        "freeQuantity": 2
+      }
+    },
+    {
+      "name": "F-502 free_goods",
+      "lines": [
+        {
+          "productId": "SKU-A",
+          "uom": "PC",
+          "quantity": 10,
+          "unitPriceCentavos": 100,
+          "lineTotalCentavos": 1000
+        }
+      ],
+      "promotions": [
+        {
+          "id": "A",
+          "code": "A",
+          "name": "A",
+          "rule": {
+            "kind": "free_goods",
+            "buy": {
+              "productId": "SKU-A",
+              "uom": "PC",
+              "quantity": 5
+            },
+            "free": {
+              "productId": "SKU-A",
+              "uom": "PC",
+              "quantity": 1
+            }
+          }
+        }
+      ],
+      "facts": {},
+      "expected": {
+        "totalCentavos": 1000,
+        "freeQuantity": 2
+      }
+    },
+    {
+      "name": "F-502 slab highest attained",
+      "lines": [
+        {
+          "productId": "SKU-A",
+          "uom": "PC",
+          "quantity": 10,
+          "unitPriceCentavos": 100,
+          "lineTotalCentavos": 1000
+        }
+      ],
+      "promotions": [
+        {
+          "id": "A",
+          "code": "A",
+          "name": "A",
+          "rule": {
+            "kind": "slab",
+            "item": {
+              "productId": "SKU-A",
+              "uom": "PC",
+              "quantity": 1
+            },
+            "slabs": [
+              {
+                "minQuantity": 5,
+                "percentOffBasisPoints": 500
+              },
+              {
+                "minQuantity": 10,
+                "percentOffBasisPoints": 1500
+              }
+            ]
+          }
+        }
+      ],
+      "facts": {},
+      "expected": {
+        "totalCentavos": 850,
+        "freeQuantity": 0
+      }
+    },
+    {
+      "name": "F-502 combo",
+      "lines": [
+        {
+          "productId": "SKU-A",
+          "uom": "PC",
+          "quantity": 10,
+          "unitPriceCentavos": 100,
+          "lineTotalCentavos": 1000
+        }
+      ],
+      "promotions": [
+        {
+          "id": "A",
+          "code": "A",
+          "name": "A",
+          "rule": {
+            "kind": "combo",
+            "components": [
+              {
+                "productId": "SKU-A",
+                "uom": "PC",
+                "quantity": 3
+              }
+            ],
+            "bundlePriceMinor": 250
+          }
+        }
+      ],
+      "facts": {},
+      "expected": {
+        "totalCentavos": 850,
+        "freeQuantity": 0
+      }
+    },
+    {
+      "name": "F-502 bundle",
+      "lines": [
+        {
+          "productId": "SKU-A",
+          "uom": "PC",
+          "quantity": 10,
+          "unitPriceCentavos": 100,
+          "lineTotalCentavos": 1000
+        }
+      ],
+      "promotions": [
+        {
+          "id": "A",
+          "code": "A",
+          "name": "A",
+          "rule": {
+            "kind": "bundle",
+            "components": [
+              {
+                "productId": "SKU-A",
+                "uom": "PC",
+                "quantity": 3
+              }
+            ],
+            "bundlePriceMinor": 250
+          }
+        }
+      ],
+      "facts": {},
+      "expected": {
+        "totalCentavos": 850,
+        "freeQuantity": 0
+      }
+    },
+    {
+      "name": "F-502 basket value",
+      "lines": [
+        {
+          "productId": "SKU-A",
+          "uom": "PC",
+          "quantity": 10,
+          "unitPriceCentavos": 100,
+          "lineTotalCentavos": 1000
+        }
+      ],
+      "promotions": [
+        {
+          "id": "A",
+          "code": "A",
+          "name": "A",
+          "rule": {
+            "kind": "basket",
+            "minSubtotalCentavos": 500,
+            "valueCentavos": 60
+          }
+        }
+      ],
+      "facts": {},
+      "expected": {
+        "totalCentavos": 940,
+        "freeQuantity": 0
+      }
+    },
+    {
+      "name": "F-502 basket percent",
+      "lines": [
+        {
+          "productId": "SKU-A",
+          "uom": "PC",
+          "quantity": 10,
+          "unitPriceCentavos": 100,
+          "lineTotalCentavos": 1000
+        }
+      ],
+      "promotions": [
+        {
+          "id": "A",
+          "code": "A",
+          "name": "A",
+          "rule": {
+            "kind": "basket",
+            "minSubtotalCentavos": 500,
+            "percentOffBasisPoints": 2000
+          }
+        }
+      ],
+      "facts": {},
+      "expected": {
+        "totalCentavos": 800,
+        "freeQuantity": 0
+      }
+    },
+    {
+      "name": "F-502 net stacking precedence",
+      "lines": [
+        {
+          "productId": "SKU-A",
+          "uom": "PC",
+          "quantity": 10,
+          "unitPriceCentavos": 100,
+          "lineTotalCentavos": 1000
+        }
+      ],
+      "promotions": [
+        {
+          "id": "B",
+          "code": "B",
+          "name": "B",
+          "rule": {
+            "kind": "percent_off",
+            "item": {
+              "productId": "SKU-A",
+              "uom": "PC",
+              "quantity": 1
+            },
+            "percentOffBasisPoints": 2000
+          },
+          "precedence": 20,
+          "stacking": "stack"
+        },
+        {
+          "id": "A",
+          "code": "A",
+          "name": "A",
+          "rule": {
+            "kind": "percent_off",
+            "item": {
+              "productId": "SKU-A",
+              "uom": "PC",
+              "quantity": 1
+            },
+            "percentOffBasisPoints": 1000
+          },
+          "precedence": 10,
+          "stacking": "stack"
+        }
+      ],
+      "facts": {},
+      "expected": {
+        "totalCentavos": 720,
+        "freeQuantity": 0
+      }
+    },
+    {
+      "name": "F-502 exclusive precedence",
+      "lines": [
+        {
+          "productId": "SKU-A",
+          "uom": "PC",
+          "quantity": 10,
+          "unitPriceCentavos": 100,
+          "lineTotalCentavos": 1000
+        }
+      ],
+      "promotions": [
+        {
+          "id": "B",
+          "code": "B",
+          "name": "B",
+          "rule": {
+            "kind": "percent_off",
+            "item": {
+              "productId": "SKU-A",
+              "uom": "PC",
+              "quantity": 1
+            },
+            "percentOffBasisPoints": 2000
+          },
+          "precedence": 20
+        },
+        {
+          "id": "A",
+          "code": "A",
+          "name": "A",
+          "rule": {
+            "kind": "percent_off",
+            "item": {
+              "productId": "SKU-A",
+              "uom": "PC",
+              "quantity": 1
+            },
+            "percentOffBasisPoints": 1000
+          },
+          "precedence": 10
+        }
+      ],
+      "facts": {},
+      "expected": {
+        "totalCentavos": 900,
+        "freeQuantity": 0
+      }
+    },
+    {
+      "name": "F-502 same exclusion group",
+      "lines": [
+        {
+          "productId": "SKU-A",
+          "uom": "PC",
+          "quantity": 10,
+          "unitPriceCentavos": 100,
+          "lineTotalCentavos": 1000
+        }
+      ],
+      "promotions": [
+        {
+          "id": "A",
+          "code": "A",
+          "name": "A",
+          "rule": {
+            "kind": "percent_off",
+            "item": {
+              "productId": "SKU-A",
+              "uom": "PC",
+              "quantity": 1
+            },
+            "percentOffBasisPoints": 1000
+          },
+          "stacking": "stack",
+          "exclusion_group": "offer"
+        },
+        {
+          "id": "B",
+          "code": "B",
+          "name": "B",
+          "rule": {
+            "kind": "percent_off",
+            "item": {
+              "productId": "SKU-A",
+              "uom": "PC",
+              "quantity": 1
+            },
+            "percentOffBasisPoints": 2000
+          },
+          "stacking": "stack",
+          "exclusion_group": "offer"
+        }
+      ],
+      "facts": {},
+      "expected": {
+        "totalCentavos": 900,
+        "freeQuantity": 0
+      }
+    },
+    {
+      "name": "F-502 explicit exclusions",
+      "lines": [
+        {
+          "productId": "SKU-A",
+          "uom": "PC",
+          "quantity": 10,
+          "unitPriceCentavos": 100,
+          "lineTotalCentavos": 1000
+        }
+      ],
+      "promotions": [
+        {
+          "id": "A",
+          "code": "A",
+          "name": "A",
+          "rule": {
+            "kind": "percent_off",
+            "item": {
+              "productId": "SKU-A",
+              "uom": "PC",
+              "quantity": 1
+            },
+            "percentOffBasisPoints": 1000
+          },
+          "stacking": "stack",
+          "excludes": ["B"]
+        },
+        {
+          "id": "B",
+          "code": "B",
+          "name": "B",
+          "rule": {
+            "kind": "percent_off",
+            "item": {
+              "productId": "SKU-A",
+              "uom": "PC",
+              "quantity": 1
+            },
+            "percentOffBasisPoints": 2000
+          },
+          "stacking": "stack"
+        }
+      ],
+      "facts": {},
+      "expected": {
+        "totalCentavos": 900,
+        "freeQuantity": 0
+      }
+    },
+    {
+      "name": "F-502 missing scope fact denied",
+      "lines": [
+        {
+          "productId": "SKU-A",
+          "uom": "PC",
+          "quantity": 10,
+          "unitPriceCentavos": 100,
+          "lineTotalCentavos": 1000
+        }
+      ],
+      "promotions": [
+        {
+          "id": "A",
+          "code": "A",
+          "name": "A",
+          "rule": {
+            "kind": "percent_off",
+            "item": {
+              "productId": "SKU-A",
+              "uom": "PC",
+              "quantity": 1
+            },
+            "percentOffBasisPoints": 1000
+          },
+          "eligibility": {
+            "distributorId": {
+              "include": ["D1"]
+            }
+          }
+        }
+      ],
+      "facts": {},
+      "expected": {
+        "totalCentavos": 1000,
+        "freeQuantity": 0
+      }
+    },
+    {
+      "name": "F-502 exclusion wins inclusion",
+      "lines": [
+        {
+          "productId": "SKU-A",
+          "uom": "PC",
+          "quantity": 10,
+          "unitPriceCentavos": 100,
+          "lineTotalCentavos": 1000
+        }
+      ],
+      "promotions": [
+        {
+          "id": "A",
+          "code": "A",
+          "name": "A",
+          "rule": {
+            "kind": "percent_off",
+            "item": {
+              "productId": "SKU-A",
+              "uom": "PC",
+              "quantity": 1
+            },
+            "percentOffBasisPoints": 1000
+          },
+          "eligibility": {
+            "channelKey": {
+              "include": ["gt"],
+              "exclude": ["gt"]
+            }
+          }
+        }
+      ],
+      "facts": {
+        "channelKey": "gt"
+      },
+      "expected": {
+        "totalCentavos": 1000,
+        "freeQuantity": 0
+      }
+    },
+    {
+      "name": "F-502 campaign cannot be widened by scheme",
+      "lines": [
+        {
+          "productId": "SKU-A",
+          "uom": "PC",
+          "quantity": 10,
+          "unitPriceCentavos": 100,
+          "lineTotalCentavos": 1000
+        }
+      ],
+      "promotions": [
+        {
+          "id": "A",
+          "code": "A",
+          "name": "A",
+          "rule": {
+            "kind": "percent_off",
+            "item": {
+              "productId": "SKU-A",
+              "uom": "PC",
+              "quantity": 1
+            },
+            "percentOffBasisPoints": 1000
+          },
+          "eligibility": {
+            "channelKey": {
+              "include": ["gt"]
+            }
+          },
+          "campaign_scope": {
+            "channelKey": {
+              "include": ["mt"]
+            }
+          }
+        }
+      ],
+      "facts": {
+        "channelKey": "gt"
+      },
+      "expected": {
+        "totalCentavos": 1000,
+        "freeQuantity": 0
+      }
+    },
+    {
+      "name": "F-502 cap value to residual",
+      "lines": [
+        {
+          "productId": "SKU-A",
+          "uom": "PC",
+          "quantity": 10,
+          "unitPriceCentavos": 100,
+          "lineTotalCentavos": 1000
+        }
+      ],
+      "promotions": [
+        {
+          "id": "A",
+          "code": "A",
+          "name": "A",
+          "rule": {
+            "kind": "basket",
+            "minSubtotalCentavos": 0,
+            "valueCentavos": 2000
+          }
+        }
+      ],
+      "facts": {},
+      "expected": {
+        "totalCentavos": 0,
+        "freeQuantity": 0
+      }
+    },
+    {
+      "name": "F-502 half-up centavo",
+      "lines": [
+        {
+          "productId": "SKU-A",
+          "uom": "PC",
+          "quantity": 1,
+          "unitPriceCentavos": 3,
+          "lineTotalCentavos": 3
+        }
+      ],
+      "promotions": [
+        {
+          "id": "A",
+          "code": "A",
+          "name": "A",
+          "rule": {
+            "kind": "percent_off",
+            "item": {
+              "productId": "SKU-A",
+              "uom": "PC",
+              "quantity": 1
+            },
+            "percentOffBasisPoints": 5000
+          }
+        }
+      ],
+      "facts": {},
+      "expected": {
+        "totalCentavos": 1,
+        "freeQuantity": 0
+      }
+    },
+    {
+      "name": "F-504 deferred rebate leaves invoice total unchanged",
+      "lines": [
+        {
+          "productId": "SKU-A",
+          "uom": "PC",
+          "quantity": 10,
+          "unitPriceCentavos": 100,
+          "lineTotalCentavos": 1000
+        }
+      ],
+      "promotions": [
+        {
+          "id": "A",
+          "code": "A",
+          "name": "A",
+          "rule": {
+            "kind": "percent_off",
+            "item": {
+              "productId": "SKU-A",
+              "uom": "PC",
+              "quantity": 1
+            },
+            "percentOffBasisPoints": 1000
+          },
+          "benefit_timing": "claimable"
+        }
+      ],
+      "facts": {},
+      "expected": {
+        "totalCentavos": 1000,
+        "freeQuantity": 0,
+        "earnedCentavos": 100
+      }
+    },
+    {
+      "name": "F-502 basket respects price list binding",
+      "lines": [
+        {
+          "productId": "SKU-A",
+          "uom": "PC",
+          "quantity": 10,
+          "unitPriceCentavos": 100,
+          "lineTotalCentavos": 1000
+        }
+      ],
+      "promotions": [
+        {
+          "id": "L",
+          "code": "L",
+          "name": "L",
+          "price_list_id": "LIST-B",
+          "rule": {
+            "kind": "basket",
+            "minSubtotalCentavos": 0,
+            "valueCentavos": 500
+          }
+        }
+      ],
+      "facts": {},
+      "expected": {
+        "totalCentavos": 1000,
+        "freeQuantity": 0
+      }
+    },
+    {
+      "name": "F-502 stable ordinal tie break across platforms",
+      "lines": [
+        {
+          "productId": "SKU-A",
+          "uom": "PC",
+          "quantity": 10,
+          "unitPriceCentavos": 100,
+          "lineTotalCentavos": 1000
+        }
+      ],
+      "promotions": [
+        {
+          "id": "lower",
+          "code": "a",
+          "name": "a",
+          "rule": {
+            "kind": "percent_off",
+            "item": {
+              "productId": "SKU-A",
+              "uom": "PC",
+              "quantity": 1
+            },
+            "percentOffBasisPoints": 2000
+          }
+        },
+        {
+          "id": "upper",
+          "code": "B",
+          "name": "B",
+          "rule": {
+            "kind": "percent_off",
+            "item": {
+              "productId": "SKU-A",
+              "uom": "PC",
+              "quantity": 1
+            },
+            "percentOffBasisPoints": 1000
+          }
+        }
+      ],
+      "facts": {},
+      "expected": {
+        "totalCentavos": 900,
+        "freeQuantity": 0
+      }
+    }
+  ]
+}

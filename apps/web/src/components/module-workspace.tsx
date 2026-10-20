@@ -14,6 +14,10 @@ import { canAccessWebModule } from "../lib/module-access";
 import { ActivityReportsWorkspace } from "./activity-reports/activity-reports-workspace";
 import { AdminWorkspace } from "./admin-workspace";
 import { DistributorWorkspace } from "./distributors/workspace";
+import {
+  TradeMarketingWorkspace,
+  FinanceClaimsWorkspace,
+} from "./tpm/tpm-workspace";
 import { CallSheetsWorkspace } from "./call-sheets/call-sheets-workspace";
 import { lazyWorkspace } from "./cockpit/lazy-workspace";
 import { SalesForcePanels } from "./coverage-workspace";
@@ -64,6 +68,8 @@ const TITLES = {
   admin: "Administration",
   "master-data": "Master data",
   pricing: "Prices",
+  "trade-promotions": "Trade Marketing",
+  "finance-claims": "Claims & Finance",
   "sap-integration": "Integration",
   programme: "Programme",
   distributors: "Distributors",
@@ -182,6 +188,10 @@ function ModuleContent({ module }: { module: WebModuleSlug }): ReactNode {
       );
     case "master-data":
       return <MasterDataWorkspace />;
+    case "trade-promotions":
+      return <TradeMarketingWorkspace />;
+    case "finance-claims":
+      return <FinanceClaimsWorkspace />;
     case "pricing":
       return <PricingWorkspace />;
     case "van-trips":
