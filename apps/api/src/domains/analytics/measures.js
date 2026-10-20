@@ -6,6 +6,7 @@ import { ApiError } from "../../core/errors.js";
 import { hooks } from "../../core/hooks.js";
 import { salesSource } from "./read-model.js";
 import { readTiles } from "./tiles.js";
+import { VAN_SALES_SQL, SALES_COLUMNS } from "./van-facts.js";
 
 export const VERSION = "analytics/v2/2026-10-19";
 export const DAY = 86_400_000;
@@ -297,7 +298,9 @@ async function querySales(db, p, s, group, parent) {
     parentExpr = `coalesce(${groupSql(g)[0]},'unassigned')=$6`;
     parentKey = parent.slice(i + 1);
   }
-  let source = await salesSource(db, p, s);
+  const [native] =
+    await db`select exists(select 1 from van_sales s join van_trips t on t.id=s.trip_id where t.service_date between ${p.from} and ${p.to}) present`;
+  let source = native.present ? "live" : await salesSource(db, p, s);
   if (
     source === "tiles" &&
     (!parent ||
@@ -305,10 +308,15 @@ async function querySales(db, p, s, group, parent) {
       (group === "store" && parent.startsWith("store:")))
   )
     return readTiles(db, p, s, group, parent);
-  source = "analytics_sales_facts";
+  source = native.present
+    ? `(select ${SALES_COLUMNS},null::uuid van_unit_id from analytics_sales_facts union all ${VAN_SALES_SQL}) native_facts`
+    : "analytics_sales_facts";
+  const nativeScope = native.present
+    ? "and (van_unit_id is null or van_unit_id=any($3::uuid[]))"
+    : "";
   const sql = `with facts as (select service_date,${key} as group_key,${label} as group_label,sales_centavos,approved,posted,order_id,customer_code,store_id,quantity from ${source} where service_date between $1::date and $2::date
     and agent_unit_id=any($3::uuid[]) and (owner_unit_id=any($3::uuid[]) or (store_id is null and $7::boolean))
-    and (source_location_id is null or source_unit_id=any($3::uuid[]))
+    and (source_location_id is null or source_unit_id=any($3::uuid[])) ${nativeScope}
     and ($4::text is null or channel=$4) and ($5::uuid is null or profile_id=$5)
     and ${parentExpr} and ($6::text is null or true)),
   groups as (
