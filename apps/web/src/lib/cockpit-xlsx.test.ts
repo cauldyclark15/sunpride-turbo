@@ -102,16 +102,22 @@ describe("F-601 real Excel workbooks", () => {
     expect(overview.find((r) => r[0] === "status")?.[1]).toBe("accepted");
     const parents = await readSheet(buffer, "2 rows"),
       children = await readSheet(buffer, "3 rows nested lineage");
-    expect(children[1][children[0].indexOf("parentRow")]).toBe(
-      parents[1][parents[0].indexOf("rowRef")],
+    const parentHeader = parents[0],
+      parentRow = parents[1],
+      childHeader = children[0],
+      childRow = children[1];
+    if (!parentHeader || !parentRow || !childHeader || !childRow)
+      throw new Error("Missing exported lineage rows");
+    expect(childRow[childHeader.indexOf("parentRow")]).toBe(
+      parentRow[parentHeader.indexOf("rowRef")],
     );
-    expect(children[1][children[0].indexOf("receivedAt")]).toBe(
+    expect(childRow[childHeader.indexOf("receivedAt")]).toBe(
       date.toISOString(),
     );
-    const text = children[0]
+    const text = childHeader
       .map((key, i) =>
         typeof key === "string" && key.startsWith("note part ")
-          ? String(children[1][i])
+          ? String(childRow[i])
           : "",
       )
       .join("");
