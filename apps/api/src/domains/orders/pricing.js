@@ -1,3 +1,4 @@
+import { resolveAccountPrice } from "../mt/sap.js";
 import {
   channel,
   divide,
@@ -14,6 +15,8 @@ import {
  * @returns {Promise<{unitPriceCentavos:number|null,priceListId:string|null,source:string|null}>}
  */
 export async function resolvePrice(db, q) {
+  const accountPrice = await resolveAccountPrice(db, q);
+  if (accountPrice) return accountPrice;
   const at = new Date(q.at);
   let key = channel(q.channelKey);
   if (!key && q.customerCode) {

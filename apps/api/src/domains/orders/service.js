@@ -247,8 +247,10 @@ export async function quote(ctx, input) {
   };
 }
 
-/** @param {any} ctx @param {any} input */
-export async function createOrder(ctx, input) {
+/** @param {any} ctx @param {any} input @param {{intake?:boolean}} [options] */
+export async function createOrder(ctx, input, options = {}) {
+  // F-306: trusted intake callers use the office capability, never the outside-call object.
+  const officeIntake = options.intake === true;
   const customerCode = text(input.customerCode, "Customer", 100);
   const [customer] =
     await ctx.db`select * from customers where code = ${customerCode} and active and deleted_at is null for update`;
@@ -261,7 +263,7 @@ export async function createOrder(ctx, input) {
     const store = await outletContext(
       ctx,
       input.outletId,
-      input.outsideCallId ? "order.encode" : "order.create",
+      input.outsideCallId || officeIntake ? "order.encode" : "order.create",
     );
     const links =
       await ctx.db`select customer_id from outlet_customer_links where outlet_id = ${input.outletId} and deleted_at is null and effective_from <= now() and (effective_to is null or effective_to > now())`;
@@ -288,7 +290,7 @@ export async function createOrder(ctx, input) {
   if (!person) fail("Salesperson not available");
   await scoped(
     ctx,
-    input.outsideCallId ? "order.encode" : "order.create",
+    input.outsideCallId || officeIntake ? "order.encode" : "order.create",
     person.org_unit_id,
   );
   if (!input.outsideCallId && person.id !== ctx.actor.profileId)
