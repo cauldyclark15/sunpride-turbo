@@ -221,6 +221,7 @@ test("new sample stock is on the production posting path and its ledger still re
     "inventory_balances",
     "inventory_lot_balances",
     "integration_events",
+    "integration_resolution_events",
   ]) {
     const rows = await db.unsafe(
       `select r.id from ${ident(table)} r where not exists(select 1 from sample_data_rows m where m.table_name=$1 and m.row_id=r.id::text and m.batch=$2)`,

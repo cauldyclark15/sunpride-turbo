@@ -230,6 +230,7 @@ export async function resetDemo(db) {
       "inventory_lot_balances",
       "audit_logs",
       "integration_events",
+      "integration_resolution_events",
       "change_log",
     ]);
     const tables = new Set(

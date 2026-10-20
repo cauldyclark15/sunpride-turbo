@@ -7,11 +7,13 @@ import { seedDistributors } from "./distributors.js";
 const args = process.argv.slice(2);
 let reset = false;
 let sap = false;
+let distributors = false;
 /** @type {{anchorDate?:string,days?:number}} */
 const options = {};
 let invalid = false;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--sap") sap = true;
+  else if (args[i] === "--distributors") distributors = true;
   else if (args[i] === "--reset") reset = true;
   else if (args[i] === "--anchor-date" && args[i + 1])
     options.anchorDate = args[++i];
@@ -22,11 +24,11 @@ for (let i = 0; i < args.length; i++) {
 if (
   !process.env.DATABASE_URL ||
   invalid ||
-  (reset && sap) ||
+  (reset && (sap || distributors)) ||
   (reset && Object.keys(options).length > 0)
 ) {
   console.error(
-    "Usage: DATABASE_URL=… bun packages/db/seed/run.js [--reset | --anchor-date YYYY-MM-DD --days 90] [--sap]",
+    "Usage: DATABASE_URL=… bun packages/db/seed/run.js [--reset | --anchor-date YYYY-MM-DD --days 90] [--sap] [--distributors]",
   );
   process.exitCode = 2;
 } else {
@@ -34,9 +36,9 @@ if (
   try {
     const result = reset ? await resetDemo(db) : await seedDemo(db, options);
     if (sap) console.log(JSON.stringify(await seedSapDemo(db), null, 2));
-    const distributorSamples = reset
-      ? null
-      : await seedDistributors(db, { anchorDate: options.anchorDate });
+    const distributorSamples = distributors
+      ? await seedDistributors(db, { anchorDate: options.anchorDate })
+      : null;
     console.log(JSON.stringify({ ...result, distributorSamples }, null, 2));
   } catch (error) {
     // Do not dump a SQL exception: its query/parameters can contain password hashes.

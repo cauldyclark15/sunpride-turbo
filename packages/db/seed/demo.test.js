@@ -663,6 +663,8 @@ describe("90-day Sunpride demo", () => {
     const result = await new Response(repeat.stdout).json();
     expect(await repeat.exited).toBe(0);
     expect(result.duplicate).toBe(true);
+    // F-402: the base company CLI cannot silently add a separately owned partner universe.
+    expect(await number("select count(*) as n from distributors")).toBe(0);
     expect((await resetDemo(db)).deleted).toBeGreaterThan(100_000);
     expect((await resetDemo(db)).deleted).toBe(0);
   }, 180_000);

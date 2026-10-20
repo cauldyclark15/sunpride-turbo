@@ -37,6 +37,7 @@ const STOCK_TABLES = [
   "inventory_lot_balances",
   "audit_logs",
   "integration_events",
+  "integration_resolution_events",
 ];
 
 /** Compress the history's noon snapshot into elapsed Manila time, without crossing

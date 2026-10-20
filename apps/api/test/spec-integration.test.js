@@ -3,7 +3,7 @@ import { tx } from "@sunpride/db/client";
 import { startHarness, createUser } from "./harness.js";
 import { domainInstallers } from "../src/domains/index.js";
 import { startMock } from "../../sap-mock/src/server.js";
-import { runOutbox } from "../src/domains/integration/outbox.js";
+import { receiveEvent, runOutbox } from "../src/domains/integration/outbox.js";
 import { posting } from "../src/domains/tpm/finance.js";
 import {
   enqueueTpmPosting,
@@ -185,6 +185,45 @@ test("F-504/F-507 every financial family receives one real acknowledgement", asy
       await h.db`select * from tpm_posting_instructions where id=${p.id}`;
     expect(r.status).toBe("acknowledged");
   }
+});
+
+test("F-003 sample reset never deletes ordinary SAP trace; exact dual ownership is required", async () => {
+  const e = await tx(h.db, (db) =>
+    receiveEvent(db, {
+      eventId: "sample-reset-guard",
+      direction: "outbound",
+      kind: "test",
+      payload: {},
+    }),
+  );
+  const [trace] =
+    await h.db`select id from integration_resolution_events where event_id=${e.id}`;
+  await expect(
+    (async () => {
+      await h.db`delete from integration_resolution_events where id=${trace.id}`;
+    })(),
+  ).rejects.toThrow("append only");
+  await expect(
+    tx(h.db, async (db) => {
+      await db`set local sunpride.seed_reset='sunpride-demo-v2'`;
+      await db`delete from integration_resolution_events where id=${trace.id}`;
+    }),
+  ).rejects.toThrow("append only");
+  await h.db`insert into sample_data_rows(batch,table_name,row_id,key) values('sunpride-demo-v2','integration_events',${e.id},'test:parent')`;
+  await expect(
+    tx(h.db, async (db) => {
+      await db`set local sunpride.seed_reset='sunpride-demo-v2'`;
+      await db`delete from integration_resolution_events where id=${trace.id}`;
+    }),
+  ).rejects.toThrow("append only");
+  await h.db`insert into sample_data_rows(batch,table_name,row_id,key) values('sunpride-demo-v2','integration_resolution_events',${trace.id},'test:child')`;
+  await tx(h.db, async (db) => {
+    await db`set local sunpride.seed_reset='sunpride-demo-v2'`;
+    await db`delete from integration_resolution_events where id=${trace.id}`;
+  });
+  expect(
+    await h.db`select id from integration_resolution_events where id=${trace.id}`,
+  ).toHaveLength(0);
 });
 
 test("F-407 partner configuration comes from the one call-flow engine", async () => {
