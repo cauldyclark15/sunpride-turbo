@@ -36,8 +36,8 @@ object BackNavigation {
     fun step(s: BackState): BackStep = when {
         s.locked || !s.signedIn -> BackStep.Exit
         s.page == "account" || s.page == "sync" -> BackStep.ToPage("home")
-        s.page == "support" -> BackStep.ToPage("account")
-        s.ready && (s.page == "location-consent" || s.page == "location-background") -> BackStep.ToPage("home")
+        s.page == "support" || s.page == "change-password" -> BackStep.ToPage("account")
+        s.ready && (s.page == "location-consent" || s.page == "location-background" || s.page == "location-battery") -> BackStep.ToPage("home")
         s.visitOpen && s.visitsEnabled && s.ready -> when {
             s.photoCaptureOpen -> BackStep.ClosePhoto
             s.activityFormOpen -> BackStep.CloseActivityForm

@@ -44,7 +44,7 @@ class SystemBarsTest {
         }
         assertTrue("navigation bar must sit at the bottom of the screen", bottom > 0)
         Thread.sleep(400) // let the system bars redraw before the screenshot
-        val shot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+        val shot = com.sunpride.field.captureUiScreenshot()
         try {
             // Sample the bar's left edge, clear of the Back/Home/Recents glyphs and the gesture handle.
             val y = shot.height - bottom / 2

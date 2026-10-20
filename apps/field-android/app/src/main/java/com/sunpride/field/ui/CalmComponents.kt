@@ -191,8 +191,8 @@ fun LabeledField(label: String, value: String, onValueChange: (String) -> Unit,
             modifier = modifier.fillMaxWidth().height(48.dp), shape = SunprideTokens.shapes.small,
             textStyle = MaterialTheme.typography.bodyMedium,
             colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.28f),
+                focusedBorderColor = MaterialTheme.colorScheme.onSurface,
+                unfocusedBorderColor = MaterialTheme.colorScheme.outline,
                 disabledBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.28f)))
     }
 }

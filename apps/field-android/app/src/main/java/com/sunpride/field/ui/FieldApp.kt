@@ -242,7 +242,7 @@ fun FieldApp(
                             com.sunpride.field.storage.ActivityRules.kindLabel(it) }
                             ?: if (controller.orderOpen && controller.orderReview) "Review" else if (controller.orderOpen) "Order"
                             else if (controller.callSheetOpen) "Call sheet" else "Visit", style = MaterialTheme.typography.titleMedium)
-                    } else if (controller.state != EnrollmentState.SignedOut && !locked && (page == "account" || page == "sync" || page == "support" ||
+                    } else if (controller.state != EnrollmentState.SignedOut && !locked && (page == "account" || page == "change-password" || page == "sync" || page == "support" ||
                         (ready && (page == "route" || page == "customers" || page == "customer" || page == "team")))) Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = goBack,
                             modifier = Modifier.height(48.dp).testTag(when (page) {
@@ -253,7 +253,7 @@ fun FieldApp(
                             Text("‹", style = MaterialTheme.typography.titleLarge)
                         }
                         Text(when (page) {
-                            "sync" -> "Sync"; "support" -> "Support info"; "route" -> "Route"
+                            "change-password" -> "Change password"; "sync" -> "Sync"; "support" -> "Support info"; "route" -> "Route"
                             "customers" -> "Customers"; "customer" -> "Outlet"; "team" -> "Team"; else -> "Account"
                         }, style = MaterialTheme.typography.titleMedium,
                             modifier = when (page) {
@@ -291,7 +291,13 @@ fun FieldApp(
                     onBack = { page = "home" }, onSupport = { page = "support" }, modifier = modifier,
                     showKeyDetails = FieldFeature.PHONE_KEY_DETAILS in features,
                     onReportIssue = features.reportIssueUrl?.let { url -> { openLink(context, url) } },
-                    biometrics = biometrics)
+                    biometrics = biometrics,
+                    onChangePassword = { controller.resetPasswordForm(); page = "change-password" },
+                    onBatteryGuide = if (batteryGuide != null) ({ page = "location-battery" }) else null)
+                page == "change-password" -> ChangePasswordScreen(controller.passwordBusy, controller.passwordMessage,
+                    controller.passwordChanged, onChange = { current, next, confirm ->
+                        controller.changePassword(current, next, confirm) { biometrics?.passwordChanged() }
+                    }, onDone = { page = "account" }, modifier = modifier)
                 page == "support" -> SupportDetails(status, { page = "account" }, modifier)
                 ready && page == "location-consent" -> com.sunpride.field.ui.location.LocationConsentScreen(
                     onAgree = { dayAction(after = requestLocation) { h, t -> h.consent(t) } },
@@ -608,7 +614,7 @@ fun EnrollmentScreen(state: EnrollmentState, key: DeviceKeyInfo?, busy: Boolean,
 @Composable
 fun AccountScreen(key: DeviceKeyInfo?, onSignOut: () -> Unit, onBack: () -> Unit,
     onSupport: () -> Unit = {}, modifier: Modifier = Modifier, showKeyDetails: Boolean = true,
-    onReportIssue: (() -> Unit)? = null, biometrics: BiometricGate? = null) {
+    onReportIssue: (() -> Unit)? = null, biometrics: BiometricGate? = null, onChangePassword: (() -> Unit)? = null, onBatteryGuide: (() -> Unit)? = null) {
     Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -620,6 +626,14 @@ fun AccountScreen(key: DeviceKeyInfo?, onSignOut: () -> Unit, onBack: () -> Unit
                 if (showKeyDetails) ValueRow("Fingerprint", key?.fingerprint ?: "Unavailable")
             }
             if (biometrics != null) BiometricSetting(biometrics)
+            if (onChangePassword != null) SectionCard("Password") {
+                ListRow("Change password", "Keep your account safe", "info", Modifier.testTag("change-password-open"),
+                    onClick = onChangePassword)
+            }
+            if (onBatteryGuide != null) SectionCard("Location sharing") {
+                ListRow("Keep the app running", "Battery and background settings", "info",
+                    Modifier.testTag("account-battery-guide"), onClick = onBatteryGuide)
+            }
             SectionCard("Support") {
                 if (onReportIssue != null) ListRow("Report an issue", "Tell the Sunpride team what went wrong", "info",
                     Modifier.testTag("report-issue"), onClick = onReportIssue)

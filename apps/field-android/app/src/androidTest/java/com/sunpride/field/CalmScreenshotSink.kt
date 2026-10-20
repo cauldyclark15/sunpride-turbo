@@ -11,9 +11,19 @@ import java.net.Socket
  * so the normal connected suite never depends on a host-side receiver. The emulator reaches the host at
  * 10.0.2.2; on a physical phone pass `calmScreenshotHost=127.0.0.1` after `adb reverse tcp:28765 tcp:28765`.
  */
+/** HyperOS can briefly return null during a surface transition. Retry capture, never skip assertions. */
+fun captureUiScreenshot(): Bitmap {
+    val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+    repeat(5) {
+        automation.takeScreenshot()?.let { return it }
+        android.os.SystemClock.sleep(250)
+    }
+    throw AssertionError("Screen capture unavailable after the window settled")
+}
+
 fun captureCalmScreenshot(name: String) {
     if (InstrumentationRegistry.getArguments().getString("calmScreenshots") != "true") return
-    val shot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+    val shot = captureUiScreenshot()
     val bytes = ByteArrayOutputStream().also { shot.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
     shot.recycle()
     val host = InstrumentationRegistry.getArguments().getString("calmScreenshotHost") ?: "10.0.2.2"

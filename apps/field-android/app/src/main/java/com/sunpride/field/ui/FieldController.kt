@@ -54,6 +54,7 @@ interface FieldBackend {
     fun loadSigner(): DeviceSigner
     fun signIn(email: String, password: String)
     fun signOut()
+    fun changePassword(current: String, next: String, confirm: String) { error("Password change unavailable") }
     fun refreshEnrollment(signer: DeviceSigner): EnrollmentState
     fun today(deviceId: String, signer: DeviceSigner, sync: Boolean): TodayData = TodayData()
     fun visitHistory(): List<com.sunpride.field.storage.IntentRow> = emptyList()
@@ -128,7 +129,8 @@ data class VisitDisplay(val outlet: String, val planned: String, val status: Str
     val outletCode: String? = null, val customerCode: String? = null, val address: String? = null,
     val latitude: Double? = null, val longitude: Double? = null,
     /** Activity facts of the finished call from the local outbox; null while open or not started. */
-    val callFacts: com.sunpride.field.storage.ProductiveCall.Facts? = null)
+    val callFacts: com.sunpride.field.storage.ProductiveCall.Facts? = null,
+    val serverExecution: String? = null)
 /** Planned row + cached outlet/customer JSON → what Today and the daily route show. Pure for tests. */
 fun plannedVisitDisplay(row: SnapshotItem, outlets: Map<String, JSONObject>, customers: Map<String, String>): VisitDisplay {
     val v = JSONObject(row.json)
@@ -140,12 +142,19 @@ fun plannedVisitDisplay(row: SnapshotItem, outlets: Map<String, JSONObject>, cus
     val latitude = number("latitude")?.takeIf { it in -90.0..90.0 }
     val longitude = number("longitude")?.takeIf { it in -180.0..180.0 }
     val pinned = latitude != null && longitude != null
-    return VisitDisplay(outlet?.optString("name", "Outlet") ?: "Outlet unavailable", "Planned", "Scheduled",
+    val server = com.sunpride.field.storage.ServerVisits.execution(row)
+    val status = when (server?.optString("state")) {
+        "checked-out" -> "Done"
+        "in-progress" -> "In progress"
+        else -> "Scheduled"
+    }
+    return VisitDisplay(outlet?.optString("name", "Outlet") ?: "Outlet unavailable", "Planned", status,
         v.getString("outletId"), v.getString("id"),
         v.optJSONArray("intents")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
         VisitCallRules.sequence(row), row.listPosition,
         outletCode = text("code"), customerCode = text("customerId")?.let { customers[it] }?.takeIf { it.isNotBlank() },
-        address = text("address"), latitude = latitude.takeIf { pinned }, longitude = longitude.takeIf { pinned })
+        address = text("address"), latitude = latitude.takeIf { pinned }, longitude = longitude.takeIf { pinned },
+        serverExecution = server?.toString())
 }
 
 data class TodayData(val visits: List<VisitDisplay> = emptyList(), val lastSynced: Long? = null,
@@ -501,7 +510,8 @@ class LiveFieldBackend(
     }
     /** Live daily sales report when syncing, else today's saved copy; the server enforces who may read it. */
     private suspend fun daySales(store: RoomFieldStore, day: String, live: Boolean): com.sunpride.field.ui.today.DaySalesView {
-        val grant = projectionGrant("sales", day)
+        val grant = projectionGrant("sales", day) ?: return com.sunpride.field.ui.today.DaySalesView(
+            message = "Sign in again to see sales")
         val cache = object : com.sunpride.field.ui.today.DaySalesCache {
             override fun current() = grant.current()
             override fun revoke() { if (!grant.deny()) auth.signOut() }
@@ -525,6 +535,7 @@ class LiveFieldBackend(
         val store = EncryptedFieldDatabase.store(context, scope)
         try {
             val grant = projectionGrant("team", com.sunpride.field.ui.team.TeamRepository.key(day, directOnly))
+                ?: return com.sunpride.field.ui.team.TeamView(message = "Sign in again to see your team.")
             val cache = object : com.sunpride.field.ui.team.TeamCache {
                 override fun current() = grant.current()
             override fun revoke() { if (!grant.deny()) auth.signOut() }
@@ -565,10 +576,12 @@ class LiveFieldBackend(
         com.sunpride.field.auth.ProjectionGrant.retire()
         com.sunpride.field.ui.diagnosticvisit.SuggestedOrderRepository.retire()
     }
-    private fun projectionGrant(name: String, filter: String): com.sunpride.field.auth.ProjectionGrant {
-        val scope = storedScope() ?: error("No verified partition")
+    private fun projectionGrant(name: String, filter: String): com.sunpride.field.auth.ProjectionGrant? {
+        val key = sessionKey() ?: return null
+        val scope = storedScope() ?: return null
+        if (key != sessionKey()) return null
         val grants = context.getSharedPreferences("field_v2_projection_grants", Context.MODE_PRIVATE)
-        return com.sunpride.field.auth.ProjectionGrant("${scope}|${sessionKey()}", name,
+        return com.sunpride.field.auth.ProjectionGrant("${scope}|$key", name,
             { grants.getString(it, null) }, { k, v -> grants.edit().putString(k, v).commit() }).also { it.begin(filter) }
     }
     /** SP-0136: the signed-in person's verified account (keys their consent and work day), or null. */
@@ -581,9 +594,16 @@ class LiveFieldBackend(
                 prefs.edit().putBoolean("${sessionKey()}.location-consent-pending", true).apply()
                 locationCommands()
             }
+            override fun startDay(now: Long) {
+                local.startDay(now)
+                prefs.edit().putLong("${sessionKey()}.location-start-pending", now)
+                    .remove("${sessionKey()}.location-end-pending").commit()
+                locationCommands()
+            }
             override fun endDay(now: Long) {
                 local.endDay(now)
-                prefs.edit().putBoolean("${sessionKey()}.location-end-pending", true).apply()
+                prefs.edit().remove("${sessionKey()}.location-start-pending")
+                    .putBoolean("${sessionKey()}.location-end-pending", true).apply()
                 locationCommands()
             }
         }
@@ -597,6 +617,12 @@ class LiveFieldBackend(
         if (prefs.getBoolean("${sessionKey()}.location-consent-pending", false)) {
             functions.api.post("/api/v1/location/consent", JSONObject().put("enabled", true))
             prefs.edit().remove("${sessionKey()}.location-consent-pending").commit()
+        }
+        val startedAt = prefs.getLong("${sessionKey()}.location-start-pending", 0L)
+        if (startedAt > 0) {
+            functions.api.post("/api/v1/location/consent", JSONObject().put("enabled", true)
+                .put("startDay", true).put("startedAt", startedAt))
+            prefs.edit().remove("${sessionKey()}.location-start-pending").commit()
         }
         if (prefs.getBoolean("${sessionKey()}.location-end-pending", false)) {
             functions.api.post("/api/v1/location/end-day", JSONObject())
@@ -629,6 +655,7 @@ class LiveFieldBackend(
     override val isSignedIn get() = auth.isSignedIn
     override fun loadSigner() = signerLoader()
     override fun signIn(email: String, password: String) = auth.signIn(email, password)
+    override fun changePassword(current: String, next: String, confirm: String) = auth.changePassword(current, next, confirm)
     override fun signOut() {
         // SP-0136: sharing stops before anything else (the account key is still readable here).
         runCatching { workDay.signOut(System.currentTimeMillis()) }
@@ -900,6 +927,7 @@ class FieldController(
     private fun plans() = today.visits.mapIndexed { index, visit ->
         val json = JSONObject().put("outletId", visit.outletId)
         visit.sequence?.let { json.put("sequence", it) }
+        visit.serverExecution?.let { json.put("serverExecution", JSONObject(it)) }
         SnapshotItem(visit.plannedVisitId ?: "", json.toString(), serviceDay(), visit.listPosition ?: index)
     }
     fun relatedCall(visit: VisitDisplay) = VisitCallRules.related(visit.plannedVisitId, visit.outletId, serviceDay(), diagnosticRows)
@@ -983,7 +1011,7 @@ class FieldController(
         } catch (e: VisitRuleFailure) { diagnosticFailure = e.code; diagnosticError = e.code.text }
         catch (e: kotlinx.coroutines.CancellationException) { throw e }
         catch (_: Exception) {
-            diagnosticError = "Could not save call sheet. Use whole numbers from 0 to 1,000,000 and check the offline lease."
+            diagnosticError = "Could not save call sheet. Use whole numbers from 0 to 1,000,000. Sync to refresh today's access."
         } finally { busy = false }
     }
     /** Queue one AND-013 structured form for the open call (after Start, before End). */
@@ -1005,7 +1033,7 @@ class FieldController(
         } catch (e: VisitRuleFailure) { diagnosticFailure = e.code; diagnosticError = e.code.text }
         catch (e: kotlinx.coroutines.CancellationException) { throw e }
         catch (e: com.sunpride.field.ui.diagnosticvisit.ActivityFormError) { diagnosticError = e.message }
-        catch (_: Exception) { diagnosticError = "Could not save this activity. Check the fields and the offline lease." }
+        catch (_: Exception) { diagnosticError = "Could not save this activity. Check the fields, then sync to refresh today's access." }
         finally { busy = false }
     }
     fun queueDiagnostic(kind: String, reason: String?, note: String?, outcome: String?, location: JSONObject?) = scope.launch(ui) {
@@ -1063,15 +1091,19 @@ class FieldController(
         finally { teamLoading = false }
     }
     private var signer: DeviceSigner? = null
+    private var sessionGeneration = 0L
 
     /** On launch: restore a stored session and re-verify the device with the server. */
     fun start(configured: Boolean = true) = scope.launch(ui) {
+        val generation = sessionGeneration
         try {
             runCatching { ensureKey() } // create the device key on first launch; failures surface on refresh
             if (!configured) return@launch
             val signedIn = runCatching { withContext(io) { backend.isSignedIn } }.getOrDefault(false)
+            if (generation != sessionGeneration) return@launch
             if (signedIn) {
                 val cached = runCatching { withContext(io) { backend.cachedDeviceId } }.getOrNull()
+                if (generation != sessionGeneration) return@launch
                 if (cached != null) {
                     state = EnrollmentState.Ready(cached)
                     loadToday(sync = false)
@@ -1101,9 +1133,11 @@ class FieldController(
 
     /** [onSignedIn] runs on the UI context once the password sign-in succeeded (SP-0128 biometric offer). */
     fun signIn(email: String, password: String, onSignedIn: () -> Unit = {}) = scope.launch(ui) {
+        val generation = ++sessionGeneration
         busy = true; error = null
         try {
             withContext(io) { backend.signIn(email, password) }
+            if (generation != sessionGeneration) return@launch
             state = EnrollmentState.Unregistered // signed in; device status not yet known
             runCatching { onSignedIn() }
         } catch (e: Exception) {
@@ -1120,11 +1154,14 @@ class FieldController(
 
     private suspend fun refreshOnUi(quiet: Boolean) {
         if (busy) return
+        val generation = sessionGeneration
         busy = true
         if (!quiet) error = null
         try {
             val loaded = ensureKey()
-            state = withContext(io) { backend.refreshEnrollment(loaded) }
+            val enrollment = withContext(io) { backend.refreshEnrollment(loaded) }
+            if (generation != sessionGeneration) return
+            state = enrollment
             error = null
             if (state is EnrollmentState.Ready) loadToday(sync = true)
         } catch (e: AuthFailure) {
@@ -1141,8 +1178,11 @@ class FieldController(
     private suspend fun loadToday(sync: Boolean) {
         val ready = state as? EnrollmentState.Ready ?: return
         val loaded = ensureKey()
-        try { today = withContext(io) { backend.today(ready.deviceId, loaded, sync) } }
-        finally { checkSuggestedOrderLifetime() }
+        val generation = sessionGeneration
+        try {
+            val value = withContext(io) { backend.today(ready.deviceId, loaded, sync) }
+            if (generation == sessionGeneration && state == ready) today = value
+        } finally { checkSuggestedOrderLifetime() }
     }
     fun refreshCache() = scope.launch(ui) {
         if (state is EnrollmentState.Ready && !busy) {
@@ -1158,7 +1198,31 @@ class FieldController(
     }
     fun checkAgain(quiet: Boolean = false) = scope.launch(ui) { refresh(quiet) }
 
+    var passwordBusy by mutableStateOf(false); private set
+    var passwordMessage by mutableStateOf<String?>(null); private set
+    var passwordChanged by mutableStateOf(false); private set
+    fun resetPasswordForm() { passwordMessage = null; passwordChanged = false }
+    fun changePassword(current: String, next: String, confirm: String, onChanged: () -> Unit = {}) = scope.launch(ui) {
+        if (passwordBusy || state == EnrollmentState.SignedOut) return@launch
+        passwordBusy = true; passwordMessage = null; passwordChanged = false
+        try {
+            withContext(io) { backend.changePassword(current, next, confirm) }
+            onChanged()
+            passwordChanged = true
+            passwordMessage = com.sunpride.field.auth.PasswordChange.SUCCESS
+        } catch (e: com.sunpride.field.auth.PasswordChangeFailure) {
+            passwordMessage = e.kind.text
+            if (e.kind == com.sunpride.field.auth.PasswordChangeFailure.Kind.LOCAL_SESSION) signOut()
+        } catch (e: AuthFailure) {
+            passwordMessage = e.kind.message
+            if (e.kind == AuthFailure.Kind.SESSION_EXPIRED) signOut()
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (_: Exception) { passwordMessage = com.sunpride.field.auth.PasswordChangeFailure.Kind.SERVER.text }
+        finally { passwordBusy = false }
+    }
+
     fun signOut() = scope.launch(ui) {
+        sessionGeneration++ // retire pending cache/enrollment reads before fallible teardown
         busy = true
         runCatching { withContext(io) { backend.signOut() } }
         state = EnrollmentState.SignedOut; today = TodayData(); error = null; busy = false

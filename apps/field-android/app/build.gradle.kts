@@ -140,8 +140,7 @@ dependencies {
     implementation(libs.biometric)
     // SP-0140: a FragmentActivity that accepts androidx.activity permission request codes (see libs.versions.toml).
     implementation(libs.fragment)
-    // SP-0136 live map: FusedLocationProviderClient in the work-day location service.
-    implementation(libs.play.services.location)
+    // Work-day sharing and visit capture use Android's platform fused provider (no Play-services dependency).
     kapt(libs.room.compiler)
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.test.manifest)

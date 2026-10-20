@@ -297,14 +297,14 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
             androidx.compose.foundation.layout.Spacer(Modifier.height(16.dp).testTag("visit-bottom-space"))
         }
         if (!checkedOut) androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp))
-        if (!checkedIn) PrimaryBottomButton("Start", { record("visit.checkIn") }, Modifier.testTag("diagnostic-checkin"),
+        if (!checkedIn) PrimaryBottomButton(if (capturing) "Getting location…" else "Start", { record("visit.checkIn") }, Modifier.testTag("diagnostic-checkin"),
             !controller.busy && !capturing && startFailure == null &&
                 (visit.plannedVisitId != null || (reason.isNotBlank() && intents.isNotEmpty())))
         else if (!checkedOut && review != null) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             com.sunpride.field.ui.SecondaryButton("Back", { controller.cancelEnd() },
                 Modifier.weight(1f).testTag("end-review-back"), enabled = !controller.busy && !capturing)
             androidx.compose.foundation.layout.Box(Modifier.weight(2f)) {
-                PrimaryBottomButton("Confirm end", { record("visit.checkOut") }, Modifier.testTag("diagnostic-confirm-end"),
+                PrimaryBottomButton(if (capturing) "Getting location…" else "Confirm end", { record("visit.checkOut") }, Modifier.testTag("diagnostic-confirm-end"),
                     !controller.busy && !capturing)
             }
         }

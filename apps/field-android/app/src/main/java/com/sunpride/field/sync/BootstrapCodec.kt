@@ -216,7 +216,8 @@ object BootstrapCodec {
         require((sheets.map { it.outletId } + terms.keys + summaries.keys).all { it in authorized })
         require(sheets.groupBy { it.outletId }.values.all { it.distinct().size == 1 })
         return ScopedSnapshot(first.employee.toString(), pages.firstNotNullOfOrNull { it.route },
-            unique(pages.flatMap { it.visits }), outlets,
+            com.sunpride.field.storage.ServerVisits.attach(unique(pages.flatMap { it.visits }),
+                if (v2) pages.map { it.raw } else emptyList()), outlets,
             unique(pages.flatMap { it.customers }), unique(pages.flatMap { it.tasks }), sheets.distinctBy { it.outletId },
             rules, types,
             catalog, availability)

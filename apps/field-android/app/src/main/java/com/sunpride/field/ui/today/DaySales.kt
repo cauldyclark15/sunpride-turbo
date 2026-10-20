@@ -19,7 +19,7 @@ data class DaySales(
     val serviceDate: String, val dailyTarget: Long?, val todaySales: Long, val todayPct: Int?,
     val monthlyTarget: Long?, val mtdSales: Long, val productiveCallRule: String?,
     /** The server sent the calls block but no productive-call rule: it counts no call as productive (fails closed). */
-    val ruleMissing: Boolean = false)
+    val ruleMissing: Boolean = false, val reportedCalls: Int? = null, val reportedProductive: Int? = null)
 
 /** What the Sales card shows: figures (live or saved), or a fixed explanation. Never invented zeros. */
 data class DaySalesView(val sales: DaySales? = null, val savedAt: Long? = null, val message: String? = null)
@@ -42,7 +42,11 @@ object DaySalesCodec {
             totals.money("mtdSales") ?: throw DaySalesWireFailure(),
             calls?.optString("productiveCallRule")
                 ?.takeIf { it == ProductiveCall.ANY_LISTED_ACTIVITY || it == ProductiveCall.TRUCK_SELLER },
-            calls != null && (calls.isNull("productiveCallRule") || calls.optString("productiveCallRule").isBlank()))
+            calls != null && (calls.isNull("productiveCallRule") || calls.optString("productiveCallRule").isBlank()),
+            calls?.wholeOrNull("calls")?.also { require(it in 0L..200L) }?.toInt(),
+            calls?.wholeOrNull("productiveCalls")?.also {
+                require(it in 0L..(calls.wholeOrNull("calls") ?: 0L))
+            }?.toInt())
     } catch (e: DaySalesWireFailure) { throw e } catch (_: Exception) { throw DaySalesWireFailure() }
 
     private fun JSONObject.wholeOrNull(k: String): Long? = when (val v = opt(k)) {

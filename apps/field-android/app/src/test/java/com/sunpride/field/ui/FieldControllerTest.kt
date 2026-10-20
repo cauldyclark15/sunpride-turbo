@@ -25,6 +25,7 @@ class FieldControllerTest {
         var cached: String? = null
         val todaySyncs = mutableListOf<Boolean>()
         var todayResult: TodayData? = null
+        var todayAction: (() -> TodayData)? = null
         val calls = mutableListOf<Pair<com.sunpride.field.storage.IntentRow, String>>()
         override fun visitStates() = calls.toList()
         override fun queueVisit(kind: String, clientVisitId: String?, checkInRequestId: String?, previousRequestId: String?,
@@ -37,6 +38,7 @@ class FieldControllerTest {
         override val cachedDeviceId get() = cached
         override fun today(deviceId: String, signer: DeviceSigner, sync: Boolean): TodayData {
             todaySyncs += sync
+            todayAction?.let { return it() }
             todayResult?.let { return it }
             return if (sync) TodayData(lastSynced = 150, stale = false) else TodayData()
         }
@@ -44,6 +46,11 @@ class FieldControllerTest {
         override fun loadSigner(): DeviceSigner = JcaDeviceSigner(CryptoVectors.privateKey, CryptoVectors.publicKey, KeyProtection.STRONGBOX)
         override fun signIn(email: String, password: String) { signInError?.let { throw it }; signedIn = true }
         override fun signOut() { signOuts++; signedIn = false }
+        var passwordCalls = 0
+        var passwordFailure: Exception? = null
+        override fun changePassword(current: String, next: String, confirm: String) {
+            passwordCalls++; passwordFailure?.let { throw it }
+        }
         override fun refreshEnrollment(signer: DeviceSigner) = results.removeFirst()()
         val teamCalls = mutableListOf<Boolean>()
         var teamError: Exception? = null
@@ -59,6 +66,55 @@ class FieldControllerTest {
         val exported = mutableListOf<DeviceKeyInfo>()
         val controller = FieldController(backend, this, Dispatchers.Unconfined, EmptyCoroutineContext) { exported += it }
         block(controller, backend, exported)
+    }
+
+    @Test fun delayedTodayCannotRepopulateTheScreenAfterRealControllerSignOut() = runBlocking {
+        val b = FakeBackend()
+        val c = FieldController(b, this, Dispatchers.IO, EmptyCoroutineContext)
+        b.results += { EnrollmentState.Ready("dev1") }
+        c.signIn("a@example.test", "fake").join()
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        b.todayAction = {
+            entered.countDown()
+            check(release.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            TodayData(visits = listOf(VisitDisplay("Private earlier account", "Planned", "Done")))
+        }
+        val pending = c.syncNow()
+        kotlinx.coroutines.withContext(Dispatchers.IO) { check(entered.await(5, java.util.concurrent.TimeUnit.SECONDS)) }
+        c.signOut().join()
+        release.countDown(); pending.join()
+        assertEquals(EnrollmentState.SignedOut, c.state)
+        assertTrue(c.today.visits.isEmpty())
+    }
+
+    @Test fun passwordChangeKeepsReadyAndReportsFixedErrorOrSuccess() = run { c, b, _ ->
+        b.results += { EnrollmentState.Ready("dev1") }
+        c.signIn("a@example.test", "fake").join()
+        b.passwordFailure = com.sunpride.field.auth.PasswordChangeFailure(
+            com.sunpride.field.auth.PasswordChangeFailure.Kind.WRONG_CURRENT)
+        c.changePassword("wrong-fake", "new-fake", "new-fake").join()
+        assertEquals("Your current password is incorrect.", c.passwordMessage)
+        assertFalse(c.passwordChanged)
+        b.passwordFailure = null
+        var callbacks = 0
+        c.changePassword("old-fake", "new-fake", "new-fake") { callbacks++ }.join()
+        assertEquals(1, callbacks)
+        assertEquals(EnrollmentState.Ready("dev1"), c.state)
+        assertTrue(c.passwordChanged)
+        assertFalse(c.passwordBusy)
+        assertEquals(com.sunpride.field.auth.PasswordChange.SUCCESS, c.passwordMessage)
+    }
+
+    @Test fun serverRecordedEarlierStopPassesThroughControllerStartValidation() = run { c, b, _ ->
+        val prior = VisitDisplay("Earlier store", "Planned", "Done", "one", "plan-one", sequence = 0,
+            serverExecution = org.json.JSONObject().put("state", "checked-out").toString())
+        val next = VisitDisplay("Next store", "Planned", "Scheduled", "two", "plan-two", sequence = 1)
+        b.todayResult = TodayData(visits = listOf(prior, next))
+        b.results += { EnrollmentState.Ready("dev1") }
+        c.signIn("a@example.test", "fake").join()
+        assertNull(c.startFailure(next))
+        assertEquals(com.sunpride.field.storage.VisitRuleFailure.Code.ALREADY_ENDED, c.startFailure(prior)?.code)
     }
 
     @Test fun signInThenUnregisteredShowsKeyAndExportsPublicKeyOnce() = run { c, b, exported ->

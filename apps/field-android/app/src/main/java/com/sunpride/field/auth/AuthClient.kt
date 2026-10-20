@@ -15,10 +15,15 @@ import java.util.Base64
 import java.util.concurrent.TimeUnit
 
 internal val JSON_MEDIA = "application/json".toMediaType()
-fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
-    .cookieJar(CookieJar.NO_COOKIES).followRedirects(false).followSslRedirects(false)
-    .connectTimeout(15, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS)
-    .callTimeout(30, TimeUnit.SECONDS).build()
+// One cookie-free connection pool per process. Foreground sync, photos and location workers
+// reuse TLS/HTTP2 connections instead of opening several clients on every backend instance.
+private val sharedHttpClient: OkHttpClient by lazy {
+    OkHttpClient.Builder()
+        .cookieJar(CookieJar.NO_COOKIES).followRedirects(false).followSslRedirects(false)
+        .connectTimeout(15, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS)
+        .callTimeout(30, TimeUnit.SECONDS).build()
+}
+fun defaultHttpClient(): OkHttpClient = sharedHttpClient
 
 /** Stable v2 session in the existing biometric-aware vault; opaque access credential in memory only. */
 class AuthClient(private val environment: AppEnvironment, private val vault: SessionVault,
@@ -58,6 +63,41 @@ class AuthClient(private val environment: AppEnvironment, private val vault: Ses
         val expiry = o.getLong("accessExpiresAt"); requireExpiry(o, expiry)
         access = token; refreshAt = expiry - REFRESH_MARGIN_MS
         return token
+    }
+    /** Keep this phone's session; the server revokes every other session atomically. */
+    @Synchronized fun changePassword(current: String, next: String, confirm: String) {
+        PasswordChange.validate(current, next, confirm)?.let { throw PasswordChangeFailure(it) }
+        if (!environment.isReady) throw AuthFailure(AuthFailure.Kind.NOT_CONFIGURED)
+        val session = vault.readSession()?.takeIf { it.startsWith("sps_") }
+            ?: throw AuthFailure(AuthFailure.Kind.SESSION_EXPIRED)
+        for (attempt in 0..1) {
+            val request = Request.Builder().url(environment.apiOrigin.trimEnd('/') + PasswordChange.PATH)
+                .header("Authorization", "Bearer ${accessToken(attempt > 0)}")
+                .post(JSONObject().put("currentPassword", current).put("newPassword", next)
+                    .toString().toRequestBody(JSON_MEDIA)).build()
+            try {
+                http.newCall(request).execute().use { response ->
+                    if (response.code == 401) {
+                        invalidateAccessToken()
+                        if (attempt == 0) return@use
+                        throw AuthFailure(AuthFailure.Kind.SESSION_EXPIRED)
+                    }
+                    if (response.code == 429) throw AuthFailure(AuthFailure.Kind.RATE_LIMITED)
+                    val body = runCatching { JSONObject(response.body?.string().orEmpty()) }.getOrNull()
+                    if (response.code !in 200..299 || body?.optBoolean("ok") != true)
+                        throw PasswordChangeFailure(PasswordChange.error(body?.optJSONObject("error")?.optString("code")))
+                    // Replacing even the same token retires pending biometric callbacks and deletes the old
+                    // biometric key/blob. Device binding, scope index and queued work stay unchanged.
+                    try { vault.saveSession(session) }
+                    catch (_: Exception) {
+                        invalidateAccessToken(); runCatching { vault.wipe() }
+                        throw PasswordChangeFailure(PasswordChangeFailure.Kind.LOCAL_SESSION)
+                    }
+                    return
+                }
+            } catch (_: IOException) { throw AuthFailure(AuthFailure.Kind.OFFLINE) }
+        }
+        throw AuthFailure(AuthFailure.Kind.SESSION_EXPIRED)
     }
     @Synchronized fun invalidateAccessToken() { access = null; refreshAt = 0 }
     fun signOut(): Boolean {
