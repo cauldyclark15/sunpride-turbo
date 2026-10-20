@@ -27,6 +27,7 @@ import { InventoryWorkspace } from "./inventory-workspace";
 import { LiveMapWorkspace } from "./live-map/live-map-workspace";
 import { OutsideCallOrders } from "./outside-call-orders";
 import { PanelErrorBoundary } from "./panel-error-boundary";
+import { ProgrammeWorkspace } from "./programme/programme-workspace";
 import { SupervisionWorkspace } from "./supervision/supervision-workspace";
 import { TrainingWorkspace } from "./training/trainer-forms";
 import { VanCashApproval } from "./van-cash-approval";
@@ -67,6 +68,7 @@ const TITLES = {
   "master-data": "Master data",
   pricing: "Prices",
   "sap-integration": "Integration",
+  programme: "Programme",
 } satisfies Record<WebModuleSlug, string>;
 
 export function moduleTitle(module: WebModuleSlug) {
@@ -215,6 +217,12 @@ function ModuleContent({ module }: { module: WebModuleSlug }): ReactNode {
         <Card label="Integration" icon={<WorkspaceIcon name="operations" />}>
           <p className="text-[13px] text-muted">Not connected yet</p>
         </Card>
+      );
+    case "programme":
+      return (
+        <PanelErrorBoundary label="Programme">
+          <ProgrammeWorkspace />
+        </PanelErrorBoundary>
       );
   }
 }

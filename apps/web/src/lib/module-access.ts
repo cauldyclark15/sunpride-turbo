@@ -188,6 +188,7 @@ export const MODULE_ROLES = {
   "master-data": masterDataManagers, // masterdata.manage
   pricing: masterDataManagers, // masterdata.manage (price lists are master data)
   "sap-integration": integrationReaders, // integration.read
+  programme: administrators, // admin.manage (v2 spec F-025 traceability)
 } as const satisfies Record<PageSlug, readonly AppRole[]>;
 
 /** Old slugs that redirect; access follows their destination. */

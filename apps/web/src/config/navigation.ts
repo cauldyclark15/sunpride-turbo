@@ -44,6 +44,7 @@ export const WORKSPACE_SLUGS = [
   "master-data",
   "pricing",
   "sap-integration",
+  "programme",
 ] as const;
 
 export type WebModuleSlug = (typeof WORKSPACE_SLUGS)[number];
@@ -98,6 +99,8 @@ const moduleTabs: Record<string, WorkspaceModuleTab[]> = {
     { id: "master-data", label: "Master data", href: "/master-data" },
     { id: "pricing", label: "Prices", href: "/pricing" },
     { id: "sap-integration", label: "Integration", href: "/sap-integration" },
+    // v2 spec F-025: Sunpride Phase 1 traceability (admin and owner only).
+    { id: "programme", label: "Programme", href: "/programme" },
   ],
 };
 
