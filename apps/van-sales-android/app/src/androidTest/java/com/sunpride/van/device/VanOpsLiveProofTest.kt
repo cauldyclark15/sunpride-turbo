@@ -4,6 +4,7 @@ import android.net.ConnectivityManager
 import android.provider.Settings
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.geometry.Offset
@@ -59,7 +60,7 @@ class VanOpsLiveProofTest {
     }
     @Test fun F123_realH10pOfflineRouteAndLiveSignedReplay()=runBlocking {
         val phase=InstrumentationRegistry.getArguments().getString("vanOpsProof")
-        assumeTrue(phase in setOf("prepare","capture","sync","verify"))
+        assumeTrue(phase in setOf("prepare","capture","sync","verify","signature"))
         assertEquals("H10P lane origin must be explicit", "http://127.0.0.1:4470",BuildConfig.API_ORIGIN)
         val file=File(context.filesDir,"vanops-live-proof-private.json")
         val config=JSONObject(file.readText())
@@ -67,10 +68,23 @@ class VanOpsLiveProofTest {
         var scenario: ActivityScenario<MainActivity>?=null
         var db: VanDatabase?=null
         try {
-            if(phase=="prepare") {
+            if(phase=="signature") {
+                val acknowledgement=CompletableDeferred<String>()
+                scenario=ActivityScenario.launch(MainActivity::class.java)
+                scenario.onActivity {a->a.setContent {Theme {Column {CustomerSignature("SAMPLE Customer",{}, {if(it!=null) acknowledgement.complete(it)})}}}}
+                compose.onNodeWithTag("return-customer-name").assertTextContains("SAMPLE Customer")
+                compose.onNodeWithTag("return-signature").performTouchInput {swipe(Offset(width*0.2f,height*0.7f),Offset(width*0.8f,height*0.25f),500)}
+                val ack=JSONObject(withTimeout(10_000){acknowledgement.await()})
+                assertEquals("SAMPLE Customer",ack.getString("name"));assertTrue(ack.getBoolean("accepted"))
+                assertTrue(ack.getJSONArray("strokes").getJSONArray(0).length()>=2)
+                compose.waitForIdle();screenshot("customer-signature-visible")
+                result("signature",JSONObject().put("source","actual acknowledgement canvas; no second return recorded").put("name",ack.getString("name")).put("strokes",ack.getJSONArray("strokes").length()))
+            } else if(phase=="prepare") {
                 repository.signIn(config.getString("email"),config.getString("password"));repository.syncNow()
-                assertEquals(config.getString("tripId"),repository.currentTrip.first()!!.tripId)
-                assertEquals(1,repository.policy.first()!!.operationsVersion)
+                val downloadedTrip=withTimeout(30_000){repository.currentTrip.first {it!=null}}!!
+                val downloadedPolicy=withTimeout(30_000){repository.policy.first {it!=null}}!!
+                assertEquals(config.getString("tripId"),downloadedTrip.tripId)
+                assertEquals(1,downloadedPolicy.operationsVersion)
                 assertTrue(repository.products.first().any {it.productId==config.getString("productId")})
                 assertTrue(repository.customers.first().any {it.outletId==config.getString("outletId")})
                 config.remove("password");config.remove("email");file.writeText(config.toString())
@@ -114,10 +128,10 @@ class VanOpsLiveProofTest {
                     compose.onNodeWithTag("damage-capture").performClick()
                     val encoded=repository.prepareReturnPhoto(withTimeout(30_000){photo.await()})
                     val acknowledgement=CompletableDeferred<String>()
-                    scenario.onActivity {a->a.setContent {Theme {CustomerSignature("SAMPLE Customer",{}, {if(it!=null) acknowledgement.complete(it)})}}}
+                    scenario.onActivity {a->a.setContent {Theme {Column {CustomerSignature("SAMPLE Customer",{}, {if(it!=null) acknowledgement.complete(it)})}}}}
                     compose.onNodeWithTag("return-signature").assertExists().performTouchInput {swipe(Offset(width*0.2f,height*0.7f),Offset(width*0.8f,height*0.25f),500)}
                     val signature=withTimeout(10_000){acknowledgement.await()}
-                    screenshot("customer-signature")
+                    compose.waitForIdle();screenshot("customer-signature")
                     repository.recordReturn(ReturnRequest(UUID.randomUUID().toString(),outlet,sale.saleId,listOf(ReturnLineInput(product,"PC",1,"damaged",ReturnDisposition.BAD_STOCK,allocations.getJSONObject(0).getString("batch"))),acknowledgementJson=signature,photoJson=encoded))
                     val items=repository.routeSnapshot()!!.getJSONObject("policies").getJSONObject("returnables").getJSONArray("items")
                     for(i in 0 until items.length()) {val code=items.getJSONObject(i).getString("code");repository.recordReturnable(null,code,"count",if(code=="crate")12 else 0)}
@@ -152,7 +166,11 @@ class VanOpsLiveProofTest {
                     result(phase!!,JSONObject().put("pending",store.pending().size).put("operationCount",operations.length()).put("immutableBytes",true).put("settlementState",route.optString("settlementState")))
                     scenario=ActivityScenario.launch(MainActivity::class.java)
                     compose.waitUntil(30_000){runCatching {compose.onNodeWithTag("open-route-ops").assertExists()}.isSuccess}
-                    compose.onNodeWithTag("open-route-ops").performScrollTo().performClick();compose.waitForIdle();screenshot(if(phase=="sync")"pending-supervisor" else "office-signoff-state")
+                    compose.onNodeWithTag("open-route-ops").performScrollTo().performClick()
+                    val expectedState=if(phase=="sync")"Pending supervisor" else "Approved · waiting for SAP"
+                    compose.waitUntil(30_000){runCatching {compose.onNodeWithTag("local-settlement-state").assertTextEquals(expectedState)}.isSuccess}
+                    compose.waitUntil(30_000){runCatching {compose.onNodeWithTag("route-scorecard-sales").assertTextContains("₱12.00")}.isSuccess}
+                    compose.waitForIdle();screenshot(if(phase=="sync")"pending-supervisor-loaded" else "office-signoff-state-loaded")
                 }
             }
         } catch(error: Throwable) {runCatching {screenshot("failure-$phase")};throw error}
