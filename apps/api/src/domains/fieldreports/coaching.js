@@ -30,6 +30,7 @@ import {
 } from "./rules.js";
 import { execution } from "./reads.js";
 import { scopeFilterForActor } from "../org/scope.js";
+import { carryGaps, jointCallState } from "./joint-calls.js";
 
 /** @param {any} c @param {string} id @param {boolean} [write] */
 export async function session(c, id, write = false, requireOpen = true) {
@@ -90,12 +91,15 @@ export async function sessionDetail(c, id) {
         : undefined,
   };
   const mcp = { planned: x.summary.planned, done: x.summary.plannedDone };
+  // F-223: agreed actions, and earlier agreements this joint call must review before completion.
+  const jointCall = await jointCallState(c, s);
   return {
     session: row,
     trainerName: s.trainer_name,
     traineeName: s.trainee_name,
     mcp,
-    gaps: completionGaps(row, mcp),
+    jointCall,
+    gaps: [...completionGaps(row, mcp), ...carryGaps(jointCall)],
     canEdit:
       s.trainer_profile_id === c.actor.profileId &&
       s.status === "open" &&

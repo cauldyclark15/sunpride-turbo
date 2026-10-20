@@ -1,6 +1,7 @@
 "use client";
 
 import type { EndpointResult, EndpointArgs } from "./report-api";
+import { JointCallActions } from "./joint-call-actions";
 
 import { Button } from "@heroui/react";
 import type { Id } from "./report-dto";
@@ -780,9 +781,19 @@ function SessionEditor({
         cancel={cancel}
         onClose={onClose}
       />
+      <JointCallActions
+        key={`${sessionId}-actions-${detail.session.status}`}
+        detail={detail}
+        today={todayManila()}
+      />
       <SessionTrainerForms sessionId={sessionId} />
     </div>
   );
+}
+
+/** Manila calendar day for overdue labels. */
+function todayManila() {
+  return new Date(Date.now() + 8 * 3_600_000).toISOString().slice(0, 10);
 }
 
 function MyWorkWith({

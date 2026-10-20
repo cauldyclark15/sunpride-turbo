@@ -69,4 +69,10 @@
  * @typedef {{id:string,cascadeId:string,kind:'submitted'|'published'|'rejected'|'superseded',actorId:string,
  * detail:Record<string,unknown>,createdAt:Date,updatedAt:Date}} TargetCascadeEvent
  */
+/** F-223 additive row contract (0455). An action is reviewed only in a later joint call of the same pair.
+ * @typedef {{id:string,sessionId:string,trainerProfileId:string,traineeProfileId:string,orgUnitId:string,
+ * ordinal:number,agreement:string,owner:'trainee'|'trainer',dueOn:Date,status:'open'|'done'|'not_done',
+ * reviewedInSessionId:string|null,reviewNote:string|null,reviewedBy:string|null,reviewedAt:Date|null,
+ * createdAt:Date,updatedAt:Date}} JointCallAction
+ */
 export {};

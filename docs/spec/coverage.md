@@ -103,9 +103,15 @@ Targets now cover sales value, sales volume (per product), buying stores (covera
 
 Remaining for F-615: non-sales measures are published as a cascade bundle but the field apps do not yet receive it, and the per-measure actuals (volume in base UOM, distribution, MSL) are not yet compared against these targets on web, native or van screens. Volume uses order quantity in the ordered UOM until governed base-UOM conversion exists (`SEAM(MASTERS)`). Sample channel keys differ only by letter case (`gt`/`GT`); the cascade shows them as stored rather than guessing a merge (`SEAM(MASTERS)`).
 
-## F-223 / F-613: explicitly remaining
+## F-223: joint call follow-up
 
-This lane has not implemented the missing joint-call action carry-forward or collections planning/cheque lifecycle. Existing supervision and Money screens are preserved; their existing behavior is not credited as completion of these specification gaps. Deployment and seam integration remain the lead's responsibility.
+The joint call stays the existing Work-With session: observation checklist (BCP/PSF), training log, pre-call review and post-call SWOT are unchanged. The trainer now records up to ten agreed actions on the session (agreement, trainee or trainer as owner, due day on or after the call). Every unreviewed action is carried into the next joint call between the same trainer and trainee (sessions on or after the agreeing day; cancelled sessions excluded; another trainer of the same trainee does not inherit them). There the trainer marks each Done or Not done with a note of what was seen; the session cannot be completed until every carried action is reviewed (an extra completion gap per action). An action is never reviewed in the session that agreed it, a review is final (same review replays, a different one is refused), and a session's actions are frozen once any was reviewed. Supervision → Work-With shows the follow-up panel on the session.
+
+Remaining for F-223: the offline native supervisor editor (Android/iOS) is not built; supervisors record actions in the web office app. Talk Sheets remain the separate partner-meeting form.
+
+## F-613: explicitly remaining
+
+This lane has not implemented collections planning (promise-to-pay, collector route, post-dated/bounced cheque lifecycle). Existing Money screens are preserved; their existing behavior is not credited as completion. Deployment and seam integration remain the lead's responsibility.
 
 ## Needs Sunpride — F-210
 
