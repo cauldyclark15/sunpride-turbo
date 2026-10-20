@@ -8,6 +8,8 @@ Definitions contain ordered `{key, adapter, label, required, condition}` steps. 
 
 Settings → Admin → Call flows edits definitions, radius/dwell policies, shared no-order reasons, and app/channel/class profile bindings. Decide shows independently reviewable exceptions and a seven-day breakdown separating in-sequence, deviated and unplanned calls. The breakdown retains closed exceptions after a decision and gates every historical row by current employee and outlet ownership. Overflow is refused explicitly, never silently reported as complete.
 
+These masters are nationwide. Publication reuses the platform's national-scope gate: super administrators and nationally scoped administrators may publish; an area-only administrator may view but cannot change every other area's rules. Supervisor call-exception decisions remain separately current-scope gated.
+
 ## F-006 F-107: existing writers are adapters
 
 | Surface | Adapter                                    | Authoritative fact                                                                                               |

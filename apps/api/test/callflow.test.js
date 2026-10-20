@@ -9,6 +9,7 @@ import { install as visits } from "../src/domains/visits/index.js";
 import { install as van } from "../src/domains/van/index.js";
 import { install as callflow } from "../src/domains/callflow/index.js";
 import { manilaDate } from "../src/domains/visits/shared.js";
+import { rootUnitId } from "../src/domains/org/scope.js";
 import {
   configuration,
   configurationsForApp,
@@ -25,6 +26,7 @@ const rootUnit = crypto.randomUUID();
 beforeAll(async () => {
   h = await startHarness({ installers: [visits, van, callflow] });
   profiles = profileStore(h);
+  h.setHooks({ rootUnitId });
   await h.db`insert into org_units(id,organization_id,code,name,type_code,status,effective_from) values (${rootUnit},'sunpride','SUNPRIDE','Sample national','national','active',${new Date(Date.now() - 30 * DAY)})`;
   await ensureCallflowSamples(h.db, Date.now() - DAY);
 });
@@ -37,7 +39,7 @@ async function fixture(options = {}) {
     day = manilaDate(now),
     early = new Date(now - 10 * 86400000),
     unit = options.unit ?? crypto.randomUUID();
-  await h.db`insert into org_units (id,organization_id,code,name,type_code,status,effective_from,parent_id) values (${unit},'sunpride',${unit},'Cebu team','territory','active',${early},${rootUnit}) on conflict do nothing`;
+  await h.db`insert into org_units (id,organization_id,code,name,type_code,status,effective_from,parent_id) values (${unit},'sunpride',${unit},'Cebu team','territory','active',${early},${unit === rootUnit ? null : rootUnit}) on conflict do nothing`;
   const d = await boundDevice(h, profiles, {
     app: options.app ?? "field-android",
     role: options.role ?? "sales",
@@ -841,4 +843,61 @@ test("F-205 reports keep unplanned calls apart and exclude another salesperson",
   expect(body.counts).toEqual({ planned: 0, deviated: 0, unplanned: 1 });
   expect(body.items.length).toBe(1);
   expect(body.items[0].reason).toBe("Supervisor requested store");
+});
+test("F-006 F-107 nationwide flow masters refuse an area-only administrator but permit the national administrator", async () => {
+  const area = await fixture({ role: "admin" }),
+    national = await fixture({ role: "admin", unit: rootUnit }),
+    c = await config(area),
+    from = Date.now() + 60000,
+    key = `national_${crypto.randomUUID().replaceAll("-", "")}`;
+  const definition = {
+    channelProfile: key,
+    label: "Sample national flow",
+    steps: c.definition.steps,
+    effectiveFrom: from,
+  };
+  for (const [kind, payload] of [
+    ["definition", definition],
+    [
+      "policy",
+      {
+        channelProfile: key,
+        outletClass: "*",
+        radiusMeters: 100,
+        maxAccuracyMeters: 50,
+        maxFixAgeMs: 60000,
+        minDwellMs: 180000,
+        effectiveFrom: from,
+      },
+    ],
+    ["reason", { code: key, label: "Sample reason", effectiveFrom: from }],
+    [
+      "binding",
+      {
+        app: "field-android",
+        channelCode: "*",
+        outletClass: "*",
+        channelProfile: PROFILE_FIELD,
+        effectiveFrom: from,
+      },
+    ],
+  ])
+    expect(
+      (await webCall(area, `/api/v1/callflow/${kind}/publish`, payload)).status,
+    ).toBe(403);
+  expect(
+    (
+      await h.db`select id from call_flow_definitions where channel_profile=${key}`
+    ).length,
+  ).toBe(0);
+  const saved = await webCall(
+    national,
+    "/api/v1/callflow/definition/publish",
+    definition,
+  );
+  expect(saved.status).toBe(200);
+  expect(
+    (await h.db`select id from call_flow_definitions where id=${saved.body.id}`)
+      .length,
+  ).toBe(1);
 });

@@ -162,6 +162,11 @@ export function CallFlowAdmin() {
       <section className={panel}>
         <h2 className="text-lg font-semibold">Call flows</h2>
         <p className="text-sm text-muted">
+          A national administrator publishes future versions. Area
+          administrators can review the rules but cannot change them for the
+          whole company.
+        </p>
+        <p className="text-sm text-muted">
           Which rules will each seller follow? Review the steps, radius, dwell
           time and no-order reasons, then publish a future version. Both Android
           apps use the same engine offline.
