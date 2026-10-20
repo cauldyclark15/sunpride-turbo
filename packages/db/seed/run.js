@@ -18,11 +18,13 @@ const args = process.argv.slice(2);
 let reset = false;
 let sap = false;
 let distributors = false;
+let spec = false;
 /** @type {{anchorDate?:string,days?:number}} */
 const options = {};
 let invalid = false;
 for (let i = 0; i < args.length; i++) {
-  if (args[i] === "--sap") sap = true;
+  if (args[i] === "--spec") spec = true;
+  else if (args[i] === "--sap") sap = true;
   else if (args[i] === "--distributors") distributors = true;
   else if (args[i] === "--reset") reset = true;
   else if (args[i] === "--anchor-date" && args[i + 1])
@@ -34,29 +36,29 @@ for (let i = 0; i < args.length; i++) {
 if (
   !process.env.DATABASE_URL ||
   invalid ||
-  (reset && (sap || distributors)) ||
+  (reset && (sap || distributors || spec)) ||
   (reset && Object.keys(options).length > 0)
 ) {
   console.error(
-    "Usage: DATABASE_URL=… bun packages/db/seed/run.js [--reset | --anchor-date YYYY-MM-DD --days 90] [--sap] [--distributors]",
+    "Usage: DATABASE_URL=… bun packages/db/seed/run.js [--reset | --anchor-date YYYY-MM-DD --days 90] [--sap] [--distributors] [--spec]",
   );
   process.exitCode = 2;
 } else {
   const db = createDb(process.env.DATABASE_URL, { max: 1 });
   try {
     const result = reset ? await resetDemo(db) : await seedDemo(db, options);
-    const coverageSpec = reset ? null : await seedCoverageSpec(db);
-    const productiveSpec = reset ? null : await seedProductiveSpec(db);
-    const workforceSpec = reset ? null : await seedWorkforceSpec(db);
-    const dormancySpec = reset ? null : await seedDormancySpec(db);
-    if (!reset)
+    const coverageSpec = spec ? await seedCoverageSpec(db) : null;
+    const productiveSpec = spec ? await seedProductiveSpec(db) : null;
+    const workforceSpec = spec ? await seedWorkforceSpec(db) : null;
+    const dormancySpec = spec ? await seedDormancySpec(db) : null;
+    if (spec)
       result.partnerSamples = await ensurePartnerSamples(db, {
         date: options.anchorDate,
       });
-    const mt = reset ? null : await seedModernTrade(db);
-    if (!reset) await seedAvailability(db, options.anchorDate);
-    if (!reset) await seedFiscal(db);
-    if (!reset)
+    const mt = spec ? await seedModernTrade(db) : null;
+    if (spec) await seedAvailability(db, options.anchorDate);
+    if (spec) await seedFiscal(db);
+    if (spec)
       await tx(db, async (t) => {
         await seedFieldHierarchy(t);
         await seedSpecMasters(t);
