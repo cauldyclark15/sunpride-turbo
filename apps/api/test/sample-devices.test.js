@@ -115,17 +115,23 @@ test("concurrent sign-ins register once; active, suspended and revoked keys are 
     expect(rows[0].status).toBe(status);
   }
 });
-test("all three apps are supported, with distinct app registration", async () => {
-  const p = await person();
-  for (const app of ["field-android", "field-ios", "van-android"]) {
-    expect((await login(p, await deviceKey(), app)).res.status).toBe(200);
+test("F-007 all apps remain supported but a second app requires controlled handover", async () => {
+  for (const firstApp of ["field-android", "field-ios", "van-android"]) {
+    const p = await person();
+    for (const app of [
+      firstApp,
+      ...["field-android", "field-ios", "van-android"].filter(
+        (a) => a !== firstApp,
+      ),
+    ]) {
+      expect((await login(p, await deviceKey(), app)).res.status).toBe(200);
+    }
+    const rows =
+      await h.db`select app,platform from registered_devices where profile_id=${p.profile.id}`;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].app).toBe(firstApp);
+    expect(rows[0].platform).toBe(firstApp === "field-ios" ? "ios" : "android");
   }
-  const rows =
-    await h.db`select app,platform from registered_devices where profile_id=${p.profile.id}`;
-  expect(rows).toHaveLength(3);
-  expect(
-    rows.find((/** @type {any} */ d) => d.app === "field-ios").platform,
-  ).toBe("ios");
 });
 test("one shared demo phone can carry several sample accounts, each with its own row and its own bind", async () => {
   const key = await deviceKey();
@@ -151,7 +157,7 @@ test("one shared demo phone can carry several sample accounts, each with its own
     ).length,
   ).toBe(0);
 });
-test("after an admin revokes a sample phone, a new phone registers; the revoked key is never restored and a suspension still blocks", async () => {
+test("F-007 a retired sample phone still requires controlled reconciliation before a new key", async () => {
   const p = await person(),
     oldKey = await deviceKey(),
     newKey = await deviceKey();
@@ -164,17 +170,20 @@ test("after an admin revokes a sample phone, a new phone registers; the revoked 
     ).map((/** @type {any} */ r) => r.status),
   ).toEqual(["revoked"]);
   const { body } = await login(p, newKey);
-  const [fresh] =
-    await h.db`select * from registered_devices where profile_id=${p.profile.id} and status='active'`;
-  expect(fresh.key_id).toBe(newKey.keyId);
   expect(
-    (await bind(h, body.accessToken, fresh.id, newKey)).body.bindingStatus,
-  ).toBe("bound");
-  await h.db`update registered_devices set status='suspended' where id=${fresh.id}`;
-  await login(p, await deviceKey());
+    await h.db`select 1 from registered_devices where profile_id=${p.profile.id} and status='active'`,
+  ).toHaveLength(0);
+  const me = await h.fetch("/api/me", {
+    headers: {
+      authorization: `Bearer ${body.accessToken}`,
+      "x-app": "field-android",
+      "x-device-key-id": newKey.keyId,
+    },
+  });
+  expect((await me.json()).handoverRequired).toBe(true);
   expect(
     (
-      await h.db`select status from registered_devices where profile_id=${p.profile.id} order by created_at`
+      await h.db`select status from registered_devices where profile_id=${p.profile.id}`
     ).map((/** @type {any} */ r) => r.status),
-  ).toEqual(["revoked", "suspended"]);
+  ).toEqual(["revoked"]);
 });

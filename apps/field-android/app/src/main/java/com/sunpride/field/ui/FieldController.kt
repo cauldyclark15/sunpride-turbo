@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import android.content.Context
 import com.sunpride.field.storage.EncryptedFieldDatabase
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.withLock
 import com.sunpride.field.storage.RoomFieldStore
 import com.sunpride.field.storage.StoreScope
 import com.sunpride.field.storage.CallSheet
@@ -209,6 +210,38 @@ class LiveFieldBackend(
     private val visitTransport = com.sunpride.field.sync.LiveVisitTransport(environment, auth, functions)
     private val prefs = context.getSharedPreferences("field_v2_cache_index", Context.MODE_PRIVATE)
     init {
+        functions.api.onDeviceControl = { me ->
+            retireSuggestions()
+            runBlocking { com.sunpride.integrity.RemoteErasure.recordingLock.withLock {
+            val device = me.getJSONObject("device").getString("id")
+            val account = "v2:${environmentOrigin}|${me.getJSONObject("profile").getString("subject")}"
+            val scope = StoreScope(account, device, me.getJSONObject("scope").getString("fingerprint"))
+            val store = EncryptedFieldDatabase.store(context, scope)
+            val photoFiles = com.sunpride.field.evidence.KeystorePhotoFiles(context)
+            try {
+                store.freezeForRecovery()
+                val bundle = store.recoveryBundle()
+                val tables = bundle.getJSONArray("tables")
+                val files = mutableListOf<com.sunpride.integrity.RemoteErasure.RecoveryFile>()
+                for (i in 0 until tables.length()) {
+                    val table = tables.getJSONObject(i)
+                    if (table.getString("table") != "evidence_photos") continue
+                    val rows = table.getJSONArray("rows")
+                    for (n in 0 until rows.length()) {
+                        val row = rows.getJSONObject(n)
+                        val id = row.getString("localId")
+                        if (row.getString("state") == "uploaded" && !photoFiles.exists(id)) continue
+                        files.add(com.sunpride.integrity.RemoteErasure.RecoveryFile(id, photoFiles.read(id)))
+                    }
+                }
+                com.sunpride.integrity.RemoteErasure.perform(context, me, bundle, files,
+                    { signerLoader().sign(it) }, { path, body -> functions.api.post(path, body) },
+                    { store.eraseRecoveredAccount() }, { id -> photoFiles.delete(id) },
+                    { auth.signOut(); prefs.edit().clear().commit() })
+            } finally { store.close() }
+            } }
+            throw AuthFailure(AuthFailure.Kind.SESSION_EXPIRED)
+        }
         val transport = context.getSharedPreferences("field_transport_epoch", Context.MODE_PRIVATE)
         if (transport.getInt("epoch", 0) != 2) {
             runBlocking { EncryptedFieldDatabase.holdExisting(context) }
@@ -353,26 +386,40 @@ class LiveFieldBackend(
     }
     override fun savePhoto(clientVisitId: String, checkInRequestId: String, outletId: String, photoType: String,
         jpeg: ByteArray, capturedAt: Long) {
+        runBlocking { com.sunpride.integrity.RemoteErasure.recordingLock.withLock {
         val scope = storedScope() ?: error("No verified local partition")
         require(com.sunpride.field.storage.EvidencePhotos.isJpeg(jpeg) &&
             jpeg.size.toLong() in 1..com.sunpride.field.storage.EvidencePhotos.MAX_BYTES) { "Invalid photo" }
         val files = com.sunpride.field.evidence.KeystorePhotoFiles(context)
+        val at = System.currentTimeMillis()
+        val fix = com.sunpride.integrity.DeviceIntegrity.captureLocation(context, at)
+        val snapshot = EncryptedFieldDatabase.store(context, scope)
+        val captureFacts = try { runBlocking {
+            val me = snapshot.employeeId() ?: error("Missing verified person")
+            val outlet = snapshot.outlets().firstOrNull { it.id == outletId }?.let { JSONObject(it.json) }
+                ?: error("Missing verified outlet")
+            val employee = snapshot.employeeName() ?: error("Missing verified person name")
+            com.sunpride.integrity.ExecutionWatermark.Facts(fix.latitude, fix.longitude, fix.accuracy.toDouble(),
+                capturedAt, employee, me, outlet.optString("name").ifBlank { outlet.optString("code") }, outletId)
+        } } finally { snapshot.close() }
+        val watermarked = com.sunpride.integrity.ExecutionWatermark.burn(jpeg, captureFacts)
         val localId = java.util.UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
-        // Sealed file first, then the row: a crash in between leaves an unreferenced file, never a row without bytes.
-        files.write(localId, jpeg)
+        // F-312: pixels and capture metadata are frozen BEFORE hashing and encryption.
+        files.write(localId, watermarked)
         val store = EncryptedFieldDatabase.store(context, scope)
         try {
             runBlocking {
                 store.addPhoto(com.sunpride.field.storage.EvidencePhotoRow(scope.account, scope.deviceId,
                     scope.fingerprint, localId, clientVisitId, checkInRequestId, outletId, photoType,
-                    com.sunpride.field.storage.EvidencePhotos.MIME, jpeg.size.toLong(),
-                    com.sunpride.field.storage.EvidencePhotos.sha256Hex(jpeg), capturedAt, now), now)
+                    com.sunpride.field.storage.EvidencePhotos.MIME, watermarked.size.toLong(),
+                    com.sunpride.field.storage.EvidencePhotos.sha256Hex(watermarked), capturedAt, now), now)
             }
         } catch (e: Exception) { files.delete(localId); throw e }
         finally { store.close() }
         com.sunpride.field.diagnostics.SafeLog.event(context, "photo_saved")
         runCatching { com.sunpride.field.evidence.EvidenceWork.enqueue(context) }
+        } }
     }
     override fun uploadEvidence(): com.sunpride.field.evidence.UploadReport {
         val scope = storedScope() ?: return com.sunpride.field.evidence.UploadReport()
@@ -1318,6 +1365,9 @@ class FieldController(
         fun userMessage(e: Throwable): String = when (e) {
             is AuthFailure -> e.kind.message
             is ServerError -> when (e.code) {
+                "device_handover_required" -> "Another phone is active for your account. Ask the office to start a controlled handover."
+                "device_integrity_blocked" -> "This phone needs an integrity review before it can record work."
+                "device_integrity_required" -> "Refresh this phone online before recording work. Update the app if the integrity check is unavailable."
                 "Device identity mismatch" -> "This phone is registered to a different account. Ask your administrator."
                 "Device scope changed", "Device scope unavailable" ->
                     "Your assignment changed. Ask your administrator to re-register this phone."

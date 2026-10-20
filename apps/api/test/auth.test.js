@@ -220,6 +220,8 @@ describe("native D3 flow", () => {
     const mb = /** @type {any} */ (await me.json());
     expect(Object.keys(mb).sort()).toEqual([
       "device",
+      "deviceControl",
+      "handoverRequired",
       "permissions",
       "profile",
       "scope",

@@ -38,6 +38,16 @@ export async function deviceCommand(c, action, b) {
     (action === "suspend" && device.status !== "active")
   )
     rule("Invalid phone status transition");
+  // F-007: ordinary admin routes must not bypass the recovery hold.
+  if (
+    action === "reinstate" &&
+    (
+      await c.db`select 1 from device_controls where device_id=${device.id} and status='pending' limit 1`
+    ).length
+  )
+    rule(
+      "Finish the pending recovery or handover before reinstating this phone",
+    );
   await update(c.db, "registered_devices", device.id, {
     status:
       action === "suspend"
@@ -80,6 +90,14 @@ export async function registerDevice(c, b) {
     await c.db`select id,profile_id,status,public_key_spki from registered_devices where key_id=${keyId} and app=${b.app} for update`;
   if (existing.length)
     rule("This key is already registered; manage the existing phone instead");
+  if (
+    (
+      await c.db`select 1 from registered_devices where profile_id=${person.id} limit 1`
+    ).length
+  )
+    rule(
+      "Use a controlled handover to reconcile this person’s existing phone first",
+    );
   const [row] =
     await c.db`insert into registered_devices(profile_id,app,platform,inventory_tag,public_key_spki,key_id,org_unit_id,status)
     values(${person.id},${b.app},${b.app === "field-ios" ? "ios" : "android"},${tag},${publicKey},${keyId},${person.org_unit_id},'active') returning id`;

@@ -1,3 +1,4 @@
+import { observePush } from "../domains/integrity/detectors.js";
 import { tx } from "@sunpride/db/client";
 import { reauthorizeDevice, verifyDeviceProof } from "./devices.js";
 import { ApiError, conflict, invalid } from "./errors.js";
@@ -60,6 +61,7 @@ export const OP_CODES = Object.freeze([
   "unsupported_operation",
   "load_not_posted",
   "stock_conflict",
+  "mock_location_refused",
 ]);
 /** Advisory lock making change_log seq order equal commit order. */
 const CHANGE_LOCK = 4310002;
@@ -369,6 +371,7 @@ async function push(ctx) {
   const scope = await scopeOf(ctx.db, actor);
   if (body.scopeId !== scope.id)
     throw conflict("Your scope changed", "scope_changed");
+  /** @type {Array<ReturnType<typeof result>>} */
   const results = [];
   for (const op of body.operations) {
     if (!validOperation(op)) {
@@ -377,6 +380,21 @@ async function push(ctx) {
     }
     results.push(await applyOne(ctx, op, device.id));
   }
+  // F-221: outside rolled-back business transactions, but never let malformed clean requests dilute the rate.
+  await observePush(
+    ctx,
+    body.operations.filter(
+      (/** @type {any} */ op, /** @type {number} */ index) => {
+        const outcome = results[index];
+        return (
+          validOperation(op) &&
+          outcome &&
+          (["applied", "duplicate"].includes(outcome.status) ||
+            outcome.code === "mock_location_refused")
+        );
+      },
+    ),
+  );
   return { version: 2, serverTime: Date.now(), results };
 }
 

@@ -107,6 +107,8 @@ interface FieldStore {
     suspend fun employeeRole(): String? = null
     /** The signed-in employee's profile ID from the active snapshot (`employee.id`). */
     suspend fun employeeId(): String? = null
+    /** F-312: verified bootstrap name for the visible photo watermark. */
+    suspend fun employeeName(): String? = null
     /**
      * AND-020 small server summaries saved for offline display, kept in this partition's deltas table
      * under a reserved `local.` entity (server deltas are only `visit`/`activity`), so no migration.
@@ -251,6 +253,14 @@ const val PING_MAX_AGE_MS = 7 * 24 * 3_600_000L
 class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreScope,
     private val closesDatabase: Boolean = true) : FieldStore {
     private val dao = db.rows()
+    /** F-007: all scopes for THIS account/device, never other people on a shared phone. */
+    fun freezeForRecovery() {
+        db.openHelper.writableDatabase.execSQL("update partitions set held=1,syncHealth='held_for_review' where account=? and deviceId=?",arrayOf(identity.account,identity.deviceId))
+    }
+    fun recoveryBundle(): JSONObject = com.sunpride.integrity.PartitionRecovery.snapshot(db.openHelper.writableDatabase,
+        com.sunpride.integrity.PartitionRecovery.Partition("account",identity.account,identity.deviceId))
+    fun eraseRecoveredAccount() = com.sunpride.integrity.PartitionRecovery.erase(db.openHelper.writableDatabase,
+        com.sunpride.integrity.PartitionRecovery.Partition("account",identity.account,identity.deviceId))
     override fun close() { if (closesDatabase) db.close() }
     private val a get() = identity.account
     private val d get() = identity.deviceId
@@ -572,6 +582,8 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
     }
     override suspend fun employeeRole(): String? = metadata().takeIf { it.activeGeneration != null }?.employeeJson
         ?.let { runCatching { JSONObject(it).optString("role") }.getOrNull() }?.takeIf { it.isNotBlank() }
+    override suspend fun employeeName(): String? = metadata().takeIf { it.activeGeneration != null }?.employeeJson
+        ?.let { runCatching { JSONObject(it).optString("name") }.getOrNull() }?.takeIf { it.isNotBlank() }
     override suspend fun employeeId(): String? = metadata().takeIf { it.activeGeneration != null }?.employeeJson
         ?.let { runCatching { JSONObject(it).optString("id") }.getOrNull() }?.takeIf { it.isNotBlank() }
     override suspend fun localCache(entity: String, key: String): DeltaRow? {

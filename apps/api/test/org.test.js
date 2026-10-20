@@ -862,9 +862,11 @@ describe("setup queues, enrollment and current-scope history", () => {
       await h.db`select details from audit_logs where action='people.devices.register' order by created_at desc limit 1`;
     expect(JSON.stringify(audit.details)).not.toContain(key.publicKeySpki);
   });
-  test("device administration has legal transitions, private-key fields stay out of lists and foreign scope is denied", async () => {
+  test("F-007 device administration has legal transitions, private-key fields stay out of lists and foreign scope is denied", async () => {
+    // This transition fixture owns its person; the previous test already enrolled Seller's active phone.
+    const owner = await person("Seller", "sales", regionA.id);
     const [d] =
-      await h.db`insert into registered_devices(profile_id,app,platform,inventory_tag,public_key_spki,key_id,org_unit_id) values(${sales.profileId},'field-android','android','TEST-PHONE','test-only-public-key',${"a".repeat(64)},${regionA.id}) returning id`;
+      await h.db`insert into registered_devices(profile_id,app,platform,inventory_tag,public_key_spki,key_id,org_unit_id) values(${owner.profileId},'field-android','android','TEST-PHONE','test-only-public-key',${"a".repeat(64)},${regionA.id}) returning id`;
     expect(
       (
         await call("people/devices/suspend", other, {

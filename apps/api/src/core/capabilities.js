@@ -34,6 +34,8 @@ const ALL = ROLES;
 
 /** @type {Readonly<Record<string, readonly AppRole[]>>} */
 export const CAPABILITIES = Object.freeze({
+  "integrity.read": ["super_admin", "admin", "manager", "analyst"],
+  "integrity.review": ["super_admin", "admin", "manager"],
   "admin.manage": ["super_admin", "admin"],
   "org.read": ALL,
   "people.read": ["super_admin", "admin", "manager", "analyst", "viewer"],

@@ -2,6 +2,7 @@
 
 import { CallFlowReviews, CallFlowReport } from "../../callflow-admin";
 
+import { IntegrityReview } from "../../integrity/review";
 import Link from "next/link";
 import { FiscalWorkspace } from "../../fiscal/fiscal-workspace";
 import { useCallback, useState } from "react";
@@ -314,6 +315,7 @@ export function DecidePage() {
       <CallFlowReviews />
       <CallFlowReport />
       <FiscalWorkspace decisionsOnly />
+      <IntegrityReview />
     </CockpitPage>
   );
 }

@@ -9,6 +9,7 @@ import { vans } from "./vans.js";
 import { management } from "./management.js";
 import { ensureCallflowSamples } from "./callflow.js";
 import { seedTpm } from "./tpm.js";
+import { ensureIntegrityFleet } from "./integrity-fleet.js";
 import {
   BATCH,
   Dataset,
@@ -601,6 +602,7 @@ async function advanceDay(db, date, originalStart) {
       await t.unsafe(`lock table ${ident(table)} in share row exclusive mode`);
     const ctx = await context(t, date),
       { c, routeStops, depot } = ctx;
+    await ensureIntegrityFleet(t, date, c);
     const d = new DailyDataset(date, 1);
     const { postMovement } = await import(
       new URL("domains/inventory/posting.js", api).href

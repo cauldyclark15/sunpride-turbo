@@ -144,6 +144,8 @@ export async function nativeSignIn(
       app,
       email,
       password,
+      // F-024 explicit simulated OS assessment; production devices supply their own heuristics.
+      integrity: { rooted: false, tampered: false, source: "TEST fixture" },
       ...(deviceKey ? { deviceKey } : {}),
     }),
   });

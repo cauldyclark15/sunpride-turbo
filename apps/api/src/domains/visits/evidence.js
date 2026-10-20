@@ -95,9 +95,12 @@ export async function attach(ctx) {
   // Upload capability expiry gates PUT; offline metadata can arrive later without losing evidence.
   await ctx.db`insert into evidence_upload_claims (organization_id,visit_id,profile_id,device_id,subject,issued_at,expires_at,consumed_at,storage_id)
     values (${ORGANIZATION},${visit.id},${ctx.actor.profileId},${ctx.device.id},${ctx.actor.subject},${blob.created_at},${blob.upload_expires_at},${new Date(ctx.now)},${blob.id})`;
+  // F-312: persist upload-inspected provenance, never caller-supplied attachment metadata.
+  const [capture] =
+    await ctx.db`select manifest from photo_integrity_facts where file_id=${blob.id}`;
   const [row] =
-    await ctx.db`insert into field_evidence_files (organization_id,org_unit_id,storage_id,visit_id,owner_profile_id,outlet_id,mime,size_bytes,checksum,captured_at,photo_type,uploaded_at,status)
-    values (${ORGANIZATION},${visit.org_unit_id},${blob.id},${visit.id},${ctx.actor.profileId},${visit.outlet_id},${p.mime},${p.size},${p.checksum},${new Date(p.capturedAt)},${p.photoType},${new Date(ctx.now)},'pending') returning id`;
+    await ctx.db`insert into field_evidence_files (organization_id,org_unit_id,storage_id,visit_id,owner_profile_id,outlet_id,mime,size_bytes,checksum,captured_at,photo_type,uploaded_at,status,capture_manifest)
+    values (${ORGANIZATION},${visit.org_unit_id},${blob.id},${visit.id},${ctx.actor.profileId},${visit.outlet_id},${p.mime},${p.size},${p.checksum},${new Date(p.capturedAt)},${p.photoType},${new Date(ctx.now)},'pending',${capture?.manifest ?? null}) returning id`;
   await fieldAdapter(ctx, visit.id, "photo", row.id);
   const eventId = await event(
     ctx,

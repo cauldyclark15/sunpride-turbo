@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 import { PasswordInput } from "@sunpride/ui";
 import { LoadingScreen } from "./auth-gate";
+import { SsoButtons } from "./integrity/sso";
 import { safeAuthDestination } from "../lib/auth/routing";
 import { useSession } from "../lib/auth/session";
 
@@ -142,6 +143,7 @@ export function AuthScreen({ mode, next }: { mode: AuthMode; next?: string }) {
             {isLogin ? "Sign in" : "Create account"}
           </Button>
         </form>
+        {isLogin ? <SsoButtons /> : null}
         <Link
           href={alternateHref}
           className="mt-5 block w-full text-center text-sm font-medium text-muted hover:text-foreground"

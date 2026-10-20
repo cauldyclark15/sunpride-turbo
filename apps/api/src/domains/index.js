@@ -1,5 +1,6 @@
 // Registry of domain modules. Lead-owned: lanes replace only their own domain folder.
 import { install as tpm } from "./tpm/index.js";
+import { install as integrity } from "./integrity/index.js";
 import { install as org } from "./org/index.js";
 import { install as coverage } from "./coverage/index.js";
 import { install as visits } from "./visits/index.js";
@@ -37,4 +38,5 @@ export const domainInstallers = [
   tpm,
   masters,
   fiscal,
+  integrity,
 ];

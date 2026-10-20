@@ -61,6 +61,11 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
             // Even a precise-permission denial may leave approximate/network location available.
             val capture = location.captureOrUnavailable()
             // F-106: the shared engine refuses weak, mock, stale or outside-radius fixes before outbox insertion.
+            // F-024: the client spec supersedes the legacy mock-fix exception. No check-in is queued.
+            if (kind == "visit.checkIn" && (capture as? LocationCapture.Captured)?.fix?.mockSignal == true) {
+                locationNotice = LocationNotice("Check-in refused. Turn off mock location and try again.", true)
+                return
+            }
             locationNotice = LocationAssessment.notice(capture, System.currentTimeMillis())
             controller.queueDiagnostic(kind, if (kind == "visit.checkIn") reason else reasonCode,
                 null, if (kind == "visit.checkOut") outcome else null, capture.wire,

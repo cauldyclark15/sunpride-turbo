@@ -27,6 +27,7 @@ import {
   type AssignableRole,
 } from "./people-admin";
 import { TeamsAdmin } from "./teams-admin";
+import { IntegrityFleet } from "./integrity/fleet";
 import { DevicesAdmin } from "./devices-admin";
 import { CallFlowAdmin } from "./callflow-admin";
 import { MastersWorkspace } from "./spec-masters/workspace";
@@ -51,6 +52,7 @@ const tabs = [
   ["callflow", "Call flows"],
   ["field-masters", "Field masters"],
   ["fiscal", "Fiscal & authority"],
+  ["fleet", "Fleet & integrity"],
 ] as const;
 type AdminTab = (typeof tabs)[number][0];
 
@@ -93,6 +95,8 @@ export function AdminWorkspace() {
         <MastersWorkspace />
       ) : activeTab === "fiscal" ? (
         <FiscalWorkspace />
+      ) : activeTab === "fleet" ? (
+        <IntegrityFleet />
       ) : activeTab === "devices" ? (
         <DevicesAdmin />
       ) : (

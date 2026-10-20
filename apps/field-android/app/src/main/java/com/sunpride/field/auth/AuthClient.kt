@@ -39,6 +39,7 @@ class AuthClient(private val environment: AppEnvironment, private val vault: Ses
         if (!environment.isReady) throw AuthFailure(AuthFailure.Kind.NOT_CONFIGURED)
         val body = JSONObject().put("version", 2).put("app", NativeApi.APP)
             .put("email", email.trim()).put("password", password)
+            .put("integrity", com.sunpride.integrity.DeviceIntegrity.report())
         signer?.invoke()?.let { body.put("deviceKey", JSONObject().put("keyId", deviceKeyId())
             .put("publicKeySpki", it.publicKeyBase64)) }
         val o = exchange(SIGN_IN, body, null, signingIn = true)
@@ -58,7 +59,8 @@ class AuthClient(private val environment: AppEnvironment, private val vault: Ses
         val session = vault.readSession()?.takeIf { it.startsWith("sps_") }
             ?: throw AuthFailure(AuthFailure.Kind.SESSION_EXPIRED)
         val o = exchange(REFRESH_PATH, JSONObject().put("version", 2).put("app", NativeApi.APP)
-            .put("deviceKeyId", deviceKeyId() ?: JSONObject.NULL), session)
+            .put("deviceKeyId", deviceKeyId() ?: JSONObject.NULL)
+            .put("integrity", com.sunpride.integrity.DeviceIntegrity.report()), session)
         val token = credential(o, "accessToken", "spa_")
         val expiry = o.getLong("accessExpiresAt"); requireExpiry(o, expiry)
         access = token; refreshAt = expiry - REFRESH_MARGIN_MS
