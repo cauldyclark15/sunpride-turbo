@@ -4,7 +4,7 @@ import { install as org } from "../src/domains/org/index.js";
 import { install as orders } from "../src/domains/orders/index.js";
 import { install as mt } from "../src/domains/mt/index.js";
 import { ensureRoot } from "../src/domains/org/identity.js";
-import { resolvePrice } from "../src/domains/orders/pricing.js";
+import { resolvePrice, creditCheck } from "../src/domains/orders/pricing.js";
 import { parsePurchaseOrder, csv } from "../src/domains/mt/parsers.js";
 import { deductionFlow } from "../src/domains/mt/metrics.js";
 import { tx } from "@sunpride/db/client";
@@ -344,6 +344,44 @@ test("F-306 price preview is known money, not zero, and changed approved prices 
     expect(reviewed.body.lines[0].grossCentavos).toBe(2 * changed);
   } finally {
     await h.db`update mt_term_conditions set amount_centavos=${condition.amount_centavos} where id=${condition.id}`;
+  }
+});
+
+test("F-307 expired hierarchy bindings cannot fall back to channel pricing or local credit authority", async () => {
+  const binding = branches[0];
+  const [control] =
+    await h.db`insert into price_lists(organization_id,code,name,currency,status,source,effective_from) values('sunpride','SAMPLE-CONTROL','Sample generic fallback control','PHP','active','sample','2020-01-01') returning id`;
+  await h.db`insert into price_list_lines(organization_id,price_list_id,product_id,uom,unit_price_minor,effective_from) values('sunpride',${control.id},${product},'PC',9999,'2020-01-01')`;
+  try {
+    await h.db`update mt_account_bindings set effective_to='2021-01-01' where id=${binding.id}`;
+    const q = {
+      organizationId: "sunpride",
+      productId: product,
+      uom: "PC",
+      channelKey: null,
+      customerCode: "A1",
+      outletId: binding.outlet_id,
+      at: Date.now(),
+    };
+    const price = await resolvePrice(h.db, q);
+    expect(price.unitPriceCentavos).toBeNull();
+    expect(price.source).toBe("missing_account_binding");
+    expect(
+      (await creditCheck(h.db, { customerCode: "A1", addCentavos: 0 })).status,
+    ).toBe("unknown");
+    expect(
+      (
+        await resolvePrice(h.db, {
+          ...q,
+          customerCode: "UNBOUND-TEST",
+          outletId: null,
+        })
+      ).unitPriceCentavos,
+    ).toBe(9999);
+  } finally {
+    await h.db`update mt_account_bindings set effective_to=null where id=${binding.id}`;
+    await h.db`delete from price_list_lines where price_list_id=${control.id}`;
+    await h.db`delete from price_lists where id=${control.id}`;
   }
 });
 

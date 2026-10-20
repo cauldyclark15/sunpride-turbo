@@ -13,25 +13,37 @@ export async function sapConditionPrice(term, condition) {
     source: "sample",
   };
 }
+/** A missing/expired path is not permission to replace SAP authority with a generic list.
+ * @param {any} db @param {string} code */
+async function knownAccount(db, code) {
+  const [row] =
+    await db`select 1 from mt_account_bindings b join customers c on c.id=b.customer_id where c.code=${code} limit 1`;
+  return Boolean(row);
+}
 /** SEAM(SAP): MT credit is unknown until SAP's credit-call adapter is wired.
  * Never turn locally captured open orders into a credit certificate.
  * @param {any} db @param {{customerCode:string}} q */
 export async function resolveAccountCredit(db, q) {
-  const [bound] =
-    await db`select 1 from mt_account_bindings b join customers c on c.id=b.customer_id where c.code=${q.customerCode} and b.effective_from<=now() and (b.effective_to is null or b.effective_to>now()) limit 1`;
-  return bound
+  return (await knownAccount(db, q.customerCode))
     ? { status: /** @type {const} */ ("unknown"), limit: null, exposure: null }
     : null;
 }
 /** F-307: branch > banner > account, effective approved conditions only; ambiguity fails closed.
- * null means there is no MT account binding (normal channel pricing remains unchanged).
+ * null means the customer was never bound to MT (normal channel pricing remains unchanged).
  * @param {any} db @param {any} q @returns {Promise<any>} */
 export async function resolveAccountPrice(db, q) {
   if (!q.customerCode || q.organizationId !== "sunpride") return null;
   const accountPaths = (await bindings(db, q.at)).filter(
     (/** @type {any} */ b) => b.customer_code === q.customerCode,
   );
-  if (!accountPaths.length) return null;
+  if (!accountPaths.length)
+    return (await knownAccount(db, q.customerCode))
+      ? {
+          unitPriceCentavos: null,
+          priceListId: null,
+          source: "missing_account_binding",
+        }
+      : null;
   const paths = q.outletId
     ? accountPaths.filter((/** @type {any} */ b) => b.outlet_id === q.outletId)
     : accountPaths;
