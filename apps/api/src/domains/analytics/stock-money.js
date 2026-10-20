@@ -1,3 +1,4 @@
+import { availabilityModel } from "./availability-adapter.js";
 import {
   kpi,
   sum,
@@ -206,6 +207,7 @@ export async function stockPage(db, p, s) {
   }
   const [universe] =
     await db`select count(*) as n from analytics_store_scope where status='active' and owner_unit_id in ${db(ids)} and (${p.channel}::text is null or channel=${p.channel})`;
+  const distribution = await availabilityModel(db, p, s);
   const rows = [];
   for (const pr of products) {
     const bs = balances.filter(
@@ -253,7 +255,19 @@ export async function stockPage(db, p, s) {
       valueCentavos: knownSum(bs, "inventory_value_minor"),
       avgDailySalesCases: avg === null ? null : Math.round(avg * 100) / 100,
       daysCover,
-      numericDistributionPct: pct(salesRow?.stores ?? 0, Number(universe.n)),
+      numericDistributionPct:
+        distribution.distribution.find(
+          (/** @type {any} */ d) => d.productId === pr.id,
+        )?.numericDistributionPct ?? null,
+      weightedDistributionPct:
+        distribution.distribution.find(
+          (/** @type {any} */ d) => d.productId === pr.id,
+        )?.weightedDistributionPct ?? null,
+      buyingReachPct: pct(salesRow?.stores ?? 0, Number(universe.n)),
+      unmeasuredStores:
+        distribution.distribution.find(
+          (/** @type {any} */ d) => d.productId === pr.id,
+        )?.unmeasured ?? Number(universe.n),
       oosStores: av.length
         ? av.filter((/** @type {any} */ a) =>
             ["out_of_stock", "not_carried"].includes(a.status),

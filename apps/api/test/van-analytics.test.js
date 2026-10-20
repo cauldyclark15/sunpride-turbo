@@ -86,6 +86,28 @@ test("cash and credit appear once on Today, drill-down and Money even with valid
   ).toBe(value(sales, "sales"));
   expect((await page("today")).kpis).toEqual(today.kpis);
 }, 30000);
+test("F-601 F-604 Outlet 360 receipt history and headline retain both native source documents with verified office tiles", async () => {
+  const response = await f.get(
+    `/api/v1/analytics/store?storeId=${f.store}&from=${f.today}&to=${f.today}`,
+  );
+  expect(response.status).toBe(200);
+  const store = await response.json();
+  expect(
+    store.orders.find((/** @type {any} */ r) => r.orderId === cashSale)
+      .totalCentavos,
+  ).toBe(10025);
+  expect(
+    store.orders.find((/** @type {any} */ r) => r.orderId === creditSale)
+      .totalCentavos,
+  ).toBe(20123);
+  expect(
+    store.orders.reduce(
+      (/** @type {number} */ n, /** @type {any} */ r) => n + r.totalCentavos,
+      0,
+    ),
+  ).toBe(value(store, "salesPeriod"));
+  expect(store.context.arScope).toContain("account");
+});
 test("a stock-only linked return is visible without inventing a cash refund", async () => {
   const returned = id();
   await h.db`insert into van_returns(id,trip_id,sale_id,return_number,captured_request) values(${returned},${trip.id},${cashSale},${returned},${{}})`;

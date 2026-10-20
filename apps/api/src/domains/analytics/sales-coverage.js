@@ -26,6 +26,7 @@ import { readVans } from "./stock-money.js";
 import { exceptionsFor } from "./exceptions.js";
 import { ApiError } from "../../core/errors.js";
 import { sliceTiles } from "./tiles.js";
+import { availabilityModel } from "./availability-adapter.js";
 
 /** @param {any} db @param {any} p @param {any} s @param {string} [group] @param {string|null} [parent] */
 export async function salesPage(db, p, s, group = "channel", parent = null) {
@@ -494,12 +495,15 @@ export async function todayPage(ctx, p, s) {
 export async function coveragePage(db, p, s, group) {
   if (!["agent", "territory"].includes(group))
     throw new ApiError("invalid_group", 400, "Choose agent or territory");
-  const [facts, people, sales, priorFacts] = await Promise.all([
-    readVisits(db, p, s),
-    readPeople(db, s, p.channel),
-    readSales(db, p, s, "agent"),
-    readVisits(db, { ...p, ...p.compare }, s),
-  ]);
+  const [facts, people, sales, priorFacts, availability, priorAvailability] =
+    await Promise.all([
+      readVisits(db, p, s),
+      readPeople(db, s, p.channel),
+      readSales(db, p, s, "agent"),
+      readVisits(db, { ...p, ...p.compare }, s),
+      availabilityModel(db, p, s),
+      availabilityModel(db, { ...p, ...p.compare }, s),
+    ]);
   const all = visitSummary(facts),
     before = visitSummary(priorFacts);
   const weekStart = (/** @type {string} */ d) =>
@@ -573,11 +577,24 @@ export async function coveragePage(db, p, s, group) {
       productive: a.productive,
       strikeRatePct: a.strikeRate,
       productiveCallPct: a.productivePct,
+      distributionGained: stockingGain(
+        availability.observations,
+        priorAvailability.observations,
+        g.ids,
+      ),
       dwellMin: a.dwellMin,
       orderCalls: a.orderCalls,
       completedCalls: a.completedCalls,
-      dropSize: (() => { const rs = sales.rows.filter((/** @type {any} */ r) => g.ids.includes(r.key)); const n = sum(rs,"orders"); return n ? Math.round(sum(rs,"sales")/n) : null; })(),
-      linesPerCall: a.completedCalls ? Math.round((a.callLines / a.completedCalls) * 10) / 10 : null,
+      dropSize: (() => {
+        const rs = sales.rows.filter((/** @type {any} */ r) =>
+          g.ids.includes(r.key),
+        );
+        const n = sum(rs, "orders");
+        return n ? Math.round(sum(rs, "sales") / n) : null;
+      })(),
+      linesPerCall: a.completedCalls
+        ? Math.round((a.callLines / a.completedCalls) * 10) / 10
+        : null,
       firstCallAt: a.first,
       lastCallAt: a.last,
       timeInMarketMin: a.time,
@@ -670,10 +687,65 @@ export async function coveragePage(db, p, s, group) {
         "Completed coaching sessions dated by their service day.",
       ),
     ],
-    productivity: { productiveCallPct: all.productivePct, priorProductiveCallPct: before.productivePct, dwellMin: all.dwellMin, priorDwellMin: before.dwellMin, orderCalls: all.orderCalls, completedCalls: all.completedCalls, definitionVersion: "commercial/v1" },
+    productivityTrend: weeks.map((w) => {
+      const summary = visitSummary({
+        planned: facts.planned.filter(
+          (/** @type {any} */ r) => weekByRow.get(r) === w.weekStart,
+        ),
+        visits: facts.visits.filter(
+          (/** @type {any} */ r) => weekByRow.get(r) === w.weekStart,
+        ),
+        coaching: [],
+      });
+      return {
+        date: w.weekStart,
+        strikeRatePct: summary.strikeRate,
+        productiveCallPct: summary.productivePct,
+        dwellMin: summary.dwellMin,
+      };
+    }),
+    productivity: {
+      productiveCallPct: all.productivePct,
+      priorProductiveCallPct: before.productivePct,
+      dwellMin: all.dwellMin,
+      priorDwellMin: before.dwellMin,
+      orderCalls: all.orderCalls,
+      completedCalls: all.completedCalls,
+      definitionVersion: "commercial/v1",
+    },
     weeks,
-    rows,
+    rows: rows
+      .sort(
+        (a, b) =>
+          (b.strikeRatePct ?? -1) - (a.strikeRatePct ?? -1) ||
+          a.label.localeCompare(b.label),
+      )
+      .map((r, i) => ({ ...r, rank: r.strikeRatePct === null ? null : i + 1 })),
   };
+}
+
+/** F-605 matched fresh observations only; unmeasured is never a gained/lost stocking point.
+ * @param {any[]} current @param {any[]} prior @param {string[]} profileIds */
+function stockingGain(current, prior, profileIds) {
+  const before = new Map(
+    prior.map((r) => [`${r.outlet_id}:${r.product_id}`, r]),
+  );
+  const pairs = current.filter(
+    (r) =>
+      profileIds.includes(r.assignee_profile_id) &&
+      before.has(`${r.outlet_id}:${r.product_id}`),
+  );
+  const present = (/** @type {any} */ r) =>
+    ["available", "low_stock"].includes(r.status);
+  return pairs.length
+    ? pairs.reduce(
+        (n, r) =>
+          n +
+          Number(present(r)) -
+          Number(present(before.get(`${r.outlet_id}:${r.product_id}`))),
+        0,
+      )
+    : null;
 }
 
 /** @param {any} ctx @param {any} p @param {any} s */

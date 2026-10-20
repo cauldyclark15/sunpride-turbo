@@ -5,6 +5,7 @@ import { stockBook } from "./stock.js";
 import { execution } from "./execution.js";
 import { vans } from "./vans.js";
 import { management } from "./management.js";
+import { towerSamples, extendTowerSamples } from "./tower.js";
 export { resetDemo } from "./store.js";
 
 /** @param {{anchorDate?:string,days?:number}} [options] @param {string[]} [hashes] */
@@ -35,6 +36,7 @@ export function generateDemo(
   vans(data, c, stock);
   stock.finish();
   management(data, c, e);
+  towerSamples(data, c);
   // Keep the legacy analytics mirrors and ORDERS' canonical centavo facts equal.
   for (const order of data.rows("orders")) {
     order.subtotal_centavos = Math.round(Number(order.subtotal) * 100);
@@ -122,6 +124,7 @@ export async function seedDemo(
       const summary = JSON.parse(existing.details);
       if (summary.anchorDate !== anchorDate || summary.days !== days)
         throw new Error("Demo options changed; run --reset before reseeding");
+      await extendTowerSamples(t, anchorDate, days);
       return { ...summary, duplicate: true };
     }
     const [partial] =

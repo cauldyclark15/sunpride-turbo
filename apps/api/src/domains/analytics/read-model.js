@@ -10,8 +10,10 @@ export async function rebuildSalesCache(db, from, to) {
     await t`set local jit=off`;
     await t`set local work_mem='64MB'`;
     await t`select pg_advisory_xact_lock(hashtext('analytics.sales-cache'))`;
-    // Lock source rows so no write can commit between the projection and its watermark.
-    await t`select id from orders where (coalesce(offline_created_at,created_at) at time zone 'Asia/Manila')::date between ${from} and ${to} for share`;
+    // F-601: lock tiny revision rows, not 54k facts. A concurrent source write either
+    // precedes the snapshot or waits and invalidates it after this transaction commits.
+    await t`insert into analytics_source_versions(service_date) select d::date from generate_series(${from}::date,${to}::date,'1 day') d on conflict do nothing`;
+    await t`select service_date,revision from analytics_source_versions where service_date between ${from} and ${to} order by service_date for share`;
     const [masters] =
       await t`select analytics_master_fingerprint() as fingerprint`;
     await t`delete from analytics_sales_cache where service_date between ${from} and ${to}`;
@@ -26,9 +28,9 @@ export async function rebuildSalesCache(db, from, to) {
       await t`select analytics_master_fingerprint() as fingerprint`;
     if (after.fingerprint !== masters.fingerprint)
       throw new Error("analytics masters changed; retry refresh");
-    await t`insert into analytics_refresh_state(service_date,computed_at,masters_fingerprint)
-      select d::date,transaction_timestamp(),${masters.fingerprint} from generate_series(${from}::date,${to}::date,'1 day'::interval) d
-      on conflict(service_date) do update set computed_at=excluded.computed_at,masters_fingerprint=excluded.masters_fingerprint,updated_at=now()`;
+    await t`insert into analytics_refresh_state(service_date,computed_at,masters_fingerprint,source_version)
+      select service_date,transaction_timestamp(),${masters.fingerprint},revision from analytics_source_versions where service_date between ${from} and ${to}
+      on conflict(service_date) do update set computed_at=excluded.computed_at,masters_fingerprint=excluded.masters_fingerprint,source_version=excluded.source_version,updated_at=now()`;
   });
 }
 /** Choose a projection only when every source date is refreshed and no source update is newer.
@@ -53,14 +55,11 @@ export async function salesSource(db, p, s) {
       (async () => {
         const [r] =
           await db`with fingerprint as materialized(select analytics_master_fingerprint() as value)
-    select not exists(select 1 from generate_series(${p.from}::date,${p.to}::date,'1 day') d left join analytics_refresh_state r on r.service_date=d::date cross join fingerprint f where r.masters_fingerprint is distinct from f.value)
-    and not exists(
-      select 1 from
-       (select l.id,o.change_seq as order_seq,l.change_seq as line_seq from orders o join order_lines l on l.order_id=o.id
-        where (coalesce(o.offline_created_at,o.created_at) at time zone 'Asia/Manila')::date between ${p.from} and ${p.to}
-        and o.deleted_at is null and l.deleted_at is null and o.status not in ('draft','rejected','voided')) live
-      full join (select line_id,source_order_seq,source_line_seq from analytics_sales_cache where service_date between ${p.from} and ${p.to}) cached on cached.line_id=live.id
-      where live.id is null or cached.line_id is null or live.order_seq!=cached.source_order_seq or live.line_seq!=cached.source_line_seq) as ready`;
+    select not exists(select 1 from generate_series(${p.from}::date,${p.to}::date,'1 day') d
+      left join analytics_refresh_state r on r.service_date=d::date
+      left join analytics_source_versions v on v.service_date=d::date cross join fingerprint f
+      where r.masters_fingerprint is distinct from f.value or r.source_version is null
+        or r.source_version is distinct from v.revision) as ready`;
         return r.ready ? "tiles" : "analytics_sales_facts";
       })(),
     );

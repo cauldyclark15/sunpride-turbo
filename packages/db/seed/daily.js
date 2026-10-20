@@ -4,6 +4,7 @@ import { company } from "./company.js";
 import { execution } from "./execution.js";
 import { vans } from "./vans.js";
 import { management } from "./management.js";
+import { extendTowerSamples } from "./tower.js";
 import {
   BATCH,
   Dataset,
@@ -578,6 +579,7 @@ async function advanceDay(db, date, originalStart) {
     await t`select pg_advisory_xact_lock(4310090)`;
     const [done] =
       await t`select 1 from sample_data_rows where batch=${BATCH} and key=${`audit_logs:daily-${date}-manifest`}`;
+    await extendTowerSamples(t, date);
     if (done) return { date, duplicate: true };
     const api = new URL("../../../apps/api/src/", import.meta.url);
     const { ORG_LOCK } = await import(

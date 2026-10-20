@@ -456,6 +456,7 @@ export function execution(d, c, stock, options = {}) {
               org_unit_id: a.org_unit_id,
               salesperson_profile_id: a.id,
               created_by_subject: a.auth_subject,
+              source_activity_id: activity.id,
               outlet_id: s.id,
               territory_id: c.territories[a.territoryIndex].id,
               channel_key: s.channel,
