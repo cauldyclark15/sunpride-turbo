@@ -552,7 +552,7 @@ test("owner day list includes full settlement and CSV protects formulas", async 
   expect(exportRes.headers.get("content-type")).toContain("text/csv");
   expect(await exportRes.text()).toContain(trip.tripNumber);
 });
-test("full van bundle uses exact root keys, own scope and typed policy", async () => {
+test("F-107 full van bundle uses exact root keys, own scope and typed policy", async () => {
   const r = await signedPost(h, who, "/api/sync/pull", {
     version: 2,
     app: "van-android",
