@@ -117,7 +117,7 @@ object OrderSubmission {
     fun activity(draft: OrderDraft): JSONObject = JSONObject().put("kind", KIND).put("clientOrderId", draft.draftId)
         .put("lines", JSONArray().apply { draft.lines.forEach { l ->
             put(JSONObject().put("productId", l.productId).put("uom", l.uom).put("quantity", l.quantity))
-        } })
+        } }).apply { draft.requestedDeliveryDate?.let { put("requestedDeliveryDate", it) } }
 
     /** Structural equality (org.json key order is not guaranteed on the JVM). */
     fun sameActivity(a: JSONObject, b: JSONObject): Boolean {
@@ -125,12 +125,14 @@ object OrderSubmission {
             arr.getJSONObject(i).let { Triple(it.getString("productId"), it.getString("uom"), it.getInt("quantity")) }
         } }
         return a.keys().asSequence().toSet() == b.keys().asSequence().toSet() && a.getString("kind") == b.getString("kind") &&
-            a.getString("clientOrderId") == b.getString("clientOrderId") && lines(a) == lines(b)
+            a.getString("clientOrderId") == b.getString("clientOrderId") && lines(a) == lines(b) &&
+            a.optString("requestedDeliveryDate") == b.optString("requestedDeliveryDate")
     }
 
     /** Shape of an outgoing order activity (mirrors the v1 schema bounds). */
     fun validateActivity(activity: JSONObject) {
-        require(activity.keys().asSequence().toSet() == setOf("kind", "clientOrderId", "lines"))
+        require(activity.keys().asSequence().toSet() == setOf("kind", "clientOrderId", "lines") + if(activity.has("requestedDeliveryDate")) setOf("requestedDeliveryDate") else emptySet())
+        if(activity.has("requestedDeliveryDate")) require(java.time.LocalDate.parse(activity.getString("requestedDeliveryDate")).toString() == activity.getString("requestedDeliveryDate"))
         require(activity.getString("kind") == KIND)
         val id = activity.getString("clientOrderId")
         require(UUID.fromString(id).toString() == id)
@@ -155,6 +157,8 @@ object OrderSubmission {
     suspend fun checks(store: FieldStore, draft: OrderDraft, now: Long): List<OrderCheck> {
         val ruleProblem = runCatching { OrderDraftRules.validate(store, draft.copy(submittedRequestId = null, submittedAt = null), null) }
             .exceptionOrNull()?.let { (it as? OrderDraftFailure)?.code?.text ?: "This draft no longer matches its call." }
+        val deliveryFlow=store.outlets().firstOrNull { it.id==draft.outletId }?.let { JSONObject(it.json).optJSONObject("callFlow") }
+        val deliveryProblem=runCatching { PresellDates.validate(deliveryFlow,draft.requestedDeliveryDate,now) }.exceptionOrNull()?.message
         val callProblem = ruleProblem?.takeIf {
             it == OrderDraftFailure.Code.CALL_ENDED.text || it == OrderDraftFailure.Code.CALL_NOT_OPEN.text
         }
@@ -175,7 +179,7 @@ object OrderSubmission {
             // Any other rule failure (forged association, etc.) still blocks submission visibly.
             if (ruleProblem != null && list.none { it.problem == ruleProblem }) list + OrderCheck("Order matches its call", ruleProblem)
             else list
-        } + listOf(OrderCheck("Prices", null, blocking = false,
+        } + (if(draft.requestedDeliveryDate!=null || deliveryFlow?.getJSONObject("definition")?.optString("channelProfile")=="pre_sell") listOf(OrderCheck("Requested delivery day meets cutoff",deliveryProblem)) else emptyList()) + listOf(OrderCheck("Prices", null, blocking = false,
             note = if (draft.priceList == null) "Prices: set by the office" else "The office confirms these prices when the order arrives."),
             creditCheck(draft, store.accountSummary(draft.outletId), store.orderDrafts()))
     }
@@ -218,6 +222,8 @@ object OrderQueueRules {
             payload.getString("visitId") == "@checkin:${draft.checkInRequestId}") { "Order does not match its call" }
         require(OrderSubmission.sameActivity(OrderSubmission.activity(draft), activity)) { "Order lines changed" }
         OrderDraftRules.validate(store, draft, null)
+        val flow=store.outlets().firstOrNull { it.id==draft.outletId }?.let { JSONObject(it.json).optJSONObject("callFlow") }
+        PresellDates.validate(flow,draft.requestedDeliveryDate,payload.getLong("deviceTime"))
     }
 
     /**
