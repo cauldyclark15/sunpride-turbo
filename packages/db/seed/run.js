@@ -67,7 +67,21 @@ if (
     const distributorSamples = distributors
       ? await seedDistributors(db, { anchorDate: options.anchorDate })
       : null;
-    console.log(JSON.stringify({ ...result, distributorSamples, modernTrade: mt, coverageSpec, productiveSpec, workforceSpec, dormancySpec }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          ...result,
+          distributorSamples,
+          modernTrade: mt,
+          coverageSpec,
+          productiveSpec,
+          workforceSpec,
+          dormancySpec,
+        },
+        null,
+        2,
+      ),
+    );
   } catch (error) {
     // Do not dump a SQL exception: its query/parameters can contain password hashes.
     const message = error instanceof Error ? error.message : "Unknown error";

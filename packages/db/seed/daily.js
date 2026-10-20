@@ -1059,11 +1059,27 @@ if (import.meta.main) {
       const productiveSpec = await seedProductiveSpec(db, date);
       const workforceSpec = await seedWorkforceSpec(db, date);
       const dormancySpec = await seedDormancySpec(db, date);
-      const partnerSamples = await ensurePartnerSamples(db, {date});
+      const partnerSamples = await ensurePartnerSamples(db, { date });
       const distributorSamples = await seedDistributors(db, {
         anchorDate: date,
       });
-      console.log(JSON.stringify({ ...result, availability, distributorSamples, modernTrade, coverageSpec, productiveSpec, workforceSpec, dormancySpec, partnerSamples }, null, 2));
+      console.log(
+        JSON.stringify(
+          {
+            ...result,
+            availability,
+            distributorSamples,
+            modernTrade,
+            coverageSpec,
+            productiveSpec,
+            workforceSpec,
+            dormancySpec,
+            partnerSamples,
+          },
+          null,
+          2,
+        ),
+      );
     } catch {
       console.error(
         "Demo daily advance failed; no partial day was committed. Check sample ownership, migrations and active sample masters.",
