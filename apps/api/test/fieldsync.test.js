@@ -275,10 +275,18 @@ describe("FIELDSYNC projections through real core proof/cursor harness", () => {
     const rows = body.bundles[0].data.visitExecutions;
     const row = rows.find((/** @type {any} */ r) => r.id === f.visit);
     expect(row).toBeDefined();
-    expect(Object.keys(row).sort()).toEqual(["id", "outletId", "plannedVisitId", "productivity", "serviceDate", "state"]);
+    expect(Object.keys(row).sort()).toEqual([
+      "id",
+      "outletId",
+      "plannedVisitId",
+      "productivity",
+      "serviceDate",
+      "state",
+    ]);
     expect(row.state).toBe("checked-out");
     expect(row.serviceDate).toBe(date);
-    const foreign = await h.db`select id from visit_executions where assignee_profile_id<>${who.profile.id}`;
+    const foreign =
+      await h.db`select id from visit_executions where assignee_profile_id<>${who.profile.id}`;
     const ids = new Set(foreign.map((/** @type {any} */ r) => r.id));
     expect(rows.some((/** @type {any} */ r) => ids.has(r.id))).toBe(false);
   });
@@ -396,6 +404,92 @@ describe("FIELDSYNC projections through real core proof/cursor harness", () => {
 });
 
 describe("location work/consent boundary and retention", () => {
+  test("explicit Start day admits pings before the first visit and retries preserve its boundary", async () => {
+    await h.db`delete from visit_executions where id=${f.visit}`;
+    const startedAt = Date.now();
+    expect(
+      (
+        await api("/api/v1/location/consent", {
+          enabled: true,
+          startDay: true,
+          startedAt,
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await api("/api/v1/location/consent", {
+          enabled: true,
+          startDay: true,
+          startedAt: startedAt + 1,
+        })
+      ).status,
+    ).toBe(200);
+    const [day] =
+      await h.db`select started_at,ended_at from fieldsync_work_days where profile_id=${who.profile.id}`;
+    expect(new Date(day.started_at).getTime()).toBe(startedAt);
+    expect(day.ended_at).toBeNull();
+    expect(
+      (await push([ping({ recordedAt: startedAt + 11_000, visitId: null })]))
+        .body.results[0].status,
+    ).toBe("applied");
+    const [audit] =
+      await h.db`select count(*)::int n from audit_logs where action='location.start_day'`;
+    expect(audit.n).toBe(1);
+  });
+  test("only an explicit Start day reopens an ended period and closed-gap pings stay refused", async () => {
+    expect((await push([ping()])).body.results[0].status).toBe("applied");
+    expect((await api("/api/v1/location/end-day", {})).status).toBe(200);
+    const [closed] =
+      await h.db`select ended_at from fieldsync_work_days where profile_id=${who.profile.id}`;
+    const end = new Date(closed.ended_at).getTime();
+    const startedAt = end + 20_000;
+    expect(
+      (
+        await api("/api/v1/location/consent", {
+          enabled: true,
+          startDay: true,
+          startedAt: end,
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await api("/api/v1/location/consent", {
+          enabled: true,
+          startDay: true,
+          startedAt,
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (await push([ping({ recordedAt: end + 1000 })])).body.results[0].code,
+    ).toBe("invalid_transition");
+    expect(
+      (await push([ping({ recordedAt: startedAt + 11_000 })])).body.results[0]
+        .status,
+    ).toBe("applied");
+    const [audit] =
+      await h.db`select details from audit_logs where action='location.start_day'`;
+    expect(JSON.parse(audit.details).previousEndedAt).toBe(end);
+  });
+  test("Start day refuses disabled consent, invalid timestamps and the daily close", async () => {
+    for (const payload of [
+      { enabled: false, startDay: true },
+      { enabled: true, startDay: true, startedAt: "now" },
+      { enabled: true, startDay: true, startedAt: null },
+      {
+        enabled: true,
+        startDay: true,
+        startedAt: midnight(date) + 4 * 3_600_000,
+      },
+      { enabled: true, startDay: true, startedAt: closeAt(date) },
+    ]) {
+      expect((await api("/api/v1/location/consent", payload)).status).toBe(400);
+    }
+    const [rows] = await h.db`select count(*)::int n from fieldsync_work_days`;
+    expect(rows.n).toBe(0);
+  });
   test("records and replays one UUID without duplicating location rows", async () => {
     const op = ping();
     const first = await push([op]);
