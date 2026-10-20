@@ -64,51 +64,109 @@ function column(n) {
     s = String.fromCharCode(65 + ((n - 1) % 26)) + s;
   return s;
 }
+/** @param {Record<string,any>} out @param {string} key @param {any} value */
+function scalar(out, key, value) {
+  if (value instanceof Date) value = value.toISOString();
+  if (typeof value === "string" && value.length > 32767) {
+    out[key] = "Long text continues in numbered part columns.";
+    let start = 0,
+      part = 1;
+    while (start < value.length) {
+      let end = Math.min(start + 32767, value.length);
+      const last = value.charCodeAt(end - 1);
+      if (end < value.length && last >= 0xd800 && last <= 0xdbff) end--;
+      out[`${key} part ${part++}`] = value.slice(start, end);
+      start = end;
+    }
+  } else out[key] = value;
+}
 /** @param {any} row @param {string} [prefix] @param {Record<string,any>} [out] */
-function flatten(row, prefix = "", out = {}) {
+function flatten(row, prefix = "", out = Object.create(null)) {
+  if (row instanceof Date) {
+    scalar(out, prefix || "value", row);
+    return out;
+  }
   for (const [k, v] of Object.entries(row)) {
     const key = prefix ? `${prefix} · ${k}` : k;
-    if (v && typeof v === "object" && !Array.isArray(v)) flatten(v, key, out);
-    else out[key] = Array.isArray(v) ? JSON.stringify(v) : v;
+    if (v instanceof Date) scalar(out, key, v);
+    else if (v && typeof v === "object" && !Array.isArray(v))
+      flatten(v, key, out);
+    else
+      scalar(
+        out,
+        key,
+        Array.isArray(v)
+          ? `${v.length} related records; see the matching table.`
+          : v,
+      );
   }
   return out;
+}
+/** @param {any} value @returns {boolean} */
+function hasArrays(value) {
+  if (Array.isArray(value)) return true;
+  return (
+    !!value &&
+    typeof value === "object" &&
+    !(value instanceof Date) &&
+    Object.values(value).some(hasArrays)
+  );
+}
+/** Preserve every nested table with stable parent references, not truncated JSON cells.
+ * @param {any} value @param {Record<string,any[]>} tables @param {string} [path] @param {string|null} [parent] */
+function collectTables(value, tables, path = "", parent = null) {
+  if (Array.isArray(value)) {
+    const name = path === "Overview" ? "Overview data" : path,
+      rows = (tables[name] ??= []);
+    for (const item of value) {
+      const reference = `${name} #${rows.length + 1}`,
+        nested = hasArrays(item);
+      const row = flatten(
+        item && typeof item === "object" ? item : { value: item },
+      );
+      if (parent) row.parentRow = parent;
+      if (nested) row.rowRef = reference;
+      if (rows.length >= 100000)
+        throw new ApiError(
+          "export_too_large",
+          422,
+          "Narrow the period before exporting more than 100,000 rows.",
+        );
+      rows.push(row);
+      if (item && typeof item === "object" && !(item instanceof Date))
+        for (const [key, child] of Object.entries(item))
+          collectTables(child, tables, `${path} ${key}`, reference);
+    }
+  } else if (value && typeof value === "object" && !(value instanceof Date)) {
+    for (const [key, child] of Object.entries(value))
+      collectTables(child, tables, path ? `${path} ${key}` : key, parent);
+  }
 }
 /** A sheet for every table, plus filters/lineage. Current authorization runs BEFORE this.
  * @param {any} body @param {string} [filename] */
 export function xlsx(body, filename = "analytics") {
-  /** @type {Record<string,any[]>} */ const tables = {};
+  // Match exactly the JSON projection: dates become ISO strings and non-JSON internals
+  // cannot accidentally be added to an export.
+  body = JSON.parse(JSON.stringify(body));
+  /** @type {Record<string,any[]>} */ const tables = Object.create(null);
   const metadata = flatten({
-    period: body.period,
-    compare: body.compare,
-    scope: body.scope,
-    freshness: body.freshness,
-    demo: body.demo,
+    ...body,
     definitionVersion: body.definitionVersion ?? "commercial/v1",
     moneyUnit: "PHP centavos (integer minor units)",
     quantityUnit:
-      "Cases and pieces are separate; Base fields are scaled base units",
-    next: body.next ?? null,
+      "Cases and pieces remain separate; refer to each table's field definitions for base-unit scaling.",
   });
   tables.Overview = Object.entries(metadata).map(([field, value]) => ({
     field,
     value,
   }));
-  for (const [k, v] of Object.entries(body)) {
-    if (Array.isArray(v))
-      tables[k] = v.map((r) =>
-        r && typeof r === "object" ? flatten(r) : { value: r },
-      );
-    else if (v && typeof v === "object")
-      for (const [key, rows] of Object.entries(v))
-        if (Array.isArray(rows))
-          tables[`${k} ${key}`] = rows.map((r) =>
-            r && typeof r === "object" ? flatten(r) : { value: r },
-          );
-  }
+  collectTables(body, tables);
   const sheets = Object.entries(tables).map(([name, rows], i) => ({
     name: `${i + 1} ${name}`.replace(/[\\/?*\[\]:]/g, " ").slice(0, 31),
     rows,
   }));
+  for (const [i, path] of Object.keys(tables).entries())
+    tables.Overview.push({ field: `Table ${path}`, value: sheets[i].name });
   if (sheets.some((s) => s.rows.length > 100000))
     throw new ApiError(
       "export_too_large",
@@ -125,8 +183,16 @@ export function xlsx(body, filename = "analytics") {
     `<workbook xmlns="${ns}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheets.map((s, i) => `<sheet name="${xml(s.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("")}</sheets></workbook>`;
   entries["xl/_rels/workbook.xml.rels"] =
     `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join("")}</Relationships>`;
+  let cells = 0;
   sheets.forEach((s, i) => {
     const keys = [...new Set(s.rows.flatMap((r) => Object.keys(r)))];
+    cells += (s.rows.length + 1) * keys.length;
+    if (keys.length > 16384 || cells > 2000000)
+      throw new ApiError(
+        "export_too_large",
+        422,
+        "Narrow the period or columns before exporting this workbook.",
+      );
     const grid = [keys, ...s.rows.map((r) => keys.map((k) => r[k]))];
     entries[`xl/worksheets/sheet${i + 1}.xml`] =
       `<worksheet xmlns="${ns}"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" state="frozen"/></sheetView></sheetViews><sheetData>${grid
@@ -140,7 +206,13 @@ export function xlsx(body, filename = "analytics") {
                   return `<c r="${ref}"><v>${v}</v></c>`;
                 if (typeof v === "boolean")
                   return `<c r="${ref}" t="b"><v>${Number(v)}</v></c>`;
-                return `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${xml(String(v).slice(0, 32767))}</t></is></c>`;
+                if (String(v).length > 32767)
+                  throw new ApiError(
+                    "export_cell_too_large",
+                    422,
+                    "A workbook header exceeds the Excel cell limit.",
+                  );
+                return `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${xml(String(v))}</t></is></c>`;
               })
               .join("")}</row>`,
         )

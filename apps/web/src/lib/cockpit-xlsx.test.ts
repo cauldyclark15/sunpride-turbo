@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { createHash } from "node:crypto";
 import readXlsxFile, { readSheet } from "read-excel-file/node";
 import { xlsx } from "../../../api/src/domains/analytics/xlsx.js";
 
@@ -75,5 +76,62 @@ describe("F-601 real Excel workbooks", () => {
       ["product · name", "onShelf"],
       ["Meat", null],
     ]);
+  });
+  it("F-601 F-607 preserves deep lineage tables, ISO dates, frozen cut metadata and long Unicode text without truncation", async () => {
+    const long = "x".repeat(32766) + "😀" + "y".repeat(9000),
+      date = new Date("2026-10-20T02:00:00Z"),
+      contentHash = createHash("sha256").update("F-607 fixture").digest("hex");
+    const buffer = Buffer.from(
+      await xlsx({
+        status: "accepted",
+        contentHash,
+        rows: [
+          {
+            label: "Sample outlet",
+            nested: {
+              lineage: [{ source: "SAMPLE", receivedAt: date, note: long }],
+            },
+          },
+        ],
+      }).arrayBuffer(),
+    );
+    const names = await readSheetNames(buffer);
+    expect(names).toEqual(["1 Overview", "2 rows", "3 rows nested lineage"]);
+    const overview = await readSheet(buffer, "1 Overview");
+    expect(overview.find((r) => r[0] === "contentHash")?.[1]).toBe(contentHash);
+    expect(overview.find((r) => r[0] === "status")?.[1]).toBe("accepted");
+    const parents = await readSheet(buffer, "2 rows"),
+      children = await readSheet(buffer, "3 rows nested lineage");
+    expect(children[1][children[0].indexOf("parentRow")]).toBe(
+      parents[1][parents[0].indexOf("rowRef")],
+    );
+    expect(children[1][children[0].indexOf("receivedAt")]).toBe(
+      date.toISOString(),
+    );
+    const text = children[0]
+      .map((key, i) =>
+        typeof key === "string" && key.startsWith("note part ")
+          ? String(children[1][i])
+          : "",
+      )
+      .join("");
+    expect(text).toBe(long);
+  });
+  it("F-601 refuses oversized worksheets and invalid Excel headers instead of returning partial data", () => {
+    expect(() =>
+      xlsx({ rows: Array.from({ length: 100001 }, () => ({ value: 0 })) }),
+    ).toThrow("100,000 rows");
+    expect(() => xlsx({ rows: [{ ["x".repeat(32768)]: "value" }] })).toThrow(
+      "Excel cell limit",
+    );
+    expect(() =>
+      xlsx({
+        rows: [
+          Object.fromEntries(
+            Array.from({ length: 16385 }, (_, i) => [`field${i}`, i]),
+          ),
+        ],
+      }),
+    ).toThrow("Narrow the period or columns");
   });
 });
