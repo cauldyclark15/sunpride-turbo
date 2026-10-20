@@ -16,6 +16,10 @@ The seed writer also sets `jit=off` and `work_mem=64MB` inside its own transacti
 
 `seed/performance-settings.test.js` installs a database-side guard at the actual order insert, executes `seedDemo`, and checks that the caller's original JIT/work-memory settings return after commit and replay. The guard fails against the former writer and passes against the tuned writer. The full 90-day seed's existing performance assertion remains unchanged.
 
+## Bound test pressure on the shared engine
+
+A later diagnostic run hit PostgreSQL error 53300 (ordinary connection slots exhausted) while other native lanes were active. Do not increase the shared server's connection limit or grant reserved/superuser access to make a suite pass. Run the normal API command with `SP_TEST_CONCURRENCY=1 SP_LANE=core bun run test`. The runner still executes every selected file and preserves all test limits; it only prevents several disposable-file pools overlapping. With no override the existing maximum of four files remains unchanged. The explicit bound is validated and logged.
+
 ## Apply as the operator, not the application
 
 The reproducible operator script is `packages/db/scripts/tune-native-postgres.sql`. It refuses a non-loopback server, any port other than 5432, a server outside PostgreSQL 17, or a non-superuser. It is not a schema migration. Confirm free disk headroom first: `max_wal_size` is a soft checkpoint target, not a hard disk-usage limit.
