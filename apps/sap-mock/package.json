@@ -1,0 +1,13 @@
+{
+  "name": "@sunpride/sap-mock",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/server.js",
+    "start": "bun src/server.js",
+    "test": "bun test",
+    "lint": "bun test",
+    "typecheck": "bun test"
+  }
+}

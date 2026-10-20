@@ -1,11 +1,6 @@
 "use client";
 
-import {
-  Card,
-  PageHeader,
-  WorkspaceIcon,
-  WorkspaceModuleTabs,
-} from "@sunpride/ui";
+import { PageHeader, WorkspaceModuleTabs } from "@sunpride/ui";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
@@ -22,6 +17,7 @@ import { CallSheetsWorkspace } from "./call-sheets/call-sheets-workspace";
 import { lazyWorkspace } from "./cockpit/lazy-workspace";
 import { SalesForcePanels } from "./coverage-workspace";
 import { DailySalesWorkspace } from "./daily-sales/daily-sales-workspace";
+import { IntegrationWorkspace } from "./integration/integration-workspace";
 import { ImportsWorkspace } from "./imports-workspace";
 import { InventoryWorkspace } from "./inventory-workspace";
 import { LiveMapWorkspace } from "./live-map/live-map-workspace";
@@ -213,11 +209,7 @@ function ModuleContent({ module }: { module: WebModuleSlug }): ReactNode {
     case "outside-calls":
       return <OutsideCallOrders />;
     case "sap-integration":
-      return (
-        <Card label="Integration" icon={<WorkspaceIcon name="operations" />}>
-          <p className="text-[13px] text-muted">Not connected yet</p>
-        </Card>
-      );
+      return <IntegrationWorkspace />;
     case "programme":
       return (
         <PanelErrorBoundary label="Programme">

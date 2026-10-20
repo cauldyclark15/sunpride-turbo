@@ -5,6 +5,13 @@ import { MockSapAdapter } from "./adapters/mock.js";
 import { ODataSapAdapter } from "./adapters/odata.js";
 import { ConnectorService } from "./service.js";
 
+// F-002: retained for forensic reference, hidden from the v2 runtime.
+if (process.env.SAP_LEGACY_CONNECTOR !== "1") {
+  console.error(
+    "Legacy connector is disabled. Use the Bun integration gateway and apps/sap-mock.",
+  );
+  process.exit(2);
+}
 const config = loadConfig();
 const queue = new DurableQueue(config.databasePath);
 const convex = new ConvexIntegrationClient({

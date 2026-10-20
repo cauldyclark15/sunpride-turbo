@@ -1,6 +1,7 @@
 import { tx } from "@sunpride/db/client";
 import { ApiError } from "../../core/errors.js";
-import { resolvePrice, creditCheck } from "../orders/pricing.js";
+import { resolvePrice } from "../orders/pricing.js";
+import { masterId } from "../integration/replicas.js";
 import { currentDeviceActor, tripFor, outletFor } from "./access.js";
 import { productFor } from "./facts.js";
 import { approvalKey } from "./approvals.js";
@@ -203,10 +204,23 @@ export async function bundle(ctx, env) {
         await db`select * from outlet_credit_terms where outlet_id=${o.id} and effective_from<=now() and (effective_to is null or effective_to>now()) and deleted_at is null`;
       let credit = null;
       if (terms && o.customerCode) {
-        const c = await creditCheck(db, {
-          customerCode: o.customerCode,
-          addCentavos: 0,
-        });
+        // F-112 bootstrap is a cached exposure snapshot, not 600 synchronous SAP calls.
+        const [snapshot] =
+          await db`select * from sap_credit_decisions where customer_code=${o.customerCode} order by checked_at desc limit 1`;
+        const c =
+          snapshot && new Date(snapshot.expires_at).getTime() > Date.now()
+            ? {
+                status: snapshot.status,
+                limit:
+                  snapshot.limit_centavos === null
+                    ? null
+                    : Number(snapshot.limit_centavos),
+                exposure:
+                  snapshot.exposure_centavos === null
+                    ? null
+                    : Number(snapshot.exposure_centavos),
+              }
+            : { status: "unknown", limit: null, exposure: null };
         if (c.status === "within" && c.limit !== null && c.exposure !== null)
           credit = {
             termsDays: terms.terms_days,
@@ -232,36 +246,21 @@ export async function bundle(ctx, env) {
           at: Date.now(),
         });
         if (price.unitPriceCentavos === null || !price.priceListId) continue;
-        if (priceListId && priceListId !== price.priceListId)
-          throw new ApiError(
-            "pricing_conflict",
-            409,
-            "Customer prices span incompatible price lists",
-          );
-        priceListId = price.priceListId;
-        const key = `${price.priceListId}:${p.productId}:${p.uomCode}`;
+        // F-016 a customer quote may combine base, channel and customer conditions.
+        // The offline grouping is a quote identity, not a second authoritative price list.
+        priceListId = masterId("van.priceQuote", o.id);
+        const key = `${priceListId}:${p.productId}:${p.uomCode}`;
         if (!priceKeys.has(key)) {
-          const live =
-            await db`select l.effective_from,l.effective_to,pl.code,pl.currency from price_list_lines l join price_lists pl on pl.id=l.price_list_id where l.price_list_id=${price.priceListId} and l.product_id=${p.productId} and l.uom=${p.uomCode} and l.unit_price_minor=${String(price.unitPriceCentavos)} and l.effective_from<=now() and (l.effective_to is null or l.effective_to>now()) and l.deleted_at is null and pl.deleted_at is null`;
-          if (live.length !== 1)
-            throw new ApiError(
-              "pricing_conflict",
-              409,
-              "Resolved price has no unique effective source line",
-            );
-          const line = live[0];
           priceKeys.add(key);
           priceLines.push({
-            priceListId: price.priceListId,
+            priceListId,
             productId: p.productId,
             uomCode: p.uomCode,
             unitPriceMinor: String(price.unitPriceCentavos),
-            currency: line.currency,
-            effectiveFrom: new Date(line.effective_from).getTime(),
-            effectiveTo: line.effective_to
-              ? new Date(line.effective_to).getTime()
-              : null,
-            priceListCode: line.code,
+            currency: "PHP",
+            effectiveFrom: price.effectiveFrom ?? Date.now(),
+            effectiveTo: price.effectiveTo ?? null,
+            priceListCode: "SAP replicated conditions",
           });
           complete(priceLines, 600);
         }

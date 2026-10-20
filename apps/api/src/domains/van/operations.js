@@ -1,5 +1,13 @@
+import { bindCreditDecision } from "../integration/credit.js";
+import { configureSap } from "../integration/transport.js";
+import {
+  enqueueVanInvoice,
+  enqueueVanVoidCreditMemo,
+  enqueueVanCreditMemo,
+  enqueueVanSettlement,
+} from "../integration/posting.js";
 import { postMovement } from "../inventory/posting.js";
-import { resolvePrice, creditCheck } from "../orders/pricing.js";
+import { resolvePrice } from "../orders/pricing.js";
 import { currentDeviceActor, tripFor, outletFor } from "./access.js";
 import { damagePhoto } from "./media.js";
 import {
@@ -208,6 +216,7 @@ export async function applyOperation(ctx, env) {
 /** @param {any} ctx @param {any} env */
 async function dispatchOperation(ctx, env) {
   const { db, payload: p, op } = ctx;
+  configureSap(db, env);
   const { actor, device } = await currentDeviceActor(
     db,
     ctx.actor,
@@ -489,6 +498,11 @@ async function sale(db, trip, actor, p, opId) {
       discountMinor: String(discount),
       priceListId: price.priceListId,
       priceSource: price.source,
+      taxCode: price.taxCode ?? null,
+      taxBasisPoints: price.taxBasisPoints ?? null,
+      taxInclusive: price.taxInclusive ?? null,
+      sapConditionKey: price.sapKey ?? null,
+      sapConditionVersion: price.sapVersion ?? null,
     });
   }
   safeNumber(total);
@@ -506,6 +520,7 @@ async function sale(db, trip, actor, p, opId) {
     if (tender < total || integer(pay.changeMinor) !== tender - total)
       refuse("Cash and change do not reconcile", "invalid_request");
   }
+  let creditDecisionId = null;
   if (method.kind === "credit") {
     if (!customer.customerCode)
       refuse("Credit account needs setup", "invalid_request");
@@ -514,21 +529,13 @@ async function sale(db, trip, actor, p, opId) {
       await db`select * from outlet_credit_terms where outlet_id=${customer.id} and effective_from<=${new Date(at)} and (effective_to is null or effective_to>${new Date(at)}) and deleted_at is null`;
     if (!terms || terms.currency !== "PHP")
       refuse("Credit terms need setup", "invalid_request");
-    const credit = await creditCheck(db, {
+    // F-112 SAP decides the complete amount; never add local exposure twice.
+    creditDecisionId = await bindCreditDecision(db, {
       customerCode: customer.customerCode,
-      addCentavos: safeNumber(total),
+      amountCentavos: safeNumber(total),
+      sourceType: "van_sale",
+      sourceId: saleId,
     });
-    const [pending] =
-      await db`select coalesce(sum(s.total_centavos),0)::text as total from van_sales s where s.customer_code=${customer.customerCode} and s.receipt->'payment'->>'kind'='credit' and not exists(select 1 from van_sale_voids v where v.sale_id=s.id)`;
-    if (
-      credit.status !== "within" ||
-      credit.limit === null ||
-      credit.exposure === null ||
-      BigInt(credit.exposure) + BigInt(pending.total) + total >
-        BigInt(credit.limit) ||
-      BigInt(pending.total) + total > BigInt(terms.credit_limit_minor)
-    )
-      refuse("Credit cannot be certified within limit", "stock_conflict");
     const due = new Date(at + terms.terms_days * 86400000);
     const dueDate = today(due.getTime());
     if (pay.dueDate !== dueDate)
@@ -562,6 +569,9 @@ async function sale(db, trip, actor, p, opId) {
     soldAt: at,
   };
   await db`insert into van_sales(id,trip_id,receipt_number,outlet_id,customer_code,total_centavos,discount_centavos,receipt,captured_request) values(${saleId},${trip.id},${receiptNumber},${customer.id},${customer.customerCode},${String(total)},${String(discounts)},${receipt},${p})`;
+  if (creditDecisionId)
+    await db`update van_sales set sap_credit_decision_id=${creditDecisionId} where id=${saleId}`;
+  await enqueueVanInvoice(db, trip, saleId);
   for (const l of quoted)
     await db`insert into van_sale_lines(sale_id,ordinal,product_id,quantity_base,total_centavos,facts) values(${saleId},${l.lineNumber},${l.productId},${l.quantityBase},${l.totalMinor},${l})`;
   await payment(db, trip, pay, "sale", saleId);
@@ -646,6 +656,7 @@ async function voidSale(db, trip, actor, env, p, opId) {
       facts: l,
     })),
   );
+  await enqueueVanVoidCreditMemo(db, trip, v.id);
   await payment(db, trip, s.receipt.payment, "void_refund", id);
   return { entityId: v.id, movementId };
 }
@@ -803,6 +814,7 @@ async function customerReturn(db, trip, actor, p, opId) {
     choice(p.refund.method, [s.receipt.payment.method]);
     await payment(db, trip, p.refund, "refund", saleId, id);
   }
+  await enqueueVanCreditMemo(db, trip, id);
   return { entityId: id, movementId };
 }
 /** @param {any} db @param {any} trip @param {any} env @param {any} p @param {string} opId */
@@ -1056,6 +1068,7 @@ async function closeTrip(db, trip, actor, p, opId) {
   );
   await assertTruckStock(db, trip, []);
   await db`update van_trips set status='closed',closed_at=now(),updated_at=now() where id=${trip.id}`;
+  await enqueueVanSettlement(db, trip, p);
   await audit(db, trip, actor, "van.trip.close_facts", p.closeId, {
     endOdometerKm: p.endOdometerKm ?? null,
     note: text(p.note),

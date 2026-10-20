@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sunpride.local/contracts/sap/v1/credit-request.schema.json",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "customerCode": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "amountCentavos": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "currency": {
+      "const": "PHP"
+    },
+    "reserve": { "type": "boolean" },
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "customerCode",
+    "amountCentavos",
+    "currency",
+    "reserve",
+    "requestId"
+  ],
+  "additionalProperties": false
+}

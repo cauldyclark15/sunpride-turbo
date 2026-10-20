@@ -250,7 +250,7 @@ export async function stockPage(db, p, s) {
       name: pr.name,
       category: pr.category,
       onHand,
-      valueCentavos: knownSum(bs, "inventory_value_minor"),
+      valueCentavos: knownSum(bs, "sap_value_minor"),
       avgDailySalesCases: avg === null ? null : Math.round(avg * 100) / 100,
       daysCover,
       numericDistributionPct: pct(salesRow?.stores ?? 0, Number(universe.n)),
@@ -290,7 +290,7 @@ export async function stockPage(db, p, s) {
           : l.type === "warehouse"
             ? "depot"
             : "other",
-      valueCentavos: knownSum(bs, "inventory_value_minor"),
+      valueCentavos: knownSum(bs, "sap_value_minor"),
       cases:
         us.length && us.every((/** @type {any} */ u) => u?.cases != null)
           ? sum(us, "cases")
@@ -309,7 +309,7 @@ export async function stockPage(db, p, s) {
       kpi(
         "stockValue",
         "Stock value",
-        knownSum(balances, "inventory_value_minor"),
+        knownSum(balances, "sap_value_minor"),
         "php",
         null,
         null,
