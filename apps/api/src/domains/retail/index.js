@@ -1,4 +1,5 @@
 import { tx } from "@sunpride/db/client";
+import { accessVisit } from "../visits/shared.js";
 import { enqueue } from "../../core/jobs.js";
 import { ApiError } from "../../core/errors.js";
 import { OpRejected } from "../../core/sync.js";
@@ -13,12 +14,16 @@ import {
   date,
   invalid,
   once,
+  officePerson,
   scoped,
+  scopedVisits,
   uuid,
   seams,
 } from "./common.js";
 import {
   currentMasters,
+  equipmentAt,
+  posmAt,
   masterById,
   MASTER_KINDS,
   policyAt,
@@ -27,6 +32,7 @@ import {
 } from "./masters.js";
 import { capture, caseAction, custody } from "./capture.js";
 import { accountWeek, publishScore } from "./scoring.js";
+import { installWeekly } from "./weekly.js";
 import {
   confirmReceipt,
   openRecall,
@@ -37,29 +43,35 @@ import {
 /** F-310: a cached addition to the existing outlet/configuration snapshot, not another bootstrap engine.
  * @param {any} c @param {any} outlet */
 export async function outletRetail(c, outlet) {
-  await accessOutlet(c, outlet.id, "visit.read");
+  const { outlet: canonical } = await accessOutlet(c, outlet.id, "visit.read");
+  outlet = canonical;
   const at = c.now;
-  const equipment = (await currentMasters(c.db, "equipment", at)).filter(
-    (/** @type {any} */ m) => m.data.outletId === outlet.id,
-  );
+  const equipment = await equipmentAt(c.db, outlet.id, at);
   const masters = [];
-  for (const kind of [
-    "cold_policy",
-    "posm",
-    "expiry_policy",
-    "incident_category",
-  ])
+  for (const kind of ["posm", "expiry_policy", "incident_category"])
     masters.push(...(await currentMasters(c.db, kind, at)));
-  const deployments = bounded(
-    await c.db`select distinct on(unit_code) * from posm_custody_events where occurred_at<=${new Date(at)} order by unit_code,occurred_at desc,id desc limit 501`,
-  ).filter(
-    (/** @type {any} */ r) => r.kind === "deploy" && r.outlet_id === outlet.id,
+  const agreementIds = [
+    ...new Set(equipment.map((/** @type {any} */ e) => e.data.policyVersionId)),
+  ];
+  if (agreementIds.length)
+    masters.push(
+      ...(await c.db`select * from retail_master_versions where kind='cold_policy' and id in ${c.db(agreementIds)}`),
+    );
+  const deployments = await posmAt(
+    c.db,
+    { kind: "deploy", outletId: outlet.id },
+    at,
   );
   return {
     planogram: await policyAt(c.db, "planogram", outlet, at),
     equipment,
     masters,
     deployments,
+    issuedPosm: await posmAt(
+      c.db,
+      { kind: "issue", profileId: c.actor.profileId },
+      at,
+    ),
     campaigns: await seams.campaigns(c, outlet, at),
     photoWatermarkAuthority: "INTEGRITY",
     version: 1,
@@ -85,6 +97,7 @@ export async function retailManifest(db, now) {
 }
 /** @param {any} router @param {any} installCtx */
 export function install(router, installCtx) {
+  installWeekly(installCtx);
   installCtx.registerTopic("retail", (/** @type {any} */ a) =>
     roleHas(a.role, "visit.read"),
   );
@@ -184,7 +197,30 @@ export function install(router, installCtx) {
         p.snapshot.branches,
         (/** @type {any} */ r) => r.outletId,
       );
-      if (branches.length === p.snapshot.branches.length) visible.push(p);
+      let authorized = branches.length === p.snapshot.branches.length;
+      for (const branch of branches) {
+        if (!branch.visitId) {
+          if (
+            p.actor_subject !== "system:sample" ||
+            p.snapshot.synthetic !== true
+          )
+            authorized = false;
+          continue;
+        }
+        const [visit] =
+          await c.db`select * from visit_executions where id=${uuid(branch.visitId)} and deleted_at is null`;
+        if (!visit) {
+          authorized = false;
+          continue;
+        }
+        try {
+          await accessVisit(c, visit);
+        } catch (e) {
+          if (e instanceof ApiError && e.status === 403) authorized = false;
+          else throw e;
+        }
+      }
+      if (authorized) visible.push(p);
     }
     return { current, prior, publications: visible };
   });
@@ -200,10 +236,18 @@ export function install(router, installCtx) {
 /** @param {any} c */
 async function workspace(c) {
   await requireCapability(c, "visit.read");
+  const outletFilter = c.url.searchParams.get("outletId");
+  if (outletFilter) await accessOutlet(c, uuid(outletFilter), "visit.read");
+  /** @type {string[]} */ const incompleteSections = [];
+  const page = (/** @type {any[]} */ rows, /** @type {string} */ name) => {
+    if (rows.length > 500) incompleteSections.push(name);
+    return rows.slice(0, 500);
+  };
   const masters = [];
   for (const kind of MASTER_KINDS) {
-    const rows = bounded(
-      await c.db`select * from retail_master_versions where kind=${kind} order by code,version desc limit 501`,
+    const rows = page(
+      await c.db`select * from retail_master_versions where kind=${kind} and (${kind !== "equipment" || !outletFilter} or data->>'outletId'=${outletFilter}) order by code,version desc limit 501`,
+      kind,
     );
     masters.push(
       ...(kind === "equipment"
@@ -211,19 +255,19 @@ async function workspace(c) {
         : rows),
     );
   }
-  const cases = await scoped(
+  const cases = await scopedVisits(
     c,
-    bounded(
-      await c.db`select c.*,o.name as outlet_name from retail_action_cases c join outlets o on o.id=c.outlet_id order by c.due_at,c.id limit 501`,
+    page(
+      await c.db`select c.*,a.visit_id,o.name as outlet_name from retail_action_cases c join retail_execution_audits a on a.id=c.audit_id join outlets o on o.id=c.outlet_id where (${!outletFilter} or c.outlet_id=${outletFilter}) order by (c.status in ('resolved','rejected')),c.due_at,c.id limit 501`,
+      "cases",
     ),
-    (r) => r.outlet_id,
   );
-  const audits = await scoped(
+  const audits = await scopedVisits(
     c,
-    bounded(
-      await c.db`select a.*,o.name as outlet_name from retail_execution_audits a join outlets o on o.id=a.outlet_id order by a.captured_at desc,a.id limit 501`,
+    page(
+      await c.db`select a.*,o.name as outlet_name from retail_execution_audits a join outlets o on o.id=a.outlet_id where (${!outletFilter} or a.outlet_id=${outletFilter}) order by a.captured_at desc,a.id limit 501`,
+      "audits",
     ),
-    (r) => r.outlet_id,
   );
   const outlets = await scoped(
     c,
@@ -244,8 +288,9 @@ async function workspace(c) {
   const products = bounded(
     await c.db`select id,code,name from products where active and deleted_at is null and (organization_id is null or organization_id='sunpride') order by name limit 501`,
   );
-  const serviceRows = bounded(
-    await c.db`select s.*,m.label,m.data from equipment_service_events s join retail_master_versions m on m.id=s.equipment_version_id order by s.occurred_at desc limit 501`,
+  const serviceRows = page(
+    await c.db`select s.*,m.label,m.data from equipment_service_events s join retail_master_versions m on m.id=s.equipment_version_id where (${!outletFilter} or m.data->>'outletId'=${outletFilter}) order by s.occurred_at desc limit 501`,
+    "services",
   );
   const services = await scoped(c, serviceRows, (r) => r.data.outletId);
   const deployments = await scoped(
@@ -255,8 +300,47 @@ async function workspace(c) {
     ),
     (r) => r.outlet_id,
   );
+  const custodians = [];
+  const posmUnits = [];
+  if (roleHas(c.actor.role, "outlet.manage")) {
+    const people = bounded(
+      await c.db`select p.id,p.name,coalesce(a.org_unit_id,p.org_unit_id) as org_unit_id from profiles p left join employee_assignments a on a.profile_id=p.id and a.deleted_at is null and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now()) where p.status='active' and p.deleted_at is null order by p.name limit 501`,
+    );
+    for (const person of people) {
+      try {
+        await officePerson(c, person.id);
+        custodians.push({ id: person.id, name: person.name });
+      } catch (e) {
+        if (!(e instanceof ApiError && e.status === 403)) throw e;
+      }
+    }
+    const units = bounded(
+      await c.db`select distinct on(e.unit_code) e.*,m.label,m.data as material,p.name as custodian_name,p.org_unit_id as custodian_unit_id from posm_custody_events e join retail_master_versions m on m.id=e.material_version_id join profiles p on p.id=e.custodian_profile_id order by e.unit_code,e.occurred_at desc,e.id desc limit 501`,
+    );
+    for (const unit of units) {
+      try {
+        if (unit.outlet_id)
+          await accessOutlet(c, unit.outlet_id, "outlet.manage");
+        await officePerson(c, unit.custodian_profile_id, true);
+        const [last] =
+          await c.db`select captured_at from retail_execution_audits where kind='posm' and facts->>'unitCode'=${unit.unit_code} order by captured_at desc,id desc limit 1`;
+        posmUnits.push({
+          ...unit,
+          nextAuditAt:
+            unit.kind === "deploy"
+              ? +new Date(last?.captured_at ?? unit.occurred_at) +
+                unit.material.auditEveryDays * 86400000
+              : null,
+        });
+      } catch (e) {
+        if (!(e instanceof ApiError && e.status === 403)) throw e;
+      }
+    }
+  }
   return {
     masters,
+    custodians,
+    posmUnits,
     cases,
     audits,
     outlets,
@@ -265,6 +349,7 @@ async function workspace(c) {
     products,
     services,
     deployments,
+    incompleteSections,
     asOf: c.now,
     nextAction:
       cases.find(
@@ -301,15 +386,8 @@ async function authorizeCommand(c) {
     const [last] =
       await c.db`select outlet_id,custodian_profile_id from posm_custody_events where unit_code=${b.unitCode} order by occurred_at desc,id desc limit 1`;
     if (last?.outlet_id) await accessOutlet(c, last.outlet_id, "outlet.manage");
-    const people = [
-      uuid(b.custodianProfileId),
-      last?.custodian_profile_id,
-    ].filter(Boolean);
-    for (const id of people) {
-      const [p] =
-        await c.db`select org_unit_id from profiles where id=${id} and status='active' and deleted_at is null`;
-      if (!p?.org_unit_id) throw invalid();
-      await requireCapability(c, "outlet.manage", p.org_unit_id);
-    }
+    await officePerson(c, uuid(b.custodianProfileId));
+    if (last?.custodian_profile_id)
+      await officePerson(c, last.custodian_profile_id, true);
   }
 }

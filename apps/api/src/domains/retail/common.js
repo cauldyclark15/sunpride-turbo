@@ -1,7 +1,12 @@
-import { requireCapability } from "../../core/capabilities.js";
+import {
+  requireCapability,
+  requireNationalScope,
+} from "../../core/capabilities.js";
 import { invalid, conflict, forbidden } from "../../core/errors.js";
 import { canonicalJson, sha256Hex } from "../../core/util.js";
 import { writeAudit } from "../org/audit.js";
+import { personAt } from "../org/scope.js";
+import { resolvePrice } from "../orders/pricing.js";
 import { accessOutlet, uuid, text, date } from "../visits/shared.js";
 export { uuid, text, date, accessOutlet };
 /** @param {any} value @param {number} [max] @param {number} [min] */
@@ -89,6 +94,24 @@ export async function scoped(c, rows, outlet) {
   }
   return result;
 }
+/** Match canonical visit reads: historical source person, stored scope and current outlet owner all gate evidence.
+ * @param {any} c @param {any[]} rows */
+export async function scopedVisits(c, rows) {
+  const { accessVisit } = await import("../visits/shared.js");
+  const result = [];
+  for (const row of rows) {
+    const [visit] =
+      await c.db`select * from visit_executions where id=${row.visit_id}`;
+    try {
+      await accessVisit(c, visit);
+      result.push(row);
+    } catch (e) {
+      if (!(e && typeof e === "object" && "status" in e && e.status === 403))
+        throw e;
+    }
+  }
+  return result;
+}
 /** SEAM(INTEGRITY): actual watermark validation belongs to INTEGRITY. Never claim these bytes are watermarked without it.
  * SEAM(AVAILABILITY): use the canonical availability observations, never another MSL/OSA authority.
  * SEAM(TPM): campaign version identity and eligibility are supplied by TPM, no duplicate master.
@@ -106,6 +129,51 @@ export const seams = {
         }
       : null;
   },
+  // SEAM(SAP): expected price comes from the canonical effective replica resolver, never a supplied compliant flag.
+  priceCompliance: async (/** @type {any} */ c, /** @type {any} */ visit) => {
+    const rows = bounded(
+      await c.db`select a.*,p.uom,p.updated_at as product_updated_at from visit_activities a join products p on p.id::text=a.activity->>'productId' where a.visit_id=${visit.id} and a.activity_kind='price_check' and a.deleted_at is null order by a.device_time desc,a.id desc limit 501`,
+    );
+    const latest = new Map();
+    for (const row of rows)
+      if (!latest.has(row.activity.productId))
+        latest.set(row.activity.productId, row);
+    const { outlet } = await accessOutlet(c, visit.outlet_id, "visit.read");
+    const [customer] = visit.customer_id
+      ? await c.db`select code from customers where id=${visit.customer_id}`
+      : [];
+    const facts = [];
+    for (const row of latest.values()) {
+      // Without a frozen UOM on legacy price observations, a later master edit makes the comparison unknown.
+      if (+new Date(row.product_updated_at) > +new Date(row.device_time))
+        return null;
+      const price = await resolvePrice(c.db, {
+        organizationId: "sunpride",
+        productId: row.activity.productId,
+        uom: row.uom,
+        channelKey: outlet.channel,
+        customerCode: customer?.code ?? null,
+        at: +new Date(row.device_time),
+      });
+      if (price.unitPriceCentavos === null || row.activity.currency !== "PHP")
+        return null;
+      facts.push({
+        sourceId: row.id,
+        priceListId: price.priceListId,
+        source: price.source,
+        uom: row.uom,
+        expectedCentavos: price.unitPriceCentavos,
+        observedCentavos: row.activity.observedPriceMinor,
+        passed: price.unitPriceCentavos === row.activity.observedPriceMinor,
+      });
+    }
+    return facts.length
+      ? {
+          score: (100 * facts.filter((f) => f.passed).length) / facts.length,
+          facts,
+        }
+      : null;
+  },
   campaigns: async (
     /** @type {any} */ c,
     /** @type {any} */ outlet,
@@ -120,12 +188,25 @@ export const seams = {
     );
     const [assignment] =
       await c.db`select territory_id from outlet_assignments where outlet_id=${outlet.id} and deleted_at is null and effective_from<=${new Date(at)} and (effective_to is null or effective_to>${new Date(at)})`;
-    const facts = {
+    /** @type {Record<string,any>} */ const facts = {
       outletId: outlet.id,
       channelKey: outlet.channel,
       classKey: outlet.classification,
       territoryId: assignment?.territory_id,
     };
+    // Missing geography/distributor facts are unknown, not a proof that no campaign applies.
+    for (const campaign of rows)
+      for (const [key, rule] of Object.entries(campaign.scope ?? {})) {
+        if (
+          facts[key] == null &&
+          rule &&
+          typeof rule === "object" &&
+          Object.values(rule).some(
+            (values) => Array.isArray(values) && values.length,
+          )
+        )
+          return null;
+      }
     return rows.filter((/** @type {any} */ r) =>
       seams.campaignEligible(r.scope, facts),
     );
@@ -150,6 +231,7 @@ export const seams = {
       for (const [name, values] of Object.entries(rule)) {
         if (!["include", "exclude"].includes(name) || !Array.isArray(values))
           return false;
+        if (values.length && facts[key] == null) return false;
         if (name === "exclude" && values.includes(facts[key])) return false;
         if (name === "include" && values.length && !values.includes(facts[key]))
           return false;
@@ -162,6 +244,21 @@ export const seams = {
     /** @type {any} */ _input,
   ) => ({ status: "awaiting_seam" }),
 };
+/** F-313 F-321: assignment targets use current effective people scope, never a stale profile projection.
+ * @param {any} c @param {string} id @param {boolean} [allowInactive] */
+export async function officePerson(c, id, allowInactive = false) {
+  const [stored] =
+    await c.db`select * from profiles where id=${uuid(id)} and (${allowInactive} or status='active' and deleted_at is null)`;
+  if (!stored) throw invalid("Choose an active custodian");
+  const person = await personAt(c.db, stored, c.now);
+  if (!person.org_unit_id) {
+    if (allowInactive)
+      await requireNationalScope(c, ["super_admin", "admin", "operations"]);
+    else
+      throw forbidden("Custodian has no current organization", "out_of_scope");
+  } else await requireCapability(c, "outlet.manage", person.org_unit_id);
+  return person;
+}
 /** @param {any} c @param {string} capability */
 export async function office(c, capability = "masterdata.manage") {
   await requireCapability(c, capability);

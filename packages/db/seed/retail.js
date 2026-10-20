@@ -47,7 +47,7 @@ export async function ensureRetailSamples(db, from = Date.now()) {
             label,
             version: 1,
             outlet_class: "*",
-            effective_from: stamp,
+            effective_from: new Date(from - 90 * 86400000).toISOString(),
             data: facts,
             source: "sample",
             actor_subject: "system:sample",
@@ -212,7 +212,7 @@ export async function ensureRetailSamples(db, from = Date.now()) {
           location: o.address ?? "Cebu",
           type: "freezer",
           outletId: o.id,
-          deployedAt: from,
+          deployedAt: from - 60 * 86400000,
           policyVersionId: cold,
         },
       );

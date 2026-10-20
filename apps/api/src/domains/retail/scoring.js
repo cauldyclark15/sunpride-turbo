@@ -1,4 +1,6 @@
+import { ApiError } from "../../core/errors.js";
 import { requireNationalScope } from "../../core/capabilities.js";
+import { accessVisit } from "../visits/shared.js";
 import {
   accessOutlet,
   bounded,
@@ -11,7 +13,13 @@ import {
   sha256Hex,
   uuid,
 } from "./common.js";
-import { currentMasters, policyAt } from "./masters.js";
+import {
+  currentMasters,
+  equipmentAt,
+  posmAt,
+  masterById,
+  policyAt,
+} from "./masters.js";
 /** @param {string} start */
 export function weekEnd(start) {
   date(start);
@@ -22,18 +30,16 @@ export function weekEnd(start) {
 /** F-316: complete observations only; absence is unknown, never a free perfect score.
  * @param {any} c @param {any} visit @param {any} policy */
 export async function visitScore(c, visit, policy) {
-  await accessOutlet(c, visit.outlet_id, "visit.read");
+  await accessVisit(c, visit);
   const audits = bounded(
     await c.db`select * from retail_execution_audits where visit_id=${visit.id} order by captured_at desc,id desc limit 501`,
   );
   const { outlet } = await accessOutlet(c, visit.outlet_id, "visit.read");
-  const equipment = (
-    await currentMasters(
-      c.db,
-      "equipment",
-      +new Date(visit.started_at ?? visit.checked_in_at),
-    )
-  ).filter((/** @type {any} */ m) => m.data.outletId === visit.outlet_id);
+  const equipment = await equipmentAt(
+    c.db,
+    visit.outlet_id,
+    +new Date(visit.started_at ?? visit.checked_in_at),
+  );
   const campaigns = await seams.campaigns(
     c,
     outlet,
@@ -41,30 +47,43 @@ export async function visitScore(c, visit, policy) {
   );
   /** @type {Record<string,any>} */ const values = {};
   values.availability = await seams.availability(c, visit);
-  const price = bounded(
-    await c.db`select * from visit_activities where visit_id=${visit.id} and activity_kind='price_check' and deleted_at is null order by device_time desc limit 501`,
-  );
-  const latestPrices = new Map();
-  for (const p of price)
-    if (!latestPrices.has(p.activity.productId))
-      latestPrices.set(p.activity.productId, p);
-  const prices = [...latestPrices.values()];
-  values.price =
-    prices.length &&
-    prices.every((p) => typeof p.activity.compliant === "boolean")
-      ? {
-          score:
-            (100 * prices.filter((p) => p.activity.compliant).length) /
-            prices.length,
-          sourceIds: prices.map((p) => p.id),
-        }
-      : null;
-  for (const kind of ["planogram", "posm"]) {
+  values.price = await seams.priceCompliance(c, visit);
+  for (const kind of ["planogram"]) {
     const a = audits.find((/** @type {any} */ a) => a.kind === kind);
     values[kind] = a
       ? { score: Number(a.component_score), sourceId: a.id }
       : null;
   }
+  const auditAt = visit.ended_at
+    ? +new Date(visit.ended_at)
+    : Math.max(
+        +new Date(visit.started_at ?? visit.checked_in_at),
+        ...audits.map((/** @type {any} */ a) => +new Date(a.captured_at)),
+      );
+  const deployed = await posmAt(
+    c.db,
+    { kind: "deploy", outletId: visit.outlet_id },
+    auditAt,
+  );
+  const posmAudits = deployed.map((/** @type {any} */ unit) =>
+    audits.find(
+      (/** @type {any} */ a) =>
+        a.kind === "posm" && a.facts.unitCode === unit.unit_code,
+    ),
+  );
+  values.posm = !deployed.length
+    ? { notApplicable: true }
+    : posmAudits.every(Boolean)
+      ? {
+          score:
+            posmAudits.reduce(
+              (/** @type {number} */ n, /** @type {any} */ a) =>
+                n + Number(a.component_score),
+              0,
+            ) / posmAudits.length,
+          sourceIds: posmAudits.map((/** @type {any} */ a) => a.id),
+        }
+      : null;
   const freezers = equipment.map((/** @type {any} */ m) =>
     audits.find(
       (/** @type {any} */ a) =>
@@ -169,22 +188,31 @@ export async function accountWeek(c, customerId, start) {
   const scores = [];
   for (const outlet of outlets) {
     const [v] =
-      await c.db`select v.* from visit_executions v where v.outlet_id=${outlet.id} and v.service_date>=${start} and v.service_date<${end} and v.deleted_at is null and v.checked_in_at is not null and exists(select 1 from outlet_customer_links l where l.outlet_id=v.outlet_id and l.customer_id=${account.id} and l.deleted_at is null and l.effective_from<=v.checked_in_at and (l.effective_to is null or l.effective_to>v.checked_in_at)) order by v.checked_in_at desc,v.id desc limit 1`;
+      await c.db`select v.* from visit_executions v where v.outlet_id=${outlet.id} and v.service_date>=${start} and v.service_date<${end} and v.deleted_at is null and v.checked_in_at is not null and (${c.actor.role !== "sales"} or v.assignee_profile_id=${c.actor.profileId}) and exists(select 1 from outlet_customer_links l where l.outlet_id=v.outlet_id and l.customer_id=${account.id} and l.deleted_at is null and l.effective_from<=v.checked_in_at and (l.effective_to is null or l.effective_to>v.checked_in_at)) order by v.checked_in_at desc,v.id desc limit 1`;
     const policy =
       v &&
-      (await policyAt(c.db, "scorecard", outlet, +new Date(v.checked_in_at)));
-    scores.push(
-      v && policy
-        ? await visitScore(c, v, policy)
-        : {
-            outletId: outlet.id,
-            outletName: outlet.name,
-            status: "incomplete",
-            missing: [v ? "scorecard setup" : "visit"],
-            score: null,
-            target: null,
-          },
-    );
+      (await policyAt(
+        c.db,
+        "scorecard",
+        outlet,
+        +new Date(v.started_at ?? v.checked_in_at),
+      ));
+    if (v && policy) {
+      try {
+        scores.push(await visitScore(c, v, policy));
+        continue;
+      } catch (e) {
+        if (!(e instanceof ApiError && e.status === 403)) throw e;
+      }
+    }
+    scores.push({
+      outletId: outlet.id,
+      outletName: outlet.name,
+      status: "incomplete",
+      missing: [v && !policy ? "scorecard setup" : "authorized visit"],
+      score: null,
+      target: null,
+    });
   }
   const complete = scores.filter((s) => s.status === "complete"),
     isComplete = complete.length === scores.length;
@@ -216,9 +244,15 @@ export async function publishScore(c) {
     snapshot.weekEnd > new Date(c.now + 8 * 3600000).toISOString().slice(0, 10)
   )
     throw invalid("Publish completed weeks only");
-  const policies = await currentMasters(c.db, "scorecard", c.now);
-  if (policies.length !== 1)
-    throw invalid("Set one scorecard publication policy");
+  const firstPolicyId = snapshot.branches
+    .map((/** @type {any} */ r) => r.policyVersionId)
+    .find(Boolean);
+  const publicationPolicy = firstPolicyId
+    ? await masterById(c.db, firstPolicyId, "scorecard")
+    : (await currentMasters(c.db, "scorecard", c.now)).find(
+        (/** @type {any} */ r) => r.outlet_class === "*",
+      );
+  if (!publicationPolicy) throw invalid("Set a scorecard publication policy");
   await c.db`select pg_advisory_xact_lock(hashtextextended(${`score:${b.customerId}:${b.weekStart}`},0))`;
   const hash = sha256Hex(canonicalJson(snapshot));
   const [last] =
@@ -226,7 +260,7 @@ export async function publishScore(c) {
   if (last?.content_hash === hash)
     return { id: last.id, snapshot: last.snapshot };
   const [r] =
-    await c.db`insert into perfect_store_publications(week_start,customer_id,scorecard_version_id,revision,content_hash,snapshot,actor_subject) values(${b.weekStart},${b.customerId},${policies[0].id},${(last?.revision ?? 0) + 1},${hash},${snapshot},${c.actor.subject}) returning id`;
+    await c.db`insert into perfect_store_publications(week_start,customer_id,scorecard_version_id,revision,content_hash,snapshot,actor_subject) values(${b.weekStart},${b.customerId},${publicationPolicy.id},${(last?.revision ?? 0) + 1},${hash},${snapshot},${c.actor.subject}) returning id`;
   await changed(c, "score.published", r.id);
   return { id: r.id, snapshot };
 }

@@ -117,6 +117,20 @@ export async function currentMasters(db, kind, at) {
     await db`select * from retail_master_versions where organization_id='sunpride' and kind=${kind} and effective_from<=${new Date(at)} and (effective_to is null or effective_to>${new Date(at)}) order by code limit 501`,
   );
 }
+/** F-314: apply the outlet filter before the bound, not after a national equipment prefix.
+ * @param {any} db @param {string} outletId @param {number} at */
+export async function equipmentAt(db, outletId, at) {
+  return bounded(
+    await db`select * from retail_master_versions where kind='equipment' and data->>'outletId'=${outletId} and effective_from<=${new Date(at)} and (effective_to is null or effective_to>${new Date(at)}) order by code limit 501`,
+  );
+}
+/** F-313: find current custody before filtering; an old deployment is not a current grant.
+ * @param {any} db @param {any} filter @param {number} at */
+export async function posmAt(db, filter, at) {
+  return bounded(
+    await db`select * from (select distinct on(unit_code) * from posm_custody_events where occurred_at<=${new Date(at)} order by unit_code,occurred_at desc,id desc) s where kind=${filter.kind} and (${!filter.outletId} or outlet_id=${filter.outletId ?? null}) and (${!filter.profileId} or custodian_profile_id=${filter.profileId ?? null}) order by unit_code limit 501`,
+  );
+}
 /** F-311: resolve most specific outlet class; ambiguity refuses rather than using an arbitrary layout.
  * @param {any} db @param {string} kind @param {any} outlet @param {number} at */
 export async function policyAt(db, kind, outlet, at) {
@@ -145,13 +159,15 @@ export async function saveMaster(c) {
   const from = integer(b.effectiveFrom, Number.MAX_SAFE_INTEGER, 1);
   if (from < c.now) throw invalid("Publish prospectively");
   const data = await validateMaster(c, kind, b.data);
+  await c.db`select pg_advisory_xact_lock(5400545)`;
   await c.db`select pg_advisory_xact_lock(hashtextextended(${`retail:${kind}:${code}`},0))`;
   const [last] =
     await c.db`select * from retail_master_versions where kind=${kind} and code=${code} order by version desc limit 1`;
   if (last && from <= +new Date(last.effective_from))
     throw invalid("A later version is already scheduled");
   if (kind === "equipment") {
-    const others = await currentMasters(c.db, "equipment", from);
+    const others =
+      await c.db`select * from retail_master_versions where kind='equipment' and code<>${code} and (effective_to is null or effective_to>${new Date(from)}) and (data->>'serial'=${data.serial} or data->>'sapFixedAssetId'=${data.sapFixedAssetId}) limit 1`;
     if (
       others.some(
         (/** @type {any} */ r) =>
@@ -161,6 +177,14 @@ export async function saveMaster(c) {
       )
     )
       throw invalid("Serial or SAP fixed asset already registered");
+  }
+  if (["planogram", "scorecard", "expiry_policy"].includes(kind)) {
+    const other =
+      await c.db`select id from retail_master_versions where kind=${kind} and code<>${code} and (effective_to is null or effective_to>${new Date(from)}) and (${kind === "expiry_policy"} and data->>'productId'=${data.productId ?? null} or ${kind !== "expiry_policy"} and outlet_class=${klass}) limit 1`;
+    if (other.length)
+      throw invalid(
+        "Edit the existing class or SKU policy instead of creating an overlapping one",
+      );
   }
   if (last)
     await c.db`update retail_master_versions set effective_to=${new Date(from)} where id=${last.id}`;

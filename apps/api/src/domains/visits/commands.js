@@ -285,6 +285,12 @@ export async function activity(ctx) {
   validTime(p.deviceTime, ctx.now);
   const visit = await ownedVisit(ctx, p.visitId);
   await validateActivity(ctx, p.activity);
+  // F-310: an execution-only profile cannot smuggle a commercial order through a bonus activity.
+  if (p.activity.kind === "order_intent") {
+    const call = await ownedCall(ctx, { visitId: visit.id });
+    if (call?.definition_snapshot.channelProfile === "merchandiser")
+      reject("unsupported_operation");
+  }
   await validateAccountCapture(ctx, visit, p.activity);
   if (p.activity.kind === "order_intent") {
     if (p.deviceTime < ms(visit.started_at)) reject();

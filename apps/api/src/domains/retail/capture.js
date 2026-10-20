@@ -12,11 +12,14 @@ import {
   accessOutlet,
   bounded,
   changed,
+  canonicalJson,
+  sha256Hex,
   choice,
   date,
   integer,
   invalid,
   once,
+  officePerson,
   photos,
   seams,
   text,
@@ -118,10 +121,13 @@ async function validate(c, visit, kind, d, at) {
       d.scannedSerial !== master.data.serial
     )
       throw invalid("Scan this store's registered equipment serial");
-    const policy = effective(
-      await masterById(c.db, master.data.policyVersionId, "cold_policy"),
-      at,
+    // The asset agreement pins its policy version. Publishing a new policy cannot rewrite an existing agreement.
+    const policy = await masterById(
+      c.db,
+      master.data.policyVersionId,
+      "cold_policy",
     );
+    if (!policy) throw invalid("Equipment agreement policy is unavailable");
     const temperature = integer(d.temperatureDeciC, 600, -600),
       own = integer(d.ownSharePercent, 100),
       measured = integer(d.measuredAt, Number.MAX_SAFE_INTEGER, 1);
@@ -147,21 +153,32 @@ async function validate(c, visit, kind, d, at) {
     };
   } else if (kind === "posm") {
     const unit = text(d.unitCode, 100);
+    await c.db`select pg_advisory_xact_lock(hashtextextended(${`posm:${unit}`},0))`;
     const [deployed] =
-      await c.db`select * from posm_custody_events where unit_code=${unit} and occurred_at<=${new Date(at)} order by occurred_at desc,id desc limit 1`;
+      await c.db`select * from posm_custody_events where unit_code=${unit} order by occurred_at desc,id desc limit 1`;
+    const deploying = d.action === "deploy";
     if (
       !deployed ||
-      deployed.kind !== "deploy" ||
-      deployed.outlet_id !== visit.outlet_id
+      +new Date(deployed.occurred_at) > at ||
+      (deploying
+        ? deployed.kind !== "issue" ||
+          deployed.custodian_profile_id !== c.actor.profileId
+        : deployed.kind !== "deploy" || deployed.outlet_id !== visit.outlet_id)
     )
-      throw invalid("Choose POSM deployed at this outlet");
+      throw invalid("Choose POSM issued to you, or deployed at this outlet");
     master = await masterById(c.db, deployed.material_version_id, "posm");
     const present = bool(d.present),
       condition = choice(d.condition, ["good", "damaged", "missing"]);
-    if (present === (condition === "missing"))
+    if (present === (condition === "missing") || (deploying && !present))
       throw invalid("Presence and condition disagree");
     score = present && condition === "good" ? 100 : 0;
-    facts = { unitCode: unit, present, condition, deploymentId: deployed.id };
+    facts = {
+      unitCode: unit,
+      present,
+      condition,
+      deploymentId: deployed.id,
+      deploying,
+    };
   } else if (kind === "promotion") {
     const campaigns = await seams.campaigns(c, outlet, at),
       campaign = campaigns?.find(
@@ -320,8 +337,14 @@ export async function capture(c) {
     const [n] =
       await c.db`select count(*)::int as n from retail_execution_audits where visit_id=${visit.id}`;
     if (n.n >= 500) throw invalid("Call observation limit reached");
+    if (kind === "posm" && facts.deploying) {
+      const [deployment] =
+        await c.db`insert into posm_custody_events(material_version_id,unit_code,kind,outlet_id,custodian_profile_id,photo_id,reason,request_key,actor_subject,occurred_at)
+        values(${master.id},${facts.unitCode},'deploy',${visit.outlet_id},${c.actor.profileId},${facts.evidenceIds[0]},'Deployed during outlet call',${b.requestKey},${c.actor.subject},${new Date(b.deviceTime)}) returning id`;
+      facts.deploymentId = deployment.id;
+    }
     const [row] =
-      await c.db`insert into retail_execution_audits(visit_id,outlet_id,profile_id,org_unit_id,kind,request_key,payload_hash,master_version_id,facts,component_score,captured_at,actor_subject) values(${visit.id},${visit.outlet_id},${c.actor.profileId},${visit.org_unit_id},${kind},${b.requestKey},'via-retail-command',${master?.id ?? null},${facts},${score},${new Date(b.deviceTime)},${c.actor.subject}) returning id`;
+      await c.db`insert into retail_execution_audits(visit_id,outlet_id,profile_id,org_unit_id,kind,request_key,payload_hash,master_version_id,facts,component_score,captured_at,actor_subject) values(${visit.id},${visit.outlet_id},${c.actor.profileId},${visit.org_unit_id},${kind},${b.requestKey},${sha256Hex(canonicalJson(b))},${master?.id ?? null},${facts},${score},${new Date(b.deviceTime)},${c.actor.subject}) returning id`;
     const call = await ownedCall(c, { visitId: visit.id });
     if (
       call?.definition_snapshot.steps.some(
@@ -384,12 +407,15 @@ export async function custody(c) {
     ]);
   const material = await masterById(c.db, uuid(b.materialVersionId), "posm");
   if (!material) throw invalid();
+  if (kind === "issue") effective(material, c.now);
   await c.db`select pg_advisory_xact_lock(hashtextextended(${`posm:${unit}`},0))`;
   const [last] =
     await c.db`select * from posm_custody_events where unit_code=${unit} order by occurred_at desc,id desc limit 1`;
   let outletId = b.outletId ? uuid(b.outletId) : null;
   if (outletId) await accessOutlet(c, outletId, "outlet.manage");
   if (last?.outlet_id) await accessOutlet(c, last.outlet_id, "outlet.manage");
+  if (last?.custodian_profile_id)
+    await officePerson(c, last.custodian_profile_id, true);
   const transitions = /** @type {Record<string,string[]>} */ ({
     issue: ["return"],
     deploy: ["issue"],
@@ -397,19 +423,20 @@ export async function custody(c) {
     write_off_request: ["issue", "deploy", "return"],
     write_off: ["write_off_request"],
   });
+  const oldMaterial = last
+    ? await masterById(c.db, last.material_version_id, "posm")
+    : null;
   if (
     (!last && kind !== "issue") ||
     (last && !transitions[kind].includes(last.kind)) ||
     (kind === "deploy" && !outletId) ||
-    (last && last.material_version_id !== material.id)
+    (last &&
+      last.material_version_id !== material.id &&
+      !(kind === "issue" && oldMaterial?.code === material.code))
   )
     throw invalid("Invalid POSM custody transition");
-  const custodian = uuid(b.custodianProfileId),
-    [person] =
-      await c.db`select * from profiles where id=${custodian} and status='active' and deleted_at is null`;
-  if (!person) throw invalid();
-  const { requireCapability } = await import("./common.js");
-  await requireCapability(c, "outlet.manage", person.org_unit_id);
+  const custodian = uuid(b.custodianProfileId);
+  await officePerson(c, custodian);
   let photoId = null;
   if (kind === "deploy") {
     const [v] =
@@ -444,11 +471,7 @@ export async function caseAction(c) {
   let status = row.status,
     owner = row.owner_profile_id;
   if (action === "assign") {
-    const [p] =
-      await c.db`select * from profiles where id=${uuid(b.ownerProfileId)} and status='active' and deleted_at is null`;
-    if (!p) throw invalid();
-    const { requireCapability } = await import("./common.js");
-    await requireCapability(c, "outlet.manage", p.org_unit_id);
+    const p = await officePerson(c, uuid(b.ownerProfileId));
     owner = p.id;
     status = "assigned";
   } else if (action === "approve") {

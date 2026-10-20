@@ -30,8 +30,10 @@ import {
   recallEvent,
   recallDetail,
 } from "../src/domains/retail/recall.js";
+import { previousWeek, installWeekly } from "../src/domains/retail/weekly.js";
 import { seams } from "../src/domains/retail/common.js";
 import { tx } from "@sunpride/db/client";
+import { recordAudit } from "../src/domains/visits/merchandising.js";
 /** @type {import('./harness.js').Harness} */ let h;
 /** @type {ReturnType<typeof profileStore>} */ let profiles;
 const DAY = 86400000,
@@ -658,4 +660,395 @@ test("F-315 stored observations are append-only, not editable score submissions"
       await h.db`update retail_execution_audits set component_score=100 where id=${r.result.ack.entityId}`;
     })(),
   ).rejects.toThrow("immutable");
+});
+test("F-316 weighted scores explain all six components and distinguish unavailable TPM from genuine not-applicable", async () => {
+  const f = await started(),
+    klass = crypto.randomUUID();
+  await h.db`update outlets set classification=${klass} where id=${f.outlet}`;
+  const p = await master(
+    "scorecard",
+    {
+      components: [
+        ["availability", 25],
+        ["planogram", 20],
+        ["posm", 10],
+        ["price", 15],
+        ["freezer", 20],
+        ["promotion", 10],
+      ].map(([key, weight]) => ({
+        key,
+        weight,
+        allowNotApplicable: key === "promotion",
+      })),
+      targetPercent: 90,
+    },
+    f.now - DAY,
+    klass,
+  );
+  const a = await freezer(f);
+  expect((await record(f, "freezer", a.data)).result.status).toBe("applied");
+  const target = await master(
+    "planogram",
+    {
+      lines: [{ productId: f.sku, facings: 4, position: "A" }],
+      targetSharePercent: 40,
+    },
+    f.now - DAY,
+    klass,
+  );
+  expect(
+    (
+      await record(f, "planogram", {
+        masterVersionId: target.id,
+        lines: [{ productId: f.sku, facings: 2, position: "A" }],
+        ownFacings: 2,
+        totalFacings: 10,
+        evidenceIds: [await photo(f)],
+      })
+    ).result.status,
+  ).toBe("applied");
+  const material = await master("posm", {
+      material: "Header",
+      auditEveryDays: 7,
+    }),
+    unit = crypto.randomUUID();
+  await tx(h.db, (t) =>
+    custody({
+      ...ctx(
+        f,
+        {
+          unitCode: unit,
+          kind: "issue",
+          materialVersionId: material.id,
+          custodianProfileId: f.d.profile.id,
+          requestKey: crypto.randomUUID(),
+          reason: "Sample",
+        },
+        "super_admin",
+      ),
+      db: t,
+    }),
+  );
+  const deployment = await record(f, "posm", {
+    unitCode: unit,
+    action: "deploy",
+    present: true,
+    condition: "good",
+    evidenceIds: [await photo(f)],
+  });
+  expect(deployment.result.status).toBe("applied");
+  const [deployed] =
+    await h.db`select * from posm_custody_events where unit_code=${unit} and kind='deploy'`;
+  expect(deployed.outlet_id).toBe(f.outlet);
+  expect(deployed.photo_id).toBeTruthy();
+  await h.db`insert into outlet_assortments(organization_id,outlet_id,effective_from,source_ref,actor_subject) values('sunpride',${f.outlet},${new Date(f.now - DAY)},'Test assortment','fixture') returning id`.then(
+    async (rows) => {
+      await h.db`insert into outlet_assortment_products(outlet_assortment_id,ordinal,product_id) values(${rows[0].id},0,${f.sku})`;
+    },
+  );
+  await tx(h.db, (t) =>
+    recordAudit({
+      ...ctx(f, {
+        visitId: f.visit,
+        clientAuditId: crypto.randomUUID(),
+        deviceTime: Date.now(),
+        availability: [{ productId: f.sku, status: "available", facings: 2 }],
+        compliance: [],
+        competitors: [],
+        evidenceIds: [],
+      }),
+      db: t,
+    }),
+  );
+  const op = {
+    clientOpId: crypto.randomUUID(),
+    opType: "visit.activity",
+    clientTime: Date.now(),
+    dependsOn: [],
+    payload: {
+      visitId: f.visit,
+      deviceTime: Date.now(),
+      activity: {
+        kind: "price_check",
+        productId: f.sku,
+        observedPriceMinor: 10000,
+        currency: "PHP",
+        compliant: false,
+      },
+    },
+  };
+  const sent = await signedPost(h, f.d, "/api/sync/push", {
+    version: 2,
+    deviceId: f.d.deviceId,
+    scopeId: f.unit,
+    operations: [op],
+  });
+  expect(sent.body.results[0].status).toBe("applied");
+  const [v] = await h.db`select * from visit_executions where id=${f.visit}`;
+  expect((await visitScore(ctx(f), v, p)).missing).toContain("promotion");
+  const channel = "sample-" + crypto.randomUUID();
+  await h.db`update outlets set channel=${channel} where id=${f.outlet}`;
+  const [priceList] =
+    await h.db`insert into price_lists(organization_id,code,name,channel_key,currency,status,source,effective_from) values('sunpride',${crypto.randomUUID()},'Sample governed shelf price',${channel},'PHP','active','sample',${new Date(f.now - DAY)}) returning id`;
+  await h.db`insert into price_list_lines(organization_id,price_list_id,product_id,uom,unit_price_minor,effective_from) values('sunpride',${priceList.id},${f.sku},'PC',10000,${new Date(f.now - DAY)})`;
+  const original = seams.campaigns;
+  seams.campaigns = async () => [];
+  try {
+    const score = await visitScore(ctx(f), v, p);
+    expect(score.status).toBe("complete");
+    expect(score.score).toBe(88.89);
+    expect(
+      score.components.find((/** @type {any} */ x) => x.key === "promotion")
+        .status,
+    ).toBe("not_applicable");
+    expect(
+      score.components.find((/** @type {any} */ x) => x.key === "price").value
+        .score,
+    ).toBe(100);
+    const changed = structuredClone(op);
+    changed.clientOpId = crypto.randomUUID();
+    changed.payload.deviceTime = Date.now();
+    changed.payload.activity.observedPriceMinor = 10001;
+    changed.payload.activity.compliant = true;
+    expect(
+      (
+        await signedPost(h, f.d, "/api/sync/push", {
+          version: 2,
+          deviceId: f.d.deviceId,
+          scopeId: f.unit,
+          operations: [changed],
+        })
+      ).body.results[0].status,
+    ).toBe("applied");
+    expect(
+      (await visitScore(ctx(f), v, p)).components.find(
+        (/** @type {any} */ x) => x.key === "price",
+      ).value.score,
+    ).toBe(0);
+  } finally {
+    seams.campaigns = original;
+  }
+});
+test("F-316 canonical source ownership prevents another salesperson reading a colleague score", async () => {
+  const f = await started(),
+    other = await fixture({ unit: f.unit }),
+    p = await master(
+      "scorecard",
+      {
+        components: [
+          { key: "availability", weight: 100, allowNotApplicable: false },
+        ],
+        targetPercent: 90,
+      },
+      f.now - DAY,
+      crypto.randomUUID(),
+    );
+  const [v] = await h.db`select * from visit_executions where id=${f.visit}`;
+  await expect(visitScore(ctx(other), v, p)).rejects.toThrow();
+});
+test("F-311 F-314 immutable master history permits interval closure but refuses target edits", async () => {
+  const m = await master("cold_policy", {
+    type: "freezer",
+    minTemperatureDeciC: -250,
+    maxTemperatureDeciC: -180,
+    minOwnSharePercent: 90,
+    followupHours: 4,
+  });
+  await expect(
+    (async () => {
+      await h.db`update retail_master_versions set data=${{ ...m.data, minOwnSharePercent: 0 }} where id=${m.id}`;
+    })(),
+  ).rejects.toThrow();
+  await h.db`update retail_master_versions set effective_to=${new Date(Date.now() + DAY)} where id=${m.id}`;
+  expect(
+    (await h.db`select data from retail_master_versions where id=${m.id}`)[0]
+      .data.minOwnSharePercent,
+  ).toBe(90);
+});
+
+test("F-315 a deployed agreement keeps its pinned policy after general policy closure", async () => {
+  const f = await started(),
+    a = await freezer(f);
+  await h.db`update retail_master_versions set effective_to=${new Date(f.now - 100)} where id=${a.policy.id}`;
+  const snapshot = await outletRetail(ctx(f), { id: f.outlet });
+  expect(
+    snapshot.masters.some((/** @type {any} */ m) => m.id === a.policy.id),
+  ).toBe(true);
+  const r = await record(f, "freezer", a.data);
+  expect(r.result.status).toBe("applied");
+  const [saved] =
+    await h.db`select * from retail_execution_audits where id=${r.result.ack.entityId}`;
+  expect(saved.facts.policyVersionId).toBe(a.policy.id);
+  expect(saved.facts.policy.minOwnSharePercent).toBe(90);
+  expect(saved.payload_hash).toMatch(/^[a-f0-9]{64}$/);
+});
+test("F-311 overlapping class publications are refused before poisoning a future bootstrap", async () => {
+  const f = await fixture(),
+    klass = crypto.randomUUID(),
+    m = await master(
+      "planogram",
+      {
+        lines: [{ productId: f.sku, facings: 3, position: "A" }],
+        targetSharePercent: 50,
+      },
+      f.now - DAY,
+      klass,
+    );
+  const c = ctx(
+    f,
+    {
+      kind: "planogram",
+      code: crypto.randomUUID(),
+      label: "Duplicate class plan",
+      outletClass: klass,
+      effectiveFrom: Date.now() + 10000,
+      data: m.data,
+    },
+    "super_admin",
+  );
+  await expect(tx(h.db, (t) => saveMaster({ ...c, db: t }))).rejects.toThrow(
+    "overlapping",
+  );
+  expect(
+    (
+      await h.db`select * from retail_master_versions where kind='planogram' and outlet_class=${klass}`
+    ).length,
+  ).toBe(1);
+});
+test("F-313 custody assignment uses current employee history instead of the stale profile unit", async () => {
+  const f = await fixture(),
+    person = await fixture({ unit: f.unit }),
+    foreign = await fixture(),
+    material = await master("posm", { material: "Board", auditEveryDays: 7 });
+  const body = {
+    unitCode: crypto.randomUUID(),
+    kind: "issue",
+    materialVersionId: material.id,
+    custodianProfileId: person.d.profile.id,
+    requestKey: crypto.randomUUID(),
+    reason: "Sample custody",
+  };
+  await tx(h.db, (t) => custody({ ...ctx(f, body, "operations"), db: t }));
+  const [assignment] =
+    await h.db`select * from employee_assignments where profile_id=${person.d.profile.id} and effective_to is null`;
+  const at = new Date(Date.now() - 100);
+  await h.db`update employee_assignments set effective_to=${at} where id=${assignment.id}`;
+  await h.db`insert into employee_assignments(profile_id,org_unit_id,role,position_id,effective_from,actor_subject,reason) values(${person.d.profile.id},${foreign.unit},'sales',${assignment.position_id},${at},'fixture','Transfer')`;
+  const next = {
+    ...body,
+    unitCode: crypto.randomUUID(),
+    requestKey: crypto.randomUUID(),
+  };
+  await expect(
+    tx(h.db, (t) => custody({ ...ctx(f, next, "operations"), db: t })),
+  ).rejects.toThrow();
+  expect(
+    (
+      await h.db`select * from posm_custody_events where unit_code=${next.unitCode}`
+    ).length,
+  ).toBe(0);
+  expect(
+    (
+      await h.db`select org_unit_id from profiles where id=${person.d.profile.id}`
+    )[0].org_unit_id,
+  ).toBe(f.unit);
+});
+test("F-614 scoped traces never expose another received outlet or its quantities", async () => {
+  const f = await fixture(),
+    other = await fixture(),
+    [lot] =
+      await h.db`insert into inventory_lots(organization_id,product_id,lot_number,normalized_lot_number,source_type,received_at,quality_status) values('sunpride',${f.sku},${crypto.randomUUID()},${crypto.randomUUID()},'test',now(),'released') returning id`;
+  for (const [person, qty] of /** @type {[any,number][]} */ ([
+    [f, 12],
+    [other, 999],
+  ]))
+    await tx(h.db, (t) =>
+      confirmReceipt({
+        ...ctx(
+          person,
+          {
+            outletId: person.outlet,
+            lotId: lot.id,
+            quantityBase: qty,
+            sourceKey: crypto.randomUUID(),
+            sourceVersion: "Sample SAP-v1",
+            receivedAt: person.now,
+          },
+          "super_admin",
+        ),
+        db: t,
+      }),
+    );
+  const visible = await traceBatch(ctx(f), lot.id);
+  expect(visible.affectedOutlets).toBe(1);
+  expect(visible.rows.length).toBe(1);
+  expect(Number(visible.rows[0].quantity_base)).toBe(12);
+  expect(visible.backwardGenealogy).toEqual([]);
+  const none = await fixture();
+  await expect(traceBatch(ctx(none), lot.id)).rejects.toThrow("in your scope");
+});
+test("F-318 unknown excluded dimensions cannot certify a restricted campaign as eligible", () => {
+  expect(
+    seams.campaignEligible(
+      { distributorId: { exclude: ["foreign"] } },
+      { outletId: "one" },
+    ),
+  ).toBe(false);
+  expect(
+    seams.campaignEligible(
+      { geographyKey: { include: [], exclude: [] } },
+      { outletId: "one" },
+    ),
+  ).toBe(true);
+});
+test("F-316 scheduled weekly publication uses durable per-account jobs and does not duplicate unchanged facts", async () => {
+  const f = await fixture();
+  /** @type {any} */ let schedule;
+  /** @type {any} */ let worker;
+  installWeekly({
+    scheduler: {
+      daily: (
+        /** @type {string} */ time,
+        /** @type {string} */ zone,
+        /** @type {string} */ name,
+        /** @type {any} */ fn,
+      ) => {
+        schedule = { time, zone, name, fn };
+      },
+    },
+    registerJob: (/** @type {string} */ kind, /** @type {any} */ fn) => {
+      expect(kind).toBe("retail.weekly.publish");
+      worker = fn;
+    },
+    recordChange: () => {},
+    publish: () => {},
+  });
+  expect(schedule.time).toBe("00:15");
+  expect(schedule.zone).toBe("Asia/Manila");
+  expect(previousWeek(Date.parse("2026-10-18T17:00:00Z"))).toBe("2026-10-12");
+  await schedule.fn({ db: h.db });
+  const jobs =
+    await h.db`select * from jobs where kind='retail.weekly.publish' and payload->>'customerId'=${f.customer}`;
+  expect(jobs.length).toBe(1);
+  await worker({ db: h.db, payload: jobs[0].payload });
+  await worker({ db: h.db, payload: jobs[0].payload });
+  const rows =
+    await h.db`select * from perfect_store_publications where customer_id=${f.customer}`;
+  expect(rows.length).toBe(1);
+  expect(rows[0].snapshot.status).toBe("incomplete");
+  expect(rows[0].snapshot.score).toBeNull();
+  expect(rows[0].actor_subject).toBe("system:retail-weekly");
+});
+test("F-314 outlet snapshots do not depend on a national equipment prefix", async () => {
+  const f = await started(),
+    foreign = await fixture(),
+    asset = await freezer(f),
+    prefix = crypto.randomUUID();
+  await h.db`insert into retail_master_versions(kind,code,version,label,outlet_class,effective_from,data,source,actor_subject)
+ select 'equipment',${prefix}||g::text,1,'Other-store sample asset','*',now()-interval '1 day',jsonb_build_object('outletId',${foreign.outlet}::text,'policyVersionId',${asset.policy.id}::text,'serial',${prefix}||g::text,'sapFixedAssetId','SAP-'||${prefix}||g::text,'model','Test','custodian','Test','agreement','Sample','location','Cebu','type','freezer','deployedAt',${f.now - DAY}::bigint),'sample','fixture' from generate_series(1,501) g`;
+  expect(
+    (await outletRetail(ctx(f), { id: f.outlet })).equipment.map(
+      (/** @type {any} */ m) => m.id,
+    ),
+  ).toEqual([asset.equipment.id]);
 });

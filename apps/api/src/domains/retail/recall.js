@@ -1,4 +1,6 @@
 import { requireNationalScope } from "../../core/capabilities.js";
+import { scopeFilterForActor } from "../org/scope.js";
+import { forbidden } from "../../core/errors.js";
 import {
   accessOutlet,
   bounded,
@@ -17,13 +19,11 @@ export async function traceBatch(c, lotId) {
     await c.db`select l.*,p.name as product_name,p.code as product_code from inventory_lots l join products p on p.id=l.product_id where l.id=${uuid(lotId)} and l.organization_id='sunpride'`;
   if (!lot) throw invalid("Choose a batch");
   const lots = bounded(
-    await c.db`with recursive impacted(id,path) as (
-    select ${lot.id}::uuid,array[${lot.id}::uuid]
-    union all select g.output_lot_id,i.path||g.output_lot_id from impacted i join lot_genealogy_links g on g.component_lot_id=i.id where g.organization_id='sunpride' and not g.output_lot_id=any(i.path) and cardinality(i.path)<100
-  ) select distinct id from impacted limit 501`,
+    await c.db`with recursive impacted(id) as (
+    select ${lot.id}::uuid
+    union select g.output_lot_id from impacted i join lot_genealogy_links g on g.component_lot_id=i.id where g.organization_id='sunpride'
+  ) select id from impacted limit 501`,
   );
-  if (lots.length >= 500)
-    throw invalid("Trace genealogy is too large; refine the batch");
   const ids = lots.map((/** @type {any} */ l) => l.id);
   const confirmed = bounded(
     await c.db`select r.*,o.name as outlet_name,l.lot_number from retail_batch_receipts r join outlets o on o.id=r.outlet_id join inventory_lots l on l.id=r.lot_id where r.lot_id in ${c.db(ids)} order by r.received_at,r.id limit 5001`,
@@ -59,6 +59,7 @@ export async function traceBatch(c, lotId) {
     if (r.certainty === "allocation_inference") {
       const [source] =
         await c.db`select t.org_unit_id from van_sales s join van_trips t on t.id=s.trip_id where s.id::text=${r.source_key}`;
+      if (!source?.org_unit_id) continue;
       const { requireCapability } = await import("./common.js");
       try {
         await requireCapability(c, "inventory.read", source.org_unit_id);
@@ -68,6 +69,12 @@ export async function traceBatch(c, lotId) {
     }
     allowed.push(r);
   }
+  const { unitIds } = await scopeFilterForActor(c.db, c.actor);
+  if (unitIds !== null && !allowed.length)
+    throw forbidden(
+      "No received outlet from this batch is in your scope",
+      "out_of_scope",
+    );
   return {
     lot: {
       id: lot.id,
@@ -75,8 +82,9 @@ export async function traceBatch(c, lotId) {
       product: lot.product_name,
       productCode: lot.product_code,
     },
-    descendantLotIds: ids,
-    backwardGenealogy: genealogy,
+    descendantLotIds:
+      unitIds === null ? ids : [...new Set(allowed.map((r) => r.lot_id))],
+    backwardGenealogy: unitIds === null ? genealogy : [],
     rows: allowed,
     affectedOutlets: new Set(allowed.map((r) => r.outlet_id)).size,
     completeness: "supported_sources_only",
@@ -96,6 +104,7 @@ export async function confirmReceipt(c) {
     qty = integer(b.quantityBase, 1_000_000_000, 1);
   if (!Number.isSafeInteger(b.receivedAt) || b.receivedAt > c.now)
     throw invalid("Check the received date");
+  await c.db`select pg_advisory_xact_lock(hashtextextended(${`retail-receipt:${sourceKey}`},0))`;
   const [old] =
     await c.db`select * from retail_batch_receipts where source_key=${sourceKey}`;
   if (old) {
