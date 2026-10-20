@@ -36,6 +36,15 @@ function classify(request) {
   if (url.origin !== self.location.origin) return "none";
   if (request.headers.get("range")) return "none";
   const path = url.pathname;
+  // F-402: partner records require current grants. Never put them in the
+  // employee PWA fallback cache, including private document downloads.
+  if (
+    path === "/api/v1/distributors" ||
+    path.startsWith("/api/v1/distributors/") ||
+    path === "/distributor" ||
+    path === "/distributors"
+  )
+    return "none";
   if (path === "/sw.js" || path === "/ws") return "none";
   if (path.startsWith("/api/")) {
     if (path.startsWith("/api/auth/")) return "none";

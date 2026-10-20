@@ -157,6 +157,21 @@ describe("service worker cache rules", () => {
     ).toBeNull();
   });
 
+  it("F-402 never caches partner reads, exports, documents or portal pages", () => {
+    for (const path of [
+      "/api/v1/distributors",
+      "/api/v1/distributors/finance?distributorId=a",
+      "/api/v1/distributors/secondary?format=csv",
+      "/api/v1/distributors/documents/private",
+      "/distributor",
+      "/distributors",
+    ]) {
+      const req = request(path, { navigate: true });
+      expect(sw.classify(req)).toBe("none");
+      expect(sw.handle(req)).toBeNull();
+    }
+  });
+
   it("answers data from the network, then from the cache with its time when offline", async () => {
     network = async () => basic('{"sales":1}');
     const live = await sw.handle(request("/api/v1/analytics/today"))!;

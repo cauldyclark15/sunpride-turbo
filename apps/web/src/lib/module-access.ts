@@ -188,6 +188,7 @@ export const MODULE_ROLES = {
   "master-data": masterDataManagers, // masterdata.manage
   pricing: masterDataManagers, // masterdata.manage (price lists are master data)
   "sap-integration": integrationReaders, // integration.read
+  distributors: integrationReaders, // F-402 integration.read + partner supervising scope
 } as const satisfies Record<PageSlug, readonly AppRole[]>;
 
 /** Old slugs that redirect; access follows their destination. */
@@ -201,6 +202,8 @@ export function canAccessWebModule(
   role: string | null | undefined,
 ): boolean {
   if (!role) return false;
+  if (role === "distributor")
+    return slug === "distributor" || slug === "account";
   // Personal settings are outside the sidebar and require no business capability.
   if (slug === "account")
     return (APP_ROLES as readonly string[]).includes(role);
