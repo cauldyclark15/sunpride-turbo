@@ -109,9 +109,11 @@ The joint call stays the existing Work-With session: observation checklist (BCP/
 
 Remaining for F-223: the offline native supervisor editor (Android/iOS) is not built; supervisors record actions in the web office app. Talk Sheets remain the separate partner-meeting form.
 
-## F-613: explicitly remaining
+## F-613: collections plan in Money
 
-This lane has not implemented collections planning (promise-to-pay, collector route, post-dated/bounced cheque lifecycle). Existing Money screens are preserved; their existing behavior is not credited as completion. Deployment and seam integration remain the lead's responsibility.
+Money now carries a collections plan on AR open items. `SEAM(SAP)`: open items are read from the labelled sample office AR snapshot (latest `ar_balance` row per customer, invoices with a remaining amount) until the SAP open-item replica exists; promises, cheques and routes plan and track the work and never post or reduce a balance. A promise-to-pay names a customer (optionally one open item), amount and day (today to 60 days), cannot exceed that item's remaining amount or, with the customer's other open promises, the whole open balance, and is settled once as kept, broken (only after its day) or cancelled with a note. Cheques are recorded with bank, number (unique per bank), amount and cheque date; the lifecycle is received → deposited → cleared or bounced (bounce needs a reason) → replaced by a new cheque of the same customer, with an append-only event per step; a post-dated cheque cannot be deposited before its date. A collector route is an ordered list of up to 60 stops for one active field collector for today or the next 14 days, each with a reason; it is suggested from the exception list (bounced cheques, overdue promises, cheques ready to deposit, over-60-day balances with no promise). The office screen leads with those exceptions and shows overdue vs owed, promised this week, kept rate for the last 28 days vs the prior 28 days, post-dated cheques held and bounced cheques awaiting replacement. Writes need `collections.plan` (super admin, admin, manager) at the customer's current owning unit; reads follow the analytics store scope.
+
+Remaining for F-613: the route order is the priority order (no road-travel optimisation); collectors do not yet receive the route or record promise/cheque evidence on the Android field app or van; kept promises are confirmed by the office, not yet by SAP clearing. The feature list's dependency `F-11` is malformed (no such ID); it was not silently corrected.
 
 ## Needs Sunpride — F-210
 

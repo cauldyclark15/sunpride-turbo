@@ -75,4 +75,18 @@
  * reviewedInSessionId:string|null,reviewNote:string|null,reviewedBy:string|null,reviewedAt:Date|null,
  * createdAt:Date,updatedAt:Date}} JointCallAction
  */
+/** F-613 additive row contracts (0456). Planning records only; SEAM(SAP) owns AR balances.
+ * @typedef {{id:string,orgUnitId:string,customerCode:string,openItemRef:string|null,arSnapshotId:string|null,
+ * amountMinor:bigint,promisedOn:Date,status:'open'|'kept'|'broken'|'cancelled',note:string,outcomeNote:string|null,
+ * outcomeBy:string|null,outcomeAt:Date|null,createdBy:string,clientKey:string,requestHash:string,
+ * createdAt:Date,updatedAt:Date}} CollectionPromise
+ * @typedef {{id:string,orgUnitId:string,customerCode:string,chequeNumber:string,bank:string,amountMinor:bigint,
+ * chequeDate:Date,receivedOn:Date,promiseId:string|null,status:'received'|'deposited'|'cleared'|'bounced'|'replaced',
+ * replacesId:string|null,createdBy:string,clientKey:string,requestHash:string,createdAt:Date,updatedAt:Date}} ChequeInstrument
+ * @typedef {{id:string,chequeId:string,kind:'received'|'deposited'|'cleared'|'bounced'|'replaced',onDate:Date,
+ * note:string|null,actorId:string,createdAt:Date,updatedAt:Date}} ChequeEvent
+ * @typedef {{id:string,orgUnitId:string,routeDate:Date,collectorProfileId:string,sequence:number,customerCode:string,
+ * reason:'promise_due'|'promise_overdue'|'cheque_pickup'|'cheque_replacement'|'overdue_balance'|'manual',
+ * plannedBy:string,createdAt:Date,updatedAt:Date}} CollectionRouteStop
+ */
 export {};

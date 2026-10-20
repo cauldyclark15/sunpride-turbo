@@ -86,6 +86,8 @@ export const CAPABILITIES = Object.freeze({
   "dormancy.act": ["super_admin", "admin", "manager"],
   // F-615: a cascade is published only by a different person than its preparer.
   "target.approve": ["super_admin", "manager", "approver"],
+  // F-613: plan collections (promises, cheques, collector routes) on SAP AR open items.
+  "collections.plan": ["super_admin", "admin", "manager"],
   "visit.locationException.approve": ["super_admin", "manager"],
   "visit.read": ALL,
   "order.create": ["super_admin", "manager", "sales"],

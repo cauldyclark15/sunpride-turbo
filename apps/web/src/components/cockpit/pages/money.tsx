@@ -1,5 +1,7 @@
 "use client";
 
+import { CollectionsPlanPanel } from "../../collections-plan-panel";
+
 import { csvHref, useAnalytics } from "../api";
 import { formatPct, formatPhp, formatSince } from "../format";
 import {
@@ -211,6 +213,9 @@ export function MoneyPage() {
       <PageData result={result} label="money figures">
         {(data) => <MoneyView data={data} csv={csvHref("money", query)} />}
       </PageData>
+      <div className="mt-6">
+        <CollectionsPlanPanel />
+      </div>
     </CockpitPage>
   );
 }
