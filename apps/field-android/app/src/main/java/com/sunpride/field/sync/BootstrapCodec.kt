@@ -116,6 +116,8 @@ object BootstrapCodec {
         }
         val visits = items(o, "plannedVisits", { v ->
             v.str("outletId"); LocalDate.parse(v.str("serviceDate")); v.str("planId"); v.num("planVersion"); strings(v.arr("intents"))
+            if (v.has("agenda")) com.sunpride.field.storage.CallAgenda.decode(v.getJSONObject("agenda"))
+            if (v.has("requiredObjectives")) { require(v.getJSONArray("requiredObjectives").length() <= 50); strings(v.getJSONArray("requiredObjectives")) }
             if (v.has("sequence")) {
                 val sequence = v.num("sequence")
                 if (sequence !in 0..Int.MAX_VALUE.toLong()) throw WireFailure("Invalid sequence")

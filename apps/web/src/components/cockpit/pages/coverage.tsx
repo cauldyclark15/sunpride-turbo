@@ -1,6 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
+const PjpAdherencePanel = dynamic(() =>
+  import("../../pjp-adherence").then((m) => m.PjpAdherencePanel),
+);
 import { csvHref, useAnalytics } from "../api";
 import {
   formatCount,
@@ -268,6 +272,11 @@ export function CoveragePage() {
       header={result.data}
       bar={<PeriodScopeBar scopeLabel={result.data?.scope.label} />}
     >
+      <PjpAdherencePanel
+        asOf={query.to}
+        unitId={query.unitId}
+        channel={query.channel}
+      />
       <PageData result={result} label="coverage figures">
         {(data) => (
           <CoverageView

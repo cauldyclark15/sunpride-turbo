@@ -4,6 +4,7 @@ import { company } from "./company.js";
 import { execution } from "./execution.js";
 import { vans } from "./vans.js";
 import { management } from "./management.js";
+import { seedCoverageSpec } from "./coverage-spec.js";
 import {
   BATCH,
   Dataset,
@@ -996,6 +997,7 @@ export async function advanceDemo(db, { date = todayManila() } = {}) {
     batch: BATCH,
     through: date,
     advanced: days.filter((d) => !d.duplicate).length,
+    coverageSpec: await seedCoverageSpec(db, date),
     days,
   };
 }

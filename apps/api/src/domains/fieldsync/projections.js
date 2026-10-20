@@ -1,4 +1,5 @@
 import { tx } from "@sunpride/db/client";
+import { agendaForPlans } from "../coverage/agenda.js";
 import { checkDayManifest } from "./manifest.js";
 import { inventoryRows, PHOTO_TYPES } from "./reference.js";
 import { requireCapability } from "../../core/capabilities.js";
@@ -237,6 +238,7 @@ async function bundleData(ctx) {
     if (s.routeId && s.routeCode)
       routeRows.set(s.routeId, { id: s.routeId, code: s.routeCode });
   }
+  const agenda = await agendaForPlans(ctx, planned);
   const outletIds = [...outlets.keys()];
   const lookupIds = outletIds.length ? outletIds : [ZERO_UUID];
   const accounts = bounded(
@@ -538,7 +540,9 @@ async function bundleData(ctx) {
       where assignee_profile_id=${person.id} and service_date>=${date}::date and service_date<${date}::date+3
       and deleted_at is null order by service_date,created_at,id limit 201`,
     200,
-  ).filter((/** @type {any} */ r) => outlets.has(r.outlet_id) || r.planned_visit_id);
+  ).filter(
+    (/** @type {any} */ r) => outlets.has(r.outlet_id) || r.planned_visit_id,
+  );
   const lease = closeAt(date);
   return {
     permissions: [...ctx.actor.capabilities],
@@ -566,6 +570,11 @@ async function bundleData(ctx) {
       planVersion: p.plan_version,
       intents: p.intents,
       sequence: p.sequence,
+      requiredObjectives: p.required_objectives ?? [],
+      agenda: {
+        ...agenda.get(`${p.outlet_id}:${dateOf(p.service_date)}`),
+        objectives: p.required_objectives ?? [],
+      },
     })),
     outlets: [...outlets.values()],
     localCustomers: [...localCustomers.values()],

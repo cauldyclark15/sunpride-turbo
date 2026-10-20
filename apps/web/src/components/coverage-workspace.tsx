@@ -42,7 +42,11 @@ const PositionStandardsPanel = dynamic(() =>
     (m) => m.PositionStandardsPanel,
   ),
 );
+const PjpPlanner = dynamic(() =>
+  import("./pjp-planner").then((m) => m.PjpPlanner),
+);
 type CoverageTab =
+  | "pjp"
   | "summary"
   | "plan"
   | "deadlines"
@@ -223,6 +227,7 @@ export function SalesForcePanels() {
     </div>
   );
   const needsPlan =
+    coverageTab !== "pjp" &&
     coverageTab !== "summary" &&
     coverageTab !== "plan" &&
     coverageTab !== "deadlines" &&
@@ -230,12 +235,14 @@ export function SalesForcePanels() {
     coverageTab !== "standards" &&
     coverageTab !== "workload";
   const needsMonth =
+    coverageTab !== "pjp" &&
     coverageTab !== "plan" &&
     coverageTab !== "setup" &&
     coverageTab !== "standards";
   const coverageTabs: [CoverageTab, string][] = [
     ["summary", "Summary"],
     ["plan", "Plan"],
+    ["pjp", "Journey plans"],
     ["deadlines", "MCP deadlines"],
     ...(canApprove ? ([["review", "Review"]] as [CoverageTab, string][]) : []),
     ["exceptions", "Exceptions"],
@@ -292,7 +299,12 @@ export function SalesForcePanels() {
             </div>
           )}
           <div role="tabpanel">
-            {coverageTab === "summary" ? (
+            {coverageTab === "pjp" && (
+              <PanelErrorBoundary label="Journey plans">
+                <PjpPlanner capabilities={permissions.capabilities} />
+              </PanelErrorBoundary>
+            )}
+            {coverageTab === "pjp" ? null : coverageTab === "summary" ? (
               <PanelErrorBoundary
                 key={`summary-${month}`}
                 label="Coverage summary"

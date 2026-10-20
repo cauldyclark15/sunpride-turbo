@@ -152,6 +152,25 @@ private fun StopCard(stop: RouteStop, expanded: Boolean, onToggle: () -> Unit, o
                 visit.customerCode?.let { Fact("Customer code", it) }
                 if (visit.intents.isNotEmpty()) Fact("Planned", visit.intents.joinToString(", ") {
                     it.replace('_', ' ').replaceFirstChar { c -> c.uppercase() } })
+                val agenda = visit.agenda
+                if (agenda == null) Text("Call objectives and shelf gaps were not supplied in this download.", style = MaterialTheme.typography.bodySmall)
+                else {
+                    Fact("Beat / plan", "${agenda.beat ?: "Territory beat"} · version ${agenda.planVersion}")
+                    Text("Call objectives", style = MaterialTheme.typography.labelLarge)
+                    if (agenda.objectives.isEmpty()) Text("No objectives set", style = MaterialTheme.typography.bodySmall)
+                    agenda.objectives.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
+                    Text("Last synced call for you: ${agenda.lastVisit ?: "None before today"}", style = MaterialTheme.typography.bodySmall)
+                    Text("Open AR: ${agenda.arLabel}", style = MaterialTheme.typography.bodySmall)
+                    Text(agenda.arSource, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("MSL gaps", style = MaterialTheme.typography.labelLarge)
+                    if (!agenda.mslKnown) Text("Must-stock list needs setup", style = MaterialTheme.typography.bodySmall)
+                    else {
+                        if (agenda.gaps.isEmpty()) Text("No observed missing lines", style = MaterialTheme.typography.bodySmall)
+                        agenda.gaps.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
+                        Text("${agenda.unmeasured} of ${agenda.required ?: 0} lines unmeasured · ${agenda.mslAsOf ?: "No prior audit"}", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text("Downloaded context; refresh online for updated office facts.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 if (stop.navigationUri == null) Fact("Location", "No pin or address yet")
                 else if (visit.latitude == null) Fact("Location", "Address only, no verified pin")
             }

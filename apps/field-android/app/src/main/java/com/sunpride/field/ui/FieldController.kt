@@ -130,7 +130,8 @@ data class VisitDisplay(val outlet: String, val planned: String, val status: Str
     val latitude: Double? = null, val longitude: Double? = null,
     /** Activity facts of the finished call from the local outbox; null while open or not started. */
     val callFacts: com.sunpride.field.storage.ProductiveCall.Facts? = null,
-    val serverExecution: String? = null)
+    val serverExecution: String? = null,
+    val agenda: com.sunpride.field.storage.CallAgenda? = null)
 /** Planned row + cached outlet/customer JSON → what Today and the daily route show. Pure for tests. */
 fun plannedVisitDisplay(row: SnapshotItem, outlets: Map<String, JSONObject>, customers: Map<String, String>): VisitDisplay {
     val v = JSONObject(row.json)
@@ -154,7 +155,8 @@ fun plannedVisitDisplay(row: SnapshotItem, outlets: Map<String, JSONObject>, cus
         VisitCallRules.sequence(row), row.listPosition,
         outletCode = text("code"), customerCode = text("customerId")?.let { customers[it] }?.takeIf { it.isNotBlank() },
         address = text("address"), latitude = latitude.takeIf { pinned }, longitude = longitude.takeIf { pinned },
-        serverExecution = server?.toString())
+        serverExecution = server?.toString(),
+        agenda = v.optJSONObject("agenda")?.let(com.sunpride.field.storage.CallAgenda::decode))
 }
 
 data class TodayData(val visits: List<VisitDisplay> = emptyList(), val lastSynced: Long? = null,

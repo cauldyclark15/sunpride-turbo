@@ -330,6 +330,15 @@ export async function workflow(ctx, action, b) {
     );
     return dto(next);
   }
+  if (
+    p.pjp_source &&
+    ["saveOutlets", "saveSlots", "setAssignment", "applyToDraft"].includes(
+      action,
+    )
+  )
+    fail(
+      "Generated journey plans are immutable; revise the template and simulate again",
+    );
   if (action === "saveOutlets") await saveOutlets(ctx, p, b.outlets);
   else if (action === "saveSlots") await saveSlots(ctx, p, b.slots);
   else if (action === "setAssignment") {
@@ -425,6 +434,10 @@ export async function workflow(ctx, action, b) {
     if (p.status !== "submitted") fail("Only submitted plans can be approved");
     const capacity = await approvalCapacity(ctx, p);
     await db`select pg_advisory_xact_lock(hashtextextended('coverage:master-lock',0))`;
+    if (p.pjp_source) {
+      const { validatePjpPublication } = await import("./pjp.js");
+      await validatePjpPublication(ctx, p);
+    }
     const rows = await planRows(db, p.id);
     if (!rows.slots.length) fail("Plan needs dated slots before approval");
     const [assignment] = rows.assignments;
@@ -498,6 +511,7 @@ export async function workflow(ctx, action, b) {
         reason: p.revision_reason,
         preparedBy: p.prepared_by,
       },
+      ...(p.pjp_source ? { pjpSource: p.pjp_source } : {}),
       assignments: dto(rows.assignments),
       outlets: dto(rows.outlets),
       slots: snapshots,
