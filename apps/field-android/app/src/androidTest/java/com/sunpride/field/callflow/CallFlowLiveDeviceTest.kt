@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.espresso.Espresso
 import com.sunpride.field.*
 import com.sunpride.field.auth.SessionVaults
 import com.sunpride.field.device.KeystoreDeviceKey
@@ -22,6 +23,7 @@ import java.io.File
 class CallFlowLiveDeviceTest {
     @get:Rule val rule = createAndroidComposeRule<ComponentActivity>()
     private fun waitTag(tag: String) = rule.waitUntil(60_000) { rule.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty() }
+    private fun hideKeyboard() { Espresso.closeSoftKeyboard(); rule.waitForIdle() }
     private fun shot(name: String) {
         rule.waitForIdle()
         val bitmap = checkNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
@@ -48,20 +50,23 @@ class CallFlowLiveDeviceTest {
         waitTag("email")
         rule.onNodeWithTag("email").performTextInput(config.getString("email"))
         rule.onNodeWithTag("password").performTextInput(config.getString("password"))
+        hideKeyboard()
         rule.onNodeWithTag("sign-in").performClick()
         rule.waitUntil(60_000) { rule.onAllNodesWithText(config.getString("outletName")).fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithText(config.getString("outletName")).performScrollTo().performClick()
         waitTag("diagnostic-title")
         rule.onNodeWithTag("sequence-reason").performScrollTo().performTextInput("Buyer appointment before the earlier stop")
+        hideKeyboard()
         rule.onNodeWithTag("diagnostic-checkin").performClick()
         rule.waitUntil(60_000) { rule.onAllNodesWithTag("queue-error").fetchSemanticsNodes().isNotEmpty() }
-        rule.onNodeWithTag("queue-error").performScrollTo().assertTextContains("Outside")
+        rule.onNodeWithTag("queue-error").performScrollTo().assertTextEquals("Outside the store radius. Move closer or request supervisor approval before starting.")
         shot("field-outside-refused")
         outside = false
         rule.onNodeWithTag("diagnostic-checkin").performClick()
         rule.waitUntil(60_000) { rule.onAllNodesWithTag("diagnostic-checkout").fetchSemanticsNodes().isNotEmpty() }
         shot("field-definition-started")
         rule.onNodeWithTag("short-call-reason").performScrollTo().performTextInput("Sample proof call with the buyer unavailable")
+        hideKeyboard()
         rule.onNodeWithTag("diagnostic-outcome").performScrollTo().performClick()
         rule.onNodeWithTag("zero-sale-no_demand").performScrollTo().performClick()
         rule.onNodeWithTag("diagnostic-checkout").performClick()

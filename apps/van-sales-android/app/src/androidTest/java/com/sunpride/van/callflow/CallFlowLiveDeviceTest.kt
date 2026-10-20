@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.espresso.Espresso
 import com.sunpride.van.*
 import com.sunpride.van.data.VanRepository
 import com.sunpride.van.ui.*
@@ -21,6 +22,7 @@ import java.io.File
 class CallFlowLiveDeviceTest {
     @get:Rule val rule = createAndroidComposeRule<ComponentActivity>()
     private fun waitTag(tag: String) = rule.waitUntil(60_000) { rule.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty() }
+    private fun hideKeyboard() { Espresso.closeSoftKeyboard(); rule.waitForIdle() }
     private fun shot(name: String) {
         rule.waitForIdle()
         val bitmap = checkNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
@@ -45,34 +47,54 @@ class CallFlowLiveDeviceTest {
         waitTag("email")
         rule.onNodeWithTag("email").performTextInput(config.getString("email"))
         rule.onNodeWithTag("password").performTextInput(config.getString("password"))
+        hideKeyboard()
         rule.onNodeWithTag("sign-in").performClick()
         waitTag("open-customers")
         rule.onNodeWithTag("open-customers").performScrollTo().performClick()
-        rule.waitUntil(60_000) { rule.onAllNodesWithText(config.getString("outletName")).fetchSemanticsNodes().isNotEmpty() }
-        rule.onNodeWithText(config.getString("outletName")).performScrollTo().performClick()
+        rule.waitUntil(60_000) { rule.onAllNodesWithText(config.getString("outletName"),substring=true).fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithText(config.getString("outletName"),substring=true).performScrollTo().performClick()
         waitTag("callflow-state")
+        rule.waitUntil(60_000) { !controller.busy }
         rule.onNodeWithTag("callflow-sequence").performScrollTo().performTextInput("Buyer appointment before the earlier stop")
-        rule.onNodeWithTag("callflow-start").performScrollTo().performClick()
-        rule.waitUntil(60_000) { controller.message?.startsWith("Outside") == true }
-        rule.onNodeWithTag("message").performScrollTo().assertTextContains("Outside")
+        hideKeyboard()
+        rule.onNodeWithTag("callflow-start").performScrollTo().assertIsEnabled().performClick()
+        rule.waitUntil(60_000) { !controller.busy && controller.message != null }
+        if(controller.message?.startsWith("Outside") != true) {
+            val failure=runCatching { runBlocking { repository.recordCall("call.start",config.getString("outletId"),
+                JSONObject().put("latitude",config.getDouble("latitude")+0.1).put("longitude",config.getDouble("longitude"))
+                    .put("accuracyMeters",5).put("fixTime",System.currentTimeMillis()).put("provider","gps").put("mockSignal",false),
+                JSONObject().put("sequenceReason","Buyer appointment before the earlier stop")) } }.exceptionOrNull()
+            throw AssertionError("Call refusal was not the radius guard: ${controller.message}; direct boundary: ${failure?.javaClass?.simpleName}: ${failure?.message}",failure)
+        }
+        rule.onNodeWithTag("message").performScrollTo().assertTextEquals("Outside the store radius. Move closer or request supervisor approval before starting.")
         shot("van-outside-refused")
         outside=false
+        rule.onNodeWithTag("callflow-sequence").performScrollTo().performTextClearance()
+        hideKeyboard()
+        rule.onNodeWithTag("callflow-start").performScrollTo().performClick()
+        rule.waitUntil(60_000) { controller.message?.contains("sequence deviation reason") == true }
+        rule.onNodeWithTag("message").performScrollTo().assertTextEquals("An earlier planned store is still open. Give a sequence deviation reason.")
+        shot("van-sequence-required")
+        rule.onNodeWithTag("callflow-sequence").performScrollTo().performTextInput("Buyer appointment before the earlier stop")
+        hideKeyboard()
         rule.onNodeWithTag("callflow-start").performScrollTo().performClick()
         rule.waitUntil(60_000) { controller.currentCall != null && !controller.busy }
-        rule.onNodeWithTag("callflow-state").performScrollTo().assertTextContains("progress")
+        rule.onNodeWithTag("callflow-state").performScrollTo().assertTextEquals("Call in progress")
         shot("van-definition-started")
         rule.onNodeWithTag("callflow-stock-observation").performScrollTo().performTextInput("Sample shelf stock checked")
+        hideKeyboard()
         rule.onNodeWithTag("callflow-stock").performScrollTo().performClick()
         rule.waitUntil(60_000) { !controller.busy }
         rule.onNodeWithTag("callflow-short").performScrollTo().performTextInput("Sample proof call with buyer unavailable")
+        hideKeyboard()
         rule.onNodeWithTag("callflow-close").performScrollTo().performClick()
         rule.waitUntil(60_000) { controller.message?.contains("no-order reason") == true }
-        rule.onNodeWithTag("message").performScrollTo().assertTextContains("no-order reason")
+        rule.onNodeWithTag("message").performScrollTo().assertTextEquals("Choose a no-order reason from the list.")
         shot("van-zero-sale-required")
         rule.onNodeWithTag("callflow-zero-no_demand").performScrollTo().performClick()
         rule.onNodeWithTag("callflow-close").performScrollTo().performClick()
         rule.waitUntil(60_000) { controller.currentCall == null && !controller.busy }
-        rule.onNodeWithTag("message").performScrollTo().assertTextContains("saved")
+        rule.onNodeWithTag("message").performScrollTo().assertTextEquals("Call saved on this phone. Sync sends it to the office.")
         shot("van-zero-sale-closed")
         runBlocking {
             repository.syncNow()
