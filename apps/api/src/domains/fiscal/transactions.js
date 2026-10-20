@@ -4,7 +4,7 @@ import {
   allocationDto,
   issuanceGate,
 } from "./series.js";
-import { integer, refuse, safeNumber } from "../van/model.js";
+import { integer, refuse, safeNumber, uuid } from "../van/model.js";
 /** F-108/F-109: inclusive VAT, exact half-up centavos; the frozen registration owns the rate.
  * @param {string} total @param {number} bps */
 export function taxSnapshot(total, bps) {
@@ -34,14 +34,16 @@ export async function invoiceForSale(db, actor, trip, p, receipt, deviceId) {
   if (!p.fiscal)
     refuse("Download an authorized Sales Invoice range before selling");
   const [r] =
-    await db`select r.*,a.registration_snapshot from fiscal_allocations a join fiscal_series s on s.id=a.series_id join fiscal_registrations r on r.id=s.registration_id where a.id=${p.fiscal.allocationId}`;
+    await db`select r.*,a.registration_snapshot from fiscal_allocations a join fiscal_series s on s.id=a.series_id join fiscal_registrations r on r.id=s.registration_id where a.id=${uuid(p.fiscal.allocationId)}`;
   if (!r || r.org_unit_id !== trip.org_unit_id)
     refuse("Fiscal range belongs to another branch");
   const document = await issueDocument(db, {
     actor,
     deviceId,
     vehicleId: trip.vehicle_id,
-    ...p.fiscal,
+    // The wire chooses only a reserved number, never the authenticated issuer.
+    allocationId: p.fiscal.allocationId,
+    serial: p.fiscal.serial,
     documentType: "sales_invoice",
     sourceType: "van_sale",
     sourceId: p.saleId,

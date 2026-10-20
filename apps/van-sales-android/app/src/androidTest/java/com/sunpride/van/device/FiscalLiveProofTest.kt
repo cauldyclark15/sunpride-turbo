@@ -3,6 +3,8 @@ package com.sunpride.van.device
 import android.graphics.Bitmap
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.Column
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
@@ -34,9 +36,24 @@ class FiscalLiveProofTest {
         val bitmap=checkNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
         file(name).outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG,100,it) };bitmap.recycle()
     }
+    private fun previews(first:SavedSale) {
+        // Match the real receipt screen's Column; overlapping root buttons make pointer clicks hit the last child.
+        rule.setContent { MaterialTheme { Column { FiscalPreviewButtons(first) } } }
+        rule.onNodeWithTag("fiscal-preview").performClick()
+        rule.onNodeWithText("Sales Invoice preview").assertIsDisplayed()
+        shot("fiscal-invoice.png")
+        rule.onNodeWithTag("fiscal-preview-text").performSemanticsAction(SemanticsActions.ScrollBy){it(0f,100000f)}
+        shot("fiscal-invoice-bottom.png")
+        rule.onNodeWithTag("close-fiscal-preview").performClick()
+        rule.onNodeWithTag("fiscal-reprint-preview").performClick()
+        rule.onNodeWithText("REPRINT preview").assertIsDisplayed()
+        shot("fiscal-reprint.png")
+        rule.onNodeWithTag("fiscal-preview-text").performSemanticsAction(SemanticsActions.ScrollBy){it(0f,100000f)}
+        shot("fiscal-reprint-bottom.png")
+    }
     @Test fun F_019_F_109_F_111_realHandheldFiscalWalk() {
         val phase=InstrumentationRegistry.getArguments().getString("fiscalProof")
-        assumeTrue(phase in listOf("stage","offline","sync"))
+        assumeTrue(phase in listOf("stage","offline","sync","preview"))
         when(phase) {
             "stage" -> {
                 val login=JSONObject(file("fiscal-phone-login.json").readText())
@@ -98,16 +115,26 @@ class FiscalLiveProofTest {
                         RoomReceiptPrintLog(db,scope).savedSales()
                     }
                     val first=receipts.single{it.receipt.receiptNumber==state.getString("nextNumber")}
-                    rule.setContent { MaterialTheme { FiscalPreviewButtons(first) } }
-                    rule.onNodeWithTag("fiscal-preview").performClick();shot("fiscal-invoice.png")
-                    rule.onNodeWithTag("close-fiscal-preview").performClick()
-                    rule.onNodeWithTag("fiscal-reprint-preview").performClick();shot("fiscal-reprint.png")
+                    previews(first)
                     val printer=SenraiseEmbeddedPrinter(context)
                     val paper=runBlocking {try{printer.diagnostics().paper.name}finally{printer.close()}}
                     state.put("sales",org.json.JSONArray(receipts.map{JSONObject().put("saleId",it.receipt.saleId).put("number",it.receipt.receiptNumber).put("method",it.receipt.paymentMethod).put("voided",it.void!=null)}))
                         .put("paper",paper).put("realPrints",0).put("offlineSalesSaved",true)
                     file("fiscal-offline.json").writeText(state.toString())
                 } finally {db.close()}
+            }
+            "preview" -> {
+                val state=JSONObject(file("fiscal-offline.json").readText())
+                val stage=JSONObject(file("fiscal-stage.json").readText())
+                assertEquals(state.getString("subject"),stage.getString("subject"))
+                assertEquals(state.getString("deviceId"),stage.getString("deviceId"))
+                val db=EncryptedVanDatabase.open(context)
+                try {
+                    val scope=StoreScope(state.getString("subject"),state.getString("deviceId"))
+                    val first=runBlocking{RoomReceiptPrintLog(db,scope).savedSales()}.single{it.receipt.receiptNumber==state.getString("nextNumber")}
+                    previews(first)
+                    file("fiscal-preview-proof.json").writeText(JSONObject().put("number",first.receipt.receiptNumber).put("originalAndReprintVerified",true).put("realPrints",0).toString())
+                }finally{db.close()}
             }
             "sync" -> {
                 val repository=VanRepository.forWorker(context,false)

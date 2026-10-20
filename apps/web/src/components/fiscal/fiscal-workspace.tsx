@@ -3,8 +3,11 @@
 import { useState, useEffect, type FormEvent } from "react";
 import { mutate, useApi, useLive } from "../../lib/api";
 import { Panel } from "../cockpit/kit";
-import { formatPhp } from "../cockpit/format";
-import { authorityMinor, authorityPeso } from "./authority-money";
+import {
+  authorityMinor,
+  authorityPeso,
+  fiscalMoney as formatPhp,
+} from "./authority-money";
 
 type Row = Record<string, string | number | boolean | null>;
 type Registration = Row & {
@@ -46,6 +49,12 @@ type Register = {
     decision: string | null;
     facts: { reference?: string };
   }[];
+  tenderTotals?: {
+    method: string;
+    captured_centavos: string;
+    awaiting_count: number;
+    refused_count: number;
+  }[];
   tenderRules?: {
     id: string;
     branch_name: string;
@@ -82,6 +91,8 @@ const labels: Record<string, string> = {
 };
 const word = (value: unknown) =>
   labels[String(value)] ?? String(value ?? "Not set").replaceAll("_", " ");
+const overrideWord = (value: unknown) =>
+  value === "credit" ? "Credit" : word(value);
 const button =
   "rounded-lg border border-border px-3 py-2 text-sm disabled:opacity-50";
 type Field = {
@@ -241,14 +252,36 @@ export function FiscalWorkspace({
             ))}
           </select>
         </label>
-        <label className="grid gap-1 text-sm">
-          Document and tender service date (blank = all)
-          <input
-            type="date"
-            value={day}
-            onChange={(e) => setDay(e.target.value)}
-          />
-        </label>
+        <div className="grid gap-1 text-sm">
+          <span>Document and tender service date</span>
+          <div className="flex flex-wrap items-center gap-2">
+            {day ? (
+              <input
+                aria-label="Chosen service date"
+                type="date"
+                value={day}
+                onChange={(e) => setDay(e.target.value)}
+              />
+            ) : (
+              <span>All service dates</span>
+            )}
+            <button
+              type="button"
+              className={button}
+              onClick={() =>
+                setDay(
+                  day
+                    ? ""
+                    : new Date(Date.now() + 8 * 60 * 60 * 1000)
+                        .toISOString()
+                        .slice(0, 10),
+                )
+              }
+            >
+              {day ? "All service dates" : "Choose a service date"}
+            </button>
+          </div>
+        </div>
       </div>
       {message ? (
         <p
@@ -283,8 +316,8 @@ export function FiscalWorkspace({
                   className="grid gap-2 border-b border-border py-3 text-sm"
                 >
                   <strong>
-                    {word(r.kind)} · {r.requester} ·{" "}
-                    {formatPhp(Number(r.amount_centavos))}
+                    {overrideWord(r.kind)} · {r.requester} ·{" "}
+                    {formatPhp(r.amount_centavos)}
                   </strong>
                   <p>
                     {r.reason} · {r.channel} ·{" "}
@@ -318,43 +351,36 @@ export function FiscalWorkspace({
       ) : null}
       {!decisionsOnly ? (
         <Panel
-          title="Money by tender"
-          question="Cash is collected; electronic payments and cheques need independent confirmation."
+          title="Van money by tender"
+          question="Net van captures in these branch/date filters, not office or field receipts. Captured is not bank-cleared money; non-cash needs independent confirmation."
         >
+          <p className="text-xs text-muted">
+            Basis: {day || "All service dates"}. Van captures only.
+          </p>
+          {!data.tenderTotals ? (
+            <p>Captured totals unavailable. Refresh before using this view.</p>
+          ) : null}
           <div className="grid gap-2 sm:grid-cols-3">
-            {[...new Set(data.tenders.map((t) => String(t.method)))].map(
-              (method) => {
-                const rows = data.tenders.filter((t) => t.method === method);
-                const total = rows.reduce(
-                  (n, t) =>
-                    n +
-                    Number(t.amount_centavos) *
-                      (["refund", "void_refund"].includes(String(t.kind))
-                        ? -1
-                        : 1),
-                  0,
-                );
-                return (
-                  <div
-                    key={method}
-                    className="rounded-xl border border-border p-3"
-                  >
-                    <p>{word(method)}</p>
-                    <strong>{formatPhp(total)}</strong>
-                    <p className="text-xs text-muted">
-                      {
-                        rows.filter(
-                          (r) =>
-                            !r.decision && !["cash", "credit"].includes(method),
-                        ).length
-                      }{" "}
-                      awaiting confirmation
-                    </p>
-                  </div>
-                );
-              },
-            )}
+            {(data.tenderTotals ?? []).map((summary) => (
+              <div
+                key={summary.method}
+                className="rounded-xl border border-border p-3"
+              >
+                <p>{word(summary.method)}</p>
+                <strong>{formatPhp(summary.captured_centavos)}</strong>
+                <p className="text-xs text-muted">
+                  Net captured · {summary.awaiting_count} awaiting confirmation
+                  · {summary.refused_count} refused
+                </p>
+              </div>
+            ))}
           </div>
+          {data.truncated ? (
+            <p className="text-xs text-muted">
+              Tender totals cover all matching records; the item lists are
+              capped. Narrow the branch and date to review individual entries.
+            </p>
+          ) : null}
           {data.canDecide
             ? data.tenders
                 .filter(
@@ -369,7 +395,7 @@ export function FiscalWorkspace({
                   >
                     <summary>
                       {t.seller} · {word(t.method)} ·{" "}
-                      {formatPhp(Number(t.amount_centavos))} · {t.trip_number}
+                      {formatPhp(t.amount_centavos)} · {t.trip_number}
                     </summary>
                     <p>Reference: {t.facts.reference ?? "Missing"}</p>
                     <CommandForm
@@ -734,7 +760,7 @@ export function FiscalWorkspace({
                   {word(d.document_type)}
                 </span>
                 <span>
-                  {formatPhp(Number(d.snapshot.totalMinor ?? 0))} ·{" "}
+                  {formatPhp(d.snapshot.totalMinor)} ·{" "}
                   {d.journal.map((e) => word(e.kind)).join(" / ")}
                 </span>
               </button>
@@ -747,7 +773,7 @@ export function FiscalWorkspace({
                     ? "Sample, not filed — not a tax document"
                     : "Registered document"}
                 </p>
-                <p>VAT: {formatPhp(Number(doc.snapshot.tax?.vatMinor ?? 0))}</p>
+                <p>VAT: {formatPhp(doc.snapshot.tax?.vatMinor)}</p>
                 {doc.journal.map((e, i) => (
                   <p key={i}>
                     {word(e.kind)} — {e.reason}
@@ -768,10 +794,11 @@ export function FiscalWorkspace({
                 key={String(r.id)}
                 className="border-b border-border py-3 text-sm"
               >
-                {r.branch_name} · {word(r.role)} · {r.channel} · {word(r.kind)}:{" "}
-                {formatPhp(Number(r.min_centavos))}–
-                {formatPhp(Number(r.max_centavos))}, own limit{" "}
-                {formatPhp(Number(r.self_limit_centavos))}
+                {r.branch_name} · {word(r.role)} ·{" "}
+                {r.channel === "*" ? "All channels" : word(r.channel)} ·{" "}
+                {overrideWord(r.kind)}: {formatPhp(r.min_centavos)}–
+                {formatPhp(r.max_centavos)}, own limit{" "}
+                {formatPhp(r.self_limit_centavos)}
                 {data.canManage ? (
                   <button
                     className={`${button} ml-3`}
@@ -824,7 +851,7 @@ export function FiscalWorkspace({
                         "stock",
                         "discount",
                         "void",
-                      ].map((id) => ({ id, label: word(id) })),
+                      ].map((id) => ({ id, label: overrideWord(id) })),
                     },
                     {
                       name: "role",

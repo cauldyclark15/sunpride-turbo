@@ -384,7 +384,7 @@ async function dispatchOperation(ctx, env) {
           "Collection exceeds the remaining credit sale",
           "invalid_request",
         );
-      await configuredTender(
+      const tender = await configuredTender(
         db,
         trip.org_unit_id,
         { ...p, method },
@@ -407,7 +407,8 @@ async function dispatchOperation(ctx, env) {
         actor,
         deviceId: device.id,
         vehicleId: trip.vehicle_id,
-        ...p.fiscal,
+        allocationId: p.fiscal.allocationId,
+        serial: p.fiscal.serial,
         documentType: "official_receipt",
         sourceType: "van_collection",
         sourceId: id,
@@ -415,7 +416,14 @@ async function dispatchOperation(ctx, env) {
         snapshot: {
           saleId,
           invoiceNumber: s.receipt_number,
-          payment: { ...p, method },
+          payment: {
+            method,
+            label: tender.label,
+            referenceLabel: tender.referenceLabel ?? null,
+            reference: text(p.reference, 100),
+            amountMinor: String(amount),
+            status: method === "cash" ? "recorded" : "awaiting_confirmation",
+          },
           totalMinor: String(amount),
           tax: taxSnapshot(
             String(amount),

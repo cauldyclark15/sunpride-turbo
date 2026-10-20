@@ -22,7 +22,10 @@ import {
   decideOverride,
   saveRule,
 } from "../src/domains/fiscal/authority.js";
-import { taxSnapshot } from "../src/domains/fiscal/transactions.js";
+import {
+  taxSnapshot,
+  invoiceForSale,
+} from "../src/domains/fiscal/transactions.js";
 import { install as installVan } from "../src/domains/van/index.js";
 import { PAYMENT_METHODS, today } from "../src/domains/van/model.js";
 import {
@@ -631,7 +634,7 @@ test("F-108 F-111 signed collection issues an OR, rejects duplicates and replace
   await h.db`insert into van_trips(id,organization_id,org_unit_id,trip_number,vehicle_id,truck_location_id,source_location_id,service_date,salesperson_profile_id,salesperson_subject,status,started_device_id,created_by) values(${tripId},'sunpride',${unit},'OR-TEST',${vehicle},${location},${location},${today()},${actor.profileId},${actor.subject},'active',${seller.deviceId},'fixture')`;
   await h.db`insert into outlets(id,organization_id,code,name,status,custodian_org_unit_id,channel,created_by) values(${outlet},'sunpride','OR-CUSTOMER','Sample customer','active',${unit},'GT','fixture')`;
   await h.db`insert into van_sales(id,trip_id,receipt_number,outlet_id,total_centavos,receipt,captured_request) values(${saleId},${tripId},'SAMPLE-OLD-CREDIT',${outlet},10000,${{ payment: { kind: "credit", method: "credit" } }},${{}})`;
-  for (const method of ["cash", "gcash"])
+  for (const method of ["cash", "gcash", "credit"])
     await h.db`insert into fiscal_tender_rules(org_unit_id,method,label,effective_from,sample,entered_by) values(${unit},${method},${method},'2026-01-01',true,${approver.profileId})`;
   const registration = await tx(h.db, (db) =>
     saveRegistration(db, approver, {
@@ -694,7 +697,58 @@ test("F-108 F-111 signed collection issues an OR, rejects duplicates and replace
       scopeId: unit,
       operations: [op],
     });
+  const victim = await boundDevice(h, people, {
+    app: "van-android",
+    orgUnitId: unit,
+  });
+  await persist(victim);
+  const foreign = await actorFor(h.db, victim.userId);
+  const foreignSeries = await tx(h.db, (db) =>
+    createSeries(db, approver, {
+      registrationId: registration.id,
+      prefix: "SAMPLE-OTHER-OR",
+      firstSerial: "1",
+      lastSerial: "100",
+      effectiveFrom: "2026-01-01T00:00:00Z",
+    }),
+  );
+  const foreignRange = await tx(h.db, (db) =>
+    allocateDocumentNumber(db, {
+      actor: foreign,
+      deviceId: victim.deviceId,
+      seriesId: foreignSeries.id,
+      count: 10,
+      requestKey: crypto.randomUUID(),
+    }),
+  );
+  const forged = operation("cash", "1");
+  Object.assign(forged.payload.fiscal, {
+    allocationId: foreignRange.allocationId,
+    actor: foreign,
+    deviceId: victim.deviceId,
+    vehicleId: null,
+  });
+  expect((await push(forged)).body.results[0].status).not.toBe("applied");
+  expect(
+    (
+      await h.db`select next_issue from fiscal_allocations where id=${foreignRange.allocationId}`
+    )[0].next_issue.toString(),
+  ).toBe("1");
+  expect(
+    (
+      await h.db`select count(*)::int as n from van_payments where sale_id=${saleId}`
+    )[0].n,
+  ).toBe(0);
+  const credit = operation("credit", "1");
+  credit.payload.status = "credit";
+  expect((await push(credit)).body.results[0].status).not.toBe("applied");
+  expect(
+    (
+      await h.db`select next_issue from fiscal_allocations where id=${range.allocationId}`
+    )[0].next_issue.toString(),
+  ).toBe("1");
   const first = operation("gcash", "1");
+  Object.assign(first.payload, { untrusted: "UNTRUSTED-COLLECTION-MARKER" });
   const applied = await push(first);
   expect(applied.body.results[0].status, JSON.stringify(applied.body)).toBe(
     "applied",
@@ -739,6 +793,9 @@ test("F-108 F-111 signed collection issues an OR, rejects duplicates and replace
   expect(docs[0].snapshot.documentType).toBe("official_receipt");
   expect(docs[0].snapshot.invoiceNumber).toBe("SAMPLE-OLD-CREDIT");
   expect(docs[0].snapshot.totalMinor).toBe("6000");
+  expect(docs[0].snapshot.payment.untrusted).toBeUndefined();
+  expect(docs[0].snapshot.payment.fiscal).toBeUndefined();
+  expect(docs[0].snapshot.payment.amountMinor).toBe("6000");
   expect(
     (
       await h.db`select count(*)::int as n from fiscal_posting_requests where document_id in ${h.db(docs.map((/** @type {any} */ d) => d.id))}`
@@ -749,6 +806,139 @@ test("F-108 F-111 signed collection issues an OR, rejects duplicates and replace
       await h.db`select next_issue from fiscal_allocations where id=${range.allocationId}`
     )[0].next_issue.toString(),
   ).toBe("3");
+});
+test("F-019 F-108 fiscal identity cannot spend another handheld's reserved invoice range", async () => {
+  const victim = await boundDevice(h, people, {
+    app: "van-android",
+    orgUnitId: unit,
+  });
+  await persist(victim);
+  const foreign = await actorFor(h.db, victim.userId);
+  const range = await tx(h.db, (db) =>
+    allocateDocumentNumber(db, {
+      actor: foreign,
+      deviceId: victim.deviceId,
+      seriesId: series.id,
+      count: 10,
+      requestKey: crypto.randomUUID(),
+    }),
+  );
+  const saleId = crypto.randomUUID();
+  await expect(
+    tx(h.db, (db) =>
+      invoiceForSale(
+        db,
+        actor,
+        { org_unit_id: unit, vehicle_id: null },
+        {
+          saleId,
+          deviceTime: Date.now(),
+          fiscal: {
+            allocationId: range.allocationId,
+            serial: range.nextSerial,
+            actor: foreign,
+            deviceId: victim.deviceId,
+            vehicleId: null,
+          },
+        },
+        { totalMinor: "11200" },
+        seller.deviceId,
+      ),
+    ),
+  ).rejects.toThrow("not allocated to this handheld");
+  expect(
+    (
+      await h.db`select next_issue from fiscal_allocations where id=${range.allocationId}`
+    )[0].next_issue.toString(),
+  ).toBe(range.nextSerial);
+  expect(
+    (
+      await h.db`select count(*)::int as n from fiscal_documents where source_id=${saleId}`
+    )[0].n,
+  ).toBe(0);
+});
+test("F-020 audit pagination retains every row sharing one transaction timestamp", async () => {
+  await h.db`insert into fiscal_audit_events(table_name,row_id,action,actor_subject,after_facts) select 'paging-fixture',${unit},'UPDATE','fiscal-fixture',jsonb_build_object('sample',true,'ordinal',n) from generate_series(1,105) n`;
+  const login = await h.fetch("/api/auth/sign-in", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      email: boss.email,
+      password: "a-test-password-only",
+    }),
+  });
+  expect(login.status).toBe(200);
+  const cookie = login.headers.get("set-cookie").split(";")[0];
+  const expected = (
+    await h.db`select count(*)::int as n from fiscal_audit_events`
+  )[0].n;
+  const ids = new Set();
+  /** @type {string|null} */ let cursor = null;
+  for (let page = 0; page < 20; page++) {
+    /** @type {Response} */
+    const r = await h.fetch(
+      "/api/v1/fiscal/audit" +
+        (cursor ? "?cursor=" + encodeURIComponent(cursor) : ""),
+      { headers: { cookie } },
+    );
+    expect(r.status).toBe(200);
+    /** @type {{items:Array<{id:string}>,hasMore:boolean,nextCursor:string|null}} */
+    const body = await r.json();
+    for (const row of body.items) {
+      expect(ids.has(row.id)).toBe(false);
+      ids.add(row.id);
+    }
+    if (!body.hasMore) {
+      expect(body.nextCursor).toBeNull();
+      break;
+    }
+    expect(typeof body.nextCursor).toBe("string");
+    cursor = body.nextCursor;
+  }
+  expect(ids.size).toBe(expected);
+});
+test("F-111 tender totals cover the full authorized source, not the 500-row display cap", async () => {
+  const location = crypto.randomUUID(),
+    vehicle = crypto.randomUUID(),
+    tripId = crypto.randomUUID(),
+    outlet = crypto.randomUUID();
+  const initial = (
+    await h.db`select coalesce(sum(case when p.kind in ('refund','void_refund') then -p.amount_centavos else p.amount_centavos end),0)::text as n from van_payments p join van_trips t on t.id=p.trip_id where t.org_unit_id=${unit} and t.service_date=${today()} and p.method='cash'`
+  )[0].n;
+  await h.db`insert into inventory_locations(id,organization_id,org_unit_id,site_code,code,name,type,active,allows_picking,allows_receiving,allows_sale,allows_production) values(${location},'sunpride',${unit},'TEST','SUMMARY-TRUCK','Sample summary truck','truck',true,true,true,true,false)`;
+  await h.db`insert into vehicles(id,organization_id,org_unit_id,vehicle_code,plate_number,truck_location_id,home_location_id,status,created_by) values(${vehicle},'sunpride',${unit},'SUMMARY-TRUCK','TEST',${location},${location},'active','fixture')`;
+  await h.db`insert into van_trips(id,organization_id,org_unit_id,trip_number,vehicle_id,truck_location_id,source_location_id,service_date,salesperson_profile_id,salesperson_subject,status,created_by) values(${tripId},'sunpride',${unit},'SUMMARY-TEST',${vehicle},${location},${location},${today()},${actor.profileId},${actor.subject},'closed','fixture')`;
+  await h.db`insert into outlets(id,organization_id,code,name,status,custodian_org_unit_id,channel,created_by) values(${outlet},'sunpride','SUMMARY-CUSTOMER','Sample summary customer','active',${unit},'GT','fixture')`;
+  // Retained operational sales fixture; no claim that these are newly issued tax invoices.
+  await h.db`with saved as (insert into van_sales(id,trip_id,receipt_number,outlet_id,total_centavos,receipt,captured_request) select gen_random_uuid(),${tripId},'LEGACY-SUMMARY-'||n,${outlet},100,${{ payment: { kind: "cash", method: "cash" } }},${{}} from generate_series(1,501)n returning id) insert into van_payments(id,trip_id,sale_id,kind,method,amount_centavos,facts) select gen_random_uuid(),${tripId},id,'sale','cash',100,${{}} from saved`;
+  const [sale] =
+    await h.db`select id from van_sales where trip_id=${tripId} limit 1`;
+  await h.db`insert into van_payments(id,trip_id,sale_id,kind,method,amount_centavos,facts) values(${crypto.randomUUID()},${tripId},${sale.id},'refund','cash',50,${{}})`;
+  const login = await h.fetch("/api/auth/sign-in", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      email: boss.email,
+      password: "a-test-password-only",
+    }),
+  });
+  const cookie = login.headers.get("set-cookie").split(";")[0];
+  const res = await h.fetch(
+    "/api/v1/fiscal/register?branchId=" + unit + "&day=" + today(),
+    { headers: { cookie } },
+  );
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.truncated).toBe(true);
+  expect(body.tenders.length).toBe(500);
+  expect(body.tenderTotals).toBeDefined();
+  const cash = body.tenderTotals.find(
+    (/** @type {any} */ r) => r.method === "cash",
+  );
+  expect(cash.captured_centavos).toBe(
+    String(BigInt(initial) + 501n * 100n - 50n),
+  );
+  expect(cash.awaiting_count).toBe(0);
 });
 test("F-108 tax snapshot reconciles exact inclusive VAT without floating point", () => {
   expect(taxSnapshot("11200", 1200)).toEqual({

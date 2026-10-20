@@ -139,9 +139,18 @@ export function install(router, ctx) {
         await db`select id,vehicle_code as name from vehicles where deleted_at is null and (${all} or org_unit_id in ${db(ids)}) order by vehicle_code limit 501`;
       const tenders =
         await db`select v.id,v.method,v.kind,v.amount_centavos,v.facts,t.trip_number,p.name as seller,c.decision from van_payments v join van_trips t on t.id=v.trip_id join profiles p on p.id=t.salesperson_profile_id left join fiscal_tender_confirmations c on c.payment_id=v.id where (${all} or t.org_unit_id in ${db(ids)}) and (${actor.role !== "sales"} or t.salesperson_profile_id=${actor.profileId}) and (${day}::date is null or t.service_date=${day}) order by v.created_at desc limit 501`;
+      // Full-source totals are independent of the 500-row item/reconciliation display cap.
+      const tenderTotals = await db`select v.method,
+        sum(case when v.kind in ('refund','void_refund') then -v.amount_centavos else v.amount_centavos end)::text as captured_centavos,
+        count(*) filter(where c.decision is null and v.method not in ('cash','credit'))::int as awaiting_count,
+        count(*) filter(where c.decision='rejected')::int as refused_count
+        from van_payments v join van_trips t on t.id=v.trip_id left join fiscal_tender_confirmations c on c.payment_id=v.id
+        where (${all} or t.org_unit_id in ${db(ids)}) and (${actor.role !== "sales"} or t.salesperson_profile_id=${actor.profileId})
+        and (${day}::date is null or t.service_date=${day}) group by v.method order by v.method`;
       const tenderRules =
         await db`select r.*,u.name as branch_name from fiscal_tender_rules r join org_units u on u.id=r.org_unit_id where (${all} or r.org_unit_id in ${db(ids)}) order by r.effective_from desc limit 501`;
       return {
+        tenderTotals,
         tenderRules: tenderRules.slice(0, 500),
         devices: devices.slice(0, 500),
         units: units.slice(0, 500),
@@ -185,13 +194,58 @@ export function install(router, ctx) {
         if (!root.some((/** @type {any} */ r) => r.id === actor.orgUnitId))
           refuse("National audit access required");
       }
-      const before =
-        c.url.searchParams.get("before") || new Date().toISOString();
-      if (!Number.isFinite(Date.parse(before)))
+      const before = c.url.searchParams.get("before");
+      if (before && !Number.isFinite(Date.parse(before)))
         refuse("Choose a valid audit cursor");
+      /** @type {string|null} */ let cursorAt = null;
+      /** @type {string|null} */ let cursorId = null;
+      const raw = c.url.searchParams.get("cursor");
+      if (raw) {
+        try {
+          if (
+            raw.length > 200 ||
+            Buffer.from(raw, "base64url").toString("base64url") !== raw
+          )
+            throw Error();
+          const parsed = JSON.parse(
+            Buffer.from(raw, "base64url").toString("utf8"),
+          );
+          if (
+            typeof parsed.at !== "string" ||
+            !/^[1-9]\d{3}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(
+              parsed.at,
+            ) ||
+            !Number.isFinite(Date.parse(parsed.at)) ||
+            new Date(parsed.at).toISOString() !==
+              parsed.at.slice(0, 23) + "Z" ||
+            uuid(parsed.id) !== parsed.id
+          )
+            throw Error();
+          cursorAt = parsed.at;
+          cursorId = parsed.id;
+        } catch {
+          refuse("Choose a valid audit cursor");
+        }
+      }
       const items =
-        await db`select * from fiscal_audit_events where created_at<${new Date(before)} order by created_at desc,id desc limit 101`;
-      return { items: items.slice(0, 100), hasMore: items.length > 100 };
+        await db`select *,to_char(created_at at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as cursor_time from fiscal_audit_events
+        where (${before}::timestamptz is null or created_at<${before}::timestamptz)
+        and (${cursorAt}::timestamptz is null or (created_at,id)<(${cursorAt}::timestamptz,${cursorId}::uuid)) order by created_at desc,id desc limit 101`;
+      const page = items.slice(0, 100),
+        hasMore = items.length > 100,
+        last = page.at(-1);
+      return {
+        items: page.map((/** @type {any} */ row) => {
+          const { cursor_time, ...item } = row;
+          return item;
+        }),
+        hasMore,
+        nextCursor: hasMore
+          ? Buffer.from(
+              JSON.stringify({ at: last.cursor_time, id: last.id }),
+            ).toString("base64url")
+          : null,
+      };
     }),
   );
 }

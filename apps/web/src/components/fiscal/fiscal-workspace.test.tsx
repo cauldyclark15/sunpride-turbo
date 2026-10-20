@@ -75,6 +75,20 @@ const fixture = () => ({
       decision: null,
     },
   ],
+  tenderTotals: [
+    {
+      method: "maya",
+      captured_centavos: "10000",
+      awaiting_count: 1,
+      refused_count: 0,
+    },
+    {
+      method: "card",
+      captured_centavos: "20000",
+      awaiting_count: 1,
+      refused_count: 0,
+    },
+  ],
   canManage: true,
   canDecide: true,
   truncated: false,
@@ -144,6 +158,53 @@ it("F-111 tender policies are editable by branch and a Manila service date, with
   expect(html).toContain("Effective from (Manila service date)");
   expect(html).toContain("All branches in my scope");
   expect(html).not.toContain("textarea");
+});
+it("F-511 wildcard authority is named All channels and credit is not mislabeled as a tender", () => {
+  state.data = {
+    ...fixture(),
+    rules: [
+      {
+        id: "rule",
+        branch_name: "Sample Cebu",
+        org_unit_id: "branch",
+        role: "sales",
+        channel: "*",
+        kind: "credit",
+        min_centavos: "1",
+        max_centavos: "9223372036854775807",
+        self_limit_centavos: "501",
+      },
+    ],
+  };
+  const html = renderToStaticMarkup(createElement(FiscalWorkspace));
+  const text = html.replace(/<[^>]*>/g, "").replace(/\s+/g, " ");
+  expect(text).toContain(
+    "Sample Cebu · sales · All channels · Credit: ₱0.01–₱92,233,720,368,547,758.07, own limit ₱5.01",
+  );
+});
+it("F-111 full tender totals are not replaced by a capped payment-list subtotal", () => {
+  state.data = {
+    ...fixture(),
+    truncated: true,
+    tenderTotals: [
+      {
+        method: "maya",
+        captured_centavos: "12345",
+        awaiting_count: 501,
+        refused_count: 2,
+      },
+    ],
+  };
+  const html = renderToStaticMarkup(
+    createElement(FiscalWorkspace, { moneyOnly: true }),
+  );
+  const text = html.replace(/<[^>]*>/g, "").replace(/\s+/g, " ");
+  expect(text).toContain("₱123.45");
+  expect(text).toContain("All service dates");
+  expect(text).toContain("Choose a service date");
+  expect(html).not.toContain('aria-label="Chosen service date"');
+  expect(text).toContain("501 awaiting confirmation");
+  expect(text).toContain("2 refused");
 });
 it("F-019 partial register never presents a capped list as complete reconciliation", () => {
   state.data = { ...fixture(), truncated: true };
