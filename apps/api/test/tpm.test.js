@@ -18,6 +18,11 @@ for (const vector of vectors.vectors)
     );
     expect(result.totalCentavos).toBe(vector.expected.totalCentavos);
     expect(
+      result.promotionsApplied.reduce((n, p) => n + p.earnedCentavos, 0),
+    ).toBe(
+      "earnedCentavos" in vector.expected ? vector.expected.earnedCentavos : 0,
+    );
+    expect(
       result.promotionsApplied
         .flatMap((p) => p.freeGoods)
         .reduce((n, g) => n + g.quantity, 0),
@@ -164,16 +169,23 @@ test("F-501 W3 thin campaign, replay, stable version and W5 budget are live HTTP
     sourceKey: "PROMO-LAUNCH",
     idempotencyKey: crypto.randomUUID(),
   };
-  const successes = await Promise.all([
-    api(admin, "budget/commit", commit),
-    api(admin, "budget/commit", {
-      ...commit,
-      sourceKey: "OTHER",
-      idempotencyKey: crypto.randomUUID(),
-    }),
-  ]);
+  const other = {
+    ...commit,
+    sourceKey: "OTHER",
+    idempotencyKey: crypto.randomUUID(),
+  };
+  const requests = [commit, other];
+  const successes = await Promise.all(
+    requests.map((b) => api(admin, "budget/commit", b)),
+  );
   expect(successes.map((r) => r.status).sort()).toEqual([200, 422]);
-  expect((await api(admin, "budget/commit", commit)).status).toBe(200);
+  const winner = successes.findIndex((r) => r.status === 200);
+  expect((await api(admin, "budget/commit", requests[winner])).status).toBe(
+    200,
+  );
+  expect((await api(admin, "budget/commit", requests[1 - winner])).status).toBe(
+    422,
+  );
   expect((await api(admin, "campaigns")).body.rows[0].committedCentavos).toBe(
     6000,
   );

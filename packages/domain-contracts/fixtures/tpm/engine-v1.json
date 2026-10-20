@@ -769,6 +769,118 @@
         "totalCentavos": 1,
         "freeQuantity": 0
       }
+    },
+    {
+      "name": "F-504 deferred rebate leaves invoice total unchanged",
+      "lines": [
+        {
+          "productId": "SKU-A",
+          "uom": "PC",
+          "quantity": 10,
+          "unitPriceCentavos": 100,
+          "lineTotalCentavos": 1000
+        }
+      ],
+      "promotions": [
+        {
+          "id": "A",
+          "code": "A",
+          "name": "A",
+          "rule": {
+            "kind": "percent_off",
+            "item": {
+              "productId": "SKU-A",
+              "uom": "PC",
+              "quantity": 1
+            },
+            "percentOffBasisPoints": 1000
+          },
+          "benefit_timing": "claimable"
+        }
+      ],
+      "facts": {},
+      "expected": {
+        "totalCentavos": 1000,
+        "freeQuantity": 0,
+        "earnedCentavos": 100
+      }
+    },
+    {
+      "name": "F-502 basket respects price list binding",
+      "lines": [
+        {
+          "productId": "SKU-A",
+          "uom": "PC",
+          "quantity": 10,
+          "unitPriceCentavos": 100,
+          "lineTotalCentavos": 1000
+        }
+      ],
+      "promotions": [
+        {
+          "id": "L",
+          "code": "L",
+          "name": "L",
+          "price_list_id": "LIST-B",
+          "rule": {
+            "kind": "basket",
+            "minSubtotalCentavos": 0,
+            "valueCentavos": 500
+          }
+        }
+      ],
+      "facts": {},
+      "expected": {
+        "totalCentavos": 1000,
+        "freeQuantity": 0
+      }
+    },
+    {
+      "name": "F-502 stable ordinal tie break across platforms",
+      "lines": [
+        {
+          "productId": "SKU-A",
+          "uom": "PC",
+          "quantity": 10,
+          "unitPriceCentavos": 100,
+          "lineTotalCentavos": 1000
+        }
+      ],
+      "promotions": [
+        {
+          "id": "lower",
+          "code": "a",
+          "name": "a",
+          "rule": {
+            "kind": "percent_off",
+            "item": {
+              "productId": "SKU-A",
+              "uom": "PC",
+              "quantity": 1
+            },
+            "percentOffBasisPoints": 2000
+          }
+        },
+        {
+          "id": "upper",
+          "code": "B",
+          "name": "B",
+          "rule": {
+            "kind": "percent_off",
+            "item": {
+              "productId": "SKU-A",
+              "uom": "PC",
+              "quantity": 1
+            },
+            "percentOffBasisPoints": 1000
+          }
+        }
+      ],
+      "facts": {},
+      "expected": {
+        "totalCentavos": 900,
+        "freeQuantity": 0
+      }
     }
   ]
 }

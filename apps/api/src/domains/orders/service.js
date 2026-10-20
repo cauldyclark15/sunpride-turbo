@@ -8,6 +8,8 @@ import { writeAudit } from "../org/audit.js";
 import { enqueueRefresh } from "../analytics/refresh.js";
 import { accessibleOrder, outletContext, scoped } from "./access.js";
 import { eligibilityFacts } from "../tpm/campaigns.js";
+import { accrueOrder, reverseOrder } from "../tpm/finance.js";
+import { seams as tpmSeams } from "../tpm/seams.js";
 import {
   activePromotions,
   applyPromotions,
@@ -181,6 +183,22 @@ export async function quote(ctx, input) {
   // Freeze NET line facts too: analytics sum(order_lines) must equal order.total.
   if (promo.knownSubtotalCentavos > MAX_CENTAVOS)
     fail("Order amount exceeds the supported accounting range");
+  const governed = promo.promotionsApplied.filter((p) => p.campaignVersionId);
+  if (governed.length) {
+    const authority = await tpmSeams.requestOverride(ctx, {
+      kind: "discount",
+      channelKey: input.channelKey,
+      outletId: input.outletId ?? null,
+      subtotalCentavos: promo.subtotalCentavos,
+      totalCentavos: promo.totalCentavos,
+      promotions: governed,
+    });
+    if (authority.status !== "authorized")
+      fail(
+        "Finance discount authority must authorize this campaign quote",
+        "authority_required",
+      );
+  }
   const allocations = promo.lineDiscounts;
   const net = priced.map((l, i) => ({
     ...l,
@@ -401,6 +419,8 @@ export async function transition(ctx, id, status, reason, input = {}) {
       : null;
   await ctx.db`update orders set status = ${status}, sap_document_number = coalesce(${postingDocument},sap_document_number) where id = ${id}`;
   row.status = status;
+  if (status === "approved") await accrueOrder(ctx, row);
+  if (status === "voided") await reverseOrder(ctx, row.id);
   if (status === "pending_approval") await startWorkflow(ctx, row);
   if (status === "voided" && before === "pending_approval") {
     await ctx.db`update approvals set decision = 'rejected', approver_subject = ${ctx.actor.subject}, comment = ${note}, decided_at = now()

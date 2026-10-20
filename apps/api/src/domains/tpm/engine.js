@@ -140,6 +140,10 @@ function allocate(discount, balances, indexes) {
 export function evaluateSchemes(lines, promotions, facts = {}) {
   if (lines.length > 100 || promotions.length > 500)
     fail("Scheme evaluation exceeds supported bounds");
+  const keys = lines.map((l) => `${l.productId}|${l.uom}`);
+  if (new Set(keys).size !== keys.length)
+    fail("Each product/unit may appear once");
+  lines.forEach((l) => quantityMilli(l.quantity));
   const known = lines.every((l) => l.lineTotalCentavos !== null);
   const balances = lines.map((l) => integer(l.lineTotalCentavos ?? 0));
   const subtotal = safe(balances.reduce((n, v) => n + BigInt(v), 0n));
@@ -152,12 +156,20 @@ export function evaluateSchemes(lines, promotions, facts = {}) {
   const ordered = [...promotions].sort(
     (a, b) =>
       (a.precedence ?? 100) - (b.precedence ?? 100) ||
-      a.code.localeCompare(b.code),
+      (a.code < b.code ? -1 : a.code > b.code ? 1 : 0),
   );
   for (const p of ordered) {
     if ((p.engine_version ?? 1) !== ENGINE_VERSION)
       fail("Unsupported scheme engine version");
     const r = validateScheme(p.rule);
+    const timing = p.benefit_timing ?? "on_invoice";
+    if (!["on_invoice", "claimable"].includes(timing))
+      fail("Unsupported benefit timing");
+    if (
+      timing === "claimable" &&
+      ["buy_x_get_y", "bogo", "free_goods"].includes(r.kind)
+    )
+      fail("Free goods need a SAP valuation adapter before deferred accrual");
     const a = eligibility(p.eligibility ?? {}, facts),
       b = eligibility(p.campaign_scope ?? {}, facts);
     const decision = {
@@ -189,7 +201,13 @@ export function evaluateSchemes(lines, promotions, facts = {}) {
               (p.price_list_id == null || p.price_list_id === l.priceListId),
           ),
         )
-      : lines.map((_, i) => i);
+      : lines
+          .map((_, i) => i)
+          .filter(
+            (i) =>
+              p.price_list_id == null ||
+              lines[i].priceListId === p.price_list_id,
+          );
     if (indexes.some((i) => i < 0 || lines[i].unitPriceCentavos === null))
       continue;
     const multiples = units.length
@@ -258,7 +276,11 @@ export function evaluateSchemes(lines, promotions, facts = {}) {
           ),
         );
     }
-    if (r.kind === "basket" && subtotal >= r.minSubtotalCentavos)
+    const qualifyingGross = indexes.reduce(
+      (n, i) => n + (lines[i].lineTotalCentavos ?? 0),
+      0,
+    );
+    if (r.kind === "basket" && qualifyingGross >= r.minSubtotalCentavos)
       discount =
         r.valueCentavos ??
         safe(
@@ -269,7 +291,7 @@ export function evaluateSchemes(lines, promotions, facts = {}) {
     const allocations = allocate(discount, balances, indexes);
     allocations.forEach((d, i) => {
       balances[i] -= d;
-      lineDiscounts[i] += d;
+      if (timing === "on_invoice") lineDiscounts[i] += d;
     });
     applied.push({
       id: p.id,
@@ -278,7 +300,9 @@ export function evaluateSchemes(lines, promotions, facts = {}) {
       kind: r.kind,
       engineVersion: ENGINE_VERSION,
       campaignVersionId: p.campaign_version_id ?? null,
-      discountCentavos: discount,
+      benefitTiming: timing,
+      earnedCentavos: timing === "claimable" ? discount : 0,
+      discountCentavos: timing === "on_invoice" ? discount : 0,
       freeGoods,
       lineIndexes: indexes,
       allocations,
@@ -291,7 +315,9 @@ export function evaluateSchemes(lines, promotions, facts = {}) {
     engineVersion: ENGINE_VERSION,
     subtotalCentavos: known ? subtotal : null,
     knownSubtotalCentavos: subtotal,
-    totalCentavos: known ? balances.reduce((a, b) => a + b, 0) : null,
+    totalCentavos: known
+      ? subtotal - lineDiscounts.reduce((a, b) => a + b, 0)
+      : null,
     promotionsApplied: applied,
     lineDiscounts,
     eligibility: explanations,

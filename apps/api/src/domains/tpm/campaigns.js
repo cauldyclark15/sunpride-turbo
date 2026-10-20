@@ -9,6 +9,7 @@ import {
   uuid,
 } from "../orders/validation.js";
 import { outletContext } from "../orders/access.js";
+import { seams } from "./seams.js";
 
 /** F-503 canonical outlet facts; quote callers cannot assert a different class/territory.
  * SEAM(MASTERS): class/geography adapter will adopt canonical taxonomy keys after integration.
@@ -17,13 +18,17 @@ import { outletContext } from "../orders/access.js";
 export async function eligibilityFacts(c, input) {
   if (!input.outletId) return { channelKey: input.channelKey ?? null };
   const { outlet, assignment } = await outletContext(c, uuid(input.outletId));
+  const external = await seams.readEligibilityFacts(c, {
+    outletId: outlet.id,
+    at: input.at ?? c.now,
+  });
   return {
     outletId: outlet.id,
     channelKey: outlet.channel,
-    classKey: outlet.classification ?? null,
+    classKey: external.classKey ?? outlet.classification ?? null,
     territoryId: assignment?.territory_id ?? null,
-    geographyKey: null,
-    distributorId: null,
+    geographyKey: external.geographyKey ?? null,
+    distributorId: external.distributorId ?? null,
   };
 }
 /** @param {any} r */

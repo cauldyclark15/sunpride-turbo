@@ -4,6 +4,7 @@ import { company } from "./company.js";
 import { execution } from "./execution.js";
 import { vans } from "./vans.js";
 import { management } from "./management.js";
+import { seedTpm } from "./tpm.js";
 import {
   BATCH,
   Dataset,
@@ -955,6 +956,7 @@ async function advanceDay(db, date, originalStart) {
       Math.min(Date.now(), at(date, 12 * 60)),
     );
     await persist(t, d);
+    await seedTpm(t, date);
     // xmin scopes this capture to this transaction, never a concurrent tester insert.
     for (const table of STOCK_TABLES) {
       const rows = await t.unsafe(

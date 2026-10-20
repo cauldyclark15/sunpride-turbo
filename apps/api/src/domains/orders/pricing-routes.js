@@ -255,6 +255,7 @@ export function installPricingRoutes(router) {
         exclusionGroup: r.exclusion_group,
         excludes: r.excludes,
         engineVersion: r.engine_version,
+        benefitTiming: r.benefit_timing,
         status: r.status,
         source: r.source,
         effectiveFrom: new Date(r.effective_from).getTime(),
@@ -309,6 +310,19 @@ export function installPricingRoutes(router) {
                 ["active", "inactive"],
                 "Status",
               );
+            const timing = choice(
+              b.benefitTiming ?? "on_invoice",
+              ["on_invoice", "claimable"],
+              "Benefit timing",
+            );
+            if (
+              timing === "claimable" &&
+              (!b.campaignVersionId ||
+                ["buy_x_get_y", "bogo", "free_goods"].includes(rule.kind))
+            )
+              fail(
+                "Claimable monetary benefits need a campaign; free goods need a SAP valuation adapter",
+              );
             const scope = validateScope(b.eligibility ?? {});
             const precedence = integer(
               b.precedence ?? 100,
@@ -347,10 +361,10 @@ export function installPricingRoutes(router) {
             let row;
             if (b.id)
               [row] =
-                await cc.db`update promotions set name=${name},status=${status},effective_to=${to} where id=${uuid(b.id)} and organization_id=${ORGANIZATION} and rule=${rule} and effective_from=${from} and code=${code} and price_list_id is not distinct from ${b.priceListId ?? null} and eligibility=${scope} and precedence=${precedence} and stacking=${stacking} and exclusion_group is not distinct from ${group} and excludes=${excludes} and campaign_version_id is not distinct from ${campaign} and deleted_at is null returning *`;
+                await cc.db`update promotions set name=${name},status=${status},effective_to=${to} where id=${uuid(b.id)} and organization_id=${ORGANIZATION} and rule=${rule} and effective_from=${from} and code=${code} and price_list_id is not distinct from ${b.priceListId ?? null} and eligibility=${scope} and precedence=${precedence} and stacking=${stacking} and exclusion_group is not distinct from ${group} and excludes=${excludes} and campaign_version_id is not distinct from ${campaign} and benefit_timing=${timing} and deleted_at is null returning *`;
             else
               [row] =
-                await cc.db`insert into promotions(organization_id,code,name,price_list_id,rule_kind,rule,status,source,effective_from,effective_to,eligibility,precedence,stacking,exclusion_group,excludes,campaign_version_id) values(${ORGANIZATION},${code},${name},${b.priceListId ?? null},${rule.kind},${rule},${status},'office',${from},${to},${scope},${precedence},${stacking},${group},${excludes},${campaign}) returning *`;
+                await cc.db`insert into promotions(organization_id,code,name,price_list_id,rule_kind,rule,status,source,effective_from,effective_to,eligibility,precedence,stacking,exclusion_group,excludes,campaign_version_id,benefit_timing) values(${ORGANIZATION},${code},${name},${b.priceListId ?? null},${rule.kind},${rule},${status},'office',${from},${to},${scope},${precedence},${stacking},${group},${excludes},${campaign},${timing}) returning *`;
             if (!row)
               fail(
                 "Keep the stored rule/start date unchanged or create a new promotion version",

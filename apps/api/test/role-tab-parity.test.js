@@ -26,6 +26,15 @@ const report = (name, args = {}) =>
  * Browser proof additionally exercises the real mounted hooks, including dependent reads.
  * @type {Record<string,string[]>} */
 const calls = {
+  "finance-claims": [
+    "/api/v1/tpm/claims",
+    "/api/v1/tpm/summary",
+    "/api/v1/tpm/policies",
+    "/api/v1/tpm/options",
+    "/api/v1/tpm/liabilities",
+    "/api/v1/tpm/deductions",
+    "/api/v1/tpm/incentives",
+  ],
   orders: [
     "/api/v1/orders/list",
     "/api/v1/orders/filter-options",
