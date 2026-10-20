@@ -12,6 +12,7 @@ import {
 import { rulesAt, missingKinds, ACTIVITY_KINDS } from "./rules.js";
 import { recordLocation } from "./location.js";
 import { validateAccountCapture } from "./capture.js";
+import { validatePresellIntent } from "../presell/promise.js";
 import { recordEntries } from "../fieldreports/call-sheets.js";
 import { isProductive, RULE_VERSION } from "./productive.js";
 import {
@@ -286,6 +287,7 @@ export async function activity(ctx) {
   const visit = await ownedVisit(ctx, p.visitId);
   await validateActivity(ctx, p.activity);
   await validateAccountCapture(ctx, visit, p.activity);
+  await validatePresellIntent(ctx, visit, p.activity);
   if (p.activity.kind === "order_intent") {
     if (p.deviceTime < ms(visit.started_at)) reject();
     const prior =

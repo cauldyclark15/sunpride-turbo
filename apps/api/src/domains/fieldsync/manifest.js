@@ -74,6 +74,7 @@ export async function checkDayManifest(ctx) {
     const callflow = bounded(
       await db`select 'definition' as kind,id,version from call_flow_definitions where effective_from<=${at} and (effective_to is null or effective_to>${at})
       union all select 'policy',id,version from call_flow_policies where effective_from<=${at} and (effective_to is null or effective_to>${at})
+      union all select 'presell',id,version from presell_policies where effective_from<=${at} and (effective_to is null or effective_to>${at})
       union all select 'reason',id,version from no_order_reasons where effective_from<=${at} and (effective_to is null or effective_to>${at})
       union all select 'binding',id,version from call_flow_channel_bindings where app=${ctx.app} and effective_from<=${at} and (effective_to is null or effective_to>${at}) order by kind,id limit 1001`,
       1000,

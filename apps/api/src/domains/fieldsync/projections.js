@@ -1,5 +1,6 @@
 import { tx } from "@sunpride/db/client";
 import { checkDayManifest } from "./manifest.js";
+import { policyAt } from "../presell/promise.js";
 import {
   configurationsForApp,
   hasConfiguredFlowsForApp,
@@ -276,7 +277,11 @@ async function bundleData(ctx) {
       deviceId: ctx.device.id,
     });
     for (const [id, value] of outlets)
-      if (configs.has(id)) value.callFlow = configs.get(id);
+      if (configs.has(id)) {
+        value.callFlow = configs.get(id);
+        if (value.callFlow.definition.channelProfile === "pre_sell")
+          value.callFlow.deliveryPolicy = await policyAt(db, ctx.now);
+      }
   }
   const outletIds = [...outlets.keys()];
   const lookupIds = outletIds.length ? outletIds : [ZERO_UUID];
