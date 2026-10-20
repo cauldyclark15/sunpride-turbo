@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
-import { apiFetch, useApi } from "../../lib/api";
+import { useApi } from "../../lib/api";
+import { filePayload, downloadDocument } from "./documents";
 import type { Intake, Options } from "./model";
 import {
   ExportActions,
@@ -44,14 +45,10 @@ export function IntakeConsole({
                 if (file.size > 450000) {
                   return;
                 }
-                const bytes = new Uint8Array(await file.arrayBuffer());
-                let binary = "";
-                for (const b of bytes) binary += String.fromCharCode(b);
                 const r = await cmd.run("/api/v1/mt/intake/preview", {
                   bindingId: text(f, "binding"),
                   format: text(f, "format"),
-                  filename: file.name,
-                  contentBase64: btoa(binary),
+                  ...(await filePayload(file)),
                 });
                 if (r) setSelected(r.id);
               }}
@@ -179,21 +176,7 @@ export function IntakeEditor({
     headerDirty || JSON.stringify(lines) !== JSON.stringify(row.lines);
   const editable = canEdit && row.status === "review";
   async function original() {
-    const doc = await apiFetch<{ filename: string; content_base64: string }>(
-      "/api/v1/mt/intake/document",
-      { query: { id: row.id } },
-    );
-    const bytes = Uint8Array.from(atob(doc.content_base64), (c) =>
-        c.charCodeAt(0),
-      ),
-      url = URL.createObjectURL(
-        new Blob([bytes], { type: "application/octet-stream" }),
-      );
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = doc.filename;
-    a.click();
-    URL.revokeObjectURL(url);
+    await downloadDocument("/api/v1/mt/intake/document", row.id);
   }
   return (
     <div className="grid gap-4">
@@ -264,7 +247,7 @@ export function IntakeEditor({
                   "Product code",
                   "Unit",
                   "Quantity",
-                  "PO price · centavos",
+                  "PO price · centavos (optional)",
                   "Validation",
                 ].map((s) => (
                   <th className="p-2 font-medium" key={s}>
@@ -384,6 +367,11 @@ export function IntakeEditor({
           </div>
         ) : null}
       </Form>
+      <p className="text-xs text-muted">
+        Empty PO price means use the approved account price. Save any edits
+        before confirming; confirmation rechecks the current approved
+        conditions.
+      </p>
       {row.order_id ? (
         <a
           className="text-sm underline"

@@ -6,6 +6,7 @@ import { install as mt } from "../src/domains/mt/index.js";
 import { ensureRoot } from "../src/domains/org/identity.js";
 import { resolvePrice } from "../src/domains/orders/pricing.js";
 import { parsePurchaseOrder, csv } from "../src/domains/mt/parsers.js";
+import { deductionFlow } from "../src/domains/mt/metrics.js";
 
 /** @type {import('./harness.js').Harness} */ let h;
 /** @type {any} */ let admin;
@@ -124,6 +125,91 @@ afterAll(async () => {
   await h?.close();
 });
 
+test("F-306 F-309 field sales cannot bypass office queues through direct HTTP calls", async () => {
+  const seller = await person("sales", "field-seller", root);
+  for (const path of ["options", "intake", "terms", "deductions"])
+    expect((await api(seller, path)).status).toBe(403);
+});
+
+test("F-306 sample PDF retains its actual bytes and requires manual OCR review without invented facts", async () => {
+  const bytes = new Uint8Array(
+    await Bun.file(
+      new URL("./fixtures/mt/sample-po.pdf", import.meta.url),
+    ).arrayBuffer(),
+  );
+  const parsed = await parsePurchaseOrder("ocr", bytes);
+  expect(parsed.lines).toEqual([]);
+  expect(parsed.poNumber).toBe("");
+  expect(parsed.exceptions[0]).toContain("not connected");
+});
+
+test("F-307 immutable contract original is captured with a proposed version, replayed once and scoped on download", async () => {
+  const contentBase64 = Buffer.from(
+    await Bun.file(
+      new URL("./fixtures/mt/sample-po.pdf", import.meta.url),
+    ).arrayBuffer(),
+  ).toString("base64");
+  const input = {
+    idempotencyKey: crypto.randomUUID(),
+    name: "SAMPLE attachment proposal",
+    scopeKind: "branch",
+    scopeKey: branches[0].branch_key,
+    effectiveFrom: "2039-01-01T00:00:00Z",
+    conditions: [{ kind: "listing_fee", amountCentavos: 1000 }],
+    attachment: { filename: "SAMPLE-contract-evidence.pdf", contentBase64 },
+  };
+  const saved = await api(admin, "terms/save", input);
+  expect(saved.status).toBe(200);
+  expect((await api(admin, "terms/save", input)).body.id).toBe(saved.body.id);
+  const q = await api(reviewer, "terms");
+  expect(
+    q.body.rows.find((/** @type {any} */ t) => t.id === saved.body.id)
+      .attachment.filename,
+  ).toBe(input.attachment.filename);
+  const path = "/api/v1/mt/terms/document?id=" + saved.body.id;
+  expect((await api(reviewer, path)).body.content_base64).toBe(contentBase64);
+  expect((await api(foreign, path)).status).toBe(403);
+  expect((await api(customer, path)).status).toBe(401);
+  expect(
+    (
+      await h.db`select count(*)::int n from mt_term_documents where term_id=${saved.body.id}`
+    )[0].n,
+  ).toBe(1);
+  await expect(
+    (async () => {
+      await h.db`update mt_term_documents set filename='overwritten.pdf' where term_id=${saved.body.id}`;
+    })(),
+  ).rejects.toThrow("immutable");
+});
+
+test("F-309 flow compares received deduction value, not reconstructed outstanding balances", () => {
+  const flow = deductionFlow(
+    [
+      { received_on: "2026-10-20", amountCentavos: 1000 },
+      { received_on: "2026-10-01", amountCentavos: 2000 },
+      { received_on: "2026-09-10", amountCentavos: 500 },
+    ],
+    Date.parse("2026-10-20T12:00:00+08:00"),
+  );
+  expect(flow.last28Centavos).toBe(3000);
+  expect(flow.prior28Centavos).toBe(500);
+  expect(flow.weekly.reduce((n, w) => n + w.count, 0)).toBe(3);
+});
+test("F-306 shipped sample files exercise each concrete document adapter", async () => {
+  for (const [format, ext] of [
+    ["csv", "csv"],
+    ["edi", "edi"],
+    ["email", "eml"],
+  ]) {
+    const content = await Bun.file(
+      new URL(`./fixtures/mt/sample-po.${ext}`, import.meta.url),
+    ).arrayBuffer();
+    const parsed = await parsePurchaseOrder(format, new Uint8Array(content));
+    expect(parsed.lines[0].productCode).toBe("P1");
+    expect(parsed.lines[0].quantity).toBe(2);
+  }
+});
+
 test("F-306 rounded invalid quantities require an explicit fix; duplicate business POs roll back the canonical order", async () => {
   const bad = await preview("PRECISION", {
     contentBase64: Buffer.from(
@@ -208,6 +294,34 @@ test("F-306 CSV quoted cells, sample EDI and structured email normalize; mixed P
       )
     ).exceptions.length,
   ).toBe(1);
+});
+
+test("F-307 a shared accounting customer resolves only the supplied branch; missing branch context fails closed", async () => {
+  const [store] =
+    await h.db`insert into outlets(organization_id,code,name,status,custodian_org_unit_id,channel,created_by) values('sunpride','SHARED-STORE','Shared account second store','active',${root},'mt',${admin.userId}) returning id`;
+  const [binding] =
+    await h.db`insert into mt_account_bindings(customer_id,outlet_id,account_key,banner_key,branch_key,label,source,source_version,effective_from) values(${branches[0].customer_id},${store.id},'A','AB','A-SHARED','Shared sample branch','sample','v1','2020-01-01') returning id`;
+  try {
+    const q = {
+      organizationId: "sunpride",
+      productId: product,
+      uom: "PC",
+      channelKey: "mt",
+      customerCode: "A1",
+      at: Date.now(),
+    };
+    expect((await resolvePrice(h.db, q)).unitPriceCentavos).toBeNull();
+    expect(
+      (await resolvePrice(h.db, { ...q, outletId: branches[0].outlet_id }))
+        .unitPriceCentavos,
+    ).toBe(1200);
+    expect(
+      (await resolvePrice(h.db, { ...q, outletId: store.id }))
+        .unitPriceCentavos,
+    ).toBe(1000);
+  } finally {
+    await h.db`delete from mt_account_bindings where id=${binding.id}`;
+  }
 });
 
 test("F-307 approved branch outranks banner/account; exact effective boundary and missing-price fail closed", async () => {
@@ -338,6 +452,11 @@ test("F-306 preview, fix, revalidate, confirm create ONE canonical order, preser
   const [order] =
     await h.db`select * from orders where id=${results[0].body.orderId}`;
   expect(order.order_type).toBe("modern_trade");
+  expect(
+    (
+      await h.db`select count(*)::int n from jobs where kind='analytics.refresh' and payload->>'date'=${day()}`
+    )[0].n,
+  ).toBeGreaterThan(0);
   expect(Number(order.total_centavos)).toBe(2400);
   expect(
     (await h.db`select count(*)::int n from outside_call_orders`)[0].n,

@@ -59,6 +59,7 @@ export type Term = {
   effective_from: string;
   effective_to: string | null;
   requested_by: string;
+  attachment?: { filename: string; sha256?: string } | null;
   conditions: {
     id: string;
     kind: string;

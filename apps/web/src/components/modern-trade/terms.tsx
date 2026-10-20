@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useApi } from "../../lib/api";
 import type { Options, Term } from "./model";
+import { filePayload, downloadDocument } from "./documents";
 import {
   ExportActions,
   Field,
@@ -18,6 +19,28 @@ import {
   useCommand,
 } from "./kit";
 
+function ConditionRows({ conditions }: { conditions: Term["conditions"] }) {
+  return (
+    <ul className="my-4 grid gap-2 text-sm">
+      {conditions.map((l) => (
+        <li
+          key={l.id}
+          className="flex justify-between gap-4 border-b border-border py-2"
+        >
+          <span>
+            {label(l.kind)}
+            {l.product_name ? ` · ${l.product_name} / ${l.uom}` : ""}
+          </span>
+          <span className="shrink-0 font-medium">
+            {l.amount_centavos !== null
+              ? php(l.amount_centavos)
+              : `${Number(l.rate_bps) / 100}%`}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
 type Condition = {
   kind: string;
   productCode: string;
@@ -111,7 +134,13 @@ export function TradeTerms({
           <div className="mt-4">
             <Form
               onSubmit={async (f) => {
+                const source = f.get("contract");
+                if (source instanceof File && source.size > 450000) return;
                 await cmd.run("/api/v1/mt/terms/save", {
+                  attachment:
+                    source instanceof File && source.size
+                      ? await filePayload(source)
+                      : undefined,
                   name: text(f, "name"),
                   scopeKind,
                   scopeKey: text(f, "scope"),
@@ -170,6 +199,20 @@ export function TradeTerms({
                 </Field>
                 <Field label="Effective until · optional">
                   <input type="date" name="to" className={inputClass} />
+                </Field>
+                <Field label="Contract source document · optional, up to 450 KB">
+                  <input
+                    type="file"
+                    name="contract"
+                    className={inputClass}
+                    onChange={(e) =>
+                      e.currentTarget.setCustomValidity(
+                        (e.currentTarget.files?.[0]?.size ?? 0) > 450000
+                          ? "Choose a document under 450 KB"
+                          : "",
+                      )
+                    }
+                  />
                 </Field>
               </div>
               {conditions.map((l, i) => (
@@ -341,6 +384,20 @@ export function TradeTerms({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="font-semibold">{t.name}</h2>
+              {t.attachment ? (
+                <button
+                  type="button"
+                  className="my-2 text-sm underline underline-offset-4"
+                  onClick={() =>
+                    void downloadDocument(
+                      "/api/v1/mt/terms/document",
+                      t.id,
+                    ).catch(() => undefined)
+                  }
+                >
+                  Download source · {t.attachment.filename}
+                </button>
+              ) : null}
               <p className="text-sm text-muted">
                 {t.scopeLabel} · {label(t.scope_kind)} · {label(t.status)} ·{" "}
                 {label(t.source)} data
@@ -428,19 +485,19 @@ export function TradeTerms({
               </div>
             </details>
           ) : null}
-          <ul className="my-4 grid gap-2 text-sm">
-            {t.conditions.map((l) => (
-              <li key={l.id} className="border-b border-border py-2">
-                {label(l.kind)}
-                {l.product_name ? ` · ${l.product_name} / ${l.uom}` : ""}
-                <span className="float-right font-medium">
-                  {l.amount_centavos !== null
-                    ? php(l.amount_centavos)
-                    : `${Number(l.rate_bps) / 100}%`}
-                </span>
-              </li>
-            ))}
-          </ul>
+          <ConditionRows
+            conditions={t.conditions.filter((l) => l.kind !== "price")}
+          />
+          <details className="mb-4 text-sm">
+            <summary className="cursor-pointer">
+              Account price list ·{" "}
+              {t.conditions.filter((l) => l.kind === "price").length} selling
+              units
+            </summary>
+            <ConditionRows
+              conditions={t.conditions.filter((l) => l.kind === "price")}
+            />
+          </details>
           <details className="text-sm">
             <summary className="cursor-pointer">Approval history</summary>
             {t.events.map((e, i) => (

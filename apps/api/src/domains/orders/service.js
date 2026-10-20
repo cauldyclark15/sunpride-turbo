@@ -150,6 +150,7 @@ export async function quote(ctx, input) {
       uom,
       channelKey: input.channelKey ?? null,
       customerCode: input.customerCode ?? null,
+      outletId: input.outletId ?? null,
       at: input.at ?? ctx.now,
     });
     const lineTotalCentavos =

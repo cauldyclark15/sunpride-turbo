@@ -1,7 +1,7 @@
 import { requireCapability } from "../../core/capabilities.js";
 import { ApiError } from "../../core/errors.js";
 import { date, text, uuid } from "../orders/validation.js";
-import { bindingAccess } from "./hierarchy.js";
+import { bindingAccess, officeRead } from "./hierarchy.js";
 import { command, audit, money } from "./common.js";
 import { deductionFlow } from "./metrics.js";
 
@@ -47,7 +47,7 @@ async function view(c, r) {
 /** @param {any} router */
 export function installDeductions(router) {
   router.get("/api/v1/mt/deductions", async (/** @type {any} */ c) => {
-    await requireCapability(c, "report.read");
+    await officeRead(c);
     const all =
       await c.db`select * from mt_deductions order by (status<>'resolved') desc,due_on,id limit 1001`;
     if (all.length > 1000)
@@ -226,7 +226,7 @@ export function installDeductions(router) {
           );
         const note = text(b.response, "Customer response", 1000);
         await cc.db`update mt_disputes set status=${b.status},response=${note},responded_by=${cc.user.id},responded_at=now(),updated_at=now() where id=${d.id}`;
-        await cc.db`update mt_deductions set status='open',updated_at=now() where id=${d.deduction_id}`;
+        await cc.db`update mt_deductions set status=${b.status === "accepted" ? "disputed" : "open"},updated_at=now() where id=${d.deduction_id}`;
         await cc.db`insert into mt_deduction_events(deduction_id,actor_user_id,action,note) values(${d.deduction_id},${cc.user.id},'dispute.responded',${note})`;
         await audit(cc, "dispute.responded", d.id);
         return { id: d.id };

@@ -149,6 +149,12 @@ export function CustomerPortal() {
                 {d.invoiceNumber ?? "Invoice not linked"} · Follow-up due{" "}
                 {dateText(d.dueOn)}
               </p>
+              {d.disputes.some((s) => s.status === "accepted") ? (
+                <p className="mt-3 text-sm">
+                  Dispute accepted. Awaiting SAP settlement review; this is not
+                  a credit memo.
+                </p>
+              ) : null}
               {d.disputes.map((s) => (
                 <div
                   className="mt-4 border-t border-border pt-3 text-sm"
@@ -164,7 +170,9 @@ export function CustomerPortal() {
                 </div>
               ))}
               {d.status !== "resolved" &&
-              !d.disputes.some((s) => s.status === "open") ? (
+              !d.disputes.some((s) =>
+                ["open", "accepted"].includes(s.status),
+              ) ? (
                 <details className="mt-4">
                   <summary className="cursor-pointer text-sm underline">
                     Dispute this deduction
@@ -234,10 +242,11 @@ export function PortalLogin() {
           setPending(true);
           setError("");
           try {
-            await session.signIn({
+            const result = await session.signIn({
               email: text(f, "email"),
-              password: text(f, "password"),
+              password: String(f.get("password") ?? ""),
             });
+            if (result.error) throw result.error;
             router.replace("/portal");
             router.refresh();
           } catch (e) {

@@ -137,7 +137,9 @@ function AllowedModuleWorkspace({
   return (
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4">
       {/* Inventory and the rebuilt Orders workspace draw their own header. */}
-      {module === "inventory" || module === "orders" ? null : (
+      {module === "inventory" ||
+      module === "orders" ||
+      module === "modern-trade" ? null : (
         <PageHeader title={TITLES[module]} />
       )}
       {tabs.length > 1 ? (
@@ -150,6 +152,11 @@ function AllowedModuleWorkspace({
       <ModuleContent module={module} />
     </div>
   );
+}
+
+function OrdersRoute() {
+  const query = useSearchParams();
+  return <OrdersWorkspace initialOrderId={query.get("orderId")} />;
 }
 
 function VanTripRoute() {
@@ -165,7 +172,7 @@ function VanTripRoute() {
 function ModuleContent({ module }: { module: WebModuleSlug }): ReactNode {
   switch (module) {
     case "orders":
-      return <OrdersWorkspace />;
+      return <OrdersRoute />;
     case "modern-trade":
       return <ModernTradeWorkspace />;
     case "workflows":

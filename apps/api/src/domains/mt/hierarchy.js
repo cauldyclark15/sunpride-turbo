@@ -1,7 +1,25 @@
 import { ApiError } from "../../core/errors.js";
+import { requireCapability, roleHas } from "../../core/capabilities.js";
 import { outletContext } from "../orders/access.js";
 import { uuid } from "../orders/validation.js";
 
+/** Office read capability union matches the Work navigation. Field sales retain their
+ * authorized prices through the selling bundle, not other employees' PO/deduction queues.
+ * @param {any} c */
+export async function officeRead(c) {
+  const actor = await requireCapability(c, "report.read");
+  if (
+    !["order.encode", "order.approve", "people.read"].some((cap) =>
+      roleHas(actor.role, cap),
+    )
+  )
+    throw new ApiError(
+      "forbidden",
+      403,
+      "This account work queue is for office users",
+    );
+  return actor;
+}
 /** SEAM(MASTERS): replace adapter bindings with F-305's effective chain/banner/branch path.
  * Keys are opaque upstream account keys, not employee org units.
  * @param {any} db @param {number} [at] */
@@ -21,6 +39,7 @@ export async function bindings(db, at = Date.now()) {
 }
 /** @param {any} c @param {string} id @param {string} [cap] */
 export async function bindingAccess(c, id, cap = "report.read") {
+  if (cap === "report.read") await officeRead(c);
   const rows = await bindings(c.db, c.now);
   if (rows.length > 2000)
     throw new ApiError(

@@ -1,0 +1,7 @@
+From: sample-buyer@example.invalid
+Subject: SAMPLE structured purchase order
+PO-Number: SAMPLE-EMAIL-001
+Delivery-Date: 2035-11-01
+Lines:
+sku,uom,quantity,price_centavos
+P1,PC,2,1200

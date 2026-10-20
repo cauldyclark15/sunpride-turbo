@@ -99,7 +99,7 @@ export function installPortal(router) {
         poNumber: p.po_number ?? "Awaiting review",
         branch: allowed.find((/** @type {any} */ b) => b.id === p.binding_id)
           ?.label,
-        status: p.order_status ?? p.status,
+        status: delivery.milestones.at(-1)?.stage ?? p.order_status ?? p.status,
         orderNumber: p.order_number ?? null,
         amountCentavos:
           p.total_centavos === null ? null : Number(p.total_centavos),
@@ -171,6 +171,14 @@ export function installPortal(router) {
               "conflict",
               409,
               "This deduction is already resolved",
+            );
+          const [accepted] =
+            await cc.db`select id from mt_disputes where deduction_id=${d.id} and status='accepted' limit 1`;
+          if (accepted)
+            throw new ApiError(
+              "settlement_pending",
+              422,
+              "This dispute was accepted and is awaiting settlement review",
             );
           const message = text(b.message, "Dispute details", 2000),
             reference = text(b.reference, "Your reference", 160);

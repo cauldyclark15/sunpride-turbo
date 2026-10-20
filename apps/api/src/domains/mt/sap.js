@@ -28,10 +28,19 @@ export async function resolveAccountCredit(db, q) {
  * @param {any} db @param {any} q @returns {Promise<any>} */
 export async function resolveAccountPrice(db, q) {
   if (!q.customerCode || q.organizationId !== "sunpride") return null;
-  const paths = (await bindings(db, q.at)).filter(
+  const accountPaths = (await bindings(db, q.at)).filter(
     (/** @type {any} */ b) => b.customer_code === q.customerCode,
   );
-  if (!paths.length) return null;
+  if (!accountPaths.length) return null;
+  const paths = q.outletId
+    ? accountPaths.filter((/** @type {any} */ b) => b.outlet_id === q.outletId)
+    : accountPaths;
+  if (!paths.length)
+    return {
+      unitPriceCentavos: null,
+      priceListId: null,
+      source: "missing_account_binding",
+    };
   if (paths.length > 1)
     return { unitPriceCentavos: null, priceListId: null, source: "ambiguous" };
   const b = paths[0];

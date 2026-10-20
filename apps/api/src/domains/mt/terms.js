@@ -1,11 +1,19 @@
 import { requireCapability } from "../../core/capabilities.js";
 import { ApiError } from "../../core/errors.js";
 import { choice, text, uuid } from "../orders/validation.js";
-import { scopeAccess, bindingAccess, bindings } from "./hierarchy.js";
+import {
+  scopeAccess,
+  bindingAccess,
+  bindings,
+  officeRead,
+} from "./hierarchy.js";
 import { audit, command, instant, money } from "./common.js";
+import { originalDocument } from "./documents.js";
 
 /** @param {any} c @param {string} id @param {string} cap */
 async function termAccess(c, id, cap) {
+  if (cap === "report.read") await officeRead(c);
+  else await requireCapability(c, cap);
   const [t] = await c.db`select * from mt_trade_terms where id=${uuid(id)}`;
   if (!t) throw new ApiError("not_found", 404, "Trade terms not found");
   await scopeAccess(c, t.scope_kind, t.scope_key, cap);
@@ -16,6 +24,15 @@ async function view(c, t) {
   const path = await scopeAccess(c, t.scope_kind, t.scope_key, "report.read");
   return {
     ...t,
+    attachment:
+      (
+        await c.db`select filename,sha256,created_at from mt_term_documents where term_id=${t.id}`
+      )[0] ??
+      (t.contract_document_id
+        ? (
+            await c.db`select filename,sha256,created_at from mt_po_documents where id=${t.contract_document_id}`
+          )[0]
+        : null),
     scopeLabel: t.scope_kind === "branch" ? path[0].label : t.scope_key,
     conditions:
       await c.db`select c.*,p.code as product_code,p.name as product_name from mt_term_conditions c left join products p on p.id=c.product_id where term_id=${t.id} order by ordinal`,
@@ -25,8 +42,28 @@ async function view(c, t) {
 }
 /** @param {any} router */
 export function installTerms(router) {
+  router.get("/api/v1/mt/terms/document", async (/** @type {any} */ c) => {
+    const term = await termAccess(
+      c,
+      c.url.searchParams.get("id"),
+      "report.read",
+    );
+    const [original] =
+      await c.db`select filename,sha256,content_base64 from mt_term_documents where term_id=${term.id}`;
+    if (original) return original;
+    if (term.contract_document_id) {
+      const [legacy] =
+        await c.db`select filename,sha256,content_base64 from mt_po_documents where id=${term.contract_document_id}`;
+      if (legacy) return legacy;
+    }
+    throw new ApiError(
+      "not_found",
+      404,
+      "This terms version has no source document",
+    );
+  });
   router.get("/api/v1/mt/terms", async (/** @type {any} */ c) => {
-    await requireCapability(c, "report.read");
+    await officeRead(c);
     const all =
       await c.db`select * from mt_trade_terms order by created_at desc limit 501`;
     if (all.length > 500)
@@ -69,6 +106,12 @@ export function installTerms(router) {
         )
           throw new ApiError("invalid_request", 400, "Add 1–100 conditions");
         const path = await scopeAccess(cc, kind, key, "masterdata.manage");
+        if (b.attachment && b.contractDocumentId)
+          throw new ApiError(
+            "invalid_request",
+            400,
+            "Choose one source document",
+          );
         if (b.contractDocumentId) {
           const [doc] =
             await cc.db`select binding_id from mt_po_documents where id=${uuid(b.contractDocumentId)}`;
@@ -87,6 +130,10 @@ export function installTerms(router) {
         const [t] =
           await cc.db`insert into mt_trade_terms(scope_kind,scope_key,name,source,sap_key,source_version,effective_from,effective_to,requested_by,contract_document_id)
         values(${kind},${key},${text(b.name, "Terms name", 160)},'sample',${`SAMPLE-${crypto.randomUUID()}`},'sample-v1',${from},${to},${cc.user.id},${b.contractDocumentId ?? null}) returning id`;
+        if (b.attachment) {
+          const original = originalDocument(b.attachment);
+          await cc.db`insert into mt_term_documents(term_id,filename,sha256,content_base64,created_by) values(${t.id},${original.filename},${original.hash},${original.contentBase64},${cc.user.id})`;
+        }
         const seen = new Set();
         for (const [i, l] of b.conditions.entries()) {
           const type = choice(
@@ -209,7 +256,7 @@ export function installTerms(router) {
     );
   });
   router.get("/api/v1/mt/options", async (/** @type {any} */ c) => {
-    await requireCapability(c, "report.read");
+    await officeRead(c);
     const rows = await bindings(c.db, c.now);
     /** @type {any[]} */ const visible = [];
     if (rows.length > 2000)

@@ -6,6 +6,7 @@ import { DeductionCase } from "./deductions";
 import { CustomerPortal, PortalLogin } from "./portal";
 import { getWebNavigation } from "../../config/navigation";
 import { canAccessWebModule } from "../../lib/module-access";
+import { safeCsv } from "./export";
 import type { Options, Intake, Term, Deduction, PortalOverview } from "./model";
 
 const state = vi.hoisted(() => ({
@@ -48,6 +49,16 @@ beforeEach(() => {
   state.error = undefined;
 });
 describe("F-306 F-307 F-309 F-611 modern trade web", () => {
+  it("F-309 exports quoted UTF-8 CSV without spreadsheet formula execution", () => {
+    const result = safeCsv([
+      ["Account", "Note"],
+      ["=SUM(A1)", 'a,b"c'],
+    ]);
+    expect(result.startsWith("\uFEFF")).toBe(true);
+    expect(result).toContain('"\'=SUM(A1)"');
+    expect(result).toContain('"a,b""c"');
+    expect(result.endsWith("\r\n")).toBe(true);
+  });
   it("F-306 displays validation and preserves original-document action without offering read-only confirmation", () => {
     const row: Intake = {
       id: "po-secret-id",

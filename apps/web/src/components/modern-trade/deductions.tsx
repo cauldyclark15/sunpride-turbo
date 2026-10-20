@@ -45,7 +45,10 @@ export function DeductionWorkspace({
     <div className="grid gap-5">
       <div className="grid gap-3 sm:grid-cols-3">
         {[
-          ["Open deductions", php(query.data?.summary.openCentavos)],
+          [
+            "Open deductions",
+            query.data ? php(query.data.summary.openCentavos) : "Loading…",
+          ],
           ["Past SLA", query.data?.summary.overdue ?? "Loading…"],
           [
             "Claim or dispute needed",

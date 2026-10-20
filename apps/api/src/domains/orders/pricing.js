@@ -11,7 +11,7 @@ import {
 /**
  * Single effective channel list, else a default list. Ambiguity never falls back.
  * @param {any} db
- * @param {{organizationId:string, productId:string, uom:string, channelKey:string|null, customerCode:string|null, at:number}} q
+ * @param {{organizationId:string, productId:string, uom:string, channelKey:string|null, customerCode:string|null, outletId?:string|null, at:number}} q
  * @returns {Promise<{unitPriceCentavos:number|null,priceListId:string|null,source:string|null}>}
  */
 export async function resolvePrice(db, q) {

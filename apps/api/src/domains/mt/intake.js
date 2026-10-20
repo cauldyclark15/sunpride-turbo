@@ -1,10 +1,9 @@
-import { requireCapability } from "../../core/capabilities.js";
 import { ApiError } from "../../core/errors.js";
-import { sha256Hex } from "../../core/util.js";
+import { originalDocument } from "./documents.js";
 import { date, text, uuid } from "../orders/validation.js";
 import { baseQuantity, resolvePrice } from "../orders/pricing.js";
 import { createOrder, notify } from "../orders/service.js";
-import { bindingAccess } from "./hierarchy.js";
+import { bindingAccess, officeRead } from "./hierarchy.js";
 import { audit, command } from "./common.js";
 import { parsePurchaseOrder } from "./parsers.js";
 
@@ -60,6 +59,7 @@ async function validate(c, binding, input) {
         productId: product.id,
         uom,
         customerCode: binding.customer_code,
+        outletId: binding.outlet_id,
         channelKey: null,
         at: c.now,
       });
@@ -127,7 +127,7 @@ async function saveLines(c, id, normalized) {
 /** @param {any} router */
 export function installIntake(router) {
   router.get("/api/v1/mt/intake", async (/** @type {any} */ c) => {
-    await requireCapability(c, "report.read");
+    await officeRead(c);
     const id = c.url.searchParams.get("id");
     if (id) return view(c, (await intake(c, id, "report.read")).row);
     const rows =
@@ -166,31 +166,14 @@ export function installIntake(router) {
       (cc) => bindingAccess(cc, b.bindingId, "order.encode"),
       async (cc) => {
         const binding = await bindingAccess(cc, b.bindingId, "order.encode");
-        const filename = text(b.filename, "Filename", 160),
-          format = text(b.format, "Format", 20);
+        const format = text(b.format, "Format", 20);
         if (!["csv", "edi", "email", "ocr"].includes(format))
           throw new ApiError(
             "invalid_request",
             400,
             "Choose a supported document format",
           );
-        if (
-          typeof b.contentBase64 !== "string" ||
-          b.contentBase64.length > 600_000
-        )
-          throw new ApiError(
-            "invalid_request",
-            400,
-            "Document must be under 450 KB",
-          );
-        const bytes = Buffer.from(b.contentBase64, "base64");
-        if (bytes.toString("base64") !== b.contentBase64 || !bytes.length)
-          throw new ApiError(
-            "invalid_request",
-            400,
-            "Document encoding is invalid",
-          );
-        const hash = sha256Hex(bytes);
+        const { filename, bytes, hash } = originalDocument(b);
         const [old] =
           await cc.db`select p.id from mt_po_documents d join inbound_purchase_orders p on p.document_id=d.id where d.binding_id=${binding.id} and d.sha256=${hash}`;
         if (old) return { id: old.id, duplicate: true };
@@ -304,7 +287,11 @@ export function installIntake(router) {
           };
         },
       );
-      if (action === "confirm") await notify(c);
+      if (action === "confirm" && result.orderId) {
+        const rows =
+          await c.db`select org_unit_id,service_date from orders where id=${result.orderId}`;
+        await notify(c, rows);
+      }
       return result;
     });
 }
