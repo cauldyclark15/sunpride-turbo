@@ -99,6 +99,8 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     testOptions { unitTests.isReturnDefaultValues = true }
+    sourceSets.getByName("main").java.srcDir(rootProject.file("../../packages/callflow-native/src/main/kotlin"))
+    sourceSets.getByName("test").java.srcDir(rootProject.file("../../packages/callflow-native/src/test/kotlin"))
     @Suppress("UnstableApiUsage")
     defaultConfig.javaCompileOptions.annotationProcessorOptions.arguments["room.schemaLocation"] =
         "$projectDir/schemas"

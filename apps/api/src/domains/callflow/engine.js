@@ -201,12 +201,10 @@ export async function configurations(db, profile, outlets, at, binding = null) {
       pin: matches.length === 1 ? matches[0] : null,
       reasons,
       geofenceApprovals: grants
-        .filter(
-          (/** @type {any} */ g) =>
-            g.outlet_id === outlet.id && g.policy_id === policy.id,
-        )
+        .filter((/** @type {any} */ g) => g.outlet_id === outlet.id)
         .map((/** @type {any} */ g) => ({
           id: g.id,
+          policyId: g.policy_id,
           kind: g.kind,
           approvedAt: Number(g.approvedAt),
           expiresAt: Number(g.expiresAt),
@@ -291,13 +289,19 @@ export async function beginCall(ctx, input) {
   await ctx.db`select pg_advisory_xact_lock(hashtext(${`callflow:${ctx.actor.profileId}`}))`;
   // Server housekeeping only: never fabricate an End, a no-order reason or dwell for yesterday.
   // The immutable old outbox is retained for reconciliation; it must not block every subsequent day/trip.
-  const abandoned=await ctx.db`select c.* from call_executions c where c.profile_id=${ctx.actor.profileId} and c.state='open'
+  const abandoned =
+    await ctx.db`select c.* from call_executions c where c.profile_id=${ctx.actor.profileId} and c.state='open'
     and (c.service_date<${input.serviceDate}::date or exists(select 1 from van_trips t where t.id=c.trip_id and t.status in ('closed','cancelled'))) for update`;
-  for(const previous of abandoned) {
+  for (const previous of abandoned) {
     await ctx.db`update call_executions set state='interrupted',interrupted_at=${new Date(ctx.now)} where id=${previous.id}`;
     await ctx.db`insert into call_step_events(call_id,step_key,adapter,operation_key,entity_id,facts,device_time,actor_subject)
-      values (${previous.id},'system_day_boundary','system_day_boundary',${ctx.op.clientOpId},${previous.id},${{source:'day_boundary',checkoutReceived:false}},${new Date(ctx.now)},'system:callflow-boundary')`;
-    await review(ctx,previous,'day_boundary','No checkout received before the next working day or trip. Reconcile retained phone work; duration and outcome remain unknown.');
+      values (${previous.id},'system_day_boundary','system_day_boundary',${ctx.op.clientOpId},${previous.id},${{ source: "day_boundary", checkoutReceived: false }},${new Date(ctx.now)},'system:callflow-boundary')`;
+    await review(
+      ctx,
+      previous,
+      "day_boundary",
+      "No checkout received before the next working day or trip. Reconcile retained phone work; duration and outcome remain unknown.",
+    );
   }
   const open =
     await ctx.db`select id from call_executions where profile_id=${ctx.actor.profileId} and state='open'`;

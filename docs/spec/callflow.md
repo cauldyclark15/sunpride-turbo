@@ -34,6 +34,8 @@ Both capture and server validate provider, finite/legal coordinates, accuracy, f
 
 An outside-radius start or end requires a recorded request and a different authorized supervisor's decision BEFORE capture. The grant is bound to person, registered device, store, policy and start/end kind; it expires and is consumed once. A replay of the same accepted operation stays idempotent. The native engine also prevents local grant reuse. A changed policy cannot borrow an approval issued for another policy.
 
+Checkout approval is issued against the open call's frozen policy even after a new policy is published. Refreshed encrypted snapshots carry policy-qualified grants, so either app can use that older policy's checkout approval without authorizing a new-policy start. In-radius operations do not consume unused exceptions.
+
 `SEAM(INTEGRITY)`: `integrityBlocked` consumes the domain/device integrity flag in addition to the supplied location flag. Android's real location adapter also passes the OS mock-location signal. This lane does not attest OS integrity or implement INTEGRITY's risk detection.
 
 ## F-120: no order means a governed reason

@@ -47,6 +47,7 @@ class EvidenceUploadWorker(context: Context, parameters: WorkerParameters) : Cor
                 if (!backend.isSignedIn) return Result.success()
                 backend.uploadEvidence()
             }
+            if (report.uploaded > 0) com.sunpride.field.sync.work.SyncWork.enqueue(app) // release a configured End waiting on required evidence
             SafeLog.event(app, if (report.retryLater) "photo_retry" else "photo_complete")
             if (report.retryLater) Result.retry() else Result.success()
         } catch (e: kotlinx.coroutines.CancellationException) {

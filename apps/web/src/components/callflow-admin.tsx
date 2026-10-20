@@ -612,7 +612,11 @@ export function CallFlowReport() {
                       {call.person} · {call.outlet} · {call.serviceDate}
                     </p>
                     <p className="text-sm text-muted">
-                      {call.state === "open" ? "In progress" : call.state === 'interrupted' ? 'Missing checkout — reconcile' : "Closed"}
+                      {call.state === "open"
+                        ? "In progress"
+                        : call.state === "interrupted"
+                          ? "Missing checkout — reconcile"
+                          : "Closed"}
                       {call.reason ? ` · ${call.reason}` : ""}
                       {call.zeroSaleReason
                         ? ` · No order: ${call.zeroSaleReason}`

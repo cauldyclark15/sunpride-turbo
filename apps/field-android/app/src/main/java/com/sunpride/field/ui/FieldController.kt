@@ -64,6 +64,12 @@ interface FieldBackend {
     fun queueVisit(kind: String, clientVisitId: String?, checkInRequestId: String?, previousRequestId: String?,
         plannedVisitId: String?, outletId: String, intents: List<String>, unplannedReason: String?, note: String?,
         outcome: String?, reasonCode: String?, location: JSONObject?) { error("No local store") }
+    fun requestGeofence(outletId: String, reason: String, kind: String) { error("Connect to request approval") }
+    fun callFlow(outletId: String): JSONObject? = null
+    fun queueConfiguredVisit(kind: String, clientVisitId: String?, checkInRequestId: String?, previousRequestId: String?,
+        plannedVisitId: String?, outletId: String, intents: List<String>, unplannedReason: String?, note: String?,
+        outcome: String?, reasonCode: String?, location: JSONObject?, options: JSONObject?) =
+        queueVisit(kind,clientVisitId,checkInRequestId,previousRequestId,plannedVisitId,outletId,intents,unplannedReason,note,outcome,reasonCode,location)
     fun callSheet(outletId: String): CallSheet? = null
     fun queueCallSheet(clientVisitId: String, checkInRequestId: String, previousRequestId: String,
         outletId: String, drafts: List<CallSheetDraftLine>) { error("No local store") }
@@ -231,19 +237,38 @@ class LiveFieldBackend(
     }
     override fun queueVisit(kind: String, clientVisitId: String?, checkInRequestId: String?, previousRequestId: String?,
         plannedVisitId: String?, outletId: String, intents: List<String>, unplannedReason: String?, note: String?,
-        outcome: String?, reasonCode: String?, location: JSONObject?) {
+        outcome: String?, reasonCode: String?, location: JSONObject?) =
+        queueConfiguredVisit(kind,clientVisitId,checkInRequestId,previousRequestId,plannedVisitId,outletId,intents,unplannedReason,note,outcome,reasonCode,location,null)
+    override fun queueConfiguredVisit(kind: String, clientVisitId: String?, checkInRequestId: String?, previousRequestId: String?,
+        plannedVisitId: String?, outletId: String, intents: List<String>, unplannedReason: String?, note: String?,
+        outcome: String?, reasonCode: String?, location: JSONObject?, options: JSONObject?) {
         val scope = storedScope() ?: error("No verified local partition")
         val store = EncryptedFieldDatabase.store(context, scope)
         try {
             runBlocking {
-                val intent = com.sunpride.field.ui.diagnosticvisit.VisitIntentFactory.create(scope, kind, clientVisitId,
+                val original = com.sunpride.field.ui.diagnosticvisit.VisitIntentFactory.create(scope, kind, clientVisitId,
                     checkInRequestId, previousRequestId, plannedVisitId, outletId, intents, unplannedReason,
                     note, outcome, reasonCode, location)
+                val json = JSONObject(original.serializedOperation)
+                options?.let { opts -> listOf("sequenceReason","shortCallReason","zeroSaleReason","geofenceApprovalId").forEach { key ->
+                    if (opts.has(key)) json.getJSONObject("payload").put(key,opts.get(key))
+                } }
+                val intent = original.copy(serializedOperation = json.toString())
                 com.sunpride.field.sync.work.QueueScheduler.enqueue(store, intent, System.currentTimeMillis()) {
                     com.sunpride.field.sync.work.SyncWork.enqueue(context)
                 }
             }
         } finally { store.close() }
+    }
+    override fun requestGeofence(outletId: String, reason: String, kind: String) {
+        val partition=storedScope() ?: error("No verified phone")
+        if(kind == "geofence_end") today(partition.deviceId,loadSigner(),true)
+        functions.api.post("/api/v1/callflow/geofence/request",JSONObject().put("outletId",outletId).put("deviceId",partition.deviceId).put("reason",reason).put("kind",kind))
+    }
+    override fun callFlow(outletId: String): JSONObject? {
+        val partition = storedScope() ?: return null
+        val store = EncryptedFieldDatabase.store(context,partition)
+        return try { runBlocking { store.outlets().firstOrNull { it.id == outletId }?.let { JSONObject(it.json).optJSONObject("callFlow") } } } finally { store.close() }
     }
     override fun callSheet(outletId: String): CallSheet? {
         val scope = storedScope() ?: return null
@@ -933,6 +958,16 @@ class FieldController(
     fun relatedCall(visit: VisitDisplay) = VisitCallRules.related(visit.plannedVisitId, visit.outletId, serviceDay(), diagnosticRows)
     fun startFailure(visit: VisitDisplay) = VisitCallRules.startFailure(visit.plannedVisitId, visit.outletId,
         serviceDay(), plans(), diagnosticRows)
+    fun requestCallGeofence(reason: String, started: Boolean) = scope.launch(ui) {
+        val visit=diagnostic ?: return@launch
+        if (busy) return@launch
+        busy=true
+        try { withContext(io) { backend.requestGeofence(visit.outletId,reason,if (started) "geofence_end" else "geofence_start") }; diagnosticError="Sent for supervisor approval. Sync after approval, then get a fresh location." }
+        catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (_: Exception) { diagnosticError="Connect to request approval. The call has not started or ended." }
+        finally { busy=false }
+    }
+    var diagnosticFlow by mutableStateOf<JSONObject?>(null); private set
     private suspend fun refreshDiagnostic() {
         val visit = diagnostic
         // Rows are device-wide (not per visit), so a refresh that finishes after the screen changed
@@ -943,6 +978,8 @@ class FieldController(
         val terms = visit?.outletId?.let { withContext(io) { backend.orderTerms(it) } }
         val drafts = if (visit == null) emptyList() else withContext(io) { backend.orderDrafts() }
         if (diagnostic == visit) {
+            diagnosticFlow = visit?.let { v -> openCheckIn(v)?.let { com.sunpride.field.storage.ConfiguredFieldCalls.payload(it).optJSONObject("callFlowSnapshot") }
+                ?: withContext(io) { backend.callFlow(v.outletId) } }
             diagnosticCallSheet = sheet
             diagnosticOrderTerms = terms
             val calls = visit?.let { relatedCall(it) }.orEmpty().map { it.first.clientVisitId }.toSet()
@@ -1036,7 +1073,7 @@ class FieldController(
         catch (_: Exception) { diagnosticError = "Could not save this activity. Check the fields, then sync to refresh today's access." }
         finally { busy = false }
     }
-    fun queueDiagnostic(kind: String, reason: String?, note: String?, outcome: String?, location: JSONObject?) = scope.launch(ui) {
+    fun queueDiagnostic(kind: String, reason: String?, note: String?, outcome: String?, location: JSONObject?, flowOptions: JSONObject? = null) = scope.launch(ui) {
         val visit = diagnostic ?: return@launch
         if (busy) return@launch
         busy = true; diagnosticError = null; diagnosticFailure = null
@@ -1046,7 +1083,7 @@ class FieldController(
             val related = relatedCall(visit)
             val checkin = related.lastOrNull { it.first.kind == "visit.checkIn" && it.second != "review" }?.first
             if (kind == "visit.checkIn") VisitCallRules.requireStart(visit.plannedVisitId, visit.outletId,
-                serviceDay(), plans(), diagnosticRows)
+                serviceDay(), plans(), diagnosticRows, if (diagnosticFlow != null) flowOptions?.optString("sequenceReason") else null)
             if (kind != "visit.checkIn" && checkin == null) throw VisitRuleFailure(VisitRuleFailure.Code.CALL_NOT_OPEN)
             if (kind == "visit.checkOut") {
                 VisitCallRules.requireEnd(checkin!!.clientVisitId,
@@ -1059,9 +1096,9 @@ class FieldController(
             if (kind == "visit.checkIn" && visit.plannedVisitId == null && intents.isEmpty())
                 throw VisitRuleFailure(VisitRuleFailure.Code.INTENT_REQUIRED)
             withContext(io) {
-                backend.queueVisit(kind, checkin?.clientVisitId, checkin?.requestId,
+                backend.queueConfiguredVisit(kind, checkin?.clientVisitId, checkin?.requestId,
                     related.lastOrNull()?.first?.requestId, visit.plannedVisitId, visit.outletId, intents,
-                    reason, note, outcome, if (outcome == "nonproductive") reason?.trim() else null, location)
+                    reason, note, outcome, if (outcome == "nonproductive") reason?.trim() else null, location, flowOptions)
             }
             if (kind == "visit.checkOut") endReview = null
             // SP-0136: the day's first Start begins location sharing (if this person consented).
@@ -1070,6 +1107,7 @@ class FieldController(
             loadToday(sync = false)
         } catch (e: VisitRuleFailure) { diagnosticFailure = e.code; diagnosticError = e.code.text }
         catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (e: com.sunpride.callflow.CallFlowRefused) { diagnosticError = e.message }
         catch (_: Exception) { diagnosticError = "Could not queue visit. Sync for access and check required fields." }
         finally { busy = false }
     }

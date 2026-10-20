@@ -488,15 +488,25 @@ export function install(router, installCtx) {
         and status='active' and bound_subject=${ctx.actor.subject} and org_unit_id=${ctx.actor.orgUnitId} for share`;
         if (!device || !["field-android", "van-android"].includes(device.app))
           throw forbidden("Use your registered phone");
-        const config = await configuration(
-          db,
-          await profileAt(db, device.app, outlet, ctx.now),
-          outlet,
-          ctx.now,
-        );
-        if (!config) throw invalid("No configured call flow");
         if (!["geofence_start", "geofence_end"].includes(p.kind))
           throw invalid();
+        let config;
+        if (p.kind === "geofence_end") {
+          const [call] =
+            await db`select policy_snapshot from call_executions where profile_id=${ctx.actor.profileId} and device_id=${device.id} and outlet_id=${outlet.id} and state='open' for share`;
+          if (!call)
+            throw invalid(
+              "Sync the open call before requesting checkout approval",
+            );
+          config = call.policy_snapshot;
+        } else
+          config = await configuration(
+            db,
+            await profileAt(db, device.app, outlet, ctx.now),
+            outlet,
+            ctx.now,
+          );
+        if (!config) throw invalid("No configured call flow");
         const [r] =
           await db`insert into call_flow_reviews(profile_id,device_id,org_unit_id,outlet_id,kind,policy_id,reason,expires_at)
         values (${ctx.actor.profileId},${device.id},${owner},${outlet.id},${p.kind},${config.policy.id},${text(p.reason, 500)},${new Date(ctx.now + 3600000)}) returning id`;

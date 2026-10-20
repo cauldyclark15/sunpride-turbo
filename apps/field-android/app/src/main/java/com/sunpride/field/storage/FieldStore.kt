@@ -354,6 +354,7 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             check(isLeaseValid(now)) { "Offline lease expired or held" }
             EvidencePhotos.validate(row, photoTypes(), history().map { it.first to it.second.state },
                 dao.visitPhotos(a, d, s, row.clientVisitId).size)
+            ConfiguredFieldCalls.validatePhoto(this@RoomFieldStore,row.clientVisitId)
             dao.insertPhoto(row)
         }
     }
@@ -394,11 +395,13 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             intent.serializedOperation.isNotBlank())
         db.withTransaction {
             check(isLeaseValid(now)) { "Offline lease expired or held" }
-            val payload = JSONObject(intent.serializedOperation).optJSONObject("payload")
+            val prepared = ConfiguredFieldCalls.prepare(this@RoomFieldStore,intent)
+            val payload = JSONObject(prepared.serializedOperation).optJSONObject("payload")
             if (intent.kind == "visit.checkIn") {
                 val day = payload?.getString("serviceDate") ?: error("Missing service date")
                 VisitCallRules.requireStart(payload.optString("plannedVisitId").takeUnless { it.isBlank() || it == "null" },
-                    payload.getString("outletId"), day, todaysVisits(day), history().map { it.first to it.second.state })
+                    payload.getString("outletId"), day, todaysVisits(day), history().map { it.first to it.second.state },
+                    if (payload.has("callFlowSnapshot")) payload.optString("sequenceReason") else null)
             } else if (intent.kind == "visit.checkOut") {
                 VisitCallRules.requireEnd(intent.clientVisitId, payload ?: error("Missing outcome"),
                     history().map { it.first to it.second.state })
@@ -408,7 +411,7 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             ActivityQueueRules.validate(this@RoomFieldStore, intent)
             com.sunpride.field.orders.OrderQueueRules.validate(this@RoomFieldStore, intent)
             val orderedAt = maxOf(intent.createdAt, (dao.latestCreatedAt(a, d, s) ?: Long.MIN_VALUE) + 1)
-            dao.insertIntent(intent.copy(createdAt = orderedAt))
+            dao.insertIntent(prepared.copy(createdAt = orderedAt))
             checkpoint()
             dao.insertOutbox(OutboxRow(a, d, s, intent.requestId, orderedAt))
         }

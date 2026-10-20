@@ -371,15 +371,47 @@ test("F-107 F-120 van calls run the same engine through signed API operations", 
     deviceTime: f.now + 1,
   });
   expect((await push(f, check))[0].status).toBe("applied");
-  const missingPhoto=operation('call.step',{tripId:trip,clientCallId,adapter:'evidence',photoSha256:'0'.repeat(64),deviceTime:f.now+1});
-  expect((await push(f,missingPhoto))[0].status).toBe('rejected');
-  const bytes=new Uint8Array([255,216,255,217]), checksum=new Bun.CryptoHasher('sha256').update(bytes).digest('hex');
-  const claim=await signedPost(h,f.d,'/api/media/claims',{version:2,deviceId:f.d.deviceId,purpose:'truck-damage',ownerId:trip,mime:'image/jpeg',size:bytes.length,sha256:checksum});
+  const missingPhoto = operation("call.step", {
+    tripId: trip,
+    clientCallId,
+    adapter: "evidence",
+    photoSha256: "0".repeat(64),
+    deviceTime: f.now + 1,
+  });
+  expect((await push(f, missingPhoto))[0].status).toBe("rejected");
+  const bytes = new Uint8Array([255, 216, 255, 217]),
+    checksum = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
+  const claim = await signedPost(h, f.d, "/api/media/claims", {
+    version: 2,
+    deviceId: f.d.deviceId,
+    purpose: "truck-damage",
+    ownerId: trip,
+    mime: "image/jpeg",
+    size: bytes.length,
+    sha256: checksum,
+  });
   expect(claim.res.status).toBe(200);
-  expect((await fetch(claim.body.uploadUrl,{method:'PUT',headers:{authorization:`Bearer ${claim.body.uploadToken}`,'content-type':'image/jpeg'},body:bytes})).status).toBe(200);
-  const evidence=operation('call.step',{tripId:trip,clientCallId,adapter:'evidence',photoSha256:checksum,deviceTime:f.now+1});
-  expect((await push(f,evidence))[0].status).toBe('applied');
-  expect((await push(f,evidence))[0].status).toBe('duplicate');
+  expect(
+    (
+      await fetch(claim.body.uploadUrl, {
+        method: "PUT",
+        headers: {
+          authorization: `Bearer ${claim.body.uploadToken}`,
+          "content-type": "image/jpeg",
+        },
+        body: bytes,
+      })
+    ).status,
+  ).toBe(200);
+  const evidence = operation("call.step", {
+    tripId: trip,
+    clientCallId,
+    adapter: "evidence",
+    photoSha256: checksum,
+    deviceTime: f.now + 1,
+  });
+  expect((await push(f, evidence))[0].status).toBe("applied");
+  expect((await push(f, evidence))[0].status).toBe("duplicate");
   const out = operation("call.close", {
     tripId: trip,
     clientCallId,
@@ -441,34 +473,144 @@ test("F-107 definition grammar supports later channel adapters without executabl
     ]),
   ).toThrow();
 });
-test('F-006 F-120 optional captured media still attaches after offline call close, with exact replay',async()=>{
-  const f=await fixture(), startResult=await start(f), visitId=startResult.result.ack.entityId;
-  expect((await push(f,await end(f,visitId)))[0].status).toBe('applied');
+test("F-006 F-120 optional captured media still attaches after offline call close, with exact replay", async () => {
+  const f = await fixture(),
+    startResult = await start(f),
+    visitId = startResult.result.ack.entityId;
+  expect((await push(f, await end(f, visitId)))[0].status).toBe("applied");
   // Wire-media fixture only: this does not claim a CameraX/OS capture or integrity attestation.
-  const bytes=new Uint8Array([255,216,255,217]),checksum=new Bun.CryptoHasher('sha256').update(bytes).digest('hex');
-  const claim=await signedPost(h,f.d,'/api/media/claims',{version:2,deviceId:f.d.deviceId,purpose:'visit-photo',ownerId:visitId,mime:'image/jpeg',size:bytes.length,sha256:checksum});
+  const bytes = new Uint8Array([255, 216, 255, 217]),
+    checksum = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
+  const claim = await signedPost(h, f.d, "/api/media/claims", {
+    version: 2,
+    deviceId: f.d.deviceId,
+    purpose: "visit-photo",
+    ownerId: visitId,
+    mime: "image/jpeg",
+    size: bytes.length,
+    sha256: checksum,
+  });
   expect(claim.res.status).toBe(200);
-  const upload=await fetch(claim.body.uploadUrl,{method:'PUT',headers:{authorization:`Bearer ${claim.body.uploadToken}`,'content-type':'image/jpeg'},body:bytes});
+  const upload = await fetch(claim.body.uploadUrl, {
+    method: "PUT",
+    headers: {
+      authorization: `Bearer ${claim.body.uploadToken}`,
+      "content-type": "image/jpeg",
+    },
+    body: bytes,
+  });
   expect(upload.status).toBe(200);
-  const blob=/** @type {any} */(await upload.json());
-  const attach=operation('evidence.attach',{visitId,blobId:blob.blobId,checksum,mime:'image/jpeg',size:bytes.length,capturedAt:f.now+500,photoType:'storefront',source:'mobile'});
-  expect((await push(f,attach))[0]).toMatchObject({status:'applied'});
-  expect((await push(f,attach))[0].status).toBe('duplicate');
-  const events=await h.db`select e.id from call_step_events e join call_executions c on c.id=e.call_id where c.visit_id=${visitId} and e.adapter='evidence'`;
+  const blob = /** @type {any} */ (await upload.json());
+  const attach = operation("evidence.attach", {
+    visitId,
+    blobId: blob.blobId,
+    checksum,
+    mime: "image/jpeg",
+    size: bytes.length,
+    capturedAt: f.now + 500,
+    photoType: "storefront",
+    source: "mobile",
+  });
+  expect((await push(f, attach))[0]).toMatchObject({ status: "applied" });
+  expect((await push(f, attach))[0].status).toBe("duplicate");
+  const events =
+    await h.db`select e.id from call_step_events e join call_executions c on c.id=e.call_id where c.visit_id=${visitId} and e.adapter='evidence'`;
   expect(events.length).toBe(1);
 });
-test('F-006 F-207 a missing checkout cannot deadlock the next day or invent dwell/outcome',async()=>{
-  const f=await fixture(), yesterday=f.now-DAY;
-  const previous=await start(f,{plannedVisitId:null,serviceDate:manilaDate(yesterday),deviceTime:yesterday,location:{...f.fix,fixTime:yesterday},unplannedReason:'Sample prior-day call'});
-  expect(previous.result.status).toBe('applied');
-  const next=await start(f);expect(next.result.status).toBe('applied');
-  const [old]=await h.db`select * from call_executions where visit_id=${previous.result.ack.entityId}`;
-  expect(old.state).toBe('interrupted');expect(old.interrupted_at).not.toBe(null);
-  expect(old.ended_at).toBe(null);expect(old.duration_ms).toBe(null);expect(old.zero_sale_reason).toBe(null);
-  const reviews=await h.db`select id from call_flow_reviews where call_id=${old.id} and kind='day_boundary'`;
+test("F-006 F-207 a missing checkout cannot deadlock the next day or invent dwell/outcome", async () => {
+  const f = await fixture(),
+    yesterday = f.now - DAY;
+  const previous = await start(f, {
+    plannedVisitId: null,
+    serviceDate: manilaDate(yesterday),
+    deviceTime: yesterday,
+    location: { ...f.fix, fixTime: yesterday },
+    unplannedReason: "Sample prior-day call",
+  });
+  expect(previous.result.status).toBe("applied");
+  const next = await start(f);
+  expect(next.result.status).toBe("applied");
+  const [old] =
+    await h.db`select * from call_executions where visit_id=${previous.result.ack.entityId}`;
+  expect(old.state).toBe("interrupted");
+  expect(old.interrupted_at).not.toBe(null);
+  expect(old.ended_at).toBe(null);
+  expect(old.duration_ms).toBe(null);
+  expect(old.zero_sale_reason).toBe(null);
+  const reviews =
+    await h.db`select id from call_flow_reviews where call_id=${old.id} and kind='day_boundary'`;
   expect(reviews.length).toBe(1);
-  expect((await push(f,next.op))[0].status).toBe('duplicate');
-  expect((await h.db`select id from call_flow_reviews where call_id=${old.id} and kind='day_boundary'`).length).toBe(1);
+  expect((await push(f, next.op))[0].status).toBe("duplicate");
+  expect(
+    (
+      await h.db`select id from call_flow_reviews where call_id=${old.id} and kind='day_boundary'`
+    ).length,
+  ).toBe(1);
+});
+test("F-106 checkout approval uses the open call policy even after a new policy becomes effective", async () => {
+  const f = await fixture(),
+    admin = await fixture({ role: "super_admin", unit: f.unit }),
+    old = await config(f),
+    started = await start(f);
+  expect(started.result.status).toBe("applied");
+  const from = Date.now() + 1000;
+  const publication = await webCall(admin, "/api/v1/callflow/policy/publish", {
+    channelProfile: PROFILE_FIELD,
+    outletClass: "*",
+    radiusMeters: 100,
+    maxAccuracyMeters: 50,
+    maxFixAgeMs: 60000,
+    minDwellMs: 180000,
+    effectiveFrom: from,
+  });
+  expect(publication.status).toBe(200);
+  await Bun.sleep(Math.max(0, from - Date.now() + 10));
+  const request = await webCall(f, "/api/v1/callflow/geofence/request", {
+    deviceId: f.d.deviceId,
+    outletId: f.outlet,
+    kind: "geofence_end",
+    reason: "Store exit is blocked",
+  });
+  expect(request.status).toBe(200);
+  const [review] =
+    await h.db`select policy_id from call_flow_reviews where id=${request.body.id}`;
+  expect(review.policy_id).toBe(old.policy.id);
+  expect(review.policy_id).not.toBe(publication.body.id);
+  expect(
+    (
+      await webCall(admin, "/api/v1/callflow/reviews/decide", {
+        reviewId: request.body.id,
+        decision: "approve",
+        reason: "Exit closure verified",
+      })
+    ).status,
+  ).toBe(200);
+  const refreshed = await configuration(
+    h.db,
+    PROFILE_FIELD,
+    { id: f.outlet },
+    Date.now(),
+    { profileId: f.d.profile.id, deviceId: f.d.deviceId },
+  );
+  expect(refreshed.policy.id).toBe(publication.body.id);
+  expect(
+    refreshed.geofenceApprovals.find(
+      (/** @type {any} */ g) => g.id === request.body.id,
+    ).policyId,
+  ).toBe(old.policy.id);
+  const at = Date.now();
+  expect(
+    (
+      await push(
+        f,
+        await end(f, started.result.ack.entityId, {
+          deviceTime: at,
+          location: { ...f.fix, latitude: 11, fixTime: at },
+          geofenceApprovalId: request.body.id,
+        }),
+      )
+    )[0].status,
+  ).toBe("applied");
 });
 test("F-106 pure radius and age checks use capture time so late offline upload is valid", () => {
   const c = {
