@@ -1,9 +1,15 @@
 import { Dataset, persist, plusDays, BATCH } from "./store.js";
 import { company } from "./company.js";
+import { availabilitySamples } from "./tower-availability.js";
 
 /** F-601–F-608 clearly fictional source replicas; no operational orders/inventory overwritten.
- * @param {import('./store.js').Dataset} d @param {import('./company.js').Company} c */
-export function towerSamples(d, c) {
+ * @param {import('./store.js').Dataset} d @param {import('./company.js').Company} c @param {any[]} [visits] @param {Set<string>} [externalRanges] */
+export function towerSamples(
+  d,
+  c,
+  visits = d.rows("visit_executions"),
+  externalRanges = new Set(),
+) {
   for (const unit of c.units)
     d.add("analytics_cockpit_policies", `tower-policy-${unit.id}`, {
       org_unit_id: unit.id,
@@ -22,7 +28,7 @@ export function towerSamples(d, c) {
   for (let n = 0; n < Math.min(d.days, 56); n++) {
     const date = plusDays(d.anchorDate, -n),
       at = `${date}T12:00:00+08:00`;
-    for (let dist = 0; dist < 2; dist++)
+    for (let dist = 0; dist < c.units.length; dist++)
       for (const [i, p] of c.products.slice(0, 4).entries()) {
         const o = c.stores[dist * 75 + 1];
         for (const kind of [
@@ -54,7 +60,7 @@ export function towerSamples(d, c) {
               source_type: "sample",
               org_unit_id: o.custodian_org_unit_id,
               distributor_key: `SAMPLE-D${dist + 1}`,
-              distributor_name: `Sample ${dist ? "South" : "North"} Distributor`,
+              distributor_name: `Sample distributor · ${c.units[dist].name}`,
               outlet_id: kind === "secondary" ? o.id : null,
               product_id: p.id,
               service_date: date,
@@ -75,7 +81,8 @@ export function towerSamples(d, c) {
         }
       }
   }
-  for (const o of c.stores.slice(0, 8)) {
+  for (const o of c.stores) {
+    const featured = o.index < 8 || o.index % 37 === 0;
     for (const [kind, payload] of Object.entries({
       class: { label: "Sample class B", potential: "Sample medium potential" },
       asset: {
@@ -104,7 +111,8 @@ export function towerSamples(d, c) {
         definition:
           "SAMPLE: equal component weights; upstream governed score required",
       },
-    }))
+    })) {
+      if ((kind === "asset" || kind === "issue") && !featured) continue;
       d.add("analytics_outlet_context", `tower-${o.id}-${kind}`, {
         outlet_id: o.id,
         org_unit_id: o.custodian_org_unit_id,
@@ -116,6 +124,8 @@ export function towerSamples(d, c) {
         effective_from: d.epoch,
         payload,
       });
+    }
+    if (!featured) continue;
     d.add("analytics_integrity_findings", `tower-integrity-${o.id}`, {
       org_unit_id: o.custodian_org_unit_id,
       outlet_id: o.id,
@@ -134,10 +144,18 @@ export function towerSamples(d, c) {
       review_href: "/decide",
     });
   }
+  availabilitySamples(d, c, visits, externalRanges);
+  d.event("analytics", `tower-commercial-${d.anchorDate}-v3`, {
+    features: "F-602 F-603 F-604",
+    sample: true,
+  });
 }
 /** Idempotently extend an already seeded sample company; never resets/updates existing records.
  * Caller holds the demo transaction lock. @param {any} db @param {string} date @param {number} [days] */
 export async function extendTowerSamples(db, date, days = 56) {
+  const [done] =
+    await db`select 1 from sample_data_rows where batch=${BATCH} and key=${`audit_logs:tower-commercial-${date}-v3`}`;
+  if (done) return { added: 0 };
   const template = new Dataset(date, Math.min(days, 56)),
     c = company(template, []),
     d = new Dataset(date, Math.min(days, 56));
@@ -146,7 +164,16 @@ export async function extendTowerSamples(db, date, days = 56) {
   const ids = new Set(owned.map((/** @type {any} */ r) => r.row_id));
   if (!ids.has(c.stores[1].id) || !ids.has(c.stores[76].id))
     return { added: 0 };
-  towerSamples(d, c);
+  const visits =
+    await db`select v.*,v.service_date::text service_date from visit_executions v join sample_data_rows m on m.table_name='visit_executions' and m.row_id=v.id::text and m.batch=${BATCH} where v.state='completed' and v.service_date between ${d.start} and ${date}`;
+  const external =
+    await db`select a.outlet_id from outlet_assortments a where a.outlet_id in ${db(c.stores.map((o) => o.id))} and a.deleted_at is null and not exists(select 1 from sample_data_rows m where m.batch=${BATCH} and m.table_name='outlet_assortments' and m.row_id=a.id::text and m.key like 'outlet_assortments:tower-msl-%')`;
+  towerSamples(
+    d,
+    c,
+    visits,
+    new Set(external.map((/** @type {any} */ r) => r.outlet_id)),
+  );
   const existing = new Set(
     (await db`select row_id from sample_data_rows where batch=${BATCH}`).map(
       (/** @type {any} */ r) => r.row_id,
