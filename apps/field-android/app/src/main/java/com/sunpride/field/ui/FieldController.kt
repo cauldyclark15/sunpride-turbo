@@ -74,6 +74,8 @@ interface FieldBackend {
     fun retailCall(outletId: String): com.sunpride.retail.RetailCall? = null
     fun saveRetail(call: com.sunpride.retail.RetailCall, clientVisitId: String, checkInRequestId: String, previousRequestId: String,
         answers: List<com.sunpride.retail.ShelfAnswer>, quantities: Map<String,Long>): OrderDraft? = error("Availability unavailable")
+    fun queueRetail(clientVisitId: String, checkInRequestId: String, previousRequestId: String,
+        kind: String, data: JSONObject, photoIds: List<String>) { error("Sync to update merchandising access") }
     fun callSheet(outletId: String): CallSheet? = null
     fun queueCallSheet(clientVisitId: String, checkInRequestId: String, previousRequestId: String,
         outletId: String, drafts: List<CallSheetDraftLine>) { error("No local store") }
@@ -490,6 +492,19 @@ class LiveFieldBackend(
                 com.sunpride.field.sync.work.SyncWork.enqueue(context)
             }
         } } finally { store.close() }
+    }
+    override fun queueRetail(clientVisitId: String, checkInRequestId: String, previousRequestId: String,
+        kind: String, data: JSONObject, photoIds: List<String>) {
+        val identity=storedScope() ?: error("No verified local partition")
+        withStore { store ->
+            val start=store.intent(checkInRequestId) ?: error("Start the call first")
+            require(start.clientVisitId==clientVisitId)
+            val intent=com.sunpride.field.storage.RetailCaptureQueue.create(identity,start,previousRequestId,kind,data,photoIds,System.currentTimeMillis())
+            com.sunpride.field.sync.work.QueueScheduler.enqueue(store,intent,System.currentTimeMillis()) {
+                com.sunpride.field.sync.work.SyncWork.enqueue(context)
+            }
+        }
+        com.sunpride.field.evidence.EvidenceWork.enqueue(context)
     }
     private fun <T> withStore(block: suspend (RoomFieldStore) -> T): T {
         val scope = storedScope() ?: error("No verified local partition")
@@ -1107,7 +1122,10 @@ class FieldController(
             com.sunpride.field.storage.ActivityRules.recordedKinds(it.clientVisitId, diagnosticRows)
         } ?: emptySet()
         val sheet = diagnosticCallSheet
-        return com.sunpride.field.storage.ActivityRules.checklist(diagnosticRules, visitIntents(visit), recorded) {
+        val legacy = com.sunpride.field.storage.ActivityRules.checklist(diagnosticRules, visitIntents(visit), recorded) {
+            com.sunpride.field.storage.ActivityRules.capturable(it, sheet)
+        }
+        return com.sunpride.field.storage.ConfiguredFieldCalls.retailActivityChecklist(diagnosticFlow, legacy, recorded) {
             com.sunpride.field.storage.ActivityRules.capturable(it, sheet)
         }
     }
@@ -1238,6 +1256,24 @@ class FieldController(
         catch (e: com.sunpride.field.ui.diagnosticvisit.ActivityFormError) { diagnosticError = e.message }
         catch (_: Exception) { diagnosticError = "Could not save this activity. Check the fields, then sync to refresh today's access." }
         finally { busy = false }
+    }
+    /** F-310: real forms join the same call and encrypted outbox; no parallel visit state. */
+    fun queueRetail(kind: String, data: JSONObject, onQueued: () -> Unit = {}) = scope.launch(ui) {
+        val visit=diagnostic ?: return@launch
+        if(busy) return@launch
+        busy=true;diagnosticError=null;endReview=null
+        try {
+            refreshDiagnostic()
+            val start=openCheckIn(visit) ?: throw VisitRuleFailure(VisitRuleFailure.Code.CALL_NOT_OPEN)
+            val related=relatedCall(visit)
+            if(related.any { it.first.kind=="visit.checkOut" }) throw VisitRuleFailure(VisitRuleFailure.Code.ALREADY_ENDED)
+            val photoIds=diagnosticPhotos.filter { it.state in setOf("pending","uploaded") }.takeLast(1).map { it.localId }
+            withContext(io) { backend.queueRetail(start.clientVisitId,start.requestId,related.last().first.requestId,kind,data,photoIds) }
+            refreshDiagnostic();loadToday(sync=false);onQueued()
+        } catch(e: kotlinx.coroutines.CancellationException) { throw e }
+        catch(e: com.sunpride.callflow.CallFlowRefused) { diagnosticError=e.message }
+        catch(_: Exception) { diagnosticError="Could not save the audit. Check the fields, take a photo, and complete earlier required steps." }
+        finally { busy=false }
     }
     fun queueDiagnostic(kind: String, reason: String?, note: String?, outcome: String?, location: JSONObject?, flowOptions: JSONObject? = null) = scope.launch(ui) {
         val visit = diagnostic ?: return@launch

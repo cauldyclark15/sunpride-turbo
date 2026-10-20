@@ -290,6 +290,12 @@ export async function activity(ctx) {
   validTime(p.deviceTime, ctx.now);
   const visit = await ownedVisit(ctx, p.visitId);
   await validateActivity(ctx, p.activity);
+  // F-310 F-318: execution-only calls cannot sell, or replace a governed campaign checklist with a legacy flag.
+  if (["order_intent", "promotion"].includes(p.activity.kind)) {
+    const call = await ownedCall(ctx, { visitId: visit.id });
+    if (call?.definition_snapshot.channelProfile === "merchandiser")
+      reject("unsupported_operation");
+  }
   await validateAccountCapture(ctx, visit, p.activity);
   await validatePresellIntent(ctx, visit, p.activity);
   if (p.activity.kind === "order_intent") {

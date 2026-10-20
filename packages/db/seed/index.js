@@ -11,6 +11,7 @@ import { integrityFleet } from "./integrity.js";
 import { ensureIntegrityFleet } from "./integrity-fleet.js";
 import { appendVanOpsPolicies, seedVanOps } from "./vanops.js";
 import { towerSamples, extendTowerSamples } from "./tower.js";
+import { ensureRetailSamples } from "./retail.js";
 export { resetDemo } from "./store.js";
 
 /** @param {{anchorDate?:string,days?:number}} [options] @param {string[]} [hashes] */
@@ -112,6 +113,18 @@ export function generateDemo(
   return { data, summary };
 }
 
+/** F-310 F-316: additive rows must be counted in the original manifest as well as marked.
+ * @param {any} db @param {any} summary */
+async function retailSummary(db, summary) {
+  const added = await ensureRetailSamples(db);
+  if (!added.added) return summary;
+  const rows = { ...summary.rows };
+  for (const [table, count] of Object.entries(added.rows))
+    rows[table] = (rows[table] ?? 0) + Number(count);
+  const updated = { ...summary, rows };
+  await db`update audit_logs set details=${JSON.stringify({ source: "sample", ...updated })} where id=${rowId("audit_logs", "manifest")}`;
+  return updated;
+}
 /**
  * Seed the deterministic demo in one transaction. Identity hashes are intentionally salted
  * by Argon2id; business UUIDs, timestamps, counts and sums are deterministic for the options.
@@ -136,7 +149,7 @@ export async function seedDemo(
       await seedTpm(t, anchorDate);
       await ensureIntegrityFleet(t, summary.anchorDate);
       await extendTowerSamples(t, anchorDate, days);
-      return { ...summary, duplicate: true };
+      return { ...(await retailSummary(t, summary)), duplicate: true };
     }
     const [partial] =
       await t`select 1 from sample_data_rows where batch=${BATCH} limit 1`;
@@ -164,7 +177,7 @@ export async function seedDemo(
     const [manifest] =
       await t`select id from audit_logs where id=${rowId("audit_logs", "manifest")}`;
     if (!manifest) throw new Error("Demo manifest verification failed");
-    return { ...summary, duplicate: false };
+    return { ...(await retailSummary(t, summary)), duplicate: false };
   });
   await seedVanOps(db);
   return result;

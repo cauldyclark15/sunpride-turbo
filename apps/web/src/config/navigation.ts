@@ -40,6 +40,7 @@ export const WORKSPACE_SLUGS = [
   "outside-calls",
   "modern-trade",
   "van-trips",
+  "retail-execution",
   "live-map",
   "admin",
   "master-data",
@@ -105,6 +106,11 @@ const moduleTabs: Record<string, WorkspaceModuleTab[]> = {
     { id: "imports", label: "Imports", href: "/imports" },
     { id: "outside-calls", label: "Outside-call POs", href: "/outside-calls" },
     { id: "van-trips", label: "Van trips", href: "/van-trips" },
+    {
+      id: "retail-execution",
+      label: "Retail execution",
+      href: "/retail-execution",
+    },
   ],
   setup: [
     { id: "admin", label: "Admin", href: "/admin" },

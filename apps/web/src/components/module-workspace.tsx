@@ -19,6 +19,7 @@ import {
   FinanceClaimsWorkspace,
 } from "./tpm/tpm-workspace";
 import { CensusReview } from "./spec-masters/review";
+import { RetailWorkspace } from "./retail-workspace";
 import { CallSheetsWorkspace } from "./call-sheets/call-sheets-workspace";
 import { lazyWorkspace } from "./cockpit/lazy-workspace";
 import { SalesForcePanels } from "./coverage-workspace";
@@ -67,6 +68,7 @@ const TITLES = {
   "outside-calls": "Outside-call POs",
   "modern-trade": "Modern trade",
   "van-trips": "Van trips",
+  "retail-execution": "Retail execution",
   "live-map": "Live map",
   admin: "Administration",
   "master-data": "Master data",
@@ -210,6 +212,8 @@ function ModuleContent({ module }: { module: WebModuleSlug }): ReactNode {
       return <PricingWorkspace />;
     case "van-trips":
       return <VanTripRoute />;
+    case "retail-execution":
+      return <RetailWorkspace />;
     case "inventory":
       return <InventoryWorkspace setupMessage="" />;
     case "imports":

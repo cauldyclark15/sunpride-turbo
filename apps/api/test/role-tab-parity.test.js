@@ -75,6 +75,8 @@ const calls = {
     "/api/v1/orders/outside-calls/list?status=awaiting_activity",
   ],
   "van-trips": [`/api/v1/van/trips?date=${date}`],
+  // F-310 F-316: every visible role reads the real scoped retail landing page.
+  "retail-execution": ["/api/v1/retail/workspace"],
 };
 beforeAll(async () => {
   h = await startHarness({ installers: domainInstallers });

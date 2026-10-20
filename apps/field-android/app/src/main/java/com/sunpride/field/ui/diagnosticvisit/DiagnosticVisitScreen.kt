@@ -155,8 +155,9 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                         Modifier.fillMaxWidth().testTag("unplanned-reason"))
                 }
             }
-            if (checkedIn && !checkedOut && checklist.isNotEmpty()) SectionCard("Activities") {
-                checklist.forEach { item ->
+            val visibleChecklist = checklist.filterNot { flow?.getJSONObject("definition")?.optString("channelProfile")=="merchandiser" && it.kind in setOf("order_intent","promotion") }
+            if (checkedIn && !checkedOut && visibleChecklist.isNotEmpty()) SectionCard("Activities") {
+                visibleChecklist.forEach { item ->
                     val label = com.sunpride.field.storage.ActivityRules.kindLabel(item.kind)
                     val meta = when (item.status) {
                         com.sunpride.field.storage.ActivityRequirement.Status.DONE -> "Recorded"
@@ -174,6 +175,18 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                     ListRow(label, meta, "activity", Modifier.testTag("activity-${item.kind}"),
                         trailing = if (item.status == com.sunpride.field.storage.ActivityRequirement.Status.DONE) "✓" else null,
                         onClick = open)
+                }
+            }
+            if (checkedIn && !checkedOut) flow?.optJSONObject("retail")?.let { retail ->
+                RetailAuditPanel(retail,controller.busy,controller.diagnosticPhotos.count { it.state in setOf("pending","uploaded") }) { kind,data,onSaved ->
+                    scope.launch {
+                        if(kind=="issue_log" && !data.optBoolean("noneObserved")) {
+                            val capture=location.captureOrUnavailable()
+                            if(capture.wire==null) { locationNotice=LocationAssessment.notice(capture,System.currentTimeMillis());return@launch }
+                            data.put("geo",capture.wire)
+                        }
+                        controller.queueRetail(kind,data,onSaved).join()
+                    }
                 }
             }
             // AND-016: photos belong to the open call; after End they stay listed until uploaded.
@@ -206,7 +219,7 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                     else ListRow("Call sheet", "Record quantities for this visit", "activity",
                         Modifier.testTag("call-sheet-open"), onClick = { controller.openCallSheet() })
                 }
-                SectionCard("Order") {
+                if (flow?.getJSONObject("definition")?.optString("channelProfile") != "merchandiser") SectionCard("Order") {
                     controller.visitOrderDrafts.forEach { draft ->
                         val status = controller.orderStatus(draft)
                         ListRow(if (draft.submittedRequestId == null) "Order draft" else "Order",

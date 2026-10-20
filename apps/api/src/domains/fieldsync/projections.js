@@ -2,6 +2,7 @@ import { callSnapshot } from "../availability/calls.js";
 import { tx } from "@sunpride/db/client";
 import { checkDayManifest } from "./manifest.js";
 import { policyAt } from "../presell/promise.js";
+import { outletRetail } from "../retail/index.js";
 import {
   configurationsForApp,
   hasConfiguredFlowsForApp,
@@ -303,6 +304,8 @@ async function bundleData(ctx) {
         value.callFlow = configs.get(id);
         if (value.callFlow.definition.channelProfile === "pre_sell")
           value.callFlow.deliveryPolicy = await policyAt(db, ctx.now);
+        if (value.callFlow.definition.channelProfile === "merchandiser")
+          value.callFlow.retail = await outletRetail(ctx, { ...value, id });
       }
   }
   const outletIds = [...outlets.keys()];

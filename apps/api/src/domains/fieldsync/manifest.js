@@ -1,4 +1,5 @@
 import { tx } from "@sunpride/db/client";
+import { retailManifest } from "../retail/index.js";
 import { canonicalJson, sha256Hex } from "../../core/util.js";
 import { recordChange } from "../../core/sync.js";
 import { bounded, DAY_MS, midnight, rebootstrap } from "./model.js";
@@ -107,6 +108,7 @@ export async function checkDayManifest(ctx) {
     const stamp = sha256Hex(
       canonicalJson({
         callflow,
+        retail: await retailManifest(db, ctx.now),
         approvals,
         universe,        retail,
         retailOutlets,

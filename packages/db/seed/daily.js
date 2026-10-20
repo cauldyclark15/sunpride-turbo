@@ -15,6 +15,7 @@ import { seedAvailability } from "./availability.js";
 import { seedModernTrade } from "./modern-trade.js";
 import { extendTowerSamples } from "./tower.js";
 import { ensurePresellSamples, ensurePresellDemo } from "./presell.js";
+import { ensureRetailSamples } from "./retail.js";
 import {
   BATCH,
   Dataset,
@@ -1017,6 +1018,7 @@ export async function advanceDemo(db, { date = todayManila() } = {}) {
     days.push(await advanceDay(db, day, original.startDate));
   await seedFiscal(db);
   const availability = await seedAvailability(db, date);
+  await ensureRetailSamples(db); // F-310–F-320: include this run's new visits before claiming replay is a no-op.
   return {
     batch: BATCH,
     availability,

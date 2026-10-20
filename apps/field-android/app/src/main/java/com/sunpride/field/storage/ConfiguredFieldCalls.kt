@@ -5,6 +5,25 @@ import org.json.JSONObject
 
 /** F-006: called inside the existing intent+outbox transaction. The start freezes its downloaded definition. */
 object ConfiguredFieldCalls {
+    /** F-310: configured canonical adapters stay usable even without legacy intent-form rules. */
+    fun retailActivityChecklist(config: JSONObject?, existing: List<ActivityRequirement>, recorded: Collection<String>,
+        capturable: (String) -> Boolean): List<ActivityRequirement> {
+        val definition=config?.optJSONObject("definition") ?: return existing
+        if(definition.optString("channelProfile")!="merchandiser") return existing
+        val result=existing.toMutableList()
+        for(step in CallFlowEngine.objects(definition.getJSONArray("steps"))) {
+            if(!CallFlowEngine.applies(step,false)) continue // execution-only: an order cannot make a conditional form applicable
+            val kind=when(step.getString("adapter")) {"availability"->"merchandising";"price_check"->"price_check";else->null} ?: continue
+            val index=result.indexOfFirst {it.kind==kind}
+            val required=step.getBoolean("required") || (result.getOrNull(index)?.required==true)
+            val status=when {kind in recorded->ActivityRequirement.Status.DONE;!capturable(kind)->ActivityRequirement.Status.UNAVAILABLE;else->ActivityRequirement.Status.TO_DO}
+            val entry=ActivityRequirement(kind,required,status)
+            if(index<0)result.add(entry) else result[index]=entry
+        }
+        return result
+    }
+    // Legacy opaque persistence rows have no configuration. Malformed JSON objects still fail closed.
+    private fun cachedConfig(raw: String): JSONObject? = if(raw.trimStart().startsWith('{')) JSONObject(raw).optJSONObject("callFlow") else null
     fun payload(row: IntentRow) = JSONObject(row.serializedOperation).getJSONObject("payload")
     private fun optionalPayload(row: IntentRow): JSONObject? = if(row.serializedOperation.trimStart().startsWith("{")) JSONObject(row.serializedOperation).optJSONObject("payload") else null
     private fun downloaded(json: String): JSONObject? {
@@ -15,7 +34,7 @@ object ConfiguredFieldCalls {
     fun config(rows: List<Pair<IntentRow,String>>, clientVisitId: String): JSONObject? = rows.firstOrNull {
         it.first.clientVisitId == clientVisitId && it.first.kind == "visit.checkIn" && it.second in setOf("pending","sending","done")
     }?.first?.let(::optionalPayload)?.let { if(it.has("callFlowSnapshot") && !it.isNull("callFlowSnapshot")) it.getJSONObject("callFlowSnapshot") else null }
-    fun adapter(row: IntentRow): String? = CallFlowEngine.fieldAdapter(if (row.kind == "visit.activity") payload(row).getJSONObject("activity").getString("kind") else row.kind)
+    fun adapter(row: IntentRow): String? = if (row.kind == RetailCaptureQueue.KIND) payload(row).getString("kind") else CallFlowEngine.fieldAdapter(if (row.kind == "visit.activity") payload(row).getJSONObject("activity").getString("kind") else row.kind)
     fun done(config: JSONObject, rows: List<Pair<IntentRow,String>>, clientVisitId: String): Set<String> = rows.filter {
         it.first.clientVisitId == clientVisitId && it.second in setOf("pending","sending","done")
     }.mapNotNull { adapter(it.first)?.let { a -> CallFlowEngine.keyFor(config,a) } }.toSet()
@@ -57,6 +76,10 @@ object ConfiguredFieldCalls {
         if (store.visitPhotos(intent.clientVisitId).any { it.state in setOf("pending","uploaded") }) CallFlowEngine.keyFor(config,"evidence")?.let(done::add)
         val own = rows.filter { it.first.clientVisitId == intent.clientVisitId && it.second in setOf("pending","sending","done") }
         val hasOrder = own.any { adapter(it.first) == "order_build" }
+        if (config.getJSONObject("definition").optString("channelProfile") == "merchandiser") {
+            if(adapter(intent) == "order_build") error("This is an execution-only merchandising call")
+            if(intent.kind == "visit.activity" && adapter(intent) == "promotion") error("Use the campaign checklist for this call")
+        }
         if (intent.kind == "visit.checkOut") {
             val start = own.first { it.first.kind == "visit.checkIn" }.first.let(::payload)
             val renewed = store.outlets().firstOrNull { it.id == start.getString("outletId") }?.let { downloaded(it.json) }
