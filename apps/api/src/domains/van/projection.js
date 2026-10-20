@@ -289,7 +289,7 @@ export async function bundle(ctx, env) {
         source:
           trip.route_id && candidate.route_id === trip.route_id
             ? "route"
-            : "scoped",
+            : "unplanned",
         credit,
         priceListId,
       });
