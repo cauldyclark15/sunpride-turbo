@@ -359,9 +359,9 @@ export async function scorecard(c, d) {
         0,
       )
     : null;
-  const weakest = Object.entries(parts).sort(
-    (a, b) => (a[1] ?? -1) - (b[1] ?? -1),
-  )[0];
+  const weakest = Object.entries(parts)
+    .filter(([key]) => p.scorecardWeights[key] > 0)
+    .sort((a, b) => (a[1] ?? -1) - (b[1] ?? -1))[0];
   return {
     period: h.period,
     score: total,

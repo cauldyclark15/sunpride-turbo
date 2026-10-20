@@ -1081,6 +1081,30 @@ describe("W4 health, reconciliation and shared-engine seams", () => {
     expect((await get(alice, "scorecard")).body.components.infrastructure).toBe(
       80,
     );
+    const policy = settings();
+    policy.scorecardWeights = {
+      submission: 100,
+      coverage: 0,
+      growth: 0,
+      stock: 0,
+      payment: 0,
+      infrastructure: 0,
+      manpower: 0,
+    };
+    expect((await post(admin, "policy", { settings: policy })).status).toBe(
+      200,
+    );
+    const weighted = await get(alice, "scorecard");
+    expect(weighted.body.complete).toBe(true);
+    expect(weighted.body.score).toBeCloseTo(
+      weighted.body.components.submission,
+      10,
+    );
+    expect(weighted.body.nextAction).toContain("Review submission:");
+    expect(weighted.body.nextAction).not.toContain("undefined");
+    expect((await post(admin, "policy", { settings: settings() })).status).toBe(
+      200,
+    );
   });
   test("F-407 DSR server configuration reuses the engine and shared outlet, finance omitted", async () => {
     const x = await get(alice, "callflow-config");
