@@ -572,7 +572,12 @@ export async function coveragePage(db, p, s, group) {
       offPlan: a.offPlan,
       productive: a.productive,
       strikeRatePct: a.strikeRate,
-      linesPerCall: a.calls ? Math.round((lines / a.calls) * 10) / 10 : null,
+      productiveCallPct: a.productivePct,
+      dwellMin: a.dwellMin,
+      orderCalls: a.orderCalls,
+      completedCalls: a.completedCalls,
+      dropSize: (() => { const rs = sales.rows.filter((/** @type {any} */ r) => g.ids.includes(r.key)); const n = sum(rs,"orders"); return n ? Math.round(sum(rs,"sales")/n) : null; })(),
+      linesPerCall: a.completedCalls ? Math.round((a.callLines / a.completedCalls) * 10) / 10 : null,
       firstCallAt: a.first,
       lastCallAt: a.last,
       timeInMarketMin: a.time,
@@ -631,18 +636,18 @@ export async function coveragePage(db, p, s, group) {
         "pct",
         null,
         before.strikeRate,
-        "Governed productive calls divided by completed planned calls.",
+        "Completed calls with an accepted call-linked order divided by all completed calls, including off-plan calls. Productive-call percentage is separate.",
       ),
       kpi(
         "linesPerCall",
         "Lines per call",
-        all.calls
-          ? Math.round((sales.total.lines / all.calls) * 10) / 10
+        all.completedCalls
+          ? Math.round((all.callLines / all.completedCalls) * 10) / 10
           : null,
         "count",
         null,
         null,
-        "Included order lines divided by completed planned calls.",
+        "Accepted call-linked order lines divided by all completed calls.",
       ),
       kpi(
         "timeInMarket",
@@ -665,6 +670,7 @@ export async function coveragePage(db, p, s, group) {
         "Completed coaching sessions dated by their service day.",
       ),
     ],
+    productivity: { productiveCallPct: all.productivePct, priorProductiveCallPct: before.productivePct, dwellMin: all.dwellMin, priorDwellMin: before.dwellMin, orderCalls: all.orderCalls, completedCalls: all.completedCalls, definitionVersion: "commercial/v1" },
     weeks,
     rows,
   };
