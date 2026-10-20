@@ -45,7 +45,11 @@ const PositionStandardsPanel = dynamic(() =>
 const PjpPlanner = dynamic(() =>
   import("./pjp-planner").then((m) => m.PjpPlanner),
 );
+const ProductivePolicies = dynamic(() =>
+  import("./productive-policies").then((m) => m.ProductivePolicies),
+);
 type CoverageTab =
+  | "productive"
   | "pjp"
   | "summary"
   | "plan"
@@ -227,6 +231,7 @@ export function SalesForcePanels() {
     </div>
   );
   const needsPlan =
+    coverageTab !== "productive" &&
     coverageTab !== "pjp" &&
     coverageTab !== "summary" &&
     coverageTab !== "plan" &&
@@ -235,6 +240,7 @@ export function SalesForcePanels() {
     coverageTab !== "standards" &&
     coverageTab !== "workload";
   const needsMonth =
+    coverageTab !== "productive" &&
     coverageTab !== "pjp" &&
     coverageTab !== "plan" &&
     coverageTab !== "setup" &&
@@ -243,6 +249,7 @@ export function SalesForcePanels() {
     ["summary", "Summary"],
     ["plan", "Plan"],
     ["pjp", "Journey plans"],
+    ["productive", "Productive call rules"],
     ["deadlines", "MCP deadlines"],
     ...(canApprove ? ([["review", "Review"]] as [CoverageTab, string][]) : []),
     ["exceptions", "Exceptions"],
@@ -299,12 +306,18 @@ export function SalesForcePanels() {
             </div>
           )}
           <div role="tabpanel">
+            {coverageTab === "productive" && (
+              <PanelErrorBoundary label="Productive call rules">
+                <ProductivePolicies />
+              </PanelErrorBoundary>
+            )}
             {coverageTab === "pjp" && (
               <PanelErrorBoundary label="Journey plans">
                 <PjpPlanner capabilities={permissions.capabilities} />
               </PanelErrorBoundary>
             )}
-            {coverageTab === "pjp" ? null : coverageTab === "summary" ? (
+            {coverageTab === "productive" ||
+            coverageTab === "pjp" ? null : coverageTab === "summary" ? (
               <PanelErrorBoundary
                 key={`summary-${month}`}
                 label="Coverage summary"

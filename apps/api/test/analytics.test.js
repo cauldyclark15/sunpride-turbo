@@ -78,6 +78,7 @@ const contracts = /** @type {Record<string,string[]>} */ ({
     "compliance",
     "missedStops",
     "offPlanVisits",
+    "productiveRate",
     "strikeRate",
     "linesPerCall",
     "timeInMarket",
@@ -165,6 +166,8 @@ for (const [page, kpis] of Object.entries(contracts))
           "missed",
           "offPlan",
           "productive",
+          "productiveRatePct",
+          "orderCalls",
           "strikeRatePct",
           "linesPerCall",
           "firstCallAt",
@@ -692,4 +695,38 @@ test("validation: malformed dates/groups/months fail without SQL errors", async 
   ])
     expect((await f.get(path)).status).toBe(400);
   expect((await h.fetch("/api/v1/analytics/sales")).status).toBe(401);
+});
+test("F-208 productive qualification is separate from linked-order strike rate and never counts an inaccessible source order", async () => {
+  const db = h.db,
+    [owner] =
+      await db`select role,org_unit_id from profiles where id=${f.boss}`;
+  const [order] =
+    await db`select * from orders where customer_code='C0' order by created_at desc,id limit 1`;
+  const [profile] =
+    await db`select auth_subject from profiles where id=${f.agent}`;
+  const [act] =
+    await db`insert into visit_activities(organization_id,org_unit_id,visit_id,assignee_profile_id,outlet_id,activity_kind,activity,device_time,server_time) values ('fixture',${f.a},${f.visit},${f.agent},${f.store},'order_intent',${{ clientOrderId: crypto.randomUUID(), lines: [] }},now(),now()) returning id`;
+  const row = async () => {
+    const r = await get(url("coverage"));
+    return r.rows.find((/** @type {any} */ r) => r.key === f.agent);
+  };
+  try {
+    expect((await row()).productiveRatePct).toBe(100);
+    expect((await row()).strikeRatePct).toBe(0);
+    await db`update orders set source_activity_id=${act.id},salesperson_profile_id=${f.agent},created_by_subject=${profile.auth_subject},outlet_id=${f.store},org_unit_id=${f.a},source_location_id=null,status='approved' where id=${order.id}`;
+    expect((await row()).strikeRatePct).toBe(100);
+    expect((await row()).orderCalls).toBe(1);
+    await db`update profiles set role='manager',org_unit_id=${f.a} where id=${f.boss}`;
+    const [foreign] =
+      await db`select id from inventory_locations where org_unit_id=${f.b} limit 1`;
+    await db`update orders set source_location_id=${foreign.id} where id=${order.id}`;
+    expect((await row()).strikeRatePct).toBe(0);
+    await db`update orders set source_location_id=null,customer_code='C2' where id=${order.id}`;
+    expect((await row()).strikeRatePct).toBe(0);
+  } finally {
+    await db`update orders set source_activity_id=${order.source_activity_id},salesperson_profile_id=${order.salesperson_profile_id},created_by_subject=${order.created_by_subject},outlet_id=${order.outlet_id},org_unit_id=${order.org_unit_id},source_location_id=${order.source_location_id},status=${order.status},customer_code=${order.customer_code} where id=${order.id}`;
+    await db`delete from order_intent_queue where activity_id=${act.id}`;
+    await db`delete from visit_activities where id=${act.id}`;
+    await db`update profiles set role=${owner.role},org_unit_id=${owner.org_unit_id} where id=${f.boss}`;
+  }
 });

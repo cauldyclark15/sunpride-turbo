@@ -121,8 +121,19 @@ export function coverageColumns(
       sort: (r) => r.missed,
     },
     {
+      key: "productive",
+      label: "Productive calls",
+      align: "right",
+      render: (r) => (
+        <span title="Governed by the definition snapshotted for each visit, not just an order">
+          {formatCount(r.productive)} · {formatPct(r.productiveRatePct ?? null)}
+        </span>
+      ),
+      sort: (r) => r.productiveRatePct ?? null,
+    },
+    {
       key: "strike",
-      label: "Strike rate",
+      label: "Order strike rate",
       align: "right",
       render: (r) => (
         <span className="flex flex-col items-end">

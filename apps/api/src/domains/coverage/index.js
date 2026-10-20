@@ -23,6 +23,7 @@ import { read } from "./reads.js";
 import { digest, workflow } from "./workflow.js";
 import { installPjp } from "./pjp.js";
 import { readAdherence } from "./adherence.js";
+import { installProductivePolicies } from "../visits/productive-policies.js";
 
 const reads = [
   "permissions",
@@ -198,6 +199,7 @@ export async function command(ctx, platform, path, body) {
 /** @param {import('../../core/router.js').Router} router @param {any} platform */
 export function install(router, platform) {
   installPjp(router, platform);
+  installProductivePolicies(router, platform);
   router.get("/api/v1/coverage/adherence", (c) =>
     tx(c.db, (db) =>
       readAdherence({ ...c, db }, Object.fromEntries(c.url.searchParams)),

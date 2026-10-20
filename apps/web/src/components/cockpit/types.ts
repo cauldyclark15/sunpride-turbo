@@ -168,6 +168,8 @@ export type CoverageRow = {
   missed: number;
   offPlan: number;
   productive: number;
+  productiveRatePct?: number | null;
+  orderCalls?: number;
   strikeRatePct: number | null;
   linesPerCall: number | null;
   firstCallAt: number | null;

@@ -170,6 +170,8 @@ export async function detail(ctx) {
     {
       inRoutePlan: !!visit.planned_visit_id,
       state: visit.state,
+      outcome: visit.outcome,
+      productivePolicySnapshot: visit.productive_policy_snapshot,
       activityKinds: activities.map((/** @type {any} */ a) => a.activity_kind),
       collectionCount: collections.filter(
         (/** @type {any} */ c) => c.status === "recorded",

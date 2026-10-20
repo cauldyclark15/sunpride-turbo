@@ -35,6 +35,24 @@ Numerator: distinct planned visits with completed/checked-out executions, exclud
 
 The Coverage & people cockpit contains the review, prior comparison, four-week trend, rep/beat/day/territory drill-through, outlet frequency and next action. The read refuses over 50,000 source rows explicitly. The complete current-plus-prior eight-week window for the 300-store sample exceeds 10,000 rows; authorization is checked once per distinct stored unit and current outlet, not once per call.
 
+## F-208: published productive-call definitions
+
+Owner question: which calls met our agreed objective, rather than merely containing an order?
+
+The Coverage workspace has Productive call rules. An office author drafts an immutable definition with exact unit/position applicability, future Manila effective dates, qualifying business activities, any/all matching, source/agreement reference and the existing truck-seller inventory condition. Another authorized approver publishes it. Overlapping applicability is refused under a unit advisory lock. A successor closes only its predecessor's future applicability; the immutable definition hash/version is retained. Drafts and publication use an actor-bound full-request command ledger with current persisted role/scope checks before replay. Published policy content, version, applicability and source are hash checked.
+
+The real signed check-in writer resolves the policy at the captured device instant using effective employee assignment history, and stores its complete version, definition, provenance and named approval on the visit. A publication after capture cannot retroactively apply. Publication is strictly future-effective, not backdated to this morning. Checkout, visit detail, DSR/Team and cockpit use the same `visits/productive.js` evaluator, preferring that immutable snapshot. Changing a policy or standard afterward cannot reclassify an already captured visit. The integration regression enters the signed sync writer, changes the live policy, then compares checkout, visit detail, real DSR execution and real cockpit source reads.
+
+Strike rate is separate: completed planned calls with an actual linked, authorized, non-draft/non-rejected/non-voided canonical order divided by completed planned calls. The source order's person, stored unit, current customer/outlet and source-location access all apply. An order intent alone is not that canonical order. The cockpit has separate Productive calls and Order strike rate KPIs, prior readings and row columns; stored `productive_pct` retains the productive percentage rather than accidentally adopting strike rate. Only recorded collections qualify in all evaluators. Explicit nonproductive outcomes are interpreted consistently.
+
+Legacy visits lacking a captured policy remain explicitly provisional; no historical client agreement is invented. Additive sample policies say SAMPLE / not client-agreed and are tracked in `sample_data_rows`. The sample source-order backfill links only uniquely matched, sample-marked orders and activities with identical request, organization, salesperson, outlet and authorized creator. It never guesses a shared-customer link or overwrites a pre-existing link. Database order-intent dedupe remains intact. Repeated seeding is a no-op.
+
+Migration: `0451_productive_policies.sql`, adding `productive_call_policies`, `productive_policy_commands`, `productive_policy_events` and nullable `visit_executions.productive_policy_snapshot`.
+
+Endpoints: GET `/api/v1/coverage/productive-policies`; POST `/api/v1/coverage/productive-policies/draft` and `/publish`. The draft takes `{orgUnitId,positionId?,label,fromDate,toDate?,sourceRef,replacesPolicyId?,definition:{rule,matchMode,requiresPlanned:true,allowedCodes},idempotencyKey}`. Publishing takes `{policyId,idempotencyKey}`. Definitions apply to exact units; there is no implicit inheritance.
+
+Seams: `SEAM(CALLFLOW)` in the central evaluator accepts additional governed activity codes from that lane, never a second evaluator. `SEAM(MASTERS)` reserves channel-specific applicability until effective channel history exists: current profile channel is not a safe historical call fact. Unit and effective-position applicability work now; non-null channel overrides fail closed rather than guessing. No iOS change is needed for the server calculation; later native parity should display the captured definition and refresh the policy context through the common call-flow cache.
+
 ## F-203: Android agenda context
 
 The existing `field.bundle.plannedVisits[]` adds `requiredObjectives` and `agenda`. No second call-flow engine or new app is introduced. The existing encrypted visit JSON carries the additive context offline. Android validates it before snapshot promotion; old servers omit it and show a plain missing-context message.
@@ -53,13 +71,13 @@ Agenda context is refreshed on bootstrap and protected by the existing continuat
 
 The template day/phase editor, workload simulation, potential-completeness warning, pin sketch and comparison provide beat-workload scenarios. They do not implement prospective cross-territory ownership moves or a road-travel engine. F-224 remains partial. ORG assignment writers and their signed-plan locks must own any eventual territory publication; do not write those masters from a separate planning engine.
 
-## F-208 / F-209 / F-210 / F-222 / F-223 / F-613 / F-615: explicitly remaining
+## F-209 / F-210 / F-222 / F-223 / F-613 / F-615: explicitly remaining
 
-This increment does not implement the new productive-policy registry/shared evaluator migration, offline prospect geo/photo/KYC, cycle-based dormancy/recovery, photo attendance/leave/correction approvals, joint-call action carry-forward, collections planning/cheque lifecycle, or reconciled multi-metric target cascade. Existing behavior is preserved; it must not be credited as completion of these specification gaps. In particular location-sharing Start day is not attendance, and the older activity-productivity figure is not the glossary's order strike rate.
+This increment does not implement offline prospect geo/photo/KYC, cycle-based dormancy/recovery, photo attendance/leave/correction approvals, joint-call action carry-forward, collections planning/cheque lifecycle, or reconciled multi-metric target cascade. Existing behavior is preserved; it must not be credited as completion of these specification gaps. In particular location-sharing Start day is not attendance, and the older activity-productivity figure is not the glossary's order strike rate.
 
-## Needs Sunpride — F-201 / F-203 / F-206 / F-224
+## Needs Sunpride — F-201 / F-203 / F-206 / F-208 / F-224
 
-Class frequency, daily capacity, service duration, travel estimates, objective text and sales potential are invented sample defaults until Sunpride refines them. Class/policy applicability must reconcile with MASTERS. SAP supplies authoritative open-item mapping through the SAP lane. Availability supplies resolved class MSL through its seam. Samples allow development now and never certify client agreement or production pilot acceptance.
+Class frequency, daily capacity, service duration, travel estimates, objective text and sales potential are invented sample defaults until Sunpride refines them. Class/policy applicability must reconcile with MASTERS. SAP supplies authoritative open-item mapping through the SAP lane. Availability supplies resolved class MSL through its seam. Samples allow development now and never certify client agreement or production pilot acceptance. F-208 needs Sales and Trade Marketing to refine/agree the provisional definition; invented sample publication proves the software workflow, not their sign-off.
 
 ## iOS parity later — F-203
 

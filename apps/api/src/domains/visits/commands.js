@@ -5,6 +5,7 @@ import { recordLocation } from "./location.js";
 import { validateAccountCapture } from "./capture.js";
 import { recordEntries } from "../fieldreports/call-sheets.js";
 import { isProductive, RULE_VERSION } from "./productive.js";
+import { snapshotProductivePolicy } from "./productive-policies.js";
 import {
   ORGANIZATION,
   DAY,
@@ -138,13 +139,18 @@ export async function checkIn(ctx) {
     and effective_from<=${new Date(ctx.now)} and (effective_to is null or effective_to>${new Date(ctx.now)})`;
   if (links.length > 1) reject();
   const rules = await rulesAt(ctx.db, p.deviceTime);
+  const productivePolicy = await snapshotProductivePolicy(
+    ctx.db,
+    ctx.actor.profileId,
+    p.deviceTime,
+  );
   const [visit] =
     await ctx.db`insert into visit_executions (organization_id,client_visit_id,planned_visit_id,plan_id,slot_id,plan_version,
     assignee_profile_id,outlet_id,org_unit_id,route_id,customer_id,service_date,source,intents,state,unplanned_reason,productivity,rule_version,
-    last_server_time,checked_in_at,started_at,recording_device_id,activity_rules_snapshot)
+    last_server_time,checked_in_at,started_at,recording_device_id,activity_rules_snapshot,productive_policy_snapshot)
     values (${ORGANIZATION},${p.clientVisitId},${p.plannedVisitId ?? null},${planned?.plan_id ?? null},${planned?.plan_slot_id ?? null},${planned?.plan_version ?? null},
       ${ctx.actor.profileId},${p.outletId},${owner},${assignment.route_id},${links[0]?.customer_id ?? null},${p.serviceDate},${planned ? "planned" : "unplanned"},
-      array(select jsonb_array_elements_text(${{ values: p.intents }}::jsonb->'values')),'checked-in',${planned ? null : text(p.unplannedReason, 500)},'pending',${RULE_VERSION},${new Date(ctx.now)},${new Date(ctx.now)},${new Date(p.deviceTime)},${ctx.device.id},${{ rules }}::jsonb->'rules') returning *`;
+      array(select jsonb_array_elements_text(${{ values: p.intents }}::jsonb->'values')),'checked-in',${planned ? null : text(p.unplannedReason, 500)},'pending',${RULE_VERSION},${new Date(ctx.now)},${new Date(ctx.now)},${new Date(p.deviceTime)},${ctx.device.id},${{ rules }}::jsonb->'rules',${productivePolicy}) returning *`;
   await recordLocation(ctx, visit, "check_in", p.location, p.deviceTime);
   await touchVisit(ctx, visit);
   const eventId = await event(
@@ -336,6 +342,8 @@ export async function checkOut(ctx) {
     {
       inRoutePlan: !!visit.planned_visit_id,
       state: "checked-out",
+      productivePolicySnapshot: visit.productive_policy_snapshot,
+      outcome: p.outcome,
       activityKinds: rows.map((/** @type {any} */ r) => r.activity_kind),
       collectionCount: n,
       reasonCode: p.reasonCode,
