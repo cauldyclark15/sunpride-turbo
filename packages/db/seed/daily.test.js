@@ -173,8 +173,12 @@ test("all 27 trial passwords, users, sessions and registered phones remain byte-
   const record = JSON.parse(recordBefore),
     accounts = /** @type {any[]} */ (Object.values(record.databases).flat());
   expect(accounts.length).toBe(31);
-  expect(accounts.filter((a) => !/^(area|regional)manager/.test(a.email))).toHaveLength(27);
-  expect(accounts.filter((a) => /^(area|regional)manager/.test(a.email))).toHaveLength(4);
+  expect(
+    accounts.filter((a) => !/^(area|regional)manager/.test(a.email)),
+  ).toHaveLength(27);
+  expect(
+    accounts.filter((a) => /^(area|regional)manager/.test(a.email)),
+  ).toHaveLength(4);
   for (const a of accounts) {
     const [u] = await db`select password_hash from users where id=${a.userId}`;
     expect(await Bun.password.verify(a.password, u.password_hash)).toBe(true);
