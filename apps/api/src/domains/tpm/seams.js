@@ -30,10 +30,12 @@ export const seams = {
   async readIncentiveMetrics(_c, _q) {
     fail("Governed incentive metrics are not connected", "needs_setup");
   },
-  /** @param {any} _c @param {any} _q @returns {Promise<any>} */
+  /** SEAM(TOWER/SAP): complete benefit spend (invoice/rebate/valued goods), source and completeness
+   * accompany baseline, margin and definition-version facts; earnings are not total spend.
+   * @param {any} _c @param {any} _q @returns {Promise<any>} */
   async readPromotionPerformance(_c, _q) {
     fail(
-      "Promotion baseline and SAP margin feeds are not connected",
+      "Promotion baseline, complete SAP spend and margin feeds are not connected",
       "needs_setup",
     );
   },

@@ -185,6 +185,7 @@ export async function liabilities(c) {
     ledger: "SAP",
     rows: rows.map((e) => ({
       id: e.id,
+      campaignVersionId: e.campaign_version_id,
       campaignName: e.campaign_name,
       promotionName: e.promotion_name,
       accountKey: e.account_key,

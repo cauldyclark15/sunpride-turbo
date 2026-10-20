@@ -45,12 +45,14 @@ function CommandForm({
   build,
   children,
   label = "Save",
+  reuseCompleted = true,
   onSaved,
 }: {
   path: string;
   build: (data: FormData) => Record<string, unknown>;
   children: ReactNode;
   label?: string;
+  reuseCompleted?: boolean;
   onSaved?: () => void;
 }) {
   const [pending, setPending] = useState(false),
@@ -81,7 +83,8 @@ function CommandForm({
             ? "Requested. Settlement waits for SAP confirmation."
             : "Saved.",
       );
-      // Retain the completed intent key too: an unchanged re-submit must not create another claim.
+      // Creation replays stay stable; explicit recalculation must read newly changed source facts.
+      if (!reuseCompleted) request.current = null;
       onSaved?.();
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Could not save.");
@@ -348,6 +351,7 @@ export function TradeMarketingWorkspace() {
         {canEdit && campaigns.data ? (
           <CommandForm
             path="/api/v1/tpm/roi/evaluate"
+            reuseCompleted={false}
             label="Evaluate from governed sources"
             build={(d) => ({
               campaignVersionId: d.get("campaign"),
@@ -1014,6 +1018,11 @@ export function FinanceClaimsWorkspace() {
                   partyId: d.get("party"),
                   partyName: d.get("name"),
                   typeId: d.get("type"),
+                  earningId: d.get("earning") || undefined,
+                  campaignVersionId: liabilities.data?.rows.find(
+                    (e) => e.id === d.get("earning"),
+                  )?.campaignVersionId,
+                  outletId: d.get("outlet") || undefined,
                   periodFrom: d.get("from"),
                   periodTo: d.get("to"),
                   amountCentavos: centavos(d.get("amount")),
@@ -1045,6 +1054,27 @@ export function FinanceClaimsWorkspace() {
                     ))}
                   </select>
                 </Field>
+                <Field label="Earned promotion benefit · optional">
+                  <select name="earning" className={input}>
+                    <option value="">No promotion earning</option>
+                    {liabilities.data?.rows.map((e) => (
+                      <option key={e.id} value={e.id}>
+                        {e.campaignName} · {e.accountKey} ·{" "}
+                        {peso(e.operationalOpenCentavos)}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Outlet · optional">
+                  <select name="outlet" className={input}>
+                    <option value="">No specific outlet</option>
+                    {options.data?.outlets.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.code} · {o.name}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
                 <Field label="Claimed value · ₱">
                   <input name="amount" required className={input} />
                 </Field>
@@ -1069,8 +1099,8 @@ export function FinanceClaimsWorkspace() {
                 </h3>
                 {r.openCentavos == null ? (
                   <p className="text-sm">
-                    SAP has not acknowledged this accrual. Operational exposure:{" "}
-                    {peso(r.operationalOpenCentavos)}.
+                    SAP acknowledgement has not been confirmed. Operational
+                    exposure: {peso(r.operationalOpenCentavos)}.
                   </p>
                 ) : (
                   <p className="text-sm">
@@ -1224,6 +1254,7 @@ export function FinanceClaimsWorkspace() {
           {canIntake && incentives.data && options.data ? (
             <CommandForm
               path="/api/v1/tpm/incentives/calculate"
+              reuseCompleted={false}
               label="Calculate from governed sources"
               build={(d) => ({
                 planId: d.get("plan"),
@@ -1561,6 +1592,7 @@ function ClaimReview({
       ["submitted", "needs_evidence", "validated"].includes(claim.status) ? (
         <CommandForm
           path="/api/v1/tpm/claims/validate"
+          reuseCompleted={false}
           label="Validate against source facts"
           build={() => ({ id: claim.id })}
         >

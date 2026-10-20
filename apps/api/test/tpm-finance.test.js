@@ -146,6 +146,9 @@ test("F-504 earned accrual is atomic, idempotent, and staged pending the SAP sea
   expect(rows).toHaveLength(1);
   expect(rows[0].status).toBe("awaiting_seam");
   expect(rows[0].payload.sourceMode).toBe("sample");
+  expect((await api(admin, "liabilities")).body.rows[0].campaignVersionId).toBe(
+    version,
+  );
   expect(
     (await api(admin, "liabilities")).body.rows[0].openCentavos,
   ).toBeNull();
@@ -443,23 +446,32 @@ test("F-510 persisted incentive source replay, independent approval, dispute and
   facts.metrics.targets.actual = 50;
   expect((await api(admin, "incentives/calculate", body)).status).toBe(422);
 });
-test("F-508 ROI source feeds fail closed before integration, then freeze measured account and mechanic results", async () => {
+test("F-508 ROI source feeds require complete SAP spend, not an earnings-only partial total, and freeze results", async () => {
   const body = { campaignVersionId: version, accountKey: "ACCOUNT" };
+  expect((await api(admin, "roi/evaluate", body)).status).toBe(422);
+  const facts = {
+    sourceKey: "test-account-roi-v1",
+    baselineVolumeBase: 100,
+    promotedVolumeBase: 150,
+    unitMarginCentavos: 100,
+    baselineMethod: "matched prior",
+    marginSource: "mock-sap",
+    definitionVersion: "test-v1",
+  };
+  setTpmSeams({ readPromotionPerformance: async () => facts });
   expect((await api(admin, "roi/evaluate", body)).status).toBe(422);
   setTpmSeams({
     readPromotionPerformance: async () => ({
-      sourceKey: "test-account-roi-v1",
-      baselineVolumeBase: 100,
-      promotedVolumeBase: 150,
-      unitMarginCentavos: 100,
-      baselineMethod: "matched prior",
-      marginSource: "mock-sap",
-      definitionVersion: "test-v1",
+      ...facts,
+      spendCentavos: 1250,
+      spendSource: "mock-sap-invoice-rebate-and-valued-goods",
+      spendCompleteness: "complete",
     }),
   });
   const result = await api(admin, "roi/evaluate", body);
   expect(result.status).toBe(200);
-  expect(result.body.result.netRoiBps).toBe(40000);
+  expect(result.body.result.spendCentavos).toBe(1250);
+  expect(result.body.result.netRoiBps).toBe(30000);
   expect((await api(admin, "roi/evaluate", body)).body).toEqual(result.body);
   expect((await api(admin, "roi")).body.rows[0].accountKey).toBe("ACCOUNT");
 });

@@ -174,10 +174,14 @@ export function installEvaluations(router) {
           campaignVersionId: v.id,
           accountKey: account,
         });
-        const [spend] =
-          await cc.db`select coalesce(sum(amount_centavos-reversed_centavos),0) as n from promotion_earnings where campaign_version_id=${v.id} and account_key=${account}`;
-        const result = computeRoi(facts, Number(spend.n)),
-          hash = sha256Hex(canonicalJson({ facts, spend: String(spend.n) }));
+        // F-508 earnings omit invoice discounts and valued free goods; never call them total spend.
+        if (facts?.spendCompleteness !== "complete" || !facts?.spendSource)
+          fail(
+            "Connect complete governed SAP promotion spend, including invoice discounts and valued goods.",
+          );
+        const spend = integer(facts.spendCentavos);
+        const result = computeRoi(facts, spend),
+          hash = sha256Hex(canonicalJson({ facts, spend: String(spend) }));
         const key = text(facts.sourceKey, "Performance source", 160);
         const [old] =
           await cc.db`select * from promotion_evaluations where source_key=${key}`;

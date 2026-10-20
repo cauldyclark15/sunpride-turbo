@@ -49,6 +49,7 @@ export type Options = {
 };
 export type Liability = {
   id: string;
+  campaignVersionId: string;
   campaignName: string;
   promotionName: string;
   accountKey: string;

@@ -58,9 +58,9 @@ Lifecycle events create claimant inbox notices. `GET /api/v1/tpm/notifications` 
 
 ## F-508 · Directional ROI and uplift
 
-Immutable evaluations freeze baseline method, promoted/control-period volume, SAP margin provenance, metric-definition version, campaign/account/mechanic and earned spend. Uplift is incremental volume over baseline. Gross ROI is incremental margin divided by cost; net ROI subtracts cost before dividing. Zero baseline/spend remains unknown, and negative uplift remains negative. Evaluations are explicitly directional, matching the client's short-history caveat. Source-key/hash replay cannot silently overwrite a prior result.
+Immutable evaluations freeze baseline method, promoted/control-period volume, SAP margin provenance, metric-definition version, campaign/account/mechanic and complete governed promotion spend. Uplift is incremental volume over baseline. Gross ROI is incremental margin divided by cost; net ROI subtracts cost before dividing. Zero baseline/spend remains unknown, and negative uplift remains negative. Evaluations are explicitly directional, matching the client's short-history caveat. Source-key/hash replay cannot silently overwrite a prior result.
 
-`readPromotionPerformance` supplies the conformed baseline/volume/SAP margin projection. Without it a new evaluation is refused, not filled with zeroes. Sample-marked synthetic evaluations are persisted for the demonstration. A close-plus-30-day recurring report job and live account/mechanic aggregation across evaluations remain unfinished.
+`readPromotionPerformance` supplies the conformed baseline/volume/SAP margin projection and `spendCentavos`, `spendSource`, `spendCompleteness: complete`. The spend covers invoice discounts, claimable rebates and valued free goods; separately reported `otherCostCentavos` is added once. An earnings-only subtotal is not total campaign spend, and an incomplete cost feed refuses evaluation. Without it a new evaluation is refused, not filled with zeroes. Sample-marked synthetic evaluations are persisted for the demonstration. A close-plus-30-day recurring report job and live account/mechanic aggregation across evaluations remain unfinished.
 
 ## F-509 · Deduction and dispute control
 
