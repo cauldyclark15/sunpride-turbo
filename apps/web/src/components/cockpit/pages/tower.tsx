@@ -478,7 +478,41 @@ export function DemandPanel({ query }: { query: AnalyticsQuery }) {
         )}
       </PageData>
       {access.canSetTarget ? (
-        <div className="mt-3 grid gap-2">
+        <div className="mt-3 grid gap-3">
+          <div className="grid gap-3 md:grid-cols-3">
+            <label className="grid min-w-0 gap-1 text-sm">
+              Planning cut
+              <select
+                className="min-w-0 w-full"
+                value={id}
+                onChange={(e) => setId(e.target.value)}
+              >
+                <option value="">Choose a prepared cut</option>
+                {cuts.data?.rows.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid min-w-0 gap-1 text-sm">
+              Destination
+              <input
+                className="min-w-0 w-full"
+                value={destination}
+                onChange={(e) => setDestination(e.target.value)}
+              />
+            </label>
+            <label className="grid min-w-0 gap-1 text-sm">
+              Acknowledgement reference
+              <input
+                className="min-w-0 w-full"
+                value={reference}
+                onChange={(e) => setReference(e.target.value)}
+                placeholder="Supply Chain reference"
+              />
+            </label>
+          </div>
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -488,32 +522,6 @@ export function DemandPanel({ query }: { query: AnalyticsQuery }) {
             >
               Prepare planning cut
             </button>
-            <label className="grid gap-1 text-sm">
-              Planning cut
-              <select value={id} onChange={(e) => setId(e.target.value)}>
-                <option value="">Choose a prepared cut</option>
-                {cuts.data?.rows.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="grid gap-1 text-sm">
-              Destination
-              <input
-                value={destination}
-                onChange={(e) => setDestination(e.target.value)}
-              />
-            </label>
-            <label className="grid gap-1 text-sm">
-              Acknowledgement reference
-              <input
-                value={reference}
-                onChange={(e) => setReference(e.target.value)}
-                placeholder="Supply Chain reference"
-              />
-            </label>
             {["publish", "accept", "reject"].map((a) => (
               <button
                 key={a}
