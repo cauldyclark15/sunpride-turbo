@@ -10,6 +10,20 @@ class ConfiguredFieldCallsTest {
     private val scope=StoreScope("account","device","scope")
     private fun config()=JSONObject("""{"definition":{"id":"flow","channelProfile":"field_selling","version":1,"steps":[{"key":"in","adapter":"check_in","label":"Start","required":true,"condition":"always"},{"key":"photo","adapter":"evidence","label":"Photo","required":true,"condition":"always"},{"key":"out","adapter":"check_out","label":"End","required":true,"condition":"always"}]},"policy":{"radiusMeters":100,"maxAccuracyMeters":50,"maxFixAgeMs":60000,"minDwellMs":0},"pin":{"latitude":10,"longitude":123},"reasons":[{"code":"no_demand","label":"No demand"}],"geofenceApprovals":[]}""")
     private fun row(kind:String,p:JSONObject)=IntentRow(scope.account,scope.deviceId,scope.fingerprint,kind,"call",kind,JSONObject().put("payload",p).toString(),200)
+    @Test fun F310_configuredCanonicalFormsDoNotDependOnLegacyIntentRules() {
+        val c=config();c.getJSONObject("definition").put("channelProfile","merchandiser").put("steps",org.json.JSONArray("""[{"key":"in","adapter":"check_in","label":"Start","required":true,"condition":"always"},{"key":"availability","adapter":"availability","label":"Availability","required":true,"condition":"always"},{"key":"price","adapter":"price_check","label":"Price","required":false,"condition":"always"},{"key":"out","adapter":"check_out","label":"End","required":true,"condition":"always"}]"""))
+        val rows=ConfiguredFieldCalls.retailActivityChecklist(c,emptyList(),setOf("merchandising")){it!="price_check"}
+        assertEquals(listOf("merchandising","price_check"),rows.map {it.kind})
+        assertEquals(ActivityRequirement.Status.DONE,rows[0].status);assertTrue(rows[0].required)
+        assertEquals(ActivityRequirement.Status.UNAVAILABLE,rows[1].status);assertFalse(rows[1].required)
+        c.getJSONObject("definition").getJSONArray("steps").getJSONObject(2).put("condition","has_order")
+        assertEquals(listOf("merchandising"),ConfiguredFieldCalls.retailActivityChecklist(c,emptyList(),emptySet()){true}.map {it.kind})
+    }
+    @Test fun F310_otherChannelsAndUnconfiguredCallsKeepTheSameLegacyChecklist() {
+        val legacy=listOf(ActivityRequirement("note",true,ActivityRequirement.Status.TO_DO))
+        assertSame(legacy,ConfiguredFieldCalls.retailActivityChecklist(null,legacy,emptySet()){true})
+        assertSame(legacy,ConfiguredFieldCalls.retailActivityChecklist(config(),legacy,emptySet()){true})
+    }
     @Test fun F318_merchandiserCannotReplaceCampaignChecklistWithLegacyPromotion()=runBlocking {
         val c=config().also { it.getJSONObject("definition").put("channelProfile","merchandiser") }
         val start=row("visit.checkIn",JSONObject().put("callFlowSnapshot",c).put("deviceTime",100).put("outletId","store"))

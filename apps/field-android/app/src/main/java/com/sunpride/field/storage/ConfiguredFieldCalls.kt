@@ -5,6 +5,23 @@ import org.json.JSONObject
 
 /** F-006: called inside the existing intent+outbox transaction. The start freezes its downloaded definition. */
 object ConfiguredFieldCalls {
+    /** F-310: configured canonical adapters stay usable even without legacy intent-form rules. */
+    fun retailActivityChecklist(config: JSONObject?, existing: List<ActivityRequirement>, recorded: Collection<String>,
+        capturable: (String) -> Boolean): List<ActivityRequirement> {
+        val definition=config?.optJSONObject("definition") ?: return existing
+        if(definition.optString("channelProfile")!="merchandiser") return existing
+        val result=existing.toMutableList()
+        for(step in CallFlowEngine.objects(definition.getJSONArray("steps"))) {
+            if(!CallFlowEngine.applies(step,false)) continue // execution-only: an order cannot make a conditional form applicable
+            val kind=when(step.getString("adapter")) {"availability"->"merchandising";"price_check"->"price_check";else->null} ?: continue
+            val index=result.indexOfFirst {it.kind==kind}
+            val required=step.getBoolean("required") || (result.getOrNull(index)?.required==true)
+            val status=when {kind in recorded->ActivityRequirement.Status.DONE;!capturable(kind)->ActivityRequirement.Status.UNAVAILABLE;else->ActivityRequirement.Status.TO_DO}
+            val entry=ActivityRequirement(kind,required,status)
+            if(index<0)result.add(entry) else result[index]=entry
+        }
+        return result
+    }
     // Legacy opaque persistence rows have no configuration. Malformed JSON objects still fail closed.
     private fun cachedConfig(raw: String): JSONObject? = if(raw.trimStart().startsWith('{')) JSONObject(raw).optJSONObject("callFlow") else null
     fun payload(row: IntentRow) = JSONObject(row.serializedOperation).getJSONObject("payload")

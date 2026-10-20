@@ -959,7 +959,10 @@ class FieldController(
             com.sunpride.field.storage.ActivityRules.recordedKinds(it.clientVisitId, diagnosticRows)
         } ?: emptySet()
         val sheet = diagnosticCallSheet
-        return com.sunpride.field.storage.ActivityRules.checklist(diagnosticRules, visitIntents(visit), recorded) {
+        val legacy = com.sunpride.field.storage.ActivityRules.checklist(diagnosticRules, visitIntents(visit), recorded) {
+            com.sunpride.field.storage.ActivityRules.capturable(it, sheet)
+        }
+        return com.sunpride.field.storage.ConfiguredFieldCalls.retailActivityChecklist(diagnosticFlow, legacy, recorded) {
             com.sunpride.field.storage.ActivityRules.capturable(it, sheet)
         }
     }
