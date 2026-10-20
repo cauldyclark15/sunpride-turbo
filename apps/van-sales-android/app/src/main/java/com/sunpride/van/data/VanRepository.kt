@@ -199,6 +199,12 @@ class VanRepository private constructor(private val context: Context, private va
      * Throws [com.sunpride.van.pos.CheckoutRefused] with typed reasons; never needs the network.
      * v2 captures queue immediately; pre-v2 evidence remains parked in its separate held partition.
      */
+    suspend fun retailCall(outletId: String) = withContext(Dispatchers.IO) {store().retailCall(outletId)}
+    suspend fun retailSaved(callKey: String) = withContext(Dispatchers.IO) {store().retailSaved(callKey)}
+    suspend fun saveRetail(call: com.sunpride.retail.RetailCall,callKey: String,answers: List<com.sunpride.retail.ShelfAnswer>,quantities: Map<String,Long>) = withContext(Dispatchers.IO) {
+        store().saveRetail(call,callKey,answers,quantities)
+        schedule()
+    }
     suspend fun completeSale(request: com.sunpride.van.pos.CheckoutRequest, expectedTotalMinor: Long): SaleReceipt =
         withContext(Dispatchers.IO) { store().commitSale(request,expectedTotalMinor).also { schedule() } }
     suspend fun voidSale(saleId: String, reason: String?, note: String?, code: String?): com.sunpride.van.pos.SaleVoidResult =

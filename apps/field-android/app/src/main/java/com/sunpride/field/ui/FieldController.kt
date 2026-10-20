@@ -64,6 +64,9 @@ interface FieldBackend {
     fun queueVisit(kind: String, clientVisitId: String?, checkInRequestId: String?, previousRequestId: String?,
         plannedVisitId: String?, outletId: String, intents: List<String>, unplannedReason: String?, note: String?,
         outcome: String?, reasonCode: String?, location: JSONObject?) { error("No local store") }
+    fun retailCall(outletId: String): com.sunpride.retail.RetailCall? = null
+    fun saveRetail(call: com.sunpride.retail.RetailCall, clientVisitId: String, checkInRequestId: String, previousRequestId: String,
+        answers: List<com.sunpride.retail.ShelfAnswer>, quantities: Map<String,Long>): OrderDraft? = error("Availability unavailable")
     fun callSheet(outletId: String): CallSheet? = null
     fun queueCallSheet(clientVisitId: String, checkInRequestId: String, previousRequestId: String,
         outletId: String, drafts: List<CallSheetDraftLine>) { error("No local store") }
@@ -244,6 +247,48 @@ class LiveFieldBackend(
                 }
             }
         } finally { store.close() }
+    }
+    override fun retailCall(outletId: String): com.sunpride.retail.RetailCall? = withStore { store ->
+        if (!store.isLeaseValid(System.currentTimeMillis())) null else com.sunpride.field.storage.RetailQueueRules.call(store,outletId)
+    }
+    override fun saveRetail(call: com.sunpride.retail.RetailCall, clientVisitId: String, checkInRequestId: String, previousRequestId: String,
+        answers: List<com.sunpride.retail.ShelfAnswer>, quantities: Map<String,Long>): OrderDraft? {
+        val identity=storedScope() ?: error("No verified local partition")
+        val draft=withStore { store -> store.retailTransaction {
+            val current=com.sunpride.field.storage.RetailQueueRules.call(store,call.outletId)
+            check(current==call) {"The downloaded MSL changed. Reopen this call."}
+            require(quantities.keys.all {id->call.lines.any {it.productId==id}} && quantities.values.all {it in 0L..1_000_000_000L}) {"Use whole, non-negative quantities"}
+            check(!com.sunpride.field.storage.RetailQueueRules.saved(clientVisitId,store.history().map {it.first to it.second.state})) {"Availability already saved for this call"}
+            val at=System.currentTimeMillis(); val checkId=java.util.UUID.randomUUID().toString()
+            var previous=previousRequestId
+            suspend fun queue(kind: String,payload: JSONObject) {
+                val request=java.util.UUID.randomUUID().toString()
+                payload.put("visitId","@checkin:$checkInRequestId").put("deviceTime",at)
+                val op=JSONObject().put("kind",kind).put("clientRequestId",request)
+                    .put("dependsOn",org.json.JSONArray().put(previous)).put("payload",payload)
+                store.enqueue(com.sunpride.field.storage.IntentRow(identity.account,identity.deviceId,identity.fingerprint,
+                    request,clientVisitId,kind,op.toString(),at),at)
+                previous=request
+            }
+            queue("availability.record",com.sunpride.retail.RetailAvailability.payload(call,answers,checkId,clientVisitId,at))
+            val units=mutableMapOf<String,String>()
+            val proposed=quantities.filterValues {it>0}.map { (productId,base) ->
+                val line=call.lines.single {it.productId==productId}
+                require(base%line.scale==0L && base/line.scale in 1..99999) {"Use whole ${line.uom} quantities for ${line.name}"}
+                units[productId]=line.uom
+                productId to (base/line.scale).toInt()
+            }
+            val saved=if(proposed.isEmpty())null else saveOrderDraftIn(store,null,clientVisitId,checkInRequestId,proposed,at,units)
+            for(answer in answers.filter {it.state=="absent"}) {
+                val q=quantities[answer.productId] ?: 0L
+                queue("availability.proposal",JSONObject().put("decisionId",java.util.UUID.randomUUID().toString())
+                    .put("checkId",checkId).put("productId",answer.productId).put("decision",if(q>0)"accepted" else "dismissed")
+                    .put("quantityBase",q).put("orderKey",saved?.draftId ?: JSONObject.NULL))
+            }
+            saved
+        } }
+        runCatching { com.sunpride.field.sync.work.SyncWork.enqueue(context) }
+        return draft
     }
     override fun callSheet(outletId: String): CallSheet? {
         val scope = storedScope() ?: return null
@@ -716,6 +761,8 @@ class FieldController(
     var diagnostic by mutableStateOf<VisitDisplay?>(null); private set
     var diagnosticRows by mutableStateOf<List<Pair<com.sunpride.field.storage.IntentRow, String>>>(emptyList()); private set
     var diagnosticError by mutableStateOf<String?>(null); private set
+    var retailCall by mutableStateOf<com.sunpride.retail.RetailCall?>(null); private set
+    val retailSaved: Boolean get() = diagnostic?.let { v -> relatedCall(v).firstOrNull { it.first.kind=="visit.checkIn" }?.first?.clientVisitId }?.let { com.sunpride.field.storage.RetailQueueRules.saved(it,diagnosticRows) } ?: false
     var diagnosticCallSheet by mutableStateOf<CallSheet?>(null); private set
     var diagnosticOrderTerms by mutableStateOf<OrderTerms?>(null); private set
     var callSheetOpen by mutableStateOf(false); private set
@@ -725,6 +772,22 @@ class FieldController(
     /** Draft being edited; null while composing a new one (set after its first save). */
     var orderDraftId by mutableStateOf<String?>(null); private set
     val openOrderDraft: OrderDraft? get() = orderDraftId?.let { id -> visitOrderDrafts.firstOrNull { it.draftId == id } }
+    fun saveRetail(answers: List<com.sunpride.retail.ShelfAnswer>, quantities: Map<String,Long>) = scope.launch(ui) {
+        val visit=diagnostic ?: return@launch
+        val call=retailCall ?: return@launch
+        if(busy)return@launch
+        busy=true;diagnosticError=null
+        try {
+            refreshDiagnostic()
+            val start=openCheckIn(visit) ?: error("Start the call first")
+            val previous=relatedCall(visit).lastOrNull()?.first?.requestId ?: start.requestId
+            val saved=withContext(io) {backend.saveRetail(call,start.clientVisitId,start.requestId,previous,answers,quantities)}
+            refreshDiagnostic()
+            if(saved!=null){orderDraftId=saved.draftId;orderOpen=true}
+        }catch(e:kotlinx.coroutines.CancellationException){throw e}
+        catch(_:Exception){diagnosticError="Could not save availability or prepare the order. Check every MSL line and use whole selling quantities."}
+        finally{busy=false}
+    }
     fun openCallSheet() = scope.launch(ui) {
         callSheetOpen = true; diagnosticError = null; endReview = null
         diagnosticCallSheet?.outletId?.let { loadSuggestedOrder(it) }
@@ -893,6 +956,7 @@ class FieldController(
         try {
             refreshDiagnostic()
             val checkin = openCheckIn(visit) ?: throw VisitRuleFailure(VisitRuleFailure.Code.CALL_NOT_OPEN)
+            check(retailCall == null || retailSaved) {"Check every MSL line before ending the call"}
             endReview = com.sunpride.field.storage.VisitCompletion.review(checkin.clientVisitId, outcome,
                 reasonCode?.trim(), diagnosticRules, diagnosticRows, diagnosticCallSheet, now())
         } catch (e: VisitRuleFailure) { diagnosticFailure = e.code; diagnosticError = e.code.text }
@@ -941,10 +1005,12 @@ class FieldController(
         diagnosticRules = withContext(io) { backend.activityRules() }
         val sheet = visit?.outletId?.let { withContext(io) { backend.callSheet(it) } }
         val terms = visit?.outletId?.let { withContext(io) { backend.orderTerms(it) } }
+        val retail = visit?.outletId?.let { withContext(io) { backend.retailCall(it) } }
         val drafts = if (visit == null) emptyList() else withContext(io) { backend.orderDrafts() }
         if (diagnostic == visit) {
             diagnosticCallSheet = sheet
             diagnosticOrderTerms = terms
+            retailCall = retail
             val calls = visit?.let { relatedCall(it) }.orEmpty().map { it.first.clientVisitId }.toSet()
             visitOrderDrafts = drafts.filter { it.clientVisitId in calls }
         }

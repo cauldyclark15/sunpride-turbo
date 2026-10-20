@@ -390,7 +390,7 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
     internal suspend fun enqueueWithCheckpoint(intent: IntentRow, now: Long, checkpoint: () -> Unit) {
         require(intent.account == a && intent.deviceId == d && intent.scope == s)
         require(intent.requestId.isNotBlank() && intent.clientVisitId.isNotBlank() &&
-            intent.kind in setOf("visit.checkIn", "visit.activity", "visit.checkOut") &&
+            intent.kind in setOf("visit.checkIn", "visit.activity", "visit.checkOut", "availability.record", "availability.proposal") &&
             intent.serializedOperation.isNotBlank())
         db.withTransaction {
             check(isLeaseValid(now)) { "Offline lease expired or held" }
@@ -404,6 +404,7 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
                     history().map { it.first to it.second.state })
             }
             VisitCompletion.requireOpenForActivity(intent, history().map { it.first to it.second.state })
+            RetailQueueRules.validate(this@RoomFieldStore, intent)
             CallSheetQueueRules.validate(this@RoomFieldStore, intent)
             ActivityQueueRules.validate(this@RoomFieldStore, intent)
             com.sunpride.field.orders.OrderQueueRules.validate(this@RoomFieldStore, intent)
@@ -413,6 +414,9 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             dao.insertOutbox(OutboxRow(a, d, s, intent.requestId, orderedAt))
         }
     }
+
+    /** F-212/F-213: checklist, proposal decisions and order draft commit together. */
+    suspend fun <T> retailTransaction(block: suspend () -> T): T = db.withTransaction { block() }
 
     override suspend fun pending(): List<Pair<IntentRow, OutboxRow>> = dao.pending(a, d, s)
         .map { row -> (dao.intent(a, d, s, row.requestId) ?: error("Orphaned outbox")) to row }

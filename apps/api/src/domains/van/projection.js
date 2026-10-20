@@ -1,3 +1,4 @@
+import { callSnapshot } from "../availability/calls.js";
 import { tx } from "@sunpride/db/client";
 import { ApiError } from "../../core/errors.js";
 import { resolvePrice, creditCheck } from "../orders/pricing.js";
@@ -123,6 +124,7 @@ export async function bundle(ctx, env) {
       priceLines: [],
       damageRecords: [],
       promotions: [],
+      availability: [],
     };
     if (!trips.length) return empty;
     const trip = await tripFor(db, actor, trips[0].id, "van.operate");
@@ -277,6 +279,25 @@ export async function bundle(ctx, env) {
         priceListId,
       });
     }
+    const availability = [];
+    const retailEnabled =
+      (
+        await db`select 1 from availability_releases where kind='msl' and status='published' and effective_from<=now() and (effective_to is null or effective_to>now()) limit 1`
+      ).length > 0;
+    const retailContext = {
+      ...ctx,
+      db,
+      actor,
+      device,
+      app: "van-android",
+      availabilityHistory: new Map(),
+      availabilityOutletIds: customers.map((c) => c.outletId),
+    };
+    for (const customer of customers)
+      if (trip.status !== "closed" && retailEnabled)
+        availability.push(
+          await callSnapshot(retailContext, customer.outletId, serviceDate),
+        );
     /** @type {any[]} */ const damages = complete(
       await db`select * from van_damage_records where trip_id=${trip.id} and deleted_at is null order by recorded_at desc limit 501`,
       500,
@@ -330,6 +351,7 @@ export async function bundle(ctx, env) {
       })),
       products,
       customers,
+      availability,
       priceLines,
       damageRecords: damages.map((d) => ({
         damageId: d.id,

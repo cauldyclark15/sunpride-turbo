@@ -1,3 +1,4 @@
+import { requireAvailability } from "../availability/callflow.js";
 import { requireCapability } from "../../core/capabilities.js";
 import { canonicalJson } from "../../core/util.js";
 import { rulesAt, missingKinds, ACTIVITY_KINDS } from "./rules.js";
@@ -301,6 +302,13 @@ export async function checkOut(ctx) {
   const p = ctx.payload;
   validTime(p.deviceTime, ctx.now);
   const visit = await ownedVisit(ctx, p.visitId);
+  await requireAvailability(
+    ctx.db,
+    ctx.actor.profileId,
+    visit.outlet_id,
+    visit.client_visit_id,
+    p.deviceTime,
+  );
   if (
     !["completed", "nonproductive"].includes(p.outcome) ||
     p.deviceTime < ms(visit.started_at)

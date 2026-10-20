@@ -583,6 +583,7 @@ test("full van bundle uses exact root keys, own scope and typed policy", async (
       "priceLines",
       "damageRecords",
       "promotions",
+      "availability",
     ].sort(),
   );
   expect(d.policy.voidApproval.key).toHaveLength(43);

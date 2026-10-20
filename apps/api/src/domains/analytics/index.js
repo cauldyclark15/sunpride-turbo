@@ -13,6 +13,7 @@ import { exceptionsPage } from "./exceptions.js";
 import { listTargets, setTargets } from "./targets.js";
 import { installRefresh } from "./refresh.js";
 import { orderedDb } from "./ordered-db.js";
+import { coverageAvailability } from "../availability/metrics.js";
 
 /** @param {any} router @param {any} installCtx */
 export function install(router, installCtx) {
@@ -31,13 +32,56 @@ export function install(router, installCtx) {
           ctx.url.searchParams.get("groupBy") ?? "channel",
           ctx.url.searchParams.get("parent"),
         ),
-      coverage: (ctx, p, s) =>
-        coveragePage(
-          ctx.db,
-          p,
-          s,
-          ctx.url.searchParams.get("groupBy") ?? "agent",
-        ),
+      coverage: async (ctx, p, s) => {
+        const group = ctx.url.searchParams.get("groupBy") ?? "agent";
+        const base = await coveragePage(ctx.db, p, s, group);
+        const retail = await coverageAvailability(ctx, p, s);
+        return {
+          ...base,
+          kpis: [
+            ...base.kpis.filter(
+              (/** @type {any} */ k) =>
+                !["strikeRate", "linesPerCall"].includes(k.key),
+            ),
+            retail.orderStrike,
+            retail.callLines,
+            ...retail.cards,
+          ],
+          rows: base.rows.map((/** @type {any} */ row) => {
+            const calls = retail.details.callMetrics.filter(
+              (/** @type {any} */ c) =>
+                (group === "agent" ? c.profileId : c.territoryId) === row.key,
+            );
+            return {
+              ...row,
+              productivityRatePct: row.strikeRatePct,
+              strikeRatePct: calls.length
+                ? Math.round(
+                    (calls.reduce(
+                      (/** @type {number} */ n, /** @type {any} */ c) =>
+                        n + c.orders,
+                      0,
+                    ) /
+                      calls.length) *
+                      1000,
+                  ) / 10
+                : null,
+              linesPerCall: calls.length
+                ? Math.round(
+                    (calls.reduce(
+                      (/** @type {number} */ n, /** @type {any} */ c) =>
+                        n + c.lines,
+                      0,
+                    ) /
+                      calls.length) *
+                      10,
+                  ) / 10
+                : null,
+            };
+          }),
+          availability: retail.details,
+        };
+      },
       "agent-day": agentDayPage,
       stores: storesPage,
       store: storePage,

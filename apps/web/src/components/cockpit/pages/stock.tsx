@@ -95,10 +95,10 @@ export const stockColumns: DrillColumn<StockRow>[] = [
   },
   {
     key: "reach",
-    label: "Stores carrying",
+    label: "Buying reach",
     align: "right",
-    render: (r) => formatPct(r.numericDistributionPct),
-    sort: (r) => r.numericDistributionPct,
+    render: (r) => formatPct(r.buyingReachPct),
+    sort: (r) => r.buyingReachPct,
   },
   {
     key: "oos",

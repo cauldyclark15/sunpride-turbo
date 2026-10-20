@@ -71,8 +71,14 @@ export async function checkDayManifest(ctx) {
         and p.effective_from<=${at} and (p.effective_to is null or p.effective_to>${at}) order by l.id limit 5001`,
       5000,
     );
+    const retail =
+      await db`select id,version,payload from availability_releases where status='published' and kind in ('msl','focus','rules') and effective_from<=${at} and (effective_to is null or effective_to>${at}) order by id`;
+    const retailOutlets =
+      await db`select id,channel,subchannel,classification from outlets where id in (select outlet_id from planned_visits where assignee_profile_id=${ctx.actor.profileId} and service_date>=${date}::date and service_date<${date}::date+3 and status='planned' and deleted_at is null) order by id`;
     const stamp = sha256Hex(
       canonicalJson({
+        retail,
+        retailOutlets,
         visits,
         person,
         assignments,

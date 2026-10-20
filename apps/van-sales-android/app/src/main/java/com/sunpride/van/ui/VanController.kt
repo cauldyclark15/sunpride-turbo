@@ -318,6 +318,26 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         } catch (e: StockRefused) { message = VanRules.stockMessage(e.problem) }
     }
     fun discardDamagePhoto(sha: String) { scope?.launch { runCatching { repository.discardDamagePhoto(sha) } } }
+    var retailCall by mutableStateOf<com.sunpride.retail.RetailCall?>(null); private set
+    var retailSaved by mutableStateOf(false); private set
+    var retailLoaded by mutableStateOf(false); private set
+    fun refreshRetail() = scope?.launch {
+        val draft=sale ?: return@launch
+        try {
+            val call=repository.retailCall(draft.customer.outletId)
+            val saved=repository.retailSaved(draft.saleId)
+            if(sale?.saleId==draft.saleId){retailCall=call;retailSaved=saved;retailLoaded=true}
+        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (_: Exception) { if(sale?.saleId==draft.saleId){retailCall=null;retailSaved=false;retailLoaded=false;message="Could not open the downloaded MSL. Reopen this call after signing in."} }
+    }
+    fun saveRetail(answers: List<com.sunpride.retail.ShelfAnswer>,quantities: Map<String,Long>) = command {
+        val draft=checkNotNull(sale);val call=checkNotNull(retailCall)
+        repository.saveRetail(call,draft.saleId,answers,quantities)
+        if(sale?.saleId==draft.saleId){
+            for((id,qty) in quantities) if(qty>0)setSaleLine(id,maxOf(draft.lines.firstOrNull {it.productId==id}?.quantityBase ?: 0L,qty))
+            retailSaved=true;message="Availability saved. Absent products are proposed on this editable order."
+        }
+    }
     fun startSale(customer: Customer) {
         if (tripClosed) {
             message = TRIP_CLOSED_MESSAGE
@@ -336,7 +356,8 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
             return
         }
         if (sale?.customer?.outletId != customer.outletId) sale = SaleDraft(CheckoutRules.newSaleId(),customer,emptyList())
-        selectedCustomer = customer; open(Page.SALE)
+        selectedCustomer = customer; retailCall=null; retailSaved=false; retailLoaded=false; open(Page.SALE)
+        refreshRetail()
     }
     fun continueSale() { sale?.let { selectedCustomer = it.customer; open(Page.SALE) } }
     fun pickProduct() { pickingForSale = true; open(Page.PRODUCTS) }

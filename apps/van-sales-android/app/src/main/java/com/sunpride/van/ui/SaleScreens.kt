@@ -38,7 +38,7 @@ import com.sunpride.van.pos.*
     val linePrice = { line: CartLine, product: Product -> PriceResolver.resolve(product,c.prices,now,draft?.customer)
         ?.let { p -> CheckoutRules.lineTotal(p.unitPriceMinor,line.quantityBase,product.quantityScale)?.let { PosMoney.format(it,p.currency) } } }
     val total = quote?.totalMinor
-    ScreenFrame("Sale",c::back,action = "Checkout",actionTag = "checkout",enabled = !c.busy && draft != null && draft.lines.isNotEmpty(),
+    ScreenFrame("Sale",c::back,action = "Checkout",actionTag = "checkout",enabled = !c.busy && c.retailLoaded && (c.retailCall==null || c.retailSaved) && draft != null && draft.lines.isNotEmpty(),
         onAction = { c.open(Page.CHECKOUT) },message = c.message,
         footer = when {
             draft == null || draft.lines.isEmpty() -> "No products yet"
@@ -50,6 +50,10 @@ import com.sunpride.van.pos.*
             Text(draft.customer.name,style = MaterialTheme.typography.titleLarge,modifier = Modifier.testTag("sale-customer"))
             if (draft.customer.code.isNotBlank()) Text(draft.customer.code,style = MaterialTheme.typography.bodyMedium)
         }
+        if (!c.retailLoaded) Text("Loading the downloaded MSL…")
+        c.retailCall?.let { call -> SectionCard("Availability · required") {
+            com.sunpride.retail.RetailAvailabilityStep(call,c.busy,c.retailSaved) { answers,quantities -> c.saveRetail(answers,quantities) }
+        } }
         if (draft.lines.isEmpty()) Text("Add the products the customer is buying.",style = MaterialTheme.typography.bodyLarge)
         priced.forEachIndexed { index,(line,product,money) ->
             Surface(Modifier.fillMaxWidth().semantics(mergeDescendants = true) {}.clickable(enabled = !c.busy && product != null) { editing = product }.testTag("sale-line-$index"),

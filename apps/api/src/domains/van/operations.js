@@ -1,3 +1,4 @@
+import { requireAvailability } from "../availability/callflow.js";
 import { postMovement } from "../inventory/posting.js";
 import { resolvePrice, creditCheck } from "../orders/pricing.js";
 import { currentDeviceActor, tripFor, outletFor } from "./access.js";
@@ -436,6 +437,13 @@ async function sale(db, trip, actor, p, opId) {
       "invalid_request",
     );
   const customer = await outletFor(db, actor, p.customer.outletId);
+  await requireAvailability(
+    db,
+    actor.profileId,
+    customer.id,
+    saleId,
+    Number(p.deviceTime),
+  );
   const at = Number(p.deviceTime),
     quoted = [];
   let total = 0n,

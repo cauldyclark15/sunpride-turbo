@@ -30,6 +30,7 @@ import { TeamsAdmin } from "./teams-admin";
 import { DevicesAdmin } from "./devices-admin";
 import { SetupHealth, SetupSearch } from "./master-data/setup-health";
 import { setSetupParam, useSetupParam } from "./master-data/location";
+import { AvailabilityEditor } from "./availability/editor";
 
 const readableError = (error: unknown) =>
   error instanceof Error ? error.message : "Access update failed. Try again.";
@@ -44,6 +45,7 @@ const tabs = [
   ["routes", "Routes"],
   ["outlets", "Outlets"],
   ["assignments", "Assignments"],
+  ["availability", "Trade Marketing"],
   ["devices", "Phones"],
 ] as const;
 type AdminTab = (typeof tabs)[number][0];
@@ -81,6 +83,8 @@ export function AdminWorkspace() {
         <OutletAdmin />
       ) : activeTab === "assignments" ? (
         <OutletAssignments />
+      ) : activeTab === "availability" ? (
+        <AvailabilityEditor />
       ) : activeTab === "devices" ? (
         <DevicesAdmin />
       ) : (

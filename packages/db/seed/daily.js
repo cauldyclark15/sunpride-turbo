@@ -4,6 +4,7 @@ import { company } from "./company.js";
 import { execution } from "./execution.js";
 import { vans } from "./vans.js";
 import { management } from "./management.js";
+import { seedAvailability } from "./availability.js";
 import {
   BATCH,
   Dataset,
@@ -992,8 +993,10 @@ export async function advanceDemo(db, { date = todayManila() } = {}) {
     day = plusDays(day, 1)
   )
     days.push(await advanceDay(db, day, original.startDate));
+  const availability = await seedAvailability(db, date);
   return {
     batch: BATCH,
+    availability,
     through: date,
     advanced: days.filter((d) => !d.duplicate).length,
     days,

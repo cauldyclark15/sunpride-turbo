@@ -98,6 +98,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+    sourceSets.getByName("main").java.srcDir(rootProject.file("../../packages/domain-contracts/native/retail"))
     testOptions { unitTests.isReturnDefaultValues = true }
     @Suppress("UnstableApiUsage")
     defaultConfig.javaCompileOptions.annotationProcessorOptions.arguments["room.schemaLocation"] =
