@@ -24,7 +24,11 @@ import {
 } from "../src/domains/presell/service.js";
 import { configuration } from "../src/domains/callflow/engine.js";
 import { captureFieldOrder } from "../src/domains/orders/field.js";
-import { ensurePresellSamples } from "../../../packages/db/seed/presell.js";
+import {
+  ensurePresellSamples,
+  ensurePresellDemo,
+} from "../../../packages/db/seed/presell.js";
+import { Dataset, persist } from "../../../packages/db/seed/store.js";
 
 mock.module("../src/domains/org/scope.js", () => ({
   scopeFilterForActor: async (
@@ -173,6 +177,53 @@ async function push(f, ...ops) {
   return r.body.results;
 }
 
+test("F-301 F-303 sample dispatch never clones a partially resolved source order or its full amount", async () => {
+  const f = await fixture(),
+    data = new Dataset(today, 1);
+  const [unit] =
+    await h.db`insert into units_of_measure(organization_id,code,name,dimension,decimal_places,active) values('sunpride','PC','Piece','count',0,true) returning id`;
+  await h.db`update products set base_uom_id=${unit.id} where id=${f.sku.id}`;
+  const [p] = await h.db`select code from products where id=${f.sku.id}`;
+  const { id, created_at, updated_at, change_seq, ...facts } = f.order;
+  const source = data.add("orders", "presell-incomplete-source", {
+    ...facts,
+    subtotal: 2,
+    total: 2,
+    subtotal_centavos: 200,
+    total_centavos: 200,
+    client_request_id: crypto.randomUUID(),
+    order_number: "SAMPLE-INCOMPLETE-PRESELL-SOURCE",
+  });
+  data.add("order_lines", "presell-resolved-line", {
+    order_id: source.id,
+    ordinal: 0,
+    product_id: f.sku.id,
+    product_code: p.code,
+    description: "Sample resolved product",
+    uom: "PC",
+    quantity: 1,
+    quantity_base: 1,
+    unit_price: 1,
+    line_total: 1,
+  });
+  data.add("order_lines", "presell-unresolved-line", {
+    order_id: source.id,
+    ordinal: 1,
+    product_code: "SAMPLE-NO-CURRENT-MASTER",
+    description: "Sample unresolvable product",
+    uom: "PC",
+    quantity: 1,
+    unit_price: 1,
+    line_total: 1,
+  });
+  await persist(h.db, data);
+  expect((await ensurePresellDemo(h.db, today)).added).toBe(0);
+  expect(
+    (
+      await h.db`select id from orders where order_number like 'SAMPLE-PRESELL-%'`
+    ).length,
+  ).toBe(0);
+});
 test("F-301 Manila cutoff includes the exact boundary and retains offline capture time", () => {
   const p = { lead_days: 1, horizon_days: 30, cutoff_minute: 840 };
   expect(

@@ -143,6 +143,7 @@ export async function ensurePresellDemo(
     if (prior) return { added: 0 };
     const [policy] =
       await t`select * from presell_policies where effective_from<=now() and (effective_to is null or effective_to>now())`;
+    if (!policy) return { added: 0 }; // Never fabricate a current policy over office configuration.
     const sources =
       await t`select o.* from orders o join sample_data_rows m on m.row_id=o.id::text and m.table_name='orders' and m.batch=${BATCH}
       where o.outlet_id is not null and o.org_unit_id is not null and o.amount_known and o.status in ('approved','posted','fulfilled') and o.deleted_at is null and o.order_number not like 'SAMPLE-PRESELL-%' order by o.service_date desc,o.id limit 4`;
@@ -158,8 +159,10 @@ export async function ensurePresellDemo(
       const source = sources[i],
         key = `presell-${anchor}-${i}`;
       const lines =
-        await t`select l.product_code,l.description,l.quantity,l.unit_price,l.line_total,p.id as product_id,'PC' as uom,(l.quantity*p.quantity_scale)::bigint as quantity_base,round(l.unit_price*100)::bigint as unit_price_centavos,round(l.line_total*100)::bigint as line_total_centavos from order_lines l join products p on p.code=l.product_code and p.active and p.deleted_at is null join units_of_measure u on u.id=p.base_uom_id and u.code='PC' and u.active where l.order_id=${source.id} and l.deleted_at is null and p.quantity_scale>0 order by l.ordinal,l.id`;
-      if (!lines.length) continue;
+        await t`select l.product_code,l.description,l.quantity,l.unit_price,l.line_total,p.id as product_id,'PC' as uom,coalesce(l.quantity_base,(l.quantity*p.quantity_scale)::bigint) as quantity_base,coalesce(l.unit_price_centavos,round(l.unit_price*100)::bigint) as unit_price_centavos,coalesce(l.line_total_centavos,round(l.line_total*100)::bigint) as line_total_centavos from order_lines l join products p on p.code=l.product_code and p.active and p.deleted_at is null join units_of_measure u on u.id=p.base_uom_id and u.code='PC' and u.active where l.order_id=${source.id} and l.deleted_at is null and p.quantity_scale>0 and coalesce(l.uom,'PC')='PC' and (l.product_id is null or l.product_id=p.id) order by l.ordinal,l.id`;
+      const [sourceCount] =
+        await t`select count(*)::int n from order_lines where order_id=${source.id} and deleted_at is null`;
+      if (!lines.length || lines.length !== sourceCount.n) continue; // Never clone a partial order with the source's full total.
       const order = data.add("orders", key, {
         ...clean(source),
         client_request_id: `sample:${key}`,
