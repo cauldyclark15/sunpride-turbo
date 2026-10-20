@@ -45,6 +45,7 @@ export const WORKSPACE_SLUGS = [
   "pricing",
   "sap-integration",
   "programme",
+  "distributors",
 ] as const;
 
 export type WebModuleSlug = (typeof WORKSPACE_SLUGS)[number];
@@ -73,6 +74,7 @@ export function isOwnerSlug(slug: string): slug is OwnerSlug {
 export function isWebModuleSlug(slug: string): boolean {
   return (
     slug === "account" ||
+    slug === "distributor" ||
     isWorkspaceSlug(slug) ||
     isOwnerSlug(slug) ||
     Object.hasOwn(LEGACY_REDIRECTS, slug)
@@ -82,6 +84,7 @@ export function isWebModuleSlug(slug: string): boolean {
 const moduleTabs: Record<string, WorkspaceModuleTab[]> = {
   work: [
     { id: "orders", label: "Orders", href: "/orders" },
+    { id: "distributors", label: "Distributors", href: "/distributors" },
     { id: "workflows", label: "Approvals", href: "/workflows" },
     { id: "sales-force", label: "Coverage plans", href: "/sales-force" },
     { id: "supervision", label: "Supervision", href: "/supervision" },

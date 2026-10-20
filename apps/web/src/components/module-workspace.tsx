@@ -13,6 +13,7 @@ import { useSession } from "../lib/auth/session";
 import { canAccessWebModule } from "../lib/module-access";
 import { ActivityReportsWorkspace } from "./activity-reports/activity-reports-workspace";
 import { AdminWorkspace } from "./admin-workspace";
+import { DistributorWorkspace } from "./distributors/workspace";
 import { CallSheetsWorkspace } from "./call-sheets/call-sheets-workspace";
 import { lazyWorkspace } from "./cockpit/lazy-workspace";
 import { SalesForcePanels } from "./coverage-workspace";
@@ -65,6 +66,7 @@ const TITLES = {
   pricing: "Prices",
   "sap-integration": "Integration",
   programme: "Programme",
+  distributors: "Distributors",
 } satisfies Record<WebModuleSlug, string>;
 
 export function moduleTitle(module: WebModuleSlug) {
@@ -162,6 +164,8 @@ function ModuleContent({ module }: { module: WebModuleSlug }): ReactNode {
   switch (module) {
     case "orders":
       return <OrdersWorkspace />;
+    case "distributors":
+      return <DistributorWorkspace />;
     case "workflows":
       return (
         <>

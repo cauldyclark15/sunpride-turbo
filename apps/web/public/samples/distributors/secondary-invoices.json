@@ -1,0 +1,24 @@
+{
+  "adapter": "invoice_json",
+  "sourceKey": "SAMPLE-ERP-EXPORT-001",
+  "invoices": [
+    {
+      "number": "SAMPLE-INV-002",
+      "date": "2026-10-20",
+      "retailer": "EXT-STORE",
+      "kind": "sale",
+      "lines": [
+        {
+          "lineKey": "1",
+          "revision": 1,
+          "productCode": "EXT-SKU",
+          "locationCode": "WH",
+          "batch": "SAMPLE-BATCH",
+          "uom": "CS",
+          "quantity": 3,
+          "amountCentavos": 72000
+        }
+      ]
+    }
+  ]
+}

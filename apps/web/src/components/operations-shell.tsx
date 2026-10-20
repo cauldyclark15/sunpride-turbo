@@ -3,7 +3,8 @@
 import { WorkspaceShell } from "@sunpride/ui";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
+import { PartnerShell } from "./distributors/partner-shell";
 import { getWebNavigation } from "@/config/navigation";
 import { phoneTabsFor, phoneTitleFor } from "@/config/phone-tabs";
 import { useSession } from "@/lib/auth/session";
@@ -32,6 +33,26 @@ export function OperationsShell({ children }: { children: ReactNode }) {
     router.replace("/login");
     router.refresh();
   }
+
+  useEffect(() => {
+    if (
+      current?.role === "distributor" &&
+      pathname !== "/distributor" &&
+      pathname !== "/account"
+    )
+      router.replace("/distributor");
+  }, [current?.role, pathname, router]);
+
+  if (current?.role === "distributor")
+    return (
+      <PartnerShell>
+        {pathname === "/distributor" || pathname === "/account" ? (
+          children
+        ) : (
+          <p className="text-sm text-muted">Opening distributor portal…</p>
+        )}
+      </PartnerShell>
+    );
 
   return (
     <WorkspaceShell

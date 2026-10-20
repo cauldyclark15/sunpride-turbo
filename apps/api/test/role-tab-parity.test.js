@@ -26,6 +26,8 @@ const report = (name, args = {}) =>
  * Browser proof additionally exercises the real mounted hooks, including dependent reads.
  * @type {Record<string,string[]>} */
 const calls = {
+  // F-402: Channel Development's initial partner-scoped listing.
+  distributors: ["/api/v1/distributors"],
   orders: [
     "/api/v1/orders/list",
     "/api/v1/orders/filter-options",

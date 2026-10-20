@@ -21,7 +21,10 @@ export function AuthScreen({ mode, next }: { mode: AuthMode; next?: string }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  const destination = safeAuthDestination(next);
+  const destination =
+    session.profile?.role === "distributor"
+      ? "/distributor"
+      : safeAuthDestination(next);
 
   useEffect(() => {
     if (isAuthenticated) router.replace(destination);

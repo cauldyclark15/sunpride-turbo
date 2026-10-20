@@ -1,0 +1,2 @@
+invoiceNumber,lineKey,revision,date,kind,originalInvoiceNumber,outletCode,productCode,locationCode,batch,uom,quantity,amountCentavos,previousHash
+SAMPLE-INV-001,1,1,2026-10-20,sale,,EXT-STORE,EXT-SKU,WH,SAMPLE-BATCH,CS,2,48000,

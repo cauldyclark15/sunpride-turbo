@@ -13,6 +13,7 @@ import { install as analytics } from "./analytics/index.js";
 import { install as programme } from "./programme/index.js";
 import { install as integration } from "./integration/index.js";
 import { install as callflow } from "./callflow/index.js";
+import { install as distributors } from "./distributors/index.js";
 /** @type {Array<(router: any, ctx: any) => void>} */
 export const domainInstallers = [
   org,
@@ -29,4 +30,5 @@ export const domainInstallers = [
   programme,
   integration,
   callflow,
+  distributors,
 ];
