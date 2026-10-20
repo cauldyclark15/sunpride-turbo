@@ -101,7 +101,13 @@ object VanBootstrapCodec {
     fun decode(text: String): VanBootstrap = try {
         val o = JSONObject(text)
         o.remove("_v2")
+        // F-019: v2 fiscal extension is validated separately, not added to the frozen v1 schema.
+        val fiscal = o.getJSONObject("policy").remove("fiscal")
         VanWireSchema.validate(o)
+        if (fiscal != null) {
+            o.getJSONObject("policy").put("fiscal",fiscal)
+            com.sunpride.van.fiscal.FiscalNumbers.ranges(o.getJSONObject("policy"))
+        }
         if (o.getString("type") != "van.bootstrap.response") throw VanWireFailure()
         val day = o.getString("serviceDate"); LocalDate.parse(day)
         val t = o.optJSONObject("trip")?.let(::trip)

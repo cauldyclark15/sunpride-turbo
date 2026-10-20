@@ -91,6 +91,7 @@ export async function command(ctx, action, input, authorize, work) {
       throw new ApiError("forbidden", 403, "Your access is no longer active");
     const c = { ...ctx, db, actor };
     await authorize(c);
+    await db`select set_config('sunpride.actor',${actor.userId},true)`;
     await db`select pg_advisory_xact_lock(hashtextextended(${ctx.actor.subject + ":" + key}, 0))`;
     const [existing] =
       await db`select * from orders_commands where actor_subject = ${ctx.actor.subject} and request_key = ${key}`;
@@ -249,6 +250,7 @@ export async function quote(ctx, input) {
 
 /** @param {any} ctx @param {any} input */
 export async function createOrder(ctx, input) {
+  await ctx.db`select set_config('sunpride.actor',${ctx.actor.userId},true)`;
   const customerCode = text(input.customerCode, "Customer", 100);
   const [customer] =
     await ctx.db`select * from customers where code = ${customerCode} and active and deleted_at is null for update`;

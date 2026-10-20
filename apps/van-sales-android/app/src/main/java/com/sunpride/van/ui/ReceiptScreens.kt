@@ -37,6 +37,7 @@ import java.time.format.DateTimeFormatter
             saved.printed -> "Sent to the printer."
             else -> "Not printed yet."
         },style = MaterialTheme.typography.bodyLarge,modifier = Modifier.testTag("print-status"))
+        saved?.let { FiscalPreviewButtons(it) }
         PrintButtons(c,saved,"sale") { reprinting = it }
     }
     reprinting?.let { ReprintDialog(it,onPrint = { reason -> c.printReceipt(it.receipt.saleId,reason); reprinting = null },onClose = { reprinting = null }) }
@@ -83,6 +84,7 @@ import java.time.format.DateTimeFormatter
                 },style = MaterialTheme.typography.bodyMedium,modifier = Modifier.testTag("receipt-$index-state"))
                 saved.void?.let { Text("VOIDED · ${VoidReasons.label(it.reasonCode)}",style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier.testTag("receipt-$index-void")) }
+                FiscalPreviewButtons(saved)
                 PrintButtons(c,saved,"receipt-$index") { reprinting = it }
                 if (saved.void == null && c.policy?.let { VoidRules.offered(it).isNotEmpty() } == true)
                     SecondaryButton("Void sale",{ voiding = saved },Modifier.testTag("receipt-$index-void-sale"),enabled = !c.busy && !c.printing)

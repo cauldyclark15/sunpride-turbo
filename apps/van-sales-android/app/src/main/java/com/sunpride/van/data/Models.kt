@@ -127,7 +127,9 @@ data class SaleReceiptLine(val lineNumber: Int, val productId: String, val name:
 data class SaleReceipt(val saleId: String, val receiptNumber: String, val customerName: String, val lines: List<SaleReceiptLine>,
     val currency: String, val totalMinor: Long, val tenderedMinor: Long, val changeMinor: Long, val createdAt: Long, val replay: Boolean = false,
     val paymentMethod: String = "cash", val paymentLabel: String = "Cash", val paymentKind: PaymentKind = PaymentKind.CASH,
-    val paymentStatus: String = "paid", val reference: String? = null, val dueDate: String? = null)
+    val paymentStatus: String = "paid", val reference: String? = null, val dueDate: String? = null,
+    /** F-108 immutable fiscal/tax/registration snapshot. Null only on legacy operational receipts. */
+    val fiscalJson: String? = null)
 data class PushAck(val entityId: String, val movementId: String?, val serverTime: Long)
 data class PushResult(val kind: String, val clientRequestId: String, val status: String,
     val ack: PushAck? = null, val code: String? = null)

@@ -40,6 +40,7 @@ object FrozenReceipts {
         .put("createdAt", receipt.createdAt.toString())
         .put("paymentMethod", receipt.paymentMethod).put("paymentLabel", receipt.paymentLabel).put("paymentKind", receipt.paymentKind.wire)
         .put("paymentStatus", receipt.paymentStatus).put("reference", receipt.reference ?: JSONObject.NULL).put("dueDate", receipt.dueDate ?: JSONObject.NULL)
+        .put("fiscal",receipt.fiscalJson?.let { JSONObject(it) } ?: JSONObject.NULL)
         .put("header", JSONObject().put("sellerName", header.sellerName ?: JSONObject.NULL)
             .put("tripNumber", header.tripNumber ?: JSONObject.NULL).put("truck", header.truck ?: JSONObject.NULL))
         .toString()
@@ -58,7 +59,7 @@ object FrozenReceipts {
         val receipt = SaleReceipt(o.getString("saleId"), o.getString("receiptNumber"), o.getString("customerName"), lines,
             o.getString("currency"), o.getString("totalMinor").toLong(), o.getString("tenderedMinor").toLong(), o.getString("changeMinor").toLong(),
             o.getString("createdAt").toLong(), true, o.getString("paymentMethod"), o.getString("paymentLabel"), PaymentKind.of(o.getString("paymentKind")),
-            o.getString("paymentStatus"), o.text("reference"), o.text("dueDate"))
+            o.getString("paymentStatus"), o.text("reference"), o.text("dueDate"),o.optJSONObject("fiscal")?.toString())
         val h = o.getJSONObject("header")
         return receipt to ReceiptHeader(h.text("sellerName"), h.text("tripNumber"), h.text("truck"))
     }
@@ -123,15 +124,30 @@ class RoomReceiptPrintLog(private val db: VanDatabase, private val scope: StoreS
                 val row = ReceiptPrintRow(s, d, UUID.randomUUID().toString(), saleId, decision.kind.wire, decision.copyNumber,
                     decision.reason, PrintOutcome.STARTED.wire, at)
                 prints.insert(row)
+                journal(row,sale,"uncertain")
                 val (receipt, header) = frozen(sale, trip)
                 BeginPrint.Go(row.attempt(), receipt, header, void)
             }
         }
     }
 
-    override suspend fun finish(printId: String, outcome: PrintOutcome) {
+    override suspend fun finish(printId: String, outcome: PrintOutcome) = db.withTransaction {
         require(outcome != PrintOutcome.STARTED)
+        val row = prints.all(s,d).single { it.printId == printId }
+        val sale = dao.saleRows(s,d).single { it.saleId == row.saleId }
         check(prints.finish(s, d, printId, outcome.wire, clock()) == 1) { "Print already finished" }
+        journal(row,sale,when(outcome) { PrintOutcome.PRINTED -> "printed"; PrintOutcome.NOT_PRINTED -> "not_printed"; else -> "uncertain" })
+    }
+    private suspend fun journal(row: ReceiptPrintRow, sale: SaleRow, outcome: String) {
+        if (!s.startsWith("v2|") || db.receiptPrints().saleReceipt(s,d,sale.saleId)?.let { FrozenReceipts.decode(it.documentJson).first.fiscalJson } == null) return
+        val at = maxOf(clock(),Math.addExact(dao.latestCreatedAt(s,d) ?: 0L,1L))
+        val key = UUID.randomUUID().toString()
+        val payload = JSONObject().put("saleId",sale.saleId).put("tripId",sale.tripId).put("deviceTime",at)
+            .put("kind",if(row.kind == "reprint") "reprint" else "print").put("reason",row.reason ?: "Original print attempt")
+            .put("outcome",outcome).put("printId",row.printId)
+        val op = JSONObject().put("kind","fiscal.print").put("clientRequestId",key).put("payload",payload)
+            .put("dependsOn",JSONArray().put(sale.idempotencyKey))
+        dao.insertOutbox(OutboxRow(s,d,key,sale.tripId,"fiscal.print",op.toString(),at))
     }
 
     /** Sales saved on the trip this phone is on now, newest first, with their print history. */

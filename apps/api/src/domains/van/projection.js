@@ -1,4 +1,6 @@
 import { tx } from "@sunpride/db/client";
+import { tenderPolicy } from "../fiscal/tenders.js";
+import { fiscalBundle } from "../fiscal/transactions.js";
 import { ApiError } from "../../core/errors.js";
 import { resolvePrice, creditCheck } from "../orders/pricing.js";
 import { currentDeviceActor, tripFor, outletFor } from "./access.js";
@@ -284,7 +286,11 @@ export async function bundle(ctx, env) {
     return {
       serviceDate,
       seller: empty.seller,
-      policy: policy(env, trip.id),
+      policy: {
+        ...policy(env, trip.id),
+        paymentMethods: await tenderPolicy(db, trip.org_unit_id),
+        fiscal: await fiscalBundle(db, actor, trip, device.id),
+      },
       trip: {
         tripId: trip.id,
         tripNumber: trip.trip_number,

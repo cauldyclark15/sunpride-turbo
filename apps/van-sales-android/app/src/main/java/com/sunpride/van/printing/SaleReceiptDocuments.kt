@@ -1,5 +1,6 @@
 package com.sunpride.van.printing
 
+import org.json.JSONObject
 import com.sunpride.van.data.PaymentKind
 import com.sunpride.van.data.SaleReceipt
 import java.math.BigDecimal
@@ -20,13 +21,22 @@ object SaleReceiptDocuments {
         if (currency == "PHP") PesoAmounts.fromCentavos(minor) else "$currency ${BigDecimal.valueOf(minor, 2).toPlainString()}"
 
     fun build(receipt: SaleReceipt, header: ReceiptHeader, attempt: PrintAttempt, printedAt: Long, zone: ZoneId = MANILA, void: SaleVoidInfo? = null): ReceiptDocument {
+        val fiscal = receipt.fiscalJson?.let { JSONObject(it) }
+        val registration = fiscal?.getJSONObject("registration")
         val voidSlip = attempt.kind == PrintKind.VOID
         if (voidSlip) requireNotNull(void) { "Void slip needs cancellation evidence" }
         val reprint = attempt.kind == PrintKind.REPRINT
         val at = { ms: Long -> Instant.ofEpochMilli(ms).atZone(zone).format(time) }
         val elements = buildList {
-            add(ReceiptElement.Text("SUNPRIDE VAN SALES", ReceiptStyle(ReceiptAlignment.CENTER, bold = true, doubleHeight = true)))
-            add(ReceiptElement.Text("DELIVERY RECEIPT", ReceiptStyle(ReceiptAlignment.CENTER, bold = true)))
+            add(ReceiptElement.Text(registration?.getString("entityName") ?: "SUNPRIDE VAN SALES", ReceiptStyle(ReceiptAlignment.CENTER, bold = true, doubleHeight = true)))
+            add(ReceiptElement.Text(if(fiscal != null) "SALES INVOICE" else "DELIVERY RECEIPT", ReceiptStyle(ReceiptAlignment.CENTER, bold = true)))
+            registration?.let { r ->
+                add(ReceiptElement.Text(r.getString("branchName")))
+                add(ReceiptElement.Text(r.getString("address")))
+                add(ReceiptElement.Text("TIN: ${r.getString("tin")}"))
+                add(ReceiptElement.Text("Permit: ${if(r.isNull("permitReference")) "NOT FILED - SAMPLE" else r.getString("permitReference")}"))
+                if(r.getBoolean("sample")) add(ReceiptElement.Text("SAMPLE - NOT FILED WITH BIR",ReceiptStyle(ReceiptAlignment.CENTER,bold=true)))
+            }
             if (voidSlip) add(ReceiptElement.Text("VOID - SALE CANCELLED", ReceiptStyle(ReceiptAlignment.CENTER, bold = true, doubleWidth = true)))
             if (reprint) add(ReceiptElement.Text("REPRINT - COPY ${attempt.copyNumber}", ReceiptStyle(ReceiptAlignment.CENTER, bold = true, doubleWidth = true)))
             add(ReceiptElement.Divider())
@@ -49,6 +59,12 @@ object SaleReceiptDocuments {
             add(ReceiptElement.Divider())
             receipt.lines.mapNotNull { it.priceListCode }.distinct().takeIf { it.isNotEmpty() }?.let { codes ->
                 add(ReceiptElement.Text("Prices: ${codes.joinToString(", ")}"))
+            }
+            fiscal?.getJSONObject("tax")?.let { tax ->
+                add(ReceiptElement.Columns("VATable sales",money(tax.getString("vatableSalesMinor").toLong(),receipt.currency)))
+                add(ReceiptElement.Columns("VAT",money(tax.getString("vatMinor").toLong(),receipt.currency)))
+                add(ReceiptElement.Columns("VAT exempt",money(tax.getString("vatExemptMinor").toLong(),receipt.currency)))
+                add(ReceiptElement.Columns("Zero rated",money(tax.getString("zeroRatedMinor").toLong(),receipt.currency)))
             }
             add(ReceiptElement.Columns("TOTAL", money(receipt.totalMinor, receipt.currency), bold = true))
             when (receipt.paymentKind) {
@@ -75,7 +91,8 @@ object SaleReceiptDocuments {
                 add(ReceiptElement.Text("** VOID - NOT A VALID RECEIPT **", ReceiptStyle(ReceiptAlignment.CENTER, bold = true)))
             }
             add(ReceiptElement.Qr(receipt.receiptNumber))
-            add(ReceiptElement.Text(TestReceipts.DISCLAIMER, ReceiptStyle(ReceiptAlignment.CENTER)))
+            if(fiscal == null) add(ReceiptElement.Text(TestReceipts.DISCLAIMER, ReceiptStyle(ReceiptAlignment.CENTER)))
+            else if(registration?.getBoolean("sample") == true) add(ReceiptElement.Text("SAMPLE ONLY - NOT A TAX DOCUMENT",ReceiptStyle(ReceiptAlignment.CENTER,bold=true)))
             add(ReceiptElement.Feed(4))
         }
         return ReceiptDocument(elements, isReprint = reprint)

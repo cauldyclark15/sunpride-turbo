@@ -251,7 +251,9 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         if (quote.totalMinor != expectedTotalMinor) throw CheckoutRefused(listOf(CheckoutIssue(CheckoutProblem.PRICES_CHANGED)))
         val t = writable()
         val customer = context.customers.single { it.outletId == request.customerId }
-        val id = com.sunpride.van.ids.TransactionIds(db,scope).issue(t.tripId,t.tripNumber)
+        val fiscal = if (s.startsWith("v2|")) com.sunpride.van.fiscal.FiscalNumbers.issue(db,scope,JSONObject(dao.meta(s,d)!!.policyJson!!),"sales_invoice",context.now) else null
+        val id = fiscal?.let { com.sunpride.van.ids.TransactionIdentity(it.number,UUID.randomUUID().toString()) }
+            ?: com.sunpride.van.ids.TransactionIds(db,scope).issue(t.tripId,t.tripNumber)
         val at = maxOf(context.now,Math.addExact(dao.latestCreatedAt(s,d) ?: 0L,1L))
         val pay = quote.payment
         // Posting state ("saved" on this phone) and payment state are separate columns (VAN-012).
@@ -279,11 +281,12 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
                 .apply { pay.reference?.let { put("reference",it) } }
                 .apply { pay.dueDate?.let { put("dueDate",it) } })
             .put("deviceTime",context.now)
+            .apply { fiscal?.let { put("fiscal",JSONObject().put("allocationId",it.allocationId).put("serial",it.serial.toString())) } }
         val op = JSONObject().put("kind",SALE_KIND).put("clientRequestId",id.idempotencyKey).put("payload",payload).toString()
         dao.insertOutbox(OutboxRow(s,d,id.idempotencyKey,t.tripId,SALE_KIND,op,at,null,capturedStatus))
         val receipt = SaleReceipt(request.saleId,id.receiptNumber,customer.name,quote.lines.map { receiptLine(it) },
             quote.currency,quote.totalMinor,quote.tenderedMinor,quote.changeMinor,at,false,pay.method.code,pay.method.label,pay.method.kind,
-            pay.state.wire,pay.reference,pay.dueDate)
+            pay.state.wire,pay.reference,pay.dueDate,fiscal?.let { com.sunpride.van.fiscal.FiscalNumbers.snapshot(it,quote.totalMinor) })
         // VAN-017: freeze what this receipt says (and seller/trip/truck) in the same transaction as the sale.
         db.receiptPrints().insertSaleReceipt(SaleReceiptRow(s,d,request.saleId,FrozenReceipts.encode(receipt,currentReceiptHeader(dao,s,d,dao.trip(s,d)))))
         receipt

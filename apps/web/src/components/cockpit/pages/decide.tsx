@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { FiscalWorkspace } from "../../fiscal/fiscal-workspace";
 import { useCallback, useState } from "react";
 import { useAnalytics } from "../api";
 import { formatAge, formatCount, formatDayTime, formatPhp } from "../format";
@@ -308,6 +309,7 @@ export function DecidePage() {
           />
         )}
       </PageData>
+      <FiscalWorkspace decisionsOnly />
     </CockpitPage>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { FiscalWorkspace } from "../../fiscal/fiscal-workspace";
 import { csvHref, useAnalytics } from "../api";
 import { formatPct, formatPhp, formatSince } from "../format";
 import {
@@ -211,6 +212,7 @@ export function MoneyPage() {
       <PageData result={result} label="money figures">
         {(data) => <MoneyView data={data} csv={csvHref("money", query)} />}
       </PageData>
+      <FiscalWorkspace moneyOnly />
     </CockpitPage>
   );
 }

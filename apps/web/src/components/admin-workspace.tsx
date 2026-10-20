@@ -28,6 +28,7 @@ import {
 } from "./people-admin";
 import { TeamsAdmin } from "./teams-admin";
 import { DevicesAdmin } from "./devices-admin";
+import { FiscalWorkspace } from "./fiscal/fiscal-workspace";
 import { SetupHealth, SetupSearch } from "./master-data/setup-health";
 import { setSetupParam, useSetupParam } from "./master-data/location";
 
@@ -45,6 +46,7 @@ const tabs = [
   ["outlets", "Outlets"],
   ["assignments", "Assignments"],
   ["devices", "Phones"],
+  ["fiscal", "Fiscal & authority"],
 ] as const;
 type AdminTab = (typeof tabs)[number][0];
 
@@ -81,6 +83,8 @@ export function AdminWorkspace() {
         <OutletAdmin />
       ) : activeTab === "assignments" ? (
         <OutletAssignments />
+      ) : activeTab === "fiscal" ? (
+        <FiscalWorkspace />
       ) : activeTab === "devices" ? (
         <DevicesAdmin />
       ) : (

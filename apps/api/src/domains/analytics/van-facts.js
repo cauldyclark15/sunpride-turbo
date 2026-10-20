@@ -32,6 +32,7 @@ export async function readVanCollections(db, p, s) {
     join people pe on pe.id=t.salesperson_profile_id join stores o on o.id=sa.outlet_id
     join inventory_locations loc on loc.id=t.truck_location_id and loc.deleted_at is null
     where t.deleted_at is null and t.status<>'cancelled' and v.method<>'credit'
+    and (v.method='cash' or exists(select 1 from fiscal_tender_confirmations c where c.payment_id=v.id and c.decision='confirmed'))
     and t.service_date between ${p.from} and ${p.to}
     and t.org_unit_id in ${db(ids)} and pe.current_unit_id in ${db(ids)} and o.owner_unit_id in ${db(ids)} and loc.org_unit_id in ${db(ids)}
     and (${s.ownProfileId}::uuid is null or pe.id=${s.ownProfileId}) and (${p.channel}::text is null or o.channel=${p.channel})`;
@@ -51,7 +52,7 @@ export async function readVanCredit(db, p, s) {
     join people pe on pe.id=t.salesperson_profile_id join stores o on o.id=sa.outlet_id
     join inventory_locations loc on loc.id=t.truck_location_id and loc.deleted_at is null
     left join lateral(select sum(amount_centavos) paid,max(created_at) last_payment from van_payments
-      where sale_id=sa.id and kind='collection' and (created_at at time zone 'Asia/Manila')::date<=${p.to}) c on true
+      where sale_id=sa.id and kind='collection' and (method='cash' or exists(select 1 from fiscal_tender_confirmations c where c.payment_id=van_payments.id and c.decision='confirmed')) and (created_at at time zone 'Asia/Manila')::date<=${p.to}) c on true
     where sa.receipt->'payment'->>'kind'='credit' and t.service_date<=${p.to} and t.deleted_at is null and t.status<>'cancelled'
     and not exists(select 1 from van_sale_voids v where v.sale_id=sa.id)
     and t.org_unit_id in ${db(ids)} and pe.current_unit_id in ${db(ids)} and o.owner_unit_id in ${db(ids)} and loc.org_unit_id in ${db(ids)}

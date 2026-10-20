@@ -49,6 +49,7 @@ export async function command(ctx, installCtx, action, capability, fn) {
   const result = await tx(ctx.db, async (db) => {
     const actor = await currentActor(db, ctx.actor);
     await requireCapability({ db, actor }, capability);
+    await db`select set_config('sunpride.actor',${actor.userId},true)`;
     await db`select pg_advisory_xact_lock(hashtextextended(${actor.profileId + ":" + key},0))`;
     const [prior] =
       await db`select * from van_web_commands where actor_profile_id=${actor.profileId} and idempotency_key=${key}`;

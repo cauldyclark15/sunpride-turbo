@@ -134,7 +134,7 @@ class VanSyncClient(private val transport: VanTransport, private val signer: Dev
 }
 
 object V2VanCodec {
-    val BUSINESS_OPS = setOf("trip.start","load.confirm","truck.damage","sale.record","sale.void","return.record","cash.reconcile","stock.reconcile","trip.close")
+    val BUSINESS_OPS = setOf("fiscal.print","trip.start","load.confirm","truck.damage","sale.record","sale.void","return.record","cash.reconcile","stock.reconcile","trip.close")
     fun operation(row: OutboxRow): JSONObject {
         require(row.kind in BUSINESS_OPS)
         val old = JSONObject(row.operationJson)

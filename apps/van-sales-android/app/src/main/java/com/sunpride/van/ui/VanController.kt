@@ -374,7 +374,8 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
             val receipt = repository.completeSale(CheckoutRequest(draft.saleId,draft.customer.outletId,draft.lines,payment),expectedTotalMinor)
             lastReceipt = receipt; sale = null; page = Page.SALE_DONE; printMessage = null
             // VAN-017: the sale is saved first; the receipt prints after, and a printer problem never touches the sale.
-            startPrint(receipt.saleId,explicit = false,reason = null)
+            if (receipt.fiscalJson == null) startPrint(receipt.saleId,explicit = false,reason = null)
+            else printMessage = "Invoice saved. Preview it before printing; confirm printer paper first."
         } catch (e: CheckoutRefused) {
             message = e.issues.joinToString("\n") { issue -> VanRules.checkoutMessage(issue.problem,issue.productId?.let { id -> products.firstOrNull { it.productId == id }?.name }) }
         }

@@ -87,7 +87,9 @@ export async function issueApproval(db, actor, env, kind, input) {
         ? /^(.+)-[0-9A-F]{8}-\d{4,9}$/.exec(input.receiptNumber)?.[1]
         : input.tripNumber;
     const [r] =
-      await db`select id from van_trips where trip_number=${tripNumber ?? ""} and deleted_at is null`;
+      kind === "void"
+        ? await db`select t.id from van_trips t join van_sales s on s.trip_id=t.id where s.receipt_number=${input.receiptNumber} and t.deleted_at is null`
+        : await db`select id from van_trips where trip_number=${tripNumber ?? ""} and deleted_at is null`;
     tripId = r?.id;
   }
   if (!tripId) throw invalid("No trip matches this reference");
