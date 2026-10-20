@@ -60,11 +60,12 @@ export async function command(c, action, b, authorize, work, portal = false) {
   );
   const hash = sha256Hex(canonicalJson({ action, b }));
   const result = await tx(c.db, async (db) => {
+    await db`select pg_advisory_xact_lock(hashtextextended('mt-workflow',0))`;
+    // A queued request must not retain the actor/grants it had before the lock.
     const actor = portal ? null : await actorFor(db, c.user.id);
     if (!portal && !actor)
       throw new ApiError("forbidden", 403, "Your access is no longer active");
     const cc = { ...c, db, actor, now: Date.now() };
-    await db`select pg_advisory_xact_lock(hashtextextended('mt-workflow',0))`;
     await authorize(cc);
     const [old] =
       await db`select * from mt_commands where user_id=${c.user.id} and request_key=${key}`;

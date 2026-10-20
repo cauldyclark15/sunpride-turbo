@@ -14,18 +14,23 @@ export async function portalAccess(c) {
       401,
       "Sign in to the customer portal",
     );
+  // PostgreSQL now() is the transaction START, which can precede a long lock wait.
+  // Use one fresh server-clock instant for session, membership and hierarchy grants.
+  const [clock] = await c.db`select clock_timestamp() as at`;
+  const checkedAt = new Date(clock.at).getTime(),
+    at = new Date(checkedAt).toISOString();
   const [member] =
     await c.db`select m.* from mt_portal_memberships m join users u on u.id=m.user_id
     join sessions s on s.user_id=u.id and s.id=${c.session.id}
-    where m.user_id=${c.user.id} and u.disabled_at is null and s.revoked_at is null and s.expires_at>now() and s.app='web'
-    and m.effective_from<=now() and (m.effective_to is null or m.effective_to>now())`;
+    where m.user_id=${c.user.id} and u.disabled_at is null and s.revoked_at is null and s.expires_at>${at} and s.app='web'
+    and m.effective_from<=${at} and (m.effective_to is null or m.effective_to>${at})`;
   if (!member)
     throw new ApiError(
       "forbidden",
       403,
       "Customer portal access is not active",
     );
-  const paths = await bindings(c.db, c.now);
+  const paths = await bindings(c.db, checkedAt);
   if (paths.length > 2000)
     throw new ApiError(
       "capacity",

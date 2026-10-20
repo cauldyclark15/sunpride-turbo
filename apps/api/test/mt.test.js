@@ -7,6 +7,7 @@ import { ensureRoot } from "../src/domains/org/identity.js";
 import { resolvePrice } from "../src/domains/orders/pricing.js";
 import { parsePurchaseOrder, csv } from "../src/domains/mt/parsers.js";
 import { deductionFlow } from "../src/domains/mt/metrics.js";
+import { tx } from "@sunpride/db/client";
 
 /** @type {import('./harness.js').Harness} */ let h;
 /** @type {any} */ let admin;
@@ -634,6 +635,94 @@ test("F-309 remittance balances, invoice isolation, ownership/SLA and claim agei
       })
     ).status,
   ).toBe(403);
+});
+
+test("F-306 F-611 queued HTTP writes recheck withdrawn office and customer grants after the workflow lock", async () => {
+  let [deduction] = await h.db`select id from mt_deductions limit 1`;
+  if (!deduction) {
+    const [type] = await h.db`select id from mt_deduction_types limit 1`;
+    expect(
+      (
+        await api(admin, "remittances/capture", {
+          idempotencyKey: crypto.randomUUID(),
+          bindingId: branches[0].id,
+          reference: "QUEUE-CHECK",
+          receivedOn: day(),
+          grossCentavos: 1000,
+          paidCentavos: 900,
+          deductions: [{ typeId: type.id, amountCentavos: 100 }],
+        })
+      ).status,
+    ).toBe(200);
+    [deduction] = await h.db`select id from mt_deductions limit 1`;
+  }
+  const outside = await portalUser("queued-customer", "A"),
+    office = await person("operations", "queued-office", root);
+  for (const portal of [true, false]) {
+    let release = () => {},
+      signal = () => {};
+    const held = new Promise((resolve) => {
+        release = () => resolve(undefined);
+      }),
+      locked = new Promise((resolve) => {
+        signal = () => resolve(undefined);
+      });
+    const blocker = tx(h.db, async (db) => {
+      await db`select pg_advisory_xact_lock(hashtextextended('mt-workflow',0))`;
+      signal();
+      await held;
+    });
+    await locked;
+    const queued = portal
+      ? api(outside, "/api/v1/portal/disputes/submit", {
+          idempotencyKey: crypto.randomUUID(),
+          deductionId: deduction.id,
+          reference: "QUEUED-DENIED",
+          message: "Must be refused after access withdrawal",
+        })
+      : api(office, "intake/preview", {
+          idempotencyKey: crypto.randomUUID(),
+          bindingId: branches[0].id,
+          filename: "queued-office.csv",
+          format: "csv",
+          contentBase64: Buffer.from(
+            `po_number,delivery_date,sku,uom,quantity\nQUEUED-OFFICE,${day()},P1,PC,1\n`,
+          ).toString("base64"),
+        });
+    let outcome;
+    try {
+      let waiting = false;
+      for (let i = 0; i < 200; i++) {
+        const [r] =
+          await h.db`select count(*)::int n from pg_locks l join pg_stat_activity a on a.pid=l.pid where a.datname=current_database() and l.locktype='advisory' and not l.granted`;
+        if (r.n > 0) {
+          waiting = true;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      expect(waiting).toBe(true);
+      if (portal)
+        await h.db`update mt_portal_memberships set effective_to=clock_timestamp() where user_id=${outside.userId}`;
+      else
+        await h.db`update profiles set status='disabled' where id=${office.profileId}`;
+    } finally {
+      release();
+      await blocker;
+      outcome = await queued;
+    }
+    expect(outcome.status).toBe(403);
+  }
+  expect(
+    (
+      await h.db`select count(*)::int n from mt_disputes where reference='QUEUED-DENIED'`
+    )[0].n,
+  ).toBe(0);
+  expect(
+    (
+      await h.db`select count(*)::int n from inbound_purchase_orders where po_number='QUEUED-OFFICE'`
+    )[0].n,
+  ).toBe(0);
 });
 
 test("F-611 external customer has no office capabilities; chain sees sibling branches but not foreign POs/invoices/deductions; disputes persist and revoked membership blocks replay", async () => {
