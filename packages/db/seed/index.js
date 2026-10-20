@@ -5,6 +5,8 @@ import { stockBook } from "./stock.js";
 import { execution } from "./execution.js";
 import { vans } from "./vans.js";
 import { management } from "./management.js";
+import { integrityFleet } from "./integrity.js";
+import { ensureIntegrityFleet } from "./integrity-fleet.js";
 export { resetDemo } from "./store.js";
 
 /** @param {{anchorDate?:string,days?:number}} [options] @param {string[]} [hashes] */
@@ -14,6 +16,7 @@ export function generateDemo(
 ) {
   const data = new Dataset(anchorDate, days);
   const c = company(data, hashes);
+  integrityFleet(data, c);
   // The maintained selling catalog is required by both mobile capture owners.
   for (const store of c.stores) {
     const account = data.add("call_sheet_accounts", store.id, {
@@ -122,6 +125,7 @@ export async function seedDemo(
       const summary = JSON.parse(existing.details);
       if (summary.anchorDate !== anchorDate || summary.days !== days)
         throw new Error("Demo options changed; run --reset before reseeding");
+      await ensureIntegrityFleet(t, summary.anchorDate);
       return { ...summary, duplicate: true };
     }
     const [partial] =

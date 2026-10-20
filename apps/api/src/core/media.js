@@ -1,3 +1,4 @@
+import { inspectUploadedPhoto } from "../domains/integrity/photos.js";
 import { mkdir, rename, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -167,6 +168,11 @@ async function upload(ctx) {
     await ctx.db`
       update files set status = 'stored', path = ${relPath}, stored_at = coalesce(stored_at, now())
       where id = ${uploadId}`;
+    await inspectUploadedPhoto(
+      ctx,
+      file,
+      new Uint8Array(await Bun.file(finalPath).arrayBuffer()),
+    );
     return {
       version: 2,
       blobId: uploadId,

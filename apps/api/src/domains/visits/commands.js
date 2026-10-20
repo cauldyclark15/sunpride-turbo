@@ -1,3 +1,4 @@
+import { evaluateCheckInIntegrity } from "../integrity/detectors.js";
 import { requireCapability } from "../../core/capabilities.js";
 import { canonicalJson } from "../../core/util.js";
 import { rulesAt, missingKinds, ACTIVITY_KINDS } from "./rules.js";
@@ -48,6 +49,8 @@ export async function checkIn(ctx) {
   )
     reject();
   await requireCapability(ctx, "visit.record", ctx.actor.orgUnitId);
+  const integrity = await evaluateCheckInIntegrity(ctx, p);
+  if (!integrity.allowed) reject("mock_location_refused");
   const employee = await employeeAt(ctx.db, ctx.actor.profileId, ctx.now);
   const { outlet, owner } = await accessOutlet(ctx, p.outletId, "visit.record");
   if (

@@ -25,6 +25,8 @@ const A = [
 ];
 /** Independent copy of backend inventory §3 "Full capability grants" (51 rows). */
 const EXPECTED = {
+  "integrity.read": ["super_admin", "admin", "manager", "analyst"],
+  "integrity.review": ["super_admin", "admin", "manager"],
   "admin.manage": ["super_admin", "admin"],
   "org.read": A,
   "people.read": ["super_admin", "admin", "manager", "analyst", "viewer"],
@@ -131,8 +133,8 @@ async function outcome(p) {
 }
 
 describe("capability table", () => {
-  test("51 grants, 8 roles, identical to the inventory table", () => {
-    expect(Object.keys(CAPABILITIES).length).toBe(51);
+  test("F-221 F-606 51 unchanged grants plus 2 integrity grants; same 8 roles", () => {
+    expect(Object.keys(CAPABILITIES).length).toBe(53);
     expect(/** @type {string[]} */ ([...ROLES])).toEqual(A);
     expect(Object.keys(CAPABILITIES).sort()).toEqual(
       Object.keys(EXPECTED).sort(),
@@ -183,7 +185,7 @@ describe("requireCapability matrix", () => {
         }).toEqual({ cap, role, got: want });
         checked++;
       }
-    expect(checked).toBe(51 * 8);
+    expect(checked).toBe(53 * 8);
   });
 
   test("every grant × role with an out-of-scope target: only super_admin and analyst bypass", async () => {

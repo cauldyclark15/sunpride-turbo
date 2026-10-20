@@ -1,4 +1,9 @@
 import { tx } from "@sunpride/db/client";
+import {
+  nativeControl,
+  recordDeviceAssessment,
+  requireDeviceIntegrity,
+} from "../domains/integrity/governance.js";
 import { registerSamplePhone } from "./sample-devices.js";
 import { capabilitiesFor } from "./capabilities.js";
 import {
@@ -57,7 +62,7 @@ function validPassword(password) {
 }
 
 /** @param {import('./context.js').Ctx} ctx @param {string} token @param {number} maxAgeMs */
-function setSessionCookie(ctx, token, maxAgeMs) {
+export function setSessionCookie(ctx, token, maxAgeMs) {
   const secure =
     ctx.url.protocol === "https:" ||
     ctx.req.headers.get("x-forwarded-proto") === "https" ||
@@ -75,7 +80,7 @@ function clearSessionCookie(ctx) {
 }
 
 /** @param {any} db @param {string} userId @param {string} app @param {string|null} deviceKeyId */
-async function createSession(db, userId, app, deviceKeyId) {
+export async function createSession(db, userId, app, deviceKeyId) {
   const token = randomToken("sps_");
   const expiresAt = Date.now() + SESSION_TTL_MS;
   const [row] = await db`
@@ -217,6 +222,24 @@ export function installAuth(router) {
       );
     }
     const { user, session, access } = signedIn;
+    if (native && deviceKeyId) {
+      const profile = await loadProfile(ctx.db, user.id);
+      if (profile) {
+        const [device] =
+          await ctx.db`select * from registered_devices where profile_id=${profile.id} and key_id=${deviceKeyId} and app=${app} and status<>'revoked' order by created_at desc limit 1`;
+        if (device) {
+          await recordDeviceAssessment(ctx.db, device, body.integrity);
+          if (!(await nativeControl(ctx.db, profile.id, deviceKeyId, app))) {
+            try {
+              await requireDeviceIntegrity(ctx.db, device);
+            } catch (e) {
+              await ctx.db`update sessions set revoked_at=now() where id=${session.id}`;
+              throw e;
+            }
+          }
+        }
+      }
+    }
     if (!native) {
       setSessionCookie(ctx, session.token, SESSION_TTL_MS);
       return { user: { id: user.id, email } };
@@ -259,6 +282,26 @@ export function installAuth(router) {
           "Session belongs to another device key",
           "session_invalid",
         );
+      const profile = await loadProfile(ctx.db, row.user_id);
+      if (profile && row.device_key_id) {
+        const [device] =
+          await ctx.db`select * from registered_devices where profile_id=${profile.id} and key_id=${row.device_key_id} and app=${row.app} order by created_at desc limit 1`;
+        if (device) {
+          await recordDeviceAssessment(ctx.db, device, body.integrity);
+          if (
+            !(await nativeControl(
+              ctx.db,
+              profile.id,
+              row.device_key_id,
+              row.app,
+            ))
+          ) {
+            if (device.status !== "active")
+              throw forbidden("Phone is no longer active", "device_revoked");
+            await requireDeviceIntegrity(ctx.db, device);
+          }
+        }
+      }
       const access = await createAccess(ctx.db, row.session_id);
       return {
         version: 2,
@@ -411,6 +454,19 @@ async function nativeMe(ctx) {
     },
     scope,
     permissions: capabilitiesFor(actor.role),
+    deviceControl: await nativeControl(
+      ctx.db,
+      actor.profileId,
+      keyId,
+      String(app),
+    ),
+    handoverRequired:
+      !device &&
+      Boolean(
+        (
+          await ctx.db`select 1 from registered_devices where profile_id=${actor.profileId} limit 1`
+        ).length,
+      ),
     device,
   };
 }

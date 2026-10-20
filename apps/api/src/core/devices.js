@@ -1,4 +1,8 @@
 import { tx } from "@sunpride/db/client";
+import {
+  recordDeviceAssessment,
+  requireDeviceIntegrity,
+} from "../domains/integrity/governance.js";
 import { actorFor } from "./context.js";
 import {
   ApiError,
@@ -109,6 +113,7 @@ export async function devicePerson(db, actor, deviceId, opts = {}) {
     throw forbidden("Device scope changed", "scope_withdrawn");
   if (device.bound_subject && device.bound_subject !== actor.subject)
     throw forbidden("Device identity mismatch", "device_unavailable");
+  await requireDeviceIntegrity(db, device);
   return device;
 }
 
@@ -235,6 +240,12 @@ export function installDevices(router) {
           false,
           { action: "update" },
         );
+      if (ctx.actor && isUuid(body.deviceId) && body.integrity != null) {
+        const [reported] =
+          await ctx.db`select * from registered_devices where id=${body.deviceId} and profile_id=${ctx.actor.profileId} and key_id=${ctx.session?.deviceKeyId ?? null} and app=${ctx.session?.app ?? null}`;
+        if (reported)
+          await recordDeviceAssessment(ctx.db, reported, body.integrity);
+      }
       const device = await devicePerson(ctx.db, ctx.actor, body.deviceId);
       const subject = /** @type {import('./context.js').Actor} */ (ctx.actor)
         .subject;
@@ -333,6 +344,15 @@ export function installDevices(router) {
       if (!(await verifySignature(device.public_key_spki, body.proof, message)))
         return rejected;
       await tx(ctx.db, async (t) => {
+        const current = await actorFor(t, actor.userId);
+        if (
+          !current ||
+          current.profileId !== actor.profileId ||
+          current.role !== actor.role ||
+          current.orgUnitId !== actor.orgUnitId
+        )
+          throw forbidden("Your access changed", "scope_withdrawn");
+        await devicePerson(t, current, device.id, { lock: true });
         const updated = await t`
         update registered_devices
         set bound_subject = ${actor.subject}, credential_id = ${credentialId}, bound_at = now(),
