@@ -33,7 +33,7 @@ GET `/api/v1/coverage/adherence?asOf=YYYY-MM-DD&unitId=&channel=` reads the four
 
 Numerator: distinct planned visits with completed/checked-out executions, excluding rejected late work. Duplicate executions and unplanned calls cannot inflate it. Frequency is achieved signed scheduled calls per outlet. A missing planned week is unknown, never passed. The exit criterion uses the exact ratio strictly above 85% in each of four weeks, not a rounded percentage or a partial current week. It is a software reading, not evidence that Sunpride has accepted a four-week live pilot.
 
-The Coverage & people cockpit contains the review, prior comparison, four-week trend, rep/beat/day/territory drill-through, outlet frequency and next action. The read refuses over 10,000 source rows explicitly.
+The Coverage & people cockpit contains the review, prior comparison, four-week trend, rep/beat/day/territory drill-through, outlet frequency and next action. The read refuses over 50,000 source rows explicitly. The complete current-plus-prior eight-week window for the 300-store sample exceeds 10,000 rows; authorization is checked once per distinct stored unit and current outlet, not once per call.
 
 ## F-203: Android agenda context
 

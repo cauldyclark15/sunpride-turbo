@@ -142,14 +142,24 @@ export async function readAdherence(ctx, b) {
   const allowed = new Set(visible.map((/** @type {any} */ p) => p.id));
   if (!ids.length) return adherenceFacts([], [], asOf);
   const rows =
-    await ctx.db`select s.*,p.assignee_profile_id,p.org_unit_id,p.pjp_source,pv.id as planned_visit_id from coverage_plan_slots s join coverage_plans p on p.id=s.plan_id left join planned_visits pv on pv.plan_slot_id=s.id and pv.status='planned' and pv.deleted_at is null where p.assignee_profile_id in ${ctx.db(ids)} and p.status in ('approved','active','superseded') and p.approval_signature is not null and p.deleted_at is null and s.deleted_at is null and s.kind='outlet_visit' and s.service_date between ${window.priorFrom}::date and ${window.to}::date and s.service_date < (coalesce(p.active_through,p.effective_to) at time zone 'Asia/Manila')::date order by s.service_date,s.id limit 10001`;
-  if (rows.length > 10000)
-    fail("Review exceeds 10,000 planned calls; narrow the team");
+    await ctx.db`select s.*,p.assignee_profile_id,p.org_unit_id,p.pjp_source,pv.id as planned_visit_id from coverage_plan_slots s join coverage_plans p on p.id=s.plan_id left join planned_visits pv on pv.plan_slot_id=s.id and pv.status='planned' and pv.deleted_at is null where p.assignee_profile_id in ${ctx.db(ids)} and p.status in ('approved','active','superseded') and p.approval_signature is not null and p.deleted_at is null and s.deleted_at is null and s.kind='outlet_visit' and s.service_date between ${window.priorFrom}::date and ${window.to}::date and s.service_date < (coalesce(p.active_through,p.effective_to) at time zone 'Asia/Manila')::date order by s.service_date,s.id limit 50001`;
+  if (rows.length > 50000)
+    fail("Review exceeds 50,000 planned calls; narrow the team");
   const slots = [];
   const checked = new Map();
+  const checkedUnits = new Map();
   for (const s of rows) {
     if (!allowed.has(s.assignee_profile_id)) continue;
-    await requireCapability(ctx, "mcp.read", s.org_unit_id);
+    if (!checkedUnits.has(s.org_unit_id)) {
+      try {
+        await requireCapability(ctx, "mcp.read", s.org_unit_id);
+        checkedUnits.set(s.org_unit_id, true);
+      } catch (e) {
+        if (/** @type {any} */ (e).status !== 403) throw e;
+        checkedUnits.set(s.org_unit_id, false);
+      }
+    }
+    if (!checkedUnits.get(s.org_unit_id)) continue;
     if (!checked.has(s.outlet_id)) {
       try {
         await outletAt(ctx, s.outlet_id, ctx.now);
@@ -182,9 +192,9 @@ export async function readAdherence(ctx, b) {
   }
   const planned = slots.map((s) => s.plannedVisitId).filter(Boolean);
   const executions = planned.length
-    ? await ctx.db`select planned_visit_id,state,late_review_status from visit_executions where planned_visit_id in ${ctx.db(planned)} and deleted_at is null limit 10001`
+    ? await ctx.db`select planned_visit_id,state,late_review_status from visit_executions where planned_visit_id in ${ctx.db(planned)} and deleted_at is null limit 50001`
     : [];
-  if (executions.length > 10000)
-    fail("Review exceeds 10,000 executions; narrow the team");
+  if (executions.length > 50000)
+    fail("Review exceeds 50,000 executions; narrow the team");
   return adherenceFacts(slots, executions, asOf);
 }
