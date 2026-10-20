@@ -101,7 +101,7 @@ The `jobs` table carries `run_at` and coalescing keys for deferred work. Rollup 
 
 | Port | Use |
 |---|---|
-| 5437 | Postgres. The URL is in `~/.sunpride-keys/pg-dev-url`. Never print it. |
+| 5432 | Postgres. The URL is in `~/.sunpride-keys/pg-dev-url`. Never print it. |
 | 4310 | API |
 | 4300 | Web |
 
