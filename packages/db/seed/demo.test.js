@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { createDb } from "../src/client.js";
+import { createDb, tx } from "../src/client.js";
 import { migrate } from "../src/migrate.js";
 import { generateDemo, seedDemo, resetDemo } from "./index.js";
 import {
@@ -94,6 +94,19 @@ describe("90-day Sunpride demo", () => {
     expect(repeated.duplicate).toBe(true);
     const counts = await db`select table_name,count(*)::int as n from sample_data_rows where batch=${BATCH} group by table_name`;
     expect(repeated.rows).toEqual(Object.fromEntries(counts.map((/** @type {any} */ r) => [r.table_name, r.n])));
+  });
+  test("F-020 F-025 indexed audit reset still rejects unowned rows and rolls back the authorized deletion", async () => {
+    const owned=crypto.randomUUID(),foreign=crypto.randomUUID();
+    await expect(tx(db,async t=>{
+      await t`insert into audit_logs(id,subject,action,entity_type,entity_id) values(${owned},'fixture','fixture','fixture',${owned}),(${foreign},'fixture','fixture','fixture',${foreign})`;
+      await t`create temporary table seed_owned_reset(table_name text not null,row_id uuid not null,primary key(table_name,row_id)) on commit drop`;
+      await t`insert into seed_owned_reset values('audit_logs',${owned})`;
+      await t`select set_config('sunpride.seed_reset',${BATCH},true)`;
+      const rows=await t`delete from audit_logs where id=${owned} returning id`;
+      expect(rows).toHaveLength(1);
+      await t`delete from audit_logs where id=${foreign}`;
+    })).rejects.toThrow('Audit is append-only');
+    expect((await db`select id from audit_logs where id in (${owned},${foreign})`)).toHaveLength(0);
   });
   test("fresh fully migrated database seeds in under sixty seconds", () => {
     expect(seedMs).toBeLessThan(60_000);
