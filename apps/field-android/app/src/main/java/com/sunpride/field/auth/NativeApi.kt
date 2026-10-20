@@ -12,7 +12,11 @@ import java.io.IOException
 /** Cookie-free v2 HTTP. Session credentials never leave AuthClient; only access tokens reach this seam. */
 class NativeApi(private val environment: AppEnvironment, private val auth: AuthClient,
     private val http: OkHttpClient = defaultHttpClient()) {
+    private val catalogueImages=com.sunpride.catalogue.CatalogueHttp(http)
+    fun image(image:com.sunpride.catalogue.CatalogueImage):ByteArray? =
+        if(!environment.isReady)null else catalogueImages.fetch(environment.apiOrigin,image,auth::accessToken,auth::invalidateAccessToken)
     fun me(): JSONObject = request("GET", "/api/me", null)
+    fun get(path: String): JSONObject = request("GET", path, null)
     fun post(path: String, body: JSONObject): JSONObject = request("POST", path, body.toString().toByteArray())
     fun signed(path: String, body: JSONObject, signer: DeviceSigner, deviceId: String): JSONObject =
         request("POST", path, body.toString().toByteArray(Charsets.UTF_8), signer, deviceId)

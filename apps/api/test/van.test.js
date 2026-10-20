@@ -552,8 +552,10 @@ test("owner day list includes full settlement and CSV protects formulas", async 
   expect(exportRes.headers.get("content-type")).toContain("text/csv");
   expect(await exportRes.text()).toContain(trip.tripNumber);
 });
-test("F-107 full van bundle uses exact root keys, own scope and typed policy", async () => {
-  const r = await signedPost(h, who, "/api/sync/pull", {
+test("F-616 full van bundle preserves strict legacy products and explicitly negotiates catalogue metadata", async () => {
+  await h.db`insert into product_catalogue_versions(product_id,revision,source,source_reference,description,ingredients,allergens,storage,shelf_life_days,case_specifications,effective_from)
+    values(${product},1,'sample','F-616 fixture','F-616 sample product details','SAMPLE ONLY','SAMPLE ONLY','SAMPLE ONLY',30,'SAMPLE ONLY',now()-interval '1 day')`;
+  const request = {
     version: 2,
     app: "van-android",
     deviceId: who.deviceId,
@@ -567,9 +569,22 @@ test("F-107 full van bundle uses exact root keys, own scope and typed policy", a
       },
     ],
     limit: 100,
-  });
+  };
+  const r = await signedPost(h, who, "/api/sync/pull", request);
   expect(r.res.status).toBe(200);
   const d = r.body.bundles[0].data;
+  expect(d.products[0].catalogue).toBeUndefined();
+  const extended = await signedPost(h, who, "/api/sync/pull", {
+    ...request,
+    scopes: request.scopes.map((scope) => ({
+      ...scope,
+      params: { ...scope.params, catalogue: true },
+    })),
+  });
+  expect(extended.res.status).toBe(200);
+  expect(extended.body.bundles[0].data.products[0].catalogue.description).toBe(
+    "F-616 sample product details",
+  );
   expect(Object.keys(d).sort()).toEqual(
     [
       "serviceDate",

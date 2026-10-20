@@ -47,7 +47,7 @@ object BackNavigation {
             else -> BackStep.CloseVisit
         }
         s.ready && s.page == "customer" -> BackStep.ToPage("customers")
-        s.ready && (s.page == "route" || s.page == "customers" || s.page == "team") -> BackStep.ToPage("home")
+        s.ready && (s.page == "route" || s.page == "customers" || s.page == "team" || s.page == "census" || s.page == "catalogue") -> BackStep.ToPage("home")
         else -> BackStep.Exit
     }
 }

@@ -83,6 +83,8 @@ interface FieldStore {
      * offline lease). Unsent intents, acks and photos stay encrypted for supervised recovery.
      */
     suspend fun purgeCacheForReview() = holdForReview()
+    /** F-011 current scope/snapshot grant for offline census setup, never for a held or expired cache. */
+    suspend fun censusCacheGrant(expected: StoreScope, now: Long): String? = null
     suspend fun history(): List<Pair<IntentRow, OutboxRow>> = emptyList()
     suspend fun intent(requestId: String): IntentRow? = null
     suspend fun delta(entity: String, id: String): DeltaRow? = null
@@ -381,6 +383,10 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
     override suspend fun plannedVisits(): List<SnapshotItem> = read("visit")
     override suspend fun tasks(): List<SnapshotItem> = read("task")
     override suspend fun route(): String? = metadata().takeIf { it.activeGeneration != null }?.routeJson
+    override suspend fun censusCacheGrant(expected: StoreScope, now: Long): String? =
+        if(expected != identity) null else metadata().let {
+            it.activeGeneration?.takeIf { _ -> !it.held && it.cacheExpiresAt != null && now < it.cacheExpiresAt }
+        }
     override suspend fun isLeaseValid(now: Long): Boolean = metadata().let {
         !it.held && it.leaseExpiresAt != null && now < it.leaseExpiresAt && it.activeGeneration != null
     }
@@ -391,7 +397,7 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
     internal suspend fun enqueueWithCheckpoint(intent: IntentRow, now: Long, checkpoint: () -> Unit) {
         require(intent.account == a && intent.deviceId == d && intent.scope == s)
         require(intent.requestId.isNotBlank() && intent.clientVisitId.isNotBlank() &&
-            intent.kind in setOf("visit.checkIn", "visit.activity", "visit.checkOut") &&
+            intent.kind in setOf("visit.checkIn", "visit.activity", "visit.checkOut", com.sunpride.field.census.CensusRules.KIND) &&
             intent.serializedOperation.isNotBlank())
         db.withTransaction {
             check(isLeaseValid(now)) { "Offline lease expired or held" }
@@ -406,6 +412,8 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
                 VisitCallRules.requireEnd(intent.clientVisitId, payload ?: error("Missing outcome"),
                     history().map { it.first to it.second.state })
             }
+            if (intent.kind == com.sunpride.field.census.CensusRules.KIND)
+                com.sunpride.field.census.CensusRules.validate(payload ?: error("Missing census capture"))
             VisitCompletion.requireOpenForActivity(intent, history().map { it.first to it.second.state })
             CallSheetQueueRules.validate(this@RoomFieldStore, intent)
             ActivityQueueRules.validate(this@RoomFieldStore, intent)

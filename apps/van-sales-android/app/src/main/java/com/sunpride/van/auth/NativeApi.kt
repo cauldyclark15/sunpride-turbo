@@ -11,6 +11,9 @@ import java.io.IOException
 /** Cookie-free v2 reads/device commands and explicit location consent. One access refresh on 401. */
 class NativeApi(private val environment: AppEnvironment, private val auth: AuthClient,
     private val http: OkHttpClient = defaultHttpClient()) {
+    private val catalogueImages=com.sunpride.catalogue.CatalogueHttp(http)
+    fun image(image:com.sunpride.catalogue.CatalogueImage):ByteArray? =
+        if(!environment.isReady)null else catalogueImages.fetch(environment.siteUrl,image,auth::accessToken,auth::invalidateAccessToken)
     fun locationConsent(enabled: Boolean) {
         val o=request("/api/v1/location/consent",JSONObject().put("enabled",enabled))
         if (o.opt("enabled") != enabled || o.optLong("effectiveFrom",0) <= 0) throw AuthFailure(AuthFailure.Kind.SERVER)

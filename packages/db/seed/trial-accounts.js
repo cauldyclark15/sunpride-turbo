@@ -12,6 +12,7 @@ import { homedir } from "node:os";
 import { createDb, tx } from "../src/client.js";
 import { BATCH, rowId } from "./store.js";
 import { placeDemoStock } from "./placement.js";
+import { seedFieldHierarchy } from "./field-hierarchy.js";
 import {
   addTrialRow,
   bindSampleSubject,
@@ -35,6 +36,24 @@ export const TRIAL_ROLES = Object.freeze([
     label: "Sales manager",
     description:
       "Reviews regional sales, targets and field performance, and approves plans and orders.",
+  },
+  {
+    slug: "areamanager",
+    role: "manager",
+    template: "trial-areamanager",
+    count: 2,
+    label: "Area manager",
+    description:
+      "Reviews the sample Cebu area and its territories, teams and calls.",
+  },
+  {
+    slug: "regionalmanager",
+    role: "manager",
+    template: "trial-regionalmanager",
+    count: 2,
+    label: "Regional manager",
+    description:
+      "Reviews the sample Visayas region and its areas, territories and teams.",
   },
   {
     slug: "supervisor",
@@ -242,11 +261,12 @@ export async function createTrialAccounts(
       /** @type {Credential[]} */ const accounts = [];
       let created = 0,
         rotated = 0;
+      await seedFieldHierarchy(t);
       for (const persona of TRIAL_ROLES) {
         const [template] =
           await t`select * from profiles where id=${rowId("profiles", persona.template)} and status='active' and deleted_at is null`;
         if (!template) throw new Error("Trial sample role template is missing");
-        for (let n = 1; n <= perRole; n++) {
+        for (let n = 1; n <= (persona.count ?? perRole); n++) {
           const slug = `${persona.slug}${n}`;
           const email = `${slug}@trial.sunpride.test`;
           const [existing] =

@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
-import { createDb } from "../src/client.js";
+import { createDb, tx } from "../src/client.js";
+import { seedSpecMasters } from "./spec-masters.js";
+import { seedFieldHierarchy } from "./field-hierarchy.js";
 import { seedDemo, resetDemo } from "./index.js";
 import { seedSapDemo } from "./sap.js";
 import { seedDistributors } from "./distributors.js";
@@ -35,6 +37,11 @@ if (
   const db = createDb(process.env.DATABASE_URL, { max: 1 });
   try {
     const result = reset ? await resetDemo(db) : await seedDemo(db, options);
+    if (!reset)
+      await tx(db, async (t) => {
+        await seedFieldHierarchy(t);
+        await seedSpecMasters(t);
+      });
     if (sap) console.log(JSON.stringify(await seedSapDemo(db), null, 2));
     const distributorSamples = distributors
       ? await seedDistributors(db, { anchorDate: options.anchorDate })

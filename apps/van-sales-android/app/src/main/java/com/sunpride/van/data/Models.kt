@@ -61,7 +61,8 @@ data class Load(val loadId: String, val status: String, val lines: List<LoadLine
  */
 data class BarcodeUnit(val barcode: String, val uomCode: String, val baseQuantity: Long?)
 data class Product(val productId: String, val code: String, val name: String, val uomCode: String,
-    val quantityScale: Long, val barcodes: List<String>, val barcodeUnits: List<BarcodeUnit> = emptyList()) {
+    val quantityScale: Long, val barcodes: List<String>, val barcodeUnits: List<BarcodeUnit> = emptyList(),
+    val catalogue: com.sunpride.catalogue.CatalogueDetails? = null) {
     fun displayQuantity(base: Long): String = BigDecimal.valueOf(base).divide(BigDecimal.valueOf(quantityScale),java.math.MathContext.DECIMAL128).stripTrailingZeros().toPlainString()
 }
 /**

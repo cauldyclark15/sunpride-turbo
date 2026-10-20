@@ -49,7 +49,8 @@ object VanBootstrapCodec {
         require(units.all { it.barcode in barcodes && (it.baseQuantity == null || it.baseQuantity > 0) })
         require(units.map { it.barcode }.distinct().size == units.size)
         return Product(o.getString("productId"), o.getString("code"), o.getString("name"), o.getString("uomCode"),
-            base(o,"quantityScale"), barcodes, units)
+            base(o,"quantityScale"), barcodes, units,
+            o.optJSONObject("catalogue")?.let(com.sunpride.catalogue.CatalogueDetails::decode))
     }
     fun customer(o: JSONObject): Customer {
         val mode = when {
@@ -101,7 +102,10 @@ object VanBootstrapCodec {
     fun decode(text: String): VanBootstrap = try {
         val o = JSONObject(text)
         o.remove("_v2")
-        VanWireSchema.validate(o)
+        // F-616: validate the new metadata independently while preserving strict frozen v1 fields.
+        val legacy = JSONObject(o.toString())
+        objects(legacy.getJSONArray("products")).forEach { it.remove("catalogue") }
+        VanWireSchema.validate(legacy)
         if (o.getString("type") != "van.bootstrap.response") throw VanWireFailure()
         val day = o.getString("serviceDate"); LocalDate.parse(day)
         val t = o.optJSONObject("trip")?.let(::trip)

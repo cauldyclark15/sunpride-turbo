@@ -220,7 +220,10 @@ class VisitSync(private val gateway: SignedVisitGateway, private val store: Fiel
     }
     private suspend fun push() {
         while (true) {
-            val pending = store.pending().take(20)
+            val queued = store.pending().take(20)
+            // F-011: one bounded photo operation per HTTP envelope (1 MiB API cap).
+            val pending = if (queued.firstOrNull()?.first?.kind == com.sunpride.field.census.CensusRules.KIND) queued.take(1)
+                else queued.takeWhile { it.first.kind != com.sunpride.field.census.CensusRules.KIND }
             if (pending.isEmpty()) return
             val ready = mutableListOf<IntentRow>(); val wire = mutableListOf<String>()
             for ((intent, _) in pending) {
@@ -228,7 +231,7 @@ class VisitSync(private val gateway: SignedVisitGateway, private val store: Fiel
                     if (ready.isEmpty()) return else break // keep original bytes queued until the required photo is attached
                 }
                 val op = JSONObject(intent.serializedOperation)
-                if (intent.kind != "visit.checkIn") {
+                if (intent.kind != "visit.checkIn" && intent.kind != com.sunpride.field.census.CensusRules.KIND) {
                     val deps = op.getJSONArray("dependsOn")
                     val dependency = deps.getString(0)
                     val ack = store.ack(dependency)

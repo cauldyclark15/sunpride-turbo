@@ -34,6 +34,16 @@ class VanSyncClientTest {
         override fun upload(url: String,jpeg: ByteArray,capability: String): Pair<Int,String> { uploaded=jpeg; return uploadReply }
     }
     private fun client(t: Transport)=VanSyncClient(t,signer,"d",identity)
+    @Test fun f616BootstrapExplicitlyNegotiatesCatalogueWhileKeepingV2Envelope()=runBlocking {
+        val t=Transport(ArrayDeque(listOf(200 to snapshot())))
+        client(t).bootstrap()
+        val request=JSONObject(String(t.bodies.single()))
+        assertEquals(2,request.getInt("version"))
+        val scope=request.getJSONArray("scopes").getJSONObject(0)
+        assertEquals("van.bundle",scope.getString("projection"))
+        assertTrue(scope.getJSONObject("params").getBoolean("catalogue"))
+        Unit
+    }
     @Test fun first401RefreshesOnceWithFreshProofAndExplicitServerTimestamp()=runBlocking {
         val t=Transport(ArrayDeque(listOf(401 to "",200 to snapshot())))
         client(t).bootstrap(); assertEquals(listOf(false,true),t.refreshes); assertEquals(2,t.challenges)

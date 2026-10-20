@@ -62,8 +62,8 @@ sealed interface LocationCapture {
 
 /** Picks the fix the server is most likely to accept from a stream of fused/GPS/network updates. */
 object FixSelector {
-    fun reliable(fix: LocationFix, at: Long): Boolean = !fix.mockSignal && fix.provider != "unknown" &&
-        fix.accuracyMeters <= LocationPolicy.MAX_ACCURACY_METERS && fix.fixTime <= at &&
+    fun reliable(fix: LocationFix, at: Long, accuracyExclusive: Double? = null): Boolean = !fix.mockSignal && fix.provider != "unknown" &&
+        fix.accuracyMeters <= LocationPolicy.MAX_ACCURACY_METERS && (accuracyExclusive == null || fix.accuracyMeters < accuracyExclusive) && fix.fixTime <= at &&
         at - fix.fixTime <= LocationPolicy.MAX_FIX_AGE_MS
 
     /** Fresh beats stale, then a non-mock fix beats a mock one, then the tighter accuracy wins. */

@@ -140,6 +140,13 @@ fun FieldApp(
     val minuteNow by remember { androidx.compose.runtime.derivedStateOf { now / 60_000 * 60_000 } }
     val ready = controller.state is EnrollmentState.Ready
     val status = controller.today.syncStatus.copy(offline = offline)
+    // F-616 prefetch after a verified snapshot/sync, never on every one-second UI pulse.
+    LaunchedEffect(backend,ready,controller.today.lastSynced) {
+        if(ready && controller.today.lastSynced!=null) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val job=kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]
+            runCatching { backend?.warmCatalogueImages { job?.isActive!=false } }
+        }
+    }
     // SP-0136 live map: the work day that bounds location sharing (consent, Start/End day, indicator).
     val workDayHost = remember(backend) { backend?.workDay }
     // Read off the main thread (it resolves the signed-in account through the encrypted session).
@@ -243,7 +250,7 @@ fun FieldApp(
                             ?: if (controller.orderOpen && controller.orderReview) "Review" else if (controller.orderOpen) "Order"
                             else if (controller.callSheetOpen) "Call sheet" else "Visit", style = MaterialTheme.typography.titleMedium)
                     } else if (controller.state != EnrollmentState.SignedOut && !locked && (page == "account" || page == "change-password" || page == "sync" || page == "support" ||
-                        (ready && (page == "route" || page == "customers" || page == "customer" || page == "team")))) Row(verticalAlignment = Alignment.CenterVertically) {
+                        (ready && (page == "route" || page == "customers" || page == "customer" || page == "team" || page == "census")))) Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = goBack,
                             modifier = Modifier.height(48.dp).testTag(when (page) {
                                 "sync" -> "sync-back"; "support" -> "support-back"; "route" -> "route-back"
@@ -254,7 +261,7 @@ fun FieldApp(
                         }
                         Text(when (page) {
                             "change-password" -> "Change password"; "sync" -> "Sync"; "support" -> "Support info"; "route" -> "Route"
-                            "customers" -> "Customers"; "customer" -> "Outlet"; "team" -> "Team"; else -> "Account"
+                            "customers" -> "Customers"; "customer" -> "Outlet"; "team" -> "Team"; "census" -> "Census"; else -> "Account"
                         }, style = MaterialTheme.typography.titleMedium,
                             modifier = when (page) {
                                 "account" -> Modifier.testTag("account-title"); "route" -> Modifier.testTag("route-title")
@@ -314,6 +321,12 @@ fun FieldApp(
                         onAutostart = { batteryGuide.openAutostart(context) },
                         onDone = { page = "home" }, modifier = modifier)
                 }
+                ready && page == "catalogue" -> androidx.compose.runtime.key(backend?.authorizationEpoch) {
+                    com.sunpride.field.catalogue.FieldCatalogue(backend, { page = "home" }, modifier)
+                }
+                ready && page == "census" -> androidx.compose.runtime.key(backend?.authorizationEpoch) {
+                    com.sunpride.field.census.CensusScreen(backend, location, { page = "home" }, modifier)
+                }
                 ready && page == "sync" -> SyncDetails(status, onDismiss = { page = "home" },
                     onSync = controller::syncNow, busy = controller.busy, modifier = modifier)
                 controller.diagnostic != null && visits && ready && controller.photoCaptureOpen ->
@@ -349,6 +362,8 @@ fun FieldApp(
                     onVisit = controller::openDiagnostic, diagnosticEnabled = visits, modifier = modifier, offline = offline,
                     unplannedEnabled = FieldFeature.UNPLANNED_VISITS in features,
                     onRoute = { page = "route" }, onCustomers = { page = "customers" },
+                    onCensus = if (visits) ({ page = "census" }) else null,
+                    onCatalogue = { page = "catalogue" },
                     onTeam = if (FieldFeature.TEAM in features) ({ page = "team" }) else null,
                     workDay = dayView?.let { view -> {
                         com.sunpride.field.ui.location.WorkDayCard(view, dayBusy,
@@ -506,6 +521,7 @@ fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: (
     modifier: Modifier = Modifier, onVisit: (VisitDisplay) -> Unit = {}, diagnosticEnabled: Boolean = false,
     offline: Boolean = false, onRoute: (() -> Unit)? = null, onCustomers: (() -> Unit)? = null,
     onTeam: (() -> Unit)? = null, unplannedEnabled: Boolean = diagnosticEnabled,
+    onCensus: (() -> Unit)? = null, onCatalogue: (() -> Unit)? = null,
     /** SP-0136 work-day card (Start day / End day, location sharing status). */
     workDay: (@Composable () -> Unit)? = null) {
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())
@@ -525,6 +541,14 @@ fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: (
             ListRow(next?.let { "Next: ${it.visit.outlet}" } ?: "All stops done",
                 "${data.visits.size} stops · distance and directions", "route", Modifier.testTag("route-open"),
                 onClick = onRoute)
+        }
+        if (onCatalogue != null) SectionCard("Products") {
+            ListRow("Product catalogue", "Search, scan and read saved product details offline", "store",
+                Modifier.testTag("catalogue-open"), onClick = onCatalogue)
+        }
+        if (onCensus != null) SectionCard("Outlet universe") {
+            ListRow("Outlet census", "Capture a new store, GPS and storefront photo offline", "store",
+                Modifier.testTag("census-open"), onClick = onCensus)
         }
         if (onTeam != null && data.supervisor) SectionCard("Team") {
             ListRow("Your team today", "Coverage and exceptions for your direct reports", "team",

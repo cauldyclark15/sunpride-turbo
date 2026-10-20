@@ -132,7 +132,7 @@ fun PhotoCaptureScreen(controller: FieldController, modifier: Modifier = Modifie
 }
 
 @Composable
-private fun CameraPreview(onReady: (ImageCapture) -> Unit, onFailed: () -> Unit, modifier: Modifier) {
+internal fun CameraPreview(onReady: (ImageCapture) -> Unit, onFailed: () -> Unit, modifier: Modifier) {
     val context = LocalContext.current
     val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     val view = remember { PreviewView(context).apply {

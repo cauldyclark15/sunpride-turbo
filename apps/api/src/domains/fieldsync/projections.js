@@ -4,6 +4,7 @@ import {
   configurationsForApp,
   hasConfiguredFlowsForApp,
 } from "../callflow/engine.js";
+import { catalogueMetadata } from "../masters/catalogue.js";
 import { inventoryRows, PHOTO_TYPES } from "./reference.js";
 import { requireCapability } from "../../core/capabilities.js";
 import { canonicalJson, sha256Hex } from "../../core/util.js";
@@ -344,7 +345,9 @@ async function bundleData(ctx) {
       where b.product_id=${p.id} and b.active and b.deleted_at is null and u.deleted_at is null order by b.barcode limit 501`,
       500,
     );
+    const catalogue = await catalogueMetadata(db, p.id, ctx.now);
     products.push({
+      ...(catalogue ? { catalogue } : {}),
       id: p.id,
       code: p.code,
       name: p.name,

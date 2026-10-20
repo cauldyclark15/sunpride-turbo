@@ -101,6 +101,11 @@ android {
     testOptions { unitTests.isReturnDefaultValues = true }
     sourceSets.getByName("main").java.srcDir(rootProject.file("../../packages/callflow-native/src/main/kotlin"))
     sourceSets.getByName("test").java.srcDir(rootProject.file("../../packages/callflow-native/src/test/kotlin"))
+    // F-616: one catalogue and scanner implementation for both Android products.
+    sourceSets.getByName("main").java.srcDir(rootProject.file("../../packages/native-catalogue/src/main/java"))
+    sourceSets.getByName("main").assets.srcDir(rootProject.file("../api/assets"))
+    sourceSets.getByName("test").java.srcDir(rootProject.file("../../packages/native-catalogue/src/test/java"))
+    sourceSets.getByName("androidTest").java.srcDir(rootProject.file("../../packages/native-catalogue/src/androidTest/java"))
     @Suppress("UnstableApiUsage")
     defaultConfig.javaCompileOptions.annotationProcessorOptions.arguments["room.schemaLocation"] =
         "$projectDir/schemas"
@@ -138,6 +143,7 @@ dependencies {
     implementation(libs.camera.camera2)
     implementation(libs.camera.lifecycle)
     implementation(libs.camera.view)
+    implementation(libs.zxing.core) // F-616: reuse the van offline barcode decoder.
     // SP-0128 fingerprint/face sign-in: BiometricPrompt (needs a FragmentActivity).
     implementation(libs.biometric)
     // SP-0140: a FragmentActivity that accepts androidx.activity permission request codes (see libs.versions.toml).

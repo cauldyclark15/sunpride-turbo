@@ -40,6 +40,7 @@ import java.time.format.DateTimeFormatter
             }
             // SP-0137: visible while the trip is on the road.
             LocationSharingRow(c)
+            ListRow("Product catalogue","Offline details, images and pack hierarchy","open-catalogue",onClick = { c.open(Page.CATALOGUE) })
             ListRow("Find product","Search or scan · stock and price","open-products",onClick = { c.open(Page.PRODUCTS) })
             ListRow("Truck stock","Available and damaged","open-stock",onClick = { c.open(Page.STOCK) })
             ListRow("Customers","Your route and nearby stores","open-customers",onClick = { c.open(Page.CUSTOMERS) })

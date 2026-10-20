@@ -11,7 +11,8 @@
     "lint": "tsc -p jsconfig.json"
   },
   "dependencies": {
-    "@sunpride/db": "workspace:*"
+    "@sunpride/db": "workspace:*",
+    "jpeg-js": "0.4.4"
   },
   "devDependencies": {
     "bun-types": "1.3.14",

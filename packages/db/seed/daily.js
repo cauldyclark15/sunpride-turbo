@@ -2,6 +2,7 @@
 import { createDb, tx } from "../src/client.js";
 import { seedDistributors } from "./distributors.js";
 import { company } from "./company.js";
+import { seedSpecMasters } from "./spec-masters.js";
 import { execution } from "./execution.js";
 import { vans } from "./vans.js";
 import { management } from "./management.js";
@@ -990,6 +991,7 @@ export async function advanceDemo(db, { date = todayManila() } = {}) {
   if (!manifest)
     throw new Error("Demo daily advance requires an existing seeded company");
   await ensureCallflowSamples(db); // F-006 F-107: additive policies for existing demos, never reset.
+  await tx(db, seedSpecMasters);
   const original = JSON.parse(manifest.details);
   const days = [];
   for (

@@ -18,6 +18,7 @@ import {
   TradeMarketingWorkspace,
   FinanceClaimsWorkspace,
 } from "./tpm/tpm-workspace";
+import { CensusReview } from "./spec-masters/review";
 import { CallSheetsWorkspace } from "./call-sheets/call-sheets-workspace";
 import { lazyWorkspace } from "./cockpit/lazy-workspace";
 import { SalesForcePanels } from "./coverage-workspace";
@@ -184,6 +185,7 @@ function ModuleContent({ module }: { module: WebModuleSlug }): ReactNode {
           <VanVoidApproval />
           <VanCashApproval />
           <VanStockApproval />
+          <CensusReview />
         </>
       );
     case "master-data":
