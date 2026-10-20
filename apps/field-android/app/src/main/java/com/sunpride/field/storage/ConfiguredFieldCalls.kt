@@ -34,7 +34,7 @@ object ConfiguredFieldCalls {
     fun config(rows: List<Pair<IntentRow,String>>, clientVisitId: String): JSONObject? = rows.firstOrNull {
         it.first.clientVisitId == clientVisitId && it.first.kind == "visit.checkIn" && it.second in setOf("pending","sending","done")
     }?.first?.let(::optionalPayload)?.let { if(it.has("callFlowSnapshot") && !it.isNull("callFlowSnapshot")) it.getJSONObject("callFlowSnapshot") else null }
-    fun adapter(row: IntentRow): String? = if (row.kind == RetailCaptureQueue.KIND) payload(row).getString("kind") else CallFlowEngine.fieldAdapter(if (row.kind == "visit.activity") payload(row).getJSONObject("activity").getString("kind") else row.kind)
+    fun adapter(row: IntentRow): String? = if (row.kind == "availability.record") { if (payload(row).optBoolean("complete")) "availability" else null } else if (row.kind == RetailCaptureQueue.KIND) payload(row).getString("kind") else CallFlowEngine.fieldAdapter(if (row.kind == "visit.activity") payload(row).getJSONObject("activity").getString("kind") else row.kind)
     fun done(config: JSONObject, rows: List<Pair<IntentRow,String>>, clientVisitId: String): Set<String> = rows.filter {
         it.first.clientVisitId == clientVisitId && it.second in setOf("pending","sending","done")
     }.mapNotNull { adapter(it.first)?.let { a -> CallFlowEngine.keyFor(config,a) } }.toSet()

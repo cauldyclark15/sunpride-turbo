@@ -32,6 +32,7 @@ import {
   launchStatus,
 } from "../src/domains/availability/metrics.js";
 import { install } from "../src/domains/availability/index.js";
+import { advance } from "../src/domains/callflow/engine.js";
 
 mock.module("../src/domains/org/scope.js", () => ({
   scopeFilterForActor: async (
@@ -154,6 +155,39 @@ beforeAll(async () => {
 });
 afterAll(async () => {
   await h?.close();
+});
+
+test("F-017 F-211 canonical versioned MSL wins over the legacy availability copy", async () => {
+  await expect(
+    tx(h.db, async (/** @type {any} */ db) => {
+      const channelId = id(),
+        mslId = id(),
+        versionId = id();
+      await db`insert into master_definitions(id,kind,code) values(${channelId},'channel',${channelId}),(${mslId},'msl',${mslId})`;
+      await db`insert into master_versions(master_id,version,label,status,data,effective_from,actor_profile_id,reason) values(${channelId},1,'General trade','active',${{}},${early},${admin.profile.id},'Fixture channel')`;
+      await db`insert into master_versions(id,master_id,version,label,status,data,effective_from,actor_profile_id,reason) values(${versionId},${mslId},1,'Canonical MSL','active',${{ channelId, subchannelId: null, outletClass: "A", productIds: [p2] }},${early},${admin.profile.id},'Fixture MSL')`;
+      await db`update outlets set channel_id=${channelId} where id=${outlet}`;
+      const snapshot = await callSnapshot(
+        { ...context(field), db },
+        outlet,
+        day,
+        false,
+      );
+      if (!snapshot.msl) throw new Error("Canonical MSL missing");
+      expect(snapshot.msl.id).toBe(versionId);
+      expect(snapshot.msl.label).toBe("Canonical MSL");
+      expect(
+        snapshot.lines
+          .filter((/** @type {any} */ p) => p.required)
+          .map((/** @type {any} */ p) => p.productId),
+      ).toEqual([p2]);
+      expect(
+        snapshot.lines.find((/** @type {any} */ p) => p.productId === p2)
+          ?.minimumBase,
+      ).toBe(1);
+      throw new Error("Rollback isolated canonical MSL fixture");
+    }),
+  ).rejects.toThrow("Rollback isolated canonical MSL fixture");
 });
 
 test("F-211 F-219 office setup exposes bounded current territory choices", async () => {
@@ -366,6 +400,26 @@ test("F-212 F-213 field checklist persists all lines, immutable snapshot, absent
   );
   expect(snapshot.lines.length).toBe(2);
   const checkId = id();
+  const [definition] =
+    await h.db`insert into call_flow_definitions(channel_profile,version,label,steps,effective_from,source,published_by) values('sa2_availability',1,'Availability integration',${[{ key: "availability", adapter: "availability", required: true, condition: "always", label: "Availability" }]},${early},'TEST fixture','fixture') returning *`;
+  const [call] =
+    await h.db`insert into call_executions(client_call_id,profile_id,device_id,org_unit_id,outlet_id,visit_id,service_date,definition_id,definition_snapshot,policy_snapshot,reasons_snapshot,source,started_at) values(${callKey},${field.profile.id},${field.deviceId},${unit},${outlet},${visitId},${day},${definition.id},${definition},${{}},${[]},'unplanned',${early}) returning *`;
+  const operationContext = {
+    ...context(field),
+    device: { id: field.deviceId },
+    op: { clientOpId: id() },
+    payload: { deviceTime: Date.now() },
+  };
+  await expect(
+    tx(h.db, (/** @type {any} */ db) =>
+      advance({ ...operationContext, db }, call, "availability", checkId),
+    ),
+  ).rejects.toThrow("Check every MSL line");
+  expect(
+    (
+      await h.db`select count(*)::int n from call_step_events where call_id=${call.id}`
+    )[0].n,
+  ).toBe(0);
   const payload = {
     checkId,
     snapshotId: snapshot.snapshotId,
@@ -379,8 +433,13 @@ test("F-212 F-213 field checklist persists all lines, immutable snapshot, absent
     ],
   };
   await tx(h.db, (/** @type {any} */ db) =>
-    record({ ...context(field, payload), db }),
+    record({ ...operationContext, ...context(field, payload), db }),
   );
+  expect(
+    await h.db`select adapter,entity_id from call_step_events where call_id=${call.id}`,
+  ).toEqual([
+    expect.objectContaining({ adapter: "availability", entity_id: checkId }),
+  ]);
   const [saved] =
     await h.db`select * from availability_checks where id=${checkId}`;
   expect(saved.required_count).toBe(2);

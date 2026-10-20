@@ -48,6 +48,11 @@ class ConfiguredFieldCallsTest {
         c.getJSONObject("definition").getJSONArray("steps").getJSONObject(2).put("condition","has_order")
         assertEquals(listOf("merchandising"),ConfiguredFieldCalls.retailActivityChecklist(c,emptyList(),emptySet()){true}.map {it.kind})
     }
+    @Test fun F107_F212_onlyACompletedCanonicalChecklistAdvancesTheSharedLocalFlow() {
+        assertEquals("availability",ConfiguredFieldCalls.adapter(row("availability.record",JSONObject().put("complete",true))))
+        assertNull(ConfiguredFieldCalls.adapter(row("availability.record",JSONObject().put("complete",false))))
+        assertNull(ConfiguredFieldCalls.adapter(row("availability.record",JSONObject())))
+    }
     @Test fun F310_otherChannelsAndUnconfiguredCallsKeepTheSameLegacyChecklist() {
         val legacy=listOf(ActivityRequirement("note",true,ActivityRequirement.Status.TO_DO))
         assertSame(legacy,ConfiguredFieldCalls.retailActivityChecklist(null,legacy,emptySet()){true})

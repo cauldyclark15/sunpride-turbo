@@ -1,3 +1,4 @@
+import { advance, ownedCall } from "../callflow/engine.js";
 import { ApiError, forbidden, invalid } from "../../core/errors.js";
 import { requireCapability } from "../../core/capabilities.js";
 import { canonicalJson, sha256Hex } from "../../core/util.js";
@@ -360,6 +361,18 @@ export async function record(ctx) {
     });
   await ctx.db`insert into availability_checks(id,snapshot_id,outlet_id,profile_id,org_unit_id,visit_id,trip_id,call_key,service_date,device_time,complete,required_count,checked_count,present_count,lines,proposals,payload_hash,actor_subject) values (${id},${snapshotId},${snapshot.outlet_id},${ctx.actor.profileId},${owner},${visit?.id ?? null},${trip?.id ?? null},${callKey},${dateOf(snapshot.service_date)},${new Date(p.deviceTime)},${p.complete},${result.required},${result.checked},${result.present},${lines},${proposals},${hash},${ctx.actor.subject})`;
   await audit(ctx, "availability.checked", id);
+  if (result.checked === result.required && p.complete && ctx.op) {
+    const call = await ownedCall(
+      ctx,
+      visit ? { visitId: visit.id } : { clientCallId: callKey },
+    );
+    if (
+      call?.definition_snapshot.steps.some(
+        (/** @type {any} */ s) => s.adapter === "availability",
+      )
+    )
+      await advance(ctx, call, "availability", id);
+  }
   if (trip && ctx.op)
     await vanAudit(ctx.db, trip, ctx.actor, "availability.record", id, {
       clientOpId: ctx.op.clientOpId,

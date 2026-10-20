@@ -1,3 +1,4 @@
+import { mslFrameworkRows } from "../masters/definitions.js";
 import { requireNationalScope } from "../../core/capabilities.js";
 import { conflict, invalid, notFound } from "../../core/errors.js";
 import { canonicalJson, sha256Hex } from "../../core/util.js";
@@ -10,6 +11,11 @@ import { ids, quantity, resolveSet, matches } from "./rules.js";
  * Contract: {id,version,label,payload:{channel,subchannel,classification,priority,outletIds,lines:[{productId,minimumBase}]},sample}.
  * @param {any} db @param {string} kind @param {number} at */
 export async function releasesAt(db, kind, at) {
+  if (kind === "msl") {
+    const framework = await mslFrameworkRows(db, at);
+    // Frozen legacy releases remain readable only before canonical framework setup.
+    if (framework.length) return framework;
+  }
   const rows =
     await db`select * from availability_releases where kind=${kind} and status='published' and effective_from<=${new Date(at)} and (effective_to is null or effective_to>${new Date(at)}) order by policy_key,version`;
   return kind === "rules" && rows.some((/** @type {any} */ r) => !r.sample)

@@ -1,3 +1,4 @@
+import { requireAvailability } from "../availability/callflow.js";
 import { OpRejected } from "../../core/sync.js";
 import { invalid } from "../../core/errors.js";
 import { canonicalJson, isUuid } from "../../core/util.js";
@@ -388,6 +389,14 @@ export async function advance(ctx, call, adapter, entityId) {
     +new Date(call.started_at)
   )
     refuse("wrong_date");
+  if (adapter === "availability")
+    await requireAvailability(
+      ctx.db,
+      call.profile_id,
+      call.outlet_id,
+      call.client_call_id,
+      ctx.payload.deviceTime ?? ctx.payload.capturedAt,
+    );
   const steps = call.definition_snapshot.steps;
   const events =
     await ctx.db`select step_key,adapter from call_step_events where call_id=${call.id}`;

@@ -51,6 +51,40 @@ export async function definitionsAt(ctx, kind, at = ctx.now) {
     );
   return rows;
 }
+/** F-017: internal global framework projection. Callers authorize the outlet;
+ * only this owner interprets the versioned master payload.
+ * @param {any} db @param {number} at */
+export async function mslFrameworkRows(db, at) {
+  const rows =
+    await db`select d.id,d.code,v.id as version_id,v.version,v.label,v.data,v.effective_from,v.effective_to,
+    exists(select 1 from sample_data_rows s where s.table_name='master_definitions' and s.row_id=d.id::text) as sample
+    from master_definitions d join master_versions v on v.master_id=d.id where d.kind='msl' and v.status='active'
+    and v.effective_from<=${new Date(at)} and (v.effective_to is null or v.effective_to>${new Date(at)}) order by d.code limit 1001`;
+  if (rows.length > 1000)
+    rule("MSL framework exceeds supported bound.", "overflow");
+  return rows.map((/** @type {any} */ r) => ({
+    ...r,
+    id: r.version_id,
+    masterId: r.id,
+    policy_key: r.code,
+    kind: "msl",
+    status: "published",
+    payload: {
+      channelId: r.data.channelId,
+      subchannelId: r.data.subchannelId,
+      classification: r.data.outletClass,
+      lines: r.data.productIds.map((/** @type {string} */ productId) => ({
+        productId,
+        minimumBase: 1,
+      })),
+      frameworkId: r.id,
+      frameworkVersionId: r.version_id,
+      priority: 0,
+      outletIds: [],
+      territoryIds: [],
+    },
+  }));
+}
 /** @param {any} ctx @param {any} id @param {string} kind @param {number} at */
 export async function reference(ctx, id, kind, at) {
   uuid(id);

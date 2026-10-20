@@ -30,9 +30,13 @@ export function resolveSet(outlet, releases) {
     candidates = candidates.filter((r) => !r.sample);
   const rank = (/** @type {any} */ r) =>
     (r.payload.outletIds?.length ? 1000 : 0) +
-    ["channel", "subchannel", "classification"].filter(
-      (k) => r.payload[k] != null,
-    ).length *
+    [
+      "channel",
+      "subchannel",
+      "classification",
+      "channelId",
+      "subchannelId",
+    ].filter((k) => r.payload[k] != null).length *
       100 +
     (r.payload.priority ?? 0);
   candidates.sort((a, b) => rank(b) - rank(a));
@@ -49,8 +53,19 @@ export function matches(outlet, audience) {
     (!audience.outletIds?.length || audience.outletIds.includes(outlet.id)) &&
     (!audience.territoryIds?.length ||
       audience.territoryIds.includes(outlet.territory_id)) &&
-    ["channel", "subchannel", "classification"].every(
-      (k) => audience[k] == null || audience[k] === outlet[k],
+    [
+      "channel",
+      "subchannel",
+      "classification",
+      "channelId",
+      "subchannelId",
+    ].every(
+      (k) =>
+        audience[k] == null ||
+        audience[k] ===
+          outlet[
+            { channelId: "channel_id", subchannelId: "subchannel_id" }[k] ?? k
+          ],
     )
   );
 }
