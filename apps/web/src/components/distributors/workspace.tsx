@@ -318,7 +318,7 @@ function FieldConfig({ id, showVan }: { id: string; showVan: boolean }) {
         {(c) => (
           <Panel
             title="Distributor reps use the shared call flow"
-            detail="Server configuration and partner grants are ready. Native configuration is connected by the shared call-flow lane; no separate distributor app is created."
+            detail="Invite a dedicated field representative in Setup, assign their PJP and stores, then sign in to the existing Android field app. Portal credentials remain separate; no distributor app is needed."
           >
             <p className="text-sm">
               Assigned shared outlets: {c.outlets.length}

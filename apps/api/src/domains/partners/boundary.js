@@ -26,7 +26,13 @@ export async function partnerContext(db, actor) {
   const m = members[0];
   if (m.partner_kind === "agency" && !["agency", "sales"].includes(actor.role))
     throw forbidden("Partner account role needs correction", "out_of_scope");
-  if (m.partner_kind === "distributor" && actor.role !== "distributor")
+  if (
+    m.partner_kind === "distributor" &&
+    !(
+      actor.role === "distributor" ||
+      (actor.role === "sales" && m.grants.includes("dsr"))
+    )
+  )
     throw forbidden(
       "Distributor staff must use distributor access",
       "out_of_scope",
@@ -34,13 +40,28 @@ export async function partnerContext(db, actor) {
   return m;
 }
 
+/** F-407: agency and DSR share the same outlet boundary with their canonical grant owner.
+ * Current withdrawal AND capture-time assignment must both authorize the source.
+ * @param {any} db @param {any} member @param {number} [at] */
+export async function partnerStoreGrants(db, member, at = Date.now()) {
+  return member.partner_kind === "distributor"
+    ? db`select id,outlet_id,effective_from,effective_to from distributor_outlets where distributor_id=${member.distributor_id}
+      and effective_from<=now() and (effective_to is null or effective_to>now())
+      and effective_from<=${new Date(at)} and (effective_to is null or effective_to>${new Date(at)}) order by id`
+    : db`select id,outlet_id,effective_from,effective_to from partner_outlet_assignments where distributor_id=${member.distributor_id}
+      and effective_from<=now() and (effective_to is null or effective_to>now())
+      and effective_from<=${new Date(at)} and (effective_to is null or effective_to>${new Date(at)}) order by id`;
+}
+
 /** @param {any} db @param {any} actor @param {string} outletId @param {number} [at] */
 export async function partnerOutlet(db, actor, outletId, at = Date.now()) {
   const m = await partnerContext(db, actor);
   if (!m) return null;
   if (
-    m.partner_kind !== "agency" ||
-    !m.grants.includes("field") ||
+    !(
+      (m.partner_kind === "agency" && m.grants.includes("field")) ||
+      (m.partner_kind === "distributor" && m.grants.includes("dsr"))
+    ) ||
     actor.role !== "sales" ||
     !isUuid(outletId)
   )
@@ -48,10 +69,8 @@ export async function partnerOutlet(db, actor, outletId, at = Date.now()) {
       "This partner account cannot record field work",
       "out_of_scope",
     );
-  const [grant] =
-    await db`select id from partner_outlet_assignments where distributor_id=${m.distributor_id} and outlet_id=${outletId}
-    and effective_from<=now() and (effective_to is null or effective_to>now())
-    and effective_from<=${new Date(at)} and (effective_to is null or effective_to>${new Date(at)})`;
+  const grants = await partnerStoreGrants(db, m, at);
+  const grant = grants.find((/** @type {any} */ g) => g.outlet_id === outletId);
   if (
     !grant ||
     new Date(m.effective_from).getTime() > at ||
@@ -90,6 +109,7 @@ export async function enforcePartnerHttp(c) {
     return;
   if (
     m.partner_kind === "distributor" &&
+    c.actor.role === "distributor" &&
     (path === "/api/v1/distributors" ||
       path.startsWith("/api/v1/distributors/"))
   )
@@ -110,8 +130,8 @@ export async function enforcePartnerHttp(c) {
   )
     return;
   if (
-    m.partner_kind === "agency" &&
-    m.grants.includes("field") &&
+    ((m.partner_kind === "agency" && m.grants.includes("field")) ||
+      (m.partner_kind === "distributor" && m.grants.includes("dsr"))) &&
     c.actor.role === "sales"
   ) {
     if (
@@ -147,8 +167,10 @@ export async function enforcePartnerSelf(db, actor) {
   if (
     !current ||
     current.id !== m.id ||
-    current.partner_kind !== "agency" ||
-    !current.grants.includes("field") ||
+    !(
+      (current.partner_kind === "agency" && current.grants.includes("field")) ||
+      (current.partner_kind === "distributor" && current.grants.includes("dsr"))
+    ) ||
     actor.role !== "sales"
   )
     throw forbidden("Partner operation is not permitted", "out_of_scope");
@@ -168,6 +190,9 @@ export async function enforcePartnerOp(db, actor, op) {
       "evidence.attach",
       "merchandising.record",
       "availability.record",
+      ...(member.partner_kind === "distributor"
+        ? ["availability.proposal"]
+        : []),
       "retail.capture",
       "task.complete",
       "location.record",
@@ -213,6 +238,9 @@ export async function enforcePartnerOp(db, actor, op) {
       p.intents.some(
         (/** @type {string} */ k) =>
           ![
+            ...(member.partner_kind === "distributor"
+              ? ["sell", "collect"]
+              : []),
             "merchandise",
             "audit",
             "promotion",
@@ -225,6 +253,9 @@ export async function enforcePartnerOp(db, actor, op) {
   if (
     op.opType === "visit.activity" &&
     ![
+      ...(member.partner_kind === "distributor"
+        ? ["order_intent", "call_sheet"]
+        : []),
       "inventory_check",
       "merchandising",
       "price_check",
@@ -249,9 +280,11 @@ export async function enforcePartnerPull(db, actor, scopes, delta) {
     scopes.every((s) => s.projection === "distributor.bundle");
   if (
     !distributor &&
-    (m.partner_kind !== "agency" ||
+    (!(
+      (m.partner_kind === "agency" && m.grants.includes("field")) ||
+      (m.partner_kind === "distributor" && m.grants.includes("dsr"))
+    ) ||
       actor.role !== "sales" ||
-      !m.grants.includes("field") ||
       scopes.some((s) => s.projection !== "field.bundle"))
   )
     throw forbidden(
@@ -264,8 +297,7 @@ export async function enforcePartnerPull(db, actor, scopes, delta) {
       "Refresh your assigned day snapshot",
       "rebootstrap_required",
     );
-  const grants =
-    await db`select effective_to from partner_outlet_assignments where distributor_id=${m.distributor_id} and effective_from<=now() and (effective_to is null or effective_to>now())`;
+  const grants = await partnerStoreGrants(db, m);
   m.leaseExpiresAt = Math.min(
     ...[
       m.effective_to,

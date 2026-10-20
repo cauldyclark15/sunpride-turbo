@@ -105,7 +105,9 @@ export async function distributorCallflowConfig(c, d) {
     grants: member?.grants ?? [],
     outlets,
     source: "partner_grants",
-    nativeReady: false,
+    nativeReady: outlets.length > 0 && configs.size === outlets.length,
+    fieldApp: "field-android",
+    access: "Dedicated field invitation; portal logins remain separate",
     seam: "CALLFLOW",
     requiredSharedModules: ["pjp", "msl", "availability"],
   };

@@ -1,5 +1,6 @@
 import { tx } from "@sunpride/db/client";
 import { retailManifest } from "../retail/index.js";
+import { releasesAt } from "../availability/masters.js";
 import { workforceContext } from "../coverage/workforce-policies.js";
 import { canonicalJson, sha256Hex } from "../../core/util.js";
 import { recordChange } from "../../core/sync.js";
@@ -117,6 +118,7 @@ export async function checkDayManifest(ctx) {
         approvals,
         universe,
         availability: retail,
+        mslFramework: await releasesAt(db, "msl", ctx.now),
         retailOutlets,
         visits,
         catalogue,

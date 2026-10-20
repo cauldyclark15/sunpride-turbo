@@ -509,7 +509,13 @@ export function install(router, installCtx) {
         } else
           config = await configuration(
             db,
-            await profileAt(db, device.app, outlet, ctx.now),
+            await profileAt(
+              db,
+              device.app,
+              outlet,
+              ctx.now,
+              ctx.actor.profileId,
+            ),
             outlet,
             ctx.now,
           );

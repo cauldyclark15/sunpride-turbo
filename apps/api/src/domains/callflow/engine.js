@@ -33,8 +33,17 @@ async function bindingsAt(db, app, at) {
   if (rows.length > 200) throw invalid("Too many channel call-flow bindings");
   return rows;
 }
-/** @param {any} db @param {string} app @param {any} outlet @param {number} at */
-export async function profileAt(db, app, outlet, at) {
+/** @param {any} db @param {string} app @param {any} outlet @param {number} at @param {string|null} [profileId] */
+export async function profileAt(db, app, outlet, at, profileId = null) {
+  if (profileId && app === "field-android") {
+    const [dsr] =
+      await db`select m.id from distributor_users m join distributors d on d.id=m.distributor_id
+      join profiles p on p.id=m.profile_id where m.profile_id=${profileId} and p.role='sales' and p.status='active' and p.deleted_at is null
+      and d.partner_kind='distributor' and d.status='accredited' and 'dsr'=any(m.grants)
+      and m.effective_from<=now() and (m.effective_to is null or m.effective_to>now())
+      and m.effective_from<=${new Date(at)} and (m.effective_to is null or m.effective_to>${new Date(at)})`;
+    if (dsr) return "distributor_rep";
+  }
   return selectProfile(
     await bindingsAt(db, app, at),
     outlet,
@@ -56,11 +65,13 @@ export async function configurationsForApp(db, app, outlets, at, binding) {
   const bindings = await bindingsAt(db, app, at),
     groups = new Map();
   for (const outlet of outlets) {
-    const profile = selectProfile(
-      bindings,
-      outlet,
-      app === "van-android" ? PROFILE_VAN : PROFILE_FIELD,
-    );
+    const profile = binding?.profileId
+      ? await profileAt(db, app, outlet, at, binding.profileId)
+      : selectProfile(
+          bindings,
+          outlet,
+          app === "van-android" ? PROFILE_VAN : PROFILE_FIELD,
+        );
     const group = groups.get(profile) ?? [];
     group.push(outlet);
     groups.set(profile, group);
@@ -273,7 +284,13 @@ export async function review(ctx, call, kind, reason) {
 export async function beginCall(ctx, input) {
   const config = await configuration(
     ctx.db,
-    await profileAt(ctx.db, ctx.app, input.outlet, ctx.payload.deviceTime),
+    await profileAt(
+      ctx.db,
+      ctx.app,
+      input.outlet,
+      ctx.payload.deviceTime,
+      ctx.actor.profileId,
+    ),
     input.outlet,
     ctx.payload.deviceTime,
   );

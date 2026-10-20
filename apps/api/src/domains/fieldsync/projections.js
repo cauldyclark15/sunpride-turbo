@@ -1,6 +1,7 @@
 import { callSnapshot } from "../availability/calls.js";
 import { tx } from "@sunpride/db/client";
-import { partnerContext } from "../partners/boundary.js";
+import { partnerContext, partnerStoreGrants } from "../partners/boundary.js";
+import { releasesAt } from "../availability/masters.js";
 import { agendaForPlans } from "../coverage/agenda.js";
 import { workforceContext } from "../coverage/workforce-policies.js";
 import { checkDayManifest } from "./manifest.js";
@@ -205,10 +206,7 @@ async function bundleData(ctx) {
     throw rebootstrap("Download the current Manila day");
   const db = ctx.db;
   const partner = await partnerContext(db, ctx.actor);
-  const partnerGrants = partner
-    ? await db`select outlet_id,effective_to from partner_outlet_assignments
-    where distributor_id=${partner.distributor_id} and effective_from<=now() and (effective_to is null or effective_to>now())`
-    : [];
+  const partnerGrants = partner ? await partnerStoreGrants(db, partner) : [];
   const permitted = new Set(
     partnerGrants.map((/** @type {any} */ r) => r.outlet_id),
   );
@@ -232,9 +230,7 @@ async function bundleData(ctx) {
   );
   const retailEnabled =
     ctx.app === "field-android" &&
-    (
-      await db`select 1 from availability_releases where kind='msl' and status='published' and effective_from<=${new Date(ctx.now)} and (effective_to is null or effective_to>${new Date(ctx.now)}) limit 1`
-    ).length > 0;
+    (await releasesAt(db, "msl", ctx.now)).length > 0;
   const retailContext = {
     ...ctx,
     availabilityHistory: new Map(),
@@ -305,6 +301,13 @@ async function bundleData(ctx) {
           territoryId: o.territory_id,
           territoryCode: o.territory_code,
         });
+  }
+  // F-211/F-407: off-route shared outlets need the same canonical MSL, not a name-only roster.
+  if (retailEnabled) {
+    retailContext.availabilityOutletIds = [...outlets.keys()];
+    for (const value of outlets.values())
+      if (!value.availability)
+        value.availability = await callSnapshot(retailContext, value.id, date);
   }
   // F-006: the exact definition/policy rides the existing encrypted outlet snapshot.
   if (flowEnabled && outlets.size) {
