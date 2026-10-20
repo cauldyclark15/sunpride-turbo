@@ -30,7 +30,9 @@ class PresellLiveDeviceTest {
         kotlinx.coroutines.runBlocking {kotlinx.coroutines.withTimeout(60_000){while(!ready.exists()) kotlinx.coroutines.delay(100)}}
         ready.delete();File(context.filesDir,"presell-$name-ready").delete()
     }
+    private fun hideKeyboard() { androidx.test.espresso.Espresso.closeSoftKeyboard();rule.waitForIdle() }
     private fun shot(name:String) {
+        hideKeyboard()
         rule.waitForIdle();val bitmap=checkNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
         File(rule.activity.getExternalFilesDir(null),"presell-$name.png").outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)};bitmap.recycle()
     }
@@ -47,20 +49,25 @@ class PresellLiveDeviceTest {
         }
         rule.setContent{FieldApp(environment,false,backend=backend,features=FieldFeatures.ALL,visitLocation=location)}
         waitTag("email");rule.onNodeWithTag("email").performTextInput(fixture.getString("email"))
-        rule.onNodeWithTag("password").performTextInput(fixture.getString("password"));rule.onNodeWithTag("sign-in").performClick()
+        rule.onNodeWithTag("password").performTextInput(fixture.getString("password"));hideKeyboard();rule.onNodeWithTag("sign-in").performClick()
         rule.waitUntil(60_000){rule.onAllNodesWithText(fixture.getString("outletName")).fetchSemanticsNodes().isNotEmpty()}
         transportGate("offline")
         check(runCatching {java.net.Socket().use {it.connect(java.net.InetSocketAddress("127.0.0.1",4560),2000)}}.isFailure)
         rule.onNodeWithText(fixture.getString("outletName")).performScrollTo().performClick();waitTag("diagnostic-title")
+        if(rule.onAllNodesWithTag("unplanned-reason").fetchSemanticsNodes().isNotEmpty()) rule.onNodeWithTag("unplanned-reason").performScrollTo().performTextInput("Sample pre-sell buyer appointment outside the plan")
         if(rule.onAllNodesWithTag("sequence-reason").fetchSemanticsNodes().isNotEmpty()) rule.onNodeWithTag("sequence-reason").performScrollTo().performTextInput("Buyer appointment first")
+        if(rule.onAllNodesWithTag("intent-sell").fetchSemanticsNodes().isNotEmpty() && runCatching {rule.onNodeWithTag("intent-sell").assertIsSelected()}.isFailure) rule.onNodeWithTag("intent-sell").performScrollTo().performClick()
+        hideKeyboard()
         rule.onNodeWithTag("diagnostic-checkin").performClick();waitTag("diagnostic-checkout")
         rule.onNodeWithTag("order-new").performScrollTo().performClick();waitTag("order-title")
+        if(fixture.has("productCode")&&!fixture.isNull("productCode")) rule.onNodeWithTag("order-search").performScrollTo().performTextInput(fixture.getString("productCode"))
         rule.onNodeWithTag("order-qty-${fixture.getString("productId")}").performScrollTo().performTextInput("2")
         rule.onNodeWithTag("order-delivery-date").performScrollTo().performTextInput(fixture.getString("requestedDeliveryDate"))
+        hideKeyboard()
         rule.onNodeWithTag("order-save").performClick();waitTag("order-review")
         shot("field-requested-date")
         rule.onNodeWithTag("order-review").performClick();waitTag("order-requested-delivery")
-        rule.onNodeWithTag("order-requested-delivery").assertTextContains(fixture.getString("requestedDeliveryDate"))
+        rule.onNodeWithTag("order-requested-delivery").assertTextEquals("Requested delivery · ${fixture.getString("requestedDeliveryDate")}\nOffice confirmation pending")
         rule.onNodeWithTag("order-submit").performClick()
         rule.waitUntil(60_000){backend.orderDrafts().any{it.requestedDeliveryDate==fixture.getString("requestedDeliveryDate")&&it.submittedRequestId!=null}}
         shot("field-order-queued")
@@ -69,5 +76,11 @@ class PresellLiveDeviceTest {
         File(rule.activity.getExternalFilesDir(null),"presell-field-result.json").writeText(JSONObject().put("clientOrderId",id).put("requestedDeliveryDate",fixture.getString("requestedDeliveryDate")).toString())
         transportGate("online")
         backend.today(checkNotNull(backend.cachedDeviceId),backend.loadSigner(),true)
+        val request=checkNotNull(backend.orderDrafts().single {it.draftId==id}.submittedRequestId)
+        val received=backend.visitStates().single {it.first.requestId==request}
+        check(received.second=="done") { "Submitted pre-sell activity did not receive its durable acknowledgement" }
+        val before=backend.visitStates().map {it.first.requestId to it.second}
+        backend.today(checkNotNull(backend.cachedDeviceId),backend.loadSigner(),true)
+        check(backend.visitStates().map {it.first.requestId to it.second}==before)
     }
 }
