@@ -1,3 +1,6 @@
+// SEAM(MASTERS): provided outlet class/potential; no parallel classification master.
+// SEAM(PROGRAMME): provided execution scores/assets/incidents; no duplicate writers.
+// SEAM(INTEGRITY): detector findings/review links are read replicas, not tower-owned detectors.
 import { inputObject, uuidInput } from "./inputs.js";
 import { ApiError } from "../../core/errors.js";
 import { tx } from "@sunpride/db/client";

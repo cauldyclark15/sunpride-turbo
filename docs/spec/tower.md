@@ -98,7 +98,7 @@ Use event-time purchase/offtake quantities, observed/declared stock, assigned di
 
 ## F-601–F-610 · Needs Sunpride
 
-Ratify stocking freshness, total-outlet-turnover source, MSL completeness presentation, call denominator, conversion ranking and DOI window. Provide real source master IDs and partner grants, primary shipment/secondary invoice/stock interfaces, campaign plans, governed score/asset/incident readers, INTEGRITY review links, planning cadence/destination and Supply Chain acceptance owner. Choose an email provider only for production; the local sink already works. Confirm dataset consent/retention and supply representative labelled images/clean longitudinal history before AI work. None of these prevents the labelled sample software from operating.
+Ratify the fictional four-SKU MSLs, stocking freshness, total-outlet-turnover source, MSL completeness presentation, call denominator, conversion ranking and DOI window. Provide real source master IDs and partner grants, primary shipment/secondary invoice/stock interfaces, campaign plans, governed score/asset/incident readers, INTEGRITY review links, planning cadence/destination and Supply Chain acceptance owner. Choose an email provider only for production; the local sink already works. Confirm dataset consent/retention and supply representative labelled images/clean longitudinal history before AI work. None of these prevents the labelled sample software from operating.
 
 ## F-601–F-610 · Integration and iOS parity later
 

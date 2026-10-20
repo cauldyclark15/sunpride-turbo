@@ -1,3 +1,4 @@
+// SEAM(AVAILABILITY): replace this source/policy adapter with the governed F-220 reader at integration.
 import { ApiError } from "../../core/errors.js";
 import { addDays, pct, dateOf, kpi } from "./measures.js";
 import { readStores, readVisits, visitSummary, readPeople } from "./data.js";

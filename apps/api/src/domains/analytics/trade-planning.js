@@ -1,3 +1,6 @@
+// SEAM(SAP): primary shipment replicas retain source identity; no operational SAP posting is fabricated.
+// SEAM(DISTRIBUTOR): wire current partner financial grants and secondary/stock replicas here.
+// SEAM(PROGRAMME): promotion plans remain source-provided inputs, never inferred campaigns.
 import { inputObject, uuidInput } from "./inputs.js";
 import { xlsx } from "./xlsx.js";
 import { tx } from "@sunpride/db/client";
