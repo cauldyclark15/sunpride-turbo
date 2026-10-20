@@ -100,6 +100,34 @@ export async function readVans(db, p, s) {
       ),
       soldCases: movementCases(["sale", "void"], -1),
       returnedCases: movementCases(["unload"], -1),
+      customerReturnedCases: movementCases(["return"], 1),
+      customerReturns: [
+        ...new Set(
+          own
+            .filter((/** @type {any} */ e) => e.kind === "return")
+            .map((/** @type {any} */ e) => e.product_id),
+        ),
+      ].map((productId) => {
+        const returned = own.filter(
+          (/** @type {any} */ e) =>
+            e.kind === "return" && e.product_id === productId,
+        );
+        const facts = returned[0].facts;
+        const product = products.find(
+          (/** @type {any} */ p) => p.id === productId,
+        );
+        return {
+          name: facts.name ?? product?.name ?? "Returned product",
+          quantity: units(
+            {
+              quantity_scale: facts.quantityScale ?? product?.quantity_scale,
+              case_base: facts.caseBase ?? product?.case_base,
+              base_uom_code: facts.uomCode ?? product?.base_uom_code,
+            },
+            sum(returned, "delta_base"),
+          ),
+        };
+      }),
       stockVarianceCases: counted.length
         ? casesFor(counted, (c) => Number(c.variance_base))
         : null,
@@ -384,7 +412,7 @@ export async function moneyPage(db, p, s) {
         "php",
         null,
         sum(prior, "amount_minor"),
-        "Non-rejected field collections on the final selected Manila date.",
+        "Field collections plus net non-credit van payments on the final selected Manila date; cashier hand-in is not counted twice.",
       ),
       kpi(
         "collectionsMtd",
@@ -393,7 +421,7 @@ export async function moneyPage(db, p, s) {
         "php",
         null,
         null,
-        "Non-rejected collections from month start through the selected date.",
+        "Field collections plus net non-credit van payments from month start through the selected date.",
       ),
       kpi(
         "arTotal",
@@ -402,7 +430,7 @@ export async function moneyPage(db, p, s) {
         "php",
         null,
         null,
-        "Office aging balance less visible subsequent collections, oldest debt paid first.",
+        "Office aging less field collections, plus unposted van credit less collections against those exact invoices.",
       ),
       kpi(
         "overdue",
