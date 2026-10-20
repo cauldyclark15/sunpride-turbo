@@ -1,9 +1,11 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test, setSystemTime } from "bun:test";
 import { mkdtemp, mkdir, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { seedDemo, resetDemo } from "./index.js";
 import { createTrialAccounts, TRIAL_ROLES } from "./trial-accounts.js";
 import { BATCH, todayManila } from "./store.js";
+import { ensureTrip } from "./trial-wiring.js";
+import { tx } from "../src/client.js";
 
 /** @type {{db:import('../src/client.js').Db,dbUrl:string,fetch:(path:string,init?:RequestInit)=>Promise<Response>,close:()=>Promise<void>,setHooks:(hooks:any)=>void}} */ let h;
 let dir = "",
@@ -321,6 +323,41 @@ test("F-008 reruns preserve office-edited reporting, parent history and type ran
       }))(),
   ).rejects.toThrow("rollback F-008 edited examples");
 });
+
+test("F-008 F-025 a new trial day reuses owned trucks without duplicate masters or credential rotation", async () => {
+  const before =
+    await h.db`select id,code,org_unit_id from inventory_locations where code like 'SMP-TRIAL-VAN%' order by id`;
+  const vehicles =
+    await h.db`select id,vehicle_code,truck_location_id,org_unit_id from vehicles where vehicle_code like 'SMP-TRIAL-VAN%' order by id`;
+  const saved = await credentials();
+  setSystemTime(new Date(Date.now() + 86400000));
+  try {
+    const nextDay = todayManila();
+    const firstDay = await createTrialAccounts(h.db, { recordPath, outPath });
+    expect(firstDay.created).toBe(0);
+    const a = saved.find((a) => a.email === "van3@trial.sunpride.test");
+    if (!a) throw new Error("Van trial fixture missing");
+    const [person] = await h.db`select * from profiles where id=${a.profileId}`;
+    const [template] =
+      await h.db`select * from profiles where email='van@sunpride.test'`;
+    await tx(h.db, (t) => ensureTrip(t, person, template, "van3"));
+    await tx(h.db, (t) => ensureTrip(t, person, template, "van3"));
+    expect(
+      await h.db`select id from van_trips where salesperson_profile_id=${a.profileId} and service_date=${nextDay} and status not in ('closed','cancelled')`,
+    ).toHaveLength(1);
+    const replay = await createTrialAccounts(h.db, { recordPath, outPath });
+    expect(replay.created).toBe(0);
+    expect(
+      await h.db`select id,code,org_unit_id from inventory_locations where code like 'SMP-TRIAL-VAN%' order by id`,
+    ).toEqual(before);
+    expect(
+      await h.db`select id,vehicle_code,truck_location_id,org_unit_id from vehicles where vehicle_code like 'SMP-TRIAL-VAN%' order by id`,
+    ).toEqual(vehicles);
+    expect(await credentials()).toEqual(saved);
+  } finally {
+    setSystemTime();
+  }
+}, 30000);
 
 test("seed reset removes all created trial rows and adopted demo people; outside sessions still guard reset", async () => {
   const saved = await credentials();

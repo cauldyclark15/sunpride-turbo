@@ -263,18 +263,44 @@ export async function ensureTrip(db, person, template, slug) {
     await db`select * from vehicles where id=${fallback.vehicle_id}`;
   const [location] =
     await db`select * from inventory_locations where id=${fallback.truck_location_id}`;
-  const truck = await copyTrialRow(db, "inventory_locations", location, slug, {
-    code: `SMP-TRIAL-${slug.toUpperCase()}`,
-    name: `Sample trial truck ${slug}`,
-    org_unit_id: person.org_unit_id,
-  });
-  const v = await copyTrialRow(db, "vehicles", vehicle, slug, {
-    vehicle_code: `SMP-TRIAL-${slug.toUpperCase()}`,
-    plate_number: `TRIAL-${slug.toUpperCase()}`,
-    name: `Sample trial truck ${slug}`,
-    truck_location_id: truck.id,
-    org_unit_id: person.org_unit_id,
-  });
+  // F-008 F-025: the truck is a permanent trial master, not a new daily row.
+  // Reuse only this persona's marked truck; never adopt an unowned collision.
+  const [savedTruck] =
+    await db`select l.* from inventory_locations l where l.id=${rowId("inventory_locations", `trial-${slug}`)}`;
+  const [savedVehicle] =
+    await db`select v.* from vehicles v where v.id=${rowId("vehicles", `trial-${slug}`)}`;
+  for (const [table, row] of [
+    ["inventory_locations", savedTruck],
+    ["vehicles", savedVehicle],
+  ]) {
+    if (!row) continue;
+    const [owned] =
+      await db`select 1 from sample_data_rows where batch=${BATCH} and table_name=${table} and row_id=${row.id}`;
+    if (!owned || row.deleted_at || row.org_unit_id !== person.org_unit_id)
+      throw new Error(
+        "Trial truck requires office reconciliation; refusing to overwrite existing data",
+      );
+  }
+  const truck =
+    savedTruck ??
+    (await copyTrialRow(db, "inventory_locations", location, slug, {
+      code: `SMP-TRIAL-${slug.toUpperCase()}`,
+      name: `Sample trial truck ${slug}`,
+      org_unit_id: person.org_unit_id,
+    }));
+  const v =
+    savedVehicle ??
+    (await copyTrialRow(db, "vehicles", vehicle, slug, {
+      vehicle_code: `SMP-TRIAL-${slug.toUpperCase()}`,
+      plate_number: `TRIAL-${slug.toUpperCase()}`,
+      name: `Sample trial truck ${slug}`,
+      truck_location_id: truck.id,
+      org_unit_id: person.org_unit_id,
+    }));
+  if (v.truck_location_id !== truck.id)
+    throw new Error(
+      "Trial vehicle no longer points to its owned truck; reconcile in office",
+    );
   const [route] =
     await db`select route_id from route_salespeople where profile_id=${person.id} and deleted_at is null and effective_to is null limit 1`;
   const t = await addTrialRow(db, "van_trips", `${slug}-${today}`, {
