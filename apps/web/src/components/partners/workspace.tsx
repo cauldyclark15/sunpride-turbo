@@ -69,6 +69,7 @@ type Setup = {
     rate_centavos: number;
     minimum_calls: number;
     minimum_dwell_ms: number;
+    minimum_retail_score: number;
     required_kinds: string[];
     source_ref: string;
     effective_from: string;
@@ -753,6 +754,7 @@ export function AgencyWorkspace() {
                     rateCentavos: Math.round(Number(f.get("rate")) * 100),
                     minimumCalls: Number(f.get("calls")),
                     minimumDwellMs: Number(f.get("minutes")) * 60000,
+                    minimumRetailScore: Number(f.get("retailScore")),
                     requiredKinds: f.getAll("requiredKinds"),
                     sourceRef: f.get("sourceRef"),
                     effectiveFrom: effectiveManilaTime(f.get("effectiveFrom")),
@@ -838,6 +840,26 @@ export function AgencyWorkspace() {
                     Policy source / approval reference
                     <input className={field} name="sourceRef" required />
                   </label>
+                  <label className="block text-sm">
+                    Minimum retail audit score (%)
+                    <input
+                      className={field}
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="1"
+                      name="retailScore"
+                      key={setup.data?.contracts[0]?.id ?? "pending"}
+                      defaultValue={
+                        setup.data?.contracts[0]?.minimum_retail_score ?? 100
+                      }
+                      required
+                    />
+                    <span className="text-xs text-muted">
+                      A versioned billing requirement for recorded MERCH scores,
+                      not a claim that its workflow passed.
+                    </span>
+                  </label>
                   <button className={button} disabled={busy}>
                     Publish effective contract
                   </button>
@@ -847,7 +869,8 @@ export function AgencyWorkspace() {
                       {setup.data?.contracts.map((k) => (
                         <li key={k.id}>
                           Version {k.version} · {money(Number(k.rate_centavos))}{" "}
-                          · {effectiveLabel(k.effective_from)} –{" "}
+                          · Retail minimum {k.minimum_retail_score}% ·{" "}
+                          {effectiveLabel(k.effective_from)} –{" "}
                           {k.effective_to
                             ? effectiveLabel(k.effective_to)
                             : "No scheduled end"}{" "}

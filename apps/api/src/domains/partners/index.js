@@ -149,6 +149,7 @@ async function setContract(c, p, b) {
   const rate = integer(b.rateCentavos),
     minimum = integer(b.minimumCalls, 1, 200),
     dwell = integer(b.minimumDwellMs, 0, 86400000),
+    retailScore = integer(b.minimumRetailScore ?? 100, 0, 100),
     source = text(b.sourceRef);
   const kinds = b.requiredKinds;
   if (
@@ -179,8 +180,8 @@ async function setContract(c, p, b) {
     await c.db`update partner_contracts set effective_to=${from} where id=${old.id}`;
   }
   const [k] =
-    await c.db`insert into partner_contracts(distributor_id,version,source_ref,sample,rate_centavos,minimum_calls,minimum_dwell_ms,required_kinds,effective_from,created_by)
-    values(${p.id},${Number(old?.version ?? 0) + 1},${source},${p.source === "sample"},${rate},${minimum},${dwell},${c.db.array(kinds, "TEXT")},${from},${c.actor.profileId}) returning id,version`;
+    await c.db`insert into partner_contracts(distributor_id,version,source_ref,sample,rate_centavos,minimum_calls,minimum_dwell_ms,minimum_retail_score,required_kinds,effective_from,created_by)
+    values(${p.id},${Number(old?.version ?? 0) + 1},${source},${p.source === "sample"},${rate},${minimum},${dwell},${retailScore},${c.db.array(kinds, "TEXT")},${from},${c.actor.profileId}) returning id,version`;
   return k;
 }
 /** @param {any} c @param {any} p @param {any} b */

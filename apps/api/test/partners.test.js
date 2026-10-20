@@ -788,9 +788,7 @@ test("F-319 non-sample billing requires the operational incident evidence feed",
 test("F-319 MERCH canonical operational cases are read through the staff-and-visit seam, never the QA tracker", async () => {
   const f = await fixture(),
     v = await complete(f);
-  // Exact columns consumed from MERCH migration 0540; fixture tables only.
-  await h.db`create table if not exists retail_execution_audits(id uuid primary key default gen_random_uuid(),organization_id text not null default 'sunpride',visit_id uuid not null,outlet_id uuid not null,profile_id uuid not null,org_unit_id uuid not null,kind text not null,request_key uuid not null,payload_hash text not null,master_version_id uuid,component_score numeric,captured_at timestamptz not null,facts jsonb not null,actor_subject text not null,created_at timestamptz default now(),updated_at timestamptz default now())`;
-  await h.db`create table if not exists retail_action_cases(id uuid primary key default gen_random_uuid(),audit_id uuid not null,outlet_id uuid not null,kind text not null,status text not null default 'open',owner_profile_id uuid,due_at timestamptz not null,facts jsonb not null,created_at timestamptz default now(),updated_at timestamptz default now())`;
+  await retailTables();
   const [audit] =
     await h.db`insert into retail_execution_audits(visit_id,outlet_id,profile_id,org_unit_id,kind,request_key,payload_hash,captured_at,facts,actor_subject) values(${v.visitId},${f.outlet.id},${f.staff.id},${unit},'issue_log',${crypto.randomUUID()},'fixture',now(),${{ source: "sample" }},${f.staff.userId}) returning id`;
   await h.db`insert into retail_action_cases(audit_id,outlet_id,kind,status,due_at,facts) values(${audit.id},${f.outlet.id},'incident','open',now(),${{ source: "sample" }})`;
@@ -804,3 +802,41 @@ test("F-319 MERCH canonical operational cases are read through the staff-and-vis
   expect(resolved.body.summary.amountCentavos).toBe(65000);
   expect(resolved.body.evidenceHash).not.toBe(e.body.evidenceHash);
 });
+
+test("F-319 a retail score follows the versioned billing threshold and freezes its policy, not a hard-coded perfect score", async () => {
+  await retailTables();
+  const f = await fixture(),
+    v = await complete(f);
+  await h.db`insert into retail_execution_audits(visit_id,outlet_id,profile_id,org_unit_id,kind,request_key,payload_hash,component_score,captured_at,facts,actor_subject) values(${v.visitId},${f.outlet.id},${f.staff.id},${unit},'planogram',${crypto.randomUUID()},'sample-score',80,${new Date(Date.now() - 540000)},${{ source: "sample" }},${f.staff.userId})`;
+  expect((await evidenceOf(f)).body.summary.amountCentavos).toBe(0);
+  const from = new Date(early.getTime() + 1);
+  await h.db`update partner_contracts set effective_to=${from} where distributor_id=${f.p.id}`;
+  await h.db`insert into partner_contracts(distributor_id,version,source_ref,sample,rate_centavos,minimum_calls,minimum_dwell_ms,minimum_retail_score,required_kinds,effective_from,created_by) values(${f.p.id},2,'SAMPLE billing threshold',true,65000,1,180000,75,array['merchandising'],${from},${office.id})`;
+  const e = await evidenceOf(f);
+  expect(e.body.summary.amountCentavos).toBe(65000);
+  expect(e.body.visits[0].sources.contractPolicy.minimumRetailScore).toBe(75);
+  const published = await request(office, "/contract/set", {
+    partnerId: f.p.id,
+    requestKey: crypto.randomUUID(),
+    sourceRef: "SAMPLE next threshold",
+    rateCentavos: 65000,
+    minimumCalls: 1,
+    minimumDwellMs: 180000,
+    minimumRetailScore: 85,
+    requiredKinds: ["merchandising"],
+    effectiveFrom: new Date(Date.now() + 3600000).toISOString(),
+  });
+  expect(published.res.status).toBe(200);
+  const setup = await request(office, "/setup?partnerId=" + f.p.id);
+  expect(
+    setup.body.contracts.find(
+      (/** @type {any} */ k) => k.id === published.body.id,
+    ).minimum_retail_score,
+  ).toBe(85);
+});
+
+async function retailTables() {
+  // Exact columns consumed from MERCH migration 0540; fixture tables only.
+  await h.db`create table if not exists retail_execution_audits(id uuid primary key default gen_random_uuid(),organization_id text not null default 'sunpride',visit_id uuid not null,outlet_id uuid not null,profile_id uuid not null,org_unit_id uuid not null,kind text not null,request_key uuid not null,payload_hash text not null,master_version_id uuid,component_score numeric,captured_at timestamptz not null,facts jsonb not null,actor_subject text not null,created_at timestamptz default now(),updated_at timestamptz default now())`;
+  await h.db`create table if not exists retail_action_cases(id uuid primary key default gen_random_uuid(),audit_id uuid not null,outlet_id uuid not null,kind text not null,status text not null default 'open',owner_profile_id uuid,due_at timestamptz not null,facts jsonb not null,created_at timestamptz default now(),updated_at timestamptz default now())`;
+}

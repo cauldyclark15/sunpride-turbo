@@ -235,6 +235,7 @@ export async function ensurePartnerSamples(
       rate_centavos: 65000,
       minimum_calls: 1,
       minimum_dwell_ms: 180000,
+      minimum_retail_score: 100,
       required_kinds: ["merchandising"],
       effective_from: beginning,
       created_by: office.id,

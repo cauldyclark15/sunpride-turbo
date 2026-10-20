@@ -145,7 +145,9 @@ export async function evidence(c, id, from, to) {
     if (
       retail.audits.some(
         (/** @type {any} */ a) =>
-          a.component_score !== null && Number(a.component_score) < 100,
+          a.component_score !== null &&
+          contract &&
+          Number(a.component_score) < Number(contract.minimum_retail_score),
       )
     )
       issues.push("Retail execution audit needs action");
@@ -202,6 +204,17 @@ export async function evidence(c, id, from, to) {
         reviews,
         contractId: contract?.id ?? null,
         contractVersion: contract?.version ?? null,
+        contractPolicy: contract
+          ? {
+              rateCentavos: Number(contract.rate_centavos),
+              minimumCalls: contract.minimum_calls,
+              minimumDwellMs: Number(contract.minimum_dwell_ms),
+              minimumRetailScore: contract.minimum_retail_score,
+              requiredKinds: contract.required_kinds,
+              sourceRef: contract.source_ref,
+              sample: contract.sample,
+            }
+          : null,
       },
     });
   }
