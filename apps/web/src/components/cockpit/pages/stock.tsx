@@ -97,8 +97,8 @@ export const stockColumns: DrillColumn<StockRow>[] = [
     key: "reach",
     label: "Stocking distribution",
     align: "right",
-    render: (r) => formatPct(r.buyingReachPct),
-    sort: (r) => r.buyingReachPct,
+    render: (r) => formatPct(r.numericDistributionPct),
+    sort: (r) => r.numericDistributionPct,
   },
   {
     key: "buyingReach",

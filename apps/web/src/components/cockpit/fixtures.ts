@@ -1952,6 +1952,7 @@ function stock(query: Query, clock: Clock): StockResponse {
       ),
       avgDailySalesCases: sold,
       daysCover: out ? 0 : round1(cover),
+      numericDistributionPct: null, // No physical observation in a sales-only fixture.
       buyingReachPct: round1(38 + r * 50),
       oosStores: out ? 14 - (i % 4) : Math.round(r * 4),
       status,
