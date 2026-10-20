@@ -451,6 +451,7 @@ describe("90-day Sunpride demo", () => {
         await db`select s.* from position_standards s join positions p on p.id=s.position_id where p.code=${code}`;
       expect(r.work_with_weekly_min).toBe(weekly);
       expect(r.work_with_monthly_min).toBe(monthly);
+      expect(r.productive_call_rule).toBe("any_listed_activity");
     }
     expect(
       await number(
