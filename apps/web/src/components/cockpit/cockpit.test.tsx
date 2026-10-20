@@ -377,8 +377,8 @@ describe("drill-down", () => {
   });
 });
 
-describe("CSV export", () => {
-  it("carries the current filters and format=csv", () => {
+describe("F-601 Excel export", () => {
+  it("carries the current filters and format=xlsx", () => {
     const href = csvHref("sales", {
       ...MTD,
       unitId: "u-south",
@@ -397,7 +397,7 @@ describe("CSV export", () => {
       compare: "ly",
       groupBy: "agent",
       parent: "territory:t-tmg",
-      format: "csv",
+      format: "xlsx",
     });
   });
 
@@ -407,7 +407,7 @@ describe("CSV export", () => {
       <StockView data={analyticsFixture("stock", MTD, NOW)} csv={csv} />,
     );
     expect(out).toContain(`href="${csv}"`);
-    expect(out).toContain("Download CSV");
+    expect(out).toContain("Download Excel");
   });
 });
 
@@ -500,5 +500,64 @@ describe("fixture mode", () => {
     expect(fixtureModeAllowed()).toBe(false);
     vi.stubEnv("NODE_ENV", "development");
     expect(fixtureModeAllowed()).toBe(true);
+  });
+});
+
+describe("F-602 F-605 one labelled measurement vocabulary", () => {
+  it("F-605 keeps order conversion, productive calls, in-store dwell and market span in separate columns", () => {
+    const data = analyticsFixture("coverage", MTD, NOW);
+    data.rows = data.rows.slice(0, 1).map((r) => ({
+      ...r,
+      strikeRatePct: 33.3,
+      productiveCallPct: 100,
+      dwellMin: 60,
+      timeInMarketMin: 150,
+      dropSize: 12345,
+      rank: 1,
+      distributionGained: 2,
+    }));
+    const out = html(
+      <CoverageView
+        data={data}
+        groupBy="agent"
+        csv="/api/v1/analytics/coverage?format=xlsx"
+      />,
+    );
+    for (const label of [
+      "Strike rate",
+      "Productive calls",
+      "Time in store",
+      "Day in market",
+      "Conversion rank",
+      "Stocking points gained",
+    ])
+      expect(out).toContain(label);
+    expect(out).toContain(formatPct(33.3));
+    expect(out).toContain(formatPct(100));
+    expect(out).toContain("Download Excel");
+  });
+  it("F-602 preserves buying reach separately from stocking and weighted distribution", () => {
+    const data = analyticsFixture("stock", MTD, NOW);
+    data.rows = data.rows.slice(0, 1).map((r) => ({
+      ...r,
+      numericDistributionPct: 25,
+      weightedDistributionPct: 90,
+      buyingReachPct: 80,
+      unmeasuredStores: 2,
+    }));
+    const out = html(
+      <StockView data={data} csv="/api/v1/analytics/stock?format=xlsx" />,
+    );
+    for (const label of [
+      "Stocking distribution",
+      "Buying reach",
+      "Weighted stocking",
+      "Not checked",
+    ])
+      expect(out).toContain(label);
+    expect(out).toContain(formatPct(25));
+    expect(out).toContain(formatPct(80));
+    expect(out).toContain(formatPct(90));
+    expect(out).not.toContain("Stores carrying");
   });
 });

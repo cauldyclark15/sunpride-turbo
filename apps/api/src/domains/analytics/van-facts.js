@@ -1,6 +1,8 @@
 // Read-only bridge from canonical handheld documents. No second sale/order/payment writer.
 // Scope is applied to the captured trip, seller, truck AND current store owner by callers.
-export const VAN_SALES_SQL = `select t.service_date,pe.id profile_id,pe.name agent_name,pe.current_unit_id agent_unit_id,
+export const VAN_SALES_SQL = `(with van_people as materialized(select * from analytics_people),
+  van_stores as materialized(select * from analytics_store_scope)
+  select t.service_date,pe.id profile_id,pe.name agent_name,pe.current_unit_id agent_unit_id,
   loc.org_unit_id source_unit_id,t.truck_location_id source_location_id,
   o.id store_id,o.name store_name,o.owner_unit_id,s.customer_code,o.channel,
   o.territory_id,o.territory_name,l.product_id,l.facts->>'name' product_name,
@@ -8,12 +10,12 @@ export const VAN_SALES_SQL = `select t.service_date,pe.id profile_id,pe.name age
   true approved,false posted,s.id order_id,l.quantity_base::numeric / nullif((l.facts->>'quantityScale')::numeric,0) quantity,
   t.org_unit_id van_unit_id
   from van_sales s join van_trips t on t.id=s.trip_id
-  join van_sale_lines l on l.sale_id=s.id join analytics_people pe on pe.id=t.salesperson_profile_id
-  join analytics_store_scope o on o.id=s.outlet_id
+  join van_sale_lines l on l.sale_id=s.id join van_people pe on pe.id=t.salesperson_profile_id
+  join van_stores o on o.id=s.outlet_id
   join inventory_locations loc on loc.id=t.truck_location_id and loc.deleted_at is null
   join products pr on pr.id=l.product_id
   where t.deleted_at is null and t.status<>'cancelled'
-  and not exists(select 1 from van_sale_voids v where v.sale_id=s.id)`;
+  and not exists(select 1 from van_sale_voids v where v.sale_id=s.id))`;
 
 export const SALES_COLUMNS = `service_date,profile_id,agent_name,agent_unit_id,source_unit_id,source_location_id,
   store_id,store_name,owner_unit_id,customer_code,channel,territory_id,territory_name,product_id,product_name,

@@ -491,7 +491,15 @@ export async function exceptionsPage(ctx, p, s) {
     throw new ApiError("invalid_cursor", 400, "Restart this exception list");
   return {
     counts,
-    items: filtered.slice(i, i + 50),
-    next: filtered.length > i + 50 ? filtered[i + 49].id : null,
+    items:
+      ctx.url.searchParams.get("format") === "xlsx"
+        ? filtered
+        : filtered.slice(i, i + 50),
+    next:
+      ctx.url.searchParams.get("format") === "xlsx"
+        ? null
+        : filtered.length > i + 50
+          ? filtered[i + 49].id
+          : null,
   };
 }

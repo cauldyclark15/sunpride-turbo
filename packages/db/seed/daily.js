@@ -13,6 +13,7 @@ import { seedTpm } from "./tpm.js";
 import { ensureIntegrityFleet } from "./integrity-fleet.js";
 import { seedAvailability } from "./availability.js";
 import { seedModernTrade } from "./modern-trade.js";
+import { extendTowerSamples } from "./tower.js";
 import {
   BATCH,
   Dataset,
@@ -588,7 +589,10 @@ async function advanceDay(db, date, originalStart) {
     await t`select pg_advisory_xact_lock(4310090)`;
     const [done] =
       await t`select 1 from sample_data_rows where batch=${BATCH} and key=${`audit_logs:daily-${date}-manifest`}`;
-    if (done) return { date, duplicate: true };
+    if (done) {
+      await extendTowerSamples(t, date);
+      return { date, duplicate: true };
+    }
     const api = new URL("../../../apps/api/src/", import.meta.url);
     const { ORG_LOCK } = await import(
       new URL("domains/org/identity.js", api).href
@@ -967,6 +971,7 @@ async function advanceDay(db, date, originalStart) {
     );
     await persist(t, d);
     await seedTpm(t, date);
+    await extendTowerSamples(t, date);
     // xmin scopes this capture to this transaction, never a concurrent tester insert.
     for (const table of STOCK_TABLES) {
       const rows = await t.unsafe(

@@ -10,6 +10,7 @@ import { tpm, seedTpm } from "./tpm.js";
 import { integrityFleet } from "./integrity.js";
 import { ensureIntegrityFleet } from "./integrity-fleet.js";
 import { appendVanOpsPolicies, seedVanOps } from "./vanops.js";
+import { towerSamples, extendTowerSamples } from "./tower.js";
 export { resetDemo } from "./store.js";
 
 /** @param {{anchorDate?:string,days?:number}} [options] @param {string[]} [hashes] */
@@ -44,6 +45,7 @@ export function generateDemo(
   addCallflowSamples(data);
   tpm(data);
   appendVanOpsPolicies(data);
+  towerSamples(data, c);
   // Keep the legacy analytics mirrors and ORDERS' canonical centavo facts equal.
   for (const order of data.rows("orders")) {
     order.subtotal_centavos = Math.round(Number(order.subtotal) * 100);
@@ -133,6 +135,7 @@ export async function seedDemo(
         throw new Error("Demo options changed; run --reset before reseeding");
       await seedTpm(t, anchorDate);
       await ensureIntegrityFleet(t, summary.anchorDate);
+      await extendTowerSamples(t, anchorDate, days);
       return { ...summary, duplicate: true };
     }
     const [partial] =

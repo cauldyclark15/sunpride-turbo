@@ -27,6 +27,7 @@ import {
   usePageQuery,
 } from "./shared";
 import { TargetsEditor } from "./targets-editor";
+import { TradePanel, DemandPanel } from "./tower";
 
 const GROUPS: SalesGroupBy[] = [
   "channel",
@@ -368,6 +369,7 @@ export function SalesPage() {
       title="Sales & targets"
       question="Are we on target, and where are we behind?"
       header={tab === "performance" ? result.data : undefined}
+      exportQuery={{ ...query, groupBy }}
       bar={
         <div className="grid gap-3">
           <Segmented
@@ -410,6 +412,12 @@ export function SalesPage() {
           )}
         </PageData>
       )}
+      {tab === "performance" ? (
+        <>
+          <TradePanel query={query} />
+          <DemandPanel query={query} />
+        </>
+      ) : null}
     </CockpitPage>
   );
 }

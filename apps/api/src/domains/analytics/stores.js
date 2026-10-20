@@ -1,3 +1,4 @@
+import { outletContext } from "./context-adapter.js";
 import {
   kpi,
   sum,
@@ -200,8 +201,13 @@ export async function storesPage(ctx, p, s) {
           ?.n ?? 0,
       ),
     })),
-    rows: filtered.slice(0, limit),
-    next: filtered.length > limit ? filtered[limit - 1].storeId : null,
+    rows: q.get("format") === "xlsx" ? filtered : filtered.slice(0, limit),
+    next:
+      q.get("format") === "xlsx"
+        ? null
+        : filtered.length > limit
+          ? filtered[limit - 1].storeId
+          : null,
   };
 }
 /** @param {any} ctx @param {any} p @param {any} s */
@@ -356,7 +362,8 @@ export async function storePage(ctx, p, s) {
     ...new Set(history.map((/** @type {any} */ row) => row.order_id)),
   ];
   const orderNumbers =
-    await db`select id,order_number from orders where id in ${db(orderIds.length ? orderIds : [null])}`;
+    await db`select id,order_number from orders where id in ${db(orderIds.length ? orderIds : [null])}
+      union all select id,receipt_number order_number from van_sales where id in ${db(orderIds.length ? orderIds : [null])}`;
   const orderMap = new Map();
   for (const h of history) {
     if (!orderMap.has(h.order_id))
@@ -380,7 +387,24 @@ export async function storePage(ctx, p, s) {
     const w = week(dateOf(r.service_date));
     weekly.set(w, (weekly.get(w) ?? 0) + Number(r.sales_centavos));
   }
+  const context = await outletContext(db, p, s, store);
+  context.coverage = {
+    planned: visitFacts.planned.length,
+    visited: visits.filter((/** @type {any} */ v) => v.onPlan && v.closed)
+      .length,
+    missed: visitFacts.planned.filter(
+      (/** @type {any} */ plan) =>
+        !visits.some(
+          (/** @type {any} */ v) => v.planned_visit_id === plan.id && v.closed,
+        ),
+    ).length,
+  };
+  if (context.availability)
+    context.availability.frequencyAchieved = visits.filter(
+      (/** @type {any} */ v) => v.closed,
+    ).length;
   return {
+    context,
     store: {
       id: store.id,
       storeId: store.id,
@@ -437,11 +461,11 @@ export async function storePage(ctx, p, s) {
       kpi(
         "osa",
         "On-shelf availability",
-        osa,
+        context.availability?.osa ?? null,
         "pct",
         100,
         null,
-        "Available required SKU observations divided by all required SKU observations; no audit is unknown.",
+        "Fresh available assigned MSL lines divided by all assigned MSL lines; incomplete checks are unknown.",
       ),
       kpi(
         "arBalance",

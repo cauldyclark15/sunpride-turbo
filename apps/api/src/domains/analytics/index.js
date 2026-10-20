@@ -12,12 +12,24 @@ import { stockPage, vansPage, moneyPage } from "./stock-money.js";
 import { exceptionsPage } from "./exceptions.js";
 import { listTargets, setTargets } from "./targets.js";
 import { installRefresh } from "./refresh.js";
+import { installAlerts } from "./alerts.js";
 import { orderedDb } from "./ordered-db.js";
 import { coverageAvailability } from "../availability/metrics.js";
+import { xlsx } from "./xlsx.js";
+import { coverageAvailabilityPage } from "./availability-adapter.js";
+import {
+  primarySecondaryPage,
+  demandSignalPage,
+  installPlanning,
+} from "./trade-planning.js";
+import { fraudPage, installPolicies } from "./context-adapter.js";
 
 /** @param {any} router @param {any} installCtx */
 export function install(router, installCtx) {
   installRefresh(installCtx);
+  installPlanning(router, installCtx);
+  installPolicies(router, installCtx);
+  installAlerts(router, installCtx);
   installCtx.registerTopic("analytics", (/** @type {any} */ actor) =>
     roleHas(actor.role, "report.read"),
   );
@@ -89,6 +101,10 @@ export function install(router, installCtx) {
       vans: (ctx, p, s) => vansPage(ctx.db, p, s),
       money: (ctx, p, s) => moneyPage(ctx.db, p, s),
       exceptions: exceptionsPage,
+      "coverage-availability": coverageAvailabilityPage,
+      "primary-secondary": primarySecondaryPage,
+      "demand-signals": demandSignalPage,
+      fraud: fraudPage,
     });
   for (const [page, handler] of Object.entries(handlers)) {
     router.get(`/api/v1/analytics/${page}`, async (/** @type {any} */ ctx) =>
@@ -112,7 +128,10 @@ export function install(router, installCtx) {
           ...head,
           ...body,
           demo: head.demo || body.demo === true,
+          definitionVersion: "commercial/v1",
         };
+        if (ctx.url.searchParams.get("format") === "xlsx")
+          return xlsx(response, page);
         return ctx.url.searchParams.get("format") === "csv" &&
           Array.isArray(body.rows)
           ? csv(body.rows)
@@ -122,6 +141,8 @@ export function install(router, installCtx) {
   }
   router.get("/api/v1/targets", async (/** @type {any} */ ctx) => {
     const result = await listTargets(ctx);
+    if (ctx.url.searchParams.get("format") === "xlsx")
+      return xlsx(result, "targets");
     return ctx.url.searchParams.get("format") === "csv"
       ? csv(result.rows)
       : result;

@@ -5,6 +5,7 @@ import { CallFlowReviews, CallFlowReport } from "../../callflow-admin";
 import { IntegrityReview } from "../../integrity/review";
 import Link from "next/link";
 import { FiscalWorkspace } from "../../fiscal/fiscal-workspace";
+import { FraudPanel, AlertsPanel } from "./tower";
 import { useCallback, useState } from "react";
 import { useAnalytics } from "../api";
 import { formatAge, formatCount, formatDayTime, formatPhp } from "../format";
@@ -316,6 +317,8 @@ export function DecidePage() {
       <CallFlowReport />
       <FiscalWorkspace decisionsOnly />
       <IntegrityReview />
+      <FraudPanel query={query} />
+      <AlertsPanel unitId={result.data?.scope.unitId ?? null} />
     </CockpitPage>
   );
 }

@@ -95,10 +95,31 @@ export const stockColumns: DrillColumn<StockRow>[] = [
   },
   {
     key: "reach",
-    label: "Buying reach",
+    label: "Stocking distribution",
     align: "right",
     render: (r) => formatPct(r.buyingReachPct),
     sort: (r) => r.buyingReachPct,
+  },
+  {
+    key: "buyingReach",
+    label: "Buying reach",
+    align: "right",
+    render: (r) => formatPct(r.buyingReachPct ?? null),
+    sort: (r) => r.buyingReachPct ?? null,
+  },
+  {
+    key: "weighted",
+    label: "Weighted stocking",
+    align: "right",
+    render: (r) => formatPct(r.weightedDistributionPct ?? null),
+    sort: (r) => r.weightedDistributionPct ?? null,
+  },
+  {
+    key: "unmeasured",
+    label: "Not checked",
+    align: "right",
+    render: (r) => formatCount(r.unmeasuredStores ?? null),
+    sort: (r) => r.unmeasuredStores ?? null,
   },
   {
     key: "oos",

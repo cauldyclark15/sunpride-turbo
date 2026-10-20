@@ -8,7 +8,7 @@ import { salesSource } from "./read-model.js";
 import { readTiles } from "./tiles.js";
 import { VAN_SALES_SQL, SALES_COLUMNS } from "./van-facts.js";
 
-export const VERSION = "analytics/v2/2026-10-19";
+export const VERSION = "commercial/v1";
 export const DAY = 86_400_000;
 /** @param {any} n */
 export const num = (n) => (n == null ? null : Number(n));
@@ -300,16 +300,19 @@ async function querySales(db, p, s, group, parent) {
   }
   const [native] =
     await db`select exists(select 1 from van_sales s join van_trips t on t.id=s.trip_id where t.service_date between ${p.from} and ${p.to}) present`;
-  let source = native.present ? "live" : await salesSource(db, p, s);
+  let source = await salesSource(db, p, s);
   if (
     source === "tiles" &&
+    !native.present &&
     (!parent ||
       ["channel", "territory", "agent"].includes(parent.split(":")[0]) ||
       (group === "store" && parent.startsWith("store:")))
   )
     return readTiles(db, p, s, group, parent);
+  const officeSource =
+    source === "tiles" ? "analytics_sales_cache" : "analytics_sales_facts";
   source = native.present
-    ? `(select ${SALES_COLUMNS},null::uuid van_unit_id from analytics_sales_facts union all ${VAN_SALES_SQL}) native_facts`
+    ? `(select ${SALES_COLUMNS},null::uuid van_unit_id from ${officeSource} union all ${VAN_SALES_SQL}) native_facts`
     : "analytics_sales_facts";
   const nativeScope = native.present
     ? "and (van_unit_id is null or van_unit_id=any($3::uuid[]))"

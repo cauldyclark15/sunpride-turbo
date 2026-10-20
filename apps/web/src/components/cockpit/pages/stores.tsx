@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { OutletContextView } from "./tower";
 import { useState } from "react";
 import { csvHref, useAnalytics } from "../api";
 import {
@@ -387,7 +388,9 @@ function CustomerExecution({
         <div>
           <dt className="text-[12px] text-muted">Missed planned calls</dt>
           <dd className="text-[13px] text-muted">
-            Not measured yet for one store
+            {data.context?.coverage
+              ? `${data.context.coverage.missed} of ${data.context.coverage.planned} planned calls`
+              : "Not measured yet for one store"}
           </dd>
         </div>
       </dl>
@@ -455,6 +458,7 @@ export function StoreView({
       </section>
       <KpiGrid kpis={data.kpis} />
       <CustomerExecution data={data} now={now} />
+      {data.context ? <OutletContextView data={data.context} /> : null}
       <div className="grid items-start gap-4 lg:grid-cols-3">
         <Panel
           title="Week by week"

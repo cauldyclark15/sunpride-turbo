@@ -64,11 +64,21 @@ async function queryVisits(db, p, s) {
     db`with people as materialized(select * from analytics_people), stores as materialized(select * from analytics_store_scope)
       select v.*,pe.name as agent_name,o.name as store_name,o.territory_id,st.productive_call_rule,
       coalesce(a.kinds,'{}') as activity_kinds,coalesce(a.activities,'[]') as activities,
-      coalesce(c.amount,0) as collections_centavos,coalesce(c.n,0) as collection_count
+      coalesce(c.amount,0) as collections_centavos,coalesce(c.n,0) as collection_count,
+      coalesce(sale.orders,0) as accepted_orders,coalesce(sale.lines,0) as accepted_lines
       from visit_executions v join people pe on pe.id=v.assignee_profile_id
       join stores o on o.id=v.outlet_id
       left join lateral(select array_agg(activity_kind) as kinds,jsonb_agg(jsonb_build_object('kind',activity_kind,'activity',activity,'deviceTime',extract(epoch from device_time)*1000)) as activities from visit_activities where visit_id=v.id and deleted_at is null) a on true
       left join lateral(select sum(amount_minor) as amount,count(*) as n from field_collections where visit_id=v.id and deleted_at is null and status!='rejected') c on true
+      left join lateral(select count(distinct ord.id) orders,count(*) lines from orders ord
+        join order_lines line on line.order_id=ord.id and line.deleted_at is null
+        where ord.id in (
+          select captured.id from orders captured where captured.source_activity_id in(select id from visit_activities where visit_id=v.id and outlet_id=v.outlet_id and deleted_at is null)
+          union select fc.order_id from field_order_captures fc where fc.visit_id=v.id)
+        and ord.deleted_at is null and ord.status not in ('draft','rejected','voided')
+        and ord.salesperson_subject in (pe.auth_subject,pe.user_id::text)
+        and (ord.outlet_id is null or ord.outlet_id=v.outlet_id)
+        and (ord.source_location_id is null or exists(select 1 from inventory_locations loc where loc.id=ord.source_location_id and loc.deleted_at is null and loc.org_unit_id in ${db(ids)}))) sale on true
       left join lateral(select productive_call_rule from position_standards where position_id=pe.current_position_id and deleted_at is null and effective_from<=v.service_date::timestamp at time zone 'Asia/Manila' and (effective_to is null or effective_to>v.service_date::timestamp at time zone 'Asia/Manila') order by effective_from desc limit 1) st on true
       where v.deleted_at is null and v.service_date between ${p.from} and ${p.to} and (${p.storeId ?? null}::uuid is null or v.outlet_id=${p.storeId ?? null})
       and v.org_unit_id in ${db(ids)} and pe.current_unit_id in ${db(ids)} and o.owner_unit_id in ${db(ids)}
@@ -102,6 +112,22 @@ async function queryVisits(db, p, s) {
       : false;
   }
   return { planned, visits, coaching };
+}
+/** F-605: per-visit dwell excludes travel and open/invalid intervals. @param {any[]} visits */
+export function dwell(visits) {
+  const durations = visits
+    .filter((v) => v.closed)
+    .map((v) => {
+      const start = ms(v.started_at) ?? ms(v.checked_in_at);
+      const end = ms(v.ended_at) ?? ms(v.checked_out_at);
+      return start !== null && end !== null && end >= start
+        ? end - start
+        : null;
+    })
+    .filter((v) => v !== null);
+  return durations.length
+    ? Math.round(durations.reduce((n, v) => n + v, 0) / 6000) / 10
+    : null;
 }
 /** @param {any} facts */
 export function visitSummary(facts) {
@@ -147,7 +173,22 @@ export function visitSummary(facts) {
     productive,
     calls,
     compliance: pct(visited, planned.length),
-    strikeRate: pct(productive, calls),
+    productivePct: pct(productive, calls),
+    completedCalls: visits.filter((/** @type {any} */ v) => v.closed).length,
+    orderCalls: visits.filter(
+      (/** @type {any} */ v) => v.closed && Number(v.accepted_orders) > 0,
+    ).length,
+    strikeRate: pct(
+      visits.filter(
+        (/** @type {any} */ v) => v.closed && Number(v.accepted_orders) > 0,
+      ).length,
+      visits.filter((/** @type {any} */ v) => v.closed).length,
+    ),
+    dwellMin: dwell(visits),
+    callLines: sum(
+      visits.filter((/** @type {any} */ v) => v.closed),
+      "accepted_lines",
+    ),
     first,
     last,
     time,
