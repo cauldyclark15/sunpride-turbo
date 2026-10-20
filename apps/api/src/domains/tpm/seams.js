@@ -1,4 +1,10 @@
 import { office } from "./common.js";
+import {
+  enqueueTpmPosting,
+  authorizeClaimant,
+  readEligibilityFacts,
+  readPartnerEvidence,
+} from "../integration/spec-adapters.js";
 import { fail } from "../orders/validation.js";
 
 /** SEAM(SAP): operational instructions await enqueueSapPosting; no synthetic SAP acknowledgement.
@@ -7,25 +13,17 @@ import { fail } from "../orders/validation.js";
  * SEAM(TOWER): versioned governed KPI snapshots for incentives and ROI. */
 export const seams = {
   /** @param {any} _c @param {any} _q @returns {Promise<any>} */
-  async readEligibilityFacts(_c, _q) {
-    return {};
-  },
+  readEligibilityFacts,
   /** @param {any} _db @param {any} _instruction @returns {Promise<{postingId:string}|null>} */
-  async enqueueSapPosting(_db, _instruction) {
-    return null;
-  },
+  enqueueSapPosting: enqueueTpmPosting,
   /** @param {any} _c @param {any} _facts @returns {Promise<{status:string,reference?:string}>} */
   async requestOverride(_c, _facts) {
     return { status: "needs_setup" };
   },
   /** @param {any} c @param {string} _type @param {string} _id */
-  async authorizeClaimant(c, _type, _id) {
-    await office(c, "order.encode");
-  },
+  authorizeClaimant,
   /** @param {any} _c @param {string} _kind @param {string} _id @returns {Promise<any>} */
-  async readEvidence(_c, _kind, _id) {
-    return null;
-  },
+  readEvidence: readPartnerEvidence,
   /** @param {any} _c @param {any} _q @returns {Promise<any>} */
   async readIncentiveMetrics(_c, _q) {
     fail("Governed incentive metrics are not connected", "needs_setup");

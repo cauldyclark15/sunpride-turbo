@@ -4,6 +4,17 @@ import { tx } from "../src/client.js";
 /** F-006 F-107: sample configurations, not Sunpride-approved operating policy. */
 export const SAMPLE_FLOWS = [
   {
+    profile: "distributor_rep",
+    label: "Sample distributor representative",
+    adapters: [
+      "check_in",
+      "stock_check",
+      "order_build",
+      "evidence",
+      "check_out",
+    ],
+  },
+  {
     profile: "field_selling",
     label: "Sample field selling",
     adapters: [

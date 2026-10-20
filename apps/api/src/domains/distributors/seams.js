@@ -1,4 +1,9 @@
 import { fail, integer, master, policy, dayAdd, today, text } from "./model.js";
+import {
+  distributorCredit,
+  enqueueDistributorPosting,
+} from "../integration/spec-adapters.js";
+import { configurations } from "../callflow/engine.js";
 
 // SEAM(SAP): replace these local reference adapters with domains/integration's
 // sapCreditCheck / enqueueSapPosting at integration. Only EXPLICIT sample masters
@@ -6,6 +11,7 @@ import { fail, integer, master, policy, dayAdd, today, text } from "./model.js";
 /** @param {any} c @param {any} d @param {number} addCentavos */
 export async function sapCreditCheck(c, d, addCentavos = 0) {
   integer(addCentavos);
+  if (c.env?.SAP_MODE) return distributorCredit(c, d, addCentavos);
   const m = await master(c, d.id);
   const p = await policy(c, d.id);
   const credit = m.payload.credit;
@@ -40,6 +46,8 @@ export async function sapCreditCheck(c, d, addCentavos = 0) {
 }
 /** @param {any} c @param {any} d @param {string} kind @param {string} key @param {any} payload */
 export async function enqueueSapPosting(c, d, kind, key, payload) {
+  if (c.env?.SAP_MODE)
+    return enqueueDistributorPosting(c, d, kind, key, payload);
   const m = await master(c, d.id);
   /** @type {any} */ let acknowledgement = null;
   if (m.source === "sample") {
@@ -80,7 +88,15 @@ export async function distributorCallflowConfig(c, d) {
     fail("DSR grant required", "forbidden", 403);
   const outlets =
     await c.db`select o.id,o.code,o.name,g.territory_id from distributor_outlets g join outlets o on o.id=g.outlet_id where g.distributor_id=${d.id} and g.effective_from<=now() and (g.effective_to is null or g.effective_to>now()) and o.deleted_at is null order by o.code`;
+  const configs = await configurations(
+    c.db,
+    "distributor_rep",
+    outlets,
+    c.now,
+    c.device ? { profileId: c.actor.profileId, deviceId: c.device.id } : null,
+  );
   return {
+    configurations: Object.fromEntries(configs),
     engine: "callflow",
     configuration: "distributor_rep",
     distributorId: d.id,

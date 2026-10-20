@@ -323,6 +323,9 @@ export function startMock(opts) {
               effectId: b.effectId,
               correlationId: b.correlationId,
               documentNumber: `SAMPLE-${target.toUpperCase()}-${String(n).padStart(8, "0")}`,
+              ...(target === "business_partner"
+                ? { customerCode: `SAMPLE-BP-${String(n).padStart(8, "0")}` }
+                : {}),
               payloadHash: hash,
               postedAt: Date.now(),
               source: "sample",

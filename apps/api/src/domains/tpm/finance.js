@@ -27,10 +27,14 @@ export async function posting(c, input) {
   }
   const [p] =
     await c.db`insert into tpm_posting_instructions(source_key,kind,earning_id,settlement_id,amount_centavos,payload) values(${key},${input.kind},${input.earningId ?? null},${input.settlementId ?? null},${integer(input.amountCentavos)},${input}) returning *`;
-  const sent = await seams.enqueueSapPosting(c.db, {
-    ...input,
-    instructionId: p.id,
-  });
+  const sent = await seams.enqueueSapPosting(
+    c.db,
+    {
+      ...input,
+      instructionId: p.id,
+    },
+    c.env,
+  );
   if (sent)
     await c.db`update tpm_posting_instructions set status='queued',updated_at=now() where id=${p.id}`;
   return p;
@@ -109,8 +113,8 @@ export async function reverseOrder(c, orderId) {
   }
 }
 /** F-504/F-507 trusted SAP inbox seam only (not an office mark-posted HTTP endpoint).
- * @param {any} db @param {{instructionId:string,status:'acknowledged'|'rejected',sapDocument?:string,sourceEventId:string}} ack */
-export async function applySapAcknowledgement(db, ack) {
+ * @param {any} db @param {{instructionId:string,status:'acknowledged'|'rejected',sapDocument?:string,sourceEventId:string}} ack @param {Record<string,string|undefined>} [env] */
+export async function applySapAcknowledgement(db, ack, env = undefined) {
   return tx(db, async (t) => {
     const [p] =
       await t`select * from tpm_posting_instructions where id=${uuid(ack.instructionId)} for update`;
@@ -147,7 +151,7 @@ export async function applySapAcknowledgement(db, ack) {
       await t`insert into claim_notifications(claim_id,party_type,party_id,message) values(${claim.id},${claim.claimant_party_type},${claim.claimant_party_id},${ack.status === "acknowledged" ? "SAP confirmed your claim settlement." : "SAP rejected the settlement; Finance will review it."})`;
       if (ack.status === "acknowledged" && claim.earning_id)
         await posting(
-          { db: t },
+          { db: t, env },
           {
             sourceKey: `release:${s.id}`,
             kind: "release",
@@ -225,10 +229,14 @@ export function installFinance(router) {
           await cc.db`select * from tpm_posting_instructions where id=${uuid(c.body.id)} for update`;
         if (!p || !["awaiting_seam", "queued"].includes(p.status))
           fail("Only unacknowledged instructions can be retried");
-        const sent = await seams.enqueueSapPosting(cc.db, {
-          ...p.payload,
-          instructionId: p.id,
-        });
+        const sent = await seams.enqueueSapPosting(
+          cc.db,
+          {
+            ...p.payload,
+            instructionId: p.id,
+          },
+          cc.env,
+        );
         if (sent)
           await cc.db`update tpm_posting_instructions set status='queued',updated_at=now() where id=${p.id}`;
         await changed(cc, "posting.retried", p.id);

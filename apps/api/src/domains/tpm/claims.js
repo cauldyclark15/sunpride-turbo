@@ -76,7 +76,7 @@ async function event(c, r, action, details = {}) {
 }
 /** F-505 shared intake seam; caller identity checked here, including portal adapters.
  * @param {any} c @param {any} b */
-export async function submitClaim(c, b) {
+export async function submitClaim(c, b, sourceId = crypto.randomUUID()) {
   const type = choice(b.partyType, PARTY_TYPES, "Claimant type"),
     party = text(b.partyId, "Claimant party", 160),
     name = text(b.partyName, "Claimant name", 160);
@@ -107,8 +107,8 @@ export async function submitClaim(c, b) {
       fail("Earning does not match the claim facts");
   }
   const [r] =
-    await c.db`insert into claims(reference,claimant_party_type,claimant_party_id,claimant_name,type_id,campaign_version_id,earning_id,outlet_id,period_from,period_to,amount_centavos,created_by)
-    values(${reference},${type},${party},${name},${policy.id},${b.campaignVersionId ? uuid(b.campaignVersionId) : null},${b.earningId ? uuid(b.earningId) : null},${b.outletId ? uuid(b.outletId) : null},${from},${to},${amount},${c.actor.subject}) returning *`;
+    await c.db`insert into claims(id,reference,claimant_party_type,claimant_party_id,claimant_name,type_id,campaign_version_id,earning_id,outlet_id,period_from,period_to,amount_centavos,created_by)
+    values(${sourceId},${reference},${type},${party},${name},${policy.id},${b.campaignVersionId ? uuid(b.campaignVersionId) : null},${b.earningId ? uuid(b.earningId) : null},${b.outletId ? uuid(b.outletId) : null},${from},${to},${amount},${c.actor.subject}) returning *`;
   await event(c, r, "submitted");
   return { id: r.id, status: r.status };
 }

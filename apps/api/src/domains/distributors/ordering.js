@@ -1,4 +1,4 @@
-import { applyPromotions } from "../orders/pricing.js";
+import { applyPromotions, activePromotions } from "../orders/pricing.js";
 import {
   date,
   digest,
@@ -61,32 +61,18 @@ export async function quote(c, d, b) {
     )
     .map((s) => uuid(s.promotionId));
   const promotions = schemeIds.length
-    ? await c.db`select * from promotions where id in ${c.db(schemeIds)} and organization_id='sunpride' and status='active' and deleted_at is null and effective_from<=now() and (effective_to is null or effective_to>now()) order by code`
+    ? (await activePromotions(c.db, "sunpride", c.now)).filter(
+        (/** @type {any} */ p) => schemeIds.includes(p.id),
+      )
     : [];
-  const benefit = applyPromotions(lines, promotions);
-  // The shared evaluator returns gross line values plus a basket discount; allocate
-  // discount in integer centavos so canonical lines reconcile exactly to total.
-  let left =
-    Number(benefit.knownSubtotalCentavos) - Number(benefit.totalCentavos);
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const discount =
-      i === lines.length - 1
-        ? left
-        : Math.min(
-            left,
-            Number(
-              (BigInt(line.lineTotalCentavos) *
-                BigInt(
-                  Number(benefit.knownSubtotalCentavos) -
-                    Number(benefit.totalCentavos),
-                )) /
-                BigInt(benefit.knownSubtotalCentavos || 1),
-            ),
-          );
-    line.lineTotalCentavos -= discount;
-    left -= discount;
-  }
+  const benefit = applyPromotions(lines, promotions, {
+    distributorId: d.id,
+    channelKey: "distributor",
+  });
+  // Preserve the shared engine's exact per-line allocation, including SKU-only mechanics.
+  lines.forEach((line, i) => {
+    line.lineTotalCentavos -= benefit.lineDiscounts[i];
+  });
   const freeGoods = [];
   for (const promotion of benefit.promotionsApplied)
     for (const free of promotion.freeGoods ?? []) {
@@ -135,7 +121,7 @@ export async function quote(c, d, b) {
       d.status === "accredited" &&
       lines.every((l) => l.inStock) &&
       freeGoods.every((l) => l.inStock) &&
-      credit.status === "within",
+      ["within", "no_limit"].includes(credit.status),
     provenance: {
       source: m.source,
       sourceKey: m.source_key,
@@ -159,7 +145,7 @@ export async function placeOrder(c, d, b) {
   const q = await quote(c, d, b);
   if (!q.canConfirm)
     fail(
-      q.credit.status !== "within"
+      !["within", "no_limit"].includes(q.credit.status)
         ? "SAP credit check blocks this order; ask Sunpride credit control"
         : "Requested stock is not available",
       "order_blocked",

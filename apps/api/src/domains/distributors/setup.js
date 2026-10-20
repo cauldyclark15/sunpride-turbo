@@ -293,7 +293,7 @@ export async function reviewApplication(c, d, b) {
     stage = "validated";
   } else if (b.action === "assess_credit" && a.stage === "validated") {
     const credit = await sapCreditCheck(c, d, 0);
-    if (credit.status !== "within")
+    if (!["within", "no_limit"].includes(credit.status))
       fail("SAP credit is over limit, stale or unavailable", "credit_blocked");
     await c.db`update distributor_applications set credit_assessment=${credit} where id=${a.id}`;
     stage = "credit_assessed";

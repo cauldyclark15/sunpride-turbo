@@ -1,4 +1,5 @@
 import { tx } from "@sunpride/db/client";
+import { acknowledgeSpecPosting } from "./spec-adapters.js";
 import {
   validate,
   postingKinds,
@@ -110,8 +111,8 @@ export async function heartbeat(db, id, token) {
     await db`update integration_events set heartbeat_at=now(),lease_expires_at=now()+interval '30 seconds' where id=${id} and lease_token=${token} and status='processing' and lease_expires_at>now() returning id`;
   return rows.length === 1;
 }
-/** @param {any} t @param {any} row @param {any} result */
-async function acknowledge(t, row, result) {
+/** @param {any} t @param {any} row @param {any} result @param {Record<string,string|undefined>|undefined} env */
+async function acknowledge(t, row, result, env) {
   if (
     result.effectId !== row.event_id ||
     result.payloadHash !== row.payload_hash ||
@@ -136,6 +137,7 @@ async function acknowledge(t, row, result) {
     await t`update inventory_movements set sap_document_number=${result.documentNumber} where id=${row.source_id}::uuid`;
   if (row.source_type === "van_trip")
     await t`update van_trips set sap_settlement_document_number=${result.documentNumber} where id=${row.source_id}::uuid`;
+  await acknowledgeSpecPosting(t, row, result, env);
   await t`update integration_events set status='completed',processed_at=now(),acknowledged_at=now(),external_document_number=${result.documentNumber},sap_result=${result},last_error=null,error_class=null,lease_token=null,lease_expires_at=null where id=${row.id}`;
   await resolution(t, row.id, "acknowledged", {
     documentNumber: result.documentNumber,
@@ -195,7 +197,7 @@ export async function runOutbox(db, opts = {}) {
             schema: "postingResult",
             env: opts.env,
           });
-        await tx(db, (t) => acknowledge(t, row, result));
+        await tx(db, (t) => acknowledge(t, row, result, opts.env));
       } catch (e) {
         await failed(db, row, e);
       }

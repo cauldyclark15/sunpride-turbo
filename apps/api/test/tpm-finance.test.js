@@ -89,6 +89,7 @@ beforeAll(async () => {
   typeId = t.id;
   await h.db`insert into claim_approval_rules(name,party_type,min_centavos,max_centavos,approver_roles,effective_from,effective_to,source) values('Sample independent Finance','all',0,10000,${["super_admin"]},now()-interval '1 day',now()+interval '1 day','sample')`;
   setTpmSeams({
+    enqueueSapPosting: async () => null,
     readEvidence: async (_c, kind, id) =>
       id === sourceId
         ? {

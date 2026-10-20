@@ -26,7 +26,16 @@ export const masterKinds = [
   "location",
   "stock",
 ];
+import business_partner from "./business_partner.schema.json" with { type: "json" };
+import accrual from "./accrual.schema.json" with { type: "json" };
+import reversal from "./reversal.schema.json" with { type: "json" };
+import release from "./release.schema.json" with { type: "json" };
+
 export const postingKinds = [
+  "business_partner",
+  "accrual",
+  "reversal",
+  "release",
   "order",
   "invoice",
   "payment",
@@ -36,6 +45,10 @@ export const postingKinds = [
 ];
 /** @type {Record<string, any>} */
 export const schemas = {
+  business_partner,
+  accrual,
+  reversal,
+  release,
   material,
   condition,
   customer,

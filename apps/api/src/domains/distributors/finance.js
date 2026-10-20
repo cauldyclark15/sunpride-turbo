@@ -10,6 +10,7 @@ import {
   uuid,
 } from "./model.js";
 import { enqueueSapPosting } from "./seams.js";
+import { bridgeClaim } from "./claim-bridge.js";
 
 const KINDS = [
   "registration",
@@ -128,6 +129,9 @@ export async function submitClaim(c, d, b) {
     await c.db`insert into distributor_claims(distributor_id,claim_number,kind,period_from,period_to,amount_centavos,reason,source_order_id,campaign_reference,submitted_by) values(${d.id},${number},${kind},${from},${to},${amount},${reason},${b.orderId ?? null},${b.campaignReference ? text(b.campaignReference) : null},${c.actor.profileId}) returning id,status`;
   for (const id of evidence)
     await c.db`insert into distributor_claim_evidence(claim_id,document_id) values(${claim.id},${id})`;
+  const [source] =
+    await c.db`select * from distributor_claims where id=${claim.id}`;
+  await bridgeClaim(c, d, source, evidence);
   return claim;
 }
 /** @param {any} c @param {any} d @param {any} b */
@@ -143,6 +147,12 @@ export async function reviewClaim(c, d, b) {
   )
     fail("Choose a W4 claim intake decision; settlement is owned by TPM");
   text(b.reason, "Review reason", 2000);
+  const [shared] =
+    await c.db`select status from claims where id=${claim.id} for update`;
+  if (shared && ["approved", "part_settled", "settled"].includes(shared.status))
+    fail("Finance controls this claim after approval");
+  if (b.status === "rejected" && shared)
+    await c.db`update claims set status='rejected',updated_at=now() where id=${claim.id}`;
   await c.db`update distributor_claims set status=${b.status},updated_at=now() where id=${claim.id}`;
   await c.db`insert into distributor_events(distributor_id,actor_id,action,entity_id,details) values(${d.id},${c.actor.profileId},'F-409.claim_review',${claim.id},${{ reason: b.reason, status: b.status }})`;
   return { id: claim.id, status: b.status };

@@ -316,7 +316,9 @@ export function install(router, platform) {
   post("claims", "claim", submitClaim);
   post("claims/review", "claim", reviewClaim, true);
   get("claims", "claim", async (c, d) => ({
-    rows: await c.db`select * from distributor_claims where distributor_id=${d.id} order by created_at desc limit 200`,
+    rows: await c.db`select i.*,q.id as shared_claim_id,case when q.status in ('validated','approved','part_settled','settled','needs_evidence','rejected') then q.status else i.status end as status from distributor_claims i left join claims q on q.id=i.id where i.distributor_id=${d.id} order by i.created_at desc limit 200`,
+    notifications:
+      await c.db`select id,claim_id,message,created_at from claim_notifications where party_type='distributor' and party_id=${d.id} order by created_at desc limit 200`,
   }));
   post("remittances", "finance", remit);
   post("remittances/dispute", "finance", disputeRemittance);
