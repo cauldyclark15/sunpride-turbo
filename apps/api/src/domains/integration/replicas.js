@@ -321,7 +321,7 @@ export async function resolveSapPrice(db, q) {
 /** F-016 F-307: one quote validator for SAP replicas and approved marked mock conditions.
  * Account hierarchy selects the condition; it cannot implement a second pricing engine.
  * @param {any} first
- * @returns {{unitPriceCentavos:number|null,priceListId:any,source:string,taxCode?:string,taxBasisPoints?:number,taxInclusive?:boolean,sapKey?:string,sapVersion?:number,effectiveFrom?:number,effectiveTo?:number|null}} */
+ * @returns {{unitPriceCentavos:number|null,priceListId:any,source:string,taxCode?:string,taxBasisPoints?:number,taxInclusive?:boolean,sourceTaxInclusive?:boolean,sourceUnitPriceCentavos?:number,sapKey?:string,sapVersion?:number,effectiveFrom?:number,effectiveTo?:number|null}} */
 export function quoteSapCondition(first) {
   const d = first.payload.data;
   if (!Number.isSafeInteger(d.unitPriceCentavos) || d.unitPriceCentavos < 0)
@@ -330,19 +330,36 @@ export function quoteSapCondition(first) {
       priceListId: null,
       source: "invalid_condition",
     };
-  if (!d.taxInclusive && d.taxBasisPoints > 0)
-    return {
-      unitPriceCentavos: null,
-      priceListId: null,
-      source: "sap_tax_quote_required",
-    };
+  // F-016: SAP supplies the complete gross/tax quote. The front end never invents
+  // an exclusive-tax selling amount or passes a net subtotal to the credit service.
+  let selling = d.unitPriceCentavos;
+  if (!d.taxInclusive && d.taxBasisPoints > 0) {
+    if (
+      !Number.isSafeInteger(d.sellingUnitPriceCentavos) ||
+      !Number.isSafeInteger(d.unitTaxCentavos) ||
+      d.unitTaxCentavos < 0 ||
+      BigInt(d.unitTaxCentavos) !==
+        (BigInt(d.unitPriceCentavos) * BigInt(d.taxBasisPoints) + 5000n) /
+          10000n ||
+      BigInt(d.unitPriceCentavos) + BigInt(d.unitTaxCentavos) !==
+        BigInt(d.sellingUnitPriceCentavos)
+    )
+      return {
+        unitPriceCentavos: null,
+        priceListId: null,
+        source: "sap_tax_quote_required",
+      };
+    selling = d.sellingUnitPriceCentavos;
+  }
   return {
-    unitPriceCentavos: d.unitPriceCentavos,
+    unitPriceCentavos: selling,
     priceListId: first.price_list_id ?? null,
     source: first.source === "sample" ? "sap_sample" : "sap",
     taxCode: d.taxCode,
     taxBasisPoints: d.taxBasisPoints,
-    taxInclusive: d.taxInclusive,
+    taxInclusive: true,
+    sourceTaxInclusive: d.taxInclusive,
+    sourceUnitPriceCentavos: d.unitPriceCentavos,
     sapKey: first.sap_key,
     sapVersion: Number(first.sap_version),
     effectiveFrom: new Date(first.effective_from).getTime(),

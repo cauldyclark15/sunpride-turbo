@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { sampleMasters } from "./sample.js";
+import { sampleMasters, sampleTaxQuote } from "./sample.js";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import {
@@ -33,6 +33,12 @@ export function startMock(opts) {
   /** @param {any} m */
   function putMaster(m) {
     validate(m.kind, m);
+    if (
+      m.kind === "condition" &&
+      !m.data.taxInclusive &&
+      m.data.sellingUnitPriceCentavos === undefined
+    )
+      m = { ...m, data: sampleTaxQuote(m.data) };
     if (
       !masterKinds.includes(m.kind) ||
       (m.effectiveTo !== null && m.effectiveTo <= m.effectiveFrom)

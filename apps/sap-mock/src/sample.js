@@ -12,6 +12,21 @@ export const sampleMaster = (kind, key, data, version = 1) => ({
   deleted: false,
   data,
 });
+// F-016: the mock SAP (not the front-end resolver) owns complete selling quotes.
+/** @param {any} data */
+export function sampleTaxQuote(data) {
+  const net = BigInt(data.unitPriceCentavos),
+    rate = BigInt(data.taxBasisPoints);
+  const tax = data.taxInclusive ? 0n : (net * rate + 5000n) / 10000n;
+  const gross = net + tax;
+  if (gross > BigInt(Number.MAX_SAFE_INTEGER))
+    throw new Error("Sample SAP quote exceeds supported money bound");
+  return {
+    ...data,
+    sellingUnitPriceCentavos: Number(gross),
+    unitTaxCentavos: Number(tax),
+  };
+}
 export const sampleMasters = [
   sampleMaster("material", "MOCK-M1", {
     code: "MOCK-M1",
