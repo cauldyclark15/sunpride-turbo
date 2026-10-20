@@ -1,3 +1,4 @@
+import { tx } from "../../../packages/db/src/client.js";
 import { beforeAll, afterAll, test, expect } from "bun:test";
 import { startHarness } from "./harness.js";
 import { analyticsFixture } from "./analytics-fixture.js";
@@ -168,4 +169,62 @@ test("F-601 a source write blocked by a projection version lock invalidates the 
   await holding;
   await writer;
   expect(await read()).toBe(before + 100);
+});
+
+test("F-601 bulk writers invalidate a date once per transaction", async () => {
+  const [order] =
+    await h.db`select order_id id,service_date::text service_date from analytics_sales_facts where customer_code='C1' order by service_date desc limit 1`;
+  const [before] =
+    await h.db`select revision from analytics_source_versions where service_date=${order.service_date}`;
+  await tx(h.db, async (t) => {
+    await t`update order_lines set line_total_centavos=coalesce(line_total_centavos,round(line_total*100)::bigint)+1,line_total=line_total+0.01 where order_id=${order.id}`;
+    await t`update order_lines set line_total_centavos=coalesce(line_total_centavos,round(line_total*100)::bigint)+1,line_total=line_total+0.01 where order_id=${order.id}`;
+  });
+  const [after] =
+    await h.db`select revision from analytics_source_versions where service_date=${order.service_date}`;
+  expect(Number(after.revision) - Number(before.revision)).toBe(1);
+});
+
+test("F-601 a write after projection in the same outer transaction invalidates that projection again", async () => {
+  const [line] =
+    await h.db`select l.id from order_lines l join orders o on o.id=l.order_id where o.customer_code='C1' and o.status not in ('draft','rejected','voided') order by o.created_at desc limit 1`;
+  const read = async () => {
+    const response = await f.get(
+      `/api/v1/analytics/sales?from=${f.start}&to=${f.today}`,
+    );
+    expect(response.status).toBe(200);
+    return (await response.json()).kpis.find(
+      (/** @type {any} */ k) => k.key === "sales",
+    ).value;
+  };
+  const before = await read();
+  await tx(h.db, async (t) => {
+    await t`update order_lines set line_total_centavos=coalesce(line_total_centavos,round(line_total*100)::bigint)+1,line_total=line_total+0.01 where id=${line.id}`;
+    await rebuildSalesCache(t, f.start, f.today);
+    await t`update order_lines set line_total_centavos=coalesce(line_total_centavos,round(line_total*100)::bigint)+1,line_total=line_total+0.01 where id=${line.id}`;
+  });
+  const stale =
+    await h.db`select s.service_date from analytics_refresh_state s join analytics_source_versions v using(service_date) where s.source_version<>v.revision`;
+  expect(stale.length).toBeGreaterThan(0);
+  expect(await read()).toBe(before + 2);
+});
+
+test("F-601 statement transitions invalidate both event days of an order correction", async () => {
+  await rebuildSalesCache(h.db, f.start, f.today);
+  const [order] =
+    await h.db`select order_id id,service_date::text as event_day from analytics_sales_facts where customer_code='C1' order by service_date desc limit 1`;
+  expect(order.event_day).not.toBe(f.start);
+  const before =
+    await h.db`select service_date::text as event_day,revision from analytics_source_versions where service_date in (${order.event_day},${f.start})`;
+  await h.db`update orders set service_date=${f.start} where id=${order.id}`;
+  const after =
+    await h.db`select service_date::text as event_day,revision from analytics_source_versions where service_date in (${order.event_day},${f.start})`;
+  for (const row of before)
+    expect(
+      Number(
+        after.find((/** @type {any} */ r) => r.event_day === row.event_day)
+          .revision,
+      ),
+    ).toBe(Number(row.revision) + 1);
+  await h.db`update orders set service_date=${order.event_day} where id=${order.id}`;
 });

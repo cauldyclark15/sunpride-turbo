@@ -12,8 +12,11 @@ export async function rebuildSalesCache(db, from, to) {
     await t`select pg_advisory_xact_lock(hashtext('analytics.sales-cache'))`;
     // F-601: lock tiny revision rows, not 54k facts. A concurrent source write either
     // precedes the snapshot or waits and invalidates it after this transaction commits.
+    // Clear transaction coalescing at the projection boundary: a later write in the
+    // SAME outer transaction must invalidate this newly built projection again.
     await t`insert into analytics_source_versions(service_date) select d::date from generate_series(${from}::date,${to}::date,'1 day') d on conflict do nothing`;
-    await t`select service_date,revision from analytics_source_versions where service_date between ${from} and ${to} order by service_date for share`;
+    await t`select service_date,revision from analytics_source_versions where service_date between ${from} and ${to} order by service_date for update`;
+    await t`update analytics_source_versions set last_source_xid=null where service_date between ${from} and ${to}`;
     const [masters] =
       await t`select analytics_master_fingerprint() as fingerprint`;
     await t`delete from analytics_sales_cache where service_date between ${from} and ${to}`;
