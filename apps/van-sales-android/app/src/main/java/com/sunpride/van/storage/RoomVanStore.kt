@@ -516,7 +516,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         dao.clearPriceListLine(s,d)
         dao.clearPromotion(s,d)
         b.trip?.let { t -> dao.insertTrip(TripRow(s,d,t.tripId,t.tripNumber,t.status,t.serviceDate,o.getJSONObject("trip").put("_damageRecords",o.optJSONArray("damageRecords") ?: JSONArray())
-            .put("_callFlows",grant?.optJSONObject("callFlows") ?: JSONObject()).put("_serverCalls",grant?.optJSONArray("callFlowCalls") ?: JSONArray()).toString(),b.load?.loadId,b.load?.status)) }
+            .put("_callFlows",grant?.optJSONObject("callFlows") ?: JSONObject()).put("_serverCalls",grant?.optJSONArray("callFlowCalls") ?: JSONArray()).put("_deliveries",grant?.optJSONArray("deliveryDrops") ?: JSONArray()).toString(),b.load?.loadId,b.load?.status)) }
         b.load?.let { l -> VanBootstrapCodec.objects(o.getJSONObject("load").getJSONArray("lines")).forEach { line ->
             val parsed = VanBootstrapCodec.line(line)
             dao.insertLoadLine(LoadLineRow(s,d,l.loadId,parsed.lineNumber,parsed.productId,parsed.expectedBase,parsed.actualBase,line.toString()))

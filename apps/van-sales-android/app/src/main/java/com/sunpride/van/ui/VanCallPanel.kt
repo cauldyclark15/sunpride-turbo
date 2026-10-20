@@ -22,7 +22,8 @@ import org.json.JSONObject
     val context = LocalContext.current
     var sequenceReason by remember(customer.outletId) { mutableStateOf("") }
     var unplannedReason by remember(customer.outletId) { mutableStateOf("") }
-    var zeroSale by remember(customer.outletId) { mutableStateOf("") }
+    val delivery=flow.getJSONObject("definition").optString("channelProfile")=="driver_delivery"
+    var zeroSale by remember(customer.outletId) { mutableStateOf(if(delivery) "delivery_only" else "") }
     var shortReason by remember(customer.outletId) { mutableStateOf("") }
     var observation by remember(customer.outletId) { mutableStateOf("") }
     var geofenceReason by remember(customer.outletId) { mutableStateOf("") }
@@ -53,8 +54,11 @@ import org.json.JSONObject
             SecondaryButton("Check in",{record("call.start")},Modifier.testTag("callflow-start"),!c.busy)
         }
         if (openHere) {
-            LabeledField("Stock observation",observation,{observation=it},"callflow-stock-observation")
-            SecondaryButton("Save stock check",{c.recordCallFlowStep(JSONObject().put("adapter","stock_check").put("observation",observation))},Modifier.testTag("callflow-stock"),!c.busy && observation.isNotBlank())
+            if(delivery) DriverDeliveryPanel(c)
+            if(CallFlowEngine.keyFor(flow,"stock_check") != null) {
+                LabeledField("Stock observation",observation,{observation=it},"callflow-stock-observation")
+                SecondaryButton("Save stock check",{c.recordCallFlowStep(JSONObject().put("adapter","stock_check").put("observation",observation))},Modifier.testTag("callflow-stock"),!c.busy && observation.isNotBlank())
+            }
             if (CallFlowEngine.keyFor(flow,"evidence") != null) VanCallEvidenceButton(c)
             Text("No order this call",style = MaterialTheme.typography.titleSmall)
             CallFlowEngine.objects(flow.getJSONArray("reasons")).forEach { reason ->
