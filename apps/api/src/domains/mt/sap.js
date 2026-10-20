@@ -1,17 +1,34 @@
+import { resolveSapPrice, quoteSapCondition } from "../integration/replicas.js";
+import { sapCreditCheck } from "../integration/credit.js";
 import { ApiError } from "../../core/errors.js";
 import { bindings, within } from "./hierarchy.js";
 
-/** SEAM(SAP): approved conditions are a replica; sample adapter echoes only marked
- * sample conditions. Replace this boundary with the SAP lane's condition lookup.
- * SAP-sourced terms fail closed until the real adapter is configured.
- * @param {any} term @param {any} condition */
-export async function sapConditionPrice(term, condition) {
-  if (term.source !== "sample")
-    return { unitPriceCentavos: null, source: "sap_unavailable" };
-  return {
-    unitPriceCentavos: Number(condition.amount_centavos),
+/** F-307: the shared SAP owner validates every quote. Real terms must identify
+ * an actual replicated SAP condition; only explicit sample terms use mock input.
+ * @param {any} db @param {any} term @param {any} condition @param {any} q */
+export async function sapConditionPrice(db, term, condition, q) {
+  if (term.source !== "sample") {
+    const price = await resolveSapPrice(db, q);
+    return price.sapKey === term.sap_key &&
+      price.sapVersion === Number(term.source_version)
+      ? price
+      : { unitPriceCentavos: null, source: "sap_unavailable" };
+  }
+  return quoteSapCondition({
     source: "sample",
-  };
+    sap_key: `MT:${condition.id}`,
+    sap_version: term.source_version,
+    effective_from: term.effective_from,
+    effective_to: term.effective_to,
+    payload: {
+      data: {
+        unitPriceCentavos: Number(condition.amount_centavos),
+        taxInclusive: true,
+        taxCode: "SAMPLE-INCLUSIVE",
+        taxBasisPoints: 0,
+      },
+    },
+  });
 }
 /** A missing/expired path is not permission to replace SAP authority with a generic list.
  * @param {any} db @param {string} code */
@@ -22,11 +39,20 @@ async function knownAccount(db, code) {
 }
 /** SEAM(SAP): MT credit is unknown until SAP's credit-call adapter is wired.
  * Never turn locally captured open orders into a credit certificate.
- * @param {any} db @param {{customerCode:string}} q */
+ * @param {any} db @param {{customerCode:string,addCentavos:number|null}} q */
 export async function resolveAccountCredit(db, q) {
-  return (await knownAccount(db, q.customerCode))
-    ? { status: /** @type {const} */ ("unknown"), limit: null, exposure: null }
-    : null;
+  if (!(await knownAccount(db, q.customerCode))) return null;
+  if (
+    !(await bindings(db)).some(
+      (/** @type {any} */ b) => b.customer_code === q.customerCode,
+    )
+  )
+    return {
+      status: /** @type {const} */ ("unknown"),
+      limit: null,
+      exposure: null,
+    };
+  return sapCreditCheck(db, q.customerCode, q.addCentavos);
 }
 /** F-307: branch > banner > account, effective approved conditions only; ambiguity fails closed.
  * null means the customer was never bound to MT (normal channel pricing remains unchanged).
@@ -80,7 +106,7 @@ export async function resolveAccountPrice(db, q) {
         priceListId: null,
         source: "ambiguous",
       };
-    const price = await sapConditionPrice(term, conditions[0]);
+    const price = await sapConditionPrice(db, term, conditions[0], q);
     const value = price.unitPriceCentavos;
     return {
       unitPriceCentavos:

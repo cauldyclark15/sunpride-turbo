@@ -8,6 +8,8 @@ import { resolvePrice, creditCheck } from "../src/domains/orders/pricing.js";
 import { parsePurchaseOrder, csv } from "../src/domains/mt/parsers.js";
 import { deductionFlow } from "../src/domains/mt/metrics.js";
 import { tx } from "@sunpride/db/client";
+import { ingestMaster } from "../src/domains/integration/replicas.js";
+import { sampleMaster } from "../../sap-mock/src/sample.js";
 
 /** @type {import('./harness.js').Harness} */ let h;
 /** @type {any} */ let admin;
@@ -352,6 +354,21 @@ test("F-307 expired hierarchy bindings cannot fall back to channel pricing or lo
   const [control] =
     await h.db`insert into price_lists(organization_id,code,name,currency,status,source,effective_from) values('sunpride','SAMPLE-CONTROL','Sample generic fallback control','PHP','active','sample','2020-01-01') returning id`;
   await h.db`insert into price_list_lines(organization_id,price_list_id,product_id,uom,unit_price_minor,effective_from) values('sunpride',${control.id},${product},'PC',9999,'2020-01-01')`;
+  const [sku] = await h.db`select code from products where id=${product}`;
+  const condition = sampleMaster("condition", "F307-FALLBACK-CONTROL", {
+    productCode: sku.code,
+    uom: "PC",
+    customerCode: "UNBOUND-TEST",
+    channelKey: null,
+    unitPriceCentavos: 9999,
+    currency: "PHP",
+    taxCode: "SAMPLE",
+    taxBasisPoints: 0,
+    taxInclusive: true,
+    priceListCode: "SA2-SAP-CONTROL",
+    precedence: 99,
+  });
+  await ingestMaster(h.db, condition);
   try {
     await h.db`update mt_account_bindings set effective_to='2021-01-01' where id=${binding.id}`;
     const q = {
@@ -380,6 +397,7 @@ test("F-307 expired hierarchy bindings cannot fall back to channel pricing or lo
     ).toBe(9999);
   } finally {
     await h.db`update mt_account_bindings set effective_to=null where id=${binding.id}`;
+    await h.db`delete from sap_replicas where sap_key=${condition.key}`;
     await h.db`delete from price_list_lines where price_list_id=${control.id}`;
     await h.db`delete from price_lists where id=${control.id}`;
   }

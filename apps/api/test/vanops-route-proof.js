@@ -4,6 +4,11 @@ import { lotBundle } from "../src/domains/van/lots.js";
 import { stockCountCode } from "../src/domains/van/approvals.js";
 import { sha256Hex } from "../src/core/util.js";
 import { today } from "../src/domains/van/model.js";
+import { ingestMaster } from "../src/domains/integration/replicas.js";
+import { sampleMaster } from "../../sap-mock/src/sample.js";
+import { seedFiscal } from "../../../packages/db/seed/fiscal.js";
+import { fiscalBundle } from "../src/domains/fiscal/transactions.js";
+import { actorFor } from "../src/core/context.js";
 
 /** F-103/F-104/F-113/F-114/F-115/F-116/F-117/F-123 public signed-push proof with REAL Postgres stock posting.
  * Fixture creation only is direct SQL; every route fact and office decision uses HTTP.
@@ -83,6 +88,43 @@ export async function exerciseRoute(
     );
     await h.db`insert into van_trip_load_lines(organization_id,load_id,trip_id,line_number,product_id,product_code,uom_code,quantity_scale,lot_id,lot_number,expected_base) values('sunpride',${loadId},${tripId},${i},${product},'SAMPLE-FROZEN','PC',1,${id},${batch},${quantity})`;
   }
+  // F-016 F-019: exercise the integrated owners, not a retired price-list or
+  // uncontrolled handset number. These are explicitly marked fixture masters.
+  for (const [table, id] of [
+    ["org_units", unit],
+    ["profiles", boss.profile.id],
+    ["vehicles", vehicle],
+  ])
+    await h.db`insert into sample_data_rows(batch,table_name,row_id,key) values('sa2-route-fixture',${table},${id},${table + id}) on conflict do nothing`;
+  await seedFiscal(h.db);
+  const actor = await actorFor(h.db, who.userId);
+  const [trip] = await h.db`select * from van_trips where id=${tripId}`;
+  const bundle = await fiscalBundle(h.db, actor, trip, who.deviceId);
+  const range = bundle.ranges.find(
+    (/** @type {any} */ r) => r.documentType === "sales_invoice",
+  );
+  if (!range)
+    throw new Error(
+      "Sales-invoice allocation missing from integrated fiscal owner",
+    );
+  expect(range).toBeTruthy();
+  const receiptNumber = `${range.prefix}-${range.nextSerial.padStart(9, "0")}`;
+  await ingestMaster(
+    h.db,
+    sampleMaster("condition", "SA2-ROUTE-PRICE", {
+      productCode: "SAMPLE-FROZEN",
+      uom: "PC",
+      customerCode: null,
+      channelKey: null,
+      unitPriceCentavos: 100,
+      currency: "PHP",
+      taxCode: "SAMPLE-VAT",
+      taxBasisPoints: 1200,
+      taxInclusive: true,
+      priceListCode: "SA2-SAP-CONTROL",
+      precedence: 1,
+    }),
+  );
   /** @type {any[]} */ const saved = [];
   async function send(/** @type {string} */ type, /** @type {any} */ facts) {
     const at = Date.now(),
@@ -168,7 +210,8 @@ export async function exerciseRoute(
   ];
   await send("sale.record", {
     saleId,
-    receiptNumber: "SAMPLE-CLOSED-LOOP-AABBCCDD-0001",
+    receiptNumber,
+    fiscal: { allocationId: range.allocationId, serial: range.nextSerial },
     customer: { outletId: outlet },
     currency: "PHP",
     totalMinor: total,
@@ -207,7 +250,7 @@ export async function exerciseRoute(
   const returned = await send("return.record", {
     returnId: crypto.randomUUID(),
     returnNumber: "SAMPLE-RETURN-AABBCCDD-0002",
-    originalSale: { saleId, receiptNumber: "SAMPLE-CLOSED-LOOP-AABBCCDD-0001" },
+    originalSale: { saleId, receiptNumber },
     customer: { outletId: outlet },
     lines: [
       {

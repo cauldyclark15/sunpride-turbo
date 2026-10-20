@@ -1,6 +1,6 @@
 import { resolveSapPrice } from "../integration/replicas.js";
 import { sapCreditCheck } from "../integration/credit.js";
-import { resolveAccountPrice } from "../mt/sap.js";
+import { resolveAccountPrice, resolveAccountCredit } from "../mt/sap.js";
 import {
   channel,
   divide,
@@ -30,7 +30,8 @@ export async function resolvePrice(db, q) {
  * @param {any} db @param {{customerCode:string,addCentavos:number|null}} q
  */
 export async function creditCheck(db, q) {
-  return sapCreditCheck(db, q.customerCode, q.addCentavos);
+  const accountCredit = await resolveAccountCredit(db, q);
+  return accountCredit ?? sapCreditCheck(db, q.customerCode, q.addCentavos);
 }
 
 /** @typedef {{productId:string,uom:string,quantity:number,unitPriceCentavos:number|null,lineTotalCentavos:number|null,priceListId?:string|null,source?:string|null}} PricedLine */

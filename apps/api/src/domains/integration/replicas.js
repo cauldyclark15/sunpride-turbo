@@ -316,9 +316,20 @@ export async function resolveSapPrice(db, q) {
       priceListId: null,
       source: first ? "ambiguous" : "missing",
     };
+  return quoteSapCondition(first);
+}
+/** F-016 F-307: one quote validator for SAP replicas and approved marked mock conditions.
+ * Account hierarchy selects the condition; it cannot implement a second pricing engine.
+ * @param {any} first
+ * @returns {{unitPriceCentavos:number|null,priceListId:any,source:string,taxCode?:string,taxBasisPoints?:number,taxInclusive?:boolean,sapKey?:string,sapVersion?:number,effectiveFrom?:number,effectiveTo?:number|null}} */
+export function quoteSapCondition(first) {
   const d = first.payload.data;
-  // A net condition is not a complete charge amount. The SAP adapter must supply
-  // a tax-inclusive selling quote; never certify credit against an untaxed subtotal.
+  if (!Number.isSafeInteger(d.unitPriceCentavos) || d.unitPriceCentavos < 0)
+    return {
+      unitPriceCentavos: null,
+      priceListId: null,
+      source: "invalid_condition",
+    };
   if (!d.taxInclusive && d.taxBasisPoints > 0)
     return {
       unitPriceCentavos: null,
@@ -327,7 +338,7 @@ export async function resolveSapPrice(db, q) {
     };
   return {
     unitPriceCentavos: d.unitPriceCentavos,
-    priceListId: first.price_list_id,
+    priceListId: first.price_list_id ?? null,
     source: first.source === "sample" ? "sap_sample" : "sap",
     taxCode: d.taxCode,
     taxBasisPoints: d.taxBasisPoints,

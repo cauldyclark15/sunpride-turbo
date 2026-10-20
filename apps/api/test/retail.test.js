@@ -34,6 +34,8 @@ import { previousWeek, installWeekly } from "../src/domains/retail/weekly.js";
 import { seams } from "../src/domains/retail/common.js";
 import { tx } from "@sunpride/db/client";
 import { recordAudit } from "../src/domains/visits/merchandising.js";
+import { ingestMaster } from "../src/domains/integration/replicas.js";
+import { sampleMaster } from "../../sap-mock/src/sample.js";
 /** @type {import('./harness.js').Harness} */ let h;
 /** @type {ReturnType<typeof profileStore>} */ let profiles;
 const DAY = 86400000,
@@ -815,10 +817,33 @@ test("F-316 weighted scores explain all six components and distinguish unavailab
   });
   expect(sent.body.results[0].status).toBe("applied");
   const [v] = await h.db`select * from visit_executions where id=${f.visit}`;
-  expect((await visitScore(ctx(f), v, p)).missing).toContain("promotion");
+  const campaignsOwner = seams.campaigns;
+  seams.campaigns = async () => null; // Explicit unavailable feed, not absence of a merged table.
+  try {
+    expect((await visitScore(ctx(f), v, p)).missing).toContain("promotion");
+  } finally {
+    seams.campaigns = campaignsOwner;
+  }
   const [priceList] =
     await h.db`insert into price_lists(organization_id,code,name,channel_key,currency,status,source,effective_from) values('sunpride',${crypto.randomUUID()},'Sample governed shelf price',${channel},'PHP','active','sample',${new Date(f.now - DAY)}) returning id`;
   await h.db`insert into price_list_lines(organization_id,price_list_id,product_id,uom,unit_price_minor,effective_from) values('sunpride',${priceList.id},${f.sku},'PC',10000,${new Date(f.now - DAY)})`;
+  const [sku] = await h.db`select code from products where id=${f.sku}`;
+  await ingestMaster(
+    h.db,
+    sampleMaster("condition", `F316:${f.sku}`, {
+      productCode: sku.code,
+      uom: "PC",
+      customerCode: null,
+      channelKey: channel,
+      unitPriceCentavos: 10000,
+      currency: "PHP",
+      taxCode: "SAMPLE",
+      taxBasisPoints: 0,
+      taxInclusive: true,
+      priceListCode: "SA2-SAP-CONTROL",
+      precedence: 99,
+    }),
+  );
   const original = seams.campaigns;
   seams.campaigns = async () => [];
   try {
