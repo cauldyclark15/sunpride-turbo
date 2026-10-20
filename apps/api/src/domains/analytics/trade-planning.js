@@ -16,13 +16,13 @@ import { availabilityModel } from "./availability-adapter.js";
  * @param {any} db @param {any} p @param {any} s */
 export async function readTradeInputs(db, p, s) {
   if (s.ownProfileId) return [];
-  return db`select f.*,pr.code product_code,pr.name product_name,pr.quantity_scale,
+  return db`select f.*,pr.code product_code,pr.name product_name,pr.quantity_scale canonical_quantity_scale,coalesce(f.quantity_scale,pr.quantity_scale) source_quantity_scale,
     u.code base_uom,o.name outlet_name,o.territory_id,o.territory_name,
     coalesce(pack.numerator/pack.denominator,1) case_units,
     pack.numerator is not null case_known
     from analytics_trade_inputs f join products pr on pr.id=f.product_id and pr.deleted_at is null
     left join units_of_measure u on u.id=pr.base_uom_id
-    left join lateral(select c.numerator::numeric,c.denominator::numeric from uom_conversions c join units_of_measure unit on unit.id=c.from_uom_id where c.product_id=pr.id and upper(unit.code) in ('CS','CASE','CASES') and c.active and c.deleted_at is null and c.effective_from<=f.source_effective_at and (c.effective_to is null or c.effective_to>f.source_effective_at) order by c.effective_from desc limit 1) pack on true
+    left join lateral(select c.numerator::numeric,c.denominator::numeric from uom_conversions c join units_of_measure unit on unit.id=c.from_uom_id where c.product_id=pr.id and c.to_uom_id=pr.base_uom_id and upper(unit.code) in ('CS','CASE','CASES') and c.active and c.deleted_at is null and c.effective_from<=f.source_effective_at and (c.effective_to is null or c.effective_to>f.source_effective_at) order by c.effective_from desc limit 1) pack on true
     left join analytics_store_scope o on o.id=f.outlet_id
     where f.org_unit_id in ${db(s.ids.length ? s.ids : [null])}
     and (f.outlet_id is null or o.owner_unit_id in ${db(s.ids.length ? s.ids : [null])})
@@ -33,7 +33,8 @@ export async function readTradeInputs(db, p, s) {
 export function tradeRows(facts, days) {
   /** @type {Map<string,any>} */ const groups = new Map();
   for (const f of facts) {
-    const key = `${f.distributor_key}:${f.product_id}`;
+    const key = `${f.distributor_key}:${f.product_id}`,
+      sourceScale = Number(f.source_quantity_scale ?? f.quantity_scale ?? 1);
     if (!groups.has(key))
       groups.set(key, {
         key,
@@ -43,36 +44,69 @@ export function tradeRows(facts, days) {
         product: f.product_name,
         channel: f.channel ?? "Unassigned",
         account: f.account_name ?? f.distributor_name,
+        quantityScale: Number(f.canonical_quantity_scale ?? sourceScale),
         primaryBase: 0,
         secondaryBase: 0,
         primaryCentavos: 0,
         secondaryCentavos: 0,
         primaryKnown: true,
         secondaryKnown: true,
+        primaryQuantityKnown: true,
+        secondaryQuantityKnown: true,
+        primaryCasesKnown: true,
+        secondaryCasesKnown: true,
+        primaryCases: 0,
+        secondaryCases: 0,
         stockBase: null,
+        stockCases: null,
         stockDate: null,
         oldestReceivedAt: null,
         sample: false,
         lineage: [],
-        caseUnits: Number(f.case_units) * Number(f.quantity_scale ?? 1),
-        caseKnown: f.case_known,
+        caseKnown: true,
+        caseUnits: f.case_known
+          ? Number(f.case_units) *
+            Number(f.canonical_quantity_scale ?? sourceScale)
+          : null,
       });
     const g = groups.get(key),
-      qty = Number(f.quantity_base);
+      raw = Number(f.quantity_base),
+      valid =
+        Number.isFinite(raw) &&
+        sourceScale > 0 &&
+        Number.isFinite(sourceScale) &&
+        g.quantityScale > 0 &&
+        Number.isFinite(g.quantityScale);
+    const qty = valid ? (raw / sourceScale) * g.quantityScale : null,
+      caseFactor = Number(f.case_units) * sourceScale;
+    const caseKnown =
+        valid && f.case_known && Number.isFinite(caseFactor) && caseFactor > 0,
+      cases = caseKnown ? raw / caseFactor : null;
+    g.caseKnown &&= !!caseKnown;
+    if (!caseKnown || g.caseUnits !== Number(f.case_units) * g.quantityScale)
+      g.caseUnits = null;
     if (f.kind === "primary" || f.kind === "secondary") {
       g[f.kind + "Seen"] = true;
-      g[f.kind + "Base"] += qty;
+      if (qty === null) g[f.kind + "QuantityKnown"] = false;
+      else g[f.kind + "Base"] += qty;
+      if (cases === null) g[f.kind + "CasesKnown"] = false;
+      else g[f.kind + "Cases"] += cases;
       g[f.kind + "Centavos"] += Number(f.amount_centavos ?? 0);
       if (f.amount_centavos === null) g[f.kind + "Known"] = false;
     }
-    if (
-      f.kind === "stock" &&
-      (g.stockDate === null || dateOf(f.service_date) > g.stockDate)
-    ) {
-      g.stockBase = qty;
-      g.stockDate = dateOf(f.service_date);
-    } else if (f.kind === "stock" && dateOf(f.service_date) === g.stockDate)
-      g.stockBase += qty;
+    if (f.kind === "stock") {
+      const date = dateOf(f.service_date);
+      if (g.stockDate === null || date > g.stockDate) {
+        g.stockDate = date;
+        g.stockBase = qty;
+        g.stockCases = cases;
+      } else if (date === g.stockDate) {
+        g.stockBase =
+          g.stockBase !== null && qty !== null ? g.stockBase + qty : null;
+        g.stockCases =
+          g.stockCases !== null && cases !== null ? g.stockCases + cases : null;
+      }
+    }
     const received = new Date(f.source_received_at).getTime();
     g.oldestReceivedAt =
       g.oldestReceivedAt === null
@@ -86,32 +120,41 @@ export function tradeRows(facts, days) {
       revision: f.source_revision,
       kind: f.kind,
       receivedAt: received,
+      quantityBase: f.quantity_base,
+      quantityScale: sourceScale,
+      scaleCaptured: f.quantity_scale != null,
+      caseUnits: f.case_known ? Number(f.case_units) : null,
       source: f.lineage,
     });
   }
   return [...groups.values()].map((g) => ({
     ...g,
-    primaryBase: g.primarySeen ? g.primaryBase : null,
-    secondaryBase: g.secondarySeen ? g.secondaryBase : null,
+    primaryBase: g.primarySeen && g.primaryQuantityKnown ? g.primaryBase : null,
+    secondaryBase:
+      g.secondarySeen && g.secondaryQuantityKnown ? g.secondaryBase : null,
     primaryCentavos: g.primaryKnown && g.primarySeen ? g.primaryCentavos : null,
     secondaryCentavos:
       g.secondaryKnown && g.secondarySeen ? g.secondaryCentavos : null,
-    primaryCases:
-      g.caseKnown && g.primarySeen ? g.primaryBase / g.caseUnits : null,
+    primaryCases: g.primaryCasesKnown && g.primarySeen ? g.primaryCases : null,
     secondaryCases:
-      g.caseKnown && g.secondarySeen ? g.secondaryBase / g.caseUnits : null,
-    stockCases:
-      g.caseKnown && g.stockBase !== null ? g.stockBase / g.caseUnits : null,
+      g.secondaryCasesKnown && g.secondarySeen ? g.secondaryCases : null,
     daysInventory:
-      g.stockBase !== null && g.secondaryBase > 0
+      g.stockBase !== null &&
+      g.secondarySeen &&
+      g.secondaryQuantityKnown &&
+      g.secondaryBase > 0
         ? Math.round((g.stockBase / (g.secondaryBase / days)) * 10) / 10
         : null,
     nextAction:
       g.stockBase === null
         ? "Request stock declaration"
-        : g.secondaryBase <= 0
-          ? "Review no offtake"
-          : "Reconcile shipments and offtake",
+        : !g.secondarySeen
+          ? "Request offtake records"
+          : !g.secondaryQuantityKnown
+            ? "Resolve quantity units"
+            : g.secondaryBase <= 0
+              ? "Review no offtake"
+              : "Reconcile shipments and offtake",
   }));
 }
 /** @param {any} ctx @param {any} p @param {any} s */

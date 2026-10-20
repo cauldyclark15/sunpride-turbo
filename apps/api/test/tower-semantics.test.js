@@ -57,3 +57,48 @@ test("F-603 missing primary and secondary feeds stay unknown; declared stock alo
   expect(r.stockCases).toBe(10);
   expect(r.daysInventory).toBeNull();
 });
+
+test("F-603 F-607 normalizes source quantity scales and sums event-time cases per line across pack revisions", () => {
+  const common = {
+    distributor_key: "SAMPLE",
+    distributor_name: "Sample",
+    product_id: "p",
+    product_name: "Sample product",
+    canonical_quantity_scale: 1000,
+    case_known: true,
+    service_date: "2026-10-20",
+    source_received_at: "2026-10-20T02:00:00Z",
+    source_type: "sample",
+    amount_centavos: 100,
+  };
+  const a = {
+      ...common,
+      quantity_base: 12000,
+      quantity_scale: 1000,
+      case_units: 12,
+    },
+    b = { ...common, quantity_base: 24, quantity_scale: 1, case_units: 24 };
+  const facts = [
+    { ...a, kind: "primary" },
+    { ...b, kind: "primary" },
+    { ...a, kind: "stock" },
+    { ...b, kind: "stock" },
+    { ...a, kind: "secondary" },
+  ];
+  const [row] = tradeRows(facts, 1);
+  expect(row.primaryBase).toBe(36000);
+  expect(row.primaryCases).toBe(2);
+  expect(row.stockBase).toBe(36000);
+  expect(row.stockCases).toBe(2);
+  expect(row.daysInventory).toBe(3);
+  expect(row.quantityScale).toBe(1000);
+  const [unknown] = tradeRows(
+    [
+      { ...a, kind: "primary", case_known: false },
+      { ...b, kind: "primary" },
+    ],
+    1,
+  );
+  expect(unknown.primaryCases).toBeNull();
+  expect(unknown.primaryCentavos).toBe(200);
+});

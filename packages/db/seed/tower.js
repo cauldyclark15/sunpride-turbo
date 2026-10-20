@@ -10,6 +10,9 @@ export function towerSamples(
   visits = d.rows("visit_executions"),
   externalRanges = new Set(),
 ) {
+  // This fictional feed declares whole base units. Its source encoding is explicit,
+  // independent of the application product's finer canonical quantity scale.
+  const sourceScale = 1;
   for (const unit of c.units)
     d.add("analytics_cockpit_policies", `tower-policy-${unit.id}`, {
       org_unit_id: unit.id,
@@ -64,7 +67,8 @@ export function towerSamples(
               outlet_id: kind === "secondary" ? o.id : null,
               product_id: p.id,
               service_date: date,
-              quantity_base: qty,
+              quantity_base: qty * sourceScale,
+              quantity_scale: sourceScale,
               amount_centavos: kind === "stock" ? null : qty * 12500,
               campaign_ref: kind === "promotion_plan" ? "SAMPLE-LAUNCH" : null,
               channel: o.channel,
@@ -72,6 +76,8 @@ export function towerSamples(
               lineage: {
                 source: "invented_sample",
                 feature: "F-603",
+                baseEncoding: "scaled",
+                quantityScale: sourceScale,
                 invoiceLine: key,
                 notSap: true,
               },

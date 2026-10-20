@@ -23,6 +23,15 @@ test("F-603 F-604 F-606 sample lineage context and evidence remain jsonb objects
       ).toBe(true);
     }
   }
+  for (const row of d.rows("analytics_trade_inputs")) {
+    const product = c.products.find((p) => p.id === row.product_id);
+    if (!product) throw new Error("Missing sample source product");
+    const units = Number(row.quantity_base) / Number(row.quantity_scale);
+    expect(units).toBe(
+      row.kind === "stock" ? 240 : Number(row.amount_centavos) / 12500,
+    );
+    expect(row.lineage.baseEncoding).toBe("scaled");
+  }
   const score = d
     .rows("analytics_outlet_context")
     .find((r) => r.kind === "execution_score");

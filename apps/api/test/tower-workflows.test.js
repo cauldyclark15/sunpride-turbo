@@ -267,3 +267,55 @@ test("F-607 F-608 malformed commands and identifiers fail before SQL without par
       .status,
   ).toBe(400);
 });
+
+test("F-603 F-607 source corrections replace current measures while frozen cuts retain lineage and recheck current source grants", async () => {
+  const page = await get(
+      `primary-secondary?from=${f.today}&to=${f.today}&unitId=${f.a}`,
+    ),
+    before = page.kpis.find(
+      (/** @type {any} */ k) => k.key === "primary",
+    ).value;
+  const [source] =
+    await h.db`select id from analytics_trade_inputs where kind='primary' and org_unit_id=${f.a} limit 1`;
+  const prepared = await (
+    await f.post("/api/v1/planning/demand-signals/prepare", {
+      requestKey: "revision-cut",
+      from: f.today,
+      to: f.today,
+      unitId: f.a,
+    })
+  ).json();
+  const read = () =>
+    f.get(
+      `/api/v1/planning/demand-signals/snapshot?id=${prepared.id}&unitId=${f.a}`,
+    );
+  const frozen = await (await read()).json();
+  expect(
+    frozen.payload.lineage.some((/** @type {any} */ r) => r.id === source.id),
+  ).toBe(true);
+  const [newer] =
+    await h.db`update analytics_trade_inputs set source_revision='2',source_received_at=now(),updated_at=now(),amount_centavos=amount_centavos+100 where id=${source.id} returning id`;
+  const current = await get(
+    `primary-secondary?from=${f.today}&to=${f.today}&unitId=${f.a}`,
+  );
+  expect(
+    current.kpis.find((/** @type {any} */ k) => k.key === "primary").value,
+  ).toBe(before + 100);
+  const stillAllowed = await read();
+  expect(stillAllowed.status).toBe(200);
+  const retained = await stillAllowed.json();
+  expect(retained.contentHash).toBe(frozen.contentHash);
+  expect(retained.payload).toEqual(frozen.payload);
+  await h.db`update analytics_trade_inputs set source_revision='3',source_received_at=now(),updated_at=now(),org_unit_id=${f.b} where id=${newer.id}`;
+  const withdrawn = await get(
+    `primary-secondary?from=${f.today}&to=${f.today}&unitId=${f.a}`,
+  );
+  expect(
+    withdrawn.kpis.find((/** @type {any} */ k) => k.key === "primary").value,
+  ).toBeNull();
+  expect((await read()).status).toBe(403);
+  expect(
+    (await f.get(`/api/v1/planning/demand-signals/snapshot?id=${prepared.id}`))
+      .status,
+  ).toBe(200);
+});
