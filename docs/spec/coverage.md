@@ -71,9 +71,39 @@ Agenda context is refreshed on bootstrap and protected by the existing continuat
 
 The template day/phase editor, workload simulation, potential-completeness warning, pin sketch and comparison provide beat-workload scenarios. They do not implement prospective cross-territory ownership moves or a road-travel engine. F-224 remains partial. ORG assignment writers and their signed-plan locks must own any eventual territory publication; do not write those masters from a separate planning engine.
 
-## F-209 / F-210 / F-222 / F-223 / F-613 / F-615: explicitly remaining
+## F-209: offline prospect acquisition and canonical master review
 
-This increment does not implement offline prospect geo/photo/KYC, cycle-based dormancy/recovery, photo attendance/leave/correction approvals, joint-call action carry-forward, collections planning/cheque lifecycle, or reconciled multi-metric target cascade. Existing behavior is preserved; it must not be credited as completion of these specification gaps. In particular location-sharing Start day is not attendance, and the older activity-productivity figure is not the glossary's order strike rate.
+Owner question: which prospects need review, and are we adding a distinct store rather than a duplicate?
+
+Android Attendance & prospects adds non-call geo/photo/KYC capture on the SAME SQLCipher intents, outbox, sealed photo files, signed device operations, media claims and sync worker. It does not create an invented visit. A separately bounded effective form grant permits these non-call forms after the existing visit day closes, but expires at the policy/day/cache boundary. Required KYC, selection choices, photo/fix freshness and captured policy version/hash are validated locally and again on the server. One Room transaction inserts intent, outbox and photo metadata; retired authority rolls it back. Media is held until aggregate acknowledgement, with cancellation/hold checks around upload awaits.
+
+The server reauthorizes persisted actor/device/scope before replay, checks media owner/purpose/checksum, and enters the existing canonical outlet-enrolment proposal writer. Proposed stores stay provisional. The Workforce tab in Coverage provides captured KYC labels, evidence flags, authorized no-store photo viewing and independent office review. `SEAM(MASTERS)` uses bounded canonical current names/codes, existing links and geo candidates; it does not invent a new taxonomy or accounting customer. A token binds the candidate set; link-existing, approve-distinct and rejection refuse stale or conflicting decisions. Accepted distinct outlets re-enter existing territory assignment and PJP publication, not a second universe.
+
+## F-222: independent attendance evidence, correction and HR adapter
+
+Owner question: who has a clock record, who needs evidence review, and which missing records are actually approved leave or absence?
+
+Geo/photo clock-in and dependent clock-out use that same encrypted queue and signed engine. Raw attendance sessions and original evidence remain intact. Office reports show raw clocks, first/last canonical calls, a labelled closed-clock span, disjoint review/leave/absence/missing counts, roster comparison, prior day and person drill-down. Missing capture is not certified absence; elapsed clock span is not continuous-location proof or payroll. Attendance never enables or disables consented location sharing.
+
+Corrections and leave/absence records are immutable requests with source and reason. A different authorized approver applies them; predecessor checks reject stale approvals, and historical stored attendance scope is rechecked. `SEAM(HR)` is an atomic source-keyed import adapter, not a connected HR or payroll service. The office CSV is `employeeCode,day,kind,reason,externalKey`; exact employee codes preserve leading zeroes and resolve only within authorized workforce. Source/external identity is unique and serialized, so another operator or file-upload key cannot duplicate a source row; changed replay and any refused row roll back the import. Neither an upload nor a request approves itself.
+
+The Field form policies view has plain-label KYC field controls and effective versioning. Address, proposed channel and contact person remain canonical required fields; the office can add fields and edit capture/evidence tolerances. No existing/future client policy is overwritten by sample seeding. The additive seed supplies clearly marked sample policies and is repeatable without reset. Migration `0452_workforce_capture.sql` adds policies, sessions, adjustments/events and nullable enrolment capture/review/resolution columns; no committed migration is edited.
+
+## F-209 / F-222: remaining native readiness
+
+The upgraded v2 client now records negotiation in its local snapshot and renews pre-feature or expired caches before reusing a delta cursor. The real walk still exposed an offline cold-reopen presentation gap: the workspace can show no field-form grant or saved list until an online sync, although queued records remain durable and subsequently reach the server. Do not call these forms route-ready or certify SIM-removed/process-death acceptance until that cold-start path is corrected and re-proved. The short physical capture used disabled Wi-Fi/mobile data and removed USB API forwarding; the SIM was not physically removed.
+
+## F-210 / F-223 / F-613 / F-615: explicitly remaining
+
+This lane has not implemented cycle-based dormancy/recovery, the missing joint-call action carry-forward, collections planning/cheque lifecycle, or reconciled multi-metric target cascade. Existing supervision, targets and Money screens are preserved; their existing behavior is not credited as completion of these specification gaps. The supplied time box prioritizes the Must PJP, agenda, adherence, productive definition and offline acquisition/attendance foundations. Deployment and seam integration remain the lead's responsibility.
+
+## Needs Sunpride — F-209 / F-222
+
+The KYC choices, 24-hour non-call capture window, 250 m accuracy review flag, five-minute evidence freshness, 18-hour span review flag and 50 m candidate radius are invented SAMPLE defaults, editable and effective-dated, not client policy or agreement. HR needs a stable source reference and employee/external row codes. No live HR, payroll, official absence determination or geolocation attestation is claimed.
+
+## iOS and van parity later — F-209 / F-222
+
+iOS is paused and unchanged. Port the optional form grant and non-call templates into the existing native encrypted intent/photo pipeline, preserving scope retirement, dependent clock-out and acknowledgement-bound media cleanup. The van client has not been changed; any future equivalent must consume the common signed engine rather than another attendance or acquisition service.
 
 ## Needs Sunpride — F-201 / F-203 / F-206 / F-208 / F-224
 

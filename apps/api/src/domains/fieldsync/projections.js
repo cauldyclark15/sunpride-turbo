@@ -1,5 +1,6 @@
 import { tx } from "@sunpride/db/client";
 import { agendaForPlans } from "../coverage/agenda.js";
+import { workforceContext } from "../coverage/workforce-policies.js";
 import { checkDayManifest } from "./manifest.js";
 import { inventoryRows, PHOTO_TYPES } from "./reference.js";
 import { requireCapability } from "../../core/capabilities.js";
@@ -544,12 +545,21 @@ async function bundleData(ctx) {
     (/** @type {any} */ r) => outlets.has(r.outlet_id) || r.planned_visit_id,
   );
   const lease = closeAt(date);
+  // F-209/F-222: independently authorized non-call forms can have a different day window.
+  // Only a negotiated new client gets this cache grant; its visit lease remains unchanged.
+  const workforce =
+    ctx.params.includeWorkforce === true
+      ? await workforceContext(ctx.db, person.id, ctx.now)
+      : null;
+  const cacheLease =
+    ctx.params.includeWorkforce === true ? midnight(date) + DAY_MS : lease;
   return {
     permissions: [...ctx.actor.capabilities],
     employee: {
       id: person.id,
       role: ctx.actor.role,
       orgUnitId: ctx.actor.orgUnitId,
+      ...(workforce ? { workforce } : {}),
     },
     scope: {
       fingerprint: ctx.scope.fingerprint,
@@ -557,7 +567,7 @@ async function bundleData(ctx) {
     },
     appConfig: {
       offlineLeaseExpiresAt: lease,
-      cacheExpiresAt: lease,
+      cacheExpiresAt: cacheLease,
       orderCaptureEnabled: false,
       priceAvailability: "unavailable",
       promotionsAvailability: "unavailable",
@@ -689,7 +699,10 @@ async function fieldLoad(ctx, entity, ids) {
 /** @param {any} ctx */
 export function installProjections(ctx) {
   ctx.registerProjection("field.bundle", {
-    params: (/** @type {any} */ p) => ({ dayFrom: serviceDate(p.dayFrom) }),
+    params: (/** @type {any} */ p) => ({
+      dayFrom: serviceDate(p.dayFrom),
+      ...(p.includeWorkforce === true ? { includeWorkforce: true } : {}),
+    }),
     snapshot: fieldSnapshot,
     entities: ["visit", "activity", "inventory", "field.manifest"],
     scopeKeys: async (/** @type {ProjectionCtx} */ p) => {
@@ -697,7 +710,10 @@ export function installProjections(ctx) {
       if (
         p.app === "van-android" ||
         p.params.dayFrom !== manilaDate(p.now) ||
-        p.now >= closeAt(p.params.dayFrom)
+        p.now >=
+          (p.params.includeWorkforce === true
+            ? midnight(p.params.dayFrom) + DAY_MS
+            : closeAt(p.params.dayFrom))
       )
         throw rebootstrap();
       await checkDayManifest(p);
@@ -709,7 +725,9 @@ export function installProjections(ctx) {
     },
     load: fieldLoad,
     leaseExpiresAt: (/** @type {ProjectionCtx} */ p) =>
-      closeAt(p.params.dayFrom),
+      p.params.includeWorkforce === true
+        ? midnight(p.params.dayFrom) + DAY_MS
+        : closeAt(p.params.dayFrom),
   });
   ctx.registerProjection("suggested-order", {
     params: (/** @type {any} */ p) => ({

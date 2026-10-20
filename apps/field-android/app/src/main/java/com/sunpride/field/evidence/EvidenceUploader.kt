@@ -40,7 +40,7 @@ class ServerEvidenceApi(private val functions: ServerFunctions,
     override fun uploadUrl(visitId: String, row: EvidencePhotoRow): Pair<String, String> {
         val me = functions.api.me(); val device = me.getJSONObject("device").getString("id")
         val value = functions.api.signed("/api/media/claims", JSONObject().put("version", 2)
-            .put("deviceId", device).put("purpose", "visit-photo").put("ownerId", visitId)
+            .put("deviceId", device).put("purpose", com.sunpride.field.storage.WorkforceForms.purpose(row.photoType)).put("ownerId", visitId)
             .put("mime", row.mime).put("size", row.sizeBytes).put("sha256", row.sha256),
             requireNotNull(functions.signer).invoke(), device)
         val url = value.getString("uploadUrl")
@@ -104,21 +104,39 @@ class EvidenceUploader(private val store: FieldStore, private val scope: StoreSc
         val FINAL = setOf("invalid_request", "out_of_scope", "conflict")
     }
     private val flight = flights.computeIfAbsent(scope) { Mutex() }
+    private var authorized: () -> Boolean = { true }
+    /** F-209/F-222: retire old upload callbacks even if fallible partition teardown failed. */
+    fun whileAuthorized(check: () -> Boolean): EvidenceUploader { authorized=check;return this }
 
     suspend fun run(): UploadReport {
         if (!flight.tryLock()) return UploadReport(retryLater = true)
         try {
             // A held partition (sign-out, revoked phone, scope change) keeps its photos for review.
-            if (store.syncHealth() == "held_for_review") return UploadReport(waiting = store.pendingPhotos().size)
+            if (store.syncHealth() == "held_for_review" || !authorized()) return UploadReport(waiting = store.pendingPhotos().size)
             var report = UploadReport()
             val calls = store.history().associateBy { it.first.requestId }
+            // Workforce media is kept until its aggregate ack is durable, not merely until PUT succeeds.
+            for((intent,row) in calls.values) if(com.sunpride.field.storage.WorkforceForms.isForm(intent.kind) && row.state=="done" && store.ack(intent.requestId)!=null) {
+                for(photo in store.visitPhotos(intent.clientVisitId).filter { it.photoType in com.sunpride.field.storage.WorkforceForms.PHOTO_TYPES && it.state=="uploaded" }) {
+                    currentCoroutineContext().ensureActive()
+                    if(!authorized() || store.syncHealth()=="held_for_review")return report.copy(retryLater=true)
+                    if(runCatching { files.delete(photo.localId) }.isSuccess) {
+                        currentCoroutineContext().ensureActive()
+                        if(authorized() && store.syncHealth()!="held_for_review")store.forgetUploadedFormPhoto(photo.localId)
+                    }
+                }
+            }
             for (photo in store.pendingPhotos()) {
                 val start = calls[photo.checkInRequestId]
                 if (start == null || start.second.state == "review") {
                     store.reviewPhoto(photo.localId, if (start == null) "visit_missing" else "visit_rejected")
                     report = report.copy(review = report.review + 1); continue
                 }
-                val visitId = store.ack(photo.checkInRequestId)?.entityId
+                val form=photo.photoType in com.sunpride.field.storage.WorkforceForms.PHOTO_TYPES
+                if(form && !com.sunpride.field.storage.WorkforceForms.isForm(start.first.kind)) {
+                    store.reviewPhoto(photo.localId,"form_missing");report=report.copy(review=report.review+1);continue
+                }
+                val visitId = if(form)photo.checkInRequestId else store.ack(photo.checkInRequestId)?.entityId
                 if (visitId == null) { // Start not yet accepted: wait for the visit sync.
                     report = report.copy(waiting = report.waiting + 1, retryLater = true); continue
                 }
@@ -129,21 +147,21 @@ class EvidenceUploader(private val store: FieldStore, private val scope: StoreSc
                 }
                 try {
                     currentCoroutineContext().ensureActive()
-                    if (store.syncHealth() == "held_for_review") return report.copy(waiting = store.pendingPhotos().size)
+                    if (store.syncHealth() == "held_for_review" || !authorized()) return report.copy(waiting = store.pendingPhotos().size)
                     val (url, claim) = api.uploadUrl(visitId, photo)
                     currentCoroutineContext().ensureActive()
-                    if (store.syncHealth() == "held_for_review") return report.copy(waiting = store.pendingPhotos().size)
+                    if (store.syncHealth() == "held_for_review" || !authorized()) return report.copy(waiting = store.pendingPhotos().size)
                     val storageId = api.upload(url, bytes, photo.mime)
                     currentCoroutineContext().ensureActive()
-                    if (store.syncHealth() == "held_for_review") return report.copy(waiting = store.pendingPhotos().size)
-                    val evidenceId = api.attach(claim, visitId, storageId, photo)
+                    if (store.syncHealth() == "held_for_review" || !authorized()) return report.copy(waiting = store.pendingPhotos().size)
+                    val evidenceId = if(form)storageId else api.attach(claim, visitId, storageId, photo)
                     currentCoroutineContext().ensureActive()
-                    if (store.syncHealth() == "held_for_review") return report.copy(waiting = store.pendingPhotos().size)
+                    if (store.syncHealth() == "held_for_review" || !authorized()) return report.copy(waiting = store.pendingPhotos().size)
                     store.markPhotoUploaded(photo.localId, evidenceId, now())
                     currentCoroutineContext().ensureActive()
-                    if (store.syncHealth() == "held_for_review") return report.copy(waiting = store.pendingPhotos().size)
+                    if (store.syncHealth() == "held_for_review" || !authorized()) return report.copy(waiting = store.pendingPhotos().size)
                     // The server holds the photo now; the phone copy is no longer needed.
-                    runCatching { files.delete(photo.localId) }
+                    if(!form)runCatching { files.delete(photo.localId) }
                     report = report.copy(uploaded = report.uploaded + 1)
                 } catch (e: kotlinx.coroutines.CancellationException) { throw e }
                 catch (e: AuthFailure) {

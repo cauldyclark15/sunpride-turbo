@@ -3,6 +3,7 @@ import { createDb } from "../src/client.js";
 import { seedDemo, resetDemo } from "./index.js";
 import { seedCoverageSpec } from "./coverage-spec.js";
 import { seedProductiveSpec } from "./productive-spec.js";
+import { seedWorkforceSpec } from "./workforce-spec.js";
 
 const args = process.argv.slice(2);
 let reset = false;
@@ -32,8 +33,13 @@ if (
     const result = reset ? await resetDemo(db) : await seedDemo(db, options);
     const coverageSpec = reset ? null : await seedCoverageSpec(db);
     const productiveSpec = reset ? null : await seedProductiveSpec(db);
+    const workforceSpec = reset ? null : await seedWorkforceSpec(db);
     console.log(
-      JSON.stringify({ ...result, coverageSpec, productiveSpec }, null, 2),
+      JSON.stringify(
+        { ...result, coverageSpec, productiveSpec, workforceSpec },
+        null,
+        2,
+      ),
     );
   } catch (error) {
     // Do not dump a SQL exception: its query/parameters can contain password hashes.

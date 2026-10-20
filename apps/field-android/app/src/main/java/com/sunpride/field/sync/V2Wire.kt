@@ -24,14 +24,19 @@ object V2Wire {
         check(b.getString("scopeId") == scope.getString("id") && b.getString("projection") == projection)
         check(b.getString("scopeFingerprint") == scope.getString("fingerprint"))
         val returned = b.getJSONObject("params")
-        check(returned.keys().asSequence().toSet() == params.keys().asSequence().toSet() && params.keys().asSequence().all { returned.get(it) == params.get(it) })
+        val asked=params.keys().asSequence().toSet();val echoed=returned.keys().asSequence().toSet()
+        // F-209/F-222 optional negotiation: an older server may omit ONLY this new opt-in.
+        // It must not issue workforce authority in that case; all original parameters remain exact.
+        val legacy=params.opt("includeWorkforce")==true && echoed==asked-setOf("includeWorkforce")
+        check((echoed==asked||legacy) && echoed.all { returned.get(it)==params.get(it) })
+        if(legacy)check(b.optJSONObject("data")?.optJSONObject("employee")?.has("workforce")!=true)
         val grant = b.getJSONObject("authorization")
         check(grant.getString("epoch") == scope.getString("epoch"))
         check(grant.getLong("expiresAt") > o.getLong("serverTime"))
         return b
     }
     fun bootstrap(legacy: ByteArray, page: Int, me: JSONObject): WireRequest {
-        val old = JSONObject(legacy.toString(Charsets.UTF_8)); val params = JSONObject().put("dayFrom", old.getString("dayFrom"))
+        val old = JSONObject(legacy.toString(Charsets.UTF_8)); val params = JSONObject().put("dayFrom", old.getString("dayFrom")).put("includeWorkforce",true)
         val device = me.getJSONObject("device").getString("id")
         val request = pull(device, me.getJSONObject("scope").getString("id"), "field.bundle", params,
             page = old.optString("pageCursor").takeIf { it.isNotBlank() })
@@ -40,6 +45,8 @@ object V2Wire {
             check(b.getString("mode") == "snapshot" && b.getJSONArray("changes").length() == 0)
             check(b.getBoolean("complete") == !o.getBoolean("hasMore"))
             val data = JSONObject(b.getJSONObject("data").toString())
+            // Local capability-negotiation marker, never a workforce permission or server claim.
+            data.getJSONObject("employee").put("workforceNegotiated",true)
             check(data.getJSONObject("employee").getString("id") == me.getJSONObject("profile").getString("id"))
             check(data.getJSONObject("scope").getString("fingerprint") == b.getString("scopeFingerprint"))
             // Nullable optional fields in v2 are omitted only at the legacy DTO decoder boundary.
@@ -74,7 +81,7 @@ object V2Wire {
         val old = JSONObject(legacy.toString(Charsets.UTF_8)); val scope = me.getJSONObject("scope").getString("id")
         val device = old.getString("deviceId")
         if (path.endsWith("/pull")) {
-            val params = JSONObject().put("dayFrom", java.time.LocalDate.now(java.time.ZoneId.of("Asia/Manila")).toString())
+            val params = JSONObject().put("dayFrom", java.time.LocalDate.now(java.time.ZoneId.of("Asia/Manila")).toString()).put("includeWorkforce",true)
             val request = pull(device, scope, "field.bundle", params, since = old.getString("cursor"), limit = 50)
             return WireRequest(PULL, request.toString().toByteArray()) { text ->
                 val o = JSONObject(text); val b = bundle(o, me, "field.bundle", params)

@@ -6,6 +6,7 @@ import { vans } from "./vans.js";
 import { management } from "./management.js";
 import { seedCoverageSpec } from "./coverage-spec.js";
 import { seedProductiveSpec } from "./productive-spec.js";
+import { seedWorkforceSpec } from "./workforce-spec.js";
 import {
   BATCH,
   Dataset,
@@ -1000,6 +1001,7 @@ export async function advanceDemo(db, { date = todayManila() } = {}) {
     advanced: days.filter((d) => !d.duplicate).length,
     coverageSpec: await seedCoverageSpec(db, date),
     productiveSpec: await seedProductiveSpec(db, date),
+    workforceSpec: await seedWorkforceSpec(db, date),
     days,
   };
 }

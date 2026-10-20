@@ -48,7 +48,11 @@ const PjpPlanner = dynamic(() =>
 const ProductivePolicies = dynamic(() =>
   import("./productive-policies").then((m) => m.ProductivePolicies),
 );
+const WorkforceWorkspace = dynamic(() =>
+  import("./workforce-workspace").then((m) => m.WorkforceWorkspace),
+);
 type CoverageTab =
+  | "workforce"
   | "productive"
   | "pjp"
   | "summary"
@@ -231,6 +235,7 @@ export function SalesForcePanels() {
     </div>
   );
   const needsPlan =
+    coverageTab !== "workforce" &&
     coverageTab !== "productive" &&
     coverageTab !== "pjp" &&
     coverageTab !== "summary" &&
@@ -240,6 +245,7 @@ export function SalesForcePanels() {
     coverageTab !== "standards" &&
     coverageTab !== "workload";
   const needsMonth =
+    coverageTab !== "workforce" &&
     coverageTab !== "productive" &&
     coverageTab !== "pjp" &&
     coverageTab !== "plan" &&
@@ -250,6 +256,7 @@ export function SalesForcePanels() {
     ["plan", "Plan"],
     ["pjp", "Journey plans"],
     ["productive", "Productive call rules"],
+    ["workforce", "Workforce"],
     ["deadlines", "MCP deadlines"],
     ...(canApprove ? ([["review", "Review"]] as [CoverageTab, string][]) : []),
     ["exceptions", "Exceptions"],
@@ -306,6 +313,11 @@ export function SalesForcePanels() {
             </div>
           )}
           <div role="tabpanel">
+            {coverageTab === "workforce" && (
+              <PanelErrorBoundary label="Workforce">
+                <WorkforceWorkspace />
+              </PanelErrorBoundary>
+            )}
             {coverageTab === "productive" && (
               <PanelErrorBoundary label="Productive call rules">
                 <ProductivePolicies />
@@ -316,7 +328,8 @@ export function SalesForcePanels() {
                 <PjpPlanner capabilities={permissions.capabilities} />
               </PanelErrorBoundary>
             )}
-            {coverageTab === "productive" ||
+            {coverageTab === "workforce" ||
+            coverageTab === "productive" ||
             coverageTab === "pjp" ? null : coverageTab === "summary" ? (
               <PanelErrorBoundary
                 key={`summary-${month}`}

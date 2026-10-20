@@ -93,6 +93,9 @@ interface FieldBackend {
     /** Seal the JPEG on the phone and record it for the open call; upload follows separately. */
     fun savePhoto(clientVisitId: String, checkInRequestId: String, outletId: String, photoType: String,
         jpeg: ByteArray, capturedAt: Long) { error("No local store") }
+    /** F-209/F-222: non-call forms use the same partition, encrypted photo store and operation outbox. */
+    fun workforceView(): com.sunpride.field.storage.WorkforceView = com.sunpride.field.storage.WorkforceView()
+    fun queueWorkforce(kind: String,name: String,answers: Map<String,String>,geo: JSONObject?,jpeg: ByteArray?,photoAt: Long) { error("No workforce store") }
     /** Upload saved photos whose call has a server visit ID (background worker). */
     fun uploadEvidence(): com.sunpride.field.evidence.UploadReport = com.sunpride.field.evidence.UploadReport()
     /** AND-020: today's team summary (live, else saved on this phone); the server enforces scope. */
@@ -226,7 +229,7 @@ class LiveFieldBackend(
     }
     override fun schedulePendingWork() {
         val status = syncStatus()
-        if (status.queued + status.sending > 0 && status.held == 0 && status.health != "held_for_review")
+        if (status.queued + status.sending > 0 && status.health != "held_for_review")
             com.sunpride.field.sync.work.SyncWork.enqueue(context)
         if (status.photosWaiting > 0 && status.health != "held_for_review")
             com.sunpride.field.evidence.EvidenceWork.enqueue(context)
@@ -306,14 +309,41 @@ class LiveFieldBackend(
         com.sunpride.field.diagnostics.SafeLog.event(context, "photo_saved")
         runCatching { com.sunpride.field.evidence.EvidenceWork.enqueue(context) }
     }
+    override fun workforceView(): com.sunpride.field.storage.WorkforceView {
+        if(storedScope()==null)return com.sunpride.field.storage.WorkforceView()
+        return withStore { store->com.sunpride.field.storage.WorkforceForms.view(store.workforcePolicy(),store.history().map { it.first to it.second.state },System.currentTimeMillis()) }
+    }
+    override fun queueWorkforce(kind: String,name: String,answers: Map<String,String>,geo: JSONObject?,jpeg: ByteArray?,photoAt: Long) {
+        val scope=storedScope()?:error("No verified partition")
+        val epoch=authorizationEpoch
+        val store=EncryptedFieldDatabase.store(context,scope)
+        val files=com.sunpride.field.evidence.KeystorePhotoFiles(context)
+        var localPhoto: String?=null
+        try { runBlocking {
+            val policy=store.workforcePolicy()?:error("Refresh today's field forms.")
+            val history=store.history().map { it.first to it.second.state }
+            val at=System.currentTimeMillis()
+            val view=com.sunpride.field.storage.WorkforceForms.view(policy,history,at)
+            val pair=com.sunpride.field.storage.WorkforceForms.create(scope,policy,kind,name,answers,geo,jpeg,photoAt,at,view.clockInRequestId,history.any { it.first.requestId==view.clockInRequestId })
+            pair.second?.let { photo->files.write(photo.localId,requireNotNull(jpeg));localPhoto=photo.localId }
+            store.enqueueWorkforce(pair.first,pair.second,at) { runCatching { authorizationEpoch==epoch && storedScope()==scope }.getOrDefault(false) }
+        } } catch(e: Exception) { localPhoto?.let { runCatching { files.delete(it) } };throw e }
+        finally { store.close() }
+        com.sunpride.field.sync.work.SyncWork.enqueue(context)
+        if(localPhoto!=null)com.sunpride.field.evidence.EvidenceWork.enqueue(context)
+    }
     override fun uploadEvidence(): com.sunpride.field.evidence.UploadReport {
         val scope = storedScope() ?: return com.sunpride.field.evidence.UploadReport()
+        val epoch=authorizationEpoch
         val store = EncryptedFieldDatabase.store(context, scope)
-        return try {
+        val report=try {
             runBlocking { com.sunpride.field.evidence.EvidenceUploader(store, scope,
                 com.sunpride.field.evidence.KeystorePhotoFiles(context),
-                com.sunpride.field.evidence.ServerEvidenceApi(functions)).run() }
+                com.sunpride.field.evidence.ServerEvidenceApi(functions))
+                .whileAuthorized { runCatching { epoch==authorizationEpoch && storedScope()==scope }.getOrDefault(false) }.run() }
         } finally { store.close() }
+        if(report.uploaded>0)com.sunpride.field.sync.work.SyncWork.enqueue(context)
+        return report
     }
     override fun queueActivity(clientVisitId: String, checkInRequestId: String, previousRequestId: String,
         outletId: String, activity: JSONObject) {
@@ -383,7 +413,7 @@ class LiveFieldBackend(
                 val existing = storedScope()?.takeIf { it.account == authenticated && it.deviceId == deviceId }
                 val existingCursor = existing?.let { scope ->
                     val scoped = EncryptedFieldDatabase.store(context, scope)
-                    try { runBlocking { scoped.cursor() } } finally { scoped.close() }
+                    try { runBlocking { if(scoped.workforceSnapshotCurrent()) scoped.cursor() else null } } finally { scoped.close() }
                 }
                 if (existing != null && existingCursor != null) {
                     val scoped = EncryptedFieldDatabase.store(context, existing)
@@ -401,6 +431,9 @@ class LiveFieldBackend(
                                     retireSuggestions()
                                 }
                             }).sync()
+                            val done=scoped.history().filter { com.sunpride.field.storage.WorkforceForms.isForm(it.first.kind)&&it.second.state=="done" }
+                            if(done.any { scoped.visitPhotos(it.first.clientVisitId).any { p->p.photoType in com.sunpride.field.storage.WorkforceForms.PHOTO_TYPES } })
+                                com.sunpride.field.evidence.EvidenceWork.enqueue(context)
                         }
                     } finally { scoped.close() }
                 } else {
@@ -715,6 +748,38 @@ class FieldController(
     var error by mutableStateOf<String?>(null); private set
     var key by mutableStateOf<DeviceKeyInfo?>(null); private set
     var today by mutableStateOf(TodayData()); private set
+    var workforceOpen by mutableStateOf(false); private set
+    private var workforceData by mutableStateOf(com.sunpride.field.storage.WorkforceView())
+    private var workforceEpoch=Long.MIN_VALUE
+    val workforceLifetime: Long get()=backend.authorizationEpoch
+    val workforce: com.sunpride.field.storage.WorkforceView get()=if(state is EnrollmentState.Ready && workforceEpoch==backend.authorizationEpoch)workforceData else com.sunpride.field.storage.WorkforceView()
+    private var workforceLoading=false
+    fun openWorkforce() {workforceOpen=true;error=null;reloadWorkforce()}
+    fun reloadWorkforce()=scope.launch(ui) {
+        if(workforceLoading)return@launch
+        workforceLoading=true
+        try {
+            val epoch=backend.authorizationEpoch
+            val data=withContext(io) { backend.workforceView() }
+            if(state is EnrollmentState.Ready && epoch==backend.authorizationEpoch) {workforceData=data;workforceEpoch=epoch}
+        } catch(e: kotlinx.coroutines.CancellationException) {throw e}
+        catch(_: Exception) {workforceData=com.sunpride.field.storage.WorkforceView();error="Field forms need a refresh or office configuration."}
+        finally {workforceLoading=false}
+    }
+    fun closeWorkforce() { workforceOpen=false;error=null }
+    fun saveWorkforce(kind: String,name: String,answers: Map<String,String>,geo: JSONObject?,jpeg: ByteArray?,photoAt: Long,onSaved: () -> Unit)=scope.launch(ui) {
+        if(busy)return@launch
+        busy=true;error=null
+        val epoch=backend.authorizationEpoch
+        try {
+            withContext(io) { backend.queueWorkforce(kind,name,answers,geo,jpeg,photoAt) }
+            if(state !is EnrollmentState.Ready || epoch!=backend.authorizationEpoch)return@launch
+            workforceData=withContext(io) { backend.workforceView() };workforceEpoch=epoch
+            onSaved();loadToday(sync=false)
+        } catch(e: kotlinx.coroutines.CancellationException) {throw e}
+        catch(_: Exception) {error="Could not save. Check required fields, a recent photo and location, then try again."}
+        finally {busy=false}
+    }
     var diagnostic by mutableStateOf<VisitDisplay?>(null); private set
     var diagnosticRows by mutableStateOf<List<Pair<com.sunpride.field.storage.IntentRow, String>>>(emptyList()); private set
     var diagnosticError by mutableStateOf<String?>(null); private set

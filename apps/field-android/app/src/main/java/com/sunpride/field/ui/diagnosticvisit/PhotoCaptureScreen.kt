@@ -132,14 +132,14 @@ fun PhotoCaptureScreen(controller: FieldController, modifier: Modifier = Modifie
 }
 
 @Composable
-private fun CameraPreview(onReady: (ImageCapture) -> Unit, onFailed: () -> Unit, modifier: Modifier) {
+internal fun CameraPreview(onReady: (ImageCapture) -> Unit, onFailed: () -> Unit, modifier: Modifier, front: Boolean = false) {
     val context = LocalContext.current
     val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     val view = remember { PreviewView(context).apply {
         scaleType = PreviewView.ScaleType.FILL_CENTER
         implementationMode = PreviewView.ImplementationMode.COMPATIBLE
     } }
-    DisposableEffect(owner) {
+    DisposableEffect(owner,front) {
         val future = ProcessCameraProvider.getInstance(context)
         var provider: ProcessCameraProvider? = null
         future.addListener({
@@ -154,7 +154,7 @@ private fun CameraPreview(onReady: (ImageCapture) -> Unit, onFailed: () -> Unit,
                         ResolutionStrategy(Size(1600, 1200), ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER)).build())
                     .build()
                 cameras.unbindAll()
-                cameras.bindToLifecycle(owner, CameraSelector.DEFAULT_BACK_CAMERA, preview, still)
+                cameras.bindToLifecycle(owner, if(front)CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA, preview, still)
                 onReady(still)
             } catch (e: kotlinx.coroutines.CancellationException) { throw e }
             catch (_: Exception) { onFailed() }

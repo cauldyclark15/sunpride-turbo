@@ -60,6 +60,20 @@ const EXPECTED = {
   "mcp.plan": ["super_admin", "admin", "manager", "sales"],
   "mcp.approve": ["super_admin", "manager"],
   "visit.record": ["super_admin", "manager", "sales"],
+  // F-209/F-222: independent permission inventory; attendance never implies tracking consent.
+  "workforce.read": A,
+  "workforce.record": ["super_admin", "manager", "sales"],
+  "workforce.configure": ["super_admin", "admin", "operations"],
+  "workforce.import": ["super_admin", "admin", "operations"],
+  "workforce.correct": [
+    "super_admin",
+    "admin",
+    "operations",
+    "manager",
+    "sales",
+  ],
+  "workforce.approve": ["super_admin", "manager"],
+
   "visit.locationException.approve": ["super_admin", "manager"],
   "visit.read": A,
   "order.create": ["super_admin", "manager", "sales"],
@@ -131,8 +145,8 @@ async function outcome(p) {
 }
 
 describe("capability table", () => {
-  test("51 grants, 8 roles, identical to the inventory table", () => {
-    expect(Object.keys(CAPABILITIES).length).toBe(51);
+  test("F-209/F-222 57 grants, 8 roles, exact baseline plus workforce inventory", () => {
+    expect(Object.keys(CAPABILITIES).length).toBe(57);
     expect(/** @type {string[]} */ ([...ROLES])).toEqual(A);
     expect(Object.keys(CAPABILITIES).sort()).toEqual(
       Object.keys(EXPECTED).sort(),
@@ -183,7 +197,7 @@ describe("requireCapability matrix", () => {
         }).toEqual({ cap, role, got: want });
         checked++;
       }
-    expect(checked).toBe(51 * 8);
+    expect(checked).toBe(57 * 8);
   });
 
   test("every grant × role with an out-of-scope target: only super_admin and analyst bypass", async () => {

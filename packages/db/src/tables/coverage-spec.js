@@ -29,4 +29,20 @@
  * detail:Record<string,unknown>,createdAt:Date,updatedAt:Date}} ProductivePolicyEvent
  * @typedef {import('./visits.js').VisitExecutionRow & {productivePolicySnapshot:Record<string,unknown>|null}} ProductiveVisitExecutionRow
  */
+/** F-209/F-222 additive row contracts (0452). JSON snapshots retain captured provenance.
+ * @typedef {{id:string,orgUnitId:string,version:number,label:string,sourceRef:string,
+ * configuration:Record<string,unknown>,contentHash:string,effectiveFrom:Date,effectiveTo:Date|null,
+ * createdBy:string,createdAt:Date,updatedAt:Date}} WorkforceFormPolicy
+ * @typedef {{id:string,profileId:string,orgUnitId:string,serviceDate:Date,
+ * clockInRequestId:string,clockInAt:Date,clockInDeviceId:string,clockInSnapshot:Record<string,unknown>,
+ * photoFileId:string,clockOutRequestId:string|null,clockOutAt:Date|null,clockOutDeviceId:string|null,
+ * clockOutSnapshot:Record<string,unknown>|null,reviewFlags:string[],createdAt:Date,updatedAt:Date}} AttendanceSession
+ * @typedef {{id:string,profileId:string,orgUnitId:string,serviceDate:Date,
+ * kind:'correction'|'absence'|'leave',proposedStart:Date|null,proposedEnd:Date|null,reason:string,sourceRef:string,
+ * clientKey:string,requestHash:string,externalIdentity:string|null,replacesId:string|null,
+ * status:'pending'|'approved'|'rejected',preparedBy:string,approvedBy:string|null,approvedAt:Date|null,
+ * decisionReason:string|null,createdAt:Date,updatedAt:Date}} AttendanceAdjustment
+ * @typedef {{id:string,profileId:string,orgUnitId:string,kind:string,entityId:string,
+ * actorId:string,detail:Record<string,unknown>,createdAt:Date,updatedAt:Date}} WorkforceEvent
+ */
 export {};

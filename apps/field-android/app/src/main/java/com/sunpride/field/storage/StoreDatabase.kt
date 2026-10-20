@@ -105,6 +105,8 @@ interface StoreDao {
     suspend fun deletePing(account: String, device: String, scope: String, id: String): Int
     @Query("DELETE FROM location_pings WHERE account=:account AND deviceId=:device AND scope=:scope AND recordedAt<:before")
     suspend fun deleteOldPings(account: String, device: String, scope: String, before: Long): Int
+    @Query("DELETE FROM evidence_photos WHERE account=:account AND deviceId=:device AND scope=:scope AND localId=:localId AND state='uploaded' AND photoType IN ('workforce_prospect','workforce_clockin')")
+    suspend fun deleteUploadedFormPhoto(account: String,device: String,scope: String,localId: String): Int
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertPhoto(row: EvidencePhotoRow)
     @Query("SELECT * FROM evidence_photos WHERE account=:account AND deviceId=:device AND scope=:scope AND clientVisitId=:clientVisitId ORDER BY createdAt, localId")
     suspend fun visitPhotos(account: String, device: String, scope: String, clientVisitId: String): List<EvidencePhotoRow>

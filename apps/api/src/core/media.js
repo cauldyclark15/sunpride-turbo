@@ -18,7 +18,12 @@ import {
  * bytes under the upload capability with a hard size cap and a SHA-256 check.
  */
 
-export const MEDIA_PURPOSES = Object.freeze(["visit-photo", "truck-damage"]);
+export const MEDIA_PURPOSES = Object.freeze([
+  "visit-photo",
+  "truck-damage",
+  "prospect-photo",
+  "attendance-photo",
+]);
 export const MEDIA_MIMES = Object.freeze(["image/jpeg"]);
 export const MAX_MEDIA_BYTES = 10 * 1024 * 1024;
 export const UPLOAD_TTL_MS = 10 * 60 * 1000;
@@ -56,7 +61,7 @@ async function claim(ctx) {
   if (typeof purpose !== "string" || !MEDIA_PURPOSES.includes(purpose))
     throw invalid("Invalid purpose");
   if (!(ownerId === null || isUuid(ownerId))) throw invalid("Invalid ownerId");
-  if (purpose === "visit-photo" && ownerId === null)
+  if (purpose !== "truck-damage" && ownerId === null)
     throw invalid("visit-photo needs ownerId");
   if (typeof mime !== "string" || !MEDIA_MIMES.includes(mime))
     throw invalid("Unsupported media type", "unsupported_media");

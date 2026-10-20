@@ -1,4 +1,5 @@
 import { tx } from "@sunpride/db/client";
+import { workforceContext } from "../coverage/workforce-policies.js";
 import { canonicalJson, sha256Hex } from "../../core/util.js";
 import { recordChange } from "../../core/sync.js";
 import { bounded, DAY_MS, midnight, rebootstrap } from "./model.js";
@@ -71,6 +72,10 @@ export async function checkDayManifest(ctx) {
         and p.effective_from<=${at} and (p.effective_to is null or p.effective_to>${at}) order by l.id limit 5001`,
       5000,
     );
+    const workforce =
+      ctx.params.includeWorkforce === true
+        ? await workforceContext(db, ctx.actor.profileId, ctx.now)
+        : null;
     const stamp = sha256Hex(
       canonicalJson({
         visits,
@@ -83,6 +88,7 @@ export async function checkDayManifest(ctx) {
         assortments,
         prices,
         day: date,
+        ...(ctx.params.includeWorkforce === true ? { workforce } : {}),
       }),
     );
     const [prior] =
