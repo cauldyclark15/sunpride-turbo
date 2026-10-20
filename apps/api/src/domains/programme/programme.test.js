@@ -95,9 +95,9 @@ describe("F-025 programme traceability", () => {
     ]);
     expect(body.totals).toEqual({
       built: 3,
-      partly_built: 60,
-      changing_to_spec: 34,
-      not_built: 37,
+      partly_built: 88,
+      changing_to_spec: 22,
+      not_built: 21,
       needs_sunpride: 4,
       conditional: 8,
     });
@@ -127,6 +127,31 @@ describe("F-025 programme traceability", () => {
       ),
     );
     expect(pool).toHaveLength(19);
+  });
+
+  test("F-025 integrated owner facts distinguish working mock paths from remaining acceptance", async () => {
+    const { body } = await read("super_admin");
+    const features = body.waves.flatMap((/** @type {any} */ w) =>
+      w.blocks.flatMap((/** @type {any} */ b) => b.features),
+    );
+    const byId = new Map(features.map((/** @type {any} */ f) => [f.id, f]));
+    expect(byId.get("F-002").now).toContain("one SAP gateway");
+    expect(byId.get("F-003").now).toContain("durable identities");
+    expect(byId.get("F-005").now).toContain("Integration screen");
+    expect(byId.get("F-403").now).toContain("distributor portal");
+    expect(byId.get("F-505").now).toContain("One claim object");
+    expect(byId.get("F-407").next).toContain("Android");
+    expect(byId.get("F-511").next).toContain("FISCAL-owned");
+    for (const id of [
+      "F-001",
+      "F-002",
+      "F-106",
+      "F-107",
+      "F-407",
+      "F-504",
+      "F-505",
+    ])
+      expect(byId.get(id).status).toBe("partly_built");
   });
 
   test("F-025 only administrators and the owner may read the programme", async () => {
