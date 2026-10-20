@@ -124,7 +124,19 @@ export async function seedDistributors(db, options = {}) {
       if (!existing) {
         const columns = Object.keys(data),
           values = Object.values(data);
-        const placeholders = columns.map((_, i) => `$${i + 2}`);
+        const jsonColumns = new Set([
+          "rule",
+          "settings",
+          "payload",
+          "pricing_snapshot",
+          "sap_acknowledgement",
+          "credit_assessment",
+        ]);
+        // Force serialized JSON through TEXT; Bun otherwise encodes it as a JSON string.
+        const placeholders = columns.map(
+          (column, i) =>
+            `$${i + 2}${jsonColumns.has(column) ? "::text::jsonb" : ""}`,
+        );
         await t.unsafe(
           `insert into "${table}" (id,${columns.map((k) => `"${k}"`).join(",")}) values($1,${placeholders.join(",")})`,
           [id, ...values],
@@ -149,20 +161,41 @@ export async function seedDistributors(db, options = {}) {
           d31_60: index ? 4000000 : 0,
         },
       };
+      const priceListId = await add("price_lists", slug, {
+        organization_id: "sunpride",
+        code: `SAMPLE-DISTRIBUTOR-${slug}`,
+        name: `${account.name} sample prices`,
+        channel_key: "distributor",
+        currency: "PHP",
+        status: "active",
+        source: "sample",
+        effective_from: "2020-01-01",
+      });
       const catalog = products.map(
         (/** @type {any} */ p, /** @type {number} */ i) => ({
           productId: p.id,
+          priceListId,
           uom: "CS",
           unitsPerUom: 24,
           priceCentavos: 24000 + i * 6000,
           availableBase: 24000,
         }),
       );
+      for (const p of catalog)
+        await add("price_list_lines", `${slug}-${p.productId}`, {
+          organization_id: "sunpride",
+          price_list_id: priceListId,
+          product_id: p.productId,
+          uom: p.uom,
+          unit_price_minor: p.priceCentavos,
+          effective_from: "2020-01-01",
+        });
       const promotionId = await add("promotions", slug, {
         organization_id: "sunpride",
         code: `SAMPLE-PARTNER-${slug}`,
         name: "Sample partner five-percent benefit",
         rule_kind: "percent_off",
+        price_list_id: priceListId,
         rule: JSON.stringify({
           kind: "percent_off",
           item: { productId: catalog[0].productId, uom: "CS", quantity: 1 },
@@ -172,8 +205,10 @@ export async function seedDistributors(db, options = {}) {
         source: "sample",
         effective_from: "2020-01-01",
       });
+      // Repair only our own invalid historical sample encodings; never office or partner rows.
+      await t`update promotions set rule=(rule#>>'{}')::jsonb,price_list_id=${priceListId} where id=${promotionId} and source='sample' and jsonb_typeof(rule)='string'`;
       const payload = {
-        sampleVersion: 2,
+        sampleVersion: 3,
         products: catalog,
         outlets: stores.map((/** @type {any} */ s) => ({
           outletId: s.id,
@@ -246,8 +281,9 @@ export async function seedDistributors(db, options = {}) {
         settings: JSON.stringify(SAMPLE_DISTRIBUTOR_POLICY),
         effective_from: "2020-01-01",
       });
+      await t`update distributor_policies p set settings=(settings#>>'{}')::jsonb where p.distributor_id=${id} and jsonb_typeof(settings)='string' and exists(select 1 from sample_data_rows m where m.table_name='distributor_policies' and m.row_id=p.id::text and m.batch=${DISTRIBUTOR_SAMPLE_BATCH})`;
       const [current] =
-        await t`select * from distributor_master_versions where distributor_id=${id} and effective_to is null order by version desc limit 1`;
+        await t`select * from distributor_master_versions where distributor_id=${id} order by version desc limit 1`;
       const version = current ? Number(current.version) + 1 : 1,
         stamp = new Date();
       // Refresh only our untouched sample replica on a new Manila day; never replace office edits.
@@ -255,18 +291,19 @@ export async function seedDistributors(db, options = {}) {
       if (
         !current ||
         (current.source_key === `sample:${slug}` &&
-          (current.payload.sampleVersion !== 2 ||
+          (current.effective_to ||
+            current.payload.sampleVersion !== 3 ||
             new Date(new Date(current.received_at).getTime() + 28800000)
               .toISOString()
               .slice(0, 10) !== day))
       ) {
         if (current) {
-          await t`update distributor_master_versions set effective_to=${stamp} where id=${current.id}`;
+          await t`update distributor_master_versions set effective_to=${stamp} where id=${current.id} and effective_to is null`;
           await t`update distributor_outlets set effective_to=${stamp} where distributor_id=${id} and effective_to is null`;
         }
         masterId = await add(
           "distributor_master_versions",
-          `${slug}-${day}-v2`,
+          `${slug}-${day}-v3`,
           {
             distributor_id: id,
             source: "sample",
@@ -281,7 +318,7 @@ export async function seedDistributors(db, options = {}) {
           },
         );
         for (const s of stores)
-          await add("distributor_outlets", `${slug}-${s.id}-${day}-v2`, {
+          await add("distributor_outlets", `${slug}-${s.id}-${day}-v3`, {
             distributor_id: id,
             outlet_id: s.id,
             territory_id: s.territory_id,

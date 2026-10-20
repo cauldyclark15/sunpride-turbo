@@ -359,6 +359,9 @@ export async function scorecard(c, d) {
         0,
       )
     : null;
+  const weakest = Object.entries(parts).sort(
+    (a, b) => (a[1] ?? -1) - (b[1] ?? -1),
+  )[0];
   return {
     period: h.period,
     score: total,
@@ -376,7 +379,9 @@ export async function scorecard(c, d) {
       ? "Complete missing source data and capability audit"
       : h.stale
         ? "Submit current stock"
-        : "Review the weakest scored component",
+        : weakest
+          ? `Review ${weakest[0]}: ${weakest[1]?.toFixed(0)} / 100, the lowest component`
+          : "Review current source data",
   };
 }
 /** @param {any} c @param {any} d @param {any} b */

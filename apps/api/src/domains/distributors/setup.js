@@ -1,6 +1,7 @@
 import { tx } from "@sunpride/db/client";
 import { actorFor } from "../../core/context.js";
 import { requireCapability } from "../../core/capabilities.js";
+import { outletOwnerUnit, territoryOwnerUnit } from "../org/scope.js";
 import { recordChange } from "../../core/sync.js";
 import {
   authorize,
@@ -61,7 +62,7 @@ export async function invite(c, d, b) {
     fail("Choose supported partner grants");
   const deviceScope = await ensurePartnerDeviceScope(c, d);
   const [existing] =
-    await c.db`select * from profiles where lower(email)=${email}`;
+    await c.db`select * from profiles where lower(email)=${email} for update`;
   if (existing && existing.role !== "distributor")
     fail(
       "An employee account cannot become a distributor account",
@@ -153,10 +154,22 @@ export async function syncMaster(c, d, b) {
     const [row] =
       await c.db`select id from outlets where id=${o.outletId} and deleted_at is null`;
     if (!row) fail("Master references an unknown shared outlet");
+    const owner = await outletOwnerUnit(c.db, o.outletId, c.now);
+    if (!owner && c.actor.role !== "super_admin")
+      fail("Outlet ownership needs setup");
+    await requireCapability(c, "outlet.read", owner);
     if (o.territoryId) {
       const [t] =
         await c.db`select id from territories where id=${uuid(o.territoryId)} and deleted_at is null`;
       if (!t) fail("Unknown shared territory");
+      const territoryOwner = await territoryOwnerUnit(
+        c.db,
+        o.territoryId,
+        c.now,
+      );
+      if (!territoryOwner && c.actor.role !== "super_admin")
+        fail("Territory ownership needs setup");
+      await requireCapability(c, "territory.read", territoryOwner);
     }
   }
   list(payload.schemes ?? [], 100);
@@ -235,6 +248,8 @@ export async function setLocation(c, d, b) {
 }
 /** @param {any} c @param {any} d @param {any} b */
 export async function apply(c, d, b) {
+  if (d.status !== "applicant")
+    fail("Only a new applicant can submit accreditation", "invalid_transition");
   const legalName = text(b.legalName),
     tax = text(b.taxReference),
     contact = text(b.contact);
@@ -305,13 +320,15 @@ export async function reviewApplication(c, d, b) {
 }
 /** @param {any} c @param {any} d @param {any} b */
 export async function acceptAgreement(c, d, b) {
+  const documentId = uuid(b.documentId);
   const [a] =
     await c.db`select * from distributor_applications where distributor_id=${d.id} and stage='credit_assessed'`;
   const [doc] =
-    await c.db`select id,sha256 from distributor_documents where id=${uuid(b.documentId)} and distributor_id=${d.id} and kind='agreement' and published`;
+    await c.db`select id,sha256 from distributor_documents where distributor_id=${d.id} and kind='agreement' and published order by created_at desc,version desc,id desc limit 1`;
   if (
     !a ||
     !doc ||
+    doc.id !== documentId ||
     doc.sha256 !== b.sha256 ||
     b.accepted !== true ||
     c.actor.role !== "distributor"

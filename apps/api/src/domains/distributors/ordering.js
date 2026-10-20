@@ -47,7 +47,7 @@ export async function quote(c, d, b) {
       lineTotalCentavos: total,
       availableBase: available,
       inStock: quantityBase <= available,
-      priceListId: null,
+      priceListId: p.priceListId ?? null,
       source: m.source,
     });
   }
@@ -94,8 +94,14 @@ export async function quote(c, d, b) {
         quantityBase = integer(free.quantity * integer(p.unitsPerUom, 1));
       if (free.uom !== p.uom)
         fail("Scheme free-unit master mismatch", "needs_setup");
-      const paid =
-        lines.find((l) => l.productId === p.productId)?.quantityBase ?? 0;
+      const paidLine = lines.find((l) => l.productId === p.productId);
+      const paid = paidLine?.quantityBase ?? 0;
+      const [reserved] =
+        await c.db`select coalesce(sum(l.quantity_base),0)::text as n from order_lines l join orders o on o.id=l.order_id where o.purchasing_distributor_id=${d.id} and o.status not in ('rejected','voided','fulfilled','posted') and l.product_id=${p.productId}`;
+      const availableBase = Math.max(
+        0,
+        integer(p.availableBase) - Number(reserved.n),
+      );
       freeGoods.push({
         productId: p.productId,
         productCode: p.code,
@@ -105,9 +111,9 @@ export async function quote(c, d, b) {
         quantityBase,
         unitPriceCentavos: 0,
         lineTotalCentavos: 0,
-        priceListId: null,
-        inStock: paid + quantityBase <= p.availableBase,
-        availableBase: p.availableBase,
+        priceListId: p.priceListId ?? null,
+        inStock: paid + quantityBase <= availableBase,
+        availableBase,
       });
     }
   const credit = await sapCreditCheck(c, d, Number(benefit.totalCentavos));

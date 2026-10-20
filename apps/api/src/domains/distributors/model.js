@@ -186,7 +186,13 @@ export async function product(c, id, productId) {
     await c.db`select id,code,name,uom,quantity_scale from products where id=${productId} and active and deleted_at is null`;
   if (!entry || !p)
     fail("Product is not in this distributor's catalog", "out_of_scope", 403);
-  return { ...p, ...entry };
+  return {
+    ...entry,
+    id: p.id,
+    code: p.code,
+    name: p.name,
+    quantity_scale: p.quantity_scale,
+  };
 }
 /** @param {any} c @param {string} id @param {string} locationId */
 export async function location(c, id, locationId) {
