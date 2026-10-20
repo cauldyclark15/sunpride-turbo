@@ -36,7 +36,7 @@ An explicit consenting SMS/email recipient plus future ETA on the confirmed day 
 
 ## F-301 F-303 F-304 — Needs Sunpride
 
-All values are our editable, clearly sample-marked defaults: `gt_presell` channel, 14:00 Manila cut-off, one-day minimum lead, 30-day request horizon, up to two days after the requested day for confirmation, 98% ePOD target; reasons for short load, buyer rejection and door damage. Sunpride confirms receiving-capacity policies, actual delivery SLAs, signature/refusal procedure, approved SAP interfaces and message consent/provider. Missing inputs are not a software blocker. Policies publish prospectively from the dispatch editor; captured promises keep their old policy.
+All values are our editable, clearly sample-marked defaults: `gt_presell` channel, 14:00 Manila cut-off, one-day minimum lead, 30-day request horizon, up to two days after the requested day for confirmation, 98% ePOD target; reasons for short load, buyer rejection and door damage. The two sample channel policies use a 100 m radius, 50 m accuracy, 60-second fix age and no minimum dwell; these are channel setup defaults, not productive-call evidence or a Sunpride standard. Sunpride confirms receiving-capacity policies, actual delivery SLAs, signature/refusal procedure, approved SAP interfaces and message consent/provider. Missing inputs are not a software blocker. Policies publish prospectively from the dispatch editor; captured promises keep their old policy.
 
 ## F-301 F-303 — iOS parity later
 
