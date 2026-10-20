@@ -220,10 +220,8 @@ class VisitSync(private val gateway: SignedVisitGateway, private val store: Fiel
     }
     private suspend fun push() {
         while (true) {
-            val queued = store.pending().take(20)
-            // F-011: one bounded photo operation per HTTP envelope (1 MiB API cap).
-            val pending = if (queued.firstOrNull()?.first?.kind == com.sunpride.field.census.CensusRules.KIND) queued.take(1)
-                else queued.takeWhile { it.first.kind != com.sunpride.field.census.CensusRules.KIND }
+            // F-209/F-222: skip forms waiting for media without starving a later ready call.
+            val pending = store.pending()
             if (pending.isEmpty()) return
             val ready = mutableListOf<IntentRow>(); val wire = mutableListOf<String>()
             for ((intent, _) in pending) {
@@ -232,7 +230,23 @@ class VisitSync(private val gateway: SignedVisitGateway, private val store: Fiel
                 }
                 val op = com.sunpride.field.storage.RetailCaptureQueue.materialize(intent, store.visitPhotos(intent.clientVisitId))
                     ?: if (ready.isEmpty()) return else break
-                if (intent.kind != "visit.checkIn" && intent.kind != com.sunpride.field.census.CensusRules.KIND) {
+                if (com.sunpride.field.storage.WorkforceForms.isForm(intent.kind)) {
+                    val deps=op.getJSONArray("dependsOn")
+                    var waiting=false
+                    for(i in 0 until deps.length()) if(store.ack(deps.getString(i))==null) {
+                        val parent=store.history().find { it.first.requestId==deps.getString(i) }
+                        if(parent==null||parent.second.state=="review")store.recordRejection(intent.requestId,"dependency_missing")
+                        waiting=true
+                    }
+                    if(waiting)continue
+                    if(intent.kind!="workforce.clockOut") {
+                        val photo=store.visitPhotos(intent.clientVisitId).singleOrNull { it.photoType in com.sunpride.field.storage.WorkforceForms.PHOTO_TYPES }
+                        if(photo==null||photo.state=="review") { store.recordRejection(intent.requestId,"photo_needs_review");continue }
+                        if(photo.state!="uploaded"||photo.evidenceId==null)continue
+                        // Persisted blob ID + immutable local template produce the same semantic operation on every retry.
+                        op.getJSONObject("payload").getJSONObject("photo").put("blobId",photo.evidenceId)
+                    }
+                } else if (intent.kind != "visit.checkIn" && intent.kind != com.sunpride.field.census.CensusRules.KIND) {
                     val deps = op.getJSONArray("dependsOn")
                     val dependency = deps.getString(0)
                     val ack = store.ack(dependency)
@@ -251,6 +265,7 @@ class VisitSync(private val gateway: SignedVisitGateway, private val store: Fiel
                         op.getJSONObject("payload").put("visitId", visitAck.entityId)
                 }
                 ready.add(intent); wire.add(op.toString())
+                if(ready.size==20)break
             }
             if (ready.isEmpty()) return
             store.markSending(ready.map { it.requestId })

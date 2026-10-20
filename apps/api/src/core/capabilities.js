@@ -71,6 +71,25 @@ export const CAPABILITIES = Object.freeze({
   "mcp.plan": ["super_admin", "admin", "manager", "sales"],
   "mcp.approve": ["super_admin", "manager"],
   "visit.record": ["super_admin", "manager", "sales"],
+  // F-209/F-222: attendance is not permission to start location tracking.
+  "workforce.read": ALL,
+  "workforce.record": ["super_admin", "manager", "sales"],
+  "workforce.configure": ["super_admin", "admin", "operations"],
+  "workforce.import": ["super_admin", "admin", "operations"],
+  "workforce.correct": [
+    "super_admin",
+    "admin",
+    "operations",
+    "manager",
+    "sales",
+  ],
+  "workforce.approve": ["super_admin", "manager"],
+  // F-210: owner/manager win-back actions on cycle-based dormancy cases.
+  "dormancy.act": ["super_admin", "admin", "manager"],
+  // F-615: a cascade is published only by a different person than its preparer.
+  "target.approve": ["super_admin", "manager", "approver"],
+  // F-613: plan collections (promises, cheques, collector routes) on SAP AR open items.
+  "collections.plan": ["super_admin", "admin", "manager"],
   "visit.locationException.approve": ["super_admin", "manager"],
   "visit.read": ALL,
   "order.create": ["super_admin", "manager", "sales"],

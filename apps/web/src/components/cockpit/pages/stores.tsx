@@ -1,5 +1,7 @@
 "use client";
 
+import { DormancyPanel } from "../../dormancy-panel";
+
 import Link from "next/link";
 import { OutletContextView } from "./tower";
 import { useState } from "react";
@@ -304,6 +306,9 @@ export function StoresPage() {
           />
         )}
       </PageData>
+      <div className="mt-6">
+        <DormancyPanel />
+      </div>
     </CockpitPage>
   );
 }

@@ -57,6 +57,8 @@ const calls = {
     "/api/v1/coverage/permissions",
     "/api/v1/coverage/profile",
     `/api/v1/coverage/summary?month=${month}`,
+    "/api/v1/coverage/pjp", // F-201 existing workspace tab
+    "/api/v1/coverage/productive-policies", // F-208 existing workspace tab
   ],
   supervision: [
     report("supervision.team.options", { serviceDate: date }),

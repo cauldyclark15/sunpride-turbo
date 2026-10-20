@@ -1130,3 +1130,105 @@ test("invalid competitor/compliance/facings and foreign evidence leave no mercha
     await h.db`select count(*)::int n from merchandising_audits where visit_id=${s.id}`;
   expect(n).toBe(0);
 });
+
+test("F-208 signed check-in freezes the approved definition; checkout, visit detail, DSR and cockpit agree after a policy change", async () => {
+  const f = await fixture(),
+    db = h.db;
+  const [author] =
+    await db`insert into profiles(auth_subject,name,email,role,status,org_unit_id) values (${crypto.randomUUID()},'Definition author',${crypto.randomUUID() + "@test.invalid"},'admin','active',${f.unit}) returning id`;
+  const [approver] =
+    await db`insert into profiles(auth_subject,name,email,role,status,org_unit_id) values (${crypto.randomUUID()},'Definition approver',${crypto.randomUUID() + "@test.invalid"},'manager','active',${f.unit}) returning id`;
+  const { productiveHash } =
+    await import("../src/domains/visits/productive-policies.js");
+  const key = crypto.randomUUID(),
+    from = Date.parse(f.day + "T00:00:00+08:00"),
+    label = "F-208 collection objective",
+    sourceRef = "TEST agreement";
+  const definition = {
+    rule: "any_listed_activity",
+    requiresPlanned: true,
+    matchMode: "any",
+    allowedCodes: ["collection"],
+    definitionKey: key,
+    version: 1,
+    orgUnitId: f.unit,
+    positionId: null,
+    channelKey: null,
+    label,
+    sourceRef,
+    effectiveFrom: from,
+    effectiveTo: null,
+  };
+  const [policy] =
+    await db`insert into productive_call_policies(definition_key,version,org_unit_id,label,definition,content_hash,status,effective_from,source_ref,prepared_by,approved_by,approved_at) values (${key},1,${f.unit},${label},${definition},${productiveHash(definition)},'published',${new Date(from)},${sourceRef},${author.id},${approver.id},${new Date(f.now - 1)}) returning id`;
+  const s = await start(f),
+    [before] =
+      await db`select productive_policy_snapshot from visit_executions where id=${s.id}`;
+  expect(before.productive_policy_snapshot.policyId).toBe(policy.id);
+  expect(before.productive_policy_snapshot.allowedCodes).toEqual([
+    "collection",
+  ]);
+  // A later edit cannot retroactively turn today's merchandise-only call productive.
+  await db`update productive_call_policies set definition=definition||${{ allowedCodes: ["merchandising"] }}::jsonb where id=${policy.id}`;
+  const a = op(
+    "visit.activity",
+    {
+      visitId: s.id,
+      deviceTime: f.now + 1,
+      activity: { kind: "merchandising", displayCondition: "compliant" },
+    },
+    [s.operation.clientOpId],
+  );
+  const end = op(
+    "visit.checkOut",
+    {
+      visitId: s.id,
+      deviceTime: f.now + 2,
+      outcome: "completed",
+      location: f.fix,
+    },
+    [a.clientOpId],
+  );
+  const results = await push(f, [a, end]);
+  expect(results.map((/** @type {any} */ r) => r.status)).toEqual([
+    "applied",
+    "applied",
+  ]);
+  const [stored] =
+    await db`select productivity,productive_policy_snapshot from visit_executions where id=${s.id}`;
+  expect(stored.productivity).toBe("nonproductive");
+  expect(stored.productive_policy_snapshot).toEqual(
+    before.productive_policy_snapshot,
+  );
+  const detail = await web(f, `/api/v1/visits/detail?visitId=${s.id}`);
+  expect(detail.status).toBe(200);
+  expect(detail.body.productiveCall.productive).toBe(false);
+  const c = {
+    db,
+    now: Date.now(),
+    actor: {
+      profileId: f.d.profile.id,
+      userId: f.d.userId,
+      subject: f.d.userId,
+      role: f.d.profile.role,
+      orgUnitId: f.unit,
+    },
+  };
+  const { person } = await import("../src/domains/fieldreports/common.js");
+  const { execution } = await import("../src/domains/fieldreports/reads.js");
+  const dsr = await execution(c, await person(c, f.d.profile.id), f.day);
+  expect(dsr.summary.productiveCalls).toBe(0);
+  expect(dsr.summary.calls).toBe(1);
+  const { readVisits, visitSummary } =
+    await import("../src/domains/analytics/data.js");
+  const cockpit = visitSummary(
+    await readVisits(
+      db,
+      { from: f.day, to: f.day, channel: null },
+      { ids: [f.unit], ownProfileId: f.d.profile.id },
+    ),
+  );
+  expect(cockpit.productive).toBe(0);
+  expect(cockpit.productiveRate).toBe(0);
+  expect(cockpit.strikeRate).toBe(0);
+});

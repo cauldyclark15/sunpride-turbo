@@ -225,7 +225,7 @@ fun FieldApp(
             BackStep.CloseOrder -> controller.closeOrder()
             BackStep.CloseCallSheet -> controller.closeCallSheet()
             BackStep.CloseVisit -> controller.closeDiagnostic()
-            is BackStep.ToPage -> page = step.page
+            is BackStep.ToPage -> {if(page=="workforce")controller.closeWorkforce();page = step.page}
             BackStep.Exit -> Unit
         }
     }
@@ -250,18 +250,18 @@ fun FieldApp(
                             ?: if (controller.orderOpen && controller.orderReview) "Review" else if (controller.orderOpen) "Order"
                             else if (controller.callSheetOpen) "Call sheet" else "Visit", style = MaterialTheme.typography.titleMedium)
                     } else if (controller.state != EnrollmentState.SignedOut && !locked && (page == "account" || page == "change-password" || page == "sync" || page == "support" ||
-                        (ready && (page == "route" || page == "customers" || page == "customer" || page == "team" || page == "census")))) Row(verticalAlignment = Alignment.CenterVertically) {
+                        (ready && (page == "route" || page == "customers" || page == "customer" || page == "team" || page == "census" || page == "workforce")))) Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = goBack,
                             modifier = Modifier.height(48.dp).testTag(when (page) {
                                 "sync" -> "sync-back"; "support" -> "support-back"; "route" -> "route-back"
-                                "customers" -> "customers-back"; "customer" -> "customer-back"; "team" -> "team-back"
+                                "customers" -> "customers-back"; "customer" -> "customer-back"; "team" -> "team-back"; "workforce" -> "workforce-back"
                                 else -> "account-back"
                             })) {
                             Text("‹", style = MaterialTheme.typography.titleLarge)
                         }
                         Text(when (page) {
                             "change-password" -> "Change password"; "sync" -> "Sync"; "support" -> "Support info"; "route" -> "Route"
-                            "customers" -> "Customers"; "customer" -> "Outlet"; "team" -> "Team"; "census" -> "Census"; else -> "Account"
+                            "customers" -> "Customers"; "customer" -> "Outlet"; "team" -> "Team"; "census" -> "Census"; "workforce" -> "Attendance & prospects"; else -> "Account"
                         }, style = MaterialTheme.typography.titleMedium,
                             modifier = when (page) {
                                 "account" -> Modifier.testTag("account-title"); "route" -> Modifier.testTag("route-title")
@@ -327,6 +327,7 @@ fun FieldApp(
                 ready && page == "census" -> androidx.compose.runtime.key(backend?.authorizationEpoch) {
                     com.sunpride.field.census.CensusScreen(backend, location, { page = "home" }, modifier)
                 }
+                ready && page == "workforce" -> com.sunpride.field.ui.workforce.WorkforceScreen(controller,location,modifier)
                 ready && page == "sync" -> SyncDetails(status, onDismiss = { page = "home" },
                     onSync = controller::syncNow, busy = controller.busy, modifier = modifier)
                 controller.diagnostic != null && visits && ready && controller.photoCaptureOpen ->
@@ -365,7 +366,14 @@ fun FieldApp(
                     onCensus = if (visits) ({ page = "census" }) else null,
                     onCatalogue = { page = "catalogue" },
                     onTeam = if (FieldFeature.TEAM in features) ({ page = "team" }) else null,
-                    workDay = dayView?.let { view -> {
+                    workDay = {
+                        SectionCard("Field forms") {
+                            Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                                Text("Attendance and new prospects work offline.",style=MaterialTheme.typography.bodyMedium)
+                                SecondaryButton("Attendance & prospects",{controller.openWorkforce();page="workforce"},Modifier.testTag("workforce-open"))
+                            }
+                        }
+                        dayView?.let { view ->
                         com.sunpride.field.ui.location.WorkDayCard(view, dayBusy,
                             onStart = {
                                 when {

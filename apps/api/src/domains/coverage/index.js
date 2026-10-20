@@ -21,6 +21,13 @@ import {
 } from "./model.js";
 import { read } from "./reads.js";
 import { digest, workflow } from "./workflow.js";
+import { installPjp } from "./pjp.js";
+import { readAdherence } from "./adherence.js";
+import { installProductivePolicies } from "../visits/productive-policies.js";
+import { installWorkforce } from "./workforce.js";
+import { installDormancy } from "./dormancy.js";
+import { installTargetCascade } from "./target-cascade.js";
+import { installCollections } from "./collections.js";
 
 const reads = [
   "permissions",
@@ -195,6 +202,17 @@ export async function command(ctx, platform, path, body) {
 }
 /** @param {import('../../core/router.js').Router} router @param {any} platform */
 export function install(router, platform) {
+  installPjp(router, platform);
+  installProductivePolicies(router, platform);
+  installWorkforce(router, platform);
+  installDormancy(router, platform);
+  installTargetCascade(router, platform);
+  installCollections(router);
+  router.get("/api/v1/coverage/adherence", (c) =>
+    tx(c.db, (db) =>
+      readAdherence({ ...c, db }, Object.fromEntries(c.url.searchParams)),
+    ),
+  );
   platform.registerTopic(
     "coverage",
     /** @param {any} a */ (a) => roleHas(a.role, "mcp.read"),

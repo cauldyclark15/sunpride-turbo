@@ -17,6 +17,10 @@ import { extendTowerSamples } from "./tower.js";
 import { ensurePresellSamples, ensurePresellDemo } from "./presell.js";
 import { ensureRetailSamples } from "./retail.js";
 import { ensurePartnerSamples } from "./partners.js";
+import { seedCoverageSpec } from "./coverage-spec.js";
+import { seedProductiveSpec } from "./productive-spec.js";
+import { seedWorkforceSpec } from "./workforce-spec.js";
+import { seedDormancySpec } from "./dormancy-spec.js";
 import {
   BATCH,
   Dataset,
@@ -1026,6 +1030,10 @@ export async function advanceDemo(db, { date = todayManila() } = {}) {
     availability,
     through: date,
     advanced: days.filter((d) => !d.duplicate).length,
+    coverageSpec: await seedCoverageSpec(db, date),
+    productiveSpec: await seedProductiveSpec(db, date),
+    workforceSpec: await seedWorkforceSpec(db, date),
+    dormancySpec: await seedDormancySpec(db, date),
     days,
   };
 }

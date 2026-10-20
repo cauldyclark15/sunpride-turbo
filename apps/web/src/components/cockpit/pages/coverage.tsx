@@ -2,6 +2,10 @@
 
 import Link from "next/link";
 import { AvailabilityPanel, PolicyPanel } from "./tower";
+import dynamic from "next/dynamic";
+const PjpAdherencePanel = dynamic(() =>
+  import("../../pjp-adherence").then((m) => m.PjpAdherencePanel),
+);
 import { csvHref, useAnalytics } from "../api";
 import {
   formatCount,
@@ -120,8 +124,19 @@ export function coverageColumns(
       sort: (r) => r.missed,
     },
     {
+      key: "productive",
+      label: "Productive calls",
+      align: "right",
+      render: (r) => (
+        <span title="Governed by the definition snapshotted for each visit, not just an order">
+          {formatCount(r.productive)} · {formatPct(r.productiveRatePct ?? null)}
+        </span>
+      ),
+      sort: (r) => r.productiveRatePct ?? null,
+    },
+    {
       key: "strike",
-      label: "Strike rate",
+      label: "Order strike rate",
       align: "right",
       render: (r) => (
         <span className="flex flex-col items-end">
@@ -333,6 +348,11 @@ export function CoveragePage() {
       header={result.data}
       bar={<PeriodScopeBar scopeLabel={result.data?.scope.label} />}
     >
+      <PjpAdherencePanel
+        asOf={query.to}
+        unitId={query.unitId}
+        channel={query.channel}
+      />
       <PageData result={result} label="coverage figures">
         {(data) => (
           <CoverageView

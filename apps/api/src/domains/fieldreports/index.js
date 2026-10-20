@@ -31,6 +31,7 @@ import {
   startSession,
   updateSession,
 } from "./coaching.js";
+import { reviewAction, saveActions } from "./joint-calls.js";
 import {
   acknowledgeForm,
   createForm,
@@ -163,6 +164,23 @@ export function install(router, platform) {
       await session(c, a.sessionId, true, false);
     },
     updateSession,
+  );
+  // F-223: agreed actions and their review at the next joint call (trainer only, open session).
+  post(
+    "supervision.work_with.actions.save",
+    "supervision",
+    async (c, a) => {
+      await session(c, a.sessionId, true, false);
+    },
+    saveActions,
+  );
+  post(
+    "supervision.work_with.actions.review",
+    "supervision",
+    async (c, a) => {
+      await session(c, a.sessionId, true, false);
+    },
+    reviewAction,
   );
   post(
     "supervision.work_with.complete",

@@ -42,7 +42,19 @@ const PositionStandardsPanel = dynamic(() =>
     (m) => m.PositionStandardsPanel,
   ),
 );
+const PjpPlanner = dynamic(() =>
+  import("./pjp-planner").then((m) => m.PjpPlanner),
+);
+const ProductivePolicies = dynamic(() =>
+  import("./productive-policies").then((m) => m.ProductivePolicies),
+);
+const WorkforceWorkspace = dynamic(() =>
+  import("./workforce-workspace").then((m) => m.WorkforceWorkspace),
+);
 type CoverageTab =
+  | "workforce"
+  | "productive"
+  | "pjp"
   | "summary"
   | "plan"
   | "deadlines"
@@ -223,6 +235,9 @@ export function SalesForcePanels() {
     </div>
   );
   const needsPlan =
+    coverageTab !== "workforce" &&
+    coverageTab !== "productive" &&
+    coverageTab !== "pjp" &&
     coverageTab !== "summary" &&
     coverageTab !== "plan" &&
     coverageTab !== "deadlines" &&
@@ -230,12 +245,18 @@ export function SalesForcePanels() {
     coverageTab !== "standards" &&
     coverageTab !== "workload";
   const needsMonth =
+    coverageTab !== "workforce" &&
+    coverageTab !== "productive" &&
+    coverageTab !== "pjp" &&
     coverageTab !== "plan" &&
     coverageTab !== "setup" &&
     coverageTab !== "standards";
   const coverageTabs: [CoverageTab, string][] = [
     ["summary", "Summary"],
     ["plan", "Plan"],
+    ["pjp", "Journey plans"],
+    ["productive", "Productive call rules"],
+    ["workforce", "Workforce"],
     ["deadlines", "MCP deadlines"],
     ...(canApprove ? ([["review", "Review"]] as [CoverageTab, string][]) : []),
     ["exceptions", "Exceptions"],
@@ -292,7 +313,24 @@ export function SalesForcePanels() {
             </div>
           )}
           <div role="tabpanel">
-            {coverageTab === "summary" ? (
+            {coverageTab === "workforce" && (
+              <PanelErrorBoundary label="Workforce">
+                <WorkforceWorkspace />
+              </PanelErrorBoundary>
+            )}
+            {coverageTab === "productive" && (
+              <PanelErrorBoundary label="Productive call rules">
+                <ProductivePolicies />
+              </PanelErrorBoundary>
+            )}
+            {coverageTab === "pjp" && (
+              <PanelErrorBoundary label="Journey plans">
+                <PjpPlanner capabilities={permissions.capabilities} />
+              </PanelErrorBoundary>
+            )}
+            {coverageTab === "workforce" ||
+            coverageTab === "productive" ||
+            coverageTab === "pjp" ? null : coverageTab === "summary" ? (
               <PanelErrorBoundary
                 key={`summary-${month}`}
                 label="Coverage summary"

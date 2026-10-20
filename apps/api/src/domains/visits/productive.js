@@ -1,4 +1,4 @@
-/** Client clarification, 2 Oct 2026. Pure shared rule; completion is not productivity. */
+/** F-208 central policy evaluator. Legacy fallback retains the 2 Oct clarification; completion is not productivity. */
 export const RULE_VERSION = "productive-call/2026-10-02";
 // Documented beta default when an effective position standard has no rule. Unknown non-null rules
 // still fail closed; a completion or note alone never earns productive-call credit.
@@ -23,7 +23,24 @@ export const PRODUCTIVE_CODES = Object.freeze([
  * @returns {{productive:boolean, reason:string}}
  */
 export function isProductive(visitFacts, positionRule) {
+  // F-208: all writers/reports use the visit's immutable definition first.
+  const frozen =
+    visitFacts.productivePolicySnapshot ??
+    visitFacts.productive_policy_snapshot;
+  if (
+    frozen &&
+    (!["published", "provisional"].includes(frozen.source) ||
+      !Array.isArray(frozen.allowedCodes) ||
+      !frozen.allowedCodes.length ||
+      frozen.allowedCodes.some(
+        (/** @type {any} */ c) => !PRODUCTIVE_CODES.includes(c),
+      ) ||
+      !["any", "all"].includes(frozen.matchMode) ||
+      frozen.requiresPlanned !== true)
+  )
+    return { productive: false, reason: "policy_unknown" };
   const rule =
+    frozen?.rule ??
     positionRule.productiveCallRule ??
     positionRule.productive_call_rule ??
     positionRule.rule ??
@@ -33,6 +50,10 @@ export function isProductive(visitFacts, positionRule) {
     return { productive: false, reason: "not_closed" };
   if (!["any_listed_activity", "truck_seller"].includes(rule))
     return { productive: false, reason: "rule_unknown" };
+  if (visitFacts.outcome === "nonproductive")
+    return { productive: false, reason: "declared_nonproductive" };
+  // SEAM(CALLFLOW): additional governed forms supply these same business codes,
+  // never their own productive-call evaluator. Unsupported/unrecorded labels earn nothing.
   const codes = new Set(visitFacts.codes ?? []);
   for (const kind of visitFacts.activityKinds ?? []) {
     if (kind === "order_intent") codes.add("purchase_order");
@@ -45,13 +66,19 @@ export function isProductive(visitFacts, positionRule) {
   const marker =
     visitFacts.noSalesDueToInventory === true ||
     visitFacts.reasonCode?.trim().toLowerCase() === "no_sales_due_to_inventory";
+  const allowed = frozen?.allowedCodes ?? PRODUCTIVE_CODES;
   const matched = PRODUCTIVE_CODES.filter(
     (code) =>
+      allowed.includes(code) &&
       codes.has(code) &&
       (code !== "merchandising" || rule !== "truck_seller" || marker),
   );
+  const productive =
+    frozen?.matchMode === "all"
+      ? matched.length === allowed.length
+      : matched.length > 0;
   return {
-    productive: matched.length > 0,
-    reason: matched[0] ?? "no_qualifying_activity",
+    productive,
+    reason: productive ? matched[0] : "no_qualifying_activity",
   };
 }

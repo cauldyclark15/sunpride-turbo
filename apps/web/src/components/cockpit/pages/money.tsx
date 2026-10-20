@@ -1,6 +1,7 @@
 "use client";
 
 import { FiscalWorkspace } from "../../fiscal/fiscal-workspace";
+import { CollectionsPlanPanel } from "../../collections-plan-panel";
 import { csvHref, useAnalytics } from "../api";
 import { formatPct, formatPhp, formatSince } from "../format";
 import {
@@ -213,6 +214,9 @@ export function MoneyPage() {
         {(data) => <MoneyView data={data} csv={csvHref("money", query)} />}
       </PageData>
       <FiscalWorkspace moneyOnly />
+      <div className="mt-6">
+        <CollectionsPlanPanel />
+      </div>
     </CockpitPage>
   );
 }

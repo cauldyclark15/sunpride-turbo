@@ -814,8 +814,10 @@ export interface Endpoints {
           | "mcp_missing"
           | "mcp_unfinished"
           | "truck_missing"
-          | "truck_not_ridden";
+          | "truck_not_ridden"
+          | `carry_forward:${string}`;
         label:
+          | string
           | "Record at least one Basic Call Procedure (BCP) observation"
           | "Record at least one Persuasive Selling Format (PSF) observation"
           | "Write the training log"
@@ -830,7 +832,32 @@ export interface Endpoints {
           | "Confirm you rode the named truck";
       }[];
       canEdit: false | true;
+      /** F-223: actions agreed here, and earlier agreements this joint call reviews. */
+      jointCall: {
+        agreed: JointCallAction[];
+        carried: JointCallAction[];
+      };
     };
+  };
+  "supervision.work_with.actions.save": {
+    args: {
+      sessionId: string;
+      actions: {
+        agreement: string;
+        owner: "trainee" | "trainer";
+        dueOn: string;
+      }[];
+    };
+    result: null;
+  };
+  "supervision.work_with.actions.review": {
+    args: {
+      sessionId: string;
+      actionId: string;
+      outcome: "done" | "not_done";
+      note: string;
+    };
+    result: null;
   };
   "supervision.work_with.update": {
     args: {
@@ -1386,3 +1413,14 @@ export interface Endpoints {
     result: null | "dar" | "roar";
   };
 }
+
+/** F-223: one agreed joint-call action. */
+export type JointCallAction = {
+  id: string;
+  agreedOn: string;
+  agreement: string;
+  owner: "trainee" | "trainer";
+  dueOn: string;
+  status: "open" | "done" | "not_done";
+  reviewNote: string | null;
+};

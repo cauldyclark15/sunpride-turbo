@@ -233,6 +233,33 @@ describe("FIELDSYNC projections through real core proof/cursor harness", () => {
     });
   });
 
+  test("F-203 signed sync snapshot carries objectives, prior outcome and absent versus unmeasured MSL", async () => {
+    const db = h.db,
+      previous = manilaDate(midnight(date) - DAY_MS);
+    await db`update planned_visits set required_objectives=ARRAY['Review shelf gaps'] where id=${f.planned}`;
+    const [second] =
+      await db`insert into products(code,name,category,uom,unit_price,active,organization_id) values ('SKU2','Unmeasured sample','Canned','PC',0,true,'sunpride') returning id`;
+    const [set] =
+      await db`insert into outlet_assortments(organization_id,outlet_id,effective_from,source_ref,actor_subject) values ('sunpride',${f.outlet},'2026-01-01','Sample F-203','test') returning id`;
+    await db`insert into outlet_assortment_products(outlet_assortment_id,ordinal,product_id) values (${set.id},0,${f.product}),(${set.id},1,${second.id})`;
+    const [audit] =
+      await db`insert into merchandising_audits(organization_id,org_unit_id,visit_id,outlet_id,assignee_profile_id,service_date,client_audit_id,payload_hash,audit_version,assortment_id,required_count,required_available_count,required_out_of_stock_count,actor_subject,source,device_time,server_time) values ('sunpride',${f.unit},${f.visit},${f.outlet},${who.profile.id},${previous},${crypto.randomUUID()},'test','1',${set.id},2,0,1,'test','web',${new Date(now - DAY_MS)},${new Date(now - DAY_MS)}) returning id`;
+    await db`insert into merchandising_availability(organization_id,org_unit_id,audit_id,outlet_id,product_id,service_date,required,status) values ('sunpride',${f.unit},${audit.id},${f.outlet},${f.product},${previous},true,'out_of_stock')`;
+    await db`insert into visit_executions(organization_id,client_visit_id,assignee_profile_id,outlet_id,org_unit_id,service_date,source,state,outcome,productivity,last_server_time,ended_at) values ('sunpride',${crypto.randomUUID()},${who.profile.id},${f.outlet},${f.unit},${previous},'unplanned','checked-out','completed','nonproductive',${new Date(now - DAY_MS)},${new Date(now - DAY_MS)})`;
+    const { res, body } = await pull();
+    expect(res.status).toBe(200);
+    const agenda = body.bundles[0].data.plannedVisits[0].agenda;
+    expect(agenda.objectives).toEqual(["Review shelf gaps"]);
+    expect(agenda.lastVisit).toEqual({ date: previous, outcome: "completed" });
+    expect(agenda.msl.gaps.map((/** @type {any} */ r) => r.name)).toEqual([
+      "Sample product",
+    ]);
+    expect(agenda.msl.unmeasured.map((/** @type {any} */ r) => r.name)).toEqual(
+      ["Unmeasured sample"],
+    );
+    expect(agenda.msl.requiredCount).toBe(2);
+    expect(agenda.ar.amountMinor).toBeNull();
+  });
   test("closed v2 snapshot uses signed names and governed price, not product.unit_price", async () => {
     const { res, body } = await pull();
     expect(res.status).toBe(200);
@@ -250,6 +277,29 @@ describe("FIELDSYNC projections through real core proof/cursor harness", () => {
       planVersion: 1,
       intents: ["sell"],
       sequence: 1,
+      requiredObjectives: [],
+      agenda: {
+        asOfDate: date,
+        beat: null,
+        planVersion: 1,
+        objectives: [],
+        lastVisit: null,
+        ar: {
+          status: "unavailable",
+          amountMinor: null,
+          source: "SAP open items not connected",
+          asOfDate: null,
+        },
+        msl: {
+          status: "needs_setup",
+          source: "No applicable MSL supplied",
+          version: null,
+          asOfDate: null,
+          gaps: [],
+          unmeasured: [],
+          requiredCount: null,
+        },
+      },
     });
     expect(b.data.productCatalog[0].baseUom.code).toBe("PC");
     expect(b.data.orderTerms[0].lines[0].unitPriceMinor).toBe(1250);

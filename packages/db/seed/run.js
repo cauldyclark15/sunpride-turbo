@@ -9,6 +9,10 @@ import { seedFiscal } from "./fiscal.js";
 import { seedAvailability } from "./availability.js";
 import { seedModernTrade } from "./modern-trade.js";
 import { ensurePartnerSamples } from "./partners.js";
+import { seedCoverageSpec } from "./coverage-spec.js";
+import { seedProductiveSpec } from "./productive-spec.js";
+import { seedWorkforceSpec } from "./workforce-spec.js";
+import { seedDormancySpec } from "./dormancy-spec.js";
 
 const args = process.argv.slice(2);
 let reset = false;
@@ -41,6 +45,10 @@ if (
   const db = createDb(process.env.DATABASE_URL, { max: 1 });
   try {
     const result = reset ? await resetDemo(db) : await seedDemo(db, options);
+    const coverageSpec = reset ? null : await seedCoverageSpec(db);
+    const productiveSpec = reset ? null : await seedProductiveSpec(db);
+    const workforceSpec = reset ? null : await seedWorkforceSpec(db);
+    const dormancySpec = reset ? null : await seedDormancySpec(db);
     if (!reset)
       result.partnerSamples = await ensurePartnerSamples(db, {
         date: options.anchorDate,
@@ -57,7 +65,7 @@ if (
     const distributorSamples = distributors
       ? await seedDistributors(db, { anchorDate: options.anchorDate })
       : null;
-    console.log(JSON.stringify({ ...result, distributorSamples, modernTrade: mt }, null, 2));
+    console.log(JSON.stringify({ ...result, distributorSamples, modernTrade: mt, coverageSpec, productiveSpec, workforceSpec, dormancySpec }, null, 2));
   } catch (error) {
     // Do not dump a SQL exception: its query/parameters can contain password hashes.
     const message = error instanceof Error ? error.message : "Unknown error";

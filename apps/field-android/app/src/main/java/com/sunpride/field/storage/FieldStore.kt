@@ -47,6 +47,7 @@ interface FieldStore {
     /** Photos still to upload, oldest first. Independent of the visit outbox. */
     suspend fun pendingPhotos(): List<EvidencePhotoRow> = emptyList()
     suspend fun markPhotoUploaded(localId: String, evidenceId: String, at: Long) {}
+    suspend fun forgetUploadedFormPhoto(localId: String) {}
     /** Records one failed try; returns the new attempt count. */
     suspend fun countPhotoAttempt(localId: String): Int = 0
     suspend fun reviewPhoto(localId: String, code: String) {}
@@ -62,6 +63,11 @@ interface FieldStore {
     suspend fun isLeaseValid(now: Long): Boolean
     /** Immutable serialized v1 operation and UUID. A crash cannot persist just one of intent/outbox. */
     suspend fun enqueue(intent: IntentRow, now: Long)
+    /** F-209/F-222: same durable outbox, but a separately bounded non-call policy grant. */
+    suspend fun workforcePolicy(): WorkforcePolicy? = null
+    /** F-209/F-222: renew pre-feature or expired snapshots before a delta can reuse them. */
+    suspend fun workforceSnapshotCurrent(): Boolean = true
+    suspend fun enqueueWorkforce(intent: IntentRow, photo: EvidencePhotoRow?, now: Long, isCurrent: () -> Boolean = { true }) { error("No workforce store") }
     suspend fun pending(): List<Pair<IntentRow, OutboxRow>>
     suspend fun recordAck(requestId: String, entityId: String, eventIdsJson: String, serverTime: Long)
     suspend fun recordRejection(requestId: String, code: String)
@@ -372,6 +378,13 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
     }
     override suspend fun visitPhotos(clientVisitId: String): List<EvidencePhotoRow> = dao.visitPhotos(a, d, s, clientVisitId)
     override suspend fun pendingPhotos(): List<EvidencePhotoRow> = dao.pendingPhotos(a, d, s)
+    override suspend fun forgetUploadedFormPhoto(localId: String) {
+        db.withTransaction {
+            val photo=dao.photo(a,d,s,localId)?:return@withTransaction
+            check(photo.photoType in WorkforceForms.PHOTO_TYPES && photo.state=="uploaded" && dao.outbox(a,d,s,photo.checkInRequestId)?.state=="done" && dao.ack(a,d,s,photo.checkInRequestId)!=null)
+            dao.deleteUploadedFormPhoto(a,d,s,localId)
+        }
+    }
     override suspend fun markPhotoUploaded(localId: String, evidenceId: String, at: Long) {
         require(evidenceId.isNotBlank())
         db.withTransaction {
@@ -401,6 +414,37 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
         !it.held && it.leaseExpiresAt != null && now < it.leaseExpiresAt && it.activeGeneration != null
     }
 
+    override suspend fun workforceSnapshotCurrent(): Boolean {
+        val m=metadata()
+        return !m.held && m.activeGeneration!=null && m.cacheExpiresAt?.let { System.currentTimeMillis()<it }==true &&
+            m.employeeJson?.let { JSONObject(it).optBoolean("workforceNegotiated",false) }==true
+    }
+    override suspend fun workforcePolicy(): WorkforcePolicy? {
+        val meta=metadata()
+        if(meta.held || meta.activeGeneration==null || meta.cacheExpiresAt==null || System.currentTimeMillis()>=meta.cacheExpiresAt)return null
+        return meta.employeeJson?.let { JSONObject(it).optJSONObject("workforce") }?.let(WorkforcePolicy::decode)
+    }
+    override suspend fun enqueueWorkforce(intent: IntentRow, photo: EvidencePhotoRow?, now: Long, isCurrent: () -> Boolean) {
+        require(intent.account==a && intent.deviceId==d && intent.scope==s && WorkforceForms.isForm(intent.kind))
+        db.withTransaction {
+            check(isCurrent()) { "Sign in again before saving." }
+            val policy=workforcePolicy()?:error("Refresh today's field forms.")
+            check(policy.valid(now)) { "Field form window expired." }
+            val payload=WorkforceForms.payload(intent)
+            require(payload.getString("policyId")==policy.id && payload.getInt("policyVersion")==policy.version && payload.getString("policyHash")==policy.hash)
+            val rows=history().map { it.first to it.second.state }
+            val view=WorkforceForms.view(policy,rows,now)
+            require(if(intent.kind=="workforce.prospect")policy.canProspect else if(intent.kind=="workforce.clockIn")view.canClockIn(now) else view.canClockOut(now)) { "Attendance state changed; refresh before saving." }
+            if(intent.kind=="workforce.clockOut")require(payload.getString("clockInRequestId")==view.clockInRequestId)
+            else require(photo!=null && photo.localId==intent.requestId && photo.account==a && photo.deviceId==d && photo.scope==s && photo.photoType==WorkforceForms.photoType(intent.kind) && photo.sha256==payload.getJSONObject("photo").getString("checksum"))
+            check(pending().count { WorkforceForms.isForm(it.first.kind) }<100) { "Sync the saved forms before adding more." }
+            val ordered=maxOf(intent.createdAt,(dao.latestCreatedAt(a,d,s)?:Long.MIN_VALUE)+1)
+            dao.insertIntent(intent.copy(createdAt=ordered))
+            if(photo!=null)dao.insertPhoto(photo)
+            dao.insertOutbox(OutboxRow(a,d,s,intent.requestId,ordered))
+            check(isCurrent()) { "Authorization changed while saving." }
+        }
+    }
     override suspend fun enqueue(intent: IntentRow, now: Long) = enqueueWithCheckpoint(intent, now) {}
 
     /** Test seam: throwing after the intent insertion proves Room rolls back both rows. */

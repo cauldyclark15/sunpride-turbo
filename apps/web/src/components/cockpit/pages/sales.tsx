@@ -28,6 +28,7 @@ import {
 } from "./shared";
 import { TargetsEditor } from "./targets-editor";
 import { TradePanel, DemandPanel } from "./tower";
+import { TargetCascadePanel } from "../../target-cascade-panel";
 
 const GROUPS: SalesGroupBy[] = [
   "channel",
@@ -393,7 +394,10 @@ export function SalesPage() {
       }
     >
       {tab === "targets" ? (
-        <TargetsEditor canEdit={access.canSetTarget} />
+        <div className="grid gap-6">
+          <TargetsEditor canEdit={access.canSetTarget} />
+          <TargetCascadePanel />
+        </div>
       ) : (
         <PageData result={result} label="sales figures">
           {(data) => (

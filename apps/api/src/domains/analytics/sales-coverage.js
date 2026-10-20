@@ -575,6 +575,8 @@ export async function coveragePage(db, p, s, group) {
       missed: a.missed,
       offPlan: a.offPlan,
       productive: a.productive,
+      productiveRatePct: a.productiveRate,
+      orderCalls: a.orderCalls,
       strikeRatePct: a.strikeRate,
       productiveCallPct: a.productivePct,
       distributionGained: stockingGain(
@@ -647,8 +649,17 @@ export async function coveragePage(db, p, s, group) {
         "Executions without an active signed planned stop; these do not earn a planned call.",
       ),
       kpi(
+        "productiveRate",
+        "Productive calls",
+        all.productiveRate,
+        "pct",
+        null,
+        before.productiveRate,
+        "Each visit uses its frozen definition when available; older visits use provisional historical standards. This is separate from calls with a linked order.",
+      ),
+      kpi(
         "strikeRate",
-        "Strike rate",
+        "Order strike rate",
         all.strikeRate,
         "pct",
         null,

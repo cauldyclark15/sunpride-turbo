@@ -1,5 +1,6 @@
 import { tx } from "@sunpride/db/client";
 import { retailManifest } from "../retail/index.js";
+import { workforceContext } from "../coverage/workforce-policies.js";
 import { canonicalJson, sha256Hex } from "../../core/util.js";
 import { recordChange } from "../../core/sync.js";
 import { bounded, DAY_MS, midnight, rebootstrap } from "./model.js";
@@ -105,6 +106,10 @@ export async function checkDayManifest(ctx) {
       await db`select id,version,payload from availability_releases where status='published' and kind in ('msl','focus','rules') and effective_from<=${at} and (effective_to is null or effective_to>${at}) order by id`;
     const retailOutlets =
       await db`select id,channel,subchannel,classification from outlets where id in (select outlet_id from planned_visits where assignee_profile_id=${ctx.actor.profileId} and service_date>=${date}::date and service_date<${date}::date+3 and status='planned' and deleted_at is null) order by id`;
+    const workforce =
+      ctx.params.includeWorkforce === true
+        ? await workforceContext(db, ctx.actor.profileId, ctx.now)
+        : null;
     const stamp = sha256Hex(
       canonicalJson({
         callflow,
@@ -123,6 +128,7 @@ export async function checkDayManifest(ctx) {
         assortments,
         prices,
         day: date,
+        ...(ctx.params.includeWorkforce === true ? { workforce } : {}),
       }),
     );
     const [prior] =
