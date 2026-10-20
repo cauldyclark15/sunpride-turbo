@@ -23,6 +23,7 @@ import { install as mt } from "./mt/index.js";
 import { install as presell } from "./presell/index.js";
 import { install as retail } from "./retail/index.js";
 import { install as partners } from "./partners/index.js";
+import { install as storepos } from "./storepos/index.js";
 /** @type {Array<(router: any, ctx: any) => void>} */
 export const domainInstallers = [
   org,
@@ -49,4 +50,5 @@ export const domainInstallers = [
   presell,
   retail,
   partners,
+  storepos,
 ];

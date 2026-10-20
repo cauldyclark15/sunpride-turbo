@@ -18,6 +18,7 @@ import type { FunctionArgs } from "./master-data/api";
 import { useState, type FormEvent } from "react";
 import { AdminSelectField } from "./org-admin";
 import { SetupSearch } from "./master-data/setup-health";
+import { StorePosAdmin } from "./storepos/storepos-admin";
 
 export type DeviceAction = "suspend" | "revoke" | "reinstate";
 type DeviceStatus = "active" | "suspended" | "revoked";
@@ -350,6 +351,7 @@ export function DevicesAdmin() {
                   received operations before supervised recovery or recapture.
                 </p>
               ) : null}
+              <StorePosAdmin key={device.deviceId} deviceId={device.deviceId} />
               <h4 className="text-[11px] font-medium uppercase tracking-wide text-muted">
                 Received from this phone
               </h4>

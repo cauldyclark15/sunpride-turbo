@@ -27,6 +27,10 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     private val publicKeyLoader: suspend () -> String? = { null },
     private val fingerprintLoader: suspend () -> String = { "Unavailable" }) {
     init { require(damagePhotoSource == null || fixtureMode && com.sunpride.van.BuildConfig.DEBUG); require(callLocationSource == null || com.sunpride.van.BuildConfig.DEBUG) }
+    var storePos by mutableStateOf(com.sunpride.van.storepos.StorePosState(null,null,0,0)); private set
+    val storeMode: Boolean get() = storePos.config?.mode == "store"
+    fun openStoreShift(amount: Long) = command("Opening float saved on this phone") { repository.openStoreShift(amount) }
+    fun closeStoreShift(amount: Long) = command("Blind count saved. The office will review any difference.") { repository.closeStoreShift(amount); page=Page.HOME }
     var page by mutableStateOf(Page.HOME)
         private set
     var session by mutableStateOf(SessionState())
@@ -156,6 +160,11 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         launch { repository.promotions.collect { promotions = it } }
         launch { repository.truckStock.collect { stock = it } }
         launch { repository.policy.collect { policy = it } }
+        launch { repository.storePos.collect { value ->
+            val changed=storePos.config?.mode != value.config?.mode
+            storePos=value
+            if(changed) { page=Page.HOME; sale=null; selectedCustomer=null; callFlow=null; currentCall=null }
+        } }
         launch { repository.damageRecords.collect { damageRecords = it } }
         launch { repository.seller.collect { seller = it } }
         launch { repository.syncStatus.collect(::acceptSyncStatus) }

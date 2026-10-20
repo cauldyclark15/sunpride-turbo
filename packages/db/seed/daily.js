@@ -16,6 +16,7 @@ import { seedModernTrade } from "./modern-trade.js";
 import { extendTowerSamples } from "./tower.js";
 import { ensurePresellSamples, ensurePresellDemo } from "./presell.js";
 import { ensureRetailSamples } from "./retail.js";
+import { ensureStorePosSamples } from "./storepos.js";
 import { ensurePartnerSamples } from "./partners.js";
 import { seedCoverageSpec } from "./coverage-spec.js";
 import { seedProductiveSpec } from "./productive-spec.js";
@@ -1022,6 +1023,7 @@ export async function advanceDemo(db, { date = todayManila() } = {}) {
   )
     days.push(await advanceDay(db, day, original.startDate));
 
+  await ensureStorePosSamples(db); // F-R01: additive sample stores, no device mutation.
   await ensureRetailSamples(db); // F-310–F-320: include this run's new visits before claiming replay is a no-op.
   // Provision new identities and policy fixtures only through the explicit CLI seed.
   // An automatic daily advance must preserve every credential and registration.

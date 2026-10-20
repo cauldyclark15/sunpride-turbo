@@ -7,46 +7,311 @@
  * bigint/numeric come back as string from Bun.sql.
  */
 
-export const INVENTORY_LOCATION_TYPE = /** @type {const} */ (["warehouse", "zone", "bin", "production", "wip", "truck", "in_transit", "returns", "virtual_boundary"]);
-export const PRODUCT_INVENTORY_POLICY_TRACKING_MODE = /** @type {const} */ (["none", "lot", "serial"]);
-export const PRODUCT_INVENTORY_POLICY_ALLOCATION_POLICY = /** @type {const} */ (["fefo", "fifo", "explicit_only"]);
-export const PRODUCT_INVENTORY_POLICY_COSTING_METHOD = /** @type {const} */ (["weighted_average", "fifo_layer"]);
-export const REPLENISHMENT_POLICY_LAST_ALERT_STATE = /** @type {const} */ (["ok", "low"]);
-export const INVENTORY_MOVEMENT_MOVEMENT_TYPE = /** @type {const} */ (["opening_balance", "goods_receipt", "inventory_issue", "reservation", "reservation_release", "transfer_ship", "transfer_receive", "inventory_adjustment", "status_change", "pos_sale", "pos_void", "pos_return", "production_issue", "production_output", "production_scrap", "reversal", "van_load", "van_unload"]);
-export const INVENTORY_MOVEMENT_STATUS = /** @type {const} */ (["posted", "reversed"]);
-export const INVENTORY_LOT_QUALITY_STATUS = /** @type {const} */ (["pending", "released", "quarantined", "rejected", "expired"]);
-export const INVENTORY_LOT_BALANCE_STOCK_STATUS = /** @type {const} */ (["available", "quality_hold", "quarantine", "damaged", "expired", "rejected", "wip", "in_transit"]);
-export const INVENTORY_COMMAND_STATUS = /** @type {const} */ (["posted", "rejected", "review_required"]);
-export const INVENTORY_MOVEMENT_LINE_FROM_STOCK_STATUS = /** @type {const} */ (["available", "quality_hold", "quarantine", "damaged", "expired", "rejected", "wip", "in_transit"]);
-export const INVENTORY_MOVEMENT_LINE_TO_STOCK_STATUS = /** @type {const} */ (["available", "quality_hold", "quarantine", "damaged", "expired", "rejected", "wip", "in_transit"]);
-export const INVENTORY_ALLOCATION_FROM_STOCK_STATUS = /** @type {const} */ (["available", "quality_hold", "quarantine", "damaged", "expired", "rejected", "wip", "in_transit"]);
-export const INVENTORY_ALLOCATION_TO_STOCK_STATUS = /** @type {const} */ (["available", "quality_hold", "quarantine", "damaged", "expired", "rejected", "wip", "in_transit"]);
-export const INVENTORY_ALLOCATION_ALLOCATION_POLICY = /** @type {const} */ (["fefo", "fifo", "explicit_only"]);
-export const INVENTORY_LEDGER_ENTRY_STOCK_STATUS = /** @type {const} */ (["available", "quality_hold", "quarantine", "damaged", "expired", "rejected", "wip", "in_transit"]);
-export const INVENTORY_RESERVATION_STATUS = /** @type {const} */ (["active", "partially_consumed", "consumed", "released", "expired", "cancelled"]);
-export const GOODS_RECEIPT_RECEIPT_TYPE = /** @type {const} */ (["purchase_order", "transfer", "return", "production", "unplanned"]);
-export const GOODS_RECEIPT_STATUS = /** @type {const} */ (["draft", "in_inspection", "partially_posted", "posted", "cancelled", "review_required"]);
-export const GOODS_RECEIPT_LINE_DESTINATION_STATUS = /** @type {const} */ (["available", "quality_hold", "quarantine", "damaged", "expired", "rejected", "wip", "in_transit"]);
-export const TRUCK_ROUTE_SESSION_STATUS = /** @type {const} */ (["planned", "loading", "open", "closing", "reconciling", "closed", "review_required"]);
-export const STOCK_TRANSFER_STATUS = /** @type {const} */ (["draft", "requested", "approved", "reserved", "picking", "shipped", "partially_received", "received", "cancelled", "review_required"]);
-export const STOCK_COUNT_SESSION_COUNT_TYPE = /** @type {const} */ (["cycle", "full", "spot", "route_close"]);
-export const STOCK_COUNT_SESSION_STATUS = /** @type {const} */ (["draft", "frozen", "counting", "submitted", "reviewed", "approved", "posted", "cancelled"]);
-export const STOCK_COUNT_LINE_STOCK_STATUS = /** @type {const} */ (["available", "quality_hold", "quarantine", "damaged", "expired", "rejected", "wip", "in_transit"]);
-export const STOCK_COUNT_LINE_FINDING = /** @type {const} */ (["over", "missing", "damaged", "expired", "wrong_lot", "wrong_location"]);
-export const INVENTORY_ADJUSTMENT_STATUS = /** @type {const} */ (["draft", "submitted", "approved", "posted", "rejected", "reversed"]);
-export const INVENTORY_ADJUSTMENT_LINE_STOCK_STATUS = /** @type {const} */ (["available", "quality_hold", "quarantine", "damaged", "expired", "rejected", "wip", "in_transit"]);
-export const BILL_OF_MATERIAL_VERSION_STATUS = /** @type {const} */ (["draft", "approved", "active", "obsolete"]);
-export const BILL_OF_MATERIAL_COMPONENT_ISSUE_POLICY = /** @type {const} */ (["backflush", "manual_issue", "staged"]);
-export const PRODUCTION_ORDER_STATUS = /** @type {const} */ (["draft", "released", "material_staged", "in_progress", "partially_completed", "completed", "cancelled", "closed", "review_required"]);
-export const PRODUCTION_MATERIAL_ISSUE_ISSUE_TYPE = /** @type {const} */ (["issue", "return"]);
-export const PRODUCTION_OUTPUT_RECEIPT_QUALITY_STATUS = /** @type {const} */ (["available", "quality_hold", "quarantine", "damaged", "expired", "rejected", "wip", "in_transit"]);
-export const NEGATIVE_STOCK_ALLOWANCE_OPERATION = /** @type {const} */ (["distributor"]);
-export const NEGATIVE_STOCK_ALLOWANCE_MOVEMENT_TYPE = /** @type {const} */ (["pos_sale", "inventory_issue", "transfer_ship"]);
-export const NEGATIVE_STOCK_FLAG_MOVEMENT_TYPE = /** @type {const} */ (["pos_sale", "inventory_issue", "transfer_ship"]);
-export const NEGATIVE_STOCK_FLAG_STATUS = /** @type {const} */ (["open", "resolved"]);
-export const INVENTORY_RECONCILIATION_RUN_STATUS = /** @type {const} */ (["pending", "running", "completed", "failed"]);
-export const INVENTORY_RECONCILIATION_DIFFERENCE_CLASSIFICATION = /** @type {const} */ (["mapping", "timing", "missing_inbound", "missing_outbound", "duplicate", "unauthorized_adjustment", "unresolved"]);
-export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {const} */ (["open", "resolved", "accepted"]);
+export const INVENTORY_LOCATION_TYPE = /** @type {const} */ ([
+  "warehouse",
+  "zone",
+  "bin",
+  "production",
+  "wip",
+  "truck",
+  "in_transit",
+  "returns",
+  "virtual_boundary",
+  "store",
+]);
+export const PRODUCT_INVENTORY_POLICY_TRACKING_MODE = /** @type {const} */ ([
+  "none",
+  "lot",
+  "serial",
+]);
+export const PRODUCT_INVENTORY_POLICY_ALLOCATION_POLICY =
+  /** @type {const} */ (["fefo", "fifo", "explicit_only"]);
+export const PRODUCT_INVENTORY_POLICY_COSTING_METHOD = /** @type {const} */ ([
+  "weighted_average",
+  "fifo_layer",
+]);
+export const REPLENISHMENT_POLICY_LAST_ALERT_STATE = /** @type {const} */ ([
+  "ok",
+  "low",
+]);
+export const INVENTORY_MOVEMENT_MOVEMENT_TYPE = /** @type {const} */ ([
+  "opening_balance",
+  "goods_receipt",
+  "inventory_issue",
+  "reservation",
+  "reservation_release",
+  "transfer_ship",
+  "transfer_receive",
+  "inventory_adjustment",
+  "status_change",
+  "pos_sale",
+  "pos_void",
+  "pos_return",
+  "production_issue",
+  "production_output",
+  "production_scrap",
+  "reversal",
+  "van_load",
+  "van_unload",
+]);
+export const INVENTORY_MOVEMENT_STATUS = /** @type {const} */ ([
+  "posted",
+  "reversed",
+]);
+export const INVENTORY_LOT_QUALITY_STATUS = /** @type {const} */ ([
+  "pending",
+  "released",
+  "quarantined",
+  "rejected",
+  "expired",
+]);
+export const INVENTORY_LOT_BALANCE_STOCK_STATUS = /** @type {const} */ ([
+  "available",
+  "quality_hold",
+  "quarantine",
+  "damaged",
+  "expired",
+  "rejected",
+  "wip",
+  "in_transit",
+]);
+export const INVENTORY_COMMAND_STATUS = /** @type {const} */ ([
+  "posted",
+  "rejected",
+  "review_required",
+]);
+export const INVENTORY_MOVEMENT_LINE_FROM_STOCK_STATUS = /** @type {const} */ ([
+  "available",
+  "quality_hold",
+  "quarantine",
+  "damaged",
+  "expired",
+  "rejected",
+  "wip",
+  "in_transit",
+]);
+export const INVENTORY_MOVEMENT_LINE_TO_STOCK_STATUS = /** @type {const} */ ([
+  "available",
+  "quality_hold",
+  "quarantine",
+  "damaged",
+  "expired",
+  "rejected",
+  "wip",
+  "in_transit",
+]);
+export const INVENTORY_ALLOCATION_FROM_STOCK_STATUS = /** @type {const} */ ([
+  "available",
+  "quality_hold",
+  "quarantine",
+  "damaged",
+  "expired",
+  "rejected",
+  "wip",
+  "in_transit",
+]);
+export const INVENTORY_ALLOCATION_TO_STOCK_STATUS = /** @type {const} */ ([
+  "available",
+  "quality_hold",
+  "quarantine",
+  "damaged",
+  "expired",
+  "rejected",
+  "wip",
+  "in_transit",
+]);
+export const INVENTORY_ALLOCATION_ALLOCATION_POLICY = /** @type {const} */ ([
+  "fefo",
+  "fifo",
+  "explicit_only",
+]);
+export const INVENTORY_LEDGER_ENTRY_STOCK_STATUS = /** @type {const} */ ([
+  "available",
+  "quality_hold",
+  "quarantine",
+  "damaged",
+  "expired",
+  "rejected",
+  "wip",
+  "in_transit",
+]);
+export const INVENTORY_RESERVATION_STATUS = /** @type {const} */ ([
+  "active",
+  "partially_consumed",
+  "consumed",
+  "released",
+  "expired",
+  "cancelled",
+]);
+export const GOODS_RECEIPT_RECEIPT_TYPE = /** @type {const} */ ([
+  "purchase_order",
+  "transfer",
+  "return",
+  "production",
+  "unplanned",
+]);
+export const GOODS_RECEIPT_STATUS = /** @type {const} */ ([
+  "draft",
+  "in_inspection",
+  "partially_posted",
+  "posted",
+  "cancelled",
+  "review_required",
+]);
+export const GOODS_RECEIPT_LINE_DESTINATION_STATUS = /** @type {const} */ ([
+  "available",
+  "quality_hold",
+  "quarantine",
+  "damaged",
+  "expired",
+  "rejected",
+  "wip",
+  "in_transit",
+]);
+export const TRUCK_ROUTE_SESSION_STATUS = /** @type {const} */ ([
+  "planned",
+  "loading",
+  "open",
+  "closing",
+  "reconciling",
+  "closed",
+  "review_required",
+]);
+export const STOCK_TRANSFER_STATUS = /** @type {const} */ ([
+  "draft",
+  "requested",
+  "approved",
+  "reserved",
+  "picking",
+  "shipped",
+  "partially_received",
+  "received",
+  "cancelled",
+  "review_required",
+]);
+export const STOCK_COUNT_SESSION_COUNT_TYPE = /** @type {const} */ ([
+  "cycle",
+  "full",
+  "spot",
+  "route_close",
+]);
+export const STOCK_COUNT_SESSION_STATUS = /** @type {const} */ ([
+  "draft",
+  "frozen",
+  "counting",
+  "submitted",
+  "reviewed",
+  "approved",
+  "posted",
+  "cancelled",
+]);
+export const STOCK_COUNT_LINE_STOCK_STATUS = /** @type {const} */ ([
+  "available",
+  "quality_hold",
+  "quarantine",
+  "damaged",
+  "expired",
+  "rejected",
+  "wip",
+  "in_transit",
+]);
+export const STOCK_COUNT_LINE_FINDING = /** @type {const} */ ([
+  "over",
+  "missing",
+  "damaged",
+  "expired",
+  "wrong_lot",
+  "wrong_location",
+]);
+export const INVENTORY_ADJUSTMENT_STATUS = /** @type {const} */ ([
+  "draft",
+  "submitted",
+  "approved",
+  "posted",
+  "rejected",
+  "reversed",
+]);
+export const INVENTORY_ADJUSTMENT_LINE_STOCK_STATUS = /** @type {const} */ ([
+  "available",
+  "quality_hold",
+  "quarantine",
+  "damaged",
+  "expired",
+  "rejected",
+  "wip",
+  "in_transit",
+]);
+export const BILL_OF_MATERIAL_VERSION_STATUS = /** @type {const} */ ([
+  "draft",
+  "approved",
+  "active",
+  "obsolete",
+]);
+export const BILL_OF_MATERIAL_COMPONENT_ISSUE_POLICY = /** @type {const} */ ([
+  "backflush",
+  "manual_issue",
+  "staged",
+]);
+export const PRODUCTION_ORDER_STATUS = /** @type {const} */ ([
+  "draft",
+  "released",
+  "material_staged",
+  "in_progress",
+  "partially_completed",
+  "completed",
+  "cancelled",
+  "closed",
+  "review_required",
+]);
+export const PRODUCTION_MATERIAL_ISSUE_ISSUE_TYPE = /** @type {const} */ ([
+  "issue",
+  "return",
+]);
+export const PRODUCTION_OUTPUT_RECEIPT_QUALITY_STATUS = /** @type {const} */ ([
+  "available",
+  "quality_hold",
+  "quarantine",
+  "damaged",
+  "expired",
+  "rejected",
+  "wip",
+  "in_transit",
+]);
+export const NEGATIVE_STOCK_ALLOWANCE_OPERATION = /** @type {const} */ ([
+  "distributor",
+]);
+export const NEGATIVE_STOCK_ALLOWANCE_MOVEMENT_TYPE = /** @type {const} */ ([
+  "pos_sale",
+  "inventory_issue",
+  "transfer_ship",
+]);
+export const NEGATIVE_STOCK_FLAG_MOVEMENT_TYPE = /** @type {const} */ ([
+  "pos_sale",
+  "inventory_issue",
+  "transfer_ship",
+]);
+export const NEGATIVE_STOCK_FLAG_STATUS = /** @type {const} */ ([
+  "open",
+  "resolved",
+]);
+export const INVENTORY_RECONCILIATION_RUN_STATUS = /** @type {const} */ ([
+  "pending",
+  "running",
+  "completed",
+  "failed",
+]);
+export const INVENTORY_RECONCILIATION_DIFFERENCE_CLASSIFICATION =
+  /** @type {const} */ ([
+    "mapping",
+    "timing",
+    "missing_inbound",
+    "missing_outbound",
+    "duplicate",
+    "unauthorized_adjustment",
+    "unresolved",
+  ]);
+export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS =
+  /** @type {const} */ (["open", "resolved", "accepted"]);
 
 /**
  * `inventory_locations` (Convex `inventoryLocations`)
@@ -59,7 +324,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  * @property {string | null} parentLocationId
  * @property {string} code
  * @property {string} name
- * @property {"warehouse" | "zone" | "bin" | "production" | "wip" | "truck" | "in_transit" | "returns" | "virtual_boundary"} type
+ * @property {"warehouse" | "zone" | "bin" | "production" | "wip" | "truck" | "in_transit" | "returns" | "virtual_boundary" | "store"} type
  * @property {boolean} active
  * @property {boolean} allowsPicking
  * @property {boolean} allowsReceiving

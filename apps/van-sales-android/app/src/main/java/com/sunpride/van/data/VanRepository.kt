@@ -45,6 +45,9 @@ class VanRepository private constructor(private val context: Context, private va
     private val enrollment = MutableStateFlow<EnrollmentState>(EnrollmentState.SignedOut)
     val sessionState: StateFlow<SessionState> = session.asStateFlow()
     val enrollmentState: StateFlow<EnrollmentState> = enrollment.asStateFlow()
+    val storePos: Flow<com.sunpride.van.storepos.StorePosState> = visible.flatMapLatest { it?.let { st -> com.sunpride.van.storepos.StorePosStore(st).state } ?: flowOf(com.sunpride.van.storepos.StorePosState(null,null,0,0)) }
+    suspend fun openStoreShift(floatCentavos: Long) = withContext(Dispatchers.IO) { com.sunpride.van.storepos.StorePosStore(store()).open(floatCentavos).also { schedule() } }
+    suspend fun closeStoreShift(countCentavos: Long) = withContext(Dispatchers.IO) { com.sunpride.van.storepos.StorePosStore(store()).close(countCentavos).also { schedule() } }
     val currentTrip: Flow<Trip?> = visible.flatMapLatest { it?.trip ?: flowOf(null) }
     val load: Flow<Load?> = visible.flatMapLatest { it?.load ?: flowOf(null) }
     val loadLines: Flow<List<LoadLine>> = load.map { it?.lines ?: emptyList() }

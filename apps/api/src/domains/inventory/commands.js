@@ -161,6 +161,7 @@ commands["locations/save"] = {
       "in_transit",
       "returns",
       "virtual_boundary",
+      "store",
     ]);
     if (b.parentLocationId) {
       const parent = await locationGate(

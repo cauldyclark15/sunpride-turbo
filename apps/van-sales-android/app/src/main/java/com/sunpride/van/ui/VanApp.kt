@@ -52,7 +52,10 @@ import kotlinx.coroutines.delay
                 PrinterScreen(controller)
             !controller.session.signedIn -> SignInScreen(controller)
             controller.enrollment !is EnrollmentState.Ready -> EnrollmentScreen(controller)
+            controller.storeMode && controller.page !in setOf(Page.ACCOUNT,Page.CHANGE_PASSWORD,Page.PRINTER,Page.SYNC,Page.STORE_SHIFT,Page.POS_MODE) -> StoreHomeScreen(controller)
             else -> when (controller.page) {
+                Page.STORE_SHIFT -> StoreShiftScreen(controller)
+                Page.POS_MODE -> PosModeScreen(controller)
                 Page.ACCOUNT -> AccountScreen(controller)
                 Page.CHANGE_PASSWORD -> ChangePasswordScreen(controller)
                 Page.HOME -> HomeScreen(controller)
