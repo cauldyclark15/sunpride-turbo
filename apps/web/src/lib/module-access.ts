@@ -182,6 +182,7 @@ export const MODULE_ROLES = {
   imports: importActors, // masterdata.manage, inventory.adjustment.request, inventory.count.submit
   "outside-calls": outsideCallActors, // order.encode + visit.record
   "van-trips": allReaders, // van.read
+  "retail-execution": allReaders, // visit.read; each mutation checks its own capability
   "live-map": locationReaders, // location.read; the server limits sales to themselves
   // Setup.
   admin: administrators, // admin.manage

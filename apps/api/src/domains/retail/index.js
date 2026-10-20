@@ -236,7 +236,7 @@ export function install(router, installCtx) {
 /** @param {any} c */
 async function workspace(c) {
   await requireCapability(c, "visit.read");
-  const outletFilter = c.url.searchParams.get("outletId");
+  const outletFilter = c.url.searchParams.get("outletId") || null;
   if (outletFilter) await accessOutlet(c, uuid(outletFilter), "visit.read");
   /** @type {string[]} */ const incompleteSections = [];
   const page = (/** @type {any[]} */ rows, /** @type {string} */ name) => {

@@ -16,6 +16,7 @@ sqlite = "2.7.0"
 serialization = "1.7.3"
 work = "2.10.5"
 camerax = "1.5.3"
+zxing = "3.5.3" # same offline decoder already used by the van app
 biometric = "1.1.0"
 # SP-0140: biometric 1.1.0 pulls fragment 1.2.5, whose FragmentActivity rejects the >16-bit request codes
 # that androidx.activity 1.11 permission launchers use (crash on the location prompt). 1.3+ dropped that check.
@@ -49,6 +50,7 @@ work-testing = { module = "androidx.work:work-testing", version.ref = "work" }
 sqlcipher = { module = "net.zetetic:sqlcipher-android", version.ref = "sqlcipher" }
 sqlite = { module = "androidx.sqlite:sqlite", version.ref = "sqlite" }
 serialization-core = { module = "org.jetbrains.kotlinx:kotlinx-serialization-core", version.ref = "serialization" }
+zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 camera-core = { module = "androidx.camera:camera-core", version.ref = "camerax" }
 camera-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "camerax" }
 camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "camerax" }

@@ -43,7 +43,25 @@ function bool(value) {
 }
 /** @param {any} c @param {any} visit @param {string} kind @param {any} d @param {number} at */
 async function validate(c, visit, kind, d, at) {
-  const { outlet } = await accessOutlet(c, visit.outlet_id, "visit.record");
+  const { outlet: canonical } = await accessOutlet(
+    c,
+    visit.outlet_id,
+    "visit.record",
+  );
+  await c.db`select pg_advisory_xact_lock(hashtextextended(${`retail-visit:${visit.id}`},0))`;
+  const [first] =
+    await c.db`select facts->'scorecardContext' as context from retail_execution_audits where visit_id=${visit.id} and facts ? 'scorecardContext' order by created_at,id limit 1`;
+  const card = first ? null : await policyAt(c.db, "scorecard", canonical, at);
+  const context = first?.context ?? {
+    versionId: card?.id ?? null,
+    outletClass: canonical.classification ?? null,
+    channel: canonical.channel ?? null,
+  };
+  const outlet = {
+    ...canonical,
+    classification: context.outletClass,
+    channel: context.channel,
+  };
   let master = null,
     score = null;
   /** @type {any} */ let facts = {};
@@ -304,6 +322,7 @@ async function validate(c, visit, kind, d, at) {
   const required =
     ["freezer", "posm", "promotion", "expiry", "planogram"].includes(kind) ||
     (["competitor", "issue_log"].includes(kind) && !facts.noneObserved);
+  facts.scorecardContext = context;
   facts.evidenceIds = await photos(c, visit, d.evidenceIds ?? [], required);
   return { master, score, facts };
 }

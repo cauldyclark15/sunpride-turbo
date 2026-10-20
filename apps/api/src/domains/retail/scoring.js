@@ -35,6 +35,16 @@ export async function visitScore(c, visit, policy) {
     await c.db`select * from retail_execution_audits where visit_id=${visit.id} order by captured_at desc,id desc limit 501`,
   );
   const { outlet } = await accessOutlet(c, visit.outlet_id, "visit.read");
+  const context = audits.find(
+    (/** @type {any} */ a) => a.facts.scorecardContext,
+  )?.facts.scorecardContext;
+  const appliedOutlet = context
+    ? {
+        ...outlet,
+        classification: context.outletClass,
+        channel: context.channel,
+      }
+    : outlet;
   const equipment = await equipmentAt(
     c.db,
     visit.outlet_id,
@@ -42,12 +52,12 @@ export async function visitScore(c, visit, policy) {
   );
   const campaigns = await seams.campaigns(
     c,
-    outlet,
+    appliedOutlet,
     +new Date(visit.started_at ?? visit.checked_in_at),
   );
   /** @type {Record<string,any>} */ const values = {};
   values.availability = await seams.availability(c, visit);
-  values.price = await seams.priceCompliance(c, visit);
+  values.price = await seams.priceCompliance(c, visit, appliedOutlet);
   for (const kind of ["planogram"]) {
     const a = audits.find((/** @type {any} */ a) => a.kind === kind);
     values[kind] = a
@@ -189,14 +199,21 @@ export async function accountWeek(c, customerId, start) {
   for (const outlet of outlets) {
     const [v] =
       await c.db`select v.* from visit_executions v where v.outlet_id=${outlet.id} and v.service_date>=${start} and v.service_date<${end} and v.deleted_at is null and v.checked_in_at is not null and (${c.actor.role !== "sales"} or v.assignee_profile_id=${c.actor.profileId}) and exists(select 1 from outlet_customer_links l where l.outlet_id=v.outlet_id and l.customer_id=${account.id} and l.deleted_at is null and l.effective_from<=v.checked_in_at and (l.effective_to is null or l.effective_to>v.checked_in_at)) order by v.checked_in_at desc,v.id desc limit 1`;
+    const [recorded] = v
+      ? await c.db`select facts->'scorecardContext' as context from retail_execution_audits where visit_id=${v.id} and facts ? 'scorecardContext' order by created_at,id limit 1`
+      : [];
     const policy =
       v &&
-      (await policyAt(
-        c.db,
-        "scorecard",
-        outlet,
-        +new Date(v.started_at ?? v.checked_in_at),
-      ));
+      (recorded
+        ? recorded.context.versionId
+          ? await masterById(c.db, recorded.context.versionId, "scorecard")
+          : null
+        : await policyAt(
+            c.db,
+            "scorecard",
+            outlet,
+            +new Date(v.started_at ?? v.checked_in_at),
+          ));
     if (v && policy) {
       try {
         scores.push(await visitScore(c, v, policy));

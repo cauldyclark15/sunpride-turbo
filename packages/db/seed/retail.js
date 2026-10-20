@@ -58,7 +58,7 @@ export async function ensureRetailSamples(db, from = Date.now()) {
     };
     const [sample] =
       await t`select 1 from sample_data_rows where batch=${BATCH} and table_name='profiles' limit 1`;
-    if (!sample) return { added: 0 };
+    if (!sample) return { added: 0, rows: {} };
     const products =
       await t`select p.* from products p join sample_data_rows s on s.row_id=p.id::text and s.table_name='products' and s.batch=${BATCH} where p.active and p.deleted_at is null order by p.code limit 3`;
     const stores =
@@ -349,6 +349,11 @@ export async function ensureRetailSamples(db, from = Date.now()) {
         );
     }
     if (data.tables.size) await persist(t, data);
-    return { added: data.markers.length };
+    return {
+      added: data.markers.length,
+      rows: Object.fromEntries(
+        [...data.tables.entries()].map(([table, rows]) => [table, rows.length]),
+      ),
+    };
   });
 }

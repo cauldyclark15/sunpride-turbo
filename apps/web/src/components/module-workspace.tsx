@@ -18,6 +18,7 @@ import { useSession } from "../lib/auth/session";
 import { canAccessWebModule } from "../lib/module-access";
 import { ActivityReportsWorkspace } from "./activity-reports/activity-reports-workspace";
 import { AdminWorkspace } from "./admin-workspace";
+import { RetailWorkspace } from "./retail-workspace";
 import { CallSheetsWorkspace } from "./call-sheets/call-sheets-workspace";
 import { lazyWorkspace } from "./cockpit/lazy-workspace";
 import { SalesForcePanels } from "./coverage-workspace";
@@ -62,6 +63,7 @@ const TITLES = {
   imports: "Imports",
   "outside-calls": "Outside-call POs",
   "van-trips": "Van trips",
+  "retail-execution": "Retail execution",
   "live-map": "Live map",
   admin: "Administration",
   "master-data": "Master data",
@@ -184,6 +186,8 @@ function ModuleContent({ module }: { module: WebModuleSlug }): ReactNode {
       return <PricingWorkspace />;
     case "van-trips":
       return <VanTripRoute />;
+    case "retail-execution":
+      return <RetailWorkspace />;
     case "inventory":
       return <InventoryWorkspace setupMessage="" />;
     case "imports":

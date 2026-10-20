@@ -100,11 +100,12 @@ class FakeFieldStore(val identity: StoreScope) : FieldStore {
     override suspend fun enqueue(intent: IntentRow, now: Long) {
         require(intent.account == identity.account && intent.deviceId == identity.deviceId && intent.scope == identity.fingerprint)
         require(intent.requestId.isNotBlank() && intent.clientVisitId.isNotBlank() &&
-            intent.kind in setOf("visit.checkIn", "visit.activity", "visit.checkOut") && intent.serializedOperation.isNotBlank())
+            intent.kind in setOf("visit.checkIn", "visit.activity", "visit.checkOut", RetailCaptureQueue.KIND) && intent.serializedOperation.isNotBlank())
         check(isLeaseValid(now))
         VisitCompletion.requireOpenForActivity(intent, rows.map { it.first to it.second.state })
         CallSheetQueueRules.validate(this, intent)
         ActivityQueueRules.validate(this, intent)
+        RetailCaptureQueue.validate(this, intent)
         com.sunpride.field.orders.OrderQueueRules.validate(this, intent)
         check(rows.none { it.first.requestId == intent.requestId })
         val at = maxOf(intent.createdAt, (rows.maxOfOrNull { it.second.createdAt } ?: Long.MIN_VALUE) + 1)

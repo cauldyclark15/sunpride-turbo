@@ -663,8 +663,9 @@ test("F-315 stored observations are append-only, not editable score submissions"
 });
 test("F-316 weighted scores explain all six components and distinguish unavailable TPM from genuine not-applicable", async () => {
   const f = await started(),
-    klass = crypto.randomUUID();
-  await h.db`update outlets set classification=${klass} where id=${f.outlet}`;
+    klass = crypto.randomUUID(),
+    channel = "sample-" + crypto.randomUUID();
+  await h.db`update outlets set classification=${klass},channel=${channel} where id=${f.outlet}`;
   const p = await master(
     "scorecard",
     {
@@ -786,8 +787,6 @@ test("F-316 weighted scores explain all six components and distinguish unavailab
   expect(sent.body.results[0].status).toBe("applied");
   const [v] = await h.db`select * from visit_executions where id=${f.visit}`;
   expect((await visitScore(ctx(f), v, p)).missing).toContain("promotion");
-  const channel = "sample-" + crypto.randomUUID();
-  await h.db`update outlets set channel=${channel} where id=${f.outlet}`;
   const [priceList] =
     await h.db`insert into price_lists(organization_id,code,name,channel_key,currency,status,source,effective_from) values('sunpride',${crypto.randomUUID()},'Sample governed shelf price',${channel},'PHP','active','sample',${new Date(f.now - DAY)}) returning id`;
   await h.db`insert into price_list_lines(organization_id,price_list_id,product_id,uom,unit_price_minor,effective_from) values('sunpride',${priceList.id},${f.sku},'PC',10000,${new Date(f.now - DAY)})`;
@@ -797,6 +796,17 @@ test("F-316 weighted scores explain all six components and distinguish unavailab
     const score = await visitScore(ctx(f), v, p);
     expect(score.status).toBe("complete");
     expect(score.score).toBe(88.89);
+    await h.db`update outlets set classification='future-class',channel='future-channel' where id=${f.outlet}`;
+    const retained = await accountWeek(
+      ctx(f),
+      f.customer,
+      previousWeek(Date.now() + 7 * DAY),
+    );
+    expect(retained.score).toBe(88.89);
+    expect(
+      "policyVersionId" in retained.branches[0] &&
+        retained.branches[0].policyVersionId,
+    ).toBe(p.id);
     expect(
       score.components.find((/** @type {any} */ x) => x.key === "promotion")
         .status,
@@ -1038,6 +1048,18 @@ test("F-316 scheduled weekly publication uses durable per-account jobs and does 
   expect(rows[0].snapshot.status).toBe("incomplete");
   expect(rows[0].snapshot.score).toBeNull();
   expect(rows[0].actor_subject).toBe("system:retail-weekly");
+});
+test("F-316 office workspace accepts a blank all-stores filter without casting it as a UUID", async () => {
+  const f = await fixture({ role: "super_admin" });
+  for (const query of ["", "?outletId=", `?outletId=${f.outlet}`]) {
+    const response = await h.fetch("/api/v1/retail/workspace" + query, {
+      headers: { authorization: `Bearer ${f.d.access}` },
+    });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(Array.isArray(body.audits)).toBe(true);
+    expect(Array.isArray(body.incompleteSections)).toBe(true);
+  }
 });
 test("F-314 outlet snapshots do not depend on a national equipment prefix", async () => {
   const f = await started(),

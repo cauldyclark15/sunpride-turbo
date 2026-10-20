@@ -138,6 +138,7 @@ dependencies {
     implementation(libs.camera.camera2)
     implementation(libs.camera.lifecycle)
     implementation(libs.camera.view)
+    implementation(libs.zxing.core) // F-315: offline equipment-serial scan, no cloud service
     // SP-0128 fingerprint/face sign-in: BiometricPrompt (needs a FragmentActivity).
     implementation(libs.biometric)
     // SP-0140: a FragmentActivity that accepts androidx.activity permission request codes (see libs.versions.toml).

@@ -35,7 +35,7 @@ object VisitCompletion {
      * End no longer closes the call, so the person can still finish it.
      */
     fun requireOpenForActivity(intent: IntentRow, rows: List<Pair<IntentRow, String>>) {
-        if (intent.kind != "visit.activity") return
+        if (intent.kind !in setOf("visit.activity", RetailCaptureQueue.KIND)) return
         if (VisitCallRules.closed(ownRows(intent.clientVisitId, rows)))
             throw VisitRuleFailure(VisitRuleFailure.Code.ALREADY_ENDED)
     }

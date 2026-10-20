@@ -130,7 +130,11 @@ export const seams = {
       : null;
   },
   // SEAM(SAP): expected price comes from the canonical effective replica resolver, never a supplied compliant flag.
-  priceCompliance: async (/** @type {any} */ c, /** @type {any} */ visit) => {
+  priceCompliance: async (
+    /** @type {any} */ c,
+    /** @type {any} */ visit,
+    /** @type {any} */ appliedOutlet,
+  ) => {
     const rows = bounded(
       await c.db`select a.*,p.uom,p.updated_at as product_updated_at from visit_activities a join products p on p.id::text=a.activity->>'productId' where a.visit_id=${visit.id} and a.activity_kind='price_check' and a.deleted_at is null order by a.device_time desc,a.id desc limit 501`,
     );
@@ -151,7 +155,7 @@ export const seams = {
         organizationId: "sunpride",
         productId: row.activity.productId,
         uom: row.uom,
-        channelKey: outlet.channel,
+        channelKey: appliedOutlet ? appliedOutlet.channel : outlet.channel,
         customerCode: customer?.code ?? null,
         at: +new Date(row.device_time),
       });

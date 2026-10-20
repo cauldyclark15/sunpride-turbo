@@ -391,7 +391,7 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
     internal suspend fun enqueueWithCheckpoint(intent: IntentRow, now: Long, checkpoint: () -> Unit) {
         require(intent.account == a && intent.deviceId == d && intent.scope == s)
         require(intent.requestId.isNotBlank() && intent.clientVisitId.isNotBlank() &&
-            intent.kind in setOf("visit.checkIn", "visit.activity", "visit.checkOut") &&
+            intent.kind in setOf("visit.checkIn", "visit.activity", "visit.checkOut", RetailCaptureQueue.KIND) &&
             intent.serializedOperation.isNotBlank())
         db.withTransaction {
             check(isLeaseValid(now)) { "Offline lease expired or held" }
@@ -409,6 +409,7 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             VisitCompletion.requireOpenForActivity(intent, history().map { it.first to it.second.state })
             CallSheetQueueRules.validate(this@RoomFieldStore, intent)
             ActivityQueueRules.validate(this@RoomFieldStore, intent)
+            RetailCaptureQueue.validate(this@RoomFieldStore, intent)
             com.sunpride.field.orders.OrderQueueRules.validate(this@RoomFieldStore, intent)
             val orderedAt = maxOf(intent.createdAt, (dao.latestCreatedAt(a, d, s) ?: Long.MIN_VALUE) + 1)
             dao.insertIntent(prepared.copy(createdAt = orderedAt))
