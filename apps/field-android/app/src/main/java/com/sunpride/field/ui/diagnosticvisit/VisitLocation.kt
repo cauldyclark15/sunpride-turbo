@@ -44,6 +44,13 @@ class AndroidVisitLocation(private val context: Context) : VisitLocation {
         if (!precise && !approximate) return LocationCapture.Unavailable(UnavailableReason.PERMISSION_DENIED)
         val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
         if (!manager.isLocationEnabled) return LocationCapture.Unavailable(UnavailableReason.LOCATION_OFF)
+        // F-024: a clean fused cache must not hide a fresh mock on another enabled source.
+        manager.getProviders(true).mapNotNull { provider ->
+            try { manager.getLastKnownLocation(provider) }
+            catch (_: SecurityException) { null }
+            catch (_: IllegalArgumentException) { null }
+        }.firstOrNull { location -> System.currentTimeMillis()-location.time in 0..LocationPolicy.MAX_FIX_AGE_MS &&
+            com.sunpride.integrity.DeviceIntegrity.mock(location) }?.toFix()?.let { return LocationCapture.Captured(it) }
         val providers = buildList {
             if (Build.VERSION.SDK_INT >= 31 && manager.hasProvider(LocationManager.FUSED_PROVIDER) &&
                 manager.isProviderEnabled(LocationManager.FUSED_PROVIDER)) add(LocationManager.FUSED_PROVIDER)

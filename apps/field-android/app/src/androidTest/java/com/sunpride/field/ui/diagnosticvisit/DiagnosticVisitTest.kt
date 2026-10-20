@@ -697,8 +697,9 @@ class DiagnosticVisitTest {
         val location = object : VisitLocation {
             override val requiresPermission = false
             override suspend fun fix(): JSONObject? = if (missingFix) null else JSONObject().put("latitude", 0).put("longitude", 0)
-                .put("accuracyMeters", 10).put("fixTime", System.currentTimeMillis())
-                .put("provider", "gps").put("mockSignal", true)
+                // F-024: weak is still recordable; mock is now explicitly refused by the client spec.
+                .put("accuracyMeters", 100).put("fixTime", System.currentTimeMillis())
+                .put("provider", "gps").put("mockSignal", false)
         }
         rule.setContent { FieldApp(AppEnvironment("https://sunpride.cauldnclark.com"),
             dark = dark, debug = true, backend = Backend(), visitLocation = location) }
@@ -717,9 +718,9 @@ class DiagnosticVisitTest {
         rule.onNodeWithTag("diagnostic-checkin").assertTextContains("Start").performClick()
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-operation").fetchSemanticsNodes().size == 1 }
         rule.onNodeWithTag("diagnostic-operation").assertTextContains("Waiting", substring = true)
-        // The mock/missing fix is recorded and flagged for review; Start was never refused.
+        // F-024: weak/missing is recorded and flagged; mock refusal has its own OS-provider regression.
         rule.onNodeWithTag("location-review").performScrollTo().assertTextContains(
-            if (missingFix) "Location unavailable · supervisor will review" else "mock location detected", substring = true)
+            if (missingFix) "Location unavailable · supervisor will review" else "weak signal", substring = true)
         rule.onNodeWithTag("diagnostic-checkout").assertTextContains("End call").assertIsNotEnabled()
         rule.onNodeWithTag("diagnostic-outcome").performScrollTo().performClick()
         rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("diagnostic-checkout").assertIsEnabled() }.isSuccess }
@@ -761,9 +762,9 @@ class DiagnosticVisitTest {
             }
         } finally { reopened.close() }
         rule.onNodeWithTag("call-time-spent").performScrollTo().assertTextContains("min", substring = true)
-        // The End fix (mock or missing) is shown on the final record as flagged for review.
+        // F-024: the End fix (weak or missing) is still shown as flagged for review.
         rule.onNodeWithTag("result-location-review").performScrollTo().assertTextContains(
-            if (missingFix) "End location unavailable" else "mock location detected", substring = true)
+            if (missingFix) "End location unavailable" else "weak signal", substring = true)
         rule.onNodeWithTag("result-sync").assertTextContains("Waiting to send", substring = true)
     }
 }
