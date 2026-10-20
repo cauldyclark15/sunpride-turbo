@@ -1,5 +1,9 @@
 import { tx } from "@sunpride/db/client";
-import { requireCapability, roleHas } from "../../core/capabilities.js";
+import {
+  requireCapability,
+  requireNationalScope,
+  roleHas,
+} from "../../core/capabilities.js";
 import { ApiError, conflict, forbidden, invalid } from "../../core/errors.js";
 import { writeAudit } from "../org/audit.js";
 import {
@@ -30,6 +34,7 @@ import {
  * @param {any} ctx @param {'definition'|'policy'|'reason'} kind */
 export async function publishVersion(ctx, kind) {
   await requireCapability(ctx, "admin.manage");
+  await requireNationalScope(ctx, ["admin"]); // Global channel policies must not be changed by an area-only editor.
   const p = ctx.body,
     from = Number(p.effectiveFrom);
   if (
@@ -288,6 +293,7 @@ export async function vanAdapter(ctx, trip, entityId) {
  * @param {any} ctx @param {any} installCtx */
 async function publishBinding(ctx, installCtx) {
   await requireCapability(ctx, "admin.manage");
+  await requireNationalScope(ctx, ["admin"]);
   const p = ctx.body,
     from = Number(p.effectiveFrom),
     app = text(p.app, 32),
