@@ -5,6 +5,7 @@ import { execution } from "./execution.js";
 import { vans } from "./vans.js";
 import { management } from "./management.js";
 import { ensureCallflowSamples } from "./callflow.js";
+import { ensurePartnerSamples } from "./partners.js";
 import {
   BATCH,
   Dataset,
@@ -994,6 +995,7 @@ export async function advanceDemo(db, { date = todayManila() } = {}) {
     day = plusDays(day, 1)
   )
     days.push(await advanceDay(db, day, original.startDate));
+  await ensurePartnerSamples(db, { date });
   return {
     batch: BATCH,
     through: date,

@@ -1,5 +1,6 @@
 import { hooks } from "./hooks.js";
-import { sha256Hex } from "./util.js";
+import { canonicalJson, sha256Hex } from "./util.js";
+import { partnerContext } from "../domains/partners/boundary.js";
 
 /**
  * Device-independent sync scope for an actor. `id` is what clients echo as `scopeId`;
@@ -8,6 +9,11 @@ import { sha256Hex } from "./util.js";
  * @param {import('./context.js').Actor} actor
  */
 export async function scopeOf(db, actor) {
+  const partner = await partnerContext(db, actor);
+  const assignments =
+    partner?.partner_kind === "agency"
+      ? await db`select id,outlet_id,effective_from,effective_to from partner_outlet_assignments where distributor_id=${partner.distributor_id} and effective_from<=now() and (effective_to is null or effective_to>now()) order by id`
+      : [];
   const fingerprint = sha256Hex(
     [
       actor.profileId,
@@ -15,6 +21,17 @@ export async function scopeOf(db, actor) {
       actor.orgUnitId ?? "",
       actor.role,
       actor.scopeEpoch ?? "",
+      ...(partner
+        ? [
+            canonicalJson({
+              id: partner.id,
+              partnerId: partner.distributor_id,
+              grants: partner.grants,
+              until: partner.effective_to,
+              assignments,
+            }),
+          ]
+        : []),
     ].join("|"),
   );
   return {

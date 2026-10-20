@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { createDb } from "../src/client.js";
 import { seedDemo, resetDemo } from "./index.js";
+import { ensurePartnerSamples } from "./partners.js";
 
 const args = process.argv.slice(2);
 let reset = false;
@@ -28,6 +29,10 @@ if (
   const db = createDb(process.env.DATABASE_URL, { max: 1 });
   try {
     const result = reset ? await resetDemo(db) : await seedDemo(db, options);
+    if (!reset)
+      result.partnerSamples = await ensurePartnerSamples(db, {
+        date: options.anchorDate,
+      });
     console.log(JSON.stringify(result, null, 2));
   } catch (error) {
     // Do not dump a SQL exception: its query/parameters can contain password hashes.

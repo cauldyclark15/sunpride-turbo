@@ -1,4 +1,5 @@
 import { domainInstallers } from "../domains/index.js";
+import { enforcePartnerHttp } from "../domains/partners/boundary.js";
 import { installAuth } from "./auth.js";
 import { buildCtx } from "./context.js";
 import { installDevices } from "./devices.js";
@@ -114,6 +115,7 @@ export function createApp(opts) {
         publish,
         enqueue,
       });
+      await enforcePartnerHttp(ctx);
       const result = await route.handler(ctx);
       /** @type {Response} */
       let res;
@@ -122,6 +124,7 @@ export function createApp(opts) {
         res = json(result.body, result.status, result.headers);
       else res = json(result ?? null);
       for (const c of ctx.cookies) res.headers.append("set-cookie", c);
+      if (ctx.actor) res.headers.set("cache-control", "private, no-store");
       return res;
     } catch (error) {
       const res = errorResponse(error, ctx ? ctx.v2 : v2, now);
