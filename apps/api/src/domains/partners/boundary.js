@@ -167,6 +167,8 @@ export async function enforcePartnerOp(db, actor, op) {
       "visit.checkOut",
       "evidence.attach",
       "merchandising.record",
+      "availability.record",
+      "retail.capture",
       "task.complete",
       "location.record",
     ].includes(op.opType)

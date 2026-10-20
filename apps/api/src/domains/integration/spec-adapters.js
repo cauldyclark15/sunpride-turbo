@@ -10,6 +10,7 @@ import {
   digest,
 } from "../distributors/model.js";
 import { office } from "../tpm/common.js";
+import { acknowledgeRetailAction } from "../retail/sap.js";
 
 /** F-504/F-507: the SAP outbox owns delivery; the TPM instruction is its source, not another transport.
  * @param {any} db @param {any} i @param {Record<string,string|undefined>} [env] @returns {Promise<{postingId:string}|null>} */
@@ -144,6 +145,7 @@ export async function enqueueDistributorPosting(c, d, kind, key, payload) {
 /** F-003: called only after identity/hash/lease verification, inside the ACK transaction.
  * @param {any} db @param {any} row @param {any} result @param {Record<string,string|undefined>} [env] */
 export async function acknowledgeSpecPosting(db, row, result, env = undefined) {
+  await acknowledgeRetailAction(db, row, result);
   if (row.source_type === "tpm_instruction")
     await applySapAcknowledgement(
       db,
@@ -196,7 +198,13 @@ export async function authorizeClaimant(c, type, id) {
 export async function readEligibilityFacts(c, q) {
   const rows =
     await c.db`select distinct g.distributor_id from distributor_outlets g join distributors d on d.id=g.distributor_id where g.outlet_id=${q.outletId} and g.effective_from<=${new Date(q.at)} and (g.effective_to is null or g.effective_to>${new Date(q.at)}) and d.effective_from<=${new Date(q.at)} and (d.effective_to is null or d.effective_to>${new Date(q.at)}) and d.status='accredited' limit 2`;
-  return { distributorId: rows.length === 1 ? rows[0].distributor_id : null };
+  const [outlet] =
+    await c.db`select o.classification,o.geography_id,v.id as geography_version_id from outlets o left join master_versions v on v.master_id=o.geography_id and v.status='active' and v.effective_from<=${new Date(q.at)} and (v.effective_to is null or v.effective_to>${new Date(q.at)}) where o.id=${q.outletId} and o.deleted_at is null`;
+  return {
+    distributorId: rows.length === 1 ? rows[0].distributor_id : null,
+    classKey: outlet?.classification ?? null,
+    geographyKey: outlet?.geography_version_id ? outlet.geography_id : null,
+  };
 }
 
 /** F-506: uploaded documents prove identity/digest only, never a payable amount.

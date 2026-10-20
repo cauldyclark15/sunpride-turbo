@@ -8,6 +8,7 @@ import { writeAudit } from "../org/audit.js";
 import { personAt } from "../org/scope.js";
 import { resolvePrice } from "../orders/pricing.js";
 import { callAvailability } from "../availability/sources.js";
+import { requestRetailAction } from "./sap.js";
 import { readEligibilityFacts } from "../integration/spec-adapters.js";
 import { accessOutlet, uuid, text, date } from "../visits/shared.js";
 export { uuid, text, date, accessOutlet };
@@ -238,10 +239,7 @@ export const seams = {
     }
     return true;
   },
-  requestSapAction: async (
-    /** @type {any} */ _c,
-    /** @type {any} */ _input,
-  ) => ({ status: "awaiting_seam" }),
+  requestSapAction: requestRetailAction,
 };
 /** F-313 F-321: assignment targets use current effective people scope, never a stale profile projection.
  * @param {any} c @param {string} id @param {boolean} [allowInactive] */
