@@ -16,6 +16,8 @@ import { seams } from "./seams.js";
  * SEAM(DISTRIBUTOR): distributor identity is deliberately null until the membership owner supplies it.
  * @param {any} c @param {any} input */
 export async function eligibilityFacts(c, input) {
+  if (!input || typeof input !== "object" || Array.isArray(input))
+    fail("Eligibility input must be an object");
   if (!input.outletId) return { channelKey: input.channelKey ?? null };
   const { outlet, assignment } = await outletContext(c, uuid(input.outletId));
   const external = await seams.readEligibilityFacts(c, {
@@ -121,7 +123,13 @@ export async function commitBudget(c, b) {
   }
   const [sum] =
     await c.db`select coalesce(sum(amount_centavos),0) as n from campaign_commitments where campaign_id=${v.campaign_id}`;
-  if (BigInt(sum.n) + BigInt(amount) > BigInt(v.budget_centavos))
+  const [future] =
+    await c.db`select min(budget_centavos) as cap from campaign_versions where campaign_id=${v.campaign_id} and status='active' and effective_to>${new Date(c.now)}`;
+  const cap =
+    BigInt(future.cap ?? v.budget_centavos) < BigInt(v.budget_centavos)
+      ? BigInt(future.cap)
+      : BigInt(v.budget_centavos);
+  if (BigInt(sum.n) + BigInt(amount) > cap)
     fail("Campaign budget would be exceeded");
   const [r] =
     await c.db`insert into campaign_commitments(campaign_id,campaign_version_id,source_key,amount_centavos,created_by) values(${v.campaign_id},${id},${key},${amount},${c.actor.subject}) returning id`;

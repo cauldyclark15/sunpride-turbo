@@ -4,12 +4,19 @@ import { commitBudget } from "./campaigns.js";
 import { publish } from "../../core/realtime.js";
 import { writeAudit } from "../org/audit.js";
 import { changed, bounded, command, office } from "./common.js";
-import { fail, integer, text, uuid } from "../orders/validation.js";
+import { fail, integer, safe, text, uuid } from "../orders/validation.js";
 import { canonicalJson, sha256Hex } from "../../core/util.js";
 
 /** F-504 transactional operational staging, handed to the SAP-owned outbox when available.
  * @param {any} c @param {any} input */
 export async function posting(c, input) {
+  const [sample] =
+    await c.db`select 1 from promotion_earnings e join campaign_versions v on v.id=e.campaign_version_id join promotions p on p.id=e.promotion_id
+    where e.id=${input.earningId ?? null}::uuid and (v.source='sample' or p.source='sample')
+    union all select 1 from claim_settlements s join claims q on q.id=s.claim_id join claim_types ct on ct.id=q.type_id
+    where s.id=${input.settlementId ?? null}::uuid and ct.source='sample' limit 1`;
+  // SAP adapters must retain this provenance and refuse sample postings on a real connection.
+  input = { ...input, sourceMode: sample ? "sample" : "operational" };
   const key = text(input.sourceKey, "Posting source", 200);
   const [old] =
     await c.db`select * from tpm_posting_instructions where source_key=${key}`;
@@ -169,6 +176,8 @@ export async function liabilities(c) {
   const rows = bounded(
     await c.db`select e.*,v.name as campaign_name,p.name as promotion_name,
     coalesce((select sum(i.amount_centavos) from tpm_posting_instructions i where i.earning_id=e.id and i.kind='release' and i.status='acknowledged'),0) as released,
+    coalesce((select sum(i.amount_centavos) from tpm_posting_instructions i where i.earning_id=e.id and i.kind='accrual' and i.status='acknowledged'),0) as ack_earned,
+    coalesce((select sum(i.amount_centavos) from tpm_posting_instructions i where i.earning_id=e.id and i.kind='reversal' and i.status='acknowledged'),0) as ack_reversed,
     exists(select 1 from tpm_posting_instructions i where i.earning_id=e.id and i.status in ('awaiting_seam','queued')) as pending
     from promotion_earnings e join campaign_versions v on v.id=e.campaign_version_id join promotions p on p.id=e.promotion_id order by e.earned_at desc limit 501`,
   );
@@ -182,10 +191,21 @@ export async function liabilities(c) {
       earnedCentavos: Number(e.amount_centavos),
       reversedCentavos: Number(e.reversed_centavos),
       releasedCentavos: Number(e.released),
+      operationalOpenCentavos: safe(
+        BigInt(e.amount_centavos) -
+          BigInt(e.reversed_centavos) -
+          BigInt(e.released),
+      ),
+      acknowledgedEarnedCentavos: safe(BigInt(e.ack_earned)),
+      acknowledgedReversedCentavos: safe(BigInt(e.ack_reversed)),
       openCentavos:
-        Number(e.amount_centavos) -
-        Number(e.reversed_centavos) -
-        Number(e.released),
+        BigInt(e.ack_earned) > 0n
+          ? safe(
+              BigInt(e.ack_earned) -
+                BigInt(e.ack_reversed) -
+                BigInt(e.released),
+            )
+          : null,
       pendingSap: e.pending,
     })),
   };

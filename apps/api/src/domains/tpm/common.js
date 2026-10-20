@@ -8,7 +8,7 @@ import { ApiError } from "../../core/errors.js";
 import { canonicalJson, sha256Hex } from "../../core/util.js";
 import { recordChange } from "../../core/sync.js";
 import { writeAudit } from "../org/audit.js";
-import { text } from "../orders/validation.js";
+import { fail, text } from "../orders/validation.js";
 
 /** Interim national Trade Marketing / Finance boundary until partner grant seams land. @param {any} c @param {string} [capability] */
 export async function office(c, capability = "report.read") {
@@ -25,6 +25,8 @@ export async function office(c, capability = "report.read") {
 /** F-501: all commands reauthorize before replay, serialize request keys, and commit audit atomically.
  * @param {any} ctx @param {string} action @param {any} b @param {(c:any)=>Promise<void>} authorize @param {(c:any)=>Promise<any>} work */
 export async function command(ctx, action, b, authorize, work) {
+  if (!b || typeof b !== "object" || Array.isArray(b))
+    fail("Command body must be an object");
   const key = text(b.idempotencyKey, "Request key", 160);
   const hash = sha256Hex(canonicalJson({ action, b }));
   const result = await tx(ctx.db, async (db) => {
@@ -48,6 +50,27 @@ export async function command(ctx, action, b, authorize, work) {
     const response = await work(c);
     await db`insert into tpm_commands(actor_subject,request_key,payload_hash,response) values(${actor.subject},${key},${hash},${response})`;
     return response;
+  }).catch((error) => {
+    const code = error?.errno ?? error?.code;
+    if (code === "23505")
+      throw new ApiError(
+        "reference_conflict",
+        409,
+        "That reference already exists. Open its history instead of creating it again.",
+      );
+    if (code === "23P01")
+      throw new ApiError(
+        "period_overlap",
+        422,
+        "The effective period overlaps an existing version.",
+      );
+    if (["23503", "23514"].includes(code))
+      throw new ApiError(
+        "invalid_reference",
+        422,
+        "A referenced record or value is not valid for this command.",
+      );
+    throw error;
   });
   await ctx.publish("tpm");
   return result;

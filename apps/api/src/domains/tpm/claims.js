@@ -46,14 +46,14 @@ export async function readEvidence(c, kind, id) {
   }
   if (kind === "checklist") {
     const [r] =
-      await c.db`select e.*,v.id as campaign_version_id from merchandising_compliance_checks e join campaigns m on m.code=e.program_ref and m.organization_id=e.organization_id join campaign_versions v on v.campaign_id=m.id and v.effective_from<=e.service_date::timestamp at time zone 'Asia/Manila' and v.effective_to>e.service_date::timestamp at time zone 'Asia/Manila' where e.id=${id} and e.organization_id='sunpride' and e.deleted_at is null and e.finding='compliant' and e.kind='promotion'`;
+      await c.db`select e.*,a.device_time as execution_at,v.id as campaign_version_id from merchandising_compliance_checks e join merchandising_audits a on a.id=e.audit_id and a.deleted_at is null join campaigns m on m.code=e.program_ref and m.organization_id=e.organization_id join campaign_versions v on v.campaign_id=m.id and v.effective_from<=a.device_time and v.effective_to>a.device_time where e.id=${id} and e.organization_id='sunpride' and e.deleted_at is null and e.finding='compliant' and e.kind='promotion'`;
     if (!r) return null;
     return {
       kind,
       sourceId: id,
       outletId: r.outlet_id,
       campaignVersionId: r.campaign_version_id,
-      occurredAt: new Date(r.service_date).getTime(),
+      occurredAt: new Date(r.execution_at).getTime(),
       fingerprint: `checklist:${id}`,
       verified: true,
     };
@@ -256,6 +256,44 @@ export const claimView = (r) => ({
 });
 /** @param {any} router */
 export function installClaims(router) {
+  router.get(
+    "/api/v1/tpm/claims/evidence-options",
+    async (/** @type {any} */ c) => {
+      await office(c);
+      const r = await claim(c, c.url.searchParams.get("id"));
+      const from = date(
+        r.period_from instanceof Date
+          ? r.period_from.toISOString().slice(0, 10)
+          : String(r.period_from),
+      );
+      const to = date(
+        r.period_to instanceof Date
+          ? r.period_to.toISOString().slice(0, 10)
+          : String(r.period_to),
+      );
+      const rows = await c.db`select * from (
+      select e.id,'photo'::text as kind,o.name as outlet_name,e.captured_at as at
+      from field_evidence_files e join outlets o on o.id=e.outlet_id join files f on f.id=e.storage_id
+      where e.organization_id='sunpride' and e.deleted_at is null and e.status<>'rejected' and f.status='stored'
+      and (e.captured_at at time zone 'Asia/Manila')::date between ${from} and ${to}
+      and (${r.outlet_id}::uuid is null or e.outlet_id=${r.outlet_id})
+      union all
+      select e.id,'checklist'::text as kind,o.name as outlet_name,a.device_time as at
+      from merchandising_compliance_checks e join merchandising_audits a on a.id=e.audit_id and a.deleted_at is null join outlets o on o.id=e.outlet_id
+      where e.organization_id='sunpride' and e.deleted_at is null and e.kind='promotion' and e.finding='compliant'
+      and e.service_date between ${from} and ${to} and (${r.outlet_id}::uuid is null or e.outlet_id=${r.outlet_id})
+    ) proof order by at desc,id limit 101`;
+      return {
+        truncated: rows.length > 100,
+        rows: rows.slice(0, 100).map((/** @type {any} */ e) => ({
+          id: e.id,
+          kind: e.kind,
+          label: `${e.kind === "photo" ? "Photo" : "Campaign checklist"} · ${e.outlet_name} · ${manilaDate(new Date(e.at))}`,
+        })),
+      };
+    },
+  );
+
   router.get("/api/v1/tpm/claims/mine", (/** @type {any} */ c) =>
     claimantClaims(c, {
       partyType: choice(

@@ -238,6 +238,15 @@ export function installPricingRoutes(router) {
     );
   router.get("/api/v1/pricing/promotions", async (/** @type {any} */ c) => {
     await requireCapability(c, "report.read");
+    // F-503 full scope sets are national master data; field/partner callers use eligibility.
+    await requireNationalScope(c, [
+      "admin",
+      "operations",
+      "manager",
+      "approver",
+      "analyst",
+      "viewer",
+    ]);
     const rows =
       await c.db`select * from promotions where organization_id = ${ORGANIZATION} and deleted_at is null order by code limit 501`;
     if (rows.length > 500) fail("Promotion history exceeds 500 rows");

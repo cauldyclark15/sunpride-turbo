@@ -2,6 +2,9 @@ import { Dataset, at, persist, plusDays, rowId } from "./store.js";
 /** F-501–F-510 explicitly fictional, idempotent sample campaign and claim lineage.
  * @param {import('./store.js').Dataset} d */
 export function tpm(d) {
+  /** @param {string} table @param {string} key @param {Record<string,any>} values */
+  const add = (table, key, values) =>
+    d.add(table, key, values, new Date(at(d.anchorDate)).toISOString());
   const from = plusDays(d.anchorDate, -14),
     to = plusDays(d.anchorDate, 30),
     profile = rowId("profiles", "approver"),
@@ -16,14 +19,14 @@ export function tpm(d) {
     p.stacking ??= "exclusive";
     p.excludes ??= [];
   }
-  const type = d.add("claim_types", "tpm-promotion-v1", {
+  const type = add("claim_types", "tpm-promotion-v1", {
     code: "Sample promotion claim",
     effective_from: "2020-01-01T00:00:00Z",
     effective_to: "2100-01-01T00:00:00Z",
     required_evidence: ["checklist", "photo"],
     source: "sample",
   });
-  d.add("claim_approval_rules", "tpm-finance-v1", {
+  add("claim_approval_rules", "tpm-finance-v1", {
     name: "Sample Finance band — provisional",
     party_type: "all",
     min_centavos: 0,
@@ -46,7 +49,7 @@ export function tpm(d) {
     capBps: 10000,
     direction: metric === "settlementVariance" ? "lower" : "higher",
   }));
-  const plan = d.add("incentive_plans", "tpm-sample-incentive-v1", {
+  const plan = add("incentive_plans", "tpm-sample-incentive-v1", {
     code: "SAMPLE-INCENTIVE",
     name: "Sample balanced field incentive — provisional",
     effective_from: "2020-01-01T00:00:00Z",
@@ -65,7 +68,7 @@ export function tpm(d) {
     achievementBps: 10000,
     amountCentavos: (250000 * r.weightBps) / 10000,
   }));
-  d.add("incentive_statements", `tpm-incentive-${d.anchorDate.slice(0, 7)}`, {
+  add("incentive_statements", `tpm-incentive-${d.anchorDate.slice(0, 7)}`, {
     plan_id: plan.id,
     profile_id: rowId("profiles", "agent"),
     period_from: d.anchorDate.slice(0, 7) + "-01",
@@ -92,11 +95,11 @@ export function tpm(d) {
     "agency",
   ].entries()) {
     const key = `tpm-${d.anchorDate.slice(0, 7)}-${i}`;
-    const campaign = d.add("campaigns", key, {
+    const campaign = add("campaigns", key, {
       organization_id: "sunpride",
       code: `SAMPLE-${d.anchorDate.slice(0, 7)}-${i + 1}`,
     });
-    const version = d.add("campaign_versions", key, {
+    const version = add("campaign_versions", key, {
       campaign_id: campaign.id,
       version: 1,
       name: [
@@ -124,7 +127,7 @@ export function tpm(d) {
       created_by: creator,
     });
     // Draft/inactive: do not unexpectedly discount the shared demo company's live orders.
-    const scheme = d.add("promotions", key, {
+    const scheme = add("promotions", key, {
       organization_id: "sunpride",
       code: campaign.code + "-BASKET",
       name: "Sample basket reward",
@@ -147,14 +150,14 @@ export function tpm(d) {
       excludes: [],
     });
     const amount = [250000, 120000, 85000][i];
-    d.add("campaign_commitments", key, {
+    add("campaign_commitments", key, {
       campaign_id: campaign.id,
       campaign_version_id: version.id,
       source_key: "sample-plan:" + key,
       amount_centavos: amount,
       created_by: creator,
     });
-    const earning = d.add("promotion_earnings", key, {
+    const earning = add("promotion_earnings", key, {
       campaign_version_id: version.id,
       promotion_id: scheme.id,
       source_key: "sample:" + key,
@@ -164,7 +167,7 @@ export function tpm(d) {
       amount_centavos: amount,
       reversed_centavos: 0,
     });
-    const claim = d.add("claims", key, {
+    const claim = add("claims", key, {
       reference: "SAMPLE-CLAIM-" + key,
       claimant_party_type: partyType,
       claimant_party_id: earning.account_key,
@@ -183,7 +186,7 @@ export function tpm(d) {
       status: "needs_evidence",
       created_by: creator,
     });
-    d.add("claim_events", key, {
+    add("claim_events", key, {
       claim_id: claim.id,
       action: "needs_evidence",
       actor_subject: creator,
@@ -193,7 +196,7 @@ export function tpm(d) {
           "Illustrative claim; link captured execution evidence before approval.",
       },
     });
-    d.add("deductions", key, {
+    add("deductions", key, {
       source_key: "sample-deduction:" + key,
       account_key: earning.account_key,
       classification: ["promotion", "short_delivery", "agency_billing"][i],
@@ -208,7 +211,7 @@ export function tpm(d) {
       due_on: plusDays(d.anchorDate, 2 - i * 7),
       created_by: creator,
     });
-    d.add("promotion_evaluations", key, {
+    add("promotion_evaluations", key, {
       campaign_version_id: version.id,
       account_key: earning.account_key,
       mechanic: version.mechanic,

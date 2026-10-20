@@ -186,6 +186,15 @@ export const MODULE_ROLES = {
   // Setup.
   admin: administrators, // admin.manage
   "master-data": masterDataManagers, // masterdata.manage
+  "trade-promotions": masterDataManagers,
+  "finance-claims": [
+    "super_admin",
+    "admin",
+    "operations",
+    "approver",
+    "analyst",
+    "viewer",
+  ],
   pricing: masterDataManagers, // masterdata.manage (price lists are master data)
   "sap-integration": integrationReaders, // integration.read
 } as const satisfies Record<PageSlug, readonly AppRole[]>;

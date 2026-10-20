@@ -145,6 +145,10 @@ test("F-504 earned accrual is atomic, idempotent, and staged pending the SAP sea
   const rows = await h.db`select * from tpm_posting_instructions`;
   expect(rows).toHaveLength(1);
   expect(rows[0].status).toBe("awaiting_seam");
+  expect(rows[0].payload.sourceMode).toBe("sample");
+  expect(
+    (await api(admin, "liabilities")).body.rows[0].openCentavos,
+  ).toBeNull();
   await applySapAcknowledgement(h.db, {
     instructionId: rows[0].id,
     status: "acknowledged",
@@ -460,6 +464,9 @@ test("F-508 ROI source feeds fail closed before integration, then freeze measure
   expect((await api(admin, "roi")).body.rows[0].accountKey).toBe("ACCOUNT");
 });
 test("F-506 canonical photo and checklist readers reject absent proof rather than claimant assertions", async () => {
+  const options = await api(admin, "claims/evidence-options?id=" + claimId);
+  expect(options.status).toBe(200);
+  expect(Array.isArray(options.body.rows)).toBe(true);
   const { readEvidence } = await import("../src/domains/tpm/claims.js");
   expect(
     await readEvidence({ db: h.db }, "photo", crypto.randomUUID()),
@@ -476,6 +483,15 @@ test("F-510 all six governed metrics explain weighted incentive and variance pen
     ]),
   );
   expect(computeIncentive(rules, facts, 10000).amountCentavos).toBe(10000);
+  expect(
+    computeIncentive(
+      rules.map((r) =>
+        r.metric === "settlementVariance" ? { ...r, capBps: 5000 } : r,
+      ),
+      facts,
+      10000,
+    ).amountCentavos,
+  ).toBe(9500);
   facts.settlementVariance.actual = 200;
   expect(computeIncentive(rules, facts, 10000).amountCentavos).toBe(9000);
   expect(() => computeIncentive(rules, {}, 10000)).toThrow("governed");

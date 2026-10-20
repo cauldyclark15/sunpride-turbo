@@ -190,6 +190,40 @@ test("F-501 W3 thin campaign, replay, stable version and W5 budget are live HTTP
     6000,
   );
 });
+test("F-501 future lower budget constrains current commitments and malformed commands fail closed", async () => {
+  const base = {
+    code: "FUTURE-BUDGET",
+    name: "Future controlled campaign",
+    mechanic: "Monetary reward",
+    status: "active",
+    effectiveFrom: Date.now() - 1000,
+    effectiveTo: Date.now() + 2 * 86400_000,
+    budgetCentavos: 1000,
+  };
+  const current = await api(admin, "campaigns/save", {
+    ...base,
+    idempotencyKey: crypto.randomUUID(),
+  });
+  expect(current.status).toBe(200);
+  const future = await api(admin, "campaigns/save", {
+    ...base,
+    budgetCentavos: 100,
+    effectiveFrom: Date.now() + 3600_000,
+    idempotencyKey: crypto.randomUUID(),
+  });
+  expect(future.status).toBe(200);
+  expect(
+    (
+      await api(admin, "budget/commit", {
+        campaignVersionId: current.body.versionId,
+        amountCentavos: 200,
+        sourceKey: "cannot-spend-future-budget",
+        idempotencyKey: crypto.randomUUID(),
+      })
+    ).status,
+  ).toBe(422);
+  expect((await api(admin, "campaigns/save", [])).status).toBe(422);
+});
 test("F-503 basic W4 eligibility respects campaign period and exclusions", async () => {
   const [p] =
     await h.db`insert into promotions(organization_id,code,name,rule_kind,rule,status,source,effective_from,effective_to,campaign_version_id,eligibility) values('sunpride','W4','W4 basic','basket',${{ kind: "basket", minSubtotalCentavos: 0, valueCentavos: 50 }},'active','sample',now()-interval '1 minute',now()+interval '1 hour',${campaignVersionId},${{ outletId: { include: ["not-known"] } }}) returning id`;

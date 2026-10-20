@@ -38,7 +38,7 @@ export function computeIncentive(rules, facts, base) {
       fail(
         "Every incentive metric needs a governed actual, positive target and definition version",
       );
-    const achievement =
+    const rawAchievement =
       rule.direction === "lower"
         ? fact.actual <= fact.target
           ? 10000
@@ -51,6 +51,7 @@ export function computeIncentive(rules, facts, base) {
             rule.capBps,
             safe((BigInt(fact.actual) * 10000n) / BigInt(fact.target)),
           );
+    const achievement = Math.min(rule.capBps, rawAchievement);
     const amount = safe(
       divide(
         BigInt(base) * BigInt(rule.weightBps) * BigInt(achievement),
