@@ -175,10 +175,11 @@ async function api(path, body) {
 
 beforeEach(async () => {
   // Exercise a deterministic selling hour, even when CI runs after the real 22:00 close.
-  // Tomorrow keeps SQL-issued auth/challenge timestamps valid on the real DB clock.
-  setSystemTime(
-    new Date(midnight(manilaDate(Date.now())) + DAY_MS + 12 * 3_600_000),
-  );
+  // The next noon is future but less than a day away: SQL-issued one-day
+  // integrity assessments and auth credentials remain valid at the service clock.
+  const realNow = Date.now();
+  const noon = midnight(manilaDate(realNow)) + 12 * 3_600_000;
+  setSystemTime(new Date(noon > realNow ? noon : noon + DAY_MS));
   now = Date.now();
   date = manilaDate(now);
   h = await startHarness({
