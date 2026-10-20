@@ -131,7 +131,8 @@ object SharingRules {
 
 /** The plain-words consent text (Data Privacy Act of 2012, RA 10173). Bump [VERSION] when it changes. */
 object LocationConsentText {
-    const val VERSION = 1
+    // v2 requires an explicit server acknowledgement before the first fix, not just the old local switch.
+    const val VERSION = 2
     const val TITLE = "Sharing the truck's location"
     val POINTS = listOf(
         "What: the truck's position from this handheld — place, how accurate it is, speed and direction, battery level, and whether the location looks faked.",

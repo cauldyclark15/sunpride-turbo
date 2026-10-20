@@ -325,6 +325,11 @@ export type VanRow = {
   loadedCases: number;
   soldCases: number;
   returnedCases: number | null;
+  customerReturnedCases?: number | null;
+  customerReturns?: Array<{
+    name: string;
+    quantity: { cases: number | null; pieces: number | null; display: string };
+  }>;
   stockVarianceCases: number | null;
   salesCentavos: number;
   cashExpected: number;

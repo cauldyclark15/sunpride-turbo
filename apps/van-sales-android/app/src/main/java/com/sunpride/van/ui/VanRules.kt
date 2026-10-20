@@ -4,7 +4,7 @@ import com.sunpride.van.data.*
 import java.math.BigDecimal
 import java.math.MathContext
 
-enum class Page { HOME, LOAD, START, STOCK, STOCK_COUNT, CUSTOMERS, WALK_IN, CUSTOMER, PRINTER, PRODUCTS, SALE, CHECKOUT, SALE_DONE, RECEIPTS, RETURN, RETURN_DONE, CASH, CLOSE_TRIP, SYNC, LOCATION_CONSENT }
+enum class Page { HOME, LOAD, START, STOCK, STOCK_COUNT, CUSTOMERS, WALK_IN, CUSTOMER, PRINTER, PRODUCTS, SALE, CHECKOUT, SALE_DONE, RECEIPTS, RETURN, RETURN_DONE, CASH, CLOSE_TRIP, SYNC, LOCATION_CONSENT, ACCOUNT, CHANGE_PASSWORD }
 data class NextAction(val page: Page, val label: String)
 
 /** Display/validation only. The repository repeats every business check transactionally. */
@@ -13,6 +13,7 @@ object VanRules {
     fun nextAction(trip: Trip?, load: Load?): NextAction = when {
         trip?.status == "loading" && load?.status == "planned" && !load.confirmPending -> NextAction(Page.LOAD, "Check the load")
         trip?.status == "loaded" && !trip.startPending -> NextAction(Page.START, "Start trip")
+        trip?.status in setOf("closing","reconciling","review_required","closed") -> NextAction(Page.CLOSE_TRIP, "Review trip close")
         else -> NextAction(Page.CUSTOMERS, "Customers")
     }
     fun status(trip: Trip?, load: Load?): String = when {

@@ -14,7 +14,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
-/** VAN-011 sale operation kind and the outbox status of a sale saved on this phone that is never sent (no gateway operation yet). */
+/** Sales queue on v2. Parked is retained only for pre-v2 evidence, never adopted into a new server scope. */
 const val SALE_KIND = "sale.record"
 const val SALE_VOID_KIND = "sale.void"
 const val SALE_PARKED = "parked"

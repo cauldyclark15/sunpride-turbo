@@ -48,6 +48,26 @@ describe("pages render their contract fixture", () => {
     expect(out).toContain("No sales recorded on this day yet");
     expect(out).not.toContain("this month yet");
   });
+  it("customer returns keep their exact pieces, separate from stock sent back to the depot", () => {
+    const data = analyticsFixture("vans", { date: MTD.to }, NOW);
+    data.rows = data.rows.slice(0, 1).map((r) => ({
+      ...r,
+      returnedCases: 10,
+      customerReturnedCases: 1 / 24,
+      customerReturns: [
+        {
+          name: "Sample Sardines",
+          quantity: { cases: 0, pieces: 1, display: "0 cases + 1 pieces" },
+        },
+      ],
+    }));
+    const out = html(<VansView data={data} csv="/csv" />);
+    expect(out).toContain(
+      "Customer returns: Sample Sardines · 0 cases + 1 pieces",
+    );
+    expect(out).toContain("10 cs");
+    expect(out).not.toContain("Customer returns: 0 cs");
+  });
   it("zero cash and stock differences are Balanced, not zero over or extra", () => {
     const data = analyticsFixture("vans", { date: MTD.to }, NOW);
     data.rows = data.rows

@@ -45,6 +45,8 @@ object SyncHealth {
         "sale.record" -> "Sale"
         "sale.void" -> "Cancelled sale"
         "return.record" -> "Customer return"
+        "stock.reconcile" -> "Stock count"
+        "trip.close" -> "Trip close"
         "cash.reconcile" -> "Cash count"
         "load.confirm" -> "Load check"
         "trip.start" -> "Trip start"
@@ -80,7 +82,8 @@ object SyncHealth {
 
     fun phoneLine(s: SyncStatus): String {
         val n = onPhoneOnly(s)
-        return if (n == 0) "Phone: nothing waiting — all work is with the office"
+        return if (n == 0 && s.review > 0) "Phone: ${plural(s.review, "item needs", "items need")} review — kept here"
+        else if (n == 0) "Phone: nothing waiting — all work is with the office"
         else "Phone: ${plural(n, "item", "items")} kept only on this phone"
     }
 

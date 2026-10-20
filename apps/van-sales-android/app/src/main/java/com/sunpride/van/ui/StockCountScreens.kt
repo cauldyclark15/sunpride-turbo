@@ -55,6 +55,7 @@ import com.sunpride.van.pos.*
             !summary.countable -> Text("Start the trip before counting stock.",Modifier.testTag("stock-count-blocked"))
             else -> {
                 Text("Count sellable and damaged stock separately. Counts are entered in each product's UOM.",style = MaterialTheme.typography.bodyMedium)
+                if (c.sync.review > 0) Text("Some earlier work needs review. Expected stock excludes refused work; enter what is physically on the truck. The earlier records are kept for your supervisor.",style = MaterialTheme.typography.bodyMedium)
                 expectedLines.groupBy { it.productId }.forEach { (productId, productLines) ->
                     val meta = summary.lines.first { it.productId == productId }
                     SectionCard(meta.productName) {

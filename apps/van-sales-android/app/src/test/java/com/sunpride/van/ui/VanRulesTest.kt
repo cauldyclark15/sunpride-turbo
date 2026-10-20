@@ -10,7 +10,8 @@ class VanRulesTest {
     @Test fun primaryActionUsesServerLoadAndTripState() {
         assertEquals(NextAction(Page.LOAD,"Check the load"),VanRules.nextAction(trip("loading"),planned))
         assertEquals(NextAction(Page.START,"Start trip"),VanRules.nextAction(trip("loaded"),planned))
-        listOf("planned","active","closing","closed","cancelled").forEach { assertEquals(Page.CUSTOMERS,VanRules.nextAction(trip(it),planned).page) }
+        listOf("planned","active","cancelled").forEach { assertEquals(Page.CUSTOMERS,VanRules.nextAction(trip(it),planned).page) }
+        listOf("closing","closed","reconciling","review_required").forEach { assertEquals(NextAction(Page.CLOSE_TRIP,"Review trip close"),VanRules.nextAction(trip(it),planned)) }
         assertEquals(Page.CUSTOMERS,VanRules.nextAction(trip("loading"),planned.copy(confirmPending = true)).page)
         assertEquals(Page.CUSTOMERS,VanRules.nextAction(trip("loading"),planned.copy(status = "discrepancy")).page)
         assertEquals(Page.CUSTOMERS,VanRules.nextAction(trip("loaded",true),planned).page)

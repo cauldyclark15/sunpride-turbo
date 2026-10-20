@@ -57,6 +57,18 @@ class NativeApiTest {
             replies+=MockResponse().setBody(body); AuthClientTest.expect(AuthFailure.Kind.SERVER) { api.request("/api/me") }
         }
     }
+    @Test fun locationConsentIsAnExplicitAuthenticatedRestChoiceBeforeRecording() {
+        replies+=MockResponse().setBody("{\"id\":\"consent\",\"enabled\":true,\"effectiveFrom\":1000}")
+        api.locationConsent(true)
+        val r=requests.single(); assertEquals("/api/v1/location/consent",r.path); assertEquals("POST",r.method)
+        assertEquals("Bearer fake-access-1",r.getHeader("Authorization")); assertTrue(JSONObject(r.body.readUtf8()).getBoolean("enabled"))
+    }
+    @Test fun locationWithdrawalSendsFalseAndAnUnconfirmedChoiceFailsClosed() {
+        replies+=MockResponse().setBody("{\"enabled\":false,\"effectiveFrom\":1001}")
+        api.locationConsent(false); assertFalse(JSONObject(requests.single().body.readUtf8()).getBoolean("enabled"))
+        replies+=MockResponse().setBody("{\"enabled\":false,\"effectiveFrom\":1002}")
+        AuthClientTest.expect(AuthFailure.Kind.SERVER) { api.locationConsent(true) }
+    }
     @Test fun unsupportedEndpointsAreNeverCalled() {
         assertThrows(IllegalArgumentException::class.java) { api.request("/api/query",JSONObject()) }; assertEquals(0,server.requestCount)
     }

@@ -77,13 +77,28 @@ export const vanColumns: DrillColumn<VanRow>[] = [
     label: "Loaded → sold → back",
     align: "right",
     render: (r) => (
-      <span>
-        {formatCount(r.loadedCases)} → {formatCount(r.soldCases)} →{" "}
-        {r.returnedCases === null ? (
-          <span className="text-muted">on route</span>
-        ) : (
-          `${formatCount(r.returnedCases)} cs`
-        )}
+      <span className="flex flex-col gap-1">
+        <span>
+          {formatCount(r.loadedCases)} → {formatCount(r.soldCases)} →{" "}
+          {r.returnedCases === null ? (
+            <span className="text-muted">on route</span>
+          ) : (
+            `${formatCount(r.returnedCases)} cs`
+          )}
+        </span>
+        <span className="text-[12px] text-muted">
+          Customer returns:{" "}
+          {r.customerReturns === undefined
+            ? "not recorded"
+            : r.customerReturns.length === 0
+              ? "none"
+              : r.customerReturns
+                  .map(
+                    (returned) =>
+                      `${returned.name} · ${returned.quantity.display}`,
+                  )
+                  .join("; ")}
+        </span>
       </span>
     ),
     sort: (r) => r.soldCases,

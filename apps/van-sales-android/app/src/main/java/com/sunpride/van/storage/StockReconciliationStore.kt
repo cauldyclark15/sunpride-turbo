@@ -26,7 +26,9 @@ class StockReconciliationStore(private val store: RoomVanStore) {
     /** The expected stock is the current local projection: authoritative baseline plus unsettled local movements. */
     private suspend fun expectedLines(tripId: String): List<StockCountLine> {
         val baseline = dao.truckstockbaselineRows(s, d).filter { it.tripId == tripId }
-        val movements = dao.stockmovementRows(s, d).filter { it.tripId == tripId }
+        // A refused phone fact is retained for review, but is not part of the office's expected ledger.
+        val refused = if (s.startsWith("v2|")) dao.outboxRows(s,d).filter { it.status in OutboxRules.reviewStatuses }.map { it.clientRequestId }.toSet() else emptySet()
+        val movements = dao.stockmovementRows(s, d).filter { it.tripId == tripId && it.clientRequestId !in refused }
         val settled = dao.movementsettlementRows(s, d).map { it.movementId }.toSet()
         val projection = StockProjection.project(baseline, movements, settled)
         val products = dao.productRows(s, d).map { VanBootstrapCodec.product(JSONObject(it.json)) }
@@ -85,6 +87,14 @@ class StockReconciliationStore(private val store: RoomVanStore) {
         dao.insertStockReconciliation(StockReconciliationRow(s, d, request.reconciliationId, t.tripId, key, linesJson, countCode,
             totals.varianceLines, totals.shortBase, totals.overBase, StockReconciliationRules.normalizedNote(request.note),
             authorization.method, authorization.code, at))
+        // A complete physical count supersedes older refused movements in the CURRENT projection, never their
+        // immutable observations or review rows. This and the count roll back together if any write fails.
+        if (s.startsWith("v2|")) {
+            val refused = dao.outboxRows(s,d).filter { it.tripId == t.tripId && it.status in OutboxRules.reviewStatuses }.map { it.clientRequestId }.toSet()
+            val settled = dao.movementsettlementRows(s,d).map { it.movementId }.toSet()
+            dao.stockmovementRows(s,d).filter { it.tripId == t.tripId && it.clientRequestId in refused && it.movementId !in settled }
+                .forEach { dao.insertSettlement(SettlementRow(s,d,it.movementId,at)) }
+        }
         supplied.filter { it.expectedBase != it.countedBase }.forEach { line ->
             val delta = Math.subtractExact(line.countedBase, line.expectedBase)
             dao.insertMovement(MovementRow(s, d, "${request.reconciliationId}:${line.productId}:${line.status}:ADJUSTMENT", t.tripId,
@@ -103,7 +113,7 @@ class StockReconciliationStore(private val store: RoomVanStore) {
             .put("deviceTime", now)
             .apply { StockReconciliationRules.normalizedNote(request.note)?.let { put("note", it) } }
         val op = JSONObject().put("kind", STOCK_RECONCILE_KIND).put("clientRequestId", key).put("payload", payload).toString()
-        // Deliberately not sent through VanWireSchema: the gateway has no stock.reconcile kind yet, like cash.reconcile.
+        // The frozen v1 validator has no count kind; V2VanCodec supplies the live v2 envelope.
         dao.insertOutbox(OutboxRow(s, d, key, t.tripId, STOCK_RECONCILE_KIND, op, at, null, store.capturedStatus))
         StockCountResult(request.reconciliationId, t.tripNumber, countCode, supplied, totals.varianceLines, totals.shortBase,
             totals.overBase, StockReconciliationRules.normalizedNote(request.note), authorization.method == "supervisor_code", at, false)

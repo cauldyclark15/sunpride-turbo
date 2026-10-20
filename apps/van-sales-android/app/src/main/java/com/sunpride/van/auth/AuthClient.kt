@@ -67,6 +67,37 @@ class AuthClient(
         access = bearer; refreshAt = clock()+duration-REFRESH_MARGIN_MS
         return bearer
     }
+    @Synchronized fun changePassword(current: String, next: String, confirm: String) {
+        PasswordChange.problem(current,next,confirm)?.let { throw PasswordChangeFailure(it) }
+        if (vault.readSession() == null) throw PasswordChangeFailure(PasswordProblem.SESSION)
+        if (!environment.isReady) throw PasswordChangeFailure(PasswordProblem.SERVER)
+        val body = JSONObject().put("currentPassword",current).put("newPassword",next)
+        try {
+            // Ordinary authenticated routes take the short-lived ACCESS bearer, not the refresh session token.
+            val request = Request.Builder().url(environment.siteUrl.trimEnd('/')+"/api/auth/change-password")
+                .header("Authorization","Bearer ${accessToken()}").post(body.toString().toRequestBody(JSON_MEDIA)).build()
+            call(request) { code, response ->
+                if (code !in 200..299) {
+                    val error = runCatching { JSONObject(response.body?.string().orEmpty()).optJSONObject("error")?.optString("code") }.getOrNull()
+                    throw PasswordChangeFailure(when {
+                        code == 401 || code == 403 -> PasswordProblem.SESSION
+                        code == 429 -> PasswordProblem.RATE_LIMITED
+                        error == "wrong_password" -> PasswordProblem.WRONG
+                        error == "weak_password" -> PasswordProblem.WEAK
+                        error == "same_password" -> PasswordProblem.SAME
+                        else -> PasswordProblem.SERVER
+                    })
+                }
+                if (!JSONObject(response.body?.string().orEmpty()).optBoolean("ok")) throw PasswordChangeFailure(PasswordProblem.SERVER)
+            }
+        } catch (e: AuthFailure) { throw PasswordChangeFailure(when(e.kind) {
+            AuthFailure.Kind.OFFLINE -> PasswordProblem.OFFLINE
+            AuthFailure.Kind.SESSION_EXPIRED, AuthFailure.Kind.REFUSED -> PasswordProblem.SESSION
+            else -> PasswordProblem.SERVER
+        }) }
+        // The server keeps this exact session; other sessions are revoked. Never replace or persist a password.
+        invalidateAccessToken()
+    }
     @Synchronized fun invalidateAccessToken() { access = null; refreshAt = 0 }
     fun signOut(): Boolean {
         val session = vault.readSession()
