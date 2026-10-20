@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sunpride.local/contracts/sap/v1/posting-result.schema.json",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "effectId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "correlationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "documentNumber": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "payloadHash": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "postedAt": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "source": {
+      "enum": ["sample", "sap"]
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "effectId",
+    "correlationId",
+    "documentNumber",
+    "payloadHash",
+    "postedAt",
+    "source"
+  ],
+  "additionalProperties": false
+}

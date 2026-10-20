@@ -70,6 +70,10 @@
         "globals": "^17.11.0",
       },
     },
+    "apps/sap-mock": {
+      "name": "@sunpride/sap-mock",
+      "version": "1.0.0",
+    },
     "apps/web": {
       "name": "@sunpride/web",
       "version": "0.1.0",
@@ -796,6 +800,8 @@
     "@sunpride/pwa": ["@sunpride/pwa@workspace:apps/pwa"],
 
     "@sunpride/sap-connector": ["@sunpride/sap-connector@workspace:apps/sap-connector"],
+
+    "@sunpride/sap-mock": ["@sunpride/sap-mock@workspace:apps/sap-mock"],
 
     "@sunpride/typescript-config": ["@sunpride/typescript-config@workspace:packages/typescript-config"],
 

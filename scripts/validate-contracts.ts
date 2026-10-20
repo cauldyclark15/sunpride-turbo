@@ -10,6 +10,15 @@ const files = [
   "sales-order.schema.json",
 ];
 
+// F-001 every versioned interface is included, not only the retired connector subset.
+files.push(
+  ...Array.from(
+    new Bun.Glob("v1/*.schema.json").scanSync({
+      cwd: new URL(contractDirectory).pathname,
+    }),
+  ).sort(),
+);
+
 for (const file of files) {
   const schema = (await Bun.file(
     new URL(file, contractDirectory),
