@@ -51,16 +51,22 @@ export async function salesSource(db, p, s) {
     s.salesSources.set(
       key,
       (async () => {
+        // Compare both complete identity/version sets; counts or version sums can hide substitutions.
+        // Materialized EXCEPT avoids the wide full-join plan without weakening source validation.
         const [r] =
-          await db`with fingerprint as materialized(select analytics_master_fingerprint() as value)
+          await db`with fingerprint as materialized(select analytics_master_fingerprint() as value),
+    live as materialized(
+      select l.id,o.change_seq as order_seq,l.change_seq as line_seq from orders o join order_lines l on l.order_id=o.id
+      where (coalesce(o.offline_created_at,o.created_at) at time zone 'Asia/Manila')::date between ${p.from} and ${p.to}
+      and o.deleted_at is null and l.deleted_at is null and o.status not in ('draft','rejected','voided')),
+    cached as materialized(
+      select line_id as id,source_order_seq as order_seq,source_line_seq as line_seq from analytics_sales_cache
+      where service_date between ${p.from} and ${p.to})
     select not exists(select 1 from generate_series(${p.from}::date,${p.to}::date,'1 day') d left join analytics_refresh_state r on r.service_date=d::date cross join fingerprint f where r.masters_fingerprint is distinct from f.value)
     and not exists(
-      select 1 from
-       (select l.id,o.change_seq as order_seq,l.change_seq as line_seq from orders o join order_lines l on l.order_id=o.id
-        where (coalesce(o.offline_created_at,o.created_at) at time zone 'Asia/Manila')::date between ${p.from} and ${p.to}
-        and o.deleted_at is null and l.deleted_at is null and o.status not in ('draft','rejected','voided')) live
-      full join (select line_id,source_order_seq,source_line_seq from analytics_sales_cache where service_date between ${p.from} and ${p.to}) cached on cached.line_id=live.id
-      where live.id is null or cached.line_id is null or live.order_seq!=cached.source_order_seq or live.line_seq!=cached.source_line_seq) as ready`;
+      (select * from live except select * from cached)
+      union all
+      (select * from cached except select * from live)) as ready`;
         return r.ready ? "tiles" : "analytics_sales_facts";
       })(),
     );

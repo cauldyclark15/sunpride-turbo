@@ -34,6 +34,10 @@ The HTTP field-sync suite previously used the wall-clock selling day and therefo
 
 Programme now describes the 41 affected features from the accepted owner reports and integration proof, rather than retaining pre-merge claims that the gateway, partner portal or claims screen do not exist. Client feature identifiers, requirements, waves, priorities, dependencies and deferral membership are unchanged. Conservative totals are 3 built, 88 partly built, 22 changing to spec, 21 not built, 4 needing client decisions and 8 conditional. These are software progress notes, not real SAP certification or both-phone acceptance.
 
+## F-025: analytics gate root fix
+
+Five unchanged benchmark retries exposed a costly full-join cache-validity check. Same-snapshot SQL profiling measured the old check at 101–112 ms and the strict bidirectional set-difference plan at 52–70 ms. Cache eligibility still requires every line identity and both source versions, plus the unchanged complete date and master-fingerprint checks. New regression cases reject same-count missing/extra identities, swapped version tuples and changed-and-restored source facts. No timing budget or source-authorization predicate changed.
+
 ## Deferred owners and acceptance
 
 FISCAL override/financial authority; VANOPS partner loading/settlement; MASTERS taxonomy; COVERAGE/PJP; AVAILABILITY/MSL; INTEGRITY attestation; MT evidence/deductions; TOWER governed performance/incentive projections remain their owners' work. Real SAP accounting/certification and native master adoption remain separately unproved. No phone installation or device test is part of INTEGRATE-SA1.
