@@ -159,7 +159,8 @@ async function vanCall(ctx) {
     trip = await tripFor(ctx.db, actor, uuid(p.tripId), "van.operate", true);
   if (
     trip.salesperson_profile_id !== actor.profileId ||
-    trip.started_device_id !== ctx.device.id ||
+    (trip.started_device_id !== null &&
+      trip.started_device_id !== ctx.device.id) ||
     trip.status !== "active" ||
     manilaDate(ctx.now) !==
       new Date(trip.service_date).toISOString().slice(0, 10) ||

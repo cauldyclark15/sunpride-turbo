@@ -349,7 +349,7 @@ test("F-107 F-120 van calls run the same engine through signed API operations", 
   await h.db`insert into vehicles(id,organization_id,org_unit_id,vehicle_code,plate_number,truck_location_id,home_location_id,status,created_by)
     values (${vehicle},'sunpride',${f.unit},${vehicle},'SAMPLE',${truck},${depot},'active','fixture')`;
   await h.db`insert into van_trips(id,organization_id,org_unit_id,trip_number,vehicle_id,truck_location_id,source_location_id,service_date,salesperson_profile_id,salesperson_subject,status,started_at,started_device_id,created_by)
- values (${trip},'sunpride',${f.unit},${trip},${vehicle},${truck},${depot},${f.day},${f.d.profile.id},${f.d.userId},'active',now(),${f.d.deviceId},'fixture')`;
+ values (${trip},'sunpride',${f.unit},${trip},${vehicle},${truck},${depot},${f.day},${f.d.profile.id},${f.d.userId},'active',now(),null,'fixture')`;
   const c = await configuration(h.db, "van_selling", { id: f.outlet }, f.now);
   if (!c) throw new Error("No van definition");
   const clientCallId = crypto.randomUUID();
@@ -363,6 +363,24 @@ test("F-107 F-120 van calls run the same engine through signed API operations", 
     unplannedReason: "Sample outlet visit",
   });
   expect((await push(f, s))[0].status).toBe("applied");
+  // Sample active trips may be unbound, as canonical van access already permits; a different bound device still refuses.
+  const another = await fixture({ app: "van-android", unit: f.unit });
+  await h.db`update van_trips set started_device_id=${another.d.deviceId} where id=${trip}`;
+  expect(
+    (
+      await push(
+        f,
+        operation("call.step", {
+          tripId: trip,
+          clientCallId,
+          adapter: "stock_check",
+          observation: "Must refuse",
+          deviceTime: f.now + 1,
+        }),
+      )
+    )[0].status,
+  ).toBe("rejected");
+  await h.db`update van_trips set started_device_id=null where id=${trip}`;
   const check = operation("call.step", {
     tripId: trip,
     clientCallId,
