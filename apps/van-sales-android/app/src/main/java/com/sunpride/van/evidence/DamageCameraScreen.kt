@@ -22,17 +22,25 @@ import com.sunpride.van.ui.SecondaryButton
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** Reuses the scanner's CameraX dependencies. JPEG stays in memory until compressed into noBackup storage. */
-@Composable fun DamageCameraScreen(onCaptured: (DamageCapture) -> Unit, onClose: () -> Unit) {
+/** F-312: one-shot photo location is independent of continuous trip-sharing consent. */
+internal fun executionPhotoPermissionsGranted(camera: Boolean, fineLocation: Boolean, requireLocation: Boolean) =
+    camera && (!requireLocation || fineLocation)
+
+@Composable fun DamageCameraScreen(onCaptured: (DamageCapture) -> Unit, onClose: () -> Unit, requireLocation: Boolean = true) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
-    var permitted by remember { mutableStateOf(ContextCompat.checkSelfPermission(context,Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
-    var message by remember { mutableStateOf("Show the damaged goods clearly") }
+    fun granted(permission: String) = ContextCompat.checkSelfPermission(context,permission) == PackageManager.PERMISSION_GRANTED
+    fun allowed() = executionPhotoPermissionsGranted(granted(Manifest.permission.CAMERA),granted(Manifest.permission.ACCESS_FINE_LOCATION),requireLocation)
+    val required = remember(requireLocation) { if (requireLocation) arrayOf(Manifest.permission.CAMERA,Manifest.permission.ACCESS_COARSE_LOCATION,Manifest.permission.ACCESS_FINE_LOCATION) else arrayOf(Manifest.permission.CAMERA) }
+    var permitted by remember(requireLocation) { mutableStateOf(allowed()) }
+    var message by remember { mutableStateOf(if (requireLocation) "Show the damaged goods clearly. Precise location stamps this photo; your trip-sharing choice is unchanged." else "Show the damaged goods clearly — SAMPLE practice capture") }
     var ready by remember { mutableStateOf(false) }
     var capturing by remember { mutableStateOf(false) }
-    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-        permitted = it; if (!it) message = "Camera permission is denied. Allow camera in app settings to take a photo."
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        permitted = allowed()
+        if (!permitted) message = if (requireLocation) "Allow camera and precise location in app settings, then try again. A photo cannot be saved without its capture location." else "Camera permission is denied. Allow camera in app settings to take a photo."
     }
-    LaunchedEffect(Unit) { if (!permitted) permission.launch(Manifest.permission.CAMERA) }
+    LaunchedEffect(requireLocation) { if (!permitted) permission.launch(required) }
     val view = remember { PreviewView(context) }
     val capture = remember { ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY).build() }
     val alive = remember { AtomicBoolean(true) }
@@ -57,7 +65,7 @@ import java.util.concurrent.atomic.AtomicBoolean
         Text("Damage photo",style = MaterialTheme.typography.titleLarge)
         Text(message)
         if (permitted) AndroidView(factory = { view },modifier = Modifier.fillMaxWidth().weight(1f))
-        else { Spacer(Modifier.weight(1f)); SecondaryButton("Allow camera",{ permission.launch(Manifest.permission.CAMERA) }) }
+        else { Spacer(Modifier.weight(1f)); SecondaryButton(if (requireLocation) "Allow camera & location" else "Allow camera",{ permission.launch(required) }) }
         PrimaryBottomButton("Capture photo",{
             capturing = true
             capture.takePicture(main,object : ImageCapture.OnImageCapturedCallback() {
@@ -74,7 +82,7 @@ import java.util.concurrent.atomic.AtomicBoolean
                     if (alive.get()) { capturing = false; message = "Could not take photo. Try again." }
                 }
             })
-        },ready && !capturing,"damage-capture")
+        },permitted && ready && !capturing,"damage-capture")
         SecondaryButton("Cancel photo",onClose,enabled = !capturing)
     }
 }

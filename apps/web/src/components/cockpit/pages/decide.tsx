@@ -1,5 +1,6 @@
 "use client";
 
+import { IntegrityReview } from "../../integrity/review";
 import Link from "next/link";
 import { useCallback, useState } from "react";
 import { useAnalytics } from "../api";
@@ -308,6 +309,7 @@ export function DecidePage() {
           />
         )}
       </PageData>
+      <IntegrityReview />
     </CockpitPage>
   );
 }

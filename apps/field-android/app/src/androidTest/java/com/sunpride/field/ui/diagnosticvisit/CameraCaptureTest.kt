@@ -46,12 +46,18 @@ class CameraCaptureTest {
         override fun savePhoto(clientVisitId: String, checkInRequestId: String, outletId: String, photoType: String,
             jpeg: ByteArray, capturedAt: Long) {
             assertEquals(start.clientVisitId, clientVisitId); assertEquals(start.requestId, checkInRequestId)
-            captured = photoType to jpeg
+            // F-312: real CameraX bytes are visibly marked on this physical phone before hashing.
+            // Coordinates/identity here are EXPLICIT SAMPLE facts, not a live route-location claim.
+            val marked=com.sunpride.integrity.ExecutionWatermark.burn(jpeg,
+                com.sunpride.integrity.ExecutionWatermark.Facts(10.33,123.94,5.0,capturedAt,
+                    "SAMPLE Integrity proof","sample-camera-user","SAMPLE Camera proof outlet","sample-camera-outlet"))
+            java.io.File(rule.activity.getExternalFilesDir(null),"F-312-watermarked-camera.jpg").writeBytes(marked)
+            captured = photoType to marked
         }
     }
     @After fun cleanup() { KeystoreDeviceKey.delete(alias) }
 
-    @Test fun backCameraTakesAJpegIntoMemory() {
+    @Test fun F312_backCameraTakesAWatermarkedJpegIntoMemory() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         instrumentation.uiAutomation.grantRuntimePermission(instrumentation.targetContext.packageName, Manifest.permission.CAMERA)
         val controller = FieldController(Backend(), MainScope())

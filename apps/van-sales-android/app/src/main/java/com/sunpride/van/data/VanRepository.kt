@@ -72,6 +72,43 @@ class VanRepository private constructor(private val context: Context, private va
     private var database: VanDatabase? = null
     private var signer: DeviceSigner? = null
     private var gateway: VanGateway? = null
+    init {
+        api.onDeviceControl = { me ->
+            runBlocking { com.sunpride.integrity.RemoteErasure.recordingLock.withLock {
+                current.value?.hold()
+                val subject=me.getJSONObject("profile").getString("subject")
+                val device=me.getJSONObject("device").getString("id")
+                val db=database ?: EncryptedVanDatabase.open(context).also { database=it }
+                val partition=com.sunpride.integrity.PartitionRecovery.Partition("fullAuthSubject","v2|$subject|%",device,true)
+                db.openHelper.writableDatabase.execSQL("update sync_meta set held=1,health='held_for_review' where fullAuthSubject like ? and deviceId=?",arrayOf(partition.accountPattern,device))
+                val bundle=com.sunpride.integrity.PartitionRecovery.snapshot(db.openHelper.writableDatabase,partition)
+                val files=mutableListOf<com.sunpride.integrity.RemoteErasure.RecoveryFile>()
+                val accounts=mutableSetOf<String>()
+                val tables=bundle.getJSONArray("tables")
+                for(i in 0 until tables.length()) {
+                    val rows=tables.getJSONObject(i).getJSONArray("rows")
+                    for(n in 0 until rows.length()) accounts.add(rows.getJSONObject(n).getString("fullAuthSubject"))
+                }
+                for(account in accounts) {
+                    val scoped=photoFiles(StoreScope(account,device))
+                    for(file in scoped.directory.listFiles().orEmpty().filter {it.extension=="jpg"}) {
+                        val key=Base64.getUrlEncoder().withoutPadding().encodeToString(account.toByteArray())+"/"+file.nameWithoutExtension
+                        files.add(com.sunpride.integrity.RemoteErasure.RecoveryFile(key,scoped.read(file.nameWithoutExtension,96_000)))
+                    }
+                }
+                com.sunpride.integrity.RemoteErasure.perform(context,me,bundle,files,
+                    {loadSigner().sign(it)}, {path,body->api.request(path,body)},
+                    {com.sunpride.integrity.PartitionRecovery.erase(db.openHelper.writableDatabase,partition)},
+                    {key->val parts=key.split('/');require(parts.size==2)
+                        val account=String(Base64.getUrlDecoder().decode(parts[0]))
+                        require(account.startsWith("v2|$subject|"))
+                        photoFiles(StoreScope(account,device)).delete(parts[1])},
+                    {auth.signOut();index.edit().clear().commit();current.value=null;gateway=null
+                        enrollment.value=EnrollmentState.SignedOut;session.value=SessionState()})
+            } }
+            throw AuthFailure(AuthFailure.Kind.SESSION_EXPIRED)
+        }
+    }
     private fun sessionKey(): String? = vault.readSession()?.let { hex(sha256(it.toByteArray(Charsets.UTF_8))) }
     private fun attach(scope: StoreScope) {
         val db = database ?: (if(stubMode != null) EncryptedVanDatabase.openStub(context) else EncryptedVanDatabase.open(context)).also { database = it }
@@ -79,12 +116,26 @@ class VanRepository private constructor(private val context: Context, private va
     }
     private fun photoFiles(scope: StoreScope) = com.sunpride.van.evidence.DamagePhotoFiles(
         if (stubMode != null) java.io.File(context.noBackupFilesDir,"van-stub") else context.noBackupFilesDir,scope)
-    suspend fun saveDamagePhoto(capture: com.sunpride.van.evidence.DamageCapture): com.sunpride.van.evidence.DamagePhoto = withContext(Dispatchers.IO) {
+    suspend fun saveDamagePhoto(capture: com.sunpride.van.evidence.DamageCapture): com.sunpride.van.evidence.DamagePhoto = withContext(Dispatchers.IO) { com.sunpride.integrity.RemoteErasure.recordingLock.withLock {
         val st = store(); val policy = checkNotNull(st.policy.first())
-        val bytes = com.sunpride.van.evidence.DamagePhotoEncoder.compress(capture,policy.damagePolicy?.photoMaxBytes ?: 90_000)
+        val maxBytes=policy.damagePolicy?.photoMaxBytes ?: 90_000
+        // Explicit DEBUG practice fixture only; production never substitutes invented coordinates.
+        val location = if (BuildConfig.DEBUG && stubMode != null) android.location.Location("SAMPLE practice fixture").apply {
+            latitude=10.33; longitude=123.94; accuracy=5f; time=System.currentTimeMillis()
+        } else com.sunpride.integrity.DeviceIntegrity.captureLocation(context)
+        val person=checkNotNull(st.seller.first())
+        val profile=if (BuildConfig.DEBUG && stubMode != null) "SAMPLE practice profile" else checkNotNull(devices.identity).profileId
+        val facts=com.sunpride.integrity.ExecutionWatermark.Facts(location.latitude,location.longitude,location.accuracy.toDouble(),
+            System.currentTimeMillis(),person.name,profile,"Truck damage · outlet not applicable","not_applicable")
+        var bytes:ByteArray?=null
+        for((dimension,quality) in listOf(1600 to 85,1200 to 70,900 to 55,640 to 40)) {
+            val candidate=com.sunpride.integrity.ExecutionWatermark.burn(capture.jpeg,facts,capture.rotationDegrees,quality,dimension)
+            if(candidate.size<=maxBytes) {bytes=candidate;break}
+        }
+        val marked=checkNotNull(bytes) { "Photo exceeds the configured limit" }
         check(st === current.value && st.canSync())
-        photoFiles(st.scope).save(bytes,policy.damagePolicy?.photoMaxBytes ?: 90_000)
-    }
+        photoFiles(st.scope).save(marked,maxBytes)
+    } }
     suspend fun discardDamagePhoto(sha: String) = withContext(Dispatchers.IO) {
         val st = store()
         st.db.withTransaction {

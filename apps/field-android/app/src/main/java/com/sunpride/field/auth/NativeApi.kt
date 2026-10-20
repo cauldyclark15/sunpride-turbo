@@ -12,8 +12,10 @@ import java.io.IOException
 /** Cookie-free v2 HTTP. Session credentials never leave AuthClient; only access tokens reach this seam. */
 class NativeApi(private val environment: AppEnvironment, private val auth: AuthClient,
     private val http: OkHttpClient = defaultHttpClient()) {
+    var onDeviceControl: ((JSONObject) -> Unit)? = null
     fun me(): JSONObject = request("GET", "/api/me", null)
-    fun post(path: String, body: JSONObject): JSONObject = request("POST", path, body.toString().toByteArray())
+    fun post(path: String, body: JSONObject): JSONObject = request("POST", path,
+        JSONObject(body.toString()).apply { if(path == "/api/devices/challenge") put("integrity",com.sunpride.integrity.DeviceIntegrity.report()) }.toString().toByteArray())
     fun signed(path: String, body: JSONObject, signer: DeviceSigner, deviceId: String): JSONObject =
         request("POST", path, body.toString().toByteArray(Charsets.UTF_8), signer, deviceId)
 
@@ -46,6 +48,7 @@ class NativeApi(private val environment: AppEnvironment, private val auth: AuthC
                         }
                         if (o.optInt("version") != 2 && path.startsWith("/api/v1/").not())
                             throw AuthFailure(AuthFailure.Kind.SERVER)
+                        if (path == "/api/me" && o.optJSONObject("deviceControl") != null) onDeviceControl?.invoke(o)
                         return o
                     }
                 }

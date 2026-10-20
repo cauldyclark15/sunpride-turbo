@@ -71,6 +71,10 @@ class AndroidVisitLocation(private val context: Context) : VisitLocation {
                 for (location in updates) {
                     val candidate = location.toFix() ?: continue
                     val now = System.currentTimeMillis()
+                    if (candidate.mockSignal && now - candidate.fixTime in 0..LocationPolicy.MAX_FIX_AGE_MS) {
+                        best = candidate
+                        break
+                    }
                     val chosen = FixSelector.better(best, candidate, now)
                     best = chosen
                     if (FixSelector.reliable(chosen, now)) break

@@ -11,12 +11,13 @@ import java.io.IOException
 /** Cookie-free v2 reads/device commands and explicit location consent. One access refresh on 401. */
 class NativeApi(private val environment: AppEnvironment, private val auth: AuthClient,
     private val http: OkHttpClient = defaultHttpClient()) {
+    var onDeviceControl: ((JSONObject) -> Unit)? = null
     fun locationConsent(enabled: Boolean) {
         val o=request("/api/v1/location/consent",JSONObject().put("enabled",enabled))
         if (o.opt("enabled") != enabled || o.optLong("effectiveFrom",0) <= 0) throw AuthFailure(AuthFailure.Kind.SERVER)
     }
     fun request(path: String, body: JSONObject? = null, headers: Map<String,String> = emptyMap()): JSONObject {
-        require(path in setOf("/api/me","/api/devices/challenge","/api/devices/bind","/api/v1/location/consent"))
+        require(path in setOf("/api/me","/api/devices/challenge","/api/devices/bind","/api/v1/location/consent","/api/devices/control/recover","/api/devices/control/ack"))
         if (!environment.isReady) throw AuthFailure(AuthFailure.Kind.NOT_CONFIGURED)
         for (attempt in 0..1) {
             val builder = Request.Builder().url(environment.siteUrl.trimEnd('/')+path)
@@ -37,6 +38,7 @@ class NativeApi(private val environment: AppEnvironment, private val auth: AuthC
                             throw NativeApiFailure(code, response.code)
                         }
                         if (path != "/api/v1/location/consent" && o.optInt("version") != 2) throw AuthFailure(AuthFailure.Kind.SERVER)
+                        if (path == "/api/me" && o.optJSONObject("deviceControl") != null) onDeviceControl?.invoke(o)
                         return o
                     }
                 }
@@ -60,13 +62,15 @@ class RestDeviceApi(private val api: NativeApi) : DeviceApi {
     override fun mine(publicKey: String): DeviceRecord? {
         val keyId = hex(sha256(unbase64(publicKey)))
         val o = api.request("/api/me", headers = mapOf("X-App" to APP,"X-Device-Key-Id" to keyId))
+        if (o.optBoolean("handoverRequired")) throw NativeApiFailure("device_handover_required",409)
         val p = o.getJSONObject("profile"); val s = o.getJSONObject("scope")
         if (!p.getBoolean("active")) throw AuthFailure(AuthFailure.Kind.REFUSED)
         identity = NativeIdentity(p.getString("subject"),p.getString("id"),s.getString("id"),s.getString("fingerprint"),s.getString("epoch"))
         return o.optJSONObject("device")?.let { DeviceRecord(it.getString("id"),it.getString("status"),it.getBoolean("bound"),it.getString("allowedApp")) }
     }
     override fun challenge(deviceId: String): Pair<String,Long> {
-        val o = api.request("/api/devices/challenge",JSONObject().put("version",2).put("deviceId",deviceId))
+        val o = api.request("/api/devices/challenge",JSONObject().put("version",2).put("deviceId",deviceId)
+            .put("integrity",com.sunpride.integrity.DeviceIntegrity.report()))
         val now = o.getLong("serverTime"); val expiry = o.getLong("expiresAt")
         require(expiry > now && expiry - now <= 60_000)
         // Preserve DeviceApi's established expiry seam; enrollment derives this explicit server time.

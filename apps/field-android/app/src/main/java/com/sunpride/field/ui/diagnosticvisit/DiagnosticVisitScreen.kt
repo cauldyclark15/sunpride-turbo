@@ -56,8 +56,11 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
         try {
             // Even a precise-permission denial may leave approximate/network location available.
             val capture = location.captureOrUnavailable()
-            // Governed exception: a missing, weak, old or mock fix is recorded and flagged for supervisor
-            // review on the server (pin distance/geofence result), never a reason to refuse Start or End.
+            // F-024: the client spec supersedes the legacy mock-fix exception. No check-in is queued.
+            if (kind == "visit.checkIn" && (capture as? LocationCapture.Captured)?.fix?.mockSignal == true) {
+                locationNotice = LocationNotice("Check-in refused. Turn off mock location and try again.", true)
+                return
+            }
             locationNotice = LocationAssessment.notice(capture, System.currentTimeMillis())
             controller.queueDiagnostic(kind, if (kind == "visit.checkIn") reason else reasonCode,
                 null, if (kind == "visit.checkOut") outcome else null, capture.wire).join()

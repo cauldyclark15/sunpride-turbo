@@ -15,6 +15,9 @@ object AuthMessages {
     fun forFailure(e: Throwable, fallback: String): String = when (e) {
         is AuthFailure -> e.kind.message
         is NativeApiFailure -> when (e.code) {
+            "device_handover_required" -> "Another phone is active for your account. Ask the office to start a controlled handover."
+            "device_integrity_blocked" -> "This phone needs an integrity review before it can record work."
+                "device_integrity_required" -> "Refresh this phone online before recording work. Update the app if the integrity check is unavailable."
             "device_unavailable" -> "This phone isn't available for your account. Ask your administrator."
             "scope_withdrawn" -> "Your assignment changed. Ask your administrator to re-register this phone."
             "device_revoked" -> "This phone was removed. Ask your administrator."

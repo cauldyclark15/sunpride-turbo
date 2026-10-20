@@ -18,6 +18,7 @@ fun endpoint(key: String): String = (providers.gradleProperty(key).orNull
 fun quoted(value: String) = "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 fun homePath(path: String) = if (path.startsWith("~/")) System.getProperty("user.home") + path.substring(1) else path
 
+val integrityProof = providers.environmentVariable("SUNPRIDE_INTEGRITY_PROOF_DIR").isPresent
 val betaBuild = endpoint("SUNPRIDE_BETA_BUILD").ifEmpty { "1" }.toIntOrNull()?.takeIf { it in 1..9999 }
     ?: error("SUNPRIDE_BETA_BUILD must be a whole number from 1 to 9999")
 // The beta signing key lives OUTSIDE the repo; this properties file (chmod 600) holds its path and password.
@@ -48,7 +49,8 @@ android {
         listOf("dev", "staging", "prod").forEach { name ->
             create(name) {
                 dimension = "environment"
-                applicationIdSuffix = ".$name"
+                // A real-backend wipe rehearsal must never share a tester's app sandbox or device key.
+                applicationIdSuffix = if (name == "dev" && integrityProof) ".integrity" else ".$name"
                 resValue("string", "app_name", "Sunpride Van (${name.replaceFirstChar { it.uppercase() }})")
                 buildConfigField("String", "API_ORIGIN", quoted(endpoint("SUNPRIDE_${name.uppercase()}_API_ORIGIN").ifEmpty { endpoint("SUNPRIDE_API_ORIGIN") }.ifEmpty { "https://sunpride.cauldnclark.com" }))
                 buildConfigField("String", "WEB_URL", quoted(endpoint("SUNPRIDE_${name.uppercase()}_WEB_URL")))
@@ -103,6 +105,13 @@ android {
     sourceSets.getByName("androidTest").assets.srcDir(
         rootProject.file("../../packages/domain-contracts/fixtures/van-v1")
     )
+    // F-312/F-024: one integrity implementation shared by both Android products.
+    sourceSets.getByName("main").java.srcDir(rootProject.file("../../packages/android-integrity/src/main/java"))
+    sourceSets.getByName("androidTest").java.srcDir(rootProject.file("../../packages/android-integrity/src/androidTest/java"))
+    // Explicit local-only throwaway proof configuration, never a tracked credential or a production asset.
+    providers.environmentVariable("SUNPRIDE_INTEGRITY_PROOF_DIR").orNull?.let {
+        sourceSets.getByName("androidTest").assets.srcDir(it)
+    }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 }
 
@@ -140,6 +149,8 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.org.json) // real org.json on the JVM; android.jar only has stubs
+    // F-007: live proof waits for real visible UI before capturing; test APK only.
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
     androidTestImplementation(libs.work.testing)
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.test.junit4)

@@ -63,7 +63,8 @@ class KeystorePhotoFiles(context: Context, private val alias: String = ALIAS) : 
         cipher.updateAAD(aad(localId))
         return cipher.doFinal(sealed, 12, sealed.size - 12)
     }
-    override fun delete(localId: String) { file(localId).delete() }
+    fun exists(localId: String): Boolean = file(localId).exists()
+    override fun delete(localId: String) { val target=file(localId); check(!target.exists() || target.delete()) }
     /** Test/diagnostic seam: the raw sealed bytes as stored on disk. */
     internal fun sealed(localId: String): ByteArray = file(localId).readBytes()
 

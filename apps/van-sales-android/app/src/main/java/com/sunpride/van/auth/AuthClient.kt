@@ -31,6 +31,7 @@ class AuthClient(
     @Synchronized fun signIn(email: String, password: String) {
         if (!environment.isReady) throw AuthFailure(AuthFailure.Kind.NOT_CONFIGURED)
         val body = JSONObject().put("version",2).put("app",RestDeviceApi.APP).put("email",email.trim()).put("password",password)
+            .put("integrity",com.sunpride.integrity.DeviceIntegrity.report())
         deviceKey()?.let { body.put("deviceKey",it) }
         val request = Request.Builder().url(environment.siteUrl.trimEnd('/')+SIGN_IN).post(body.toString().toRequestBody(JSON_MEDIA)).build()
         val o = call(request) { code, response ->
@@ -55,6 +56,7 @@ class AuthClient(
         if (!environment.isReady) throw AuthFailure(AuthFailure.Kind.NOT_CONFIGURED)
         val session = vault.readSession() ?: throw AuthFailure(AuthFailure.Kind.SESSION_EXPIRED)
         val body = JSONObject().put("version",2).put("app",RestDeviceApi.APP)
+            .put("integrity",com.sunpride.integrity.DeviceIntegrity.report())
         deviceKey()?.optString("keyId")?.let { body.put("deviceKeyId",it) }
         val request = Request.Builder().url(environment.siteUrl.trimEnd('/')+REFRESH).header("Authorization","Bearer $session")
             .post(body.toString().toRequestBody(JSON_MEDIA)).build()

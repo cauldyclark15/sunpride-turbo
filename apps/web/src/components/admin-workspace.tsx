@@ -27,6 +27,7 @@ import {
   type AssignableRole,
 } from "./people-admin";
 import { TeamsAdmin } from "./teams-admin";
+import { IntegrityFleet } from "./integrity/fleet";
 import { DevicesAdmin } from "./devices-admin";
 import { SetupHealth, SetupSearch } from "./master-data/setup-health";
 import { setSetupParam, useSetupParam } from "./master-data/location";
@@ -45,6 +46,7 @@ const tabs = [
   ["outlets", "Outlets"],
   ["assignments", "Assignments"],
   ["devices", "Phones"],
+  ["fleet", "Fleet & integrity"],
 ] as const;
 type AdminTab = (typeof tabs)[number][0];
 
@@ -81,6 +83,8 @@ export function AdminWorkspace() {
         <OutletAdmin />
       ) : activeTab === "assignments" ? (
         <OutletAssignments />
+      ) : activeTab === "fleet" ? (
+        <IntegrityFleet />
       ) : activeTab === "devices" ? (
         <DevicesAdmin />
       ) : (

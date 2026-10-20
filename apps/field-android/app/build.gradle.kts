@@ -114,6 +114,9 @@ android {
         rootProject.file("../../packages/domain-contracts/fixtures/suggested-order")
     )
     sourceSets.getByName("androidTest").assets.srcDir("schemas")
+    // F-312/F-024: one integrity implementation shared by both Android products.
+    sourceSets.getByName("main").java.srcDir(rootProject.file("../../packages/android-integrity/src/main/java"))
+    sourceSets.getByName("androidTest").java.srcDir(rootProject.file("../../packages/android-integrity/src/androidTest/java"))
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 }
 

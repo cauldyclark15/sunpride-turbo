@@ -74,7 +74,7 @@ import com.sunpride.van.data.*
     }
     Dialog(onDismissRequest = { if (!c.busy && !processing) { if (camera) camera = false else onClose() } },
         properties = DialogProperties(usePlatformDefaultWidth = false,decorFitsSystemWindows = false)) {
-        if (camera) Surface(Modifier.fillMaxSize()) { DamageCameraScreen(::captured,{ camera = false }) }
+        if (camera) Surface(Modifier.fillMaxSize()) { DamageCameraScreen(::captured,{ camera = false },requireLocation = !(com.sunpride.van.BuildConfig.DEBUG && c.fixtureMode)) }
         else Surface(Modifier.fillMaxWidth().safeDrawingPadding().padding(16.dp).imePadding().heightIn(max = 560.dp),shape = SunprideTokens.shapes.large) {
             Column(Modifier.padding(16.dp),verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Record damage",style = MaterialTheme.typography.titleLarge)
