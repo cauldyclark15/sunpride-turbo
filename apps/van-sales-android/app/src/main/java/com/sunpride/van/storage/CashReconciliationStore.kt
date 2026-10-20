@@ -58,7 +58,7 @@ class CashReconciliationStore(private val store: RoomVanStore) {
     suspend fun summary(): CashSummary? = db.withTransaction {
         val t = dao.trip(s, d) ?: return@withTransaction null
         val saved = dao.cashReconciliation(s, d, t.tripId)
-        CashSummary(t.tripId, t.tripNumber, dao.meta(s, d)?.held == false && countable(t) && saved == null,
+        CashSummary(t.tripId, t.tripNumber, store.canSync() && countable(t) && saved == null,
             CashReconciliationRules.expectation(payments(t.tripId)), saved?.result(t.tripNumber, false))
     }
 
@@ -68,7 +68,7 @@ class CashReconciliationStore(private val store: RoomVanStore) {
      * The same [CashCountRequest.reconciliationId] with the same count returns the saved count.
      */
     suspend fun commit(request: CashCountRequest): CashCountResult = db.withTransaction {
-        if (dao.meta(s, d)?.held != false) throw CashRefused(CashProblem.HELD)
+        if (!store.canSync()) throw CashRefused(CashProblem.HELD)
         val t = dao.trip(s, d) ?: throw CashRefused(CashProblem.NOT_ON_ROUTE)
         dao.cashReconciliation(s, d, t.tripId)?.let { prior ->
             if (prior.reconciliationId == request.reconciliationId && countsOf(prior.countsJson) == request.counts.filterValues { it != 0L } &&
@@ -106,7 +106,7 @@ class CashReconciliationStore(private val store: RoomVanStore) {
             .apply { authorized.reasonCode?.let { put("reasonCode", it) } }
             .apply { authorized.note?.let { put("note", it) } }
         val op = JSONObject().put("kind", CASH_RECONCILE_KIND).put("clientRequestId", key).put("payload", payload).toString()
-        dao.insertOutbox(OutboxRow(s, d, key, t.tripId, CASH_RECONCILE_KIND, op, at, null, SALE_PARKED))
+        dao.insertOutbox(OutboxRow(s, d, key, t.tripId, CASH_RECONCILE_KIND, op, at, null, store.capturedStatus))
         row.result(t.tripNumber, false)
     }
 

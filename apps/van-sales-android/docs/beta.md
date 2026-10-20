@@ -52,7 +52,7 @@ Then, from the repo root:
 SUNPRIDE_BETA_BUILD=1 bun run apk:van-beta
 ```
 
-- Endpoints come from `SUNPRIDE_BETA_CONVEX_SITE_URL` / `SUNPRIDE_BETA_CONVEX_URL` (environment, Gradle property or `apps/van-sales-android/local.properties`). When either is empty the build prints `WARNING: SUNPRIDE_BETA_… is not set; the van beta build uses the DEV value.` and uses the DEV endpoint.
+- The server comes from `SUNPRIDE_API_ORIGIN` (environment, Gradle property or `apps/van-sales-android/local.properties`); it defaults to `https://sunpride.cauldnclark.com`.
 - `SUNPRIDE_BETA_WEB_URL` turns on Report an issue.
 - App name **Sunpride Van Sales (Beta)**, package `com.sunpride.van.beta` (installs beside the DEV app), versionName `1.0.0-beta.N`, versionCode `N` (raise N for every new APK so phones update in place).
 - The script refuses a missing key file, a key file that is not chmod 600, a debug-signed APK or a debuggable APK; it verifies the signature with `apksigner` and copies the APK plus a `.sha256` to `~/cnc/_releases/sunpride/van-beta/<version>/sunpride-van-<version>.apk`.

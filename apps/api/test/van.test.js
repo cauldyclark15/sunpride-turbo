@@ -18,6 +18,8 @@ import {
 } from "../src/domains/van/approvals.js";
 import { tripDetail } from "../src/domains/van/queries.js";
 import { canClaimMedia } from "../src/domains/van/media.js";
+const { soldLotLines, truckLot } =
+  await import("../src/domains/van/operations.js");
 
 /** @type {any[]} */ const postings = [];
 mock.module("../src/domains/inventory/posting.js", () => ({
@@ -894,4 +896,73 @@ test("after-commit van refresh is durable and coalesced", async () => {
   expect(pending.n).toBe(1);
   expect(await runDueJobs(h.db)).toBe(1);
   expect(refreshes).toEqual([{ kind: "van", date: today(), unitId: unit }]);
+});
+
+test("linked return and void put goods back under the lots the sale took (latest first); untracked keeps one line", async () => {
+  const saleId = crypto.randomUUID(),
+    movementId = crypto.randomUUID(),
+    lotA = crypto.randomUUID(),
+    lotB = crypto.randomUUID(),
+    t = { truck_location_id: truck };
+  await h.db`insert into inventory_movements(id,organization_id,movement_number,movement_type,source_type,source_document_id,status,effective_at,posted_at,posted_by,idempotency_key,schema_version)
+    values(${movementId},'sunpride',${movementId},'pos_sale','van_sale',${saleId},'posted',now(),now(),'fixture',${movementId},2)`;
+  const lineId = crypto.randomUUID();
+  await h.db`insert into inventory_movement_lines(id,organization_id,movement_id,line_number,product_id,quantity_base,from_location_id,effective_at)
+    values(${lineId},'sunpride',${movementId},1,${product},5,${truck},now())`;
+  for (const [lot, qty, seq, code] of [
+    [lotA, 3, 1, "LOT-A"],
+    [lotB, 2, 2, "LOT-B"],
+  ]) {
+    await h.db`insert into inventory_lots(id,organization_id,product_id,lot_number,normalized_lot_number,source_type,received_at,quality_status)
+      values(${lot},'sunpride',${product},${code},${code},'fixture',now(),'released')`;
+    await h.db`insert into inventory_allocations(organization_id,movement_id,movement_line_id,product_id,lot_id,quantity_base,from_location_id,to_location_id,from_stock_status,allocation_sequence,allocation_policy,user_selected,effective_at)
+      values('sunpride',${movementId},${lineId},${product},${lot},${qty},${truck},null,'available',${seq},'fefo',false,now())`;
+  }
+  const facts = { productId: product, uomCode: "PC" };
+  const lines = await soldLotLines(h.db, t, saleId, facts, 4n, "damaged");
+  expect(
+    lines.map((l) => [
+      l.lotId,
+      l.quantityBase,
+      l.stockStatus,
+      l.fromLocationId,
+      l.toLocationId,
+    ]),
+  ).toEqual([
+    [lotB, 2n, "damaged", null, truck],
+    [lotA, 2n, "damaged", null, truck],
+  ]);
+  await expect(
+    soldLotLines(h.db, t, saleId, facts, 6n, "available"),
+  ).rejects.toThrow("Returned quantity exceeds the sold lots");
+  const untracked = await soldLotLines(
+    h.db,
+    t,
+    crypto.randomUUID(),
+    facts,
+    2n,
+    "available",
+  );
+  expect(untracked).toHaveLength(1);
+  expect(untracked[0].lotId).toBeNull();
+});
+
+test("a counted overage is booked to a lot the product already holds on the truck (same status first)", async () => {
+  const other = crypto.randomUUID(),
+    t = { truck_location_id: truck };
+  expect(await truckLot(h.db, t, other, "damaged")).toBeNull();
+  const lots = [];
+  for (const [code, status, qty] of [
+    ["CNT-AV", "available", 5],
+    ["CNT-DM", "damaged", 1],
+  ]) {
+    const [lot] =
+      await h.db`insert into inventory_lots(organization_id,product_id,lot_number,normalized_lot_number,source_type,received_at,quality_status)
+        values('sunpride',${product},${code},${code},'fixture',now(),'released') returning id`;
+    await h.db`insert into inventory_lot_balances(organization_id,product_id,lot_id,location_id,stock_status,physical_base,reserved_base,available_base,expiry_sort_key,receipt_sequence,version)
+      values('sunpride',${product},${lot.id},${truck},${status},${qty},0,${qty},0,1,1)`;
+    lots.push(lot.id);
+  }
+  expect(await truckLot(h.db, t, product, "damaged")).toBe(lots[1]);
+  expect(await truckLot(h.db, t, product, "available")).toBe(lots[0]);
 });

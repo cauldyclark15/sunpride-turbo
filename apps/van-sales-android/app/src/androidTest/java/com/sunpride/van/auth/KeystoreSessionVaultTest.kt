@@ -51,7 +51,7 @@ class KeystoreSessionVaultTest {
         vault.saveSession(fakeToken)
         val raw = vault.rawStoredValue()!!
         val flipped = (if (raw[20] == 'A') 'B' else 'A').let { raw.substring(0, 20) + it + raw.substring(21) }
-        context.getSharedPreferences(prefs, Context.MODE_PRIVATE).edit(commit = true) { putString("session.v1", flipped) }
+        context.getSharedPreferences(prefs, Context.MODE_PRIVATE).edit(commit = true) { putString("session.v2", flipped) }
         assertNull(vault.readSession())
         assertNull(vault.rawStoredValue())
     }

@@ -51,7 +51,7 @@ data class LocationPingRow(val fullAuthSubject: String, val deviceId: String, va
 data class AckRow(val fullAuthSubject: String, val deviceId: String, val clientRequestId: String, val entityId: String, val movementId: String?, val serverTime: Long)
 
 @Entity(tableName = "sync_meta", primaryKeys = ["fullAuthSubject", "deviceId"])
-data class SyncMetaRow(val fullAuthSubject: String, val deviceId: String, val lastBootstrapTime: Long? = null, val lastSyncTime: Long? = null, val health: String = "never_synced", val serviceDate: String? = null, val policyJson: String? = null, val held: Boolean = false, val sellerJson: String? = null)
+data class SyncMetaRow(val fullAuthSubject: String, val deviceId: String, val lastBootstrapTime: Long? = null, val lastSyncTime: Long? = null, val health: String = "never_synced", val serviceDate: String? = null, val policyJson: String? = null, val held: Boolean = false, val sellerJson: String? = null, val cursor: String? = null, val scopeFingerprint: String? = null, val authorizationEpoch: String? = null, val leaseExpiresAt: Long? = null, val cacheExpiresAt: Long? = null)
 
 @Entity(tableName = "sequence_counter", primaryKeys = ["fullAuthSubject", "deviceId", "tripId"])
 data class SequenceCounterRow(val fullAuthSubject: String, val deviceId: String, val tripId: String, val lastSequence: Long)
@@ -157,6 +157,7 @@ interface VanDao {
     @Query("SELECT * FROM outbox WHERE fullAuthSubject=:subject AND deviceId=:device") fun observeOutbox(subject: String, device: String): Flow<List<OutboxRow>>
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertAck(row: AckRow)
     @Query("SELECT * FROM ack WHERE fullAuthSubject=:subject AND deviceId=:device") suspend fun ackRows(subject: String, device: String): List<AckRow>
+    @Query("UPDATE sync_meta SET held=1, health='held_for_review' WHERE fullAuthSubject<>:subject OR deviceId<>:device") suspend fun holdOtherScopes(subject: String, device: String)
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertSyncMeta(row: SyncMetaRow)
     @Query("SELECT * FROM sync_meta WHERE fullAuthSubject=:subject AND deviceId=:device") suspend fun syncmetaRows(subject: String, device: String): List<SyncMetaRow>
     @Query("SELECT * FROM sync_meta WHERE fullAuthSubject=:subject AND deviceId=:device") fun observeSyncMeta(subject: String, device: String): Flow<List<SyncMetaRow>>
@@ -222,12 +223,24 @@ interface VanDao {
 }
 
 @Database(entities = [TripRow::class,LoadLineRow::class,ProductRow::class,CustomerRow::class,BaselineRow::class,MovementRow::class,SettlementRow::class,OutboxRow::class,AckRow::class,SyncMetaRow::class,SequenceCounterRow::class,TransactionIdRow::class,SaleRow::class,SaleLineRow::class,PaymentRow::class,CustomerReturnRow::class,ReturnLineRow::class,ReconciliationRow::class,PriceListLineRow::class,PromotionRow::class,
-    ReceiptPrintRow::class,SaleReceiptRow::class,SaleVoidRow::class,CashReconciliationRow::class,StockReconciliationRow::class,TripCloseRow::class,LocationPingRow::class], version = 9, exportSchema = true)
+    ReceiptPrintRow::class,SaleReceiptRow::class,SaleVoidRow::class,CashReconciliationRow::class,StockReconciliationRow::class,TripCloseRow::class,LocationPingRow::class], version = 10, exportSchema = true)
 abstract class VanDatabase : RoomDatabase() {
     abstract fun rows(): VanDao
     /** VAN-017 receipt print history (v3). */
     abstract fun receiptPrints(): ReceiptPrintDao
     companion object {
+        val MIGRATION_9_10 = object : androidx.room.migration.Migration(9,10) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE sync_meta ADD COLUMN cursor TEXT")
+                db.execSQL("ALTER TABLE sync_meta ADD COLUMN scopeFingerprint TEXT")
+                db.execSQL("ALTER TABLE sync_meta ADD COLUMN authorizationEpoch TEXT")
+                db.execSQL("ALTER TABLE sync_meta ADD COLUMN leaseExpiresAt INTEGER")
+                db.execSQL("ALTER TABLE sync_meta ADD COLUMN cacheExpiresAt INTEGER")
+                // Legacy migration: never adopt pre-v2 evidence or cache into the fresh server's authority.
+                db.execSQL("UPDATE sync_meta SET held=1, health='held_for_review'")
+            }
+        }
+
         /** VAN-022: one new append-only table for the end-of-trip cash count; no existing row changes. */
         val MIGRATION_5_6 = object : androidx.room.migration.Migration(5,6) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {

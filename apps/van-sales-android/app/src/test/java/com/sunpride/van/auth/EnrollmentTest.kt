@@ -17,7 +17,7 @@ class EnrollmentTest {
         val calls = mutableListOf<String>()
         var lookedUpKey: String? = null
         var bindArgs: List<Any?>? = null
-        var bindError: ConvexFunctionError? = null
+        var bindError: NativeApiFailure? = null
         val serverNow = 1_780_000_000_000L
         override fun mine(publicKey: String): DeviceRecord? { calls += "mine"; lookedUpKey = publicKey; return record }
         override fun challenge(deviceId: String): Pair<String, Long> {
@@ -44,7 +44,7 @@ class EnrollmentTest {
     }
 
     @Test fun boundActiveIsReadyAndPersistsDeviceId() {
-        val api = FakeApi(DeviceRecord("dev1", "active", true, "VAN_ANDROID"))
+        val api = FakeApi(DeviceRecord("dev1", "active", true, "van-android"))
         assertEquals(EnrollmentState.Ready("dev1"), enrollment(api).refresh())
         assertEquals(listOf("mine"), api.calls)
         assertEquals("dev1", vault.deviceId)
@@ -52,7 +52,7 @@ class EnrollmentTest {
 
     @Test fun revokedOrSuspendedStops() {
         for (status in listOf("revoked", "suspended")) {
-            val api = FakeApi(DeviceRecord("dev1", status, true, "VAN_ANDROID"))
+            val api = FakeApi(DeviceRecord("dev1", status, true, "van-android"))
             vault.deviceId = "dev1"
             assertEquals(EnrollmentState.Removed, enrollment(api).refresh())
             assertEquals(listOf("mine"), api.calls)
@@ -61,7 +61,7 @@ class EnrollmentTest {
     }
 
     @Test fun registeredUnboundChallengesSignsBindsAndReadsBack() {
-        val api = FakeApi(DeviceRecord("dev1", "active", false, "VAN_ANDROID"))
+        val api = FakeApi(DeviceRecord("dev1", "active", false, "van-android"))
         assertEquals(EnrollmentState.Ready("dev1"), enrollment(api).refresh())
         assertEquals(listOf("mine", "challenge", "bind", "mine"), api.calls)
         val (deviceId, credential, format, keyId, nonce, timestamp, proof) = api.bindArgs!!.let {
@@ -77,8 +77,8 @@ class EnrollmentTest {
     }
 
     @Test fun alreadyBoundRaceIsResolvedByReadBack() {
-        val api = FakeApi(DeviceRecord("dev1", "active", false, "VAN_ANDROID"))
-        api.bindError = ConvexFunctionError("Device already bound or missing key")
+        val api = FakeApi(DeviceRecord("dev1", "active", false, "van-android"))
+        api.bindError = NativeApiFailure("already_bound",409)
         val wrapped = object : DeviceApi by api {
             override fun bind(deviceId: String, credentialId: String, attestationFormat: String, keyId: String?,
                               nonce: String, timestamp: Long, proof: String) {
@@ -90,16 +90,16 @@ class EnrollmentTest {
     }
 
     @Test fun bindRejectionPropagatesAndDoesNotMarkReady() {
-        val api = FakeApi(DeviceRecord("dev1", "active", false, "VAN_ANDROID"))
-        api.bindError = ConvexFunctionError("Invalid device proof")
+        val api = FakeApi(DeviceRecord("dev1", "active", false, "van-android"))
+        api.bindError = NativeApiFailure("device_proof_invalid",401)
         vault.deviceId = null
-        assertThrows(ConvexFunctionError::class.java) { enrollment(api).refresh() }
+        assertThrows(NativeApiFailure::class.java) { enrollment(api).refresh() }
         assertNull(vault.deviceId)
     }
 
     @Test fun bindThatDoesNotStickIsAServerError() {
         val api = object : DeviceApi {
-            override fun mine(publicKey: String) = DeviceRecord("dev1", "active", false, "VAN_ANDROID")
+            override fun mine(publicKey: String) = DeviceRecord("dev1", "active", false, "van-android")
             override fun challenge(deviceId: String) = "10000000-0000-4000-8000-00000000000b" to 1L
             override fun bind(deviceId: String, credentialId: String, attestationFormat: String, keyId: String?,
                               nonce: String, timestamp: Long, proof: String) = Unit

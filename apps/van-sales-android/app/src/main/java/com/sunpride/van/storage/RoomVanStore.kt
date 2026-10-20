@@ -35,8 +35,15 @@ private fun CustomerRow.toCustomer() = Customer(outletId,code,name,address,seque
 class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private val clock: () -> Long = System::currentTimeMillis,
     val evidence: com.sunpride.van.evidence.DamageEvidence? = null) : com.sunpride.van.sync.VanSyncStore {
     private val dao = db.rows()
+    override fun authorizationEpoch(): Long = authorityEpochs.getOrPut(scope) { java.util.concurrent.atomic.AtomicLong() }.get()
+    companion object {
+        private val authorityEpochs = java.util.concurrent.ConcurrentHashMap<StoreScope,java.util.concurrent.atomic.AtomicLong>()
+        private val deniedScopes = java.util.concurrent.ConcurrentHashMap.newKeySet<StoreScope>()
+        internal fun isDenied(scope: StoreScope): Boolean = scope in deniedScopes
+    }
     private val s = scope.fullAuthSubject
     private val d = scope.deviceId
+    internal val capturedStatus: String get() = if (s.startsWith("v2|")) "pending" else SALE_PARKED
     val trip: Flow<Trip?> = combine(dao.observeTrip(s,d),dao.observeOutbox(s,d)) { rows, ops ->
         rows.singleOrNull()?.let { r -> VanBootstrapCodec.trip(JSONObject(r.json)).copy(startPending = ops.any { it.tripId == r.tripId && it.kind == "trip.start" && it.status in setOf("pending","sending") }) }
     }
@@ -62,7 +69,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
     val promotions: Flow<List<Promotion>> = dao.observePromotion(s,d).map { rows -> rows.map { VanBootstrapCodec.promotion(JSONObject(it.json)) } }
     val customers: Flow<List<Customer>> = dao.observeCustomer(s,d).let { flow -> flow.map { rows -> rows.sortedWith(compareBy<CustomerRow> { it.sequence ?: Int.MAX_VALUE }.thenBy { it.name }).map { it.toCustomer() } } }
     val syncStatus: Flow<SyncStatus> = combine(dao.observeOutbox(s,d),dao.observeSyncMeta(s,d)) { ops, metas ->
-        val m = metas.singleOrNull(); val held = m?.held == true
+        val m = metas.singleOrNull(); val held = isDenied(scope) || m != null && !m.authorizes(clock())
         SyncStatus(if (held) 0 else ops.count { it.status == "pending" },if (held) 0 else ops.count { it.status == "sending" },
             ops.count { it.status in setOf("rejected","conflict") },if (held) ops.count { it.status in setOf("pending","sending") } else 0,m?.lastSyncTime,m?.health ?: "never_synced",
             ops.count { it.status == SALE_PARKED && it.kind == SALE_KIND },ops.count { it.status == SALE_PARKED && it.kind == RETURN_KIND },
@@ -90,6 +97,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         return StockProjection.project(dao.truckstockbaselineRows(s,d).filter { it.tripId == tripId },dao.stockmovementRows(s,d).filter { it.tripId == tripId },dao.movementsettlementRows(s,d).map { it.movementId }.toSet())
     }
     suspend fun canRemove(productId: String, qty: Long): Boolean = db.withTransaction {
+        if (!canSync()) return@withTransaction false
         val p = dao.meta(s,d)?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)) } ?: return@withTransaction false
         val trip = dao.trip(s,d) ?: return@withTransaction false
         if (dao.stockReconciliation(s,d,trip.tripId) != null || dao.tripClose(s,d,trip.tripId) != null) return@withTransaction false
@@ -98,7 +106,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
     /** The store's clock, for work saved through companion stores (VAN-019 returns). */
     internal fun now(): Long = clock()
     private suspend fun writable(): TripRow {
-        check(dao.meta(s,d)?.held == false) { "Partition held or not bootstrapped" }
+        check(canSync()) { "Partition held or not bootstrapped" }
         return checkNotNull(dao.trip(s,d)) { "No trip assigned" }
     }
     private fun text(value: String?, max: Int): String? = value?.trim()?.takeIf { it.isNotEmpty() }?.also { require(it.length <= max && it.none(Char::isISOControl)) }
@@ -196,7 +204,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         val t = dao.trip(s,d); val meta = dao.meta(s,d); val facts = paymentFacts()
         val counted = t != null && dao.cashReconciliation(s,d,t.tripId) != null
         val stockCounted = t != null && dao.stockReconciliation(s,d,t.tripId) != null
-        return CheckoutContext(t != null && meta?.held == false && selling(t),
+        return CheckoutContext(t != null && canSync() && selling(t),
             dao.customerRows(s,d).map { it.toCustomer() },
             dao.productRows(s,d).map { VanBootstrapCodec.product(JSONObject(it.json)) }, stock(),
             dao.pricelistlineRows(s,d).map { PriceLine(it.priceListId,it.productId,it.uomCode,it.unitPriceMinor,it.currency,it.effectiveFrom,it.effectiveTo,it.priceListCode) },
@@ -272,7 +280,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
                 .apply { pay.dueDate?.let { put("dueDate",it) } })
             .put("deviceTime",context.now)
         val op = JSONObject().put("kind",SALE_KIND).put("clientRequestId",id.idempotencyKey).put("payload",payload).toString()
-        dao.insertOutbox(OutboxRow(s,d,id.idempotencyKey,t.tripId,SALE_KIND,op,at,null,SALE_PARKED))
+        dao.insertOutbox(OutboxRow(s,d,id.idempotencyKey,t.tripId,SALE_KIND,op,at,null,capturedStatus))
         val receipt = SaleReceipt(request.saleId,id.receiptNumber,customer.name,quote.lines.map { receiptLine(it) },
             quote.currency,quote.totalMinor,quote.tenderedMinor,quote.changeMinor,at,false,pay.method.code,pay.method.label,pay.method.kind,
             pay.state.wire,pay.reference,pay.dueDate)
@@ -282,7 +290,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
     }
     /** The original sale, payment, deductions and receipt stay intact. Only compensating facts are appended. */
     suspend fun voidSale(saleId: String, reasonCode: String?, note: String?, approvalCode: String?): SaleVoidResult = db.withTransaction {
-        if (dao.meta(s,d)?.held != false) throw VoidRefused(VoidProblem.HELD)
+        if (!canSync()) throw VoidRefused(VoidProblem.HELD)
         val sale = dao.saleRows(s,d).singleOrNull { it.saleId == saleId } ?: throw VoidRefused(VoidProblem.SALE_NOT_FOUND)
         if (dao.trip(s,d)?.tripId != sale.tripId) throw VoidRefused(VoidProblem.NOT_THIS_TRIP)
         if (dao.tripClose(s,d,sale.tripId) != null && dao.saleVoid(s,d,saleId) == null) throw VoidRefused(VoidProblem.TRIP_CLOSED)
@@ -317,7 +325,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
                 .apply { authorized.code?.let { put("code",it) } }).put("deviceTime",at)
             .apply { authorized.note?.let { put("note",it) } }
         val op = JSONObject().put("kind",SALE_VOID_KIND).put("clientRequestId",voidKey).put("payload",payload).toString()
-        dao.insertOutbox(OutboxRow(s,d,voidKey,sale.tripId,SALE_VOID_KIND,op,at,null,SALE_PARKED))
+        dao.insertOutbox(OutboxRow(s,d,voidKey,sale.tripId,SALE_VOID_KIND,op,at,null,capturedStatus))
         check(saleStockIssues(saleId).isEmpty()) { "Sale void and truck stock disagree" }
         row.result(sale.receiptNumber,false)
     }
@@ -423,7 +431,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
 
     override suspend fun pending(excluding: Set<String>): List<OutboxRow> = if (!canSync()) emptyList() else
         dao.outboxRows(s,d).filter { it.status == "pending" && it.clientRequestId !in excluding }.sortedWith(compareBy<OutboxRow> { it.createdAt }.thenBy { it.clientRequestId }).take(20)
-    override suspend fun canSync(): Boolean = dao.meta(s,d)?.held == false
+    override suspend fun canSync(): Boolean = !isDenied(scope) && dao.meta(s,d)?.authorizes(clock()) == true
     /** SP-0137 live-location pings of this scope. */
     val locations = LocationPingStore(db,scope,clock)
     override suspend fun pendingPings(): List<LocationPingRow> = locations.pending()
@@ -441,7 +449,11 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
     }
     override suspend fun resetSending() = dao.resetSending(s,d)
     override suspend fun markSending(ids: List<String>) = dao.markSending(s,d,ids)
-    override suspend fun hold() = db.withTransaction { val m = dao.meta(s,d) ?: SyncMetaRow(s,d); dao.insertSyncMeta(m.copy(held=true,health="held_for_review")); dao.resetSending(s,d) }
+    override suspend fun hold() {
+        deniedScopes.add(scope)
+        authorityEpochs.getOrPut(scope) { java.util.concurrent.atomic.AtomicLong() }.incrementAndGet()
+        db.withTransaction { val m = dao.meta(s,d) ?: SyncMetaRow(s,d); dao.insertSyncMeta(m.copy(held=true,health="held_for_review")); dao.resetSending(s,d) }
+    }
     override suspend fun setHealth(health: String, successTime: Long?) = db.withTransaction {
         val m = dao.meta(s,d) ?: SyncMetaRow(s,d)
         dao.insertSyncMeta(m.copy(health=health,lastSyncTime=successTime ?: m.lastSyncTime))
@@ -491,6 +503,11 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
     }
     override suspend fun replaceBootstrap(text: String): VanBootstrap = db.withTransaction {
         val b = VanBootstrapCodec.decode(text); val o = JSONObject(text)
+        val grant = o.optJSONObject("_v2")
+        if (s.startsWith("v2|")) {
+            check(grant != null && grant.getString("subject") == s && grant.getLong("leaseExpiresAt") > clock())
+            dao.holdOtherScopes(s,d)
+        }
         val previous = dao.meta(s,d)
         check(previous?.lastBootstrapTime == null || b.serverTime >= previous.lastBootstrapTime) { "Stale bootstrap" }
         dao.clearTrip(s,d); dao.clearLoadLine(s,d); dao.clearProduct(s,d); dao.clearServerCustomers(s,d); dao.clearBaseline(s,d)
@@ -523,7 +540,9 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
             if (ack != null && b.serverTime > ack.serverTime) recordPostedLoad(op,b.serverTime,settled=true,serverLines=b.load.lines)
         }
         settle(b.trip?.tripId,b.serverTime)
-        dao.insertSyncMeta(SyncMetaRow(s,d,b.serverTime,previous?.lastSyncTime,"bootstrap_ready",b.serviceDate,o.getJSONObject("policy").toString(),false,o.getJSONObject("seller").toString()))
+        dao.insertSyncMeta(SyncMetaRow(s,d,b.serverTime,previous?.lastSyncTime,"bootstrap_ready",b.serviceDate,o.getJSONObject("policy").toString(),false,o.getJSONObject("seller").toString(),
+            grant?.getString("cursor"),grant?.getString("scopeFingerprint"),grant?.getString("epoch"),grant?.getLong("leaseExpiresAt"),grant?.getLong("cacheExpiresAt")))
+        deniedScopes.remove(scope)
         b
     }
 }

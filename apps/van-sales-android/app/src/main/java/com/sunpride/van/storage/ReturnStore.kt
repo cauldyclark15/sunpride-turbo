@@ -28,7 +28,7 @@ class ReturnStore(private val store: RoomVanStore) {
 
     private suspend fun tripOpen(): Boolean {
         val t = dao.trip(s, d) ?: return false
-        if (dao.meta(s, d)?.held != false) return false
+        if (!store.canSync()) return false
         if (dao.stockReconciliation(s, d, t.tripId) != null || dao.tripClose(s, d, t.tripId) != null) return false
         return t.status == "active" || dao.outboxRows(s, d).any { it.tripId == t.tripId && it.kind == "trip.start" && it.status in setOf("pending", "sending", "done") }
     }
@@ -115,7 +115,7 @@ class ReturnStore(private val store: RoomVanStore) {
         quote.sale?.let { payload.put("originalSale", JSONObject().put("saleId", it.saleId).put("receiptNumber", it.receiptNumber)) }
         quote.note?.let { payload.put("note", it) }
         val op = JSONObject().put("kind", RETURN_KIND).put("clientRequestId", id.idempotencyKey).put("payload", payload).toString()
-        dao.insertOutbox(OutboxRow(s, d, id.idempotencyKey, t.tripId, RETURN_KIND, op, at, null, SALE_PARKED))
+        dao.insertOutbox(OutboxRow(s, d, id.idempotencyKey, t.tripId, RETURN_KIND, op, at, null, store.capturedStatus))
         ReturnReceipt(request.returnId, id.receiptNumber, customer.name, quote.sale?.receiptNumber, quote.lines, quote.approvalReasons, status, at)
     }
 

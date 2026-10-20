@@ -8,7 +8,7 @@ import java.util.Base64
 class InvalidSignatureEncoding(reason: String) : IllegalArgumentException(reason)
 
 /**
- * JCA `SHA256withECDSA` emits ASN.1 DER `SEQUENCE { INTEGER r, INTEGER s }`; the Convex verifier
+ * JCA `SHA256withECDSA` emits ASN.1 DER `SEQUENCE { INTEGER r, INTEGER s }`; the server verifier
  * (WebCrypto) accepts only IEEE P1363 `r || s`, each left-padded to 32 bytes. Parsing is strict:
  * short-form lengths only, positive minimal INTEGERs, 1 <= r,s < n, no trailing bytes.
  */

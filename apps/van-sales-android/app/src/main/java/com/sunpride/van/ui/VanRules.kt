@@ -26,6 +26,8 @@ object VanRules {
             "loaded" -> "Loaded — ready to start"
             "active" -> "On route"
             "closing" -> "Closing…"
+            "reconciling" -> "Cash counted — hand it to the cashier"
+            "review_required" -> "Supervisor is reviewing this trip"
             "closed" -> "Trip closed"
             "cancelled" -> "Trip cancelled"
             else -> "Check with your supervisor"
@@ -41,7 +43,8 @@ object VanRules {
     /** An odometer reading in km without trailing zeros ("12345.6"). */
     fun km(value: Double): String = BigDecimal(value.toString()).stripTrailingZeros().toPlainString()
     fun reasonRequired(expected: Long, actual: Long?): Boolean = actual != null && actual != expected
-    fun canStart(trip: Trip?, truck: Boolean, route: Boolean): Boolean = trip?.status == "loaded" && !trip.startPending && truck && route && trip.vehicle != null && trip.route != null
+    fun canStart(trip: Trip?, truck: Boolean, route: Boolean): Boolean = trip?.status == "loaded" && !trip.startPending && truck && route && trip.vehicle != null
+    // The server allows a trip without a route; the seller still confirms "Route not assigned".
     fun canConfirm(trip: Trip?, load: Load?): Boolean = trip?.status == "loading" && load?.status == "planned" && !load.confirmPending
     fun reasonLabel(code: String): String = when (code) {
         "short_loaded" -> "Short loaded"
@@ -235,7 +238,7 @@ object VanRules {
         is com.sunpride.van.printing.PrintJobResult.Printed ->
             if (result.attempt.kind == com.sunpride.van.printing.PrintKind.REPRINT) "Reprint copy ${result.attempt.copyNumber} printed. It is marked REPRINT."
             else if (result.attempt.kind == com.sunpride.van.printing.PrintKind.VOID) "Void slip printed. The sale is cancelled."
-            else "Receipt printed. Tear it off for the customer."
+            else "Receipt sent to the printer. Tear it off for the customer. No paper? Load paper, then use Reprint."
         is com.sunpride.van.printing.PrintJobResult.Failed -> when {
             result.attempt == null -> "Printer not ready: ${com.sunpride.van.printing.PrinterWords.status(result.status)}. The sale is saved. Check the printer, then print again."
             result.mayHavePrinted && result.attempt.kind == com.sunpride.van.printing.PrintKind.VOID -> "The printer stopped during the void slip. Check the paper. Use Reprint void slip for another copy."

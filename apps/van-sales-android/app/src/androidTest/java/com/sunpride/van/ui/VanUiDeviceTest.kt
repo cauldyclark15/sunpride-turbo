@@ -385,7 +385,7 @@ class VanUiDeviceTest {
         // Saved first, then the original prints automatically, once.
         rule.waitUntil(10_000) { c.page == Page.SALE_DONE && !c.printing && printer.documents.size == 1 && c.savedSales.isNotEmpty() }
         assertFalse(printer.documents.single().isReprint)
-        rule.onNodeWithTag("print-status",useUnmergedTree = true).performScrollTo().assertTextEquals("Receipt printed. Tear it off for the customer.")
+        rule.onNodeWithTag("print-status",useUnmergedTree = true).performScrollTo().assertTextEquals("Receipt sent to the printer. Tear it off for the customer. No paper? Load paper, then use Reprint.")
         captureVanScreenshot(rule,"33-sale-printed","sale-done")
         rule.onNodeWithTag("sale-reprint").performScrollTo().performClick()
         rule.onNodeWithTag("confirm-reprint").assertIsNotEnabled()
@@ -404,7 +404,7 @@ class VanUiDeviceTest {
         rule.onNodeWithTag("sale-done").performClick()
         rule.onNodeWithTag("open-receipts").performScrollTo().performClick()
         rule.waitUntil(10_000) { c.savedSales.size == 1 }
-        rule.onNodeWithTag("receipt-0-state",useUnmergedTree = true).assertTextEquals("Printed · reprinted 1× · 2 reprints left")
+        rule.onNodeWithTag("receipt-0-state",useUnmergedTree = true).assertTextEquals("Sent to printer · reprinted 1× · 2 reprints left")
         captureVanScreenshot(rule,"35-receipts")
         // Printer reports no paper: refused before anything is recorded or printed.
         printer.paper = com.sunpride.van.printing.PaperState.OUT
@@ -413,7 +413,7 @@ class VanUiDeviceTest {
         rule.onNodeWithTag("confirm-reprint").performClick()
         rule.waitUntil(10_000) { !c.printing && c.printMessage == "The printer is out of paper. Load paper, then print again." }
         assertEquals(2,printer.documents.size)
-        rule.onNodeWithTag("receipt-0-state",useUnmergedTree = true).assertTextEquals("Printed · reprinted 1× · 2 reprints left")
+        rule.onNodeWithTag("receipt-0-state",useUnmergedTree = true).assertTextEquals("Sent to printer · reprinted 1× · 2 reprints left")
     }
     // SP-0125 password eye: hidden by default, accessible label, re-hidden when the app is left or the form is sent.
     @Test fun passwordEyeShowsAndHidesAndReHidesWhenTheAppIsLeft() {

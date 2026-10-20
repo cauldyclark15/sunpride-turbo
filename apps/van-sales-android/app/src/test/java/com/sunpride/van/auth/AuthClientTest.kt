@@ -1,206 +1,108 @@
 package com.sunpride.van.auth
 
 import com.sunpride.van.AppEnvironment
-import okhttp3.mockwebserver.MockResponse
-import okhttp3.mockwebserver.MockWebServer
-import okhttp3.mockwebserver.SocketPolicy
+import okhttp3.mockwebserver.*
 import org.json.JSONObject
-import org.junit.After
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Assert.fail
-import org.junit.Before
-import org.junit.Test
-import java.util.Base64
+import org.junit.*
+import org.junit.Assert.*
 import java.util.concurrent.TimeUnit
 
-/** Fake credentials and tokens only; nothing here is a real account or secret. */
+/** All tokens and credentials here are invented test values. */
 class AuthClientTest {
     private lateinit var server: MockWebServer
-    private lateinit var env: AppEnvironment
     private val vault = InMemorySessionVault()
     private var now = 1_780_000_000_000L
     private lateinit var auth: AuthClient
-
     @Before fun setUp() {
         server = MockWebServer().apply { start() }
-        val origin = "http://localhost:${server.port}"
-        env = AppEnvironment(origin, origin)
-        auth = AuthClient(env, vault, clock = { now })
+        auth = AuthClient(AppEnvironment("http://localhost:${server.port}"),vault,clock={now},deviceKey={JSONObject().put("keyId","test-key").put("publicKeySpki","test-spki")})
     }
     @After fun tearDown() { server.shutdown() }
-
-    private fun take() = server.takeRequest(1, TimeUnit.SECONDS)!!
-
-    @Test fun signInPostsJsonWithoutOriginAndStoresSetAuthToken() {
-        server.enqueue(MockResponse().setResponseCode(200).setHeader("set-auth-token", "fake-session-1")
-            .setBody("""{"token":"body-token-is-ignored","user":{}}"""))
-        auth.signIn("  seller@example.test ", "fake-password")
-        val request = take()
-        assertEquals("POST", request.method)
-        assertEquals(AuthClient.SIGN_IN, request.path)
-        assertNull("no Origin header", request.getHeader("Origin"))
-        assertTrue(request.getHeader("Content-Type")!!.startsWith("application/json"))
-        val body = JSONObject(request.body.readUtf8())
-        assertEquals("seller@example.test", body.getString("email"))
-        assertEquals("fake-password", body.getString("password"))
-        assertEquals("fake-session-1", vault.readSession())
-        assertTrue(auth.isSignedIn)
+    private fun take() = server.takeRequest(1,TimeUnit.SECONDS)!!
+    private fun response(session: Boolean = true, token: String = "fake-access") = JSONObject().put("version",2).put("serverTime",now)
+        .put("accessToken",token).put("accessExpiresAt",now+900_000).apply {
+            if (session) put("sessionToken","fake-session").put("sessionExpiresAt",now+7*86_400_000L)
+        }.toString()
+    @Test fun signInPostsV2AppAndDeviceKeyAndStoresOnlySession() {
+        server.enqueue(MockResponse().setBody(response()))
+        auth.signIn("  seller@example.test ","fake-password")
+        val r=take(); val b=JSONObject(r.body.readUtf8())
+        assertEquals("POST",r.method); assertEquals("/api/auth/sign-in",r.path)
+        assertEquals(2,b.getInt("version")); assertEquals("van-android",b.getString("app")); assertEquals("test-key",b.getJSONObject("deviceKey").getString("keyId"))
+        assertEquals("seller@example.test",b.getString("email")); assertEquals("fake-password",b.getString("password"))
+        assertNull(r.getHeader("Origin")); assertEquals("fake-session",vault.readSession()); assertEquals("fake-access",auth.accessToken())
     }
-
-    @Test fun signInStoresBodyTokenWithoutHeaderAndDoesNotReplayCookies() {
-        val session = "fake-body-session-XYZ"
-        server.enqueue(MockResponse().setResponseCode(200)
-            .setHeader("Set-Cookie", "better-auth.session_token=cookie-secret; Path=/; HttpOnly")
-            .setBody("""{"redirect":false,"token":"$session","user":{}}"""))
-        auth.signIn("seller@example.test", "fake-password-XYZ")
-        val signIn = take()
-        assertNull(signIn.getHeader("Origin"))
-        assertEquals(session, vault.readSession())
-        assertTrue(auth.isSignedIn)
-        assertFalse(auth.toString().contains(session))
-        assertFalse(vault.toString().contains(session))
-
-        server.enqueue(MockResponse().setBody("""{"token":"${jwt(now / 1000 + 900)}"}"""))
-        auth.convexToken()
-        val exchange = take()
-        assertEquals("Bearer $session", exchange.getHeader("Authorization"))
-        assertNull(exchange.getHeader("Cookie"))
+    @Test fun cookiesAreNeverReplayed() {
+        server.enqueue(MockResponse().setHeader("Set-Cookie","sp_session=ignored").setBody(response()))
+        auth.signIn("a@example.test","p"); take()
+        server.enqueue(MockResponse().setBody(response(false)))
+        auth.accessToken(true); assertNull(take().getHeader("Cookie"))
     }
-
-    @Test fun headerWinsOverBodyToken() {
-        server.enqueue(MockResponse().setResponseCode(200).setHeader("set-auth-token", "fake-header-session")
-            .setBody("""{"token":"fake-body-session"}"""))
-        auth.signIn("seller@example.test", "fake-password")
-        assertEquals("fake-header-session", vault.readSession())
+    @Test fun headersCannotOverrideTheOpaqueSessionBody() {
+        server.enqueue(MockResponse().setHeader("set-auth-token","ignored").setBody(response()))
+        auth.signIn("a@example.test","p"); assertEquals("fake-session",vault.readSession())
     }
-
-    @Test fun missingAndMalformedBodyTokensFailWithoutStoringSessionOrEchoingToken() {
-        val badBodies = listOf(
-            "{}", """{"user":{"token":"nested-only"}}""", """{"token":null}""",
-            """{"token":123}""", """{"token":""}""", """{"token":" space"}""",
-            """{"token":"tab\there"}""", """{"token":"line\nhere"}""",
-            JSONObject().put("token", "x".repeat(AuthClient.MAX_SESSION_TOKEN_LENGTH + 1)).toString(),
-            "invalid json"
-        )
-        badBodies.forEach { body ->
-            server.enqueue(MockResponse().setResponseCode(200).setBody(body))
-            val failure = runCatching { auth.signIn("seller@example.test", "fake-password") }.exceptionOrNull()
-            assertTrue("expected fixed auth failure", failure is AuthFailure)
-            assertEquals(AuthFailure.Kind.SERVER, (failure as AuthFailure).kind)
-            assertFalse(failure.toString().contains(body))
-            assertNull(vault.readSession())
+    @Test fun missingMalformedAndWhitespaceSessionsAreRejected() {
+        for (bad in listOf(JSONObject.NULL,123,""," space","tab\there","x".repeat(4097))) {
+            val b=JSONObject(response()).put("sessionToken",bad)
+            server.enqueue(MockResponse().setBody(b.toString()))
+            expect(AuthFailure.Kind.SERVER) { auth.signIn("a@example.test","p") }; assertNull(vault.readSession())
         }
     }
-
-    @Test fun malformedHeaderIsNotReplacedByBodyToken() {
-        server.enqueue(MockResponse().setResponseCode(200).setHeader("set-auth-token", "bad token")
-            .setBody("""{"token":"valid-body-token"}"""))
-        expect(AuthFailure.Kind.SERVER) { auth.signIn("seller@example.test", "fake-password") }
-        assertNull(vault.readSession())
+    @Test fun oldBodyTokenAndMalformedJsonAreNotAccepted() {
+        for (body in listOf("{\"token\":\"legacy\"}","not json","{}")) {
+            server.enqueue(MockResponse().setBody(body)); expect(AuthFailure.Kind.SERVER) { auth.signIn("a@example.test","p") }
+        }
     }
-
-    @Test fun wrongPasswordIsCredentialsErrorAndStoresNothing() {
-        server.enqueue(MockResponse().setResponseCode(401).setHeader("set-auth-token", "must-not-be-used")
-            .setBody("""{"code":"INVALID_EMAIL_OR_PASSWORD"}"""))
-        expect(AuthFailure.Kind.INVALID_CREDENTIALS) { auth.signIn("a@example.test", "wrong") }
-        assertNull(vault.readSession())
+    @Test fun wrongPasswordStoresNothing() {
+        server.enqueue(MockResponse().setResponseCode(401)); expect(AuthFailure.Kind.INVALID_CREDENTIALS) { auth.signIn("a@example.test","wrong") }; assertNull(vault.readSession())
     }
-
-    @Test fun forbiddenRateLimitServerAndMissingHeaderMapToFixedErrors() {
-        server.enqueue(MockResponse().setResponseCode(403).setBody("""{"code":"MISSING_OR_NULL_ORIGIN"}"""))
-        expect(AuthFailure.Kind.REFUSED) { auth.signIn("a@example.test", "p") }
-        server.enqueue(MockResponse().setResponseCode(429))
-        expect(AuthFailure.Kind.RATE_LIMITED) { auth.signIn("a@example.test", "p") }
-        server.enqueue(MockResponse().setResponseCode(500).setBody("stack trace with secrets"))
-        expect(AuthFailure.Kind.SERVER) { auth.signIn("a@example.test", "p") }
-        server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
-        expect(AuthFailure.Kind.SERVER) { auth.signIn("a@example.test", "p") }
-        assertNull(vault.readSession())
+    @Test fun refusalsRateLimitsAndServerErrorsStayFixed() {
+        for ((status,kind) in listOf(403 to AuthFailure.Kind.REFUSED,429 to AuthFailure.Kind.RATE_LIMITED,500 to AuthFailure.Kind.SERVER)) {
+            server.enqueue(MockResponse().setResponseCode(status).setBody("raw secret")); expect(kind) { auth.signIn("a@example.test","p") }
+        }
     }
-
-    @Test fun offlineIsReportedAsOffline() {
-        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START))
-        expect(AuthFailure.Kind.OFFLINE) { auth.signIn("a@example.test", "p") }
-        server.shutdown()
-        expect(AuthFailure.Kind.OFFLINE) { auth.signIn("a@example.test", "p") }
+    @Test fun offlineIsReportedWithoutRequestDetails() {
+        server.shutdown(); expect(AuthFailure.Kind.OFFLINE) { auth.signIn("a@example.test","p") }
     }
-
-    @Test fun unconfiguredEnvironmentMakesNoRequest() {
-        val client = AuthClient(AppEnvironment("", ""), vault)
-        expect(AuthFailure.Kind.NOT_CONFIGURED) { client.signIn("a@example.test", "p") }
-        assertEquals(0, server.requestCount)
+    @Test fun unconfiguredEnvironmentDoesNotSend() {
+        expect(AuthFailure.Kind.NOT_CONFIGURED) { AuthClient(AppEnvironment(""),vault).signIn("a@example.test","p") }; assertEquals(0,server.requestCount)
     }
-
-    @Test fun convexTokenExchangeUsesSessionBearerAndIsCachedUntilNearExpiry() {
-        vault.saveSession("fake-session")
-        val jwt1 = jwt(expSeconds = now / 1000 + 900)
-        server.enqueue(MockResponse().setBody("""{"token":"$jwt1"}"""))
-        assertEquals(jwt1, auth.convexToken())
-        val request = take()
-        assertEquals("GET", request.method)
-        assertEquals(AuthClient.CONVEX_TOKEN, request.path)
-        assertEquals("Bearer fake-session", request.getHeader("Authorization"))
-        now += 13 * 60_000 // still > 60 s before exp: cached
-        assertEquals(jwt1, auth.convexToken())
-        assertEquals(1, server.requestCount)
-        now += 60_000 + 1 // inside the refresh margin: exchange again
-        val jwt2 = jwt(expSeconds = now / 1000 + 900)
-        server.enqueue(MockResponse().setBody("""{"token":"$jwt2"}"""))
-        assertEquals(jwt2, auth.convexToken())
-        assertEquals(2, server.requestCount)
+    @Test fun refreshUsesSessionBearerAndExplicitLifetimeNotJwtClaims() {
+        vault.saveSession("fake-session"); server.enqueue(MockResponse().setBody(response(false)))
+        assertEquals("fake-access",auth.accessToken()); val r=take()
+        assertEquals("POST",r.method); assertEquals("/api/auth/refresh",r.path); assertEquals("Bearer fake-session",r.getHeader("Authorization"))
+        assertEquals("test-key",JSONObject(r.body.readUtf8()).getString("deviceKeyId"))
+        now+=13*60_000; assertEquals("fake-access",auth.accessToken()); assertEquals(1,server.requestCount)
+        now+=60_001; server.enqueue(MockResponse().setBody(response(false,"refreshed")))
+        assertEquals("refreshed",auth.accessToken()); assertEquals("fake-session",vault.readSession())
     }
-
-    @Test fun rejectedSessionWipesVaultAndRequiresSignIn() {
-        vault.saveSession("fake-session"); vault.deviceId = "dev1"
-        server.enqueue(MockResponse().setResponseCode(401))
-        expect(AuthFailure.Kind.SESSION_EXPIRED) { auth.convexToken() }
-        assertNull(vault.readSession())
-        assertNull(vault.deviceId)
-    }
-
-    @Test fun tokenExchangeServerErrorKeepsSession() {
-        vault.saveSession("fake-session")
-        server.enqueue(MockResponse().setResponseCode(502))
-        expect(AuthFailure.Kind.SERVER) { auth.convexToken() }
-        server.enqueue(MockResponse().setBody("""{"token":"not-a-jwt"}"""))
-        expect(AuthFailure.Kind.SERVER) { auth.convexToken() }
-        assertEquals("fake-session", vault.readSession())
-    }
-
-    @Test fun signOutPostsSessionBearerAndWipesEvenWhenOffline() {
-        vault.saveSession("fake-session"); vault.deviceId = "dev1"
-        server.enqueue(MockResponse().setBody("{}"))
-        assertTrue(auth.signOut())
-        val request = take()
-        assertEquals(AuthClient.SIGN_OUT, request.path)
-        assertEquals("POST", request.method)
-        assertEquals("Bearer fake-session", request.getHeader("Authorization"))
+    @Test fun rejectedRefreshWipesSessionAndDevice() {
+        vault.saveSession("fake-session"); vault.deviceId="d"
+        server.enqueue(MockResponse().setResponseCode(401)); expect(AuthFailure.Kind.SESSION_EXPIRED) { auth.accessToken() }
         assertNull(vault.readSession()); assertNull(vault.deviceId)
-
-        vault.saveSession("fake-session-2")
-        server.shutdown()
-        assertFalse(auth.signOut())
-        assertNull(vault.readSession())
     }
-
-    @Test fun jwtExpiryParsing() {
-        assertEquals(1_700_000_000_000L, AuthClient.expiryMillis(jwt(1_700_000_000)))
-        assertNull(AuthClient.expiryMillis("garbage"))
+    @Test fun transientRefreshFailureRetainsSession() {
+        vault.saveSession("fake-session"); server.enqueue(MockResponse().setResponseCode(502))
+        expect(AuthFailure.Kind.SERVER) { auth.accessToken() }; assertEquals("fake-session",vault.readSession())
     }
-
-    companion object {
-        fun jwt(expSeconds: Long): String {
-            val enc = Base64.getUrlEncoder().withoutPadding()
-            val header = enc.encodeToString("""{"alg":"RS256"}""".toByteArray())
-            val payload = enc.encodeToString("""{"aud":"convex","exp":$expSeconds}""".toByteArray())
-            return "$header.$payload.fake-signature"
+    @Test fun signOutWipesLocallyEvenOffline() {
+        vault.saveSession("fake-session"); vault.deviceId="d"; server.shutdown()
+        assertFalse(auth.signOut()); assertNull(vault.readSession()); assertNull(vault.deviceId)
+    }
+    @Test fun signOutPostsVersionAndStableSessionBearer() {
+        vault.saveSession("fake-session"); server.enqueue(MockResponse().setBody("{\"version\":2,\"revoked\":true}"))
+        assertTrue(auth.signOut()); val r=take(); assertEquals("/api/auth/sign-out",r.path)
+        assertEquals("Bearer fake-session",r.getHeader("Authorization")); assertEquals(2,JSONObject(r.body.readUtf8()).getInt("version"))
+    }
+    @Test fun badAccessAndExpiredLifetimeDoNotReplaceSession() {
+        for (b in listOf(JSONObject(response()).put("accessToken","bad token"),JSONObject(response()).put("accessExpiresAt",now))) {
+            server.enqueue(MockResponse().setBody(b.toString())); expect(AuthFailure.Kind.SERVER) { auth.signIn("a@example.test","p") }; assertNull(vault.readSession())
         }
-
+    }
+    companion object {
         fun expect(kind: AuthFailure.Kind, block: () -> Unit) {
-            try { block(); fail("expected $kind") } catch (e: AuthFailure) { assertEquals(kind, e.kind) }
+            try { block(); fail("expected $kind") } catch(e: AuthFailure) { assertEquals(kind,e.kind) }
         }
     }
 }

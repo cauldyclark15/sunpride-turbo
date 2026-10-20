@@ -189,7 +189,7 @@ import java.time.format.DateTimeFormatter
                 }
             }
         }
-        Text("Saved on this phone and the truck stock is updated. Sending returns to the office comes in a later update.",
+        Text("Saved on this phone and the truck stock is updated. It is sent to the office at the next sync.",
             style = MaterialTheme.typography.bodyMedium,modifier = Modifier.testTag("return-saved-note"))
     }
 }

@@ -25,7 +25,10 @@ import java.time.format.DateTimeFormatter
     ScreenFrame("Today",action = if (c.trip == null) "Sync now" else next.label,actionTag = "home-primary",
         enabled = !c.busy,onAction = { if (c.trip == null) c.syncNow() else c.open(next.page) },footer = status,message = c.message) {
         val trip = c.trip
-        if (trip == null) {
+        if (trip == null && c.onHold) {
+            Text("Your trip is paused until the office confirms this phone. Tap Sync now. Your saved work is kept here.",
+                style = MaterialTheme.typography.titleLarge,modifier = Modifier.testTag("on-hold"))
+        } else if (trip == null) {
             Text("No trip assigned for today. Ask your supervisor.",style = MaterialTheme.typography.titleLarge,modifier = Modifier.testTag("no-trip"))
         } else {
             SectionCard("Your trip") {
@@ -123,7 +126,8 @@ private data class LoadDraft(val quantity: String, val reason: String?)
         onAction = { if (editable) c.confirmLoad(lines.map { line -> val draft = drafts[line.lineNumber]!!; LoadActual(line.lineNumber,VanRules.parseQuantity(draft.quantity,line.quantityScale)!!,draft.reason.takeIf { VanRules.reasonRequired(line.expectedBase,VanRules.parseQuantity(draft.quantity,line.quantityScale)) }) }) else c.syncNow() },
         message = sent ?: c.message) {
         Text("Count what is on the truck. Give a reason for any difference.",style = MaterialTheme.typography.bodyMedium)
-        if (lines.isEmpty()) Text("No load sheet available. Sync and ask your supervisor.")
+        if (lines.isEmpty() && c.onHold) Text("Your trip is paused until the office confirms this phone. Tap Sync now. Your saved work is kept here.",modifier = Modifier.testTag("on-hold"))
+        else if (lines.isEmpty()) Text("No load sheet available. Sync and ask your supervisor.")
         lines.forEach { line ->
             val draft = drafts[line.lineNumber]!!
             val actual = VanRules.parseQuantity(draft.quantity,line.quantityScale)

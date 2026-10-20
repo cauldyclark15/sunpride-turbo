@@ -41,7 +41,7 @@ class StockReconciliationStore(private val store: RoomVanStore) {
         val saved = dao.stockReconciliation(s, d, t.tripId)?.result(t.tripNumber, false)
         val products = dao.productRows(s, d).associate { it.productId to VanBootstrapCodec.product(JSONObject(it.json)) }
         val savedByLine = saved?.lines?.associateBy { it.productId to it.status } ?: emptyMap()
-        StockSummary(t.tripId, t.tripNumber, dao.meta(s, d)?.held == false && countable(t) && saved == null,
+        StockSummary(t.tripId, t.tripNumber, store.canSync() && countable(t) && saved == null,
             expected.map { line ->
                 val p = products[line.productId]
                 StockLineSummary(line.productId, p?.code ?: line.productId, p?.name ?: line.productId, p?.uomCode ?: "", p?.quantityScale ?: 1L,
@@ -55,7 +55,7 @@ class StockReconciliationStore(private val store: RoomVanStore) {
      * one Room transaction. No refusal can leave any of those facts behind.
      */
     suspend fun commit(request: StockCountRequest): StockCountResult = db.withTransaction {
-        if (dao.meta(s, d)?.held != false) throw StockRefused(StockProblem.HELD)
+        if (!store.canSync()) throw StockRefused(StockProblem.HELD)
         val t = dao.trip(s, d) ?: throw StockRefused(StockProblem.NOT_ON_ROUTE)
         dao.stockReconciliation(s, d, t.tripId)?.let { prior ->
             val saved = linesOf(prior.linesJson)
@@ -104,7 +104,7 @@ class StockReconciliationStore(private val store: RoomVanStore) {
             .apply { StockReconciliationRules.normalizedNote(request.note)?.let { put("note", it) } }
         val op = JSONObject().put("kind", STOCK_RECONCILE_KIND).put("clientRequestId", key).put("payload", payload).toString()
         // Deliberately not sent through VanWireSchema: the gateway has no stock.reconcile kind yet, like cash.reconcile.
-        dao.insertOutbox(OutboxRow(s, d, key, t.tripId, STOCK_RECONCILE_KIND, op, at, null, SALE_PARKED))
+        dao.insertOutbox(OutboxRow(s, d, key, t.tripId, STOCK_RECONCILE_KIND, op, at, null, store.capturedStatus))
         StockCountResult(request.reconciliationId, t.tripNumber, countCode, supplied, totals.varianceLines, totals.shortBase,
             totals.overBase, StockReconciliationRules.normalizedNote(request.note), authorization.method == "supervisor_code", at, false)
     }

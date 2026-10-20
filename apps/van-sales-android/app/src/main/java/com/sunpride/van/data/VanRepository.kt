@@ -25,25 +25,39 @@ class VanRepository private constructor(private val context: Context, private va
     private val lifetime = CoroutineScope(SupervisorJob()+Dispatchers.IO)
     private val authLock = Mutex()
     private val vault = if (stubMode != null) KeystoreSessionVault(context,"van_stub_session","sunpride-van-stub-session-aes-v1") else KeystoreSessionVault(context)
-    private val auth = AuthClient(environment,vault)
-    private val functions = ConvexFunctions(environment,auth)
+    private val auth = AuthClient(environment,vault,deviceKey = {
+        val key = loadSigner()
+        JSONObject().put("keyId",hex(sha256(key.publicKeySpki))).put("publicKeySpki",key.publicKeyBase64)
+    })
+    private val api = NativeApi(environment,auth)
+    private val devices = RestDeviceApi(api)
     private val index = context.getSharedPreferences(if(stubMode != null) "van_stub_identity_index" else "van_identity_index",Context.MODE_PRIVATE)
     private val current = MutableStateFlow<RoomVanStore?>(null)
+    // A cached trip is not a grant. Expiry also withdraws already-visible reference data without a network.
+    private val pulse: Flow<Long> = flow { while (currentCoroutineContext().isActive) { emit(System.currentTimeMillis()); delay(1_000) } }
+    private val visible: Flow<RoomVanStore?> = current.flatMapLatest { st ->
+        if (st == null || !st.scope.fullAuthSubject.startsWith("v2|")) flowOf(st)
+        else combine(st.db.rows().observeSyncMeta(st.scope.fullAuthSubject,st.scope.deviceId),pulse) { metas,now ->
+            if (metas.singleOrNull()?.authorizes(now) == true && st.canSync()) st else null
+        }
+    }
     private val session = MutableStateFlow(SessionState())
     private val enrollment = MutableStateFlow<EnrollmentState>(EnrollmentState.SignedOut)
     val sessionState: StateFlow<SessionState> = session.asStateFlow()
     val enrollmentState: StateFlow<EnrollmentState> = enrollment.asStateFlow()
-    val currentTrip: Flow<Trip?> = current.flatMapLatest { it?.trip ?: flowOf(null) }
-    val load: Flow<Load?> = current.flatMapLatest { it?.load ?: flowOf(null) }
+    val currentTrip: Flow<Trip?> = visible.flatMapLatest { it?.trip ?: flowOf(null) }
+    val load: Flow<Load?> = visible.flatMapLatest { it?.load ?: flowOf(null) }
     val loadLines: Flow<List<LoadLine>> = load.map { it?.lines ?: emptyList() }
-    val seller: Flow<Seller?> = current.flatMapLatest { it?.seller ?: flowOf(null) }
-    val policy: Flow<VanPolicy?> = current.flatMapLatest { it?.policy ?: flowOf(null) }
-    val truckStock: Flow<List<TruckStock>> = current.flatMapLatest { it?.truckStock ?: flowOf(emptyList()) }
-    val damageRecords: Flow<List<DamageRecord>> = current.flatMapLatest { it?.damageRecords ?: flowOf(emptyList()) }
-    val products: Flow<List<Product>> = current.flatMapLatest { it?.products ?: flowOf(emptyList()) }
-    val customers: Flow<List<Customer>> = current.flatMapLatest { it?.customers ?: flowOf(emptyList()) }
-    val priceLines: Flow<List<PriceLine>> = current.flatMapLatest { it?.priceLines ?: flowOf(emptyList()) }
-    val promotions: Flow<List<Promotion>> = current.flatMapLatest { it?.promotions ?: flowOf(emptyList()) }
+    val seller: Flow<Seller?> = visible.flatMapLatest { it?.seller ?: flowOf(null) }
+    val policy: Flow<VanPolicy?> = visible.flatMapLatest { it?.policy ?: flowOf(null) }
+    val truckStock: Flow<List<TruckStock>> = visible.flatMapLatest { it?.truckStock ?: flowOf(emptyList()) }
+    val damageRecords: Flow<List<DamageRecord>> = visible.flatMapLatest { it?.damageRecords ?: flowOf(emptyList()) }
+    val products: Flow<List<Product>> = visible.flatMapLatest { it?.products ?: flowOf(emptyList()) }
+    val customers: Flow<List<Customer>> = visible.flatMapLatest { it?.customers ?: flowOf(emptyList()) }
+    val priceLines: Flow<List<PriceLine>> = visible.flatMapLatest { it?.priceLines ?: flowOf(emptyList()) }
+    val promotions: Flow<List<Promotion>> = visible.flatMapLatest { it?.promotions ?: flowOf(emptyList()) }
+    /** Signed in with a store whose office grant is held or expired: reference data is hidden, saved work is kept. */
+    val onHold: Flow<Boolean> = combine(current,visible) { all,shown -> all != null && shown == null }
     val syncStatus: Flow<SyncStatus> = current.flatMapLatest { it?.syncStatus ?: flowOf(SyncStatus()) }
     /** VAN-022: the current trip's cash is counted on this phone. */
     val cashCounted: Flow<Boolean> = current.flatMapLatest { it?.cashCounted ?: flowOf(false) }
@@ -86,22 +100,31 @@ class VanRepository private constructor(private val context: Context, private va
             else { current.value?.hold(); current.value = null }
             return state
         }
-        val state = withContext(Dispatchers.IO) { Enrollment(ConvexDeviceApi(functions),loadSigner(),vault).refresh() }
+        val state = withContext(Dispatchers.IO) { Enrollment(devices,loadSigner(),vault).refresh() }
         enrollment.value = state
         if (state is EnrollmentState.Ready) {
-            val token = withContext(Dispatchers.IO) { auth.convexToken() }
-            val claims = JSONObject(String(Base64.getUrlDecoder().decode(token.split('.')[1]),Charsets.UTF_8))
-            val issuer = claims.getString("iss"); val subject = claims.getString("sub")
-            check(issuer.startsWith("https://") && subject.isNotBlank())
-            val full = "$issuer|$subject"; val key = checkNotNull(sessionKey())
-            check(index.edit().putString("$key.subject",full).putString("$key.device",state.deviceId).commit())
+            val identity = checkNotNull(devices.identity)
+            val full = identity.partitionSubject; val key = checkNotNull(sessionKey())
+            if (current.value?.scope != StoreScope(full,state.deviceId)) current.value?.hold()
+            check(index.edit().putString("$key.subject",full).putString("$key.device",state.deviceId)
+                .putString("$key.identity",JSONObject().put("subject",identity.subject).put("profileId",identity.profileId)
+                    .put("scopeId",identity.scopeId).put("fingerprint",identity.fingerprint).put("epoch",identity.epoch).toString()).commit())
             attach(StoreScope(full,state.deviceId)); session.value = SessionState(true)
-            gateway = VanSyncClient(LiveVanTransport(environment,auth,functions),loadSigner(),state.deviceId)
+            gateway = VanSyncClient(LiveVanTransport(environment,auth,api),loadSigner(),state.deviceId,identity)
         } else { current.value?.hold(); current.value = null }
         return state
     }
+    private fun cutover() {
+        if (stubMode == null && index.getInt("transportGeneration",0) != 2) {
+            // Open/migrate SQLCipher without deleting a single observation, ack or receipt.
+            if (database == null) database = EncryptedVanDatabase.open(context)
+            auth.invalidateAccessToken(); vault.wipe()
+            check(index.edit().putInt("transportGeneration",2).commit())
+        }
+    }
     suspend fun restoreSession(): Unit = authLock.withLock {
         withContext(Dispatchers.IO) {
+            cutover()
             if(stubMode != null && vault.readSession() == null) vault.saveSession("debug-fixture-session")
             val key = sessionKey()
             if (key == null) { session.value = SessionState(); enrollment.value = EnrollmentState.SignedOut; return@withContext }
@@ -109,10 +132,17 @@ class VanRepository private constructor(private val context: Context, private va
             val subject = index.getString("$key.subject",null); val device = index.getString("$key.device",null)
             if (subject != null && device != null && vault.deviceId == device) {
                 attach(StoreScope(subject,device))
-                gateway = VanSyncClient(LiveVanTransport(environment,auth,functions),loadSigner(),device)
+                index.getString("$key.identity",null)?.let { raw ->
+                    val o = JSONObject(raw)
+                    val identity = NativeIdentity(o.getString("subject"),o.getString("profileId"),o.getString("scopeId"),o.getString("fingerprint"),o.getString("epoch"))
+                    check(identity.partitionSubject == subject)
+                    gateway = VanSyncClient(LiveVanTransport(environment,auth,api),loadSigner(),device,identity)
+                }
             }
             try { enroll() } catch (e: AuthFailure) {
                 if (e.kind != AuthFailure.Kind.OFFLINE) { current.value?.hold(); current.value = null; if (!auth.isSignedIn) session.value = SessionState(); throw e }
+                // Previously verified finite lease, not a new grant. Never unhold retained evidence offline.
+                if (current.value?.canSync() == true && gateway != null && device != null) enrollment.value = EnrollmentState.Ready(device)
             }
             current.value?.resetSending()
             if (current.value?.pending()?.isNotEmpty() == true) schedule()
@@ -120,6 +150,7 @@ class VanRepository private constructor(private val context: Context, private va
     }
     suspend fun signIn(email: String, password: String): Unit = authLock.withLock {
         withContext(Dispatchers.IO) {
+            cutover()
             current.value?.hold(); current.value = null; gateway = null
             if (stubMode == null) auth.signIn(email,password) else {
                 // Debug fixture only: reproduce the server's sign-in refusals without a network.
@@ -160,9 +191,9 @@ class VanRepository private constructor(private val context: Context, private va
      * scheduled: the van gateway has no sale operation yet, so the sale's outbox row stays parked.
      */
     suspend fun completeSale(request: com.sunpride.van.pos.CheckoutRequest, expectedTotalMinor: Long): SaleReceipt =
-        withContext(Dispatchers.IO) { store().commitSale(request,expectedTotalMinor) }
+        withContext(Dispatchers.IO) { store().commitSale(request,expectedTotalMinor).also { schedule() } }
     suspend fun voidSale(saleId: String, reason: String?, note: String?, code: String?): com.sunpride.van.pos.SaleVoidResult =
-        withContext(Dispatchers.IO) { store().voidSale(saleId,reason,note,code) }
+        withContext(Dispatchers.IO) { store().voidSale(saleId,reason,note,code).also { schedule() } }
     /** VAN-012: credit sold here per customer and references already used, so Checkout warns before the store refuses. */
     suspend fun paymentFacts(): com.sunpride.van.storage.PaymentFacts = withContext(Dispatchers.IO) { store().paymentFacts() }
     /**
@@ -170,7 +201,7 @@ class VanRepository private constructor(private val context: Context, private va
      * Throws [com.sunpride.van.pos.ReturnRefused] with typed reasons; never needs the network. Parked like a sale.
      */
     suspend fun recordReturn(request: com.sunpride.van.pos.ReturnRequest): com.sunpride.van.pos.ReturnReceipt =
-        withContext(Dispatchers.IO) { ReturnStore(store()).commit(request) }
+        withContext(Dispatchers.IO) { ReturnStore(store()).commit(request).also { schedule() } }
     /** VAN-019: sales saved here (to link a return to its receipt) and what was already returned against each. */
     suspend fun returnContext(): com.sunpride.van.pos.ReturnContext = withContext(Dispatchers.IO) { ReturnStore(store()).context() }
     /**
@@ -186,26 +217,41 @@ class VanRepository private constructor(private val context: Context, private va
      * Throws [com.sunpride.van.pos.CashRefused]; never needs the network. Parked like a sale; no upload is scheduled.
      */
     suspend fun countCash(request: com.sunpride.van.pos.CashCountRequest): com.sunpride.van.pos.CashCountResult =
-        withContext(Dispatchers.IO) { CashReconciliationStore(store()).commit(request) }
+        withContext(Dispatchers.IO) { CashReconciliationStore(store()).commit(request).also { schedule() } }
     /** VAN-023: expected truck stock and the saved physical count. */
     suspend fun stockSummary(): com.sunpride.van.pos.StockSummary? = withContext(Dispatchers.IO) { StockReconciliationStore(store()).summary() }
     /** VAN-023: save the physical stock count; it remains parked until the gateway supports it. */
     suspend fun countStock(request: com.sunpride.van.pos.StockCountRequest): com.sunpride.van.pos.StockCountResult =
-        withContext(Dispatchers.IO) { StockReconciliationStore(store()).commit(request) }
+        withContext(Dispatchers.IO) { StockReconciliationStore(store()).commit(request).also { schedule() } }
     /** VAN-024: what must be done before closing the trip, and the saved close. */
     suspend fun closeSummary(): com.sunpride.van.pos.TripCloseSummary? = withContext(Dispatchers.IO) { TripCloseStore(store()).summary() }
     /** VAN-024: close the trip on this phone; it remains parked until the gateway supports it. */
     suspend fun closeTrip(request: com.sunpride.van.pos.TripCloseRequest): com.sunpride.van.pos.TripCloseResult =
-        withContext(Dispatchers.IO) { TripCloseStore(store()).commit(request) }
+        withContext(Dispatchers.IO) { TripCloseStore(store()).commit(request).also { schedule() } }
     /** VAN-017: sales saved on the current trip with their print history, newest first. */
     suspend fun savedSales(): List<SavedSale> = withContext(Dispatchers.IO) { val st = store(); RoomReceiptPrintLog(st.db,st.scope).savedSales() }
     /** DEBUG practice data only: the fixture store, so device tests can seed the (still empty) price list. */
     internal fun fixtureStore(): RoomVanStore { check(BuildConfig.DEBUG && stubMode != null); return store() }
     suspend fun syncNow(): Unit = authLock.withLock {
+        try {
+            if (stubMode == null) enroll()
+        } catch (e: AuthFailure) {
+            if (e.kind in setOf(AuthFailure.Kind.REFUSED,AuthFailure.Kind.SESSION_EXPIRED)) {
+                try { current.value?.hold() } finally { current.value = null; gateway = null }
+                // A revoked or expired session goes back to Sign in (work stays held on this phone),
+                // never to an empty Today that reads like "no trip assigned".
+                if (!auth.isSignedIn) { session.value = SessionState(); enrollment.value = EnrollmentState.SignedOut }
+            }
+            throw e
+        }
         val st = store()
         try { VanSync(st,checkNotNull(gateway),evidence=st.evidence).syncNow(); session.value = SessionState(true) }
         catch (e: AuthFailure) {
             if (!auth.isSignedIn) { session.value = SessionState(); enrollment.value = EnrollmentState.SignedOut; current.value = null; gateway = null }
+            throw e
+        } catch (e: Exception) {
+            // Keep the store: held work stays countable on screen; the next sync re-verifies the grant.
+            if (!st.canSync()) gateway = null
             throw e
         }
         finally { if (st.pending().isNotEmpty()) schedule() }
@@ -217,9 +263,9 @@ class VanRepository private constructor(private val context: Context, private va
         internal const val STUB_WRONG_PASSWORD = "fixture-wrong-password"
         internal const val STUB_OFFLINE_PASSWORD = "fixture-offline"
         internal fun forWorker(context: Context, stub: Boolean): VanRepository = VanRepository(context.applicationContext,
-            AppEnvironment(BuildConfig.CONVEX_SITE_URL,BuildConfig.CONVEX_URL),if (stub && BuildConfig.DEBUG) "ready" else null,scheduleWork=false)
+            AppEnvironment(BuildConfig.API_ORIGIN),if (stub && BuildConfig.DEBUG) "ready" else null,scheduleWork=false)
         fun create(context: Context, intent: Intent? = null, stubMode: String? = null,
-            environment: AppEnvironment = AppEnvironment(BuildConfig.CONVEX_SITE_URL,BuildConfig.CONVEX_URL)): VanRepository {
+            environment: AppEnvironment = AppEnvironment(BuildConfig.API_ORIGIN)): VanRepository {
             val mode = (stubMode ?: intent?.getStringExtra(STUB_EXTRA))?.takeIf { BuildConfig.DEBUG && it in setOf("ready","unregistered","revoked") }
             return VanRepository(context.applicationContext,environment,mode)
         }

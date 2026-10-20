@@ -58,15 +58,15 @@ class KeystoreDeviceKeyTest {
     @Test fun requestSignerHeadersVerifyWithKeystoreKey() {
         val signer = KeystoreDeviceKey.loadOrCreate(context, alias)
         val body = """{"type":"pull.request","contractVersion":1,"deviceId":"dev","cursor":"c","limit":50}""".toByteArray()
-        val headers = RequestSigner.headers(signer, "dev", "/van/v1/push", body, "20000000-0000-4000-8000-000000000002", 1780000000123)
-        val canonical = RequestSigner.canonical("POST", "/van/v1/push", body, "20000000-0000-4000-8000-000000000002", 1780000000123)
+        val headers = RequestSigner.headers(signer, "dev", "/api/sync/push", body, "20000000-0000-4000-8000-000000000002", 1780000000123)
+        val canonical = RequestSigner.canonical("POST", "/api/sync/push", body, "20000000-0000-4000-8000-000000000002", 1780000000123)
         val publicKey = KeyFactory.getInstance("EC").generatePublic(X509EncodedKeySpec(signer.publicKeySpki))
         val ok = Signature.getInstance("SHA256withECDSA").run {
             initVerify(publicKey); update(canonical.toByteArray())
-            verify(EcdsaEncoding.p1363ToDer(unbase64(headers.getValue("x-mobile-signature"))))
+            verify(EcdsaEncoding.p1363ToDer(unbase64(headers.getValue("x-device-signature"))))
         }
         assertTrue(ok)
-        assertNotEquals(headers["x-mobile-signature"], RequestSigner.headers(signer, "dev", "/van/v1/push", body,
-            "20000000-0000-4000-8000-000000000002", 1780000000123)["x-mobile-signature"]) // ECDSA is randomized
+        assertNotEquals(headers["x-device-signature"], RequestSigner.headers(signer, "dev", "/api/sync/push", body,
+            "20000000-0000-4000-8000-000000000002", 1780000000123)["x-device-signature"]) // ECDSA is randomized
     }
 }

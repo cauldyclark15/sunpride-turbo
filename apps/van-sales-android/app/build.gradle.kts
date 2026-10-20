@@ -18,14 +18,8 @@ fun endpoint(key: String): String = (providers.gradleProperty(key).orNull
 fun quoted(value: String) = "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 fun homePath(path: String) = if (path.startsWith("~/")) System.getProperty("user.home") + path.substring(1) else path
 
-// SP-0125 beta: endpoints fall back to DEV (with a build warning) until a beta deployment exists.
-val betaRequested = gradle.startParameter.taskNames.any { it.contains("beta", ignoreCase = true) }
 val betaBuild = endpoint("SUNPRIDE_BETA_BUILD").ifEmpty { "1" }.toIntOrNull()?.takeIf { it in 1..9999 }
     ?: error("SUNPRIDE_BETA_BUILD must be a whole number from 1 to 9999")
-fun betaEndpoint(key: String): String = endpoint("SUNPRIDE_BETA_$key").ifEmpty {
-    if (betaRequested) logger.warn("WARNING: SUNPRIDE_BETA_$key is not set; the van beta build uses the DEV value.")
-    endpoint("SUNPRIDE_DEV_$key")
-}
 // The beta signing key lives OUTSIDE the repo; this properties file (chmod 600) holds its path and password.
 val betaSigning = Properties().apply {
     val file = File(homePath(endpoint("SUNPRIDE_VAN_BETA_SIGNING_PROPERTIES").ifEmpty { "~/.sunpride-keys/van-beta.properties" }))
@@ -33,7 +27,7 @@ val betaSigning = Properties().apply {
 }
 
 // Sunpride Van Sales POS (ADR-010): its own app, never the field app with POS switched on.
-// Same Convex deployment endpoints as the field app (SUNPRIDE_<FLAVOR>_CONVEX_*).
+// One v2 origin; old endpoint properties are deliberately ignored.
 android {
     namespace = "com.sunpride.van"
     compileSdk = 36
@@ -47,6 +41,8 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true; buildConfig = true; aidl = true }
+    // Explicit release-only proof target; ordinary hardware suites remain devDebug.
+    if (providers.gradleProperty("VAN_BETA_PROOF").orNull == "true") testBuildType = "release"
     flavorDimensions += "environment"
     productFlavors {
         listOf("dev", "staging", "prod").forEach { name ->
@@ -54,8 +50,7 @@ android {
                 dimension = "environment"
                 applicationIdSuffix = ".$name"
                 resValue("string", "app_name", "Sunpride Van (${name.replaceFirstChar { it.uppercase() }})")
-                buildConfigField("String", "CONVEX_SITE_URL", quoted(endpoint("SUNPRIDE_${name.uppercase()}_CONVEX_SITE_URL")))
-                buildConfigField("String", "CONVEX_URL", quoted(endpoint("SUNPRIDE_${name.uppercase()}_CONVEX_URL")))
+                buildConfigField("String", "API_ORIGIN", quoted(endpoint("SUNPRIDE_${name.uppercase()}_API_ORIGIN").ifEmpty { endpoint("SUNPRIDE_API_ORIGIN") }.ifEmpty { "https://sunpride.cauldnclark.com" }))
                 buildConfigField("String", "WEB_URL", quoted(endpoint("SUNPRIDE_${name.uppercase()}_WEB_URL")))
                 buildConfigField("boolean", "BETA", "false")
             }
@@ -67,10 +62,9 @@ android {
             versionCode = betaBuild
             versionName = "1.0.0-beta.$betaBuild"
             resValue("string", "app_name", "Sunpride Van Sales (Beta)")
-            buildConfigField("String", "CONVEX_SITE_URL", quoted(betaEndpoint("CONVEX_SITE_URL")))
-            buildConfigField("String", "CONVEX_URL", quoted(betaEndpoint("CONVEX_URL")))
+            buildConfigField("String", "API_ORIGIN", quoted(endpoint("SUNPRIDE_BETA_API_ORIGIN").ifEmpty { endpoint("SUNPRIDE_API_ORIGIN") }.ifEmpty { "https://sunpride.cauldnclark.com" }))
             // "Report an issue" opens <web>/issues/new; hidden when this is empty.
-            buildConfigField("String", "WEB_URL", quoted(endpoint("SUNPRIDE_BETA_WEB_URL")))
+            buildConfigField("String", "WEB_URL", quoted(endpoint("SUNPRIDE_BETA_WEB_URL").ifEmpty { "https://sunpride.cauldnclark.com" }))
             buildConfigField("boolean", "BETA", "true")
         }
     }

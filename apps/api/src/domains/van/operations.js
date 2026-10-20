@@ -94,6 +94,50 @@ export const statusLine = (trip, l, quantity, from, to) => ({
   toStockStatus: to,
   lotId: l.lotId ?? null,
 });
+/** A lot of this product held on the truck (same status preferred), or null. @param {any} db @param {any} trip @param {string} productId @param {string} status */
+export async function truckLot(db, trip, productId, status) {
+  const [row] =
+    await db`select lot_id from inventory_lot_balances where product_id=${productId} and location_id=${trip.truck_location_id}
+      and physical_base>0 order by (stock_status=${status}) desc, physical_base desc, lot_id limit 1`;
+  if (row) return row.lot_id;
+  const [loaded] =
+    await db`select a.lot_id from inventory_allocations a where a.product_id=${productId} and a.to_location_id=${trip.truck_location_id}
+      order by a.effective_at desc limit 1`;
+  return loaded?.lot_id ?? null;
+}
+/**
+ * Inward lines that put sold goods back on the truck under the SAME lots the sale took
+ * (latest allocation first), less what earlier returns of this sale already put back.
+ * Untracked products have no allocations and keep one line without a lot.
+ * @param {any} db @param {any} trip @param {string} saleId @param {any} l @param {bigint} quantity @param {string} status
+ */
+export async function soldLotLines(db, trip, saleId, l, quantity, status) {
+  /** @type {any[]} */ const sold =
+    await db`select a.lot_id, sum(a.quantity_base)::text as qty, max(a.allocation_sequence) as seq
+      from inventory_allocations a join inventory_movements m on m.id=a.movement_id
+      where m.source_type='van_sale' and m.source_document_id=${saleId}::text and a.product_id=${l.productId}
+        and a.from_location_id=${trip.truck_location_id} group by a.lot_id order by seq desc`;
+  if (!sold.length) return [stockLine(trip, l, quantity, true, status)];
+  /** @type {any[]} */ const back =
+    await db`select a.lot_id, sum(a.quantity_base)::text as qty from inventory_allocations a join inventory_movements m on m.id=a.movement_id
+      where m.source_type='van_return' and m.source_document_id in (select id::text from van_returns where sale_id=${saleId})
+        and a.product_id=${l.productId} and a.to_location_id=${trip.truck_location_id} group by a.lot_id`;
+  const returned = new Map(back.map((r) => [r.lot_id, BigInt(r.qty)]));
+  let left = quantity;
+  const lines = [];
+  for (const row of sold) {
+    const open = BigInt(row.qty) - (returned.get(row.lot_id) ?? 0n);
+    if (open <= 0n || left <= 0n) continue;
+    const take = open < left ? open : left;
+    lines.push(
+      stockLine(trip, { ...l, lotId: row.lot_id }, take, true, status),
+    );
+    left -= take;
+  }
+  if (left > 0n)
+    refuse("Returned quantity exceeds the sold lots", "invalid_request");
+  return lines;
+}
 /** @param {any} trip @param {any} l @param {bigint} quantity @param {boolean} inward @param {string} [status] */
 const stockLine = (trip, l, quantity, inward, status = "available") => ({
   productId: l.productId,
@@ -582,7 +626,13 @@ async function voidSale(db, trip, actor, env, p, opId) {
     actor,
     "pos_void",
     v.id,
-    lines.map((l) => stockLine(trip, l, BigInt(l.quantityBase), true)),
+    (
+      await Promise.all(
+        lines.map((l) =>
+          soldLotLines(db, trip, id, l, BigInt(l.quantityBase), "available"),
+        ),
+      )
+    ).flat(),
     opId,
   );
   await explainStock(
@@ -700,9 +750,21 @@ async function customerReturn(db, trip, actor, p, opId) {
     actor,
     "pos_return",
     id,
-    posting.map((l) =>
-      stockLine(trip, l.frozen, BigInt(l.quantityBase), true, l.stockEffect),
-    ),
+    // Lot-tracked goods come back under the lots the original sale took.
+    (
+      await Promise.all(
+        posting.map((l) =>
+          soldLotLines(
+            db,
+            trip,
+            saleId,
+            l.frozen,
+            BigInt(l.quantityBase),
+            l.stockEffect,
+          ),
+        ),
+      )
+    ).flat(),
     opId,
   );
   await explainStock(
@@ -872,10 +934,14 @@ async function countStock(db, trip, actor, env, p, opId) {
           ) * (delta < 0n ? -1n : 1n);
     await db`insert into van_stock_count_lines(count_id,product_id,stock_status,expected_base,counted_base,variance_base,value_centavos,facts) values(${id},${l.productId},${l.status},${String(e.expectedBase)},${l.countedBase},${String(delta)},${cost === null ? null : String(cost)},${{ ...e.facts, reasonCode: l.reasonCode }})`;
     if (delta) {
+      // A found overage has no source to allocate from: book it to a lot this product
+      // already holds on the truck (same status first). Untracked products stay lot-less.
+      const lotId =
+        delta > 0n ? await truckLot(db, trip, l.productId, l.status) : null;
       postings.push(
         stockLine(
           trip,
-          e.facts,
+          { ...e.facts, lotId },
           delta < 0n ? -delta : delta,
           delta > 0n,
           l.status,

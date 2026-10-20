@@ -21,6 +21,8 @@ class VanRulesTest {
         assertEquals("Load waiting for supervisor",VanRules.status(trip("loading"),planned.copy(status = "discrepancy")))
         assertEquals("Loaded — ready to start",VanRules.status(trip("loaded"),planned))
         assertEquals("On route",VanRules.status(trip("active"),planned))
+        assertEquals("Cash counted — hand it to the cashier",VanRules.status(trip("reconciling"),planned))
+        assertEquals("Supervisor is reviewing this trip",VanRules.status(trip("review_required"),planned))
         assertEquals("Closing…",VanRules.status(trip("closing"),planned))
         assertEquals("Load sent — waiting for sync",VanRules.status(trip("loading"),planned.copy(confirmPending = true)))
     }
@@ -48,5 +50,8 @@ class VanRulesTest {
         assertFalse(VanRules.canStart(trip("loaded").copy(vehicle = null),true,true))
         assertFalse(VanRules.canStart(null,true,true))
         assertTrue(VanRules.canStart(trip("loaded"),true,true))
+        // Server v2: a trip may have no route; the seller acknowledges it instead.
+        assertTrue(VanRules.canStart(trip("loaded").copy(route = null),true,true))
+        assertFalse(VanRules.canStart(trip("loaded").copy(route = null),true,false))
     }
 }

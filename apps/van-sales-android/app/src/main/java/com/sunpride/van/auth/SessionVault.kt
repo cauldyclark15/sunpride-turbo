@@ -85,7 +85,7 @@ class KeystoreSessionVault(
     companion object {
         const val PREFS = "van_secure_session"
         const val KEY_ALIAS = "sunpride-van-session-aes-v1"
-        private const val SESSION = "session.v1"
+        private const val SESSION = "session.v2"
         private const val DEVICE_ID = "deviceId"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
         private const val IV_BYTES = 12
