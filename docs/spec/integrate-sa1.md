@@ -30,6 +30,8 @@ A cold-reset regression also exposed missing bulk-table planner statistics and u
 
 The HTTP field-sync suite previously used the wall-clock selling day and therefore refused its own valid-work fixtures after the real 22:00 close. Its service clock now runs at the next Manila noon; fixture money/activity timestamps and the SQL scheduler due instant are explicit. The negative close-time, expired-window, authorization and retention assertions remain intact, and no test deadline or performance threshold changed.
 
+The daily-advance fixture also used the wall calendar to choose its seed anchor. After midnight its Sunday anchor could leave every sample van intentionally held, contradicting the fixture's assumption that a spare truck exists. The fixture now uses a fixed Tuesday reference and an explicit clock, restores that clock after its midnight setup, and always clears it during cleanup. Its separate midnight, Sunday-month-opening, tester-preservation and ledger assertions and all time limits are unchanged.
+
 ## F-025: integration progress facts
 
 Programme now describes the 41 affected features from the accepted owner reports and integration proof, rather than retaining pre-merge claims that the gateway, partner portal or claims screen do not exist. Client feature identifiers, requirements, waves, priorities, dependencies and deferral membership are unchanged. Conservative totals are 3 built, 88 partly built, 22 changing to spec, 21 not built, 4 needing client decisions and 8 conditional. These are software progress notes, not real SAP certification or both-phone acceptance.

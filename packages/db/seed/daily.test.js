@@ -6,22 +6,15 @@ import { migrate } from "../src/migrate.js";
 import { seedDemo, resetDemo } from "./index.js";
 import { advanceDemo } from "./daily.js";
 import { createTrialAccounts } from "./trial-accounts.js";
-import {
-  BATCH,
-  at,
-  ident,
-  plusDays,
-  rowId,
-  todayManila,
-  weekday,
-} from "./store.js";
+import { BATCH, at, ident, plusDays, rowId, weekday } from "./store.js";
 
 /** @type {import('../src/client.js').Db} */ let db;
 /** @type {import('../src/client.js').Db} */ let admin;
 let name = "",
   dir = "",
   recordPath = "";
-const today = todayManila(),
+// A stable Tuesday keeps one idle sample truck; Sunday and month openings have explicit cases below.
+const today = "2026-10-20",
   anchor = plusDays(today, -3);
 /** @type {any} */ let usersBefore;
 /** @type {any} */ let devicesBefore;
@@ -40,6 +33,7 @@ const sentinel = crypto.randomUUID(),
   testerOrder = crypto.randomUUID();
 
 beforeAll(async () => {
+  setSystemTime(new Date(at(today, 12 * 60)));
   const base = (
     await Bun.file(`${process.env.HOME}/.sunpride-keys/pg-lane-core-url`).text()
   ).trim();
@@ -85,7 +79,7 @@ beforeAll(async () => {
   try {
     result = await advanceDemo(db, { date: today });
   } finally {
-    setSystemTime();
+    setSystemTime(new Date(at(today, 12 * 60)));
   }
 }, 120_000);
 
@@ -93,14 +87,20 @@ afterAll(async () => {
   try {
     await db?.close();
   } finally {
-    if (name && admin) {
-      await admin.unsafe(`drop database if exists ${ident(name)} with(force)`);
-      expect(
-        (await admin`select 1 from pg_database where datname=${name}`).length,
-      ).toBe(0);
+    try {
+      if (name && admin) {
+        await admin.unsafe(
+          `drop database if exists ${ident(name)} with(force)`,
+        );
+        expect(
+          (await admin`select 1 from pg_database where datname=${name}`).length,
+        ).toBe(0);
+      }
+      await admin?.close();
+      if (dir) await rm(dir, { recursive: true, force: true });
+    } finally {
+      setSystemTime();
     }
-    await admin?.close();
-    if (dir) await rm(dir, { recursive: true, force: true });
   }
 }, 120_000);
 
