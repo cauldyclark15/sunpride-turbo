@@ -28,6 +28,7 @@ import { installWorkforce } from "./workforce.js";
 import { installDormancy } from "./dormancy.js";
 import { installTargetCascade } from "./target-cascade.js";
 import { installCollections } from "./collections.js";
+import { installTerritoryScenarios } from "./territory-scenarios.js";
 
 const reads = [
   "permissions",
@@ -208,6 +209,7 @@ export function install(router, platform) {
   installDormancy(router, platform);
   installTargetCascade(router, platform);
   installCollections(router);
+  installTerritoryScenarios(router);
   router.get("/api/v1/coverage/adherence", (c) =>
     tx(c.db, (db) =>
       readAdherence({ ...c, db }, Object.fromEntries(c.url.searchParams)),

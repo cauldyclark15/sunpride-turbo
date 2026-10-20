@@ -48,10 +48,14 @@ const PjpPlanner = dynamic(() =>
 const ProductivePolicies = dynamic(() =>
   import("./productive-policies").then((m) => m.ProductivePolicies),
 );
+const TerritoryScenarios = dynamic(() =>
+  import("./territory-scenarios").then((m) => m.TerritoryScenarios),
+);
 const WorkforceWorkspace = dynamic(() =>
   import("./workforce-workspace").then((m) => m.WorkforceWorkspace),
 );
 type CoverageTab =
+  | "territories"
   | "workforce"
   | "productive"
   | "pjp"
@@ -236,6 +240,7 @@ export function SalesForcePanels() {
   );
   const needsPlan =
     coverageTab !== "workforce" &&
+    coverageTab !== "territories" &&
     coverageTab !== "productive" &&
     coverageTab !== "pjp" &&
     coverageTab !== "summary" &&
@@ -246,6 +251,7 @@ export function SalesForcePanels() {
     coverageTab !== "workload";
   const needsMonth =
     coverageTab !== "workforce" &&
+    coverageTab !== "territories" &&
     coverageTab !== "productive" &&
     coverageTab !== "pjp" &&
     coverageTab !== "plan" &&
@@ -255,6 +261,7 @@ export function SalesForcePanels() {
     ["summary", "Summary"],
     ["plan", "Plan"],
     ["pjp", "Journey plans"],
+    ["territories", "Territory rebalancing"],
     ["productive", "Productive call rules"],
     ["workforce", "Workforce"],
     ["deadlines", "MCP deadlines"],
@@ -328,7 +335,13 @@ export function SalesForcePanels() {
                 <PjpPlanner capabilities={permissions.capabilities} />
               </PanelErrorBoundary>
             )}
-            {coverageTab === "workforce" ||
+            {coverageTab === "territories" && (
+              <PanelErrorBoundary label="Territory rebalancing">
+                <TerritoryScenarios />
+              </PanelErrorBoundary>
+            )}
+            {coverageTab === "territories" ||
+            coverageTab === "workforce" ||
             coverageTab === "productive" ||
             coverageTab === "pjp" ? null : coverageTab === "summary" ? (
               <PanelErrorBoundary

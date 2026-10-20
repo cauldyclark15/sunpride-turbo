@@ -67,9 +67,11 @@ Seams:
 
 Agenda context is refreshed on bootstrap and protected by the existing continuation hash. No complete real-time delta is promised for these extra AR/audit facts; the UI explicitly asks for an online refresh. Van and iOS agenda parity are not implemented here.
 
-## F-224: remaining rebalancing scope
+## F-224: territory rebalancing
 
-The template day/phase editor, workload simulation, potential-completeness warning, pin sketch and comparison provide beat-workload scenarios. They do not implement prospective cross-territory ownership moves or a road-travel engine. F-224 remains partial. ORG assignment writers and their signed-plan locks must own any eventual territory publication; do not write those masters from a separate planning engine.
+Two layers. Beat scenarios (template day/phase editor, workload simulation, pin sketch and compare) rebalance within a rep's journey plan and publish through the PJP (F-201/F-202). Territory scenarios move stores between territories: Coverage plans → Territory rebalancing lists 1–100 store moves across at most 20 territories and simulates, for every affected territory, stores, sales potential (shown as "Not recorded" when no store carries it), visit time per four weeks (PJP class frequency and service minutes, else outlet cadence, else a SAMPLE default), an estimated travel time (nearest-neighbour loop over verified pins, straight-line km × road factor ÷ speed; unpinned stores are counted and named as not included), capacity (assigned salespeople × day minutes × selling days) and load, with a before/after table and an after-move pin sketch (moved stores hollow). Every assumption is editable and stored with the scenario. Saving refuses a start day while an approved or active coverage plan still holds a moved store or its route, and names the first free day. A different person with `outlet.assign` publishes against the reviewed content hash; publication re-simulates, refuses if any affected territory's memberships changed since, and then writes only through the ORG outlet assignment writer (`batchAssign`), which re-checks scope, ownership cover and signed-plan locks and closes the old assignment at the start day. The moved stores leave their old route and enter the destination's next journey plan generation. The preparer can discard a draft.
+
+Remaining for F-224: travel is a provisional straight-line estimate (no road engine); a moved store's per-assignment cycle override is not carried to the new assignment (the outlet's own cadence applies); boundary redrawing and moving whole routes between territories are not part of this flow.
 
 ## F-209: offline prospect acquisition and canonical master review
 

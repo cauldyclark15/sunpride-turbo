@@ -89,4 +89,10 @@
  * reason:'promise_due'|'promise_overdue'|'cheque_pickup'|'cheque_replacement'|'overdue_balance'|'manual',
  * plannedBy:string,createdAt:Date,updatedAt:Date}} CollectionRouteStop
  */
+/** F-224 additive row contract (0457). Membership itself lives only in outlet_assignments (ORG writer).
+ * @typedef {{id:string,name:string,effectiveOn:Date,assumptions:Record<string,number>,
+ * moves:{outletId:string,toTerritoryId:string}[],simulation:Record<string,unknown>[],inputFingerprint:string,
+ * contentHash:string,status:'draft'|'published'|'discarded',preparedBy:string,publishedBy:string|null,
+ * publishedAt:Date|null,assignmentIds:string[]|null,clientKey:string,requestHash:string,createdAt:Date,updatedAt:Date}} TerritoryScenario
+ */
 export {};
