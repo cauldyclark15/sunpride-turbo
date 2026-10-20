@@ -1,0 +1,2 @@
+# F-306: PDF xref entries contain required fixed-width padding, not source whitespace.
+*.pdf binary
