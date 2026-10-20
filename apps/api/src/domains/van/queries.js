@@ -114,13 +114,14 @@ export async function tripDetail(db, actor, tripId) {
     netSales = sales
       .filter((s) => !s.void_id)
       .reduce((a, s) => a + BigInt(s.total_centavos), 0n);
-  const settlementStatus =
+  const legacySettlementStatus =
     trip.status === "closed"
       ? "settled"
       : ["reconciling", "closing", "review_required"].includes(trip.status)
         ? "needs_review"
         : trip.status;
   const vanOps = await routeBundle(db, trip);
+  const settlementStatus = vanOps?.settlementState ?? legacySettlementStatus;
   return {
     tripId,
     vanOps,

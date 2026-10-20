@@ -453,6 +453,7 @@ export async function exerciseRoute(
   expect(detail.vanOps.vanContainers[0].quantity).toBe("0");
   expect(detail.vanOps.containers[0].outstanding).toBe("1");
   expect(detail.vanOps.settlementState).toBe("approved_pending_sap");
+  expect(detail.settlementStatus).toBe("approved_pending_sap");
   const stopFacts = detail.vanOps.observations.filter(
     (/** @type {any} */ o) => o.kind === "stop",
   );

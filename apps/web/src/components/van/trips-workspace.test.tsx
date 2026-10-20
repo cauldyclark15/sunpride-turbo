@@ -83,6 +83,32 @@ it("F-117 F-121 settlement and CSV disclose reloads, warehouse receipt and remai
   }
   expect(html).toContain("1 cases + 0 pieces");
 });
+it("F-117 F-123 a physically closed route is still SAP pending, never presented as settled or posted", () => {
+  const html = renderToStaticMarkup(
+    <VanTripsView
+      data={{
+        ...data,
+        rows: [
+          {
+            ...trip,
+            status: "closed",
+            settlementStatus: "approved_pending_sap",
+            unclosed: false,
+          },
+        ],
+      }}
+      selected={trip.tripId}
+      onSelect={() => {}}
+    />,
+  );
+  expect(html).toContain("Approved — SAP pending");
+  expect(html).not.toContain(">Settled<");
+  expect(html).not.toContain(">Posted to SAP<");
+  expect(settlementLabel("pending_supervisor")).toBe("Pending supervisor");
+  expect(settlementLabel("posted")).toBe("Posted to SAP");
+  expect(settlementLabel("rejected")).toBe("Returned for correction");
+  expect(settlementLabel("settled")).toBe("Settled");
+});
 const trip: TripSettlement = {
   tripId: "trip",
   tripNumber: "TRIP-001",

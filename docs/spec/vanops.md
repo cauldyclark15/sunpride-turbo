@@ -46,6 +46,8 @@ The settlement freezes the physical explanation, load/reload/sale/return/void/da
 
 The stock table and CSV distinguish opening load, received reloads, closing count, warehouse receipt and remaining truck stock. Warehouse receipt appends the stock explanation in the same transaction as the canonical movement. A rejected settlement is labelled returned for correction, not pending approval. Next actions follow the actual load/departure/quality/warehouse/sign-off stage. The Vans cockpit's existing `?trip=` drill-down and explicit `?tripId=` links both select the intended trip.
 
+The day list uses the governed settlement stage too: pending supervisor, approved — SAP pending, posted to SAP, or returned for correction. A physically closed trip is not labelled settled while SAP acknowledgement is missing. Legacy trip labels are retained unchanged.
+
 A rejected version may be followed by a new server submission. The handheld's correction / re-open UX and the governed resolution of a short warehouse receipt are not complete; captured evidence is never edited to work around them.
 
 ## F-118 — Variance escalation

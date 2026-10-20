@@ -30,6 +30,10 @@ export function settlementLabel(status: string) {
       {
         planned: "Planned",
         loading: "Loading",
+        pending_supervisor: "Pending supervisor",
+        approved_pending_sap: "Approved — SAP pending",
+        posted: "Posted to SAP",
+        rejected: "Returned for correction",
         loaded: "Ready to depart",
         active: "On the road",
         closing: "Closing",
