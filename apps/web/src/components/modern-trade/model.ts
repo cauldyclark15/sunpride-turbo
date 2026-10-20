@@ -34,6 +34,9 @@ export type IntakeLine = {
   uom: string;
   quantity: number;
   requestedPriceCentavos: number | null;
+  productName?: string | null;
+  approvedUnitPriceCentavos?: number | null;
+  grossCentavos?: number | null;
   exceptions: string[];
 };
 export type Intake = {

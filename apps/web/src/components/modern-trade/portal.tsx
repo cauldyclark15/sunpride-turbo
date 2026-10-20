@@ -65,7 +65,36 @@ export function CustomerPortal() {
           Sign out
         </button>
       </header>
-      <section>
+      {data.invoices.some((i) => i.source === "sample") ? (
+        <Notice>
+          Sample account data. Invoices and delivery updates are invented for
+          demonstration, not real financial settlement or delivery proof.
+        </Notice>
+      ) : null}
+      <nav
+        aria-label="Account sections"
+        className="flex flex-wrap gap-3 text-sm"
+      >
+        <a
+          className="inline-flex min-h-11 items-center underline underline-offset-4"
+          href="#purchase-orders"
+        >
+          Purchase orders
+        </a>
+        <a
+          className="inline-flex min-h-11 items-center underline underline-offset-4"
+          href="#invoices"
+        >
+          Invoices
+        </a>
+        <a
+          className="inline-flex min-h-11 items-center underline underline-offset-4"
+          href="#deductions"
+        >
+          Deductions & disputes
+        </a>
+      </nav>
+      <section id="purchase-orders">
         <h2 className="mb-4 text-lg font-semibold">
           Purchase orders · receipt to delivery
         </h2>
@@ -85,7 +114,7 @@ export function CustomerPortal() {
               <ol className="mt-4 flex flex-wrap gap-3 text-sm">
                 {p.milestones.map((m, i) => (
                   <li key={i} className="rounded-lg border border-border p-2">
-                    {label(m.stage)}
+                    {m.stage === "received" ? "PO received" : label(m.stage)}
                     <span className="mt-1 block text-xs text-muted">
                       {dateText(m.at)}
                     </span>
@@ -102,14 +131,14 @@ export function CustomerPortal() {
           </Notice>
         ) : null}
       </section>
-      <section>
+      <section id="invoices">
         <h2 className="mb-4 text-lg font-semibold">Invoices</h2>
         <div className="grid gap-3">
           {data.invoices.map((i) => (
             <article className={panel} key={i.id}>
               <div className="flex justify-between gap-3">
                 <h3 className="font-semibold">{i.invoiceNumber}</h3>
-                <p>{php(i.amountCentavos)}</p>
+                <p>Invoice total · {php(i.amountCentavos)}</p>
               </div>
               <p className="mt-2 text-sm text-muted">
                 {i.branch} · Issued {dateText(i.issuedOn)} · Due{" "}
@@ -128,7 +157,7 @@ export function CustomerPortal() {
           </Notice>
         ) : null}
       </section>
-      <section>
+      <section id="deductions">
         <h2 className="mb-4 text-lg font-semibold">Deductions & disputes</h2>
         {cmd.error ? <Notice>{cmd.error}</Notice> : null}
         <div className="grid gap-4">
@@ -140,7 +169,9 @@ export function CustomerPortal() {
                     {d.type} · {d.reference}
                   </h3>
                   <p className="text-sm text-muted">
-                    {d.branch} · {label(d.status)} · {d.ageDays} days old
+                    {d.branch} · Case review:{" "}
+                    {d.status === "resolved" ? "Closed" : label(d.status)} ·{" "}
+                    {d.ageDays} days old
                   </p>
                 </div>
                 <p>{php(d.amountCentavos)}</p>
@@ -149,6 +180,11 @@ export function CustomerPortal() {
                 {d.invoiceNumber ?? "Invoice not linked"} · Follow-up due{" "}
                 {dateText(d.dueOn)}
               </p>
+              {d.status === "resolved" ? (
+                <p className="mt-3 text-sm">
+                  Case review closed. Invoice settlement is not shown here.
+                </p>
+              ) : null}
               {d.disputes.some((s) => s.status === "accepted") ? (
                 <p className="mt-3 text-sm">
                   Dispute accepted. Awaiting SAP settlement review; this is not
@@ -161,7 +197,10 @@ export function CustomerPortal() {
                   key={s.id}
                 >
                   <p className="font-medium">
-                    {s.reference} · {label(s.status)}
+                    {s.reference} · Dispute:{" "}
+                    {s.status === "accepted"
+                      ? "Accepted for review"
+                      : label(s.status)}
                   </p>
                   <p>{s.message}</p>
                   {s.response ? (
@@ -174,7 +213,7 @@ export function CustomerPortal() {
                 ["open", "accepted"].includes(s.status),
               ) ? (
                 <details className="mt-4">
-                  <summary className="cursor-pointer text-sm underline">
+                  <summary className="min-h-11 cursor-pointer py-3 text-sm underline">
                     Dispute this deduction
                   </summary>
                   <div className="mt-4">

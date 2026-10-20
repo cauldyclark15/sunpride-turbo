@@ -491,8 +491,10 @@ export function TradeTerms({
           <details className="mb-4 text-sm">
             <summary className="cursor-pointer">
               Account price list ·{" "}
-              {t.conditions.filter((l) => l.kind === "price").length} selling
-              units
+              {t.conditions.filter((l) => l.kind === "price").length} selling{" "}
+              {t.conditions.filter((l) => l.kind === "price").length === 1
+                ? "unit"
+                : "units"}
             </summary>
             <ConditionRows
               conditions={t.conditions.filter((l) => l.kind === "price")}

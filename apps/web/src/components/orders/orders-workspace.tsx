@@ -685,7 +685,7 @@ export function OrderDrawer({
                       <li key={i}>
                         {l.productCode} ·{" "}
                         {l.source === "sample"
-                          ? "Sample channel price"
+                          ? "Sample approved price"
                           : l.source === "office"
                             ? "Office channel price"
                             : l.source === "promotion"

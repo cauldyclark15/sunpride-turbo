@@ -15,7 +15,7 @@ Supported adapters:
 
 Concrete fixtures are in `apps/api/test/fixtures/mt/`. Their P1 product is a test fixture, not a real Sunpride SKU. In the seeded office app, substitute an actual marked sample product code and selling unit.
 
-Files are limited to 450 KB and one PO with 1–100 lines. Original bytes, format, filename, receipt time and SHA-256 live in immutable `mt_po_documents`; downloads require office encoding permission and current store scope. Corrections change only the intake projection and its normalized lines, never the original. Invalid dates, unknown/inactive products, invalid quantities/conversions, duplicate SKU/unit pairs, missing approved prices and PO-price mismatches become review exceptions. An omitted PO price means use the approved account price, not zero. Confirmation requires a saved, exception-free revision and revalidates current prices and masters.
+Files are limited to 450 KB and one PO with 1–100 lines. Original bytes, format, filename, receipt time and SHA-256 live in immutable `mt_po_documents`; downloads require office encoding permission and current store scope. Corrections change only the intake projection and its normalized lines, never the original. Invalid dates, unknown/inactive products, invalid quantities/conversions, duplicate SKU/unit pairs, missing approved prices and PO-price mismatches become review exceptions. An omitted PO price means use the approved account price, not zero. Confirmation requires a saved, exception-free revision and revalidates current prices and masters. Each saved preview shows product names, approved unit prices and gross before offers, using the canonical integer-money primitives. Unknown previews are not zero. Changed prices refuse confirmation until corrections are saved; an in-transaction check also compares the canonical frozen line prices before commit. Final promotions and credit remain in Orders. Old drafts must be explicitly revalidated rather than inventing price history.
 
 Office queues require report.read and at least one of order.encode, order.approve or people.read, matching navigation; field sales cannot bypass that boundary with a direct HTTP request. Confirming a PO enqueues the canonical order day for analytics refresh after commit. Its link opens that exact canonical order drawer.
 
@@ -66,7 +66,7 @@ Portal HTML/RSC and `/api/v1/portal/*` / `/api/v1/mt/*` are excluded from the pr
 
 ## F-306 / F-307 / F-309 / F-611 — schema, seed and HTTP contracts
 
-Migrations: `0490_modern_trade.sql`, `0491_mt_po_identity.sql`, `0492_mt_delivery_replica.sql`, `0493_mt_contract_originals.sql`. Existing migrations and the lead-owned architecture contracts are unchanged.
+Migrations: `0490_modern_trade.sql`, `0491_mt_po_identity.sql`, `0492_mt_delivery_replica.sql`, `0493_mt_contract_originals.sql`, `0494_mt_validated_price_preview.sql`. Existing migrations and the lead-owned architecture contracts are unchanged.
 
 Office reads: `GET /api/v1/mt/options`, `/intake[?id]`, `/intake/document?id=…`, `/terms`, `/terms/document?id=…`, `/deductions`, `/settings`. Collection views fail explicitly at their supported bounds, rather than claim a truncated list is complete.
 

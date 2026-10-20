@@ -296,6 +296,56 @@ test("F-306 CSV quoted cells, sample EDI and structured email normalize; mixed P
   ).toBe(1);
 });
 
+test("F-306 price preview is known money, not zero, and changed approved prices refuse confirmation until revalidated", async () => {
+  const contentBase64 = Buffer.from(
+    `po_number,delivery_date,sku,uom,quantity\nPRICE-REVIEW,${day()},P1,PC,2\n`,
+  ).toString("base64");
+  const received = await api(admin, "intake/preview", {
+    idempotencyKey: crypto.randomUUID(),
+    bindingId: branches[0].id,
+    filename: "sample-price-review.csv",
+    format: "csv",
+    contentBase64,
+  });
+  expect(received.status).toBe(200);
+  const detail = await api(admin, "intake?id=" + received.body.id),
+    line = detail.body.lines[0];
+  expect(line.approvedUnitPriceCentavos).not.toBeNull();
+  expect(line.grossCentavos).toBe(2 * line.approvedUnitPriceCentavos);
+  expect(line.productName).toBeTruthy();
+  const [condition] =
+    await h.db`select c.id,c.amount_centavos from mt_term_conditions c join mt_trade_terms t on t.id=c.term_id where t.scope_kind='branch' and t.scope_key=${branches[0].branch_key} and t.status='approved' and c.product_id=${product} and c.kind='price' and t.effective_from<=now() and (t.effective_to is null or t.effective_to>now())`;
+  const changed = Number(condition.amount_centavos) + 1;
+  try {
+    await h.db`update mt_term_conditions set amount_centavos=${changed} where id=${condition.id}`;
+    const refused = await api(admin, "intake/confirm", {
+      idempotencyKey: crypto.randomUUID(),
+      id: received.body.id,
+      revision: detail.body.revision,
+    });
+    expect(refused.status).toBe(422);
+    expect(refused.body.error.code).toBe("validation_exceptions");
+    const [unchanged] =
+      await h.db`select revision,order_id from inbound_purchase_orders where id=${received.body.id}`;
+    expect(unchanged.revision).toBe(detail.body.revision);
+    expect(unchanged.order_id).toBeNull();
+    const fixed = await api(admin, "intake/fix", {
+      idempotencyKey: crypto.randomUUID(),
+      id: received.body.id,
+      revision: detail.body.revision,
+      poNumber: "PRICE-REVIEW",
+      serviceDate: day(),
+      lines: detail.body.lines,
+    });
+    expect(fixed.status).toBe(200);
+    const reviewed = await api(admin, "intake?id=" + received.body.id);
+    expect(reviewed.body.lines[0].approvedUnitPriceCentavos).toBe(changed);
+    expect(reviewed.body.lines[0].grossCentavos).toBe(2 * changed);
+  } finally {
+    await h.db`update mt_term_conditions set amount_centavos=${condition.amount_centavos} where id=${condition.id}`;
+  }
+});
+
 test("F-307 a shared accounting customer resolves only the supplied branch; missing branch context fails closed", async () => {
   const [store] =
     await h.db`insert into outlets(organization_id,code,name,status,custodian_org_unit_id,channel,created_by) values('sunpride','SHARED-STORE','Shared account second store','active',${root},'mt',${admin.userId}) returning id`;
@@ -452,6 +502,9 @@ test("F-306 preview, fix, revalidate, confirm create ONE canonical order, preser
   const [order] =
     await h.db`select * from orders where id=${results[0].body.orderId}`;
   expect(order.order_type).toBe("modern_trade");
+  expect(order.pricing_snapshot.lines[0].authority).toBe("mock_sap");
+  expect(order.pricing_snapshot.lines[0].conditionId).toBeTruthy();
+  expect(order.pricing_snapshot.lines[0].sourceVersion).toBeTruthy();
   expect(
     (
       await h.db`select count(*)::int n from jobs where kind='analytics.refresh' and payload->>'date'=${day()}`

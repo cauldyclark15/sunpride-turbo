@@ -1,6 +1,13 @@
 import { ApiError } from "../../core/errors.js";
 import { originalDocument } from "./documents.js";
-import { date, text, uuid } from "../orders/validation.js";
+import {
+  date,
+  text,
+  uuid,
+  safe,
+  divide,
+  quantityMilli,
+} from "../orders/validation.js";
 import { baseQuantity, resolvePrice } from "../orders/pricing.js";
 import { createOrder, notify } from "../orders/service.js";
 import { bindingAccess, officeRead } from "./hierarchy.js";
@@ -66,6 +73,16 @@ async function validate(c, binding, input) {
       if (price.unitPriceCentavos === null)
         errors.push("Approved price needs setup");
     }
+    let gross = null;
+    if (price?.unitPriceCentavos != null && qty > 0)
+      try {
+        gross = safe(
+          divide(BigInt(price.unitPriceCentavos) * quantityMilli(qty), 1000n),
+        );
+      } catch (e) {
+        if (!(e instanceof ApiError)) throw e;
+        errors.push(e.message);
+      }
     const requested = l.requestedPriceCentavos;
     if (
       requested != null &&
@@ -91,9 +108,18 @@ async function validate(c, binding, input) {
           ? requested
           : null,
       productId: product?.id ?? null,
+      approvedUnitPriceCentavos: price?.unitPriceCentavos ?? null,
+      grossCentavos: gross,
       exceptions: errors,
     });
   }
+  if (lines.every((l) => l.grossCentavos !== null))
+    try {
+      safe(lines.reduce((n, l) => n + BigInt(l.grossCentavos ?? 0), 0n));
+    } catch (e) {
+      if (!(e instanceof ApiError)) throw e;
+      exceptions.push(e.message);
+    }
   return {
     poNumber,
     serviceDate,
@@ -106,7 +132,7 @@ async function validate(c, binding, input) {
 async function view(c, row) {
   const binding = await bindingAccess(c, row.binding_id);
   const lines =
-    await c.db`select product_code as "productCode",uom,quantity::float8 as quantity,requested_price_centavos::float8 as "requestedPriceCentavos",exceptions from mt_po_lines where intake_id=${row.id} order by ordinal`;
+    await c.db`select l.product_code as "productCode",p.name as "productName",l.uom,l.quantity::float8 as quantity,l.requested_price_centavos::float8 as "requestedPriceCentavos",l.approved_price_centavos::float8 as "approvedUnitPriceCentavos",l.gross_centavos::float8 as "grossCentavos",l.exceptions from mt_po_lines l left join products p on p.id=l.product_id where l.intake_id=${row.id} order by l.ordinal`;
   return { ...row, branchLabel: binding.label, lines };
 }
 /** @param {any} c @param {string} id @param {string} [cap] */
@@ -121,8 +147,8 @@ async function intake(c, id, cap = "order.encode") {
 async function saveLines(c, id, normalized) {
   await c.db`delete from mt_po_lines where intake_id=${id}`;
   for (const [i, l] of normalized.lines.entries())
-    await c.db`insert into mt_po_lines(intake_id,ordinal,product_code,uom,quantity,requested_price_centavos,product_id,exceptions)
-    values(${id},${i},${l.productCode},${l.uom},${l.quantity},${l.requestedPriceCentavos},${l.productId},${l.exceptions})`;
+    await c.db`insert into mt_po_lines(intake_id,ordinal,product_code,uom,quantity,requested_price_centavos,product_id,exceptions,approved_price_centavos,gross_centavos)
+    values(${id},${i},${l.productCode},${l.uom},${l.quantity},${l.requestedPriceCentavos},${l.productId},${l.exceptions},${l.approvedUnitPriceCentavos},${l.grossCentavos})`;
 }
 /** @param {any} router */
 export function installIntake(router) {
@@ -261,6 +287,18 @@ export function installIntake(router) {
               422,
               "Fix all PO exceptions before confirmation",
             );
+          if (
+            data.lines.some(
+              (l, i) =>
+                l.approvedUnitPriceCentavos !==
+                old.lines[i]?.approvedUnitPriceCentavos,
+            )
+          )
+            throw new ApiError(
+              "validation_exceptions",
+              422,
+              "Approved prices changed. Save corrections to review prices before confirming",
+            );
           // SAME commercial order object + approval + pricing + audit. No outside-call/planned-day restriction.
           const order = await createOrder(
             cc,
@@ -278,6 +316,22 @@ export function installIntake(router) {
             },
             { intake: true },
           );
+          const frozen =
+            await cc.db`select unit_price_centavos from order_lines where order_id=${order.id} order by ordinal`;
+          if (
+            frozen.length !== data.lines.length ||
+            frozen.some(
+              (/** @type {any} */ l, /** @type {number} */ i) =>
+                l.unit_price_centavos === null ||
+                Number(l.unit_price_centavos) !==
+                  data.lines[i].approvedUnitPriceCentavos,
+            )
+          )
+            throw new ApiError(
+              "validation_exceptions",
+              422,
+              "Prices changed during confirmation. Revalidate before confirming",
+            );
           await cc.db`update inbound_purchase_orders set status='confirmed',po_identity=${binding.branch_key + "|" + data.poNumber.toLowerCase()},order_id=${order.id},confirmed_at=now(),revision=revision+1,updated_at=now() where id=${row.id}`;
           await audit(cc, "po.confirmed", row.id);
           return {

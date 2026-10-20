@@ -74,6 +74,9 @@ describe("F-306 F-307 F-309 F-611 modern trade web", () => {
           uom: "PC",
           quantity: 2,
           requestedPriceCentavos: 1200,
+          productName: "Sample grocery pack",
+          approvedUnitPriceCentavos: 1300,
+          grossCentavos: 2 * 1300,
           exceptions: ["PO price differs from the approved price"],
         },
       ],
@@ -83,6 +86,27 @@ describe("F-306 F-307 F-309 F-611 modern trade web", () => {
     const edit = renderToStaticMarkup(<IntakeEditor row={row} canEdit />);
     expect(edit).toContain("Download original");
     expect(edit).toContain("PO price differs");
+    expect(edit).toContain("Sample grocery pack");
+    expect(edit).toContain("Approved unit:");
+    expect(edit).toContain("Gross before offers:");
+    const unchecked = renderToStaticMarkup(
+      <IntakeEditor
+        canEdit
+        row={{
+          ...row,
+          exceptions: [],
+          lines: row.lines.map((l) => ({
+            ...l,
+            exceptions: [],
+            approvedUnitPriceCentavos: null,
+            grossCentavos: null,
+          })),
+        }}
+      />,
+    );
+    expect(unchecked).toMatch(
+      /<button[^>]*disabled=""[^>]*>Confirm into Orders<\/button>/,
+    );
     expect(edit).toContain('disabled=""');
     const read = renderToStaticMarkup(
       <IntakeEditor row={row} canEdit={false} />,
@@ -250,7 +274,7 @@ describe("F-306 F-307 F-309 F-611 modern trade web", () => {
     };
     state.data = data;
     const html = renderToStaticMarkup(<CustomerPortal />);
-    expect(html).toContain("Received");
+    expect(html).toContain("PO received");
     expect(html).toContain("Delivered");
     expect(html).toContain("Sample SAP invoice");
     expect(html).toContain("Submit dispute");

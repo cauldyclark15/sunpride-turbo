@@ -12,6 +12,7 @@ import {
   dateText,
   inputClass,
   panel,
+  php,
   text,
   useCommand,
 } from "./kit";
@@ -54,7 +55,12 @@ export function IntakeConsole({
               }}
             >
               <Field label="Account branch">
-                <select name="binding" required className={inputClass}>
+                <select
+                  name="binding"
+                  required
+                  className={inputClass}
+                  style={{ paddingRight: "2.5rem", textOverflow: "ellipsis" }}
+                >
                   {options.bindings.map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.label}
@@ -90,8 +96,8 @@ export function IntakeConsole({
               </button>
             </Form>
             <p className="mt-3 text-xs text-muted">
-              Sample formats only. OCR is a replaceable adapter; scanned
-              documents need manual review. Original bytes are retained.
+              Upload a retailer export or structured email. Scans need manual
+              review; you can download the unchanged original.
             </p>
           </section>
         ) : null}
@@ -175,6 +181,16 @@ export function IntakeEditor({
   const dirty =
     headerDirty || JSON.stringify(lines) !== JSON.stringify(row.lines);
   const editable = canEdit && row.status === "review";
+  const priceReviewComplete =
+    lines.length > 0 &&
+    lines.every(
+      (l) => l.approvedUnitPriceCentavos != null && l.grossCentavos != null,
+    );
+  const rawGross = priceReviewComplete
+    ? lines.reduce((n, l) => n + (l.grossCentavos ?? 0), 0)
+    : null;
+  const grossTotal =
+    rawGross !== null && Number.isSafeInteger(rawGross) ? rawGross : null;
   async function original() {
     await downloadDocument("/api/v1/mt/intake/document", row.id);
   }
@@ -247,7 +263,7 @@ export function IntakeEditor({
                   "Product code",
                   "Unit",
                   "Quantity",
-                  "PO price · centavos (optional)",
+                  "PO price · PHP centavos (optional)",
                   "Validation",
                 ].map((s) => (
                   <th className="p-2 font-medium" key={s}>
@@ -300,10 +316,29 @@ export function IntakeEditor({
                           )
                         }
                       />
+                      {k === "productCode" && l.productName ? (
+                        <p className="mt-1 text-xs text-muted">
+                          {l.productName}
+                        </p>
+                      ) : null}
                     </td>
                   ))}
                   <td className="min-w-36 p-2">
                     {l.exceptions.length ? l.exceptions.join(" · ") : "Ready"}
+                    <p className="mt-2 text-xs text-muted">
+                      {dirty ? (
+                        "Save changes to recheck prices"
+                      ) : row.status === "confirmed" &&
+                        l.approvedUnitPriceCentavos == null ? (
+                        "See commercial order for final prices"
+                      ) : (
+                        <>
+                          Approved unit: {php(l.approvedUnitPriceCentavos)}
+                          <br />
+                          Gross before offers: {php(l.grossCentavos)}
+                        </>
+                      )}
+                    </p>
                   </td>
                   {editable ? (
                     <td>
@@ -323,6 +358,15 @@ export function IntakeEditor({
             </tbody>
           </table>
         </div>
+        <p className="text-sm font-medium">
+          Gross before offers:{" "}
+          {dirty
+            ? "Save changes to recheck"
+            : grossTotal === null
+              ? "Revalidate to review prices"
+              : php(grossTotal)}
+          . Final offers and credit are checked in Orders.
+        </p>
         {editable ? (
           <div className="flex flex-wrap gap-2">
             <button
@@ -351,6 +395,7 @@ export function IntakeEditor({
               disabled={
                 cmd.pending ||
                 dirty ||
+                !priceReviewComplete ||
                 row.exceptions.length > 0 ||
                 row.lines.some((l) => l.exceptions.length > 0)
               }
