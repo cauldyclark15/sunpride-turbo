@@ -30,6 +30,22 @@ class DeliveryProofRulesTest {
         p.getJSONArray("lines").getJSONObject(0).put("rejectedBase",-1)
         assertThrows(IllegalArgumentException::class.java) { DeliveryProofRules.validate(drop(),p) }
     }
+    @Test fun `F-308 departure stays available after proof and timings reject duplicates or reversed order`() {
+        val d=drop().put("status","scheduled")
+        assertThrows(IllegalArgumentException::class.java) { DeliveryProofRules.validateTiming(d,"unloading",2,"") }
+        DeliveryProofRules.validateTiming(d,"arrival",1,"");d.put("arrivedAt",1)
+        assertThrows(IllegalArgumentException::class.java) { DeliveryProofRules.validateTiming(d,"arrival",2,"") }
+        DeliveryProofRules.validateTiming(d,"unloading",2,"");d.put("unloadingAt",2)
+        assertThrows(IllegalArgumentException::class.java) { DeliveryProofRules.validateTiming(d,"departure",3,"") }
+        d.put("status","saved_on_phone");DeliveryProofRules.validateTiming(d,"departure",3,"")
+        d.put("departedAt",3)
+        assertThrows(IllegalArgumentException::class.java) { DeliveryProofRules.validateTiming(d,"departure",4,"") }
+    }
+    @Test fun `F-308 an outside-window arrival requires a recorded reason`() {
+        val d=drop().put("windowStart",10).put("windowEnd",20)
+        assertThrows(IllegalArgumentException::class.java) { DeliveryProofRules.validateTiming(d,"arrival",9,"") }
+        DeliveryProofRules.validateTiming(d,"arrival",9,"Buyer asked us to arrive early")
+    }
     @Test fun `F-303 proof identity and capture time cannot switch drop or outlet`() {
         assertThrows(IllegalArgumentException::class.java) { DeliveryProofRules.validate(drop(),payload().put("dropId","another")) }
         val p=payload();p.getJSONObject("watermark").put("capturedAt",2)

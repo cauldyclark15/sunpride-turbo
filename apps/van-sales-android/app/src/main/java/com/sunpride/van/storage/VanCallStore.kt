@@ -15,9 +15,18 @@ class VanCallStore(private val store: RoomVanStore) {
     private val usable = setOf("pending","sending","done")
     private fun payload(row: OutboxRow) = JSONObject(row.operationJson).getJSONObject("payload")
     private suspend fun trip() = checkNotNull(dao.trip(s,d)) { "No trip assigned" }
-    suspend fun deliveries(): List<JSONObject> = com.sunpride.callflow.CallFlowEngine.objects(JSONObject(trip().json).optJSONArray("_deliveries") ?: org.json.JSONArray()).map { drop ->
-        val queued = rows().any { it.kind == "delivery.confirm" && payload(it).getString("dropId") == drop.getString("dropId") }
-        JSONObject(drop.toString()).apply { if(queued) put("status","saved_on_phone") }
+    suspend fun deliveries(): List<JSONObject> {
+        val journal=rows()
+        return CallFlowEngine.objects(JSONObject(trip().json).optJSONArray("_deliveries") ?: org.json.JSONArray()).map { original ->
+            JSONObject(original.toString()).apply {
+                val own=journal.filter { it.kind in setOf("delivery.confirm","delivery.timing") && payload(it).getString("dropId")==getString("dropId") }
+                if(getString("status")=="scheduled" && own.any { it.kind=="delivery.confirm" }) put("status","saved_on_phone")
+                own.filter { it.kind=="delivery.timing" }.forEach { row ->
+                    val event=payload(row);val key=when(event.getString("stage")) { "arrival"->"arrivedAt";"unloading"->"unloadingAt";else->"departedAt" }
+                    put(key,event.getLong("deviceTime"))
+                }
+            }
+        }
     }
     suspend fun config(outletId: String): JSONObject? = JSONObject(trip().json).optJSONObject("_callFlows")?.optJSONObject(outletId)
     private suspend fun rows(): List<OutboxRow> {
@@ -99,8 +108,8 @@ class VanCallStore(private val store: RoomVanStore) {
                     CallFlowEngine.advance(config,done(start),"delivery_confirm",hasOrder(start))
                 } else if(kind == "delivery.timing") {
                     payload.put("location",fix)
-                    require(payload.getString("stage") in setOf("arrival","unloading","departure"))
-                    require(deliveries().any { it.getString("dropId")==payload.getString("dropId") && it.getString("outletId")==outletId })
+                    val drop=deliveries().single { it.getString("dropId")==payload.getString("dropId") && it.getString("outletId")==outletId }
+                    com.sunpride.van.delivery.DeliveryProofRules.validateTiming(drop,payload.getString("stage"),at,payload.optString("reason"))
                 } else if (kind == "call.close") {
                     val approval = CallFlowEngine.approval(config(outletId) ?: config,"geofence_end",at,rows().map { payload(it).optString("geofenceApprovalId") }.toSet(),config.getJSONObject("policy").optString("id"))
                     if(CallFlowEngine.location(config,fix,at,approval != null))

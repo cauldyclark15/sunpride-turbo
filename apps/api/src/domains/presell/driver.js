@@ -275,6 +275,9 @@ export async function deliveryBundle(db, actor, trip) {
       windowStart: d.window_start ? +new Date(d.window_start) : null,
       windowEnd: d.window_end ? +new Date(d.window_end) : null,
       bookingReference: d.booking_reference,
+      arrivedAt: d.arrived_at ? +new Date(d.arrived_at) : null,
+      unloadingAt: d.unloading_at ? +new Date(d.unloading_at) : null,
+      departedAt: d.departed_at ? +new Date(d.departed_at) : null,
       reasons: d.snapshot.policy.variance_reasons,
       lines: lines.map((/** @type {any} */ l) => ({
         lineId: l.id,

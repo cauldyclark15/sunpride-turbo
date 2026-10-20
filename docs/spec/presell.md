@@ -28,7 +28,7 @@ Accepted + short + rejected + damaged base pieces must equal each frozen allocat
 
 ## F-308 — appointments and receiving slots
 
-Dispatch creates dated store receiving slots with capacity and reference, books/reschedules an unstarted drop under a slot lock, and freezes its arrival window. Concurrent bookings cannot overfill capacity. Existing bookings retain their history. Driver arrival/unloading/departure times are ordered captured facts in the same offline outbox; arrival outside the window requires a reason. No office inference substitutes for a driver's actual event.
+Dispatch creates dated store receiving slots with capacity and reference, books/reschedules an unstarted drop under a slot lock, and freezes its arrival window. Concurrent bookings cannot overfill capacity. Existing bookings retain their history. Driver arrival/unloading/departure times are ordered captured facts in the same offline outbox; arrival outside the window requires a reason. The encrypted journal overlays queued timing facts across screen changes/reopen, refuses duplicate or reversed stages, and keeps departure available after the proof has been saved. No office inference substitutes for a driver's actual event.
 
 ## F-612 — notification outbox and dev sink
 

@@ -72,12 +72,22 @@ import org.json.JSONObject
             }
             SecondaryButton("Clear signature",{signature=emptyList()},enabled=!saving)
             SecondaryButton("Take photo and save delivery",{camera=true},Modifier.testTag("delivery-photo-save"),!saving && !c.busy && receiver.isNotBlank() && signature.size>=2)
-            Row(horizontalArrangement=Arrangement.spacedBy(4.dp)) { listOf("arrival","unloading","departure").forEach { stage->
-                SecondaryButton(stage.replaceFirstChar(Char::uppercase),{
-                    scope.launch { try { c.repository.recordCall("delivery.timing",customer.outletId,null,JSONObject().put("dropId",drop.getString("dropId")).put("stage",stage).put("reason",notes));message="Delivery time saved on this phone." } catch(e:kotlinx.coroutines.CancellationException){throw e} catch(_:Exception){message="Could not record this delivery time."} }
-                },Modifier.weight(1f),!saving)
-            } }
         }
+        if(saved) LabeledField("Timing note or outside-window reason",notes,{notes=it},"delivery-note")
+        Row(horizontalArrangement=Arrangement.spacedBy(4.dp)) { listOf("arrival","unloading","departure").forEach { stage->
+            val ready=when(stage) {
+                "arrival"->drop.isNull("arrivedAt") || !drop.has("arrivedAt")
+                "unloading"->drop.has("arrivedAt")&&!drop.isNull("arrivedAt") && (drop.isNull("unloadingAt") || !drop.has("unloadingAt"))
+                else->saved && drop.has("unloadingAt")&&!drop.isNull("unloadingAt") && (drop.isNull("departedAt") || !drop.has("departedAt"))
+            }
+            SecondaryButton(stage.replaceFirstChar(Char::uppercase),{
+                saving=true
+                scope.launch { try {
+                    c.repository.recordCall("delivery.timing",customer.outletId,null,JSONObject().put("dropId",drop.getString("dropId")).put("stage",stage).put("reason",notes))
+                    drops=c.repository.deliveryDrops().filter {it.getString("outletId")==customer.outletId};message="Delivery time saved on this phone."
+                } catch(e:kotlinx.coroutines.CancellationException){throw e} catch(e:Exception){message=e.message?.takeIf{it.length<160} ?: "Could not record this delivery time."} finally {saving=false} }
+            },Modifier.weight(1f).testTag("delivery-timing-$stage"),!saving&&!c.busy&&ready)
+        } }
         message?.let { Text(it,Modifier.testTag("delivery-message")) }
         if(camera) Dialog(onDismissRequest={if(!saving)camera=false},properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)) {
             Surface(Modifier.fillMaxSize().safeDrawingPadding()) {

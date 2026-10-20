@@ -31,6 +31,21 @@ object DeliveryProofRules {
         val watermark=payload.getJSONObject("watermark")
         require(watermark.getInt("version")==1 && watermark.getString("outletId")==drop.getString("outletId") && watermark.getLong("capturedAt")==payload.getLong("deviceTime"))
     }
+    /** F-308: local preview uses the same persisted timing facts and queued journal as the proof. */
+    fun validateTiming(drop:JSONObject,stage:String,at:Long,reason:String) {
+        fun time(key:String)=if(drop.has(key)&&!drop.isNull(key)) drop.getLong(key) else null
+        require(at>0)
+        when(stage) {
+            "arrival" -> {
+                require(time("arrivedAt")==null) { "Arrival is already recorded." }
+                val start=time("windowStart");val end=time("windowEnd")
+                require(start==null || end==null || at in start..end || reason.isNotBlank()) { "Give a reason for arrival outside the receiving window." }
+            }
+            "unloading" -> require(time("unloadingAt")==null && time("arrivedAt")?.let { at>=it }==true) { "Record arrival before unloading." }
+            "departure" -> require(time("departedAt")==null && time("unloadingAt")?.let {at>=it}==true && drop.getString("status") in setOf("saved_on_phone","delivered","variance")) { "Save delivery proof after unloading, then record departure." }
+            else -> throw IllegalArgumentException("Choose arrival, unloading or departure.")
+        }
+    }
     fun fullLines(drop: JSONObject): JSONArray = JSONArray().apply { CallFlowEngine.objects(drop.getJSONArray("lines")).forEach { l ->
         put(JSONObject().put("lineId",l.getString("lineId")).put("acceptedBase",l.getLong("expectedBase")).put("shortBase",0).put("rejectedBase",0).put("damagedBase",0))
     } }

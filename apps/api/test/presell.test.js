@@ -503,7 +503,7 @@ test("F-301 policies publish prospectively and keep captured promise snapshots u
   expect(promise.policy_snapshot.epod_target_percent).toBe(98);
 });
 
-test("F-303 F-304 signed driver ePOD advances the shared engine, freezes evidence, retains order and replays exactly", async () => {
+test("F-303 F-304 F-308 signed driver ePOD advances the shared engine, freezes evidence, retains order and replays exactly", async () => {
   const f = await fixture({ deliveryDay: today }),
     drop = await dispatched(f),
     at = Date.now();
@@ -534,6 +534,24 @@ test("F-303 F-304 signed driver ePOD advances the shared engine, freezes evidenc
     zeroSaleReason: "delivery_only",
   });
   expect((await push(f, end))[0].status).toBe("rejected");
+  await h.db`update delivery_drops set window_start=${new Date(at + 60000)},window_end=${new Date(at + 120000)} where id=${drop.id}`;
+  /** @param {string} stage @param {number} offset @param {string|null} [reason] */
+  const timing = (stage, offset, reason = null) =>
+    op("delivery.timing", {
+      tripId: f.trip.id,
+      dropId: drop.id,
+      clientCallId: start.payload.clientCallId,
+      deviceTime: at + offset,
+      stage,
+      ...(reason ? { reason } : {}),
+    });
+  expect((await push(f, timing("unloading", 1)))[0].status).toBe("rejected");
+  expect((await push(f, timing("arrival", 1)))[0].status).toBe("rejected");
+  const arrival = timing("arrival", 1, "Buyer asked us to receive early");
+  expect((await push(f, arrival))[0].status).toBe("applied");
+  expect((await push(f, arrival))[0].status).toBe("duplicate");
+  expect((await push(f, timing("unloading", 2)))[0].status).toBe("applied");
+  expect((await push(f, timing("departure", 3)))[0].status).toBe("rejected");
   const [line] =
     await h.db`select * from delivery_drop_lines where drop_id=${drop.id}`;
   const digest = "b".repeat(64);
@@ -588,6 +606,13 @@ test("F-303 F-304 signed driver ePOD advances the shared engine, freezes evidenc
     result = (await push(f, proofOp))[0];
   expect(result.status).toBe("applied");
   expect((await push(f, proofOp))[0].status).toBe("duplicate");
+  expect((await push(f, timing("departure", 3)))[0].status).toBe("applied");
+  const [times] =
+    await h.db`select arrived_at,unloading_at,departed_at,window_breach_reason from delivery_drops where id=${drop.id}`;
+  expect(+new Date(times.arrived_at)).toBe(at + 1);
+  expect(+new Date(times.unloading_at)).toBe(at + 2);
+  expect(+new Date(times.departed_at)).toBe(at + 3);
+  expect(times.window_breach_reason).toBe("Buyer asked us to receive early");
   const close = op("call.close", {
     ...end.payload,
     deviceTime: at + 3,

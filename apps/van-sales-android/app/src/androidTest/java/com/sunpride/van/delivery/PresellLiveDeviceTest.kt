@@ -65,6 +65,9 @@ class PresellLiveDeviceTest {
         transportGate("offline")
         runBlocking { check(runCatching {repository.syncNow()}.isFailure) { "API must be unreachable while recording ePOD" } }
         waitTag("delivery-receiver")
+        rule.onNodeWithTag("delivery-timing-arrival").performScrollTo().performClick()
+        rule.waitUntil(60_000){runCatching{rule.onNodeWithTag("delivery-timing-unloading").assertIsEnabled()}.isSuccess}
+        rule.onNodeWithTag("delivery-timing-unloading").performScrollTo().performClick()
         rule.onNodeWithTag("delivery-receiver").performScrollTo().performTextInput("Sample receiving buyer")
         rule.onNodeWithTag("delivery-accepted-0").performScrollTo().performTextReplacement((fixture.getInt("expectedBase")-1).toString())
         rule.onNodeWithTag("delivery-rejected-0").performScrollTo().performTextReplacement("1")
@@ -78,7 +81,10 @@ class PresellLiveDeviceTest {
         rule.waitUntil(60_000){runCatching{rule.onNodeWithTag("damage-capture").assertIsEnabled()}.isSuccess}
         rule.onNodeWithTag("damage-capture").performClick()
         waitTag("delivery-saved");rule.onNodeWithTag("delivery-saved").performScrollTo().assertTextContains("saved")
+        rule.onNodeWithTag("delivery-timing-departure").performScrollTo().performClick()
+        rule.waitUntil(60_000){runCatching{rule.onNodeWithTag("delivery-timing-departure").assertIsNotEnabled()}.isSuccess}
         shot("van-saved-offline")
+        rule.onNodeWithTag("callflow-short").performScrollTo().performTextInput("Sample ePOD proof completed before the normal dwell time")
         rule.onNodeWithTag("callflow-close").performScrollTo().performClick()
         rule.waitUntil(60_000){controller.currentCall==null&&!controller.busy}
         runBlocking { check(repository.syncStatus.first().queued>0) }
