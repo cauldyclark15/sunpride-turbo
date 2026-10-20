@@ -237,6 +237,14 @@ export async function issueDocument(db, input) {
     await db`select * from fiscal_allocations where id=${uuid(input.allocationId)} for update`;
   if (!a || a.device_id !== input.deviceId || a.profile_id !== actor.profileId)
     refuse("Fiscal range is not allocated to this handheld");
+  if (
+    (
+      await db`select 1 from fiscal_allocation_closures where allocation_id=${a.id}`
+    ).length
+  )
+    refuse(
+      "This document range was permanently retired; reconcile saved work with the office",
+    );
   const [s] =
     await db`select * from fiscal_series where id=${a.series_id} for share`;
   const [r] =

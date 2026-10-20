@@ -3,6 +3,7 @@
 import { useState, useEffect, type FormEvent } from "react";
 import { mutate, useApi, useLive } from "../../lib/api";
 import { Panel } from "../cockpit/kit";
+import { FiscalAudit } from "./audit";
 import {
   authorityMinor,
   authorityPeso,
@@ -33,7 +34,13 @@ type Document = {
 type Register = {
   registrations: Registration[];
   series: Row[];
-  allocations: Row[];
+  allocations: (Row & {
+    closure?: {
+      outcome: string;
+      first_unissued: string;
+      last_serial: string;
+    } | null;
+  })[];
   overrides: Row[];
   rules: Row[];
   documents: Document[];
@@ -65,6 +72,7 @@ type Register = {
     effective_to: string | null;
   }[];
   devices?: { id: string; name: string }[];
+  canAudit?: boolean;
   canManage: boolean;
   canDecide: boolean;
   truncated: boolean;
@@ -687,8 +695,9 @@ export function FiscalWorkspace({
                     <p key={String(a.id)}>
                       {a.seller}: reserved {a.first_serial}–{a.last_serial} ·{" "}
                       {a.accounted} accounted ·{" "}
-                      {Number(a.last_serial) - Number(a.next_issue) + 1} still
-                      reserved on handheld
+                      {a.closure
+                        ? `${word(a.closure.outcome)} · tail ${a.closure.first_unissued}–${a.closure.last_serial} permanently retired`
+                        : `${Number(a.last_serial) - Number(a.next_issue) + 1} still reserved on handheld`}
                     </p>
                   ))}
               </div>
@@ -696,8 +705,52 @@ export function FiscalWorkspace({
             {data.canManage ? (
               <details className="mt-4">
                 <summary className="cursor-pointer text-sm font-medium">
-                  Add approved series
+                  Reconcile numbers or add a series
                 </summary>
+                <CommandForm
+                  title="Reconcile a retired phone’s unused numbers"
+                  fields={[
+                    {
+                      name: "allocationId",
+                      label: "Reserved range",
+                      options: data.allocations
+                        .filter(
+                          (a) =>
+                            !a.closure &&
+                            Number(a.next_issue) <= Number(a.last_serial),
+                        )
+                        .map((a) => ({
+                          id: String(a.id),
+                          label: `${a.seller} · ${a.prefix} · ${a.next_issue}–${a.last_serial}`,
+                        })),
+                    },
+                    {
+                      name: "outcome",
+                      label: "Reconciliation outcome",
+                      options: [
+                        {
+                          id: "unused_reconciled",
+                          label: "Unused tail independently reconciled",
+                        },
+                        {
+                          id: "lost_unreconciled",
+                          label: "Lost phone — tail unaccounted for",
+                        },
+                      ],
+                    },
+                    { name: "reason", label: "Reason" },
+                    {
+                      name: "evidenceReference",
+                      label: "Reconciliation evidence reference",
+                    },
+                  ]}
+                  onSubmit={(b) => command("allocations/retire", b)}
+                />
+                <p className="my-3 text-sm">
+                  Suspend or retire the phone first. A different administrator
+                  records the outcome. Numbers are never recycled; lost numbers
+                  stay explicitly unaccounted for.
+                </p>
                 <CommandForm
                   title="Approved serial range (never recycled)"
                   fields={[
@@ -953,6 +1006,9 @@ export function FiscalWorkspace({
             ) : null}
           </Panel>
         </>
+      ) : null}
+      {!decisionsOnly && !moneyOnly ? (
+        <FiscalAudit allowed={data?.canAudit === true} />
       ) : null}
     </div>
   );

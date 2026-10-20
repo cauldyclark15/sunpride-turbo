@@ -83,7 +83,7 @@ export async function fiscalBundle(db, actor, trip, deviceId) {
       continue;
     }
     const open =
-      await db`select * from fiscal_allocations where series_id=${s.id} and device_id=${deviceId} and profile_id=${actor.profileId} and next_issue<=last_serial order by first_serial limit 2`;
+      await db`select * from fiscal_allocations where series_id=${s.id} and device_id=${deviceId} and profile_id=${actor.profileId} and next_issue<=last_serial and not exists(select 1 from fiscal_allocation_closures c where c.allocation_id=fiscal_allocations.id) order by first_serial limit 2`;
     if (open.length > 1)
       refuse("Multiple unclosed ranges require reconciliation");
     if (open[0]) ranges.push(allocationDto(open[0], s, r));

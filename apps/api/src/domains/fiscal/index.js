@@ -12,6 +12,7 @@ import {
   documentEvent,
 } from "./series.js";
 import { confirmTender, saveTenderRule } from "./tenders.js";
+import { retireAllocation } from "./reconciliation.js";
 import {
   requestOverride,
   decideOverride,
@@ -45,6 +46,7 @@ export function install(router, ctx) {
     "registrations/save": saveRegistration,
     "tenders/save": saveTenderRule,
     "series/create": createSeries,
+    "allocations/retire": retireAllocation,
     "tenders/confirm": confirmTender,
     "allocations/reserve": (
       /** @type {any} */ db,
@@ -124,7 +126,7 @@ export function install(router, ctx) {
       const series =
         await db`select s.*,r.document_type,r.branch_name,r.sample,r.status as registration_status from fiscal_series s join fiscal_registrations r on r.id=s.registration_id where (${all} or r.org_unit_id in ${db(ids)}) order by s.prefix limit 501`;
       const allocations =
-        await db`select a.*,s.prefix,r.document_type,p.name as seller,(select count(*)::int from fiscal_documents d where d.allocation_id=a.id) as accounted from fiscal_allocations a join fiscal_series s on s.id=a.series_id join fiscal_registrations r on r.id=s.registration_id join profiles p on p.id=a.profile_id where (${all} or r.org_unit_id in ${db(ids)}) and (${actor.role !== "sales"} or a.profile_id=${actor.profileId}) order by a.created_at desc limit 501`;
+        await db`select a.*,s.prefix,r.document_type,p.name as seller,(select row_to_json(c) from fiscal_allocation_closures c where c.allocation_id=a.id) as closure,(select count(*)::int from fiscal_documents d where d.allocation_id=a.id) as accounted from fiscal_allocations a join fiscal_series s on s.id=a.series_id join fiscal_registrations r on r.id=s.registration_id join profiles p on p.id=a.profile_id where (${all} or r.org_unit_id in ${db(ids)}) and (${actor.role !== "sales"} or a.profile_id=${actor.profileId}) order by a.created_at desc limit 501`;
       const overrides =
         await db`select r.*,p.name as requester,(select e.kind from fiscal_override_events e where e.request_id=r.id and e.kind in ('approved','rejected')) as decision,(select p2.name from fiscal_override_events e join profiles p2 on p2.id=e.actor_profile_id where e.request_id=r.id and e.kind in ('approved','rejected')) as approver from fiscal_override_requests r join profiles p on p.id=r.requester_id where (${all} or r.org_unit_id in ${db(ids)}) and (${actor.role !== "sales"} or r.requester_id=${actor.profileId}) order by r.created_at desc limit 501`;
       const rules =
@@ -175,6 +177,10 @@ export function install(router, ctx) {
           rules,
           documents,
         ].some((x) => x.length > 500),
+        canAudit:
+          roleHas(actor.role, "admin.manage") &&
+          roleHas(actor.role, "van.stock.approve") &&
+          roleHas(actor.role, "van.cash.approve"),
         canManage: roleHas(actor.role, "admin.manage"),
         canDecide: roleHas(actor.role, "order.approve"),
       };
@@ -195,6 +201,17 @@ export function install(router, ctx) {
           refuse("National audit access required");
       }
       const before = c.url.searchParams.get("before");
+      const from = c.url.searchParams.get("from");
+      const table = c.url.searchParams.get("table") || null;
+      const action = c.url.searchParams.get("action") || null;
+      if (
+        (from && !Number.isFinite(Date.parse(from))) ||
+        (table && !/^[a-z][a-z0-9_]{0,79}$/.test(table)) ||
+        (action && !["INSERT", "UPDATE", "DELETE"].includes(action))
+      )
+        refuse("Choose valid audit filters");
+      if (before && from && Date.parse(from) >= Date.parse(before))
+        refuse("Audit end must follow its start");
       if (before && !Number.isFinite(Date.parse(before)))
         refuse("Choose a valid audit cursor");
       /** @type {string|null} */ let cursorAt = null;
@@ -228,8 +245,10 @@ export function install(router, ctx) {
         }
       }
       const items =
-        await db`select *,to_char(created_at at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as cursor_time from fiscal_audit_events
+        await db`select *, (select p.name from profiles p where p.user_id::text=fiscal_audit_events.actor_subject or p.auth_subject=fiscal_audit_events.actor_subject limit 1) as actor_name,to_char(created_at at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as cursor_time from fiscal_audit_events
         where (${before}::timestamptz is null or created_at<${before}::timestamptz)
+        and (${from}::timestamptz is null or created_at>=${from}::timestamptz)
+        and (${table}::text is null or table_name=${table}) and (${action}::text is null or action=${action})
         and (${cursorAt}::timestamptz is null or (created_at,id)<(${cursorAt}::timestamptz,${cursorId}::uuid)) order by created_at desc,id desc limit 101`;
       const page = items.slice(0, 100),
         hasMore = items.length > 100,
