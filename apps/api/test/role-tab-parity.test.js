@@ -77,6 +77,7 @@ const calls = {
   "van-trips": [`/api/v1/van/trips?date=${date}`],
   // F-310 F-316: every visible role reads the real scoped retail landing page.
   "retail-execution": ["/api/v1/retail/workspace"],
+  agencies: ["/api/v1/partners"], // F-319 F-322: dependent agency reads are covered by partners.test.js
 };
 beforeAll(async () => {
   h = await startHarness({ installers: domainInstallers });

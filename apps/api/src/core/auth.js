@@ -388,6 +388,8 @@ export function installAuth(router) {
     if (!ctx.user || !ctx.session) throw unauthenticated();
     if (ctx.via === "access" && ctx.session.app !== "web") return nativeMe(ctx);
     const profile = await loadProfile(ctx.db, ctx.user.id);
+    const { partnerContext } = await import("../domains/partners/boundary.js");
+    const partner = await partnerContext(ctx.db, ctx.actor);
     return {
       user: ctx.user,
       profile: profile
@@ -400,6 +402,15 @@ export function installAuth(router) {
           }
         : null,
       capabilities: ctx.actor ? [...ctx.actor.capabilities] : [],
+      ...(partner
+        ? {
+            partner: {
+              id: partner.distributor_id,
+              kind: partner.partner_kind,
+              name: partner.name,
+            },
+          }
+        : {}),
     };
   });
 }

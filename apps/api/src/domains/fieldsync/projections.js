@@ -1,5 +1,6 @@
 import { callSnapshot } from "../availability/calls.js";
 import { tx } from "@sunpride/db/client";
+import { partnerContext } from "../partners/boundary.js";
 import { checkDayManifest } from "./manifest.js";
 import { policyAt } from "../presell/promise.js";
 import { outletRetail } from "../retail/index.js";
@@ -35,6 +36,7 @@ import {
 /** @param {any} ctx @param {string} profileId @param {string} date @param {{from?:string,includeOldOpen?:boolean,organizationId?:string}} [options] */
 export async function authorizedOrders(ctx, profileId, date, options = {}) {
   const db = ctx.db;
+  if (await partnerContext(db, ctx.actor)) return [];
   const { unitIds } = await scopeFilterForActor(db, ctx.actor);
   const units = unitIds?.length ? unitIds : [ZERO_UUID];
   // Customer membership alone is never authority: independently gate the source
@@ -200,6 +202,14 @@ async function bundleData(ctx) {
   if (date !== manilaDate(ctx.now))
     throw rebootstrap("Download the current Manila day");
   const db = ctx.db;
+  const partner = await partnerContext(db, ctx.actor);
+  const partnerGrants = partner
+    ? await db`select outlet_id,effective_to from partner_outlet_assignments
+    where distributor_id=${partner.distributor_id} and effective_from<=now() and (effective_to is null or effective_to>now())`
+    : [];
+  const permitted = new Set(
+    partnerGrants.map((/** @type {any} */ r) => r.outlet_id),
+  );
   const [person] =
     await db`select p.*,u.organization_id,coalesce(a.position_id,p.position_id) as current_position_id from profiles p
       left join employee_assignments a on a.profile_id=p.id and a.deleted_at is null
@@ -214,6 +224,7 @@ async function bundleData(ctx) {
     where pv.assignee_profile_id=${person.id} and pv.service_date>=${date}::date and pv.service_date<${date}::date+3
       and pv.status='planned' and pv.deleted_at is null and cp.deleted_at is null and s.deleted_at is null
       and cp.status in ('approved','active') and cp.approval_signature is not null and cp.content_hash is not null
+      and (${!partner} or pv.outlet_id in ${db(permitted.size ? [...permitted] : [ZERO_UUID])})
     order by pv.service_date,s.sequence,pv.id limit 501`,
     500,
   );
@@ -279,7 +290,9 @@ async function bundleData(ctx) {
         and own.effective_from<=now() and (own.effective_to is null or own.effective_to>now()) order by o.id limit 501`,
       500,
     );
-    for (const o of extra)
+    for (const o of extra.filter(
+      (/** @type {any} */ r) => !partner || permitted.has(r.id),
+    ))
       if (!outlets.has(o.id))
         outlets.set(o.id, {
           id: o.id,
@@ -469,6 +482,16 @@ async function bundleData(ctx) {
         };
       }),
   }));
+  if (partner)
+    for (const sheet of callSheets) {
+      sheet.header = Object.fromEntries(
+        Object.entries(sheet.header).map(([k, v]) => [
+          k,
+          ["accountName", "address"].includes(k) ? v : null,
+        ]),
+      );
+      for (const line of sheet.lines) line.pricing = null;
+    }
   const orderTerms = [];
   const localCustomers = new Map();
   const summaries = [];
@@ -478,6 +501,7 @@ async function bundleData(ctx) {
     includeOldOpen: true,
   });
   for (const id of outletIds) {
+    if (partner) continue;
     const [customer] =
       await db`select c.*,round(c.credit_limit*100)::bigint as credit_minor from outlet_customer_links l join customers c on c.id=l.customer_id where l.outlet_id=${id}
       and l.deleted_at is null and c.deleted_at is null and l.effective_from<=${new Date(ctx.now)} and (l.effective_to is null or l.effective_to>${new Date(ctx.now)})`;
@@ -626,7 +650,7 @@ async function bundleData(ctx) {
       dateOf(o.order_date) === date &&
       !["draft", "rejected", "voided"].includes(o.status),
   );
-  const inventoryAvailability = await inventoryRows(ctx);
+  const inventoryAvailability = partner ? [] : await inventoryRows(ctx);
   // This person's own recorded calls in the bundle window, in the same shape as the `visit` delta value,
   // so a phone that bootstraps mid-day (new phone, reinstall, sign-out/in) knows which stops are done.
   const visitExecutions = bounded(
@@ -634,12 +658,25 @@ async function bundleData(ctx) {
       where assignee_profile_id=${person.id} and service_date>=${date}::date and service_date<${date}::date+3
       and deleted_at is null order by service_date,created_at,id limit 201`,
     200,
-  ).filter(
-    (/** @type {any} */ r) => outlets.has(r.outlet_id) || r.planned_visit_id,
+  ).filter((/** @type {any} */ r) =>
+    partner
+      ? permitted.has(r.outlet_id)
+      : outlets.has(r.outlet_id) || r.planned_visit_id,
   );
-  const lease = closeAt(date);
+  const lease = Math.min(
+    closeAt(date),
+    ...[
+      partner?.effective_to,
+      partner?.partner_until,
+      ...partnerGrants.map((/** @type {any} */ g) => g.effective_to),
+    ]
+      .filter(Boolean)
+      .map((t) => new Date(t).getTime()),
+  );
   return {
-    permissions: [...ctx.actor.capabilities],
+    permissions: partner
+      ? ["visit.record", "visit.read", "outlet.read", "mcp.read"]
+      : [...ctx.actor.capabilities],
     employee: {
       id: person.id,
       role: ctx.actor.role,
@@ -668,11 +705,13 @@ async function bundleData(ctx) {
     outlets: [...outlets.values()],
     localCustomers: [...localCustomers.values()],
     route: routeRows.size === 1 ? [...routeRows.values()][0] : null,
-    tasks: tasks.map((/** @type {any} */ t) => ({
-      id: t.id,
-      kind: t.kind,
-      required: t.required,
-    })),
+    tasks: tasks
+      .filter((/** @type {any} */ t) => !partner || permitted.has(t.outlet_id))
+      .map((/** @type {any} */ t) => ({
+        id: t.id,
+        kind: t.kind,
+        required: t.required,
+      })),
     productCatalog: products,
     inventoryAvailability,
     callSheets,

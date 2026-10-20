@@ -201,6 +201,7 @@ export const MODULE_ROLES = {
   "sap-integration": integrationReaders, // integration.read
   programme: administrators, // admin.manage (v2 spec F-025 traceability)
   distributors: integrationReaders, // F-402 integration.read + partner supervising scope
+  agencies: integrationReaders, // partner evidence requires integration.read and agency scope
 } as const satisfies Record<PageSlug, readonly AppRole[]>;
 
 /** Old slugs that redirect; access follows their destination. */

@@ -1,5 +1,9 @@
 import { observePush } from "../domains/integrity/detectors.js";
 import { tx } from "@sunpride/db/client";
+import {
+  enforcePartnerOp,
+  enforcePartnerPull,
+} from "../domains/partners/boundary.js";
 import { reauthorizeDevice, verifyDeviceProof } from "./devices.js";
 import { ApiError, conflict, invalid } from "./errors.js";
 import { publish as publishTopic } from "./realtime.js";
@@ -287,6 +291,7 @@ async function applyOne(ctx, op, deviceId) {
         /** @type {Actor} */ (ctx.actor),
         deviceId,
       );
+      await enforcePartnerOp(t, actor, op);
       const existing = await findReceipt(t, actor, deviceId, op.clientOpId);
       if (existing) {
         if (existing.payload_hash !== hash)
@@ -458,6 +463,7 @@ async function pull(ctx) {
   )
     throw invalid("Send since or pageCursor, not both");
   const isDelta = body.since !== null && body.since !== undefined;
+  const partner = await enforcePartnerPull(ctx.db, actor, scopes, isDelta);
   const maxLimit = isDelta ? MAX_DELTA_LIMIT : MAX_SNAPSHOT_LIMIT;
   const rawLimit = /** @type {unknown} */ (body.limit);
   let limit = maxLimit;
@@ -495,7 +501,12 @@ async function pull(ctx) {
   });
   /** @param {typeof scopes[number]} s @param {ProjectionCtx} p */
   const leaseOf = (s, p) =>
-    s.handler.leaseExpiresAt ? s.handler.leaseExpiresAt(p) : nextDayClose(now);
+    Math.min(
+      partner?.leaseExpiresAt ?? Number.MAX_SAFE_INTEGER,
+      s.handler.leaseExpiresAt
+        ? s.handler.leaseExpiresAt(p)
+        : nextDayClose(now),
+    );
   /** @param {typeof scopes[number]} s @param {ProjectionCtx} p @param {'snapshot'|'delta'} mode @param {boolean} complete @param {any} data @param {any[]} changes */
   const bundle = (s, p, mode, complete, data, changes) => {
     const lease = leaseOf(s, p);

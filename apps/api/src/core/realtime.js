@@ -1,4 +1,5 @@
 import { resolveAuth } from "./context.js";
+import { partnerTopicAllowed } from "../domains/partners/boundary.js";
 import { canSubscribe } from "./hooks.js";
 import { PgListener } from "./pglisten.js";
 
@@ -25,7 +26,7 @@ export async function publish(db, topic) {
 }
 
 /**
- * @typedef {{ actor: import('./context.js').Actor, topics: Set<string> }} WsData
+ * @typedef {{ actor: import('./context.js').Actor, topics: Set<string>, request: Request }} WsData
  */
 
 /**
@@ -36,6 +37,17 @@ export function createRealtime(opts) {
   let server = null;
   /** @type {PgListener|null} */
   let listener = null;
+  /** @type {Set<import('bun').ServerWebSocket<WsData>>} */
+  const sockets = new Set();
+  /** Recheck the session and partner grant at delivery, not only subscribe.
+   * @param {import('bun').ServerWebSocket<WsData>} ws @param {string} topic */
+  async function allowed(ws, topic) {
+    const auth = await resolveAuth(opts.db, ws.data.request);
+    if (!auth.actor) return false;
+    ws.data.actor = auth.actor;
+    const partner = await partnerTopicAllowed(opts.db, auth.actor, topic);
+    return partner ?? Boolean(await canSubscribe(auth.actor, topic));
+  }
 
   return {
     /** @param {any} s */
@@ -43,7 +55,7 @@ export function createRealtime(opts) {
       server = s;
     },
     async start() {
-      listener = new PgListener(opts.url, CHANNEL, (payload) => {
+      listener = new PgListener(opts.url, CHANNEL, async (payload) => {
         /** @type {any} */
         let event;
         try {
@@ -52,14 +64,24 @@ export function createRealtime(opts) {
           return;
         }
         if (!server || typeof event?.topic !== "string") return;
-        server.publish(
-          event.topic,
-          JSON.stringify({
-            type: "invalidate",
-            topic: event.topic,
-            seq: Number(event.seq),
-          }),
-        );
+        const message = JSON.stringify({
+          type: "invalidate",
+          topic: event.topic,
+          seq: Number(event.seq),
+        });
+        for (const ws of sockets)
+          if (ws.data.topics.has(event.topic)) {
+            try {
+              if (await allowed(ws, event.topic)) ws.send(message);
+              else {
+                ws.data.topics.delete(event.topic);
+                ws.unsubscribe(event.topic);
+              }
+            } catch {
+              ws.data.topics.delete(event.topic);
+              ws.unsubscribe(event.topic);
+            }
+          }
       });
       await listener.start();
     },
@@ -89,7 +111,7 @@ export function createRealtime(opts) {
           },
         );
       /** @type {WsData} */
-      const data = { actor: auth.actor, topics: new Set() };
+      const data = { actor: auth.actor, topics: new Set(), request: req };
       if (srv.upgrade(req, { data })) return undefined;
       return new Response("Upgrade required", { status: 426 });
     },
@@ -152,7 +174,7 @@ export function createRealtime(opts) {
           }
           let ok = false;
           try {
-            ok = Boolean(await canSubscribe(ws.data.actor, topic));
+            ok = Boolean(await allowed(ws, topic));
           } catch {
             ok = false;
           }
@@ -170,10 +192,12 @@ export function createRealtime(opts) {
       },
       /** @param {import('bun').ServerWebSocket<WsData>} ws */
       open(ws) {
+        sockets.add(ws);
         ws.send(JSON.stringify({ type: "ready" }));
       },
       /** @param {import('bun').ServerWebSocket<WsData>} ws */
       close(ws) {
+        sockets.delete(ws);
         ws.data.topics.clear();
       },
     },

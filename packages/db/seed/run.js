@@ -8,6 +8,7 @@ import { seedDistributors } from "./distributors.js";
 import { seedFiscal } from "./fiscal.js";
 import { seedAvailability } from "./availability.js";
 import { seedModernTrade } from "./modern-trade.js";
+import { ensurePartnerSamples } from "./partners.js";
 
 const args = process.argv.slice(2);
 let reset = false;
@@ -40,6 +41,10 @@ if (
   const db = createDb(process.env.DATABASE_URL, { max: 1 });
   try {
     const result = reset ? await resetDemo(db) : await seedDemo(db, options);
+    if (!reset)
+      result.partnerSamples = await ensurePartnerSamples(db, {
+        date: options.anchorDate,
+      });
     const mt = reset ? null : await seedModernTrade(db);
     if (!reset) await seedAvailability(db, options.anchorDate);
     if (!reset) await seedFiscal(db);

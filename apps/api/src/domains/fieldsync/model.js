@@ -2,6 +2,7 @@ import { ApiError, forbidden, invalid } from "../../core/errors.js";
 import { requireCapability } from "../../core/capabilities.js";
 import { isUuid } from "../../core/util.js";
 import { scopeFilterForActor, outletOwnerUnit } from "../org/scope.js";
+import { partnerOutlet } from "../partners/boundary.js";
 
 export const ORGANIZATION = "sunpride";
 export const DAY_MS = 86_400_000;
@@ -124,6 +125,7 @@ export async function personInScope(
 }
 /** Require the current stored owner even for a historical snapshot. @param {any} ctx @param {string} outletId */
 export async function outletInScope(ctx, outletId) {
+  await partnerOutlet(ctx.db, ctx.actor, outletId);
   const owner = await outletOwnerUnit(ctx.db, outletId, ctx.now);
   if (!owner)
     throw forbidden("This store has no authorized owner", "out_of_scope");

@@ -3,6 +3,7 @@ import { forbidden, invalid } from "../../core/errors.js";
 import { OpRejected } from "../../core/sync.js";
 import { isUuid } from "../../core/util.js";
 import { outletOwnerUnit } from "../org/scope.js";
+import { partnerOutlet } from "../partners/boundary.js";
 
 export const ORGANIZATION = "sunpride";
 export const DAY = 86400000;
@@ -79,6 +80,7 @@ export async function employeeAt(db, profileId, at) {
 }
 /** Current owner is authoritative even when reading historical facts. @param {any} ctx @param {string} outletId @param {string} capability */
 export async function accessOutlet(ctx, outletId, capability) {
+  await partnerOutlet(ctx.db, ctx.actor, outletId);
   const [outlet] =
     await ctx.db`select * from outlets where id=${uuid(outletId)} and organization_id=${ORGANIZATION} and deleted_at is null`;
   const owner = outlet && (await outletOwnerUnit(ctx.db, outletId, Date.now()));

@@ -50,6 +50,7 @@ export const WORKSPACE_SLUGS = [
   "sap-integration",
   "programme",
   "distributors",
+  "agencies",
 ] as const;
 
 export type WebModuleSlug = (typeof WORKSPACE_SLUGS)[number];
@@ -111,6 +112,7 @@ const moduleTabs: Record<string, WorkspaceModuleTab[]> = {
       label: "Retail execution",
       href: "/retail-execution",
     },
+    { id: "agencies", label: "Agency work & billing", href: "/agencies" },
   ],
   setup: [
     { id: "admin", label: "Admin", href: "/admin" },

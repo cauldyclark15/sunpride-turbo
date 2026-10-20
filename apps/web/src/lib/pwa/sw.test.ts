@@ -133,6 +133,26 @@ describe("service worker cache rules", () => {
     ).toBe("none");
     expect(sw.handle(request("/api/v1/portal/overview"))).toBeNull();
   });
+  it("F-322 never caches agency or distributor pages, reads, exports or private media", () => {
+    for (const path of [
+      "/agency",
+      "/agencies",
+      "/distributor",
+      "/distributors",
+      "/%61gency",
+      "/agency/private",
+      "/distributors/invitation/private",
+      "/api/v1/pa%72tners/evidence?partnerId=a",
+      "/%not-valid",
+      "/api/v1/partners/evidence?partnerId=a",
+      "/api/v1/partners/billing/export?periodId=a",
+      "/api/v1/partners/media/a",
+      "/api/v1/distributors/documents/a",
+    ]) {
+      expect(sw.classify(request(path, { navigate: true }))).toBe("none");
+      expect(sw.handle(request(path))).toBeNull();
+    }
+  });
   it("caches only same-origin GET reads it owns", () => {
     expect(sw.classify(request("/api/v1/analytics/today?date=x"))).toBe("data");
     expect(sw.classify(request("/api/v1/orders"))).toBe("data");

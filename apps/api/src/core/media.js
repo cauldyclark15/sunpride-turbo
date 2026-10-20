@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { verifyDeviceProof } from "./devices.js";
 import { ApiError, forbidden, invalid, unauthenticated } from "./errors.js";
 import { hooks } from "./hooks.js";
-import { readBearer } from "./context.js";
+import { actorFor, readBearer } from "./context.js";
+import { enforcePartnerMedia } from "../domains/partners/boundary.js";
 import {
   HEX64_RE,
   isPlainObject,
@@ -71,6 +72,11 @@ async function claim(ctx) {
     throw invalid("Invalid sha256");
   const device = await verifyDeviceProof(ctx);
   const actor = /** @type {import('./context.js').Actor} */ (ctx.actor);
+  await enforcePartnerMedia(ctx.db, actor, {
+    purpose,
+    ownerId,
+    deviceId: device.id,
+  });
   if (
     !(await hooks.canClaimMedia(ctx.db, actor, {
       purpose,
@@ -115,6 +121,13 @@ async function upload(ctx) {
       "Upload token expired or invalid",
       "upload_unauthorized",
     );
+  const uploader = await actorFor(ctx.db, file.created_by);
+  if (!uploader) throw forbidden("Uploader access ended", "out_of_scope");
+  await enforcePartnerMedia(ctx.db, uploader, {
+    purpose: file.purpose,
+    ownerId: file.owner_id,
+    deviceId: file.device_id,
+  });
   const contentType = ctx.req.headers
     .get("content-type")
     ?.split(";")[0]
@@ -160,6 +173,14 @@ async function upload(ctx) {
         "Upload checksum does not match the claim",
         "checksum_mismatch",
       );
+    const currentUploader = await actorFor(ctx.db, file.created_by);
+    if (!currentUploader)
+      throw forbidden("Uploader access ended", "out_of_scope");
+    await enforcePartnerMedia(ctx.db, currentUploader, {
+      purpose: file.purpose,
+      ownerId: file.owner_id,
+      deviceId: file.device_id,
+    });
     const dir = join(root, digest.slice(0, 2));
     await mkdir(dir, { recursive: true });
     const finalPath = join(dir, digest);

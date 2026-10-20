@@ -78,6 +78,7 @@ const TITLES = {
   "sap-integration": "Integration",
   programme: "Programme",
   distributors: "Distributors",
+  agencies: "Agency work & billing",
 } satisfies Record<WebModuleSlug, string>;
 
 export function moduleTitle(module: WebModuleSlug) {

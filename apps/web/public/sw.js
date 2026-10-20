@@ -35,18 +35,20 @@ function classify(request) {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return "none";
   if (request.headers.get("range")) return "none";
-  const path = url.pathname;
-  // F-402: partner records require current grants. Never put them in the
-  // employee PWA fallback cache, including private document downloads.
+  let path;
+  try {
+    path = decodeURIComponent(url.pathname);
+  } catch {
+    return "none";
+  }
+  // F-319 F-322: partner data must never survive current authorization denial.
   if (
-    path === "/api/v1/distributors" ||
-    path.startsWith("/api/v1/distributors/") ||
-    path === "/distributor" ||
-    path === "/distributors" ||
-    path === "/portal" ||
-    path.startsWith("/portal/") ||
-    path.startsWith("/api/v1/portal/") ||
-    path.startsWith("/api/v1/mt/")
+    ["/agency", "/agencies", "/distributor", "/distributors"].some(
+      (p) => path === p || path.startsWith(p + "/"),
+    ) ||
+    path.startsWith("/api/v1/partners") ||
+    path.startsWith("/api/v1/distributors") ||
+    path === "/portal" || path.startsWith("/portal/") || path.startsWith("/api/v1/portal/") || path.startsWith("/api/v1/mt/")
   )
     return "none";
   if (path === "/sw.js" || path === "/ws") return "none";
