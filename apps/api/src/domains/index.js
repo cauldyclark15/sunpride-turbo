@@ -11,6 +11,7 @@ import { install as fieldreports } from "./fieldreports/index.js";
 import { install as issues } from "./issues/index.js";
 import { install as analytics } from "./analytics/index.js";
 import { install as callflow } from "./callflow/index.js";
+import { install as retail } from "./retail/index.js";
 /** @type {Array<(router: any, ctx: any) => void>} */
 export const domainInstallers = [
   org,
@@ -25,4 +26,5 @@ export const domainInstallers = [
   issues,
   analytics,
   callflow,
+  retail,
 ];

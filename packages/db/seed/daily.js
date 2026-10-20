@@ -5,6 +5,7 @@ import { execution } from "./execution.js";
 import { vans } from "./vans.js";
 import { management } from "./management.js";
 import { ensureCallflowSamples } from "./callflow.js";
+import { ensureRetailSamples } from "./retail.js";
 import {
   BATCH,
   Dataset,
@@ -986,6 +987,7 @@ export async function advanceDemo(db, { date = todayManila() } = {}) {
   if (!manifest)
     throw new Error("Demo daily advance requires an existing seeded company");
   await ensureCallflowSamples(db); // F-006 F-107: additive policies for existing demos, never reset.
+  await ensureRetailSamples(db); // F-310–F-320: additive, sample-marked retail references. // no reset
   const original = JSON.parse(manifest.details);
   const days = [];
   for (

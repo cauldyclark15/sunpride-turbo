@@ -6,6 +6,7 @@ import { execution } from "./execution.js";
 import { vans } from "./vans.js";
 import { management } from "./management.js";
 import { addCallflowSamples } from "./callflow.js";
+import { ensureRetailSamples } from "./retail.js";
 export { resetDemo } from "./store.js";
 
 /** @param {{anchorDate?:string,days?:number}} [options] @param {string[]} [hashes] */
@@ -124,6 +125,7 @@ export async function seedDemo(
       const summary = JSON.parse(existing.details);
       if (summary.anchorDate !== anchorDate || summary.days !== days)
         throw new Error("Demo options changed; run --reset before reseeding");
+      await ensureRetailSamples(t);
       return { ...summary, duplicate: true };
     }
     const [partial] =
@@ -152,6 +154,7 @@ export async function seedDemo(
     const [manifest] =
       await t`select id from audit_logs where id=${rowId("audit_logs", "manifest")}`;
     if (!manifest) throw new Error("Demo manifest verification failed");
+    await ensureRetailSamples(t);
     return { ...summary, duplicate: false };
   });
 }
