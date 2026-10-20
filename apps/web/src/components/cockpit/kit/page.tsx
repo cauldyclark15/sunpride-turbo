@@ -7,7 +7,7 @@ import type { ResponseHeader } from "../types";
 import { DemoBadge, FreshnessNote } from "./freshness";
 import { PanelError } from "./panel";
 
-/** F-601: workbook includes every table in this authorized page, with shared URL filters. */
+/** F-601: main-report tables with the shared URL filters; add-on panels export their own source views. */
 export function downloadCurrentWorkbook() {
   const current = new URL(window.location.href);
   const page = (
@@ -79,8 +79,9 @@ export function CockpitPage({
               type="button"
               className="ck-noprint rounded-lg border border-border px-3 py-1 text-[13px]"
               onClick={downloadCurrentWorkbook}
+              title="Exports the main report. Other panels have their own Excel links."
             >
-              Download all tables · Excel
+              Download Excel
             </button>
           ) : null}
         </div>
