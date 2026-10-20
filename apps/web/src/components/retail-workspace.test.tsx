@@ -107,6 +107,8 @@ describe("F-614 batch trace", () => {
     expect(html).toContain("2 affected outlets");
     expect(html).toContain("physical batch not confirmed");
     expect(html).toContain("Sample confirmed receipt");
+    expect(html).toContain("base units");
+    expect(html).not.toContain("pieces");
     expect(html).not.toContain("private-row-id");
     expect(html).not.toContain("private-source");
   });

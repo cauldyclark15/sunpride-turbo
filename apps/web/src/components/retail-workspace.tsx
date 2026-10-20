@@ -521,7 +521,7 @@ export function RetailWorkspace() {
                     c.facts.batch,
                     c.facts.expiryDate,
                     c.facts.quantityBase
-                      ? `${c.facts.quantityBase} pieces`
+                      ? `${c.facts.quantityBase} base units`
                       : null,
                     c.facts.note,
                     c.facts.breaches?.map(label).join(", "),
@@ -929,7 +929,7 @@ export function BatchTrace({ trace }: { trace: Trace }) {
       {trace.rows.map((r) => (
         <article key={r.id} className="rounded-lg border border-border p-3">
           <p>
-            {r.outlet_name} · {r.lot_number} · {r.quantity_base} pieces
+            {r.outlet_name} · {r.lot_number} · {r.quantity_base} base units
           </p>
           <p>
             {r.certainty === "allocation_inference"
