@@ -133,6 +133,10 @@ export async function enqueueMovementPosting(db, movementId) {
 export async function enqueueVanInvoice(db, trip, saleId) {
   const [sale] = await db`select * from van_sales where id=${saleId}`;
   const receipt = sale.receipt;
+  // F-108: retained pre-fiscal invoices may lack a trustworthy frozen payload.
+  // Do not reconstruct them from live masters. Dependent payments remain queued
+  // behind the unresolved invoice effect for supervised reconciliation.
+  if (!Array.isArray(receipt?.lines) || !Number.isSafeInteger(receipt.soldAt)) return null;
   return enqueueSapPosting(db, {
     kind: "invoice",
     sourceType: "van_sale",

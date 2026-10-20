@@ -796,6 +796,15 @@ test("F-108 F-111 signed collection issues an OR, rejects duplicates and replace
   expect(docs[0].snapshot.payment.untrusted).toBeUndefined();
   expect(docs[0].snapshot.payment.fiscal).toBeUndefined();
   expect(docs[0].snapshot.payment.amountMinor).toBe("6000");
+  // F-108: legacy invoices are never invented from current masters. Collections
+  // persist but their shared SAP queue remains fenced behind the absent invoice.
+  expect((await h.db`select count(*)::int n from integration_events where source_type='van_sale' and source_id=${saleId}`)[0].n).toBe(0);
+  const pending = await h.db`select status,depends_on from integration_events where source_type='van_payment' and payload->'document'->'facts'->>'tripId'=${tripId}`;
+  expect(pending.length).toBeGreaterThan(0);
+  for (const row of pending) {
+    expect(row.status).toBe("pending");
+    expect(row.depends_on).toContain(`invoice:van_sale:${saleId}`);
+  }
   expect(
     (
       await h.db`select count(*)::int as n from fiscal_posting_requests where document_id in ${h.db(docs.map((/** @type {any} */ d) => d.id))}`
