@@ -6,6 +6,7 @@ import { company } from "./company.js";
 import { seedSpecMasters } from "./spec-masters.js";
 import { execution } from "./execution.js";
 import { vans } from "./vans.js";
+import { seedVanOps } from "./vanops.js";
 import { management } from "./management.js";
 import { ensureCallflowSamples } from "./callflow.js";
 import { seedTpm } from "./tpm.js";
@@ -996,6 +997,7 @@ export async function advanceDemo(db, { date = todayManila() } = {}) {
   await ensureCallflowSamples(db); // F-006 F-107: additive policies for existing demos, never reset.
   await tx(db, seedSpecMasters);
   const original = JSON.parse(manifest.details);
+  await seedVanOps(db);
   const days = [];
   for (
     let day = plusDays(original.anchorDate, 1);

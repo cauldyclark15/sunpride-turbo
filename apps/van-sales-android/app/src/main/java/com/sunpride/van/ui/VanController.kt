@@ -105,6 +105,8 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     /** Count stock draft; [StockDraft.reconciliationId] makes Save count safe to tap twice. In memory only. */
     var stockSummary by mutableStateOf<com.sunpride.van.pos.StockSummary?>(null)
         private set
+    var batchCountPositions by mutableStateOf(emptyList<com.sunpride.van.ledger.BatchPosition>())
+        private set
     var stockDraft by mutableStateOf(StockDraft(StockReconciliationRules.newCountId()))
         private set
     /** VAN-024: the trip is closed on this phone; nothing more is recorded on it. */
@@ -463,13 +465,13 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     fun linkReturnSale(saleId: String?) { returnDraft = returnDraft?.copy(originalSaleId = saleId) }
     fun cancelReturn() { returnDraft = null; open(Page.CUSTOMER) }
     fun returnContext(): ReturnContext = ReturnContext(VanRules.canSell(trip) && session.signedIn,customers,products,
-        returnFacts?.sales ?: emptyList(),returnFacts?.returnedBase ?: emptyMap())
+        returnFacts?.sales ?: emptyList(),returnFacts?.returnedBase ?: emptyMap(),policy=returnFacts?.policy?:ReturnPolicy.DEFAULT)
     fun returnResult(note: String): ReturnResult? = returnDraft?.let { ReturnRules.evaluate(ReturnRequest(it.returnId,it.customer.outletId,it.originalSaleId,it.lines,note),returnContext()) }
     /** The store validates again in the saving transaction; a refusal keeps the draft so the seller can fix it. */
-    fun saveReturn(note: String) = command {
+    fun saveReturn(note: String,acknowledgementJson: String? = null,photoJson: String? = null) = command {
         val draft = checkNotNull(returnDraft)
         try {
-            lastReturn = repository.recordReturn(ReturnRequest(draft.returnId,draft.customer.outletId,draft.originalSaleId,draft.lines,note.takeIf { it.isNotBlank() }))
+            lastReturn = repository.recordReturn(ReturnRequest(draft.returnId,draft.customer.outletId,draft.originalSaleId,draft.lines,note.takeIf { it.isNotBlank() },acknowledgementJson,photoJson))
             returnDraft = null; page = Page.RETURN_DONE
         } catch (e: ReturnRefused) {
             message = e.issues.joinToString("\n") { issue -> VanRules.returnMessage(issue.problem,issue.productId?.let { id -> products.firstOrNull { it.productId == id }?.name }) }
@@ -511,6 +513,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     }
     fun refreshStock() {
         scope?.launch {
+            batchCountPositions=repository.batchPositions().filter {it.status in setOf("available","damaged")}
             stockSummary = try { repository.stockSummary() } catch (e: CancellationException) { throw e }
                 catch (e: StockRefused) { message = VanRules.stockMessage(e.problem); null } catch (_: Exception) { null }
         }
@@ -541,7 +544,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         }
         try {
             val result = repository.countStock(StockCountRequest(stockDraft.reconciliationId,lines,
-                stockDraft.note.takeIf { it.isNotBlank() },stockDraft.code.takeIf { it.isNotBlank() }))
+                stockDraft.note.takeIf { it.isNotBlank() },stockDraft.code.takeIf { it.isNotBlank() },batchCountPositions.map {b->val p=products.single {it.productId==b.productId};BatchCountLine(b,VanRules.parseQuantity(stockDraft.batchCounts["${b.lotId}:${b.status}"]?:"",p.quantityScale)?:-1L)}))
             stockSummary = repository.stockSummary()
             message = if (result.varianceLines == 0) "Stock count saved. It matches." else "Stock count saved. Truck stock now matches your count."
         } catch (e: StockRefused) {
@@ -588,7 +591,7 @@ data class CashDraft(val reconciliationId: String, val pieces: Map<Long,String> 
     val note: String = "", val code: String = "")
 /** VAN-023 Count stock form: decimal quantities are kept as text until parsed against each product scale. */
 data class StockDraft(val reconciliationId: String, val counts: Map<Pair<String,String>,String> = emptyMap(),
-    val reasons: Map<Pair<String,String>,String?> = emptyMap(), val note: String = "", val code: String = "")
+    val reasons: Map<Pair<String,String>,String?> = emptyMap(), val note: String = "", val code: String = "",val batchCounts: Map<String,String> = emptyMap())
 /** VAN-024 Close trip form: the seller ticked "I have checked these", end odometer text and note. */
 data class CloseDraft(val closeId: String, val reviewed: Boolean = false, val odometer: String = "", val note: String = "")
 const val LOCATION_OFF_MESSAGE = "Location sharing is off. Allow location for Sunpride Van (and turn location on), then check Today."

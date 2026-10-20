@@ -1,4 +1,5 @@
 import { tx } from "@sunpride/db/client";
+import { routeBundle, routeNextAction } from "./route-read.js";
 import { ApiError } from "../../core/errors.js";
 import { scopeFilterForActor } from "../org/scope.js";
 import { requireCapability } from "../../core/capabilities.js";
@@ -28,16 +29,20 @@ export async function tripDetail(db, actor, tripId) {
       productId: e.product_id,
       facts: e.facts,
       loaded: 0n,
+      reloaded: 0n,
       sold: 0n,
       returned: 0n,
       damaged: 0n,
       voided: 0n,
       unloaded: 0n,
+      remaining: 0n,
       available: 0n,
       damageStock: 0n,
     };
     const qty = BigInt(e.delta_base);
     if (e.kind === "load") row.loaded += qty;
+    if (e.kind === "reload") row.reloaded += qty;
+    row.remaining += qty;
     if (e.kind === "sale") row.sold -= qty;
     if (e.kind === "void") row.voided += qty;
     if (e.kind === "return") row.returned += qty;
@@ -68,11 +73,13 @@ export async function tripDetail(db, actor, tripId) {
       name: r.facts.name,
       uomCode: r.facts.uomCode,
       loaded: display(r.loaded, r.facts),
+      reloaded: display(r.reloaded, r.facts),
       sold: display(r.sold, r.facts),
       voided: display(r.voided, r.facts),
       returned: display(r.returned, r.facts),
       damaged: display(r.damaged, r.facts),
       unloaded: display(r.unloaded, r.facts),
+      remaining: display(r.remaining, r.facts),
       expected: display(expected, r.facts),
       expectedAvailable: display(r.available, r.facts),
       expectedDamaged: display(r.damageStock, r.facts),
@@ -107,14 +114,17 @@ export async function tripDetail(db, actor, tripId) {
     netSales = sales
       .filter((s) => !s.void_id)
       .reduce((a, s) => a + BigInt(s.total_centavos), 0n);
-  const settlementStatus =
+  const legacySettlementStatus =
     trip.status === "closed"
       ? "settled"
       : ["reconciling", "closing", "review_required"].includes(trip.status)
         ? "needs_review"
         : trip.status;
+  const vanOps = await routeBundle(db, trip);
+  const settlementStatus = vanOps?.settlementState ?? legacySettlementStatus;
   return {
     tripId,
+    vanOps,
     tripNumber: trip.trip_number,
     date: dayString(trip.service_date),
     unitId: trip.org_unit_id,
@@ -213,8 +223,9 @@ export async function tripDetail(db, actor, tripId) {
       details: h.details,
       at: ms(h.created_at),
     })),
-    nextAction:
-      trip.status === "closed"
+    nextAction: vanOps
+      ? routeNextAction(trip, vanOps, { count, cash, remittance })
+      : trip.status === "closed"
         ? "Settlement complete"
         : !count
           ? "Count truck stock"

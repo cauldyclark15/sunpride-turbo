@@ -147,6 +147,11 @@ class VanRepository private constructor(private val context: Context, private va
             if (st === current.value && st.canSync() && st.db.rows().outboxRows(st.scope.fullAuthSubject,st.scope.deviceId).none { damagePhotoSha(it) == sha }) photoFiles(st.scope).delete(sha)
         }
     }
+    /** F-113 photo bytes travel atomically in the encrypted return operation (32 KB maximum). */
+    suspend fun prepareReturnPhoto(capture: com.sunpride.van.evidence.DamageCapture): String = withContext(Dispatchers.IO) {
+        val bytes=com.sunpride.van.evidence.DamagePhotoEncoder.compress(capture,32_000)
+        JSONObject().put("sha256",hex(sha256(bytes))).put("base64",Base64.getEncoder().encodeToString(bytes)).toString()
+    }
     private fun loadSigner(): DeviceSigner = signer ?: KeystoreDeviceKey.loadOrCreate(context,if(stubMode != null) "sunpride-van-stub-device-p256-v1" else KeystoreDeviceKey.DEFAULT_ALIAS).also { signer = it }
     private suspend fun enroll(): EnrollmentState {
         if (stubMode != null) {
@@ -243,6 +248,18 @@ class VanRepository private constructor(private val context: Context, private va
         val id = store().startTrip(vehicleConfirmed,routeConfirmed,driverName,helperName,odometerKm,note); schedule(); return id
     }
     suspend fun confirmLoad(lines: List<LoadActual>): String { val id = store().confirmLoad(lines); schedule(); return id }
+    /** F-114/F-115/F-116/F-121 use the same scoped store and background sync as sales. */
+    suspend fun routeSnapshot() = withContext(Dispatchers.IO) { RouteOpsStore(store()).snapshot() }
+    suspend fun routeScorecard() = withContext(Dispatchers.IO) { DailyScorecardStore(store()).snapshot() }
+    suspend fun routeContainerPosition() = withContext(Dispatchers.IO) { RouteOpsStore(store()).containerPosition() }
+    suspend fun recordStop(outletId: String,phase: String) = withContext(Dispatchers.IO) { RouteOpsStore(store()).stop(outletId,phase).also {schedule()} }
+    suspend fun routeObservations(): List<JSONObject> = withContext(Dispatchers.IO) { RouteOpsStore(store()).observations() }
+    suspend fun batchPositions(): List<com.sunpride.van.ledger.BatchPosition> = withContext(Dispatchers.IO) { com.sunpride.van.ledger.BatchLedger(store()).positions() }
+    suspend fun recordTemperature(deciC: Int,checkpoint: String,outletId: String?) = withContext(Dispatchers.IO) { RouteOpsStore(store()).temperature(deciC,checkpoint,outletId).also { schedule() } }
+    suspend fun recordReturnable(outletId: String?,type: String,action: String,quantity: Long) = withContext(Dispatchers.IO) { RouteOpsStore(store()).returnable(outletId,type,action,quantity).also { schedule() } }
+    suspend fun requestReload(productId: String,quantity: Long,note: String) = withContext(Dispatchers.IO) { RouteOpsStore(store()).reloadRequest(productId,quantity,note).also { schedule() } }
+    suspend fun recordUnload() = withContext(Dispatchers.IO) { RouteOpsStore(store()).unload().also { schedule() } }
+    suspend fun receiveReload(requestId: String) = withContext(Dispatchers.IO) { RouteOpsStore(store()).receiveReload(requestId).also { schedule() } }
     suspend fun recordDamage(productId: String, qty: Long, reason: String, note: String? = null, photoSha256: String? = null): String = TruckStockLedger(store(),::schedule).recordDamage(productId,qty,reason,note,photoSha256)
     suspend fun requestCallGeofence(outletId: String, reason: String, kind: String) = withContext(Dispatchers.IO) {
         if(kind == "geofence_end") syncNow()

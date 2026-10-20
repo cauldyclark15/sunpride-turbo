@@ -43,6 +43,7 @@ import java.time.format.DateTimeFormatter
             ListRow("Product catalogue","Offline details, images and pack hierarchy","open-catalogue",onClick = { c.open(Page.CATALOGUE) })
             ListRow("Find product","Search or scan · stock and price","open-products",onClick = { c.open(Page.PRODUCTS) })
             ListRow("Truck stock","Available and damaged","open-stock",onClick = { c.open(Page.STOCK) })
+            if (c.policy?.operationsVersion==1) ListRow("Route controls","Temperature, batches, containers, reload and unload","open-route-ops",onClick = { c.open(Page.ROUTE_OPS) })
             ListRow("Customers","Your route and nearby stores","open-customers",onClick = { c.open(Page.CUSTOMERS) })
             ListRow("Receipts","Print or reprint a receipt from this trip","open-receipts",onClick = { c.open(Page.RECEIPTS) })
             ListRow("Printer & scanner","Check the printer and paper","open-printer",onClick = { c.open(Page.PRINTER) })
@@ -166,7 +167,8 @@ private data class LoadDraft(val quantity: String, val reason: String?)
     var odometer by remember(trip?.tripId) { mutableStateOf("") }
     var note by remember(trip?.tripId) { mutableStateOf("") }
     val km = odometer.takeIf { it.isNotBlank() }?.toDoubleOrNull()
-    val validKm = odometer.isBlank() || km != null && km.isFinite() && km in 0.0..10_000_000.0
+    val required=c.policy?.operationsVersion==1
+    val validKm = (!required && odometer.isBlank()) || km != null && km.isFinite() && km in 0.0..10_000_000.0
     ScreenFrame("Start trip",c::back,action = "Start trip",actionTag = "start-trip",
         enabled = !c.busy && VanRules.canStart(trip,truck,route) && validKm,
         onAction = { c.startTrip(truck,route,driver,helper,km,note) },message = c.message) {
@@ -176,7 +178,8 @@ private data class LoadDraft(val quantity: String, val reason: String?)
         Confirmation(trip?.route?.let { "This is the ${it.name} route" } ?: "Route not assigned",route,{ route = it },"confirm-route")
         LabeledField("Driver",driver,{ driver = it },"driver",maxLength = 80)
         LabeledField("Helper (optional)",helper,{ helper = it },"helper",maxLength = 80)
-        LabeledField("Odometer km (optional)",odometer,{ odometer = it },"odometer",numeric = true,maxLength = 20)
+        LabeledField(if(required) "Opening odometer km (required)" else "Odometer km (optional)",odometer,{ odometer = it },"odometer",numeric = true,maxLength = 20)
+        if(required) SecondaryButton("Record load-out temperature",{c.open(Page.ROUTE_OPS)},Modifier.testTag("start-cold-chain"))
         if (!validKm) Text("Enter an odometer reading between 0 and 10,000,000 km.")
         LabeledField("Note (optional)",note,{ note = it },"start-note")
         // SP-0137: say it before the trip starts, not after.

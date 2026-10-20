@@ -56,6 +56,7 @@ import kotlinx.coroutines.delay
                 Page.ACCOUNT -> AccountScreen(controller)
                 Page.CHANGE_PASSWORD -> ChangePasswordScreen(controller)
                 Page.HOME -> HomeScreen(controller)
+                Page.ROUTE_OPS -> RouteOpsScreen(controller)
                 Page.LOAD -> CheckLoadScreen(controller)
                 Page.START -> StartTripScreen(controller)
                 Page.STOCK -> TruckStockScreen(controller)

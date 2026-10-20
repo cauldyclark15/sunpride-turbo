@@ -78,6 +78,14 @@ class StockReconciliationStore(private val store: RoomVanStore) {
             throw StockRefused(StockProblem.EXPECTED_CHANGED)
         val authorization = StockReconciliationRules.authorize(policy(), t.tripId, request.reconciliationId, supplied,
             request.note, request.approvalCode)
+        val batches=if(RouteOpsStore(store).version()==1) com.sunpride.van.ledger.BatchLedger(store).positions().filter {it.status in setOf("available","damaged")} else emptyList()
+        if(RouteOpsStore(store).version()==1) {
+            require(request.batchCounts.size==batches.size && request.batchCounts.map {it.position.lotId to it.position.status}.toSet().size==batches.size) {"Count every batch"}
+            request.batchCounts.forEach {line-> require(line.countedBase>=0 && batches.singleOrNull {it.lotId==line.position.lotId && it.status==line.position.status}==line.position) {"Batch stock changed"} }
+            supplied.filter {line->batches.any {it.productId==line.productId}}.forEach {line->
+                require(request.batchCounts.filter {it.position.productId==line.productId && it.position.status==line.status}.sumOf {it.countedBase}==line.countedBase) {"Batch counts must match the product count"}
+            }
+        }
         val totals = StockReconciliationRules.summary(supplied)
         val countCode = StockReconciliationRules.countCode(t.tripId, request.reconciliationId, supplied)
         val key = UUID.randomUUID().toString()
@@ -111,7 +119,9 @@ class StockReconciliationStore(private val store: RoomVanStore) {
             .put("overBase", totals.overBase.toString()).put("lines", payloadLines)
             .put("approval", JSONObject().put("method", authorization.method).apply { authorization.code?.let { put("code", it) } })
             .put("deviceTime", now)
+            .put("lotLines",JSONArray(request.batchCounts.map {line->val b=line.position;JSONObject().put("productId",b.productId).put("lotId",b.lotId).put("batch",b.batch).put("expiresAt",b.expiresAt?:JSONObject.NULL).put("qualityStatus",b.qualityStatus).put("status",b.status).put("expectedBase",b.quantityBase.toString()).put("countedBase",line.countedBase.toString())}))
             .apply { StockReconciliationRules.normalizedNote(request.note)?.let { put("note", it) } }
+        RouteOpsStore(store).prepare(payload)
         val op = JSONObject().put("kind", STOCK_RECONCILE_KIND).put("clientRequestId", key).put("payload", payload).toString()
         // The frozen v1 validator has no count kind; V2VanCodec supplies the live v2 envelope.
         dao.insertOutbox(OutboxRow(s, d, key, t.tripId, STOCK_RECONCILE_KIND, op, at, null, store.capturedStatus))

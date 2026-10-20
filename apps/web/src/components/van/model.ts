@@ -49,11 +49,13 @@ export type StockRow = {
   name: string;
   uomCode: string;
   loaded: Quantity;
+  reloaded?: Quantity;
   sold: Quantity;
   voided: Quantity;
   returned: Quantity;
   damaged: Quantity;
   unloaded: Quantity;
+  remaining?: Quantity;
   expected: Quantity;
   expectedAvailable: Quantity;
   expectedDamaged: Quantity;
@@ -68,6 +70,7 @@ export type StockRow = {
   }>;
 };
 export type TripSettlement = {
+  vanOps?: import("./route-operations").RouteOperations | null;
   tripId: string;
   tripNumber: string;
   date: string;

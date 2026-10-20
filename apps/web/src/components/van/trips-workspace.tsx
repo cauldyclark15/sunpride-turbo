@@ -12,6 +12,9 @@ import { VanDamageApprovals } from "../van-damage-approvals";
 import type { TripSettlement, TripsDay } from "./model";
 import { CashHandIn } from "./cash-hand-in";
 import { frozenQuantity } from "./format";
+import { RouteOperationsReview } from "./route-operations";
+import { SuggestedLoad } from "./suggested-load";
+import { VanTripPlanning } from "./trip-planning";
 
 export function pesos(value: number | null | undefined) {
   return value === null || value === undefined
@@ -27,6 +30,10 @@ export function settlementLabel(status: string) {
       {
         planned: "Planned",
         loading: "Loading",
+        pending_supervisor: "Pending supervisor",
+        approved_pending_sap: "Approved — SAP pending",
+        posted: "Posted to SAP",
+        rejected: "Returned for correction",
         loaded: "Ready to depart",
         active: "On the road",
         closing: "Closing",
@@ -52,24 +59,30 @@ export function tripCsv(trip: TripSettlement) {
     [
       "Product",
       "Loaded",
+      "Reloaded",
       "Sold",
       "Voided",
       "Customer returns",
       "Damaged",
       "Expected on truck",
       "Counted",
+      "Warehouse received",
+      "Remaining on truck",
       "Variance",
       "Variance centavos",
     ],
     ...trip.stock.map((r) => [
       r.name,
       r.loaded.display,
+      r.reloaded?.display ?? "Not captured",
       r.sold.display,
       r.voided.display,
       r.returned.display,
       r.damaged.display,
       r.expected.display,
       r.counted?.display ?? "Not counted",
+      r.unloaded.display,
+      r.remaining?.display ?? "Not captured",
       r.variance?.display ?? "Not counted",
       r.varianceCentavos ?? "Unknown value",
     ]),
@@ -145,20 +158,28 @@ export function VanTripDetail({ trip }: { trip: TripSettlement }) {
       >
         {trip.nextAction}
       </p>
+      <SuggestedLoad key={trip.tripId} trip={trip} />
       <section aria-label="Stock settlement" className="overflow-auto">
-        <h3 className="mb-2 font-medium">Load → sales → returns → count</h3>
+        <RouteOperationsReview trip={trip} />
+        <h3 className="mb-2 font-medium">
+          Opening load + reloads → net sales and returns → closing count →
+          warehouse
+        </h3>
         <table className={tableClass}>
           <thead>
             <tr>
               {[
                 "Product",
                 "Loaded",
+                "Reloaded",
                 "Sold",
                 "Voided",
                 "Returned",
                 "Damaged",
                 "Expected",
                 "Counted",
+                "Warehouse received",
+                "Remaining on truck",
                 "Variance",
                 "Value",
               ].map((h) => (
@@ -179,6 +200,7 @@ export function VanTripDetail({ trip }: { trip: TripSettlement }) {
                   <small className="block text-muted">{r.code}</small>
                 </td>
                 <td>{r.loaded.display}</td>
+                <td>{r.reloaded?.display ?? "Not captured"}</td>
                 <td>{r.sold.display}</td>
                 <td>{r.voided.display}</td>
                 <td>{r.returned.display}</td>
@@ -191,6 +213,8 @@ export function VanTripDetail({ trip }: { trip: TripSettlement }) {
                   </small>
                 </td>
                 <td>{r.counted?.display ?? "Not counted"}</td>
+                <td>{r.unloaded.display}</td>
+                <td>{r.remaining?.display ?? "Not captured"}</td>
                 <td>{r.variance?.display ?? "Not counted"}</td>
                 <td>
                   {r.varianceCentavos === null
@@ -543,6 +567,9 @@ export function VanTripsWorkspace({
           </Button>
         </div>
       </header>
+      {permissions.can("van.manage") && (
+        <VanTripPlanning date={date} onPlanned={(id) => navigate(date, id)} />
+      )}
       {day.error ? (
         <p role="alert">
           {day.error.message}{" "}

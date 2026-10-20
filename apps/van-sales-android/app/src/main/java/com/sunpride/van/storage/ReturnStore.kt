@@ -63,9 +63,14 @@ class ReturnStore(private val store: RoomVanStore) {
 
     suspend fun context(): ReturnContext {
         val trip = dao.trip(s,d)
+        val configured=RouteOpsStore(store).snapshot()?.optJSONObject("policies")?.optJSONObject("return_reasons")?.optJSONArray("items")?.let(VanBootstrapCodec::objects)
+        val policy=if(RouteOpsStore(store).version()==1) ReturnPolicy(checkNotNull(configured).map {r->
+            ReturnPolicy.DEFAULT.reason(r.getString("code"))?.copy(label=r.getString("label"),batchRequired=true)
+                ?:ReturnReasonRule(r.getString("code"),r.getString("label"),listOf(ReturnDispositionRule(ReturnDisposition.BAD_STOCK)),batchRequired=true)
+        }) else ReturnPolicy.DEFAULT
         return ReturnContext(tripOpen(), dao.customerRows(s, d).map { it.asCustomer() },
             dao.productRows(s, d).map { VanBootstrapCodec.product(JSONObject(it.json)) }, sales(), returnedBase(),
-            stockCounted = trip != null && dao.stockReconciliation(s,d,trip.tripId) != null)
+            policy=policy,stockCounted = trip != null && dao.stockReconciliation(s,d,trip.tripId) != null)
     }
 
     /**
@@ -81,7 +86,30 @@ class ReturnStore(private val store: RoomVanStore) {
         if (!result.ok) throw ReturnRefused(result.issues)
         val quote = checkNotNull(result.quote)
         val t = checkNotNull(dao.trip(s, d))
+        if(RouteOpsStore(store).version()==1) ReturnEvidence.validate(request)
         val customer = context.customers.single { it.outletId == request.customerId }
+        val operationsVersion=RouteOpsStore(store).version()
+        val batches=mutableMapOf<Int,JSONArray>()
+        if(RouteOpsStore(store).version()==1 && request.originalSaleId!=null) {
+            val sale=dao.saleRows(s,d).single {it.saleId==request.originalSaleId}
+            val original=JSONObject(checkNotNull(dao.outbox(s,d,sale.idempotencyKey)).operationJson).getJSONObject("payload")
+            for(line in quote.lines) {
+                val sold=VanBootstrapCodec.objects(original.getJSONArray("lines")).single {it.getString("productId")==line.product.productId}
+                val allocations=sold.optJSONArray("allocations")?.let(VanBootstrapCodec::objects)?:emptyList()
+                if(allocations.isNotEmpty()) {
+                    val batch=checkNotNull(allocations.singleOrNull {it.getString("batch")==line.lotNumber}) {"Choose the exact sold batch"}
+                    var returned=0L
+                    dao.outboxRows(s,d).filter {it.kind==RETURN_KIND}.forEach {op->
+                        val p=JSONObject(op.operationJson).getJSONObject("payload")
+                        if(p.optJSONObject("originalSale")?.optString("saleId")==sale.saleId) VanBootstrapCodec.objects(p.getJSONArray("lines")).forEach {old->
+                            old.optJSONArray("allocations")?.let(VanBootstrapCodec::objects)?.filter {it.getString("lotId")==batch.getString("lotId")}?.forEach {returned=Math.addExact(returned,it.getString("quantityBase").toLong())}
+                        }
+                    }
+                    require(Math.addExact(returned,line.quantityBase)<=batch.getString("quantityBase").toLong()) {"Return exceeds this batch's sale"}
+                    batches[line.lineNumber]=JSONArray().put(JSONObject(batch.toString()).put("quantityBase",line.quantityBase.toString()))
+                }
+            }
+        }
         val id = com.sunpride.van.ids.TransactionIds(db, store.scope).issue(t.tripId, t.tripNumber)
         val now = store.now()
         val at = maxOf(now, Math.addExact(dao.latestCreatedAt(s, d) ?: 0L, 1L))
@@ -108,6 +136,7 @@ class ReturnStore(private val store: RoomVanStore) {
                     .put("uomQuantity", line.unitQuantity).put("quantityBase", line.quantityBase.toString())
                     .put("reason", line.reason.code).put("reasonLabel", line.reason.label).put("disposition", line.disposition.wire).put("stockEffect", line.stockEffect.wire)
                     .put("approvalRequired", line.approvalRequired)
+                    .apply {if(operationsVersion==1) put("allocations",batches[line.lineNumber]?:JSONArray())}
                     .apply { line.lotNumber?.let { put("lotNumber", it) } }
                     .apply { line.expiryDate?.let { put("expiryDate", it) } }
             }))
@@ -115,6 +144,9 @@ class ReturnStore(private val store: RoomVanStore) {
         quote.sale?.let { payload.put("originalSale", JSONObject().put("saleId", it.saleId).put("receiptNumber", it.receiptNumber)) }
         quote.note?.let { payload.put("note", it) }
         VanCallStore(store).bindAdapter(payload,customer.outletId,listOf("return_pickup"))
+        RouteOpsStore(store).prepare(payload)
+        request.acknowledgementJson?.let { payload.put("customerAcknowledgement",JSONObject(it)) }
+        request.photoJson?.let { payload.put("photo",JSONObject(it)) }
         val op = JSONObject().put("kind", RETURN_KIND).put("clientRequestId", id.idempotencyKey).put("payload", payload).toString()
         dao.insertOutbox(OutboxRow(s, d, id.idempotencyKey, t.tripId, RETURN_KIND, op, at, null, store.capturedStatus))
         ReturnReceipt(request.returnId, id.receiptNumber, customer.name, quote.sale?.receiptNumber, quote.lines, quote.approvalReasons, status, at)
@@ -131,6 +163,7 @@ class ReturnStore(private val store: RoomVanStore) {
             lines.map { l -> ReturnCapture.Line(l.getString("productId"), l.getString("uomCode"), l.getString("quantityBase").toLong(),
                 l.getString("reason"), l.getString("disposition"), l.optString("lotNumber").ifEmpty { null }, l.optString("expiryDate").ifEmpty { null }) })
         if (saved != ReturnCapture.of(request)) throw ReturnReplayConflict()
+        if(p.optJSONObject("customerAcknowledgement")?.toString()!=request.acknowledgementJson || p.optJSONObject("photo")?.toString()!=request.photoJson) throw ReturnReplayConflict()
         val policy = ReturnPolicy.DEFAULT
         val quoted = lines.map { l ->
             val productId = l.getString("productId")

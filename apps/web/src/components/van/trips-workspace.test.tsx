@@ -57,6 +57,58 @@ const quantity = (base: string, display: string) => ({
   pieces: 0,
   display,
 });
+
+it("F-117 F-121 settlement and CSV disclose reloads, warehouse receipt and remaining truck stock", () => {
+  const complete = {
+    ...trip,
+    stock: [
+      {
+        ...trip.stock[0]!,
+        reloaded: quantity("12", "1 cases + 0 pieces"),
+        unloaded: quantity("41", "3 cases + 5 pieces"),
+        remaining: quantity("0", "0 cases + 0 pieces"),
+      },
+    ],
+  };
+  const html = renderToStaticMarkup(
+    createElement(VanTripDetail, { trip: complete }),
+  );
+  for (const label of [
+    "Reloaded",
+    "Warehouse received",
+    "Remaining on truck",
+  ]) {
+    expect(html).toContain(label);
+    expect(tripCsv(complete)).toContain(label);
+  }
+  expect(html).toContain("1 cases + 0 pieces");
+});
+it("F-117 F-123 a physically closed route is still SAP pending, never presented as settled or posted", () => {
+  const html = renderToStaticMarkup(
+    <VanTripsView
+      data={{
+        ...data,
+        rows: [
+          {
+            ...trip,
+            status: "closed",
+            settlementStatus: "approved_pending_sap",
+            unclosed: false,
+          },
+        ],
+      }}
+      selected={trip.tripId}
+      onSelect={() => {}}
+    />,
+  );
+  expect(html).toContain("Approved — SAP pending");
+  expect(html).not.toContain(">Settled<");
+  expect(html).not.toContain(">Posted to SAP<");
+  expect(settlementLabel("pending_supervisor")).toBe("Pending supervisor");
+  expect(settlementLabel("posted")).toBe("Posted to SAP");
+  expect(settlementLabel("rejected")).toBe("Returned for correction");
+  expect(settlementLabel("settled")).toBe("Settled");
+});
 const trip: TripSettlement = {
   tripId: "trip",
   tripNumber: "TRIP-001",

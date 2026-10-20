@@ -32,6 +32,7 @@ class TripCloseStore(private val store: RoomVanStore) {
     private suspend fun startOdometer(tripId: String): Double? = dao.outboxRows(s, d)
         .firstOrNull { it.tripId == tripId && it.kind == "trip.start" }
         ?.let { JSONObject(it.operationJson).getJSONObject("payload").optDouble("odometerKm").takeIf { km -> !km.isNaN() } }
+        ?: RouteOpsStore(store).snapshot()?.optJSONObject("tripFacts")?.optDouble("startOdometerKm")?.takeIf { !it.isNaN() }
 
     suspend fun closed(tripId: String): Boolean = dao.tripClose(s, d, tripId) != null
 
@@ -69,6 +70,12 @@ class TripCloseStore(private val store: RoomVanStore) {
             throw TripCloseRefused(CloseProblem.ALREADY_CLOSED)
         }
         val policy = TripCloseRules.policy(policy())
+        if (RouteOpsStore(store).version()==1) {
+            RouteOpsStore(store).requireTemperature("interval")
+            require(request.endOdometerKm!=null) { "Closing odometer is required" }
+            check(RouteOpsStore(store).observations().any { it.getString("kind")=="unload" }) { "Save the unload manifest first" }
+            check(RouteOpsStore(store).openStop()==null) { "Record departure from the current stop first" }
+        }
         val checklist = TripCloseRules.checklist(facts(t), policy)
         val reviewed = TripCloseRules.authorize(checklist, policy, request, startOdometer(t.tripId))
         val key = UUID.randomUUID().toString()
@@ -88,10 +95,12 @@ class TripCloseStore(private val store: RoomVanStore) {
                 .put("varianceLines", it.varianceLines).put("shortBase", it.shortBase.toString()).put("overBase", it.overBase.toString()) } ?: JSONObject.NULL)
             .put("exceptions", exceptions).put("exceptionsReviewed", reviewed)
             // The office checks it received every operation of the trip before it closes the trip there.
-            .put("operations", JSONArray(ops.filter { !s.startsWith("v2|") || it.status == "done" }.map { JSONObject().put("kind", it.kind).put("clientRequestId", it.clientRequestId).put("status", it.status) }))
+            .put("operations", JSONArray(ops.filter { RouteOpsStore.KINDS.contains(it.kind) || !s.startsWith("v2|") || it.status == "done" || policy.requireUploadsSent.not() && it.status in setOf("pending","sending") }.map { JSONObject().put("kind", it.kind).put("clientRequestId", it.clientRequestId).put("status", it.status) }))
             .put("deviceTime", now)
             .apply { request.endOdometerKm?.let { put("endOdometerKm", it) } }
             .apply { note?.let { put("note", it) } }
+        RouteOpsStore(store).prepare(payload)
+        payload.put("localSettlement",JSONObject().put("state","locally_completed").put("cash",payload.get("cash")).put("stock",payload.get("stock")))
         val op = JSONObject().put("kind", TRIP_CLOSE_KIND).put("clientRequestId", key).put("payload", payload).toString()
         // The old frozen v1 validator has no close kind; V2VanCodec supplies the live v2 envelope.
         dao.insertOutbox(OutboxRow(s, d, key, t.tripId, TRIP_CLOSE_KIND, op, at, null, store.capturedStatus))

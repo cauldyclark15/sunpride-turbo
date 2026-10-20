@@ -53,8 +53,10 @@ data class StockCountRequest(
     /** Includes the expected values the seller saw, so the store can detect a changed projection. */
     val lines: List<StockCountLine>,
     val note: String? = null,
-    val approvalCode: String? = null
+    val approvalCode: String? = null,
+    val batchCounts: List<BatchCountLine> = emptyList()
 )
+data class BatchCountLine(val position: com.sunpride.van.ledger.BatchPosition,val countedBase: Long)
 
 data class StockAuthorization(val method: String, val code: String?)
 

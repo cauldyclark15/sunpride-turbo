@@ -81,7 +81,8 @@ data class ReturnLineInput(val productId: String, val uomCode: String, val quant
     val disposition: ReturnDisposition?, val lotNumber: String? = null, val expiryDate: String? = null)
 
 /** [returnId] is a UUID-v4 made when the return opens; it makes Save return safe to tap twice. */
-data class ReturnRequest(val returnId: String, val customerId: String?, val originalSaleId: String?, val lines: List<ReturnLineInput>, val note: String? = null)
+data class ReturnRequest(val returnId: String, val customerId: String?, val originalSaleId: String?, val lines: List<ReturnLineInput>, val note: String? = null,
+    val acknowledgementJson: String? = null, val photoJson: String? = null)
 
 /** A sale saved on this phone, as far as returns need it: what was sold to whom. */
 data class SoldSale(val saleId: String, val receiptNumber: String, val customerId: String, val createdAt: Long, val soldBase: Map<String, Long>)

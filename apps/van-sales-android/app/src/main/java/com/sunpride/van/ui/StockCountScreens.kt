@@ -31,6 +31,7 @@ import com.sunpride.van.pos.*
     val unavailable = needsApproval && c.policy?.stockReconciliation?.key == null
     val code = if (validCounts && summary != null) StockReconciliationRules.countCode(summary.tripId,draft.reconciliationId,lines) else null
     val ready = summary != null && summary.countable && saved == null && validCounts && totals != null && noteValid && !unavailable &&
+        c.batchCountPositions.all { b->val p=c.products.singleOrNull {it.productId==b.productId};p!=null && VanRules.parseQuantity(draft.batchCounts["${b.lotId}:${b.status}"]?:"",p.quantityScale)!=null } &&
         lines.all { it.expectedBase == it.countedBase || it.reasonCode in reasons.map { r -> r.code } } &&
         (!needsApproval || VoidApprovalCodes.normalize(draft.code) != null)
 
@@ -56,6 +57,12 @@ import com.sunpride.van.pos.*
             else -> {
                 Text("Count sellable and damaged stock separately. Counts are entered in each product's UOM.",style = MaterialTheme.typography.bodyMedium)
                 if (c.sync.review > 0) Text("Some earlier work needs review. Expected stock excludes refused work; enter what is physically on the truck. The earlier records are kept for your supervisor.",style = MaterialTheme.typography.bodyMedium)
+                c.batchCountPositions.forEach {b->val p=c.products.single {it.productId==b.productId};val key="${b.lotId}:${b.status}"
+                    SectionCard("${p.name} · batch ${b.batch}") {
+                        Text("${b.status} · ${b.qualityStatus} · expected ${p.displayQuantity(b.quantityBase)} ${p.uomCode}")
+                        LabeledField("Batch counted ${p.uomCode}",draft.batchCounts[key]?:"",{edit(draft.copy(batchCounts=draft.batchCounts+(key to it)))},"batch-count-$key",numeric=true,enabled=!c.busy)
+                    }
+                }
                 expectedLines.groupBy { it.productId }.forEach { (productId, productLines) ->
                     val meta = summary.lines.first { it.productId == productId }
                     SectionCard(meta.productName) {

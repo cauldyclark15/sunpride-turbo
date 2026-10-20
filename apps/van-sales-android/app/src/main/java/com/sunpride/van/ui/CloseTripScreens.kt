@@ -23,7 +23,8 @@ import java.time.format.DateTimeFormatter
     val policy = TripCloseRules.policy(c.policy)
     val checklist = summary?.checklist
     val km = draft.odometer.takeIf { it.isNotBlank() }?.trim()?.toDoubleOrNull()
-    val odometerValid = draft.odometer.isBlank() || TripCloseRules.validOdometer(km ?: Double.NaN,summary?.startOdometerKm)
+    val operational=c.policy?.operationsVersion==1
+    val odometerValid = (!operational && draft.odometer.isBlank()) || TripCloseRules.validOdometer(km ?: Double.NaN,summary?.startOdometerKm)
     val noteValid = TripCloseRules.validNote(draft.note)
     val needsReview = checklist != null && TripCloseRules.needsReview(checklist,policy)
     val ready = summary != null && saved == null && checklist!!.ready && odometerValid && noteValid && (!needsReview || draft.reviewed)
@@ -36,7 +37,7 @@ import java.time.format.DateTimeFormatter
         message = c.message) {
         when {
             summary == null -> Text("Getting this trip's checks…")
-            saved != null -> SavedClose(saved)
+            saved != null -> SavedClose(saved,operational)
             else -> {
                 Text("Trip ${summary.tripNumber}",style = MaterialTheme.typography.titleMedium,modifier = Modifier.testTag("close-trip-number"))
                 SectionCard("Before you close") {
@@ -58,10 +59,11 @@ import java.time.format.DateTimeFormatter
                     }
                     if (checklist.exceptions.any { it.kind == CloseExceptionKind.UNPRINTED_RECEIPTS })
                         SecondaryButton("Open receipts",{ c.open(Page.RECEIPTS) },Modifier.testTag("close-go-receipts"),!c.busy)
-                    if (needsReview) Confirmation("I have checked these with my supervisor",draft.reviewed,
+                    if (needsReview) Confirmation(if(operational) "I checked these records and differences. Office sign-off follows after sync." else "I have checked these with my supervisor",draft.reviewed,
                         { c.editClose(draft.copy(reviewed = it)) },"close-reviewed")
                 }
-                LabeledField("End odometer km (optional)",draft.odometer,{ c.editClose(draft.copy(odometer = it)) },"close-odometer",
+                if(operational) SecondaryButton("Review temperature, unload and local settlement",{c.open(Page.ROUTE_OPS)},Modifier.testTag("close-route-controls"))
+                LabeledField(if(operational) "Closing odometer km (required)" else "End odometer km (optional)",draft.odometer,{ c.editClose(draft.copy(odometer = it)) },"close-odometer",
                     numeric = true,maxLength = 20,keyboardType = KeyboardType.Decimal,enabled = !c.busy)
                 summary.startOdometerKm?.let { Text("At start: ${VanRules.km(it)} km",style = MaterialTheme.typography.bodyMedium) }
                 if (!odometerValid) Text("Enter the end odometer in km, not lower than at the start.",Modifier.testTag("close-odometer-invalid"))
@@ -72,7 +74,7 @@ import java.time.format.DateTimeFormatter
     }
 }
 
-@Composable private fun SavedClose(saved: TripCloseResult) {
+@Composable private fun SavedClose(saved: TripCloseResult,operational: Boolean = false) {
     SectionCard("Trip closed") {
         Text("Closed on this phone",style = MaterialTheme.typography.headlineSmall,modifier = Modifier.testTag("close-saved"))
         Text("Trip ${saved.tripNumber} · ${Instant.ofEpochMilli(saved.createdAt).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("MMM d, h:mm a"))}")
@@ -84,7 +86,7 @@ import java.time.format.DateTimeFormatter
     SectionCard("Checked at close") {
         if (saved.exceptions.isEmpty()) Text("Nothing to check",modifier = Modifier.testTag("close-saved-no-exceptions"))
         saved.exceptions.forEach { Text(VanRules.closeExceptionLabel(it)) }
-        if (saved.reviewed) Text("Checked with supervisor",modifier = Modifier.testTag("close-saved-reviewed"))
+        if (saved.reviewed) Text(if(operational) "Seller reviewed locally · supervisor sign-off follows after sync" else "Checked with supervisor",modifier = Modifier.testTag("close-saved-reviewed"))
     }
     Text("Hand the cash and the truck to the office. Receipts can still be reprinted.",style = MaterialTheme.typography.bodyMedium)
 }

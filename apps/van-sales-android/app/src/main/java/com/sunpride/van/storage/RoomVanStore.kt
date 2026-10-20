@@ -113,8 +113,9 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
     private suspend fun enqueue(kind: String, tripId: String, payload: JSONObject, metadataJson: String? = null): OutboxRow {
         val id = UUID.randomUUID().toString()
         val at = maxOf(clock(),Math.addExact(dao.latestCreatedAt(s,d) ?: 0L,1L))
+        RouteOpsStore(this).prepare(payload)
         val op = JSONObject().put("kind",kind).put("clientRequestId",id).put("payload",payload).toString()
-        com.sunpride.van.sync.VanWireSchema.validate(JSONObject(String(VanBootstrapCodec.pushRequest(d,listOf(op)),Charsets.UTF_8)))
+        if (RouteOpsStore(this).version()==0) com.sunpride.van.sync.VanWireSchema.validate(JSONObject(String(VanBootstrapCodec.pushRequest(d,listOf(op)),Charsets.UTF_8)))
         val row = OutboxRow(s,d,id,tripId,kind,op,at,metadataJson)
         dao.insertOutbox(row)
         return row
@@ -124,6 +125,10 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         check(t.status == "loaded") { "Load must be posted before starting" }
         check(dao.outboxRows(s,d).none { it.tripId == t.tripId && it.kind == "trip.start" && it.status in setOf("pending","sending","done") }) { "Trip already starting" }
         require(odometerKm == null || odometerKm.isFinite() && odometerKm in 0.0..10_000_000.0)
+        if (RouteOpsStore(this).version()==1) {
+            require(odometerKm!=null) { "Opening odometer is required" }
+            RouteOpsStore(this).requireTemperature("load_out")
+        }
         val p = JSONObject().put("tripId",t.tripId).put("vehicleConfirmed",true).put("routeConfirmed",true).put("deviceTime",clock())
         text(driverName,80)?.let { p.put("driverName",it) }; text(helperName,80)?.let { p.put("helperName",it) }
         odometerKm?.let { p.put("odometerKm",it) }; text(note,300)?.let { p.put("note",it) }
@@ -143,8 +148,14 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
             require(line.actualBase == expected || line.reason in policy.loadDiscrepancyReasons)
             inputs.put(JSONObject().put("lineNumber",line.lineNumber).put("actualBase",line.actualBase.toString()).also { line.reason?.let { reason -> it.put("reason",reason) } })
         }
-        enqueue("load.confirm",t.tripId,JSONObject().put("tripId",t.tripId).put("loadId",t.loadId).put("lines",inputs).put("deviceTime",clock()),
-            JSONArray(sheet.map { JSONObject().put("lineNumber",it.lineNumber).put("productId",it.productId) }).toString()).clientRequestId
+        val queued = enqueue("load.confirm",t.tripId,JSONObject().put("tripId",t.tripId).put("loadId",t.loadId).put("lines",inputs).put("deviceTime",clock()),
+            JSONArray(sheet.map { JSONObject().put("lineNumber",it.lineNumber).put("productId",it.productId) }).toString())
+        // F-103/F-123 an exactly scanned load is usable without an office round trip; discrepancies still wait.
+        if (policy.operationsVersion==1 && lines.all { input->sheet.single { it.lineNumber==input.lineNumber }.expectedBase==input.actualBase }) {
+            recordPostedLoad(queued,queued.createdAt,settled=false)
+            dao.insertTrip(t.copy(status="loaded",loadStatus="posted",json=JSONObject(t.json).put("status","loaded").toString()))
+        }
+        queued.clientRequestId
     }
     suspend fun recordDamage(productId: String, qty: Long, reason: String, note: String?, photoSha256: String? = null): String = db.withTransaction {
         val t = writable()
@@ -251,6 +262,8 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         if (quote.totalMinor != expectedTotalMinor) throw CheckoutRefused(listOf(CheckoutIssue(CheckoutProblem.PRICES_CHANGED)))
         val t = writable()
         val customer = context.customers.single { it.outletId == request.customerId }
+        RouteOpsStore(this).requireTemperature("delivery",customer.outletId)
+        val batchAllocations=quote.lines.associate { it.product.productId to com.sunpride.van.ledger.BatchLedger(this).allocations(it.product.productId,it.quantityBase,context.now) }
         val fiscal = if (s.startsWith("v2|")) com.sunpride.van.fiscal.FiscalNumbers.issue(db,scope,JSONObject(dao.meta(s,d)!!.policyJson!!),"sales_invoice",context.now) else null
         val id = fiscal?.let { com.sunpride.van.ids.TransactionIdentity(it.number,UUID.randomUUID().toString()) }
             ?: com.sunpride.van.ids.TransactionIds(db,scope).issue(t.tripId,t.tripNumber)
@@ -272,6 +285,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
             .put("customer",customerJson).put("currency",quote.currency).put("totalMinor",quote.totalMinor.toString())
             .put("lines",JSONArray(quote.lines.map { JSONObject().put("lineNumber",it.lineNumber).put("productId",it.product.productId)
                 .put("quantityBase",it.quantityBase.toString()).put("paidBase",it.paidBase.toString()).put("freeBase",it.freeBase.toString())
+                .apply {if(context.policy?.operationsVersion==1) put("allocations",JSONArray(batchAllocations[it.product.productId].orEmpty().map { a->a.json() }))}
                 .put("unitPriceMinor",it.unitPriceMinor.toString()).put("grossMinor",it.grossMinor.toString()).put("discountMinor",it.discountMinor.toString()).put("totalMinor",it.totalMinor.toString())
                 .put("priceListIds",JSONArray(it.priceListIds)).put("priceSource",it.priceListId?.let { id -> JSONObject().put("priceListId",id).put("priceListCode",it.priceListCode ?: JSONObject.NULL) } ?: JSONObject.NULL)
                 .put("promotion",it.promotion?.let { p -> JSONObject().put("promotionId",p.promotionId).put("code",p.code).put("kind",p.kind) } ?: JSONObject.NULL) }))
@@ -283,6 +297,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
             .put("deviceTime",context.now)
             .apply { fiscal?.let { put("fiscal",JSONObject().put("allocationId",it.allocationId).put("serial",it.serial.toString())) } }
         VanCallStore(this@RoomVanStore).bindAdapter(payload,customer.outletId,listOf("order_build","discount","invoice","payment"))
+        RouteOpsStore(this).prepare(payload)
         val op = JSONObject().put("kind",SALE_KIND).put("clientRequestId",id.idempotencyKey).put("payload",payload).toString()
         dao.insertOutbox(OutboxRow(s,d,id.idempotencyKey,t.tripId,SALE_KIND,op,at,null,capturedStatus))
         val receipt = SaleReceipt(request.saleId,id.receiptNumber,customer.name,quote.lines.map { receiptLine(it) },
@@ -328,6 +343,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
             .put("reasonCode",reasonCode).put("approval",JSONObject().put("method",authorized.method)
                 .apply { authorized.code?.let { put("code",it) } }).put("deviceTime",at)
             .apply { authorized.note?.let { put("note",it) } }
+        RouteOpsStore(this).prepare(payload)
         val op = JSONObject().put("kind",SALE_VOID_KIND).put("clientRequestId",voidKey).put("payload",payload).toString()
         dao.insertOutbox(OutboxRow(s,d,voidKey,sale.tripId,SALE_VOID_KIND,op,at,null,capturedStatus))
         check(saleStockIssues(saleId).isEmpty()) { "Sale void and truck stock disagree" }
@@ -434,7 +450,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         SaleReceiptLine(n,p.productId,p.name,p.uomCode,p.displayQuantity(quantityBase),unit,total,freeBase,discountMinor,promotionCode,priceListCode)
 
     override suspend fun pending(excluding: Set<String>): List<OutboxRow> = if (!canSync()) emptyList() else
-        dao.outboxRows(s,d).filter { it.status == "pending" && it.clientRequestId !in excluding }.sortedWith(compareBy<OutboxRow> { it.createdAt }.thenBy { it.clientRequestId }).take(20)
+        com.sunpride.van.sync.VanUploadBatch.select(dao.outboxRows(s,d).filter { it.status == "pending" && it.clientRequestId !in excluding }.sortedWith(compareBy<OutboxRow> { it.createdAt }.thenBy { it.clientRequestId }))
     override suspend fun canSync(): Boolean = !isDenied(scope) && dao.meta(s,d)?.authorizes(clock()) == true
     /** SP-0137 live-location pings of this scope. */
     val locations = LocationPingStore(db,scope,clock)
@@ -519,7 +535,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         dao.clearPriceListLine(s,d)
         dao.clearPromotion(s,d)
         b.trip?.let { t -> dao.insertTrip(TripRow(s,d,t.tripId,t.tripNumber,t.status,t.serviceDate,o.getJSONObject("trip").put("_damageRecords",o.optJSONArray("damageRecords") ?: JSONArray())
-            .put("_callFlows",grant?.optJSONObject("callFlows") ?: JSONObject()).put("_serverCalls",grant?.optJSONArray("callFlowCalls") ?: JSONArray()).toString(),b.load?.loadId,b.load?.status)) }
+            .put("_vanOps",o.optJSONObject("vanOps")?:JSONObject.NULL).put("_callFlows",grant?.optJSONObject("callFlows") ?: JSONObject()).put("_serverCalls",grant?.optJSONArray("callFlowCalls") ?: JSONArray()).toString(),b.load?.loadId,b.load?.status)) }
         b.load?.let { l -> VanBootstrapCodec.objects(o.getJSONObject("load").getJSONArray("lines")).forEach { line ->
             val parsed = VanBootstrapCodec.line(line)
             dao.insertLoadLine(LoadLineRow(s,d,l.loadId,parsed.lineNumber,parsed.productId,parsed.expectedBase,parsed.actualBase,line.toString()))

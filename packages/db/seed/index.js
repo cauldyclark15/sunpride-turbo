@@ -9,6 +9,7 @@ import { addCallflowSamples } from "./callflow.js";
 import { tpm, seedTpm } from "./tpm.js";
 import { integrityFleet } from "./integrity.js";
 import { ensureIntegrityFleet } from "./integrity-fleet.js";
+import { appendVanOpsPolicies, seedVanOps } from "./vanops.js";
 export { resetDemo } from "./store.js";
 
 /** @param {{anchorDate?:string,days?:number}} [options] @param {string[]} [hashes] */
@@ -42,6 +43,7 @@ export function generateDemo(
   management(data, c, e);
   addCallflowSamples(data);
   tpm(data);
+  appendVanOpsPolicies(data);
   // Keep the legacy analytics mirrors and ORDERS' canonical centavo facts equal.
   for (const order of data.rows("orders")) {
     order.subtotal_centavos = Math.round(Number(order.subtotal) * 100);
@@ -121,7 +123,7 @@ export async function seedDemo(
 ) {
   // Validate before reading the credential or doing any database work.
   new Dataset(anchorDate, days);
-  return tx(db, async (t) => {
+  const result = await tx(db, async (t) => {
     await t`select pg_advisory_xact_lock(4310090)`;
     const [existing] =
       await t`select a.details from audit_logs a join sample_data_rows m on m.row_id=a.id::text where m.batch=${BATCH} and m.key='audit_logs:manifest'`;
@@ -161,4 +163,6 @@ export async function seedDemo(
     if (!manifest) throw new Error("Demo manifest verification failed");
     return { ...summary, duplicate: false };
   });
+  await seedVanOps(db);
+  return result;
 }

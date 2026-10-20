@@ -105,6 +105,7 @@ class CashReconciliationStore(private val store: RoomVanStore) {
             .put("deviceTime", now)
             .apply { authorized.reasonCode?.let { put("reasonCode", it) } }
             .apply { authorized.note?.let { put("note", it) } }
+        RouteOpsStore(store).prepare(payload)
         val op = JSONObject().put("kind", CASH_RECONCILE_KIND).put("clientRequestId", key).put("payload", payload).toString()
         dao.insertOutbox(OutboxRow(s, d, key, t.tripId, CASH_RECONCILE_KIND, op, at, null, store.capturedStatus))
         row.result(t.tripNumber, false)

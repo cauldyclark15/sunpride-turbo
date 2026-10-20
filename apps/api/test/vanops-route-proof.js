@@ -1,0 +1,501 @@
+import { postMovement } from "../src/domains/inventory/posting.js";
+import { explainStock, expectedStock } from "../src/domains/van/facts.js";
+import { lotBundle } from "../src/domains/van/lots.js";
+import { stockCountCode } from "../src/domains/van/approvals.js";
+import { sha256Hex } from "../src/core/util.js";
+import { today } from "../src/domains/van/model.js";
+
+/** F-103/F-104/F-113/F-114/F-115/F-116/F-117/F-123 public signed-push proof with REAL Postgres stock posting.
+ * Fixture creation only is direct SQL; every route fact and office decision uses HTTP.
+ * @param {any} h @param {any} who @param {any} boss @param {string} unit @param {string} vehicle @param {string} truck @param {string} depot @param {string} outlet @param {any} expect
+ */
+export async function exerciseRoute(
+  h,
+  who,
+  boss,
+  unit,
+  vehicle,
+  truck,
+  depot,
+  outlet,
+  expect,
+) {
+  const login = await h.fetch("/api/auth/sign-in", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      email: boss.email,
+      password: "correct horse battery",
+    }),
+  });
+  const cookie = (login.headers.get("set-cookie") ?? "").split(";")[0];
+  expect(login.status).toBe(200);
+  const product = crypto.randomUUID(),
+    base = crypto.randomUUID(),
+    lotA = crypto.randomUUID(),
+    lotB = crypto.randomUUID(),
+    tripId = crypto.randomUUID(),
+    loadId = crypto.randomUUID(),
+    priceList = crypto.randomUUID(),
+    routeId = crypto.randomUUID(),
+    territoryId = crypto.randomUUID();
+  const expiresA = Date.now() + 7 * 86400000,
+    expiresB = Date.now() + 21 * 86400000;
+  await h.db`insert into units_of_measure(id,organization_id,code,name,dimension,decimal_places,active) values(${base},'sunpride','PC','Piece','count',0,true)`;
+  await h.db`insert into products(id,organization_id,code,name,category,uom,unit_price,active,base_uom_id,quantity_scale) values(${product},'sunpride','SAMPLE-FROZEN','Sample frozen pack','Frozen','PC',0,true,${base},1)`;
+  await h.db`insert into product_inventory_policies(organization_id,product_id,base_uom_id,quantity_scale,quantity_precision,tracking_mode,allocation_policy,allow_mixed_lots_per_line,allow_negative_stock,quality_release_required,shelf_life_days,expiry_date_required,manufacture_date_required,minimum_remaining_shelf_life_days,costing_method,version,active) values('sunpride',${product},${base},1,0,'lot','fefo',true,false,true,90,true,false,0,'weighted_average',1,true)`;
+  await h.db`insert into price_lists(id,organization_id,code,name,currency,status,source,effective_from) values(${priceList},'sunpride','SAMPLE-ROUTE','Sample route prices','PHP','active','sample',now()-interval '1 day')`;
+  await h.db`insert into price_list_lines(organization_id,price_list_id,product_id,uom,unit_price_minor,effective_from) values('sunpride',${priceList},${product},'PC',100,now()-interval '1 day')`;
+  await h.db`insert into territories(id,organization_id,code,name,status,effective_from,created_by) values(${territoryId},'sunpride','SAMPLE-ROUTE','Sample territory','active',now()-interval '1 day',${boss.userId})`;
+  await h.db`insert into routes(id,organization_id,code,name,status,effective_from,created_by) values(${routeId},'sunpride','SAMPLE-ROUTE','Sample beat','active',now()-interval '1 day',${boss.userId})`;
+  await h.db`insert into territory_ownerships(territory_id,org_unit_id,effective_from,actor_subject,reason) values(${territoryId},${unit},now()-interval '1 day',${boss.userId},'Sample route proof')`;
+  await h.db`insert into route_territories(route_id,territory_id,effective_from,actor_subject,reason) values(${routeId},${territoryId},now()-interval '1 day',${boss.userId},'Sample route proof')`;
+  await h.db`insert into outlet_assignments(outlet_id,territory_id,route_id,sequence,effective_from,actor_subject,reason) values(${outlet},${territoryId},${routeId},1,now()-interval '1 day',${boss.userId},'Sample route proof')`;
+  await h.db`insert into van_trips(id,organization_id,org_unit_id,trip_number,vehicle_id,truck_location_id,source_location_id,route_id,service_date,salesperson_profile_id,salesperson_subject,status,created_by,operations_version) values(${tripId},'sunpride',${unit},'SAMPLE-CLOSED-LOOP',${vehicle},${truck},${depot},${routeId},${today()},${who.profile.id},${who.userId},'loading',${boss.userId},1)`;
+  await h.db`insert into van_trip_loads(id,organization_id,trip_id,load_number,status,created_by) values(${loadId},'sunpride',${tripId},1,'planned',${boss.userId})`;
+  for (const [i, id, batch, quantity, expiry] of [
+    [1, lotA, "BATCH-A", 3, expiresA],
+    [2, lotB, "BATCH-B", 5, expiresB],
+  ]) {
+    await h.db`insert into inventory_lots(id,organization_id,product_id,lot_number,normalized_lot_number,source_type,received_at,expires_at,quality_status,unit_cost_minor) values(${id},'sunpride',${product},${batch},${batch},'sample',now(),${new Date(Number(expiry))},'released',50)`;
+    await h.db.begin(async (/** @type {any} */ db) =>
+      postMovement(db, {
+        kind: "opening_balance",
+        sourceType: "sample_fixture",
+        sourceId: String(id),
+        idempotencyKey: String(id),
+        occurredAt: Date.now(),
+        organizationId: "sunpride",
+        actor: { profileId: boss.profile.id, userId: boss.userId },
+        authorizedLocations: [depot],
+        lines: [
+          {
+            productId: product,
+            fromLocationId: null,
+            toLocationId: depot,
+            quantityBase: Number(quantity) + (id === lotA ? 12 : 0),
+            uom: "PC",
+            lotId: String(id),
+            unitCostMinor: 50,
+          },
+        ],
+      }),
+    );
+    await h.db`insert into van_trip_load_lines(organization_id,load_id,trip_id,line_number,product_id,product_code,uom_code,quantity_scale,lot_id,lot_number,expected_base) values('sunpride',${loadId},${tripId},${i},${product},'SAMPLE-FROZEN','PC',1,${id},${batch},${quantity})`;
+  }
+  /** @type {any[]} */ const saved = [];
+  async function send(/** @type {string} */ type, /** @type {any} */ facts) {
+    const at = Date.now(),
+      op = {
+        clientOpId: crypto.randomUUID(),
+        opType: type,
+        clientTime: at,
+        dependsOn: [],
+        payload: { tripId, settlementVersion: 1, deviceTime: at, ...facts },
+      };
+    const r = await h.signed(who, op);
+    if (r.body.results?.[0]?.status !== "applied")
+      throw new Error(`${type}: ${JSON.stringify(r.body.results?.[0])}`);
+    expect(r.res.status).toBe(200);
+    expect(r.body.results[0].status).toBe("applied");
+    saved.push(op);
+    return op;
+  }
+  const reading = (
+    /** @type {string} */ checkpoint,
+    /** @type {string|null} */ store = null,
+  ) => ({
+    observationId: crypto.randomUUID(),
+    checkpoint,
+    deciC: -200,
+    method: "manual",
+    ...(store ? { outletId: store } : {}),
+  });
+  await send("temperature.record", reading("load_out"));
+  await send("load.confirm", {
+    loadId,
+    lines: [
+      { lineNumber: 1, actualBase: "3" },
+      { lineNumber: 2, actualBase: "5" },
+    ],
+  });
+  const noOdometer = await h.signed(who, {
+    clientOpId: crypto.randomUUID(),
+    opType: "trip.start",
+    clientTime: Date.now(),
+    dependsOn: [],
+    payload: {
+      tripId,
+      settlementVersion: 1,
+      deviceTime: Date.now(),
+      vehicleConfirmed: true,
+      routeConfirmed: true,
+    },
+  });
+  expect(noOdometer.body.results[0].status).toBe("rejected");
+  await send("trip.start", {
+    vehicleConfirmed: true,
+    routeConfirmed: true,
+    odometerKm: 1000,
+  });
+  const stopId = crypto.randomUUID();
+  await send("stop.record", {
+    observationId: crypto.randomUUID(),
+    stopId,
+    phase: "arrival",
+    outletId: outlet,
+  });
+  await send("temperature.record", reading("delivery", outlet));
+  const saleId = crypto.randomUUID(),
+    quantity = 4,
+    price = 100,
+    total = String(quantity * price);
+  const allocations = [
+    {
+      lotId: lotA,
+      batch: "BATCH-A",
+      expiresAt: expiresA,
+      qualityStatus: "released",
+      quantityBase: "3",
+    },
+    {
+      lotId: lotB,
+      batch: "BATCH-B",
+      expiresAt: expiresB,
+      qualityStatus: "released",
+      quantityBase: "1",
+    },
+  ];
+  await send("sale.record", {
+    saleId,
+    receiptNumber: "SAMPLE-CLOSED-LOOP-AABBCCDD-0001",
+    customer: { outletId: outlet },
+    currency: "PHP",
+    totalMinor: total,
+    lines: [
+      {
+        productId: product,
+        quantityBase: String(quantity),
+        paidBase: String(quantity),
+        freeBase: "0",
+        unitPriceMinor: String(price),
+        grossMinor: total,
+        discountMinor: "0",
+        totalMinor: total,
+        allocations,
+      },
+    ],
+    payment: {
+      method: "cash",
+      kind: "cash",
+      amountMinor: total,
+      tenderedMinor: total,
+      changeMinor: "0",
+      status: "paid",
+    },
+  });
+  expect(
+    (
+      await h.db`select physical_base::text as quantity from inventory_lot_balances where lot_id=${lotA} and location_id=${truck} and stock_status='available'`
+    )[0].quantity,
+  ).toBe("0");
+  const jpeg = new Uint8Array(
+    await Bun.file(
+      new URL("./fixtures/sample-return.jpg", import.meta.url),
+    ).arrayBuffer(),
+  );
+  const returned = await send("return.record", {
+    returnId: crypto.randomUUID(),
+    returnNumber: "SAMPLE-RETURN-AABBCCDD-0002",
+    originalSale: { saleId, receiptNumber: "SAMPLE-CLOSED-LOOP-AABBCCDD-0001" },
+    customer: { outletId: outlet },
+    lines: [
+      {
+        productId: product,
+        quantityBase: "1",
+        uomCode: "PC",
+        reason: "damaged",
+        disposition: "bad_stock",
+        stockEffect: "damaged",
+        lotNumber: "BATCH-A",
+        allocations: [{ ...allocations[0], quantityBase: "1" }],
+      },
+    ],
+    customerAcknowledgement: {
+      name: "Sample customer",
+      accepted: true,
+      strokes: [
+        [
+          [10, 10],
+          [1000, 3000],
+          [9000, 9000],
+        ],
+      ],
+    },
+    photo: {
+      base64: Buffer.from(jpeg).toString("base64"),
+      sha256: sha256Hex(jpeg),
+    },
+  });
+  expect(
+    (
+      await h.db`select physical_base::text as quantity from inventory_lot_balances where lot_id=${lotA} and location_id=${truck} and stock_status='damaged'`
+    )[0].quantity,
+  ).toBe("1");
+  await send("returnable.record", {
+    observationId: crypto.randomUUID(),
+    action: "count",
+    typeCode: "crate",
+    quantity: "12",
+  });
+  await send("returnable.record", {
+    observationId: crypto.randomUUID(),
+    action: "issue",
+    typeCode: "crate",
+    quantity: "2",
+    outletId: outlet,
+  });
+  await send("returnable.record", {
+    observationId: crypto.randomUUID(),
+    action: "receive",
+    typeCode: "crate",
+    quantity: "1",
+    outletId: outlet,
+  });
+  await send("temperature.record", reading("interval"));
+  const reload = await send("reload.request", {
+    observationId: crypto.randomUUID(),
+    lines: [{ productId: product, quantityBase: "12" }],
+    note: "Sample fast mover",
+  });
+  await office("reloads/action", {
+    requestId: reload.payload.observationId,
+    action: "approved",
+    note: "Sample reload approval",
+  });
+  await office("reloads/action", {
+    requestId: reload.payload.observationId,
+    action: "dispatched",
+    note: "Sample physical dispatch",
+  });
+  expect(
+    (
+      await h.db`select physical_base::text as quantity from inventory_lot_balances where lot_id=${lotA} and location_id=${truck} and stock_status='in_transit'`
+    )[0].quantity,
+  ).toBe("12");
+  const [dispatch] =
+    await h.db`select facts from van_reload_events where request_id=${reload.payload.observationId} and kind='dispatched'`;
+  await send("reload.receive", {
+    requestId: reload.payload.observationId,
+    lines: dispatch.facts.lines,
+    note: "Scanned exact physical batches",
+  });
+  expect(
+    (
+      await h.db`select physical_base::text as quantity from inventory_lot_balances where lot_id=${lotA} and location_id=${truck} and stock_status='available'`
+    )[0].quantity,
+  ).toBe("12");
+  await send("stop.record", {
+    observationId: crypto.randomUUID(),
+    stopId,
+    phase: "departure",
+    outletId: outlet,
+  });
+  await send("cash.reconcile", {
+    reconciliationId: crypto.randomUUID(),
+    currency: "PHP",
+    expectedMinor: total,
+    declaredMinor: total,
+    counts: [{ denominationMinor: String(price), count: String(quantity) }],
+    approval: { method: "none" },
+  });
+  const expected = await expectedStock(h.db, tripId),
+    batches = await lotBundle(h.db, { id: tripId, truck_location_id: truck });
+  const countId = crypto.randomUUID(),
+    lines = expected.map((e) => ({
+      productId: e.productId,
+      status: e.status,
+      expectedBase: String(e.expectedBase),
+      countedBase: String(e.expectedBase),
+      reasonCode: "",
+    }));
+  const countBatches = batches.lots.filter((/** @type {any} */ l) =>
+    ["available", "damaged"].includes(l.status),
+  );
+  const lotLines = countBatches.map((/** @type {any} */ l) => ({
+    ...l,
+    expectedBase: l.quantityBase,
+    countedBase: l.quantityBase,
+  }));
+  await send("stock.reconcile", {
+    reconciliationId: countId,
+    lines,
+    lotLines,
+    countCode: stockCountCode(tripId, countId, lines),
+    varianceLines: 0,
+    shortBase: "0",
+    overBase: "0",
+    approval: { method: "none" },
+  });
+  const unloadLines = countBatches.map((/** @type {any} */ l) => ({
+    ...l,
+    partition: l.status === "damaged" ? "customer_return" : "unsold",
+    uomCode: "PC",
+  }));
+  const unload = await send("unload.record", {
+    observationId: crypto.randomUUID(),
+    lines: unloadLines,
+    empties: [{ typeCode: "crate", quantity: "11" }],
+  });
+  const manifest = saved.map((o) => ({
+    clientRequestId: o.clientOpId,
+    kind: o.opType,
+  }));
+  await send("trip.close", {
+    closeId: crypto.randomUUID(),
+    endOdometerKm: 1020,
+    exceptionsReviewed: true,
+    operations: manifest,
+  });
+  expect(
+    (
+      await h.db`select status,end_odometer_km from van_trips where id=${tripId}`
+    )[0],
+  ).toMatchObject({ status: "closing", end_odometer_km: 1020 });
+  async function office(
+    /** @type {string} */ path,
+    /** @type {any} */ payload,
+  ) {
+    const response = await h.fetch("/api/v1/van/" + path, {
+      method: "POST",
+      headers: {
+        cookie,
+        "content-type": "application/json",
+        "idempotency-key": crypto.randomUUID(),
+      },
+      body: JSON.stringify({ tripId, ...payload }),
+    });
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    return body;
+  }
+  await office("observations/decide", {
+    observationId: unload.payload.observationId,
+    decision: "received",
+    lines: unloadLines.map((/** @type {any} */ l) => ({
+      productId: l.productId,
+      lotId: l.lotId,
+      status: l.status,
+      receivedBase: l.quantityBase,
+    })),
+    empties: [{ typeCode: "crate", quantity: "11" }],
+    note: "Sample warehouse physical receipt",
+  });
+  await office("cash/remit", { amountMinor: total, reference: "SAMPLE-CASH" });
+  const [settlement] =
+    await h.db`select * from van_settlements where trip_id=${tripId}`;
+  await office("settlements/decide", {
+    settlementId: settlement.id,
+    contentHash: settlement.content_hash,
+    decision: "approved",
+    note: "Sample supervisor sign-off",
+  });
+  expect(
+    (await h.db`select status from van_trips where id=${tripId}`)[0].status,
+  ).toBe("closed");
+  expect(
+    (
+      await h.db`select count(*)::int as n from van_sap_requests where source_id=${settlement.id}`
+    )[0].n,
+  ).toBe(1);
+  for (const op of saved)
+    expect((await h.signed(who, op)).body.results[0].status).toBe("duplicate");
+  expect(
+    (
+      await h.db`select count(*)::int as n from van_sales where trip_id=${tripId}`
+    )[0].n,
+  ).toBe(1);
+  expect(
+    (
+      await h.db`select count(*)::int as n from van_returns where trip_id=${tripId}`
+    )[0].n,
+  ).toBe(1);
+  expect(
+    (
+      await h.db`select count(*)::int as n from van_settlements where trip_id=${tripId}`
+    )[0].n,
+  ).toBe(1);
+  expect(
+    (
+      await h.db`select physical_base::text as quantity from inventory_balances where location_id=${truck} and product_id=${product}`
+    )[0].quantity,
+  ).toBe("0");
+  const response = await h.fetch(`/api/v1/van/trip?tripId=${tripId}`, {
+    headers: { cookie },
+  });
+  expect(response.status).toBe(200);
+  const detail = await response.json();
+  const ledger = detail.stock.find(
+    (/** @type {any} */ row) => row.productId === product,
+  );
+  expect(ledger.reloaded.base).toBe("12");
+  expect(ledger.remaining.base).toBe("0");
+  expect(ledger.unloaded.base).toBe(ledger.counted.base);
+  expect(detail.vanOps.scorecard).toMatchObject({
+    calls: 1,
+    plannedCalls: 1,
+    productiveCalls: 1,
+    strikeRateBasisPoints: 10000,
+    returnDocuments: 1,
+    salesCentavos: total,
+    collectedCentavos: total,
+  });
+  expect(detail.vanOps.vanContainers[0].quantity).toBe("0");
+  expect(detail.vanOps.containers[0].outstanding).toBe("1");
+  expect(detail.vanOps.settlementState).toBe("approved_pending_sap");
+  expect(detail.settlementStatus).toBe("approved_pending_sap");
+  const stopFacts = detail.vanOps.observations.filter(
+    (/** @type {any} */ o) => o.kind === "stop",
+  );
+  expect(
+    stopFacts.map((/** @type {any} */ o) => o.facts.actualSequence),
+  ).toEqual([1, 1]);
+  expect(stopFacts[0].facts.plannedSequence).toBe(1);
+  const tomorrow = new Date(today() + "T00:00:00Z");
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+  const next = await office("trips/plan", {
+    vehicleId: vehicle,
+    salespersonProfileId: who.profile.id,
+    routeId,
+    sourceLocationId: depot,
+    serviceDate: tomorrow.toISOString().slice(0, 10),
+    operationsVersion: 1,
+  });
+  const recommendation = await office("loads/suggest", { tripId: next.tripId });
+  expect(recommendation.routeOutletCount).toBe(1);
+  expect(recommendation.cycles).toHaveLength(1);
+  expect(recommendation.recommendations[0]).toMatchObject({
+    productId: product,
+    forecastBase: String(quantity),
+    recommendedBase: String(quantity),
+  });
+  const load = await office("loads/apply-suggestion", {
+    tripId: next.tripId,
+    suggestionId: recommendation.suggestionId,
+    contentHash: recommendation.contentHash,
+    capacityReviewed: true,
+    note: "Sample reviewed capacity",
+    lines: [{ productId: product, quantityBase: String(quantity) }],
+  });
+  expect(
+    (
+      await h.db`select expected_base::text as quantity,lot_id from van_trip_load_lines where load_id=${load.loadId}`
+    )[0],
+  ).toMatchObject({ quantity: String(quantity), lot_id: lotA });
+  return {
+    tripId,
+    returnId: returned.payload.returnId,
+    operationCount: saved.length,
+    plannedTripId: next.tripId,
+  };
+}

@@ -5,6 +5,7 @@ import {
 } from "../callflow/engine.js";
 import { tenderPolicy } from "../fiscal/tenders.js";
 import { fiscalBundle } from "../fiscal/transactions.js";
+import { routeBundle } from "./route-read.js";
 import { ApiError } from "../../core/errors.js";
 import { resolvePrice } from "../orders/pricing.js";
 import { masterId } from "../integration/replicas.js";
@@ -320,14 +321,26 @@ export async function bundle(ctx, env) {
       await db`select * from van_damage_records where trip_id=${trip.id} and deleted_at is null order by recorded_at desc limit 501`,
       500,
     );
+    const routeOps = await routeBundle(db, trip);
+    const tripPolicy = policy(env, trip.id);
+    if (routeOps) {
+      tripPolicy.tripClose = {
+        ...tripPolicy.tripClose,
+        requireUploadsSent: false,
+      };
+      tripPolicy.cashReconciliation.approvalRequired = false;
+      tripPolicy.stockReconciliation.approvalRequired = false;
+    }
     return {
       serviceDate,
       seller: empty.seller,
       policy: {
-        ...policy(env, trip.id),
+        ...tripPolicy,
         paymentMethods: await tenderPolicy(db, trip.org_unit_id),
         fiscal: await fiscalBundle(db, actor, trip, device.id),
+        ...(routeOps ? { operationsVersion: 1 } : {}),
       },
+      ...(routeOps ? { vanOps: routeOps } : {}),
       trip: {
         tripId: trip.id,
         tripNumber: trip.trip_number,
