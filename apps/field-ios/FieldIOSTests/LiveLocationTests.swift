@@ -15,7 +15,7 @@ final class LiveLocationTests: XCTestCase {
         directory = FileManager.default.temporaryDirectory.appending(path: "live-location-\(UUID().uuidString)")
         secrets = KeychainStore(service: "com.sunpride.live.tests.\(UUID().uuidString)")
         store = try EncryptedFieldStore(url: directory.appending(path: "field.sqlite"), secrets: secrets, keyAccount: "db")
-        partition = try StorePartition(subject: "issuer|seller", deviceId: "device-1", scope: "scope-1")
+        partition = try StorePartition(subject: "issuer|seller", deviceId: "device-1", scope: "bun-v2:scope-1")
     }
     override func tearDown() async throws {
         store.close()
@@ -129,7 +129,7 @@ final class LiveLocationTests: XCTestCase {
     // MARK: Encrypted buffer
 
     func testBufferIsOrderedPartitionedAndRefusedWhenHeld() throws {
-        let other = try StorePartition(subject: "issuer|other", deviceId: "device-1", scope: "scope-1")
+        let other = try StorePartition(subject: "issuer|other", deviceId: "device-1", scope: "bun-v2:scope-1")
         let later = LivePing(fix: fix(), at: manila(9, 5), trigger: .moving, batteryPercent: 50, visitId: nil)
         let earlier = LivePing(fix: fix(), at: manila(9), trigger: .start, batteryPercent: 51, visitId: nil)
         try store.enqueuePing(later, for: partition)
@@ -184,14 +184,14 @@ final class LiveLocationTests: XCTestCase {
         try secrets.save(Data("session".utf8), for: StoreAccount.session)
         let auth = AuthClient(site: StubHTTP.site, store: secrets, http: http)
         return VisitSyncClient(site: StubHTTP.site, auth: auth,
-            registry: ConvexDeviceRegistry(functions: ConvexFunctions(url: StubHTTP.cloud, auth: auth, http: http)),
+            registry: ServerDeviceRegistry(functions: ServerAPI(url: StubHTTP.cloud, auth: auth, http: http)),
             http: http, key: key)
     }
     private func install(_ location: @escaping @Sendable (StubURLProtocol.Recorded) -> StubURLProtocol.Outcome) {
         let jwt = StubHTTP.jwt(exp: Date().timeIntervalSince1970 + 900)
-        StubURLProtocol.install { request in
+        StubURLProtocol.installLegacy { request in
             switch request.path {
-            case "/api/auth/convex/token": return .reply(.json(200, ["token": jwt]))
+            case "/legacy/auth/token": return .reply(.json(200, ["token": jwt]))
             case "/api/mutation": return .reply(.json(200, ["status": "success", "value": [
                 "nonce": UUID().uuidString.lowercased(), "expiresAt": Date().timeIntervalSince1970 * 1000 + 60_000]]))
             default: return location(request)
@@ -225,11 +225,12 @@ final class LiveLocationTests: XCTestCase {
         XCTAssertEqual(body["deviceId"] as? String, "device-1")
         XCTAssertEqual((body["pings"] as? [[String: Any]])?.map { $0["clientPingId"] as? String },
                        pings.map { $0.clientPingId.uuidString.lowercased() })
-        let headers = Dictionary(uniqueKeysWithValues: request.headers.map { ($0.key.lowercased(), $0.value) })
-        let digest = RequestSigner.bodyDigest(request.body)
+        let wire = try XCTUnwrap(StubURLProtocol.rawRequests.first { $0.path == "/api/sync/push" })
+        let headers = Dictionary(uniqueKeysWithValues: wire.headers.map { ($0.key.lowercased(), $0.value) })
+        let digest = RequestSigner.bodyDigest(wire.body)
         XCTAssertEqual(headers["x-mobile-body-digest"], digest)
-        let message = "POST|/mobile/v1/location|\(digest)|\(headers["x-mobile-nonce"]!)|\(headers["x-mobile-timestamp"]!)"
-        XCTAssertTrue(DeviceKeys.verify(signatureBase64: try XCTUnwrap(headers["x-mobile-signature"]),
+        let message = "POST|/api/sync/push|\(digest)|\(headers["x-device-nonce"]!)|\(headers["x-device-timestamp"]!)"
+        XCTAssertTrue(DeviceKeys.verify(signatureBase64: try XCTUnwrap(headers["x-device-signature"]),
                                         message: Data(message.utf8), spkiBase64: key.publicKeyBase64))
     }
 

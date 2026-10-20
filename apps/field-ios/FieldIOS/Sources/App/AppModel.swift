@@ -1,7 +1,7 @@
 import Foundation
 import Network
 
-/// Composition root for the signed-in field session: Better Auth session, Convex functions and enrollment.
+/// Composition root for the signed-in field session: server session, Sunpride API and enrollment.
 @MainActor
 @Observable
 final class AppModel {
@@ -121,13 +121,13 @@ final class AppModel {
     }
     private struct ProfileIdentity: Decodable { let _id: String; let authSubject: String }
     private struct CachedPartition: Codable { let subject: String; let deviceId: String; let scope: String }
-    private static let partitionAccount = "field.lastVerifiedPartition"
+    private static let partitionAccount = "field.bunV2.lastVerifiedPartition"
 
     @ObservationIgnored private let auth: AuthClient
     @ObservationIgnored private let registry: DeviceRegistry
     @ObservationIgnored private let secrets: SecretStore
     @ObservationIgnored private let site: URL?
-    @ObservationIgnored private let functions: ConvexFunctions?
+    @ObservationIgnored private let functions: ServerAPI?
     @ObservationIgnored private let http: HTTPClient?
     @ObservationIgnored private let loadKey: () throws -> any DeviceSigningKey
     @ObservationIgnored private var fieldStore: EncryptedFieldStore?
@@ -185,7 +185,7 @@ final class AppModel {
     }
 
     init(auth: AuthClient, registry: DeviceRegistry, store: SecretStore,
-         pollInterval: Duration = .seconds(10), site: URL? = nil, functions: ConvexFunctions? = nil,
+         pollInterval: Duration = .seconds(10), site: URL? = nil, functions: ServerAPI? = nil,
          http: HTTPClient? = nil, localStore: EncryptedFieldStore? = nil,
          photoFiles: PhotoFiles? = nil, evidenceAPI: EvidenceAPI? = nil, biometrics: BiometricGate? = nil,
          liveSource: (any LiveLocationSource)? = nil, consentStore: (any LocationConsentStore)? = nil,
@@ -219,19 +219,32 @@ final class AppModel {
     /// Real wiring: Keychain session, ephemeral cookie-less URLSession, Secure Enclave (or simulator) key.
     /// SP-0133: the session goes through the lockable vault (Face ID / Touch ID sign-in).
     static func live(environment: AppEnvironment) -> AppModel {
-        let service = "com.sunpride.field.dev"
+        let service = Bundle.main.bundleIdentifier ?? "com.sunpride.field.dev"
         let crypto = KeychainBiometricCrypto(service: service)
         let store = LockableSessionStore(plain: KeychainStore(service: service)) {
             try KeychainBiometricCrypto.deleteItems(service: service)
         }
+        if (try? store.read("transport.bunV2.cutover")) == nil {
+            // Old secure storage is retained; only credentials/cache authority are retired.
+            try? store.delete(StoreAccount.session)
+            let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            if let file = support?.appending(path: "FieldStore/field.sqlite"), FileManager.default.fileExists(atPath: file.path),
+               let legacy = try? EncryptedFieldStore(url: file, secrets: store) {
+                try? legacy.purgeAllCachesForReview()
+                legacy.close()
+            }
+            try? store.save(Data([2]), for: "transport.bunV2.cutover")
+        }
         let http = HTTPClient()
-        let auth = AuthClient(site: environment.siteURL, store: store, http: http)
-        let functions = ConvexFunctions(url: environment.convexURL, auth: auth, http: http)
-        return AppModel(auth: auth, registry: ConvexDeviceRegistry(functions: functions), store: store,
-                        site: environment.siteURL, functions: functions, http: http,
+        let auth = AuthClient(site: environment.apiOrigin, store: store, http: http)
+        let functions = ServerAPI(url: environment.apiOrigin, auth: auth, http: http)
+        let model = AppModel(auth: auth, registry: ServerDeviceRegistry(functions: functions), store: store,
+                        site: environment.apiOrigin, functions: functions, http: http,
                         biometrics: BiometricGate(vault: store, crypto: crypto)) {
             try DeviceKeys.loadOrCreate(store: store)
         }
+        model.uploadSoonAfterQueue = .seconds(2)
+        return model
     }
 
     var pill: Pill {
@@ -387,23 +400,13 @@ final class AppModel {
                              (try store.deferredOutbox(for: partition).map { $0.intent.requestId }) +
                              (try store.heldOutbox(for: partition).map { $0.intent.requestId }))
             let rejected = try store.reviewOutbox(for: partition)
-            review = rejected.map { item in
-                let reasons: [String: String] = [
-                    "invalid_request": "Invalid request", "invalid_plan": "Plan is no longer valid",
-                    "conflict": "Conflicts with server record", "dependency_missing": "Check-in was not accepted",
-                    "unsupported_operation": "Operation not supported", "out_of_scope": "Outside current scope",
-                    "evidence_pending_review": "Evidence needs review", "invalid_transition": "Visit state changed",
-                    "call_open": "Finish the open call first", "mcp_order": "Visit stores in plan order",
-                    "wrong_date": "Visit date does not match the phone date",
-                    "unknown_code": "Unrecognized server reason", "unknown_status": "Unrecognized server status"
-                ]
-                return "\(item.intent.kind) · \(reasons[item.code] ?? "Unknown outcome — ask supervisor")"
-            }
+            review = rejected.map { ReviewText.line(kind: $0.intent.kind, code: $0.code) }
             if try store.isHeld(partition), try !intents.isEmpty || !store.pendingPhotos(for: partition).isEmpty {
                 review.append("Unsent work held — verify account and scope")
             }
             if try store.hasOtherHeldWork(for: partition) { review.append("Prior scope has unsent work held for supervised review") }
             let calls = localCalls(intents: intents, rejected: Set(rejected.map { $0.intent.requestId }))
+            let closedOnServer = try Self.closedOnServer(saved?.serverVisits ?? [], store: store, partition: partition)
             visits = rows.map { visit in
                 let initial = intents.first { $0.matches(visit) }
                 let related = intents.filter { intent in
@@ -414,6 +417,7 @@ final class AppModel {
                 if related.contains(where: { intent in rejected.contains(where: { $0.intent.requestId == intent.requestId }) }) { status = "Needs review" }
                 else if related.contains(where: { queued.contains($0.requestId) }) { status = syncing ? "Sending" : "Queued" }
                 else if !related.isEmpty { status = "Accepted" }
+                else if closedOnServer.contains(visit.id) { status = "Done" }
                 else { status = visit.status }
                 let activityKinds = call.map { open in
                     intents.filter { intent in
@@ -424,7 +428,9 @@ final class AppModel {
                 } ?? []
                 return TodayVisit(id: visit.id, outletId: visit.outletId, outlet: visit.outlet,
                                   serviceDate: visit.serviceDate, intents: visit.intents, planned: visit.planned, status: status,
-                                  sequence: visit.sequence, pin: visit.pin, startedAt: call?.initial.deviceTime, endedAt: call?.end?.deviceTime,
+                                  sequence: visit.sequence, pin: visit.pin, startedAt: call?.initial.deviceTime,
+                                  // A stop already finished on the server (another phone, or before a re-bootstrap) is done.
+                                  endedAt: call?.end?.deviceTime ?? (call == nil && closedOnServer.contains(visit.id) ? Self.recordedElsewhere : nil),
                                   outcome: call?.end?.payload?["outcome"] as? String,
                                   activityKinds: activityKinds, reasonCode: call?.end?.payload?["reasonCode"] as? String)
             }
@@ -445,6 +451,32 @@ final class AppModel {
                 .map { Date(timeIntervalSince1970: Double($0) / 1000) }
             refreshStatus()
         } catch { syncMessage = "Cached visits are unavailable." }
+    }
+
+    /// Marker end time for a stop the server already closed; never shown as a duration (no start time).
+    static let recordedElsewhere = Date(timeIntervalSince1970: 0)
+
+    /// Planned-visit IDs the server reports as finished: the snapshot's own recorded calls, overridden by any
+    /// newer `visit` delta (a tombstone or a reopened state removes it).
+    static func closedOnServer(_ snapshot: [StoreSnapshot.ServerVisit], store: any FieldLocalStore,
+                               partition: StorePartition) throws -> Set<String> {
+        var closed = Set<String>()
+        let known = Set(snapshot.map(\.id))
+        // Calls recorded after this bootstrap arrive only as `visit` deltas.
+        for data in try store.deltaValues(entity: "visit", for: partition) {
+            guard let row = try? JSONDecoder().decode(StoreSnapshot.ServerVisit.self, from: data),
+                  !known.contains(row.id), row.closed, let planned = row.plannedVisitId else { continue }
+            closed.insert(planned)
+        }
+        for row in snapshot {
+            guard let planned = row.plannedVisitId else { continue }
+            var current: StoreSnapshot.ServerVisit? = row
+            if let data = try store.deltaValue(entity: "visit", id: row.id, for: partition) {
+                current = try? JSONDecoder().decode(StoreSnapshot.ServerVisit.self, from: data)
+            }
+            if current?.closed == true { closed.insert(planned) }
+        }
+        return closed
     }
 
     private func localCalls(intents: [VisitIntent], rejected: Set<UUID>) -> [LocalCall] {
@@ -476,11 +508,14 @@ final class AppModel {
         }
         guard visit.planned else { return }
         // Read the authoritative saved plan, not sequence supplied by a stale view/caller.
-        let planned = try store.snapshot(for: partition)?.visits.filter { $0.serviceDate == visit.serviceDate } ?? []
+        let saved = try store.snapshot(for: partition)
+        let closedOnServer = try Self.closedOnServer(saved?.serverVisits ?? [], store: store, partition: partition)
+        if closedOnServer.contains(visit.id) { throw CallFailure.alreadyClosed }
+        let planned = saved?.visits.filter { $0.serviceDate == visit.serviceDate } ?? []
         guard let index = planned.firstIndex(where: { $0.id == visit.id }) else { throw StoreError.invalidInput }
         let sequence = planned[index].sequence ?? index
         for (position, earlier) in planned.enumerated() where (earlier.sequence ?? position) < sequence {
-            guard calls.contains(where: { $0.initial.payload?["plannedVisitId"] as? String == earlier.id &&
+            guard closedOnServer.contains(earlier.id) || calls.contains(where: { $0.initial.payload?["plannedVisitId"] as? String == earlier.id &&
                 $0.initial.payload?["serviceDate"] as? String == visit.serviceDate && $0.closed }) else { throw CallFailure.mcpOrder }
         }
     }
@@ -799,17 +834,36 @@ final class AppModel {
               let store = fieldStore, (try? store.pendingPhotos(for: partition).isEmpty) == false else { return }
         let api: EvidenceAPI
         if let evidenceAPI { api = evidenceAPI }
-        else if let functions, let http { api = ConvexEvidenceAPI(functions: functions, http: http) }
+        else if let functions, let http { api = ServerEvidenceAPI(functions: functions, http: http) }
         else { return }
         guard let files = try? evidenceFiles() else { return }
         _ = await EvidenceUploader(store: store, partition: partition, files: files, api: api, now: now).run()
         refreshToday()
     }
 
+    /// When set, work queued while the app is open and online is sent after this short pause (coalescing a
+    /// note + End tapped together) instead of waiting for the next app open, pull-to-refresh or an OS
+    /// background slot. Live walk: an ended call sat "Waiting 2" on an online phone until the app was
+    /// reopened, so the office saw nothing. nil (unit tests' default) keeps request sequences deterministic.
+    @ObservationIgnored var uploadSoonAfterQueue: Duration?
+    @ObservationIgnored private var uploadSoonTask: Task<Void, Never>?
+
     private func didQueueWork() {
         refreshToday()
         breadcrumb(.workQueued)
         BackgroundRetry.shared.scheduleIfNeeded()
+        guard let delay = uploadSoonAfterQueue, !isOffline else { return }
+        uploadSoonTask?.cancel()
+        uploadSoonTask = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self else { return }
+            if self.bootstrapping {
+                // A sync is already running; it may have read the outbox before this intent. Try once more.
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled else { return }
+            }
+            await self.syncNow()
+        }
     }
 
     func syncNow() async {
@@ -1064,5 +1118,36 @@ final class AppModel {
         let reason = enrollment.message
         await signOut()
         signInError = reason ?? MobileError.sessionExpired.description
+    }
+}
+
+/// Plain words for the "To review" list: what the step was and why the office must look. Every server
+/// refusal code has its own sentence; no operation names or codes are shown to the salesperson.
+enum ReviewText {
+    static func step(_ kind: String) -> String {
+        switch kind {
+        case "visit.checkIn": return "Start of visit"
+        case "visit.checkOut": return "End of visit"
+        case "visit.activity": return "Visit activity"
+        case "visit.callSheet": return "Call sheet"
+        case "visit.locationException": return "Location note"
+        case "order.submit", "order.capture": return "Order"
+        case "evidence.attach": return "Photo"
+        default: return "Phone update"
+        }
+    }
+    static let reasons: [String: String] = [
+        "invalid_request": "The office could not read it", "invalid_plan": "Plan is no longer valid",
+        "conflict": "Conflicts with the office record", "dependency_missing": "The start of this visit was not accepted",
+        "unsupported_operation": "Not supported by this app version", "out_of_scope": "Outside your current area",
+        "evidence_pending_review": "Photo needs review", "invalid_transition": "Visit state changed",
+        "call_open": "Finish the open call first", "mcp_order": "Visit stores in plan order",
+        "wrong_date": "Visit date does not match the phone date",
+        "idempotency_conflict": "Already recorded for this store today",
+        "stock_conflict": "Stock changed in the office", "load_not_posted": "Truck load not posted yet",
+        "unknown_code": "The office gave a reason this app does not know", "unknown_status": "The office answer was not clear"
+    ]
+    static func line(kind: String, code: String) -> String {
+        "\(step(kind)) · \(reasons[code] ?? reasons["unknown_code"]!)"
     }
 }

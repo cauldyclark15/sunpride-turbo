@@ -203,6 +203,7 @@ export function install(router, platform) {
                 payload: { table, id: materializeId },
               });
         const entityId =
+          (path === "people/devices/register" && typeof value === "string" ? value : null) ??
           body.outletId ??
           body.profileId ??
           body.unitId ??

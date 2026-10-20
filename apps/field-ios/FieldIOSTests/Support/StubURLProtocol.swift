@@ -29,7 +29,27 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     static func install(_ handler: @escaping @Sendable (Recorded) -> Outcome) {
         state.withLock { $0 = (handler, []) }
     }
-    static var requests: [Recorded] { state.withLock { $0.requests } }
+    static func installLegacy(scopeFingerprint: String = "scope-1", profileId: String = "employee-1", _ handler: @escaping @Sendable (Recorded) -> Outcome) {
+        install { raw in
+            // Preparatory /me is v2-only; frozen behavioral fixtures have no such request.
+            if raw.path == "/api/me" {
+                return .reply(V2FixtureHarness.reply(.json(200, ["status": "success", "value": ["_id": profileId]]), raw: raw, scopeFingerprint: scopeFingerprint))
+            }
+            let legacy = V2FixtureHarness.request(raw)
+            @Sendable func convert(_ reply: Reply) -> Reply { V2FixtureHarness.reply(reply, raw: raw, scopeFingerprint: scopeFingerprint) }
+            switch handler(legacy) {
+            case .reply(let r): return .reply(convert(r))
+            case .delayed(let r): return .delayed(convert(r))
+            case .held(let f): return .held { convert(f()) }
+            case .fail(let e): return .fail(e)
+            }
+        }
+    }
+    static var rawRequests: [Recorded] { state.withLock { $0.requests } }
+    /// Fixture-dialect view of what the app asked for; v2-only preparatory /api/me read has no frozen-fixture equivalent and are inspected through `rawRequests`.
+    static var requests: [Recorded] {
+        rawRequests.filter { $0.path != "/api/me" }.map(V2FixtureHarness.request)
+    }
     static func requests(to path: String) -> [Recorded] { requests.filter { $0.path == path } }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -79,8 +99,8 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
 }
 
 enum StubHTTP {
-    static let site = URL(string: "https://unit-test.convex.site")!
-    static let cloud = URL(string: "https://unit-test.convex.cloud")!
+    static let site = URL(string: "https://unit-test.sunpride.test")!
+    static let cloud = URL(string: "https://unit-test-cloud.sunpride.test")!
 
     static func client() -> HTTPClient {
         HTTPClient(session: URLSession(configuration: HTTPClient.makeConfiguration(protocolClasses: [StubURLProtocol.self])))
@@ -93,7 +113,7 @@ enum StubHTTP {
                 .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
                 .replacingOccurrences(of: "=", with: "")
         }
-        return "\(segment(["alg": "ES256"])).\(segment(["aud": "convex", "exp": exp, "m": marker])).sig\(marker)"
+        return "\(segment(["alg": "ES256"])).\(segment(["aud": "sunpride", "exp": exp, "m": marker])).sig\(marker)"
     }
 }
 

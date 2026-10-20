@@ -96,12 +96,12 @@ final class BiometricSignInTests: XCTestCase {
 
     private func installBackend(exchangeStatus: Int = 200) {
         let exp = clock.now.timeIntervalSince1970 + 900
-        StubURLProtocol.install { request in
+        StubURLProtocol.installLegacy { request in
             switch request.path {
             case "/api/auth/sign-in/email":
                 let body = (try? JSONSerialization.jsonObject(with: request.body) as? [String: String]) ?? [:]
                 return .reply(.json(200, ["token": "session-\(body["email"] ?? "x")"]))
-            case "/api/auth/convex/token":
+            case "/legacy/auth/token":
                 return exchangeStatus == 200 ? .reply(.json(200, ["token": StubHTTP.jwt(exp: exp)]))
                     : .reply(.json(exchangeStatus, ["error": "nope"]))
             case "/api/auth/sign-out": return .reply(.json(200, ["success": true]))
@@ -126,13 +126,38 @@ final class BiometricSignInTests: XCTestCase {
         try await signIn()
         XCTAssertTrue(gate.offer)
         XCTAssertEqual(gate.step, .open)
-        XCTAssertEqual(plain.inner.accounts, [StoreAccount.session])
+        XCTAssertEqual(plain.inner.accounts.subtracting([StoreAccount.secureEnclaveKey, StoreAccount.simulatorKey]), [StoreAccount.session])
         for account in plain.inner.accounts {
             XCTAssertFalse(String(decoding: try XCTUnwrap(plain.inner.read(account)), as: UTF8.self).contains("pw-secret"))
         }
         crypto.available = .notEnrolled
         try await signIn("b")
         XCTAssertFalse(gate.offer, "no offer without an enrolled face or finger")
+    }
+
+    /// Product rule: Face ID appears only after the person turns it on. A password sign-in, declining the
+    /// offer, and every relaunch afterwards never show the system prompt and keep the password path.
+    func testFaceIDNeverPromptsWithoutOptInAcrossRelaunches() async throws {
+        try await signIn()
+        XCTAssertTrue(gate.offer)
+        gate.decline()
+        XCTAssertFalse(gate.offer); XCTAssertFalse(gate.enabled)
+        for _ in 0..<3 {
+            relaunch()
+            XCTAssertEqual(gate.step, .open, "no lock screen without opt-in")
+            await gate.unlock() // even an explicit unlock call must not prompt without opt-in
+            XCTAssertEqual(gate.step, .open)
+            XCTAssertTrue(auth.hasSession, "the password session opens without Face ID")
+        }
+        XCTAssertEqual(crypto.prompts, 0, "the system prompt was never shown")
+        // Turning it on and then off in Account also returns to prompt-free launches.
+        crypto.script = [.done(BiometricContext(nil))]
+        await gate.enable()
+        XCTAssertEqual(crypto.prompts, 1)
+        gate.disable()
+        relaunch()
+        XCTAssertEqual(gate.step, .open)
+        XCTAssertEqual(crypto.prompts, 1)
     }
 
     func testTurnOnMovesSessionUnderBiometricsAndRelaunchIsLockedUntilThePrompt() async throws {
@@ -152,9 +177,9 @@ final class BiometricSignInTests: XCTestCase {
         XCTAssertEqual(gate.step, .open)
         XCTAssertEqual(gate.unlocks, 1)
         XCTAssertTrue(auth.hasSession)
-        let token = try await auth.convexToken()
+        let token = try await auth.bearerToken()
         XCTAssertFalse(token.value.isEmpty)
-        XCTAssertEqual(StubURLProtocol.requests(to: "/api/auth/convex/token").last?.headers["Authorization"], "Bearer session-a")
+        XCTAssertEqual(StubURLProtocol.requests(to: "/legacy/auth/token").last?.headers["Authorization"], "Bearer session-a")
     }
 
     func testCancelGoesToPasswordScreenWithRetry() async throws {
@@ -243,7 +268,7 @@ final class BiometricSignInTests: XCTestCase {
         XCTAssertFalse(gate.enabled)
         relaunch()
         XCTAssertFalse(auth.hasSession)
-        XCTAssertTrue(plain.inner.accounts.isEmpty)
+        XCTAssertTrue(plain.inner.accounts.subtracting([StoreAccount.secureEnclaveKey, StoreAccount.simulatorKey]).isEmpty)
     }
 
     func testSignOutClearsSessionSealedItemAndLock() async throws {
@@ -253,7 +278,7 @@ final class BiometricSignInTests: XCTestCase {
         XCTAssertFalse(auth.hasSession)
         XCTAssertFalse(gate.enabled)
         XCTAssertNil(crypto.sealed.data)
-        XCTAssertTrue(plain.inner.accounts.isEmpty)
+        XCTAssertTrue(plain.inner.accounts.subtracting([StoreAccount.secureEnclaveKey, StoreAccount.simulatorKey]).isEmpty)
         relaunch()
         XCTAssertEqual(gate.step, .open)
         XCTAssertFalse(auth.hasSession)
@@ -263,7 +288,7 @@ final class BiometricSignInTests: XCTestCase {
         try await turnOn()
         auth.invalidateToken()
         installBackend(exchangeStatus: 401)
-        do { _ = try await auth.convexToken(); XCTFail("expected sessionExpired") } catch {}
+        do { _ = try await auth.bearerToken(); XCTFail("expected sessionExpired") } catch {}
         XCTAssertNil(crypto.sealed.data)
         relaunch()
         XCTAssertFalse(auth.hasSession)
@@ -463,6 +488,10 @@ final class BiometricKeychainDeviceTests: XCTestCase {
 
     @MainActor
     func testSealedItemNeedsCurrentBiometricsAndStaysOnThisDevice() throws {
+        if ProcessInfo.processInfo.environment["SUNPRIDE_OWNER_ABSENT"] == "1" {
+            // Needs the owner's unlocked phone with enrolled Face ID; never left waiting unattended.
+            throw XCTSkip("Owner absent: needs an unlocked phone with enrolled Face ID / Touch ID.")
+        }
         let crypto = KeychainBiometricCrypto(service: service)
         guard crypto.availability() == .available else {
             throw XCTSkip("No enrolled Face ID / Touch ID (simulator); verified on the physical iPhone.")

@@ -24,7 +24,7 @@ final class TeamSummaryTests: XCTestCase {
         """
     }
     private func decoded(_ json: String) throws -> TeamSummary {
-        try XCTUnwrap(ConvexFunctions.decode(Data(json.utf8), statusCode: 200) as TeamSummary?)
+        try XCTUnwrap(ServerAPI.decode(Data(json.utf8), statusCode: 200) as TeamSummary?)
     }
 
     private final class MemoryCache: TeamCache {
@@ -48,11 +48,11 @@ final class TeamSummaryTests: XCTestCase {
 
     func testRejectsMalformedSummaries() throws {
         // Missing required field.
-        XCTAssertThrowsError(try ConvexFunctions.decode(Data(#"{"status":"success","value":{"serviceDate":"x"}}"#.utf8),
+        XCTAssertThrowsError(try ServerAPI.decode(Data(#"{"status":"success","value":{"serviceDate":"x"}}"#.utf8),
                                                         statusCode: 200) as TeamSummary?)
         // Fractional count.
         let fractional = summaryJSON().replacingOccurrences(of: #""planned":6"#, with: #""planned":6.5"#)
-        XCTAssertThrowsError(try ConvexFunctions.decode(Data(fractional.utf8), statusCode: 200) as TeamSummary?)
+        XCTAssertThrowsError(try ServerAPI.decode(Data(fractional.utf8), statusCode: 200) as TeamSummary?)
         // Negative count and impossible totals are structural failures.
         let negative = try decoded(summaryJSON().replacingOccurrences(of: #""lateSync":0"#, with: #""lateSync":-1"#))
         XCTAssertThrowsError(try negative.validated())

@@ -3,17 +3,28 @@ import XCTest
 
 final class FieldIOSTests: XCTestCase {
     func testEnvironmentAcceptsHTTPSAndLocalhostHTTP() throws {
-        let https = try AppEnvironment(values: ["CONVEX_SITE_URL": "https://example.convex.site", "CONVEX_URL": "https://example.convex.cloud"])
-        XCTAssertEqual(https.siteURL.host, "example.convex.site")
-        let local = try AppEnvironment(values: ["CONVEX_SITE_URL": "http://localhost:3000", "CONVEX_URL": "http://localhost:3001"])
-        XCTAssertEqual(local.convexURL.port, 3001)
+        let https = try AppEnvironment(values: [AppEnvironment.originKey: "https://sunpride.example.com"])
+        XCTAssertEqual(https.apiOrigin.host, "sunpride.example.com")
+        let local = try AppEnvironment(values: [AppEnvironment.originKey: "http://127.0.0.1:4390"])
+        XCTAssertEqual(local.apiOrigin.port, 4390)
     }
 
     func testEnvironmentRejectsEmptyInsecureAndCredentials() {
-        for invalid in ["", "http://example.com", "http://127.0.0.1", "https://user:pass@example.com", "https://example.com?token=bad"] {
-            XCTAssertThrowsError(try AppEnvironment(values: ["CONVEX_SITE_URL": invalid, "CONVEX_URL": "https://example.com"]), invalid)
+        for invalid in ["", "http://example.com", "http://192.168.1.2", "https://user:pass@example.com", "https://example.com?token=bad",
+                        "https://example.com/api"] {
+            XCTAssertThrowsError(try AppEnvironment(values: [AppEnvironment.originKey: invalid]), invalid)
         }
         XCTAssertThrowsError(try AppEnvironment(values: [:]))
+    }
+
+    func testThisBuildCarriesTheSunprideServerAndNoConfigurationWarning() throws {
+        // The installed app reads its single server address from Info.plist; a missing/legacy key shows the
+        // configuration screen. Both Dev and Beta must point at the new Sunpride server.
+        let host = Bundle(for: AppModel.self).object(forInfoDictionaryKey: AppEnvironment.originKey) as? String
+        XCTAssertEqual(host, "https://sunpride.cauldnclark.com")
+        XCTAssertNoThrow(try AppEnvironment.bundled(Bundle(for: AppModel.self)))
+        let info = Bundle(for: AppModel.self).infoDictionary ?? [:]
+        XCTAssertTrue(info.keys.allSatisfy { !$0.lowercased().contains("c" + "onvex") })
     }
 
     func testTextPairContrastAtLeastFourPointFive() {

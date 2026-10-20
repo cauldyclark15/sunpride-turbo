@@ -36,7 +36,7 @@ final class SecurityHygieneTests: XCTestCase {
 
     func testErrorDescriptionsCarryNoSecrets() {
         let jwt = "eyJhbGciOiJFUzI1NiJ9.eyJhdWQiOiJjb252ZXgifQ.c2lnbmF0dXJl"
-        let rejected = MobileError.rejected(ConvexFunctions.reason("Uncaught ConvexError: bad bearer \(jwt)"))
+        let rejected = MobileError.rejected(ServerAPI.reason("bad bearer \(jwt)"))
         XCTAssertFalse(rejected.description.contains(jwt))
         XCTAssertFalse("\(rejected)".contains("eyJ"))
         let all: [MobileError] = [.invalidCredentials, .signInRefused, .rateLimited, .offline, .server, .notSignedIn,
@@ -51,7 +51,7 @@ final class SecurityHygieneTests: XCTestCase {
     func testTokensAbsentFromModelDescriptions() async throws {
         let store = InMemoryStore()
         let jwt = StubHTTP.jwt(exp: Date().timeIntervalSince1970 + 900, marker: "leakcheck")
-        StubURLProtocol.install { request -> StubURLProtocol.Outcome in
+        StubURLProtocol.installLegacy { request -> StubURLProtocol.Outcome in
             if request.path == "/api/auth/sign-in/email" {
                 return .reply(.json(200, ["token": "session-leakcheck"]))
             }
@@ -61,7 +61,7 @@ final class SecurityHygieneTests: XCTestCase {
         try await auth.signIn(email: "a@b.c", password: "password-leakcheck")
         var dumped = ""
         dump(auth, to: &dumped)
-        dump(try await auth.convexToken(), to: &dumped)
+        dump(try await auth.bearerToken(), to: &dumped)
         for leaked in ["session-leakcheck", "password-leakcheck", jwt] {
             XCTAssertFalse(dumped.contains(leaked), "\(leaked) visible via reflection")
         }
@@ -106,7 +106,7 @@ final class KeychainStoreTests: XCTestCase {
     @MainActor
     func testSignOutWipesKeychainSession() async throws {
         try store.save(Data("session-to-wipe".utf8), for: StoreAccount.session)
-        StubURLProtocol.install { _ in .reply(.json(200, ["success": true])) }
+        StubURLProtocol.installLegacy { _ in .reply(.json(200, ["success": true])) }
         let auth = AuthClient(site: StubHTTP.site, store: store, http: StubHTTP.client())
         XCTAssertTrue(auth.hasSession)
         await auth.signOut()

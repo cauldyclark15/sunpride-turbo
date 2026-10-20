@@ -35,9 +35,7 @@ final class BackgroundRetry {
 
     private func restoreModel() -> AppModel? {
         if let model { return model }
-        let values = ["CONVEX_SITE_URL": Bundle.main.object(forInfoDictionaryKey: "CONVEX_SITE_URL") as? String ?? "",
-                      "CONVEX_URL": Bundle.main.object(forInfoDictionaryKey: "CONVEX_URL") as? String ?? ""]
-        guard let environment = try? AppEnvironment(values: values) else { return nil }
+        guard let environment = try? AppEnvironment.bundled() else { return nil }
         let restored = AppModel.live(environment: environment)
         model = restored
         return restored

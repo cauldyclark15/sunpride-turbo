@@ -93,7 +93,7 @@ struct TeamScreen: View {
             .padding(16)
         }
         .background(SunprideTokens.background)
-        .toolbar(.hidden, for: .navigationBar)
+        .calmScreenChrome()
         // Each visit to the Team page asks the server again (saved copy when offline).
         .task { await model.loadTeam() }
     }

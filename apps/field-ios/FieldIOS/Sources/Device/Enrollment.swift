@@ -1,6 +1,6 @@
 import Foundation
 
-/// Shapes from `packages/backend/convex/mobile/devices.ts`.
+/// Shapes from `apps/api/src/core/devices.js` (GET /api/me, /api/devices/*).
 struct MineArgs: Encodable, Equatable { let publicKey: String; let app: String }
 struct MineResult: Decodable, Equatable, Sendable {
     let deviceId: String
@@ -9,7 +9,15 @@ struct MineResult: Decodable, Equatable, Sendable {
     let allowedApp: String
 }
 struct ChallengeArgs: Encodable, Equatable { let deviceId: String }
-struct ChallengeResult: Decodable, Equatable, Sendable { let nonce: String; let expiresAt: Double }
+struct ChallengeResult: Decodable, Equatable, Sendable {
+    let nonce: String; let expiresAt: Double
+    var serverTime: Double? = nil
+    func proofTime() throws -> Int64 {
+        let time = serverTime ?? (expiresAt - 30_000)
+        guard time.isFinite, time > 0, time < 9_007_199_254_740_991, expiresAt > time else { throw MobileError.invalidResponse }
+        return Int64(time)
+    }
+}
 struct Attestation: Encodable, Equatable { let format: String; let keyId: String? }
 struct BindArgs: Encodable, Equatable {
     let deviceId: String
@@ -21,7 +29,7 @@ struct BindArgs: Encodable, Equatable {
 }
 struct BindResult: Decodable, Equatable, Sendable { let bindingStatus: String }
 
-/// Employee-side device calls, all under the employee's own Convex JWT.
+/// Employee-side device calls, all under the employee's own access token.
 @MainActor
 protocol DeviceRegistry: AnyObject {
     func mine(publicKey: String) async throws -> MineResult?
@@ -30,9 +38,9 @@ protocol DeviceRegistry: AnyObject {
 }
 
 @MainActor
-final class ConvexDeviceRegistry: DeviceRegistry {
-    private let functions: ConvexFunctions
-    init(functions: ConvexFunctions) { self.functions = functions }
+final class ServerDeviceRegistry: DeviceRegistry {
+    private let functions: ServerAPI
+    init(functions: ServerAPI) { self.functions = functions }
 
     func mine(publicKey: String) async throws -> MineResult? {
         try await functions.query("mobile/devices:mine", MineArgs(publicKey: publicKey, app: RequestSigner.app), as: MineResult.self)
@@ -135,6 +143,9 @@ final class Enrollment {
             }
         } catch let error as MobileError {
             switch error {
+            case .rejected("forbidden"):
+                state = .removed
+                message = "Access changed — unsent work held for review."
             case .sessionExpired, .notSignedIn, .unauthorized:
                 message = error.description
                 state = .signedOut
@@ -166,7 +177,7 @@ final class Enrollment {
         // timestamp inside the proof window even when the handset clock is badly skewed.
         guard challenge.expiresAt.isFinite, challenge.expiresAt > 30_000,
               challenge.expiresAt < 9_007_199_254_740_991 else { throw MobileError.invalidResponse }
-        let timestamp = Int64(challenge.expiresAt) - 30_000
+        let timestamp = try challenge.proofTime()
         guard timestamp > 0 else { throw MobileError.invalidResponse }
         let proof = try key.sign(RequestSigner.bindMessage(deviceId: deviceId, credentialId: credentialId,
                                                           nonce: challenge.nonce, timestamp: timestamp))

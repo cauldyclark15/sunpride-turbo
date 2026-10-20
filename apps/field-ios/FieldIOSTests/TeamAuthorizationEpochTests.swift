@@ -3,7 +3,7 @@ import Synchronization
 import XCTest
 @testable import FieldIOS
 
-/// IOS-020 release counterexamples through the real AppModel, ConvexFunctions decoding, SQLCipher store and
+/// IOS-020 release counterexamples through the real AppModel, ServerAPI decoding, SQLCipher store and
 /// UserDefaults grants: a Team answer that was in flight across a scope change, sign-out or phone removal
 /// must never be shown, saved or granted, even when the final account/scope/filter look the same again.
 @MainActor
@@ -52,9 +52,9 @@ final class TeamAuthorizationEpochTests: XCTestCase {
         }
         let jwt = StubHTTP.jwt(exp: Date().timeIntervalSince1970 + 3600)
         let script = script
-        StubURLProtocol.install { request in
+        StubURLProtocol.installLegacy { request in
             switch request.path {
-            case "/api/auth/convex/token": return .reply(.json(200, ["token": jwt]))
+            case "/legacy/auth/token": return .reply(.json(200, ["token": jwt]))
             case "/api/query": return script.next()
             default: return .reply(.json(200, [:]))
             }
@@ -64,7 +64,7 @@ final class TeamAuthorizationEpochTests: XCTestCase {
     override func tearDown() async throws {
         model?.enrollment.signedOut()
         model = nil
-        StubURLProtocol.install { _ in .fail(.notConnectedToInternet) }
+        StubURLProtocol.installLegacy { _ in .fail(.notConnectedToInternet) }
         defaults.removePersistentDomain(forName: suite)
         try? secrets.delete("db")
         try? secrets.delete(StoreAccount.session)
@@ -95,9 +95,9 @@ final class TeamAuthorizationEpochTests: XCTestCase {
     private func launchModel() async throws -> AppModel {
         try secrets.save(Data("test-session".utf8), for: StoreAccount.session)
         let registry = FakeRegistry()
-        registry.lastMine = .success(MineResult(deviceId: "device-1", status: "active", bound: true, allowedApp: "IOS"))
+        registry.lastMine = .success(MineResult(deviceId: "device-1", status: "active", bound: true, allowedApp: "field-ios"))
         let auth = AuthClient(site: StubHTTP.site, store: secrets, http: StubHTTP.client())
-        let functions = ConvexFunctions(url: StubHTTP.cloud, auth: auth, http: StubHTTP.client())
+        let functions = ServerAPI(url: StubHTTP.cloud, auth: auth, http: StubHTTP.client())
         let fixed = now, key = key
         // No site: sync stays idle, so only Team queries reach the network stub.
         let app = AppModel(auth: auth, registry: registry, store: secrets, functions: functions, localStore: store,
@@ -228,7 +228,7 @@ final class TeamAuthorizationEpochTests: XCTestCase {
         let registry = FakeRegistry()
         registry.lastMine = .failure(.offline)
         let auth = AuthClient(site: StubHTTP.site, store: secrets, http: StubHTTP.client())
-        let functions = ConvexFunctions(url: StubHTTP.cloud, auth: auth, http: StubHTTP.client())
+        let functions = ServerAPI(url: StubHTTP.cloud, auth: auth, http: StubHTTP.client())
         let fixed = now, key = key
         let app = AppModel(auth: auth, registry: registry, store: secrets, functions: functions, localStore: store,
                            now: { fixed }) { key }

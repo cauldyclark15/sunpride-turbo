@@ -4,11 +4,16 @@ import SwiftUI
 /// `FieldFeature.visits` (SP-0132: no longer DEBUG-only). Local work is queued until it syncs.
 struct DiagnosticVisitScreen: View {
     let model: AppModel
-    let visit: AppModel.TodayVisit
+    /// The store this screen was opened for, pinned for the screen's lifetime. Today's Next card hands in
+    /// whichever stop is next; without the pin, ending the call re-pointed this screen at the following
+    /// store instead of showing the result of the one just visited.
+    @State private var opened: AppModel.TodayVisit
+    private var visit: AppModel.TodayVisit { opened }
     @State private var location = LocationCapture()
     @State private var unplanned: Bool
     init(model: AppModel, visit: AppModel.TodayVisit) {
-        self.model = model; self.visit = visit
+        self.model = model
+        _opened = State(initialValue: visit)
         _unplanned = State(initialValue: !visit.planned)
     }
     @State private var reason = ""
@@ -309,7 +314,7 @@ struct DiagnosticVisitScreen: View {
                 .background(SunprideTokens.background)
             }
         }
-        .toolbar(.hidden, for: .navigationBar)
+        .calmScreenChrome()
         // A change to what End would record invalidates the confirmation.
         .onChange(of: outcome) { review = nil }
         .onChange(of: reason) { review = nil }

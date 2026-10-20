@@ -2,8 +2,8 @@
 
 The iOS field app shares the person's position with the live map (web Field → Live map,
 `apps/web/docs/LIVE_MAP.md`) **only during the work day**. Backend and wire contract: SP-0135
-(`packages/backend/convex/location/`, `POST /mobile/v1/location`, `locationRequest` in
-`packages/domain-contracts/schemas/mobile-v1.schema.json`).
+(`apps/api/src/domains/fieldsync/location.js`, sent as a `location` operation on signed `POST /api/sync/push`; payload
+shape `locationRequest` in `packages/domain-contracts/schemas/mobile-v1.schema.json`).
 
 ## When it runs
 

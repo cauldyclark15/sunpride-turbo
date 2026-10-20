@@ -46,7 +46,7 @@ final class FieldFeaturesTests: XCTestCase {
 
     func testThisBuildCarriesTheTrackerLink() {
         // Dev and Beta xcconfigs both point "Report an issue" at the Sunpride web tracker.
-        XCTAssertEqual(FieldFeatures.current.reportIssueURL?.absoluteString, "https://sunpride.keepr.im/issues/new")
+        XCTAssertEqual(FieldFeatures.current.reportIssueURL?.absoluteString, "https://sunpride.cauldnclark.com/issues/new")
         // Unit tests run the Debug configuration: every feature, developer tools included.
         XCTAssertEqual(FieldFeatures.current.enabled, Set(FieldFeature.allCases))
     }

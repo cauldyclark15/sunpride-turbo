@@ -42,6 +42,6 @@ struct SupportInfoScreen: View {
             }.padding(16)
         }
         .background(SunprideTokens.background)
-        .toolbar(.hidden, for: .navigationBar)
+        .calmScreenChrome()
     }
 }

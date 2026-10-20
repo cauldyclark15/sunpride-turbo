@@ -136,11 +136,13 @@ enum BootstrapV1 {
         let activityRules: [ActivityRule]?
         /// Additive optional v1 field (IOS-016): photo types a visit photo may carry. nil = older server.
         let photoTypes: [PhotoType]?
+        /// Additive v2 field: this person's own recorded calls in the bundle window. nil = older server.
+        let visitExecutions: [StoreSnapshot.ServerVisit]?
 
         enum CodingKeys: String, CodingKey {
             case type, contractVersion, serverTime, permissions, employee, scope, appConfig,
                  plannedVisits, outlets, localCustomers, route, tasks, productCatalog, page,
-                 nextPageCursor, syncCursor, callSheets, orderTerms, inventoryAvailability, accountSummaries, dayTarget, daySales, activityRules, photoTypes
+                 nextPageCursor, syncCursor, callSheets, orderTerms, inventoryAvailability, accountSummaries, dayTarget, daySales, activityRules, photoTypes, visitExecutions
         }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -206,6 +208,11 @@ enum BootstrapV1 {
                 guard types.count <= 32, Set(types.map(\.code)).count == types.count else { throw WireError.unsafeValue }
                 photoTypes = types
             } else { photoTypes = nil }
+            if c.contains(.visitExecutions) {
+                let rows = try c.decode([StoreSnapshot.ServerVisit].self, forKey: .visitExecutions)
+                guard rows.count <= 200, rows.allSatisfy(\.isValid), Set(rows.map(\.id)).count == rows.count else { throw WireError.unsafeValue }
+                visitExecutions = rows
+            } else { visitExecutions = nil }
             guard Set(callSheets.map(\.outletId)).count == callSheets.count,
                   callSheets.allSatisfy({ sheet in plannedVisits.contains { $0.outletId == sheet.outletId } }) else {
                 throw WireError.unsafeValue
@@ -244,6 +251,7 @@ enum BootstrapV1 {
             try c.encodeIfPresent(daySales, forKey: .daySales)
             try c.encodeIfPresent(activityRules, forKey: .activityRules)
             try c.encodeIfPresent(photoTypes, forKey: .photoTypes)
+            try c.encodeIfPresent(visitExecutions, forKey: .visitExecutions)
         }
     }
 

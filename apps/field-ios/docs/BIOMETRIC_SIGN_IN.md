@@ -21,7 +21,7 @@ iOS field app only (`apps/field-ios`). Mirrors the Android fingerprint/face sign
   item with no prompt; on asks for the prompt once. Shown only when Face ID / Touch ID is set up (or the
   feature is already on).
 - **Sign out** deletes the session, the protected item and its lock record. So does a session the server
-  refuses (401/403 on the Convex token exchange).
+  refuses (401/403 on `/api/auth/refresh`).
 
 ## How it works
 
@@ -37,8 +37,8 @@ accepts the screen lock, because such a key survives a newly enrolled fingerprin
 items become unreadable when the enrolled set changes; the fallback is the password.
 
 The password is never stored. With the feature on, the Better Auth session token is on disk only in the
-biometry-protected item; after the prompt it lives in this process's memory and is exchanged for the
-short-lived Convex JWT exactly as before.
+biometry-protected item; after the prompt it lives in this process's memory and is exchanged at
+`/api/auth/refresh` for the short-lived access token exactly as before.
 
 Late prompts and storage failures (same rules as Android's release checks):
 

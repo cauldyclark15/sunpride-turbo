@@ -16,17 +16,15 @@ final class VisitLocationTests: XCTestCase {
     }
 
     func testPolicyMirrorsBackendVisitLocationPolicy() throws {
-        // Parity with packages/backend/convex/visits/policy.ts and outlets/validation.ts (read from the repo).
+        // Parity with the server's location evidence rule, apps/api/src/domains/visits/location.js (read from the repo).
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
-        guard let policy = try? String(contentsOf: root.appending(path: "packages/backend/convex/visits/policy.ts"), encoding: .utf8),
-              let outlets = try? String(contentsOf: root.appending(path: "packages/backend/convex/outlets/validation.ts"), encoding: .utf8)
-        else { throw XCTSkip("backend sources are not readable from the simulator sandbox") }
-        XCTAssertTrue(policy.contains("version: \"\(LocationPolicy.version)\""))
-        XCTAssertTrue(policy.contains("maxAccuracyMeters: \(Int(LocationPolicy.maxAccuracyMeters)),"))
-        XCTAssertTrue(policy.contains("maxFixAgeMs: 60_000,") && LocationPolicy.maxFixAgeMs == 60_000)
-        XCTAssertTrue(policy.contains("maxFixClockDriftMs: 120_000,") && LocationPolicy.maxFixClockDriftMs == 120_000)
-        XCTAssertTrue(outlets.contains("MAX_RADIUS_METERS = \(Int(LocationPolicy.maxPinRadiusMeters));"))
+        guard let policy = try? String(contentsOf: root.appending(path: "apps/api/src/domains/visits/location.js"), encoding: .utf8)
+        else { throw XCTSkip("server sources are not readable from the device/simulator sandbox") }
+        XCTAssertTrue(policy.contains("fix.accuracyMeters > \(Int(LocationPolicy.maxAccuracyMeters))"))
+        XCTAssertTrue(policy.contains("Math.abs(deviceTime - fix.fixTime) > 60000") && LocationPolicy.maxFixAgeMs == 60_000)
+        XCTAssertTrue(policy.contains("fix.fixTime > ctx.now + 120000") && LocationPolicy.maxFixClockDriftMs == 120_000)
+        XCTAssertTrue(policy.contains("radius_meters <= \(Int(LocationPolicy.maxPinRadiusMeters))"))
     }
 
     func testWireFixCarriesFusedProviderMockSignalAndEpochMilliseconds() throws {

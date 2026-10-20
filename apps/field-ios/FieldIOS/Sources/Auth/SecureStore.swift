@@ -20,11 +20,11 @@ enum SecureStoreError: Error, CustomStringConvertible {
 
 /// Keychain account names. The session token is the only credential; device IDs are non-secret.
 enum StoreAccount {
-    static let session = "auth.betterAuthSession"
+    static let session = "auth.bunV2Session"
     static let secureEnclaveKey = "device.key.secureEnclave"
     static let simulatorKey = "device.key.simulatorTestOnly"
-    static let deviceId = "device.registeredId"
-    static let credentialId = "device.credentialId"
+    static let deviceId = "device.bunV2.registeredId"
+    static let credentialId = "device.bunV2.credentialId"
 }
 
 /// Generic-password Keychain items: available after first unlock, this device only, never synchronized

@@ -1,7 +1,7 @@
 import CoreLocation
 import Foundation
 
-/// Display-only mirror of the server's `VISIT_LOCATION_POLICY` (packages/backend/convex/visits/policy.ts).
+/// Display-only mirror of the server's `VISIT_LOCATION_POLICY` (apps/api/src/domains/visits/location.js).
 /// The server alone records the distance from the verified outlet pin and the geofence result
 /// (within/outside radius, unreliable, unavailable); the phone never sends a verdict. These thresholds only
 /// let the phone tell the salesperson, at Start/End, that a fix will go to supervisor review.
