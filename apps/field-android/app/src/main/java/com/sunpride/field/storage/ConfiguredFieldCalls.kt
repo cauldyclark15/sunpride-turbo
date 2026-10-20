@@ -49,8 +49,10 @@ object ConfiguredFieldCalls {
         if (store.visitPhotos(intent.clientVisitId).any { it.state in setOf("pending","uploaded") }) CallFlowEngine.keyFor(config,"evidence")?.let(done::add)
         val own = rows.filter { it.first.clientVisitId == intent.clientVisitId && it.second in setOf("pending","sending","done") }
         val hasOrder = own.any { adapter(it.first) == "order_build" }
-        if (config.getJSONObject("definition").optString("channelProfile") == "merchandiser" && adapter(intent) == "order_build")
-            error("This is an execution-only merchandising call")
+        if (config.getJSONObject("definition").optString("channelProfile") == "merchandiser") {
+            if(adapter(intent) == "order_build") error("This is an execution-only merchandising call")
+            if(intent.kind == "visit.activity" && adapter(intent) == "promotion") error("Use the campaign checklist for this call")
+        }
         if (intent.kind == "visit.checkOut") {
             val start = own.first { it.first.kind == "visit.checkIn" }.first.let(::payload)
             val renewed = store.outlets().firstOrNull { it.id == start.getString("outletId") }?.let { cachedConfig(it.json) }

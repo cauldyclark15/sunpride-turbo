@@ -45,7 +45,8 @@ class RetailLiveDeviceTest {
         }
         rule.setContent{FieldApp(environment,false,backend=backend,features=FieldFeatures.ALL,visitLocation=location)}
         waitTag("email");rule.onNodeWithTag("email").performTextInput(f.getString("email"));rule.onNodeWithTag("password").performTextInput(f.getString("password"));click("sign-in")
-        rule.waitUntil(60000){rule.onAllNodesWithText(f.getString("outletName")).fetchSemanticsNodes().isNotEmpty()}
+        try {rule.waitUntil(60000){rule.onAllNodesWithText(f.getString("outletName")).fetchSemanticsNodes().isNotEmpty()}}
+        catch(t:Throwable){shot("failure-after-signin");rule.onRoot(useUnmergedTree=true).printToLog("MERCH_UI");throw t}
         rule.onNodeWithText(f.getString("outletName")).performScrollTo().performClick();waitTag("diagnostic-title")
         click("diagnostic-checkin");waitTag("diagnostic-checkout");shot("configured-call")
         // The existing availability activity, not a second MSL/OSA implementation.

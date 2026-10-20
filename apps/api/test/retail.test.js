@@ -638,12 +638,41 @@ test("F-310 merch configuration is the existing engine; unsupported earlier step
     at = f.now - DAY;
   const [definition] =
     await h.db`insert into call_flow_definitions(channel_profile,version,label,steps,effective_from,published_by,source) values(${crypto.randomUUID()},1,'Test merchandising',${MERCH_STEPS.map(([adapter, label, required]) => ({ key: adapter, adapter, label, required, condition: "always" }))},${new Date(at)},'fixture','sample') returning *`;
-  await h.db`update call_executions set definition_snapshot=${{ id: definition.id, steps: definition.steps, channelProfile: definition.channel_profile }} where visit_id=${f.visit}`;
+  await h.db`update call_executions set definition_snapshot=${{ id: definition.id, steps: definition.steps, channelProfile: "merchandiser" }} where visit_id=${f.visit}`;
   const result = await record(f, "competitor", {
     noneObserved: true,
     evidenceIds: [],
   });
   expect(result.result.status).toBe("rejected");
+  const legacy = await signedPost(h, f.d, "/api/sync/push", {
+    version: 2,
+    deviceId: f.d.deviceId,
+    scopeId: f.unit,
+    operations: [
+      {
+        clientOpId: crypto.randomUUID(),
+        opType: "visit.activity",
+        clientTime: Date.now(),
+        dependsOn: [],
+        payload: {
+          visitId: f.visit,
+          deviceTime: Date.now(),
+          activity: {
+            kind: "promotion",
+            programRef: "Claimed done",
+            finding: "executed",
+          },
+        },
+      },
+    ],
+  });
+  expect(legacy.body.results[0].status).toBe("rejected");
+  expect(legacy.body.results[0].code).toBe("unsupported_operation");
+  expect(
+    (
+      await h.db`select * from visit_activities where visit_id=${f.visit} and activity_kind='promotion'`
+    ).length,
+  ).toBe(0);
   expect(
     (
       await h.db`select * from retail_execution_audits where visit_id=${f.visit}`
@@ -1060,6 +1089,41 @@ test("F-316 office workspace accepts a blank all-stores filter without casting i
     expect(Array.isArray(body.audits)).toBe(true);
     expect(Array.isArray(body.incompleteSections)).toBe(true);
   }
+});
+test("F-311 native targets carry readable SKU names and layout history retains every referenced product", async () => {
+  const f = await fixture(),
+    klass = crypto.randomUUID();
+  const [second] =
+    await h.db`insert into products(code,name,category,uom,unit_price,active,organization_id) values(${crypto.randomUUID()},'Second shelf product','Frozen','PC',0,true,'sunpride') returning id`;
+  await h.db`update outlets set classification=${klass} where id=${f.outlet}`;
+  const m = await master(
+    "planogram",
+    {
+      lines: [
+        { productId: f.sku, facings: 3, position: "A" },
+        { productId: second.id.toUpperCase(), facings: 2, position: "B" },
+      ],
+      targetSharePercent: 50,
+    },
+    f.now - DAY,
+    klass,
+  );
+  const snapshot = await outletRetail(ctx(f), { id: f.outlet });
+  const [product] = await h.db`select name from products where id=${f.sku}`;
+  expect(
+    snapshot.planogram.data.lines.map(
+      (/** @type {any} */ line) => line.productName,
+    ),
+  ).toEqual([product.name, "Second shelf product"]);
+  await expect(
+    (async () => {
+      await h.db`delete from products where id=${second.id}`;
+    })(),
+  ).rejects.toThrow("planogram");
+  expect(
+    (await h.db`select id from products where id=${second.id}`).length,
+  ).toBe(1);
+  await h.db`update retail_master_versions set effective_to=${new Date(Date.now() + DAY)} where id=${m.id}`;
 });
 test("F-314 outlet snapshots do not depend on a national equipment prefix", async () => {
   const f = await started(),

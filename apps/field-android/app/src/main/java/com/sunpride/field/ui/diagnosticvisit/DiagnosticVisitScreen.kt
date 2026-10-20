@@ -150,8 +150,9 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                         Modifier.fillMaxWidth().testTag("unplanned-reason"))
                 }
             }
-            if (checkedIn && !checkedOut && checklist.isNotEmpty()) SectionCard("Activities") {
-                checklist.forEach { item ->
+            val visibleChecklist = checklist.filterNot { flow?.getJSONObject("definition")?.optString("channelProfile")=="merchandiser" && it.kind in setOf("order_intent","promotion") }
+            if (checkedIn && !checkedOut && visibleChecklist.isNotEmpty()) SectionCard("Activities") {
+                visibleChecklist.forEach { item ->
                     val label = com.sunpride.field.storage.ActivityRules.kindLabel(item.kind)
                     val meta = when (item.status) {
                         com.sunpride.field.storage.ActivityRequirement.Status.DONE -> "Recorded"

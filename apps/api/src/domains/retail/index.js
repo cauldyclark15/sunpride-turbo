@@ -62,8 +62,29 @@ export async function outletRetail(c, outlet) {
     { kind: "deploy", outletId: outlet.id },
     at,
   );
+  const planogram = await policyAt(c.db, "planogram", outlet, at);
+  if (planogram?.data.lines?.length) {
+    const ids = planogram.data.lines.map(
+      (/** @type {any} */ line) => line.productId,
+    );
+    const labels = new Map(
+      (
+        await c.db`select id,name,code from products where id in ${c.db(ids)}`
+      ).map((/** @type {any} */ p) => [p.id, p]),
+    );
+    planogram.data = {
+      ...planogram.data,
+      lines: planogram.data.lines.map((/** @type {any} */ line) => ({
+        ...line,
+        productName:
+          labels.get(line.productId.toLowerCase())?.name ??
+          "Unavailable product",
+        productCode: labels.get(line.productId.toLowerCase())?.code ?? null,
+      })),
+    };
+  }
   return {
-    planogram: await policyAt(c.db, "planogram", outlet, at),
+    planogram,
     equipment,
     masters,
     deployments,
