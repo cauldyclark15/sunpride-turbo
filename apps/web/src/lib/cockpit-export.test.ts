@@ -57,3 +57,31 @@ it("F-601 does not navigate an unsupported page to an invented export endpoint",
   downloadCurrentWorkbook();
   expect(assign).not.toHaveBeenCalled();
 });
+
+it("F-601 exports the measured period and resolved grouping rather than API defaults behind a URL preset", () => {
+  const assign = vi.fn();
+  vi.stubGlobal("window", {
+    location: { href: "https://office.test/sales?period=last7", assign },
+  });
+  downloadCurrentWorkbook(
+    { from: "2026-10-14", to: "2026-10-20" },
+    { groupBy: "territory" },
+  );
+  const value = assign.mock.calls[0]?.[0];
+  if (typeof value !== "string") throw new Error("Missing normalized export");
+  const url = new URL(value);
+  expect(url.searchParams.get("from")).toBe("2026-10-14");
+  expect(url.searchParams.get("to")).toBe("2026-10-20");
+  expect(url.searchParams.get("groupBy")).toBe("territory");
+});
+
+it("F-601 single-day exports use the measured service date even when the URL omits it", () => {
+  const assign = vi.fn();
+  vi.stubGlobal("window", {
+    location: { href: "https://office.test/today", assign },
+  });
+  downloadCurrentWorkbook({ from: "2026-10-19", to: "2026-10-19" });
+  const value = assign.mock.calls[0]?.[0];
+  if (typeof value !== "string") throw new Error("Missing daily export");
+  expect(new URL(value).searchParams.get("date")).toBe("2026-10-19");
+});

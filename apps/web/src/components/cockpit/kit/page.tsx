@@ -8,7 +8,10 @@ import { DemoBadge, FreshnessNote } from "./freshness";
 import { PanelError } from "./panel";
 
 /** F-601: main-report tables with the shared URL filters; add-on panels export their own source views. */
-export function downloadCurrentWorkbook() {
+export function downloadCurrentWorkbook(
+  period?: { from: string; to: string },
+  query?: Record<string, string | undefined>,
+) {
   const current = new URL(window.location.href);
   const page = (
     {
@@ -26,6 +29,15 @@ export function downloadCurrentWorkbook() {
   )[current.pathname];
   if (!page) return;
   current.pathname = `/api/v1/analytics/${page}`;
+  for (const [key, value] of Object.entries(query ?? {}))
+    if (value !== undefined && value !== "")
+      current.searchParams.set(key, value);
+  if (period) {
+    current.searchParams.set("from", period.from);
+    current.searchParams.set("to", period.to);
+    if (page === "today" || page === "agent-day")
+      current.searchParams.set("date", period.to);
+  }
   current.searchParams.set("format", "xlsx");
   current.searchParams.delete("cursor");
   current.searchParams.delete("limit");
@@ -39,6 +51,7 @@ export function CockpitPage({
   header,
   bar,
   actions,
+  exportQuery,
   children,
 }: {
   title: string;
@@ -46,6 +59,7 @@ export function CockpitPage({
   header?: ResponseHeader;
   bar?: ReactNode;
   actions?: ReactNode;
+  exportQuery?: Record<string, string | undefined>;
   children: ReactNode;
 }) {
   return (
@@ -78,7 +92,9 @@ export function CockpitPage({
             <button
               type="button"
               className="ck-noprint rounded-lg border border-border px-3 py-1 text-[13px]"
-              onClick={downloadCurrentWorkbook}
+              onClick={() =>
+                downloadCurrentWorkbook(header.period, exportQuery)
+              }
               title="Exports the main report. Other panels have their own Excel links."
             >
               Download Excel

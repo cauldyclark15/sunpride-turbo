@@ -369,6 +369,7 @@ export function SalesPage() {
       title="Sales & targets"
       question="Are we on target, and where are we behind?"
       header={tab === "performance" ? result.data : undefined}
+      exportQuery={{ ...query, groupBy }}
       bar={
         <div className="grid gap-3">
           <Segmented
