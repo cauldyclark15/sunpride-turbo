@@ -86,6 +86,8 @@ The existing export tools now request `format=xlsx`; CSV remains supported as a 
 
 ## F-609 · Shelf AI preparation only
 
+The machine-readable examples in `docs/spec/tower-ai-prep.json` describe the two annotation shapes, source dimensions and a received-after-cutoff exclusion. They are explicitly invented examples, not database rows or real shelf evidence. Real use must bind the nullable outlet/product references and apply the approved consent/retention policy.
+
 `analytics_ai_dataset_items` reserves purpose, exact outlet/product/source reference, observed instant, consent reference, retention deadline, annotations and train/validation/temporal-holdout split. A shelf ground-truth annotation should identify SKU, facing count, planogram slot, occlusion, reviewer and reviewed instant. Retain original photo/evidence provenance; do not copy unconsented images into a dataset. Purge/retention operations must go through the future dataset owner, not silently bypass immutable field evidence.
 
 No image inference, trained model, model quality score or automated facing claim ships here. Manual capture remains authoritative until an approved model and a representative real holdout pass business acceptance.
