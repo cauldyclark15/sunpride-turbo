@@ -8,8 +8,12 @@ import com.sunpride.van.storage.OutboxRow
 import org.json.JSONObject
 import java.util.Base64
 
-fun damagePhotoSha(row: OutboxRow): String? = if (row.kind != "truck.damage") null else
-    JSONObject(row.operationJson).getJSONObject("payload").optString("photoSha256").takeIf { it.isNotEmpty() }
+fun damagePhotoSha(row: OutboxRow): String? {
+    if (row.kind !in setOf("truck.damage","call.step")) return null
+    val p=JSONObject(row.operationJson).getJSONObject("payload")
+    if (row.kind == "call.step" && p.optString("adapter") != "evidence") return null
+    return p.optString("photoSha256").takeIf { it.isNotEmpty() }
+}
 object VanEvidenceCodec {
     fun request(deviceId: String, digest: String, jpeg: ByteArray): ByteArray {
         require(DamageRules.SHA256.matches(digest) && jpeg.size <= 96_000 && DamagePhotoFiles.isJpeg(jpeg) && hex(sha256(jpeg)) == digest)

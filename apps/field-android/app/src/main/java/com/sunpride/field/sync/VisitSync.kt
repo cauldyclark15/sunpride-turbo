@@ -224,6 +224,9 @@ class VisitSync(private val gateway: SignedVisitGateway, private val store: Fiel
             if (pending.isEmpty()) return
             val ready = mutableListOf<IntentRow>(); val wire = mutableListOf<String>()
             for ((intent, _) in pending) {
+                if (com.sunpride.field.storage.ConfiguredFieldCalls.waitingForEvidence(store,intent)) {
+                    if (ready.isEmpty()) return else break // keep original bytes queued until the required photo is attached
+                }
                 val op = JSONObject(intent.serializedOperation)
                 if (intent.kind != "visit.checkIn") {
                     val deps = op.getJSONArray("dependsOn")

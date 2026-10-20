@@ -188,6 +188,15 @@ class VanRepository private constructor(private val context: Context, private va
     }
     suspend fun confirmLoad(lines: List<LoadActual>): String { val id = store().confirmLoad(lines); schedule(); return id }
     suspend fun recordDamage(productId: String, qty: Long, reason: String, note: String? = null, photoSha256: String? = null): String = TruckStockLedger(store(),::schedule).recordDamage(productId,qty,reason,note,photoSha256)
+    suspend fun requestCallGeofence(outletId: String, reason: String, kind: String) = withContext(Dispatchers.IO) {
+        if(kind == "geofence_end") syncNow()
+        api.request("/api/v1/callflow/geofence/request",org.json.JSONObject().put("outletId",outletId).put("deviceId",store().scope.deviceId).put("reason",reason).put("kind",kind)); Unit
+    }
+    suspend fun callConfig(outletId: String): org.json.JSONObject? = withContext(Dispatchers.IO) { com.sunpride.van.storage.VanCallStore(store()).config(outletId) }
+    suspend fun openCall(): org.json.JSONObject? = withContext(Dispatchers.IO) { com.sunpride.van.storage.VanCallStore(store()).current() }
+    suspend fun recordCall(kind: String, outletId: String, fix: org.json.JSONObject?, options: org.json.JSONObject): String = withContext(Dispatchers.IO) {
+        com.sunpride.van.storage.VanCallStore(store()).record(kind,outletId,fix,options).also { schedule() }
+    }
     suspend fun canRemove(productId: String, qty: Long): Boolean = store().canRemove(productId,qty)
     suspend fun addWalkInCustomer(name: String, reason: String): Customer = store().addWalkInCustomer(name,reason)
     suspend fun issueTransactionId(): com.sunpride.van.ids.TransactionIdentity {

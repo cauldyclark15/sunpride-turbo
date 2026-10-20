@@ -134,7 +134,7 @@ class VanSyncClient(private val transport: VanTransport, private val signer: Dev
 }
 
 object V2VanCodec {
-    val BUSINESS_OPS = setOf("trip.start","load.confirm","truck.damage","sale.record","sale.void","return.record","cash.reconcile","stock.reconcile","trip.close")
+    val BUSINESS_OPS = setOf("trip.start","load.confirm","truck.damage","sale.record","sale.void","return.record","cash.reconcile","stock.reconcile","trip.close","call.start","call.step","call.close")
     fun operation(row: OutboxRow): JSONObject {
         require(row.kind in BUSINESS_OPS)
         val old = JSONObject(row.operationJson)
@@ -176,10 +176,20 @@ object V2VanCodec {
         val data = b.getJSONObject("data")
         if (data.getJSONObject("seller").getString("profileId") != identity.profileId) throw VanSyncFailure("unauthorized",false)
         data.put("type","van.bootstrap.response").put("contractVersion",1).put("serverTime",serverTime)
+        // F-006: engine additions stay in the v2 boundary; frozen v1 DTOs remain unchanged.
+        val flows = JSONObject()
+        val customers = data.getJSONArray("customers")
+        for (i in 0 until customers.length()) {
+            val customer = customers.getJSONObject(i)
+            customer.optJSONObject("callFlow")?.let { flows.put(customer.getString("outletId"),com.sunpride.callflow.CallFlowEngine.validate(it)) }
+            customer.remove("callFlow")
+        }
+        val serverCalls = data.optJSONArray("callFlowCalls") ?: JSONArray()
+        data.remove("callFlowCalls")
         // The frozen DTO validator is reused inside the adapter; no v1 request goes on the network.
         VanBootstrapCodec.decode(data.toString())
         data.put("_v2",JSONObject().put("cursor",o.getString("nextCursor")).put("scopeFingerprint",identity.fingerprint)
-            .put("epoch",identity.epoch).put("subject",identity.partitionSubject)
+            .put("epoch",identity.epoch).put("subject",identity.partitionSubject).put("callFlows",flows).put("callFlowCalls",serverCalls)
             .put("leaseExpiresAt",minOf(lease,expiry)).put("cacheExpiresAt",expiry))
         return data
     }

@@ -114,6 +114,7 @@ class ReturnStore(private val store: RoomVanStore) {
             .put("deviceTime", now)
         quote.sale?.let { payload.put("originalSale", JSONObject().put("saleId", it.saleId).put("receiptNumber", it.receiptNumber)) }
         quote.note?.let { payload.put("note", it) }
+        VanCallStore(store).bindAdapter(payload,customer.outletId,listOf("return_pickup"))
         val op = JSONObject().put("kind", RETURN_KIND).put("clientRequestId", id.idempotencyKey).put("payload", payload).toString()
         dao.insertOutbox(OutboxRow(s, d, id.idempotencyKey, t.tripId, RETURN_KIND, op, at, null, store.capturedStatus))
         ReturnReceipt(request.returnId, id.receiptNumber, customer.name, quote.sale?.receiptNumber, quote.lines, quote.approvalReasons, status, at)

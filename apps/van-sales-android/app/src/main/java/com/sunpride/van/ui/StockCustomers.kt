@@ -151,6 +151,7 @@ import com.sunpride.van.data.*
                 it.reason?.let { reason -> Text("Reason: $reason") }
             }
         }
+        VanCallPanel(c)
         // VAN-019: returns are taken from the customer, like a sale.
         if (customer != null) SecondaryButton(if (c.returnDraft?.customer?.outletId == customer.outletId) "Continue return" else "Record return",
             { c.startReturn(customer) },Modifier.testTag("start-return"),!c.busy && VanRules.canSell(c.trip))

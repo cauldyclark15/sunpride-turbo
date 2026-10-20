@@ -279,6 +279,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
                 .apply { pay.reference?.let { put("reference",it) } }
                 .apply { pay.dueDate?.let { put("dueDate",it) } })
             .put("deviceTime",context.now)
+        VanCallStore(this@RoomVanStore).bindAdapter(payload,customer.outletId,listOf("order_build","discount","invoice","payment"))
         val op = JSONObject().put("kind",SALE_KIND).put("clientRequestId",id.idempotencyKey).put("payload",payload).toString()
         dao.insertOutbox(OutboxRow(s,d,id.idempotencyKey,t.tripId,SALE_KIND,op,at,null,capturedStatus))
         val receipt = SaleReceipt(request.saleId,id.receiptNumber,customer.name,quote.lines.map { receiptLine(it) },
@@ -514,7 +515,8 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         // Prices are part of this authoritative snapshot, including when the feed is omitted.
         dao.clearPriceListLine(s,d)
         dao.clearPromotion(s,d)
-        b.trip?.let { t -> dao.insertTrip(TripRow(s,d,t.tripId,t.tripNumber,t.status,t.serviceDate,o.getJSONObject("trip").put("_damageRecords",o.optJSONArray("damageRecords") ?: JSONArray()).toString(),b.load?.loadId,b.load?.status)) }
+        b.trip?.let { t -> dao.insertTrip(TripRow(s,d,t.tripId,t.tripNumber,t.status,t.serviceDate,o.getJSONObject("trip").put("_damageRecords",o.optJSONArray("damageRecords") ?: JSONArray())
+            .put("_callFlows",grant?.optJSONObject("callFlows") ?: JSONObject()).put("_serverCalls",grant?.optJSONArray("callFlowCalls") ?: JSONArray()).toString(),b.load?.loadId,b.load?.status)) }
         b.load?.let { l -> VanBootstrapCodec.objects(o.getJSONObject("load").getJSONArray("lines")).forEach { line ->
             val parsed = VanBootstrapCodec.line(line)
             dao.insertLoadLine(LoadLineRow(s,d,l.loadId,parsed.lineNumber,parsed.productId,parsed.expectedBase,parsed.actualBase,line.toString()))

@@ -49,6 +49,10 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
     var note by remember { mutableStateOf("") }
     var outcome by remember { mutableStateOf<String?>(null) }
     var reasonCode by remember { mutableStateOf("") }
+    var sequenceReason by remember { mutableStateOf("") }
+    var zeroSaleReason by remember { mutableStateOf("") }
+    var shortCallReason by remember { mutableStateOf("") }
+    var geofenceReason by remember { mutableStateOf("") }
     var locationNotice by remember { mutableStateOf<LocationNotice?>(null) }
     var capturing by remember { mutableStateOf(false) }
     var pendingKind by remember { mutableStateOf("visit.checkIn") }
@@ -56,11 +60,11 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
         try {
             // Even a precise-permission denial may leave approximate/network location available.
             val capture = location.captureOrUnavailable()
-            // Governed exception: a missing, weak, old or mock fix is recorded and flagged for supervisor
-            // review on the server (pin distance/geofence result), never a reason to refuse Start or End.
+            // F-106: the shared engine refuses weak, mock, stale or outside-radius fixes before outbox insertion.
             locationNotice = LocationAssessment.notice(capture, System.currentTimeMillis())
             controller.queueDiagnostic(kind, if (kind == "visit.checkIn") reason else reasonCode,
-                null, if (kind == "visit.checkOut") outcome else null, capture.wire).join()
+                null, if (kind == "visit.checkOut") outcome else null, capture.wire,
+                JSONObject().put("sequenceReason",sequenceReason).put("zeroSaleReason",zeroSaleReason).put("shortCallReason",shortCallReason)).join()
         } finally { capturing = false }
     }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -78,6 +82,8 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
     val checkedIn = com.sunpride.field.storage.VisitCallRules.started(related)
     val checkedOut = com.sunpride.field.storage.VisitCallRules.closed(related)
     val startFailure = controller.startFailure(visit)
+    val flow = controller.diagnosticFlow
+    val canDeviate = flow != null && startFailure?.code == com.sunpride.field.storage.VisitRuleFailure.Code.MCP_ORDER
     val intents = controller.visitIntents(visit)
     val checklist = controller.activityChecklist(visit)
     val missing = com.sunpride.field.storage.ActivityRules.missing(checklist)
@@ -91,6 +97,32 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
             Text(listOfNotNull(visit.planned.takeUnless { it == "Scheduled" },
                 when { checkedOut -> "Done"; checkedIn -> "In progress"; else -> "Not started" }).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            flow?.let { configured ->
+                SectionCard(configured.getJSONObject("definition").getString("label")) {
+                    com.sunpride.callflow.CallFlowEngine.objects(configured.getJSONObject("definition").getJSONArray("steps")).forEach { step ->
+                        Text(step.getString("label") + if (step.getBoolean("required")) " · Required" else " · Optional",
+                            Modifier.padding(horizontal = 16.dp,vertical = 4.dp),style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                if (!checkedOut) {
+                    LabeledField("Outside-radius exception reason",geofenceReason,{geofenceReason=it},Modifier.fillMaxWidth().testTag("geofence-reason"))
+                    com.sunpride.field.ui.SecondaryButton("Request supervisor approval",{controller.requestCallGeofence(geofenceReason,checkedIn)},
+                        Modifier.testTag("geofence-request"),enabled = !controller.busy && geofenceReason.isNotBlank())
+                }
+                if (!checkedIn && canDeviate) LabeledField("Why visit out of sequence?",sequenceReason,{sequenceReason=it},
+                    Modifier.fillMaxWidth().testTag("sequence-reason"))
+                if (checkedIn && !checkedOut) {
+                    SectionCard("No order this call") {
+                        com.sunpride.callflow.CallFlowEngine.objects(configured.getJSONArray("reasons")).forEach { choice ->
+                            ChoiceRow(choice.getString("label"),zeroSaleReason == choice.getString("code"),
+                                { zeroSaleReason=choice.getString("code"); if (outcome == "nonproductive") reasonCode=zeroSaleReason; controller.cancelEnd() },
+                                Modifier.testTag("zero-sale-${choice.getString("code")}"),!controller.busy)
+                        }
+                    }
+                    LabeledField("Reason if shorter than ${configured.getJSONObject("policy").getLong("minDwellMs")/60000} min",shortCallReason,{shortCallReason=it;controller.cancelEnd()},
+                        Modifier.fillMaxWidth().testTag("short-call-reason"))
+                }
+            }
             // AND-013: the visit's purposes drive which activity forms the backend rules require.
             if (checkedIn || visit.plannedVisitId != null) {
                 if (intents.isNotEmpty()) Text("Purpose · " + intents.joinToString(", ") {
@@ -298,7 +330,7 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
         }
         if (!checkedOut) androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp))
         if (!checkedIn) PrimaryBottomButton(if (capturing) "Getting location…" else "Start", { record("visit.checkIn") }, Modifier.testTag("diagnostic-checkin"),
-            !controller.busy && !capturing && startFailure == null &&
+            !controller.busy && !capturing && (startFailure == null || canDeviate && sequenceReason.isNotBlank()) &&
                 (visit.plannedVisitId != null || (reason.isNotBlank() && intents.isNotEmpty())))
         else if (!checkedOut && review != null) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             com.sunpride.field.ui.SecondaryButton("Back", { controller.cancelEnd() },

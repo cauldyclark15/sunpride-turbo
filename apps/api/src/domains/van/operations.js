@@ -44,6 +44,7 @@ import {
 import { canonicalJson } from "../../core/util.js";
 import { ApiError } from "../../core/errors.js";
 import { OP_CODES } from "../../core/sync.js";
+import { vanAdapter } from "../callflow/index.js";
 
 export const VAN_OPS = [
   "trip.start",
@@ -401,6 +402,7 @@ async function dispatchOperation(ctx, env) {
     default:
       refuse("Unsupported operation", "unsupported_operation");
   }
+  await vanAdapter(ctx, trip, result.entityId);
   await audit(db, trip, actor, op.opType, result.entityId, {
     clientOpId: op.clientOpId,
   });

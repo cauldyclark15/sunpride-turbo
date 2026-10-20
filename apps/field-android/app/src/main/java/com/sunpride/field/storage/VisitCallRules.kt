@@ -51,7 +51,7 @@ object VisitCallRules {
         requireStart(plannedId, outletId, day, plans, rows); null
     } catch (e: VisitRuleFailure) { e }
     fun requireStart(plannedId: String?, outletId: String, day: String, plans: List<SnapshotItem>,
-        rows: List<Pair<IntentRow, String>>) {
+        rows: List<Pair<IntentRow, String>>, sequenceReason: String? = null) {
         val starts = rows.filter { (intent, state) -> intent.kind == "visit.checkIn" && usable(state) &&
             payload(intent).optString("serviceDate") == day }
         if (starts.any { start -> !closed(rows.filter { it.first.clientVisitId == start.first.clientVisitId }) })
@@ -69,7 +69,7 @@ object VisitCallRules {
         fun position(item: SnapshotItem) = sequence(item) ?: item.listPosition ?: plans.indexOf(item)
         val targetPosition = ordered.getOrNull(rank)?.let { position(it) }
         val earlier = ordered.filter { targetPosition != null && position(it) < targetPosition }
-        if (earlier.any { plan -> !ServerVisits.closed(plan) && !closed(related(plan.id, JSONObject(plan.json).getString("outletId"), day, rows)) })
+        if (sequenceReason.isNullOrBlank() && earlier.any { plan -> !ServerVisits.closed(plan) && !closed(related(plan.id, JSONObject(plan.json).getString("outletId"), day, rows)) })
             throw VisitRuleFailure(VisitRuleFailure.Code.MCP_ORDER)
     }
     fun requireEnd(clientVisitId: String, end: JSONObject, rows: List<Pair<IntentRow, String>>) {

@@ -1,5 +1,9 @@
 import { tx } from "@sunpride/db/client";
 import { checkDayManifest } from "./manifest.js";
+import {
+  configurationsForApp,
+  hasConfiguredFlowsForApp,
+} from "../callflow/engine.js";
 import { inventoryRows, PHOTO_TYPES } from "./reference.js";
 import { requireCapability } from "../../core/capabilities.js";
 import { canonicalJson, sha256Hex } from "../../core/util.js";
@@ -236,6 +240,43 @@ async function bundleData(ctx) {
     });
     if (s.routeId && s.routeCode)
       routeRows.set(s.routeId, { id: s.routeId, code: s.routeCode });
+  }
+  // F-205: cache the assigned territory universe, not only planned stops, for genuinely off-route calls.
+  const flowEnabled = await hasConfiguredFlowsForApp(db, ctx.app, ctx.now);
+  if (flowEnabled) {
+    const extra = bounded(
+      await db`select distinct o.id,o.name,o.code,o.address,a.route_id,a.territory_id,t.code as territory_code
+      from outlets o join outlet_assignments a on a.outlet_id=o.id join territories t on t.id=a.territory_id
+      join territory_salespeople s on s.territory_id=t.id join territory_ownerships own on own.territory_id=t.id
+      where s.profile_id=${person.id} and own.org_unit_id=${ctx.actor.orgUnitId} and o.status='active' and t.status='active'
+        and o.deleted_at is null and a.deleted_at is null and t.deleted_at is null and s.deleted_at is null and own.deleted_at is null
+        and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now())
+        and s.effective_from<=now() and (s.effective_to is null or s.effective_to>now())
+        and own.effective_from<=now() and (own.effective_to is null or own.effective_to>now()) order by o.id limit 501`,
+      500,
+    );
+    for (const o of extra)
+      if (!outlets.has(o.id))
+        outlets.set(o.id, {
+          id: o.id,
+          name: o.name,
+          code: o.code,
+          address: o.address,
+          routeId: o.route_id,
+          territoryId: o.territory_id,
+          territoryCode: o.territory_code,
+        });
+  }
+  // F-006: the exact definition/policy rides the existing encrypted outlet snapshot.
+  if (flowEnabled && outlets.size) {
+    const rows =
+      await db`select id,classification,channel from outlets where id in ${db([...outlets.keys()])}`;
+    const configs = await configurationsForApp(db, ctx.app, rows, ctx.now, {
+      profileId: ctx.actor.profileId,
+      deviceId: ctx.device.id,
+    });
+    for (const [id, value] of outlets)
+      if (configs.has(id)) value.callFlow = configs.get(id);
   }
   const outletIds = [...outlets.keys()];
   const lookupIds = outletIds.length ? outletIds : [ZERO_UUID];
@@ -538,7 +579,9 @@ async function bundleData(ctx) {
       where assignee_profile_id=${person.id} and service_date>=${date}::date and service_date<${date}::date+3
       and deleted_at is null order by service_date,created_at,id limit 201`,
     200,
-  ).filter((/** @type {any} */ r) => outlets.has(r.outlet_id) || r.planned_visit_id);
+  ).filter(
+    (/** @type {any} */ r) => outlets.has(r.outlet_id) || r.planned_visit_id,
+  );
   const lease = closeAt(date);
   return {
     permissions: [...ctx.actor.capabilities],

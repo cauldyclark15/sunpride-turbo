@@ -16,7 +16,7 @@ class NativeApi(private val environment: AppEnvironment, private val auth: AuthC
         if (o.opt("enabled") != enabled || o.optLong("effectiveFrom",0) <= 0) throw AuthFailure(AuthFailure.Kind.SERVER)
     }
     fun request(path: String, body: JSONObject? = null, headers: Map<String,String> = emptyMap()): JSONObject {
-        require(path in setOf("/api/me","/api/devices/challenge","/api/devices/bind","/api/v1/location/consent"))
+        require(path in setOf("/api/me","/api/devices/challenge","/api/devices/bind","/api/v1/location/consent","/api/v1/callflow/geofence/request"))
         if (!environment.isReady) throw AuthFailure(AuthFailure.Kind.NOT_CONFIGURED)
         for (attempt in 0..1) {
             val builder = Request.Builder().url(environment.siteUrl.trimEnd('/')+path)
@@ -36,7 +36,7 @@ class NativeApi(private val environment: AppEnvironment, private val auth: AuthC
                             val code = o.optJSONObject("error")?.optString("code")?.takeIf { Regex("[a-z_]{1,64}").matches(it) }
                             throw NativeApiFailure(code, response.code)
                         }
-                        if (path != "/api/v1/location/consent" && o.optInt("version") != 2) throw AuthFailure(AuthFailure.Kind.SERVER)
+                        if (!path.startsWith("/api/v1/") && o.optInt("version") != 2) throw AuthFailure(AuthFailure.Kind.SERVER)
                         return o
                     }
                 }

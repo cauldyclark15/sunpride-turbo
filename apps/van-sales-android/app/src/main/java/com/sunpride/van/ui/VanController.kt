@@ -22,9 +22,11 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     val damagePhotoSource: (suspend () -> com.sunpride.van.evidence.DamageCapture)? = null,
     /** SP-0137: live-location sharing during a trip; [LocationSharing.Disabled] shows nothing and never tracks. */
     val locationSharing: com.sunpride.van.location.LocationSharing = com.sunpride.van.location.LocationSharing.Disabled,
+    /** F-106: instrumentation-only sample GPS seam, never selected by intents or available in release. */
+    val callLocationSource: (suspend () -> org.json.JSONObject?)? = null,
     private val publicKeyLoader: suspend () -> String? = { null },
     private val fingerprintLoader: suspend () -> String = { "Unavailable" }) {
-    init { require(damagePhotoSource == null || fixtureMode && com.sunpride.van.BuildConfig.DEBUG) }
+    init { require(damagePhotoSource == null || fixtureMode && com.sunpride.van.BuildConfig.DEBUG); require(callLocationSource == null || com.sunpride.van.BuildConfig.DEBUG) }
     var page by mutableStateOf(Page.HOME)
         private set
     var session by mutableStateOf(SessionState())
@@ -230,7 +232,56 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         if (page == Page.LOCATION_CONSENT) pendingStart = null
         open(target)
     }
-    fun select(customer: Customer) { selectedCustomer = customer; open(Page.CUSTOMER) }
+    var callFlow by mutableStateOf<org.json.JSONObject?>(null); private set
+    var currentCall by mutableStateOf<org.json.JSONObject?>(null); private set
+    private suspend fun refreshCall() {
+        val selected = selectedCustomer ?: return
+        val config = repository.callConfig(selected.outletId)
+        val current = repository.openCall()
+        if (selectedCustomer?.outletId == selected.outletId) { callFlow = config; currentCall = current }
+    }
+    fun select(customer: Customer) {
+        selectedCustomer = customer; callFlow = null; currentCall = null; open(Page.CUSTOMER)
+        scope?.launch { runCatching { refreshCall() } }
+    }
+    fun recordCallFlow(kind: String, context: android.content.Context, options: org.json.JSONObject) {
+        val selected = selectedCustomer ?: return
+        if (busy) return
+        scope?.launch {
+            busy=true; message=null
+            try {
+                val fix=if (callLocationSource != null) callLocationSource.invoke() else com.sunpride.callflow.AndroidCallLocation.capture(context)
+                repository.recordCall(kind,selected.outletId,fix,options)
+                refreshCall(); message="Call saved on this phone. Sync sends it to the office."
+            } catch(e: CancellationException) { throw e }
+              catch(e: com.sunpride.callflow.CallFlowRefused) { message=e.message }
+              catch(_: Exception) { message="Could not save call. Check the required fields and sync for access." }
+            finally { busy=false }
+        }
+    }
+    fun requestCallGeofence(reason: String, started: Boolean) {
+        val selected=selectedCustomer ?: return
+        if (busy) return
+        scope?.launch {
+            busy=true
+            try { repository.requestCallGeofence(selected.outletId,reason,if (started) "geofence_end" else "geofence_start"); message="Sent for supervisor approval. Sync after approval and try again with a fresh location." }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { message="Connect to request approval. No call action was recorded." }
+            finally { busy=false }
+        }
+    }
+    fun recordCallFlowStep(options: org.json.JSONObject) {
+        val selected=selectedCustomer ?: return
+        if (busy) return
+        scope?.launch {
+            busy=true; message=null
+            try { repository.recordCall("call.step",selected.outletId,null,options); refreshCall(); message="Call activity saved on this phone." }
+            catch(e: CancellationException) { throw e }
+            catch(e: com.sunpride.callflow.CallFlowRefused) { message=e.message }
+            catch(_: Exception) { message="Could not save stock check. Sync for access and try again." }
+            finally { busy=false }
+        }
+    }
     fun signIn(email: String, password: String) = command(failure = { AuthMessages.forFailure(it,AuthMessages.SIGN_IN_FALLBACK) }) {
         repository.signIn(email.trim(),password)
         if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow()
