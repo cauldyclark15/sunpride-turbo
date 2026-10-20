@@ -666,6 +666,12 @@ describe("90-day Sunpride demo", () => {
     // F-402: the base company CLI cannot silently add a separately owned partner universe.
     expect(await number("select count(*) as n from distributors")).toBe(0);
     expect((await resetDemo(db)).deleted).toBeGreaterThan(100_000);
+    // Cold databases must not depend on an autovacuum tick before safe reset joins are planned.
+    expect(
+      await number(
+        "select count(*) as n from pg_stat_user_tables where relname in ('orders','order_lines','execution_events') and last_analyze is null",
+      ),
+    ).toBe(0);
     expect((await resetDemo(db)).deleted).toBe(0);
   }, 180_000);
 });

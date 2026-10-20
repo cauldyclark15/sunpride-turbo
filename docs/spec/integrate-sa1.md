@@ -24,6 +24,8 @@ The basic company CLI adds the separately owned distributor namespace only with 
 
 Daily stock posting creates SAP resolution rows through the real writer. Their transaction-created identities are now explicitly sample-marked alongside the parent effects. Additive migration `0405_sap_sample_trace_reset.sql` permits trace deletion only during the explicit sample-reset transaction when both exact child and parent ownership markers exist. Normal trace mutations, unowned operator actions and conflict history remain append-only. No live reset is required or permitted for this deployment.
 
+A cold-reset regression also exposed missing bulk-table planner statistics and unnecessary whole-row JSON conversion in dependency checks. Reset now analyzes the locked tables, uses direct UUID identity joins where the catalog proves the type, and bounds hash-join working memory at 64 MB for that transaction. Ownership, foreign-key, append-only and outside-reference checks are unchanged; the original 180-second CLI regression remains the acceptance bound.
+
 ## F-004 / F-107: deterministic field-service test clock
 
 The HTTP field-sync suite previously used the wall-clock selling day and therefore refused its own valid-work fixtures after the real 22:00 close. Its service clock now runs at the next Manila noon; fixture money/activity timestamps and the SQL scheduler due instant are explicit. The negative close-time, expired-window, authorization and retention assertions remain intact, and no test deadline or performance threshold changed.

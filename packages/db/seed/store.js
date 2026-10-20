@@ -211,6 +211,7 @@ export async function resetDemo(db) {
   return tx(db, async (t) => {
     await t`select pg_advisory_xact_lock(4310090)`;
     await t`set local jit=off`;
+    await t`set local work_mem='64MB'`;
     await t`set local plan_cache_mode=force_custom_plan`;
     // Fresh bulk inserts otherwise leave the trigger planner with empty-table
     // estimates, turning each immutable-row ownership check into a full scan.
@@ -261,6 +262,11 @@ export async function resetDemo(db) {
     await t`insert into seed_owned_reset select table_name,row_id::uuid from sample_data_rows where batch=${BATCH} and table_name<>'change_log'`;
     await t`analyze seed_owned_reset`;
     const fks = await foreignKeys(t);
+    const uuidChildren = new Set(
+      (
+        await t`select table_name from information_schema.columns where table_schema='public' and column_name='id' and udt_name='uuid'`
+      ).map((/** @type {any} */ r) => r.table_name),
+    );
     // Frozen legacy tables also retain business references as codes/subjects rather
     // than declared FKs. Preserve outside rows that still depend on those masters.
     const legacyRefs = [
@@ -292,15 +298,19 @@ export async function resetDemo(db) {
         .filter((/** @type {any} */ f) => tables.has(f.parent))
         .map((/** @type {any} */ f) => String(f.child)),
     ]);
-    for (const table of [...locked].sort())
+    for (const table of [...locked].sort()) {
       await t.unsafe(`lock table ${ident(table)} in share row exclusive mode`);
+      // A fresh bulk seed has no autovacuum statistics yet. Preflight joins must not
+      // plan against empty-table estimates or serialize every row through JSON.
+      await t.unsafe(`analyze ${ident(table)}`);
+    }
     for (const f of refs) {
       if (!tables.has(f.parent)) continue;
       const [external] = await t.unsafe(
         `select 1 from ${ident(f.child)} c
         join ${ident(f.parent)} p on c.${ident(f.column_name)}=p.${ident(f.parent_column)}
         join seed_owned_reset owned on owned.table_name=$1 and owned.row_id=p.id
-        left join seed_owned_reset mine on mine.table_name=$2 and mine.row_id=(to_jsonb(c)->>'id')::uuid
+        left join seed_owned_reset mine on mine.table_name=$2 and mine.row_id=${uuidChildren.has(f.child) ? "c.id" : "(to_jsonb(c)->>'id')::uuid"}
         where mine.row_id is null limit 1`,
         [f.parent, f.child],
       );
