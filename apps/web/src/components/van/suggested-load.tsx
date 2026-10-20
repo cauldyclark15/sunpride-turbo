@@ -14,6 +14,7 @@ type Suggestion = {
   sourceOrderCount: number;
   algorithm: string;
   capacity: string;
+  manualInitialLoad?: boolean;
   cycles: Array<{ date: string }>;
   recommendations: Array<{
     productId: string;
@@ -90,6 +91,13 @@ export function SuggestedLoad({ trip }: { trip: TripSettlement }) {
       setBusy(false);
     }
   }
+  const hasQuantity = !!data?.recommendations.some((r) => {
+    try {
+      return BigInt(routeBase(counts[r.productId] ?? "", r.quantityScale)) > 0n;
+    } catch {
+      return false;
+    }
+  });
   return (
     <section
       aria-label="Suggested van load"
@@ -115,6 +123,12 @@ export function SuggestedLoad({ trip }: { trip: TripSettlement }) {
             open pre-sell orders.
           </p>
           <p className="text-xs text-muted">{data.algorithm}</p>
+          {data.manualInitialLoad && (
+            <p role="status" className="text-sm">
+              No sales history or open pre-sell demand is available. Stocked
+              depot items start at zero; enter a reviewed initial load.
+            </p>
+          )}
           {data.recommendations.map((r) => (
             <label key={r.productId} className="block text-sm">
               {r.name} · forecast{" "}
@@ -138,6 +152,9 @@ export function SuggestedLoad({ trip }: { trip: TripSettlement }) {
                 r.caseBase,
                 r.uomCode,
               )}
+              <span className="mt-1 block text-xs">
+                Load quantity ({r.uomCode})
+              </span>
               <input
                 aria-label={`Load ${r.name} in ${r.uomCode}`}
                 value={counts[r.productId] ?? ""}
@@ -167,9 +184,7 @@ export function SuggestedLoad({ trip }: { trip: TripSettlement }) {
             />
           </label>
           <Button
-            isDisabled={
-              busy || !reviewed || !note.trim() || !data.recommendations.length
-            }
+            isDisabled={busy || !reviewed || !note.trim() || !hasQuantity}
             onPress={() => void applyReviewed()}
           >
             Apply reviewed load

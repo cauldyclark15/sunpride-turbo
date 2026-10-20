@@ -25,7 +25,11 @@ export function VanPolicyEditor({ trip }: { trip: TripSettlement }) {
       </p>
       <label>
         Policy
-        <select value={kind} onChange={(e) => setKind(e.target.value)}>
+        <select
+          aria-label="Policy"
+          value={kind}
+          onChange={(e) => setKind(e.target.value)}
+        >
           <option value="cold_chain">
             Product storage bands and reading interval
           </option>
@@ -119,6 +123,7 @@ function PolicyForm({ trip, kind }: { trip: TripSettlement; kind: string }) {
               <label>
                 Product
                 <select
+                  aria-label={`Product for storage band ${i + 1}`}
                   value={b.productId ?? ""}
                   onChange={(e) =>
                     setBands(

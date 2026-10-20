@@ -45,3 +45,17 @@ test("F-102 absent history is explicit rather than fabricated and stable source 
     suggestQuantities({ classMix: { A: 5 }, cycles: [], orders: [] }),
   ).toEqual([]);
 });
+test("F-102 a stocked initial route permits manual quantities without inventing a forecast or a source order", () => {
+  const [r] = suggestQuantities({
+    classMix: { A: 3 },
+    cycles: [],
+    orders: [],
+    stockedProductIds: ["stocked-sku", "stocked-sku"],
+  });
+  expect(r.productId).toBe("stocked-sku");
+  expect(r.forecastBase).toBe("0");
+  expect(r.presellBase).toBe("0");
+  expect(r.suggestedBase).toBe("0");
+  expect(r.orderIds).toEqual([]);
+  expect(r.cycles).toEqual([]);
+});

@@ -6,6 +6,8 @@ Vans & cash has a scoped truck/seller/beat/depot planner. New trips with operati
 
 The load suggestion freezes the day's roster and class mix, up to three completed route cycles, authorized open pre-sell order references, depot availability, rounding and the explanatory algorithm. The class-adjusted average is compared with committed demand using the maximum, not their sum. A reviewer edits quantities, checks capacity and applies the immutable suggestion through the existing load writer. Lot-tracked depot stock is allocated FEFO. A missing history is disclosed, not fabricated. Missing legacy service dates use the order's Manila creation day. Prior receipts without frozen outlet class use current class, explicitly provisional.
 
+For a first route with no sales history or open pre-sell demand, the authorized depot's stocked products appear with zero forecasts and an explicit initial-load notice. The reviewer enters initial quantities rather than inventing offtake. A wholly zero load cannot be applied. Catalog overflow is refused explicitly; stock from other depots is never an initial-load candidate. The planner and policy pickers have exact, distinct accessible names independent of their option text.
+
 The existing handheld load-out scan remains. A discrepancy requires independent office approval; it is not silently posted. Truck weight/volume capacity is an explicit human review, not an invented capacity number.
 
 ## F-104 — Lot ledger and FEFO

@@ -85,6 +85,7 @@ export function VanTripPlanning({
           <label>
             Truck
             <select
+              aria-label="Truck"
               required
               value={vehicle}
               onChange={(e) => {
@@ -105,6 +106,7 @@ export function VanTripPlanning({
           <label>
             Seller
             <select
+              aria-label="Seller"
               required
               value={seller}
               onChange={(e) => setSeller(e.target.value)}
@@ -122,6 +124,7 @@ export function VanTripPlanning({
           <label>
             Planned beat
             <select
+              aria-label="Planned beat"
               required
               value={route}
               onChange={(e) => setRoute(e.target.value)}
@@ -137,6 +140,7 @@ export function VanTripPlanning({
           <label>
             Load from
             <select
+              aria-label="Load from"
               value={depot || selected?.homeLocationId || ""}
               onChange={(e) => setDepot(e.target.value)}
             >

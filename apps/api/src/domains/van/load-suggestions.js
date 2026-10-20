@@ -6,12 +6,13 @@ import { scopeParams, ORDER_FROM, ORDER_ACCESS } from "../orders/access.js";
 import { canonicalJson, sha256Hex } from "../../core/util.js";
 
 /** F-102 forecast each class from the three explicit route cycles, then use max(forecast, committed demand).
- * @param {{classMix:Record<string,number>,cycles:Array<{id:string,rows:Array<{productId:string,classification:string,outletId:string,quantityBase:string}>}>,orders:Array<{id:string,productId:string,quantityBase:string}>}} inputs
+ * @param {{classMix:Record<string,number>,cycles:Array<{id:string,rows:Array<{productId:string,classification:string,outletId:string,quantityBase:string}>}>,orders:Array<{id:string,productId:string,quantityBase:string}>,stockedProductIds?:string[]}} inputs
  */
 export function suggestQuantities(inputs) {
   const products = new Set([
     ...inputs.cycles.flatMap((c) => c.rows.map((r) => r.productId)),
     ...inputs.orders.map((o) => o.productId),
+    ...(inputs.stockedProductIds ?? []),
   ]);
   return [...products].sort().map((productId) => {
     let forecast = 0n;
@@ -104,8 +105,21 @@ export async function suggestLoad(db, actor, p) {
     : [];
   if (orders.length > 2000)
     refuse("Open pre-sell demand exceeds the load planning bound");
+  // An initial route has no sales history. Expose only its authorized depot's
+  // stocked products, with ZERO forecasts, so the reviewer can enter a first load.
+  // These are catalog candidates, never fabricated offtake or pre-sell orders.
+  const stocked =
+    await db`select b.product_id from inventory_balances b join products p on p.id=b.product_id where b.location_id=${trip.source_location_id} and b.available_base>0 and b.deleted_at is null and p.active and p.deleted_at is null order by b.product_id limit 601`;
+  const draft = suggestQuantities({
+    classMix,
+    cycles,
+    orders,
+    stockedProductIds: stocked.map((/** @type {any} */ p) => p.product_id),
+  });
+  if (stocked.length > 600 || draft.length > 600)
+    refuse("The depot catalog exceeds the supported load planning bound");
   const recommendations = [];
-  for (const r of suggestQuantities({ classMix, cycles, orders })) {
+  for (const r of draft) {
     const product = await productFor(db, r.productId),
       wanted = integer(r.suggestedBase);
     const [balance] =
@@ -134,9 +148,10 @@ export async function suggestLoad(db, actor, p) {
     routeOutletCount: outlets.length,
     cycles: cycles.map((c) => ({ tripId: c.id, date: c.date })),
     sourceOrderCount: new Set(orders.map((/** @type {any} */ o) => o.id)).size,
+    manualInitialLoad: !cycles.some((c) => c.rows.length) && !orders.length,
     recommendations,
     algorithm:
-      "Class-adjusted average of up to three completed cycles, rounded to cases; max with open pre-sell demand avoids double counting. Depot availability caps the recommendation. Prior sales without a class snapshot use the current class, explicitly provisional.",
+      "Class-adjusted average of up to three completed cycles, rounded to cases; max with open pre-sell demand avoids double counting. Depot availability caps the recommendation. Prior sales without a class snapshot use the current class, explicitly provisional. Depot-only products have zero forecast; a first load requires the reviewer's entered quantities.",
     capacity:
       "Review truck capacity before applying; weight/volume capacity is not provided.",
   };
