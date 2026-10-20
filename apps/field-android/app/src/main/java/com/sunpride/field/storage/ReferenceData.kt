@@ -10,7 +10,8 @@ data class SellingUom(val code: String, val name: String, val decimalPlaces: Lon
 data class ProductBarcode(val barcode: String, val uom: String?)
 data class CatalogProduct(val id: String, val code: String, val name: String, val uom: String,
     val revision: Long = 0, val quantityScale: Long = 1000, val baseUom: ProductUom? = null,
-    val sellingUoms: List<SellingUom> = emptyList(), val barcodes: List<ProductBarcode> = emptyList())
+    val sellingUoms: List<SellingUom> = emptyList(), val barcodes: List<ProductBarcode> = emptyList(),
+    val catalogue: com.sunpride.catalogue.CatalogueDetails? = null)
 data class InventoryAvailability(val id: String, val productId: String, val locationId: String,
     val locationCode: String, val locationName: String, val availableBase: Long, val physicalBase: Long,
     val reservedBase: Long, val revision: Long, val asOf: Long)
@@ -45,7 +46,8 @@ object ReferenceDataCodec {
             require(s.has("toBase"))
             SellingUom(unit.code, unit.name, unit.decimalPlaces, conversion)
         }, o.list("barcodes") { b -> ProductBarcode(b.text("barcode").also { require(it.length <= 64) },
-            b.nullableText("uom")) }.also { require(it.size <= 20) })
+            b.nullableText("uom")) }.also { require(it.size <= 500) },
+        o.optJSONObject("catalogue")?.let(com.sunpride.catalogue.CatalogueDetails::decode))
     fun availability(o: JSONObject): InventoryAvailability = InventoryAvailability(o.text("id"),
         o.text("productId"), o.text("locationId"), o.text("locationCode"), o.text("locationName"),
         o.integer("availableBase"), o.integer("physicalBase"), o.integer("reservedBase"),
@@ -60,7 +62,7 @@ object ReferenceDataCodec {
             } ?: JSONObject.NULL))
         } }).put("barcodes", JSONArray().apply { p.barcodes.forEach { b ->
             put(JSONObject().put("barcode", b.barcode).put("uom", b.uom ?: JSONObject.NULL))
-        } })
+        } }).apply { p.catalogue?.let { put("catalogue", it.json()) } }
     private fun unit(code: String, name: String, places: Long) = JSONObject().put("code", code)
         .put("name", name).put("decimalPlaces", places)
     fun encode(i: InventoryAvailability): JSONObject = JSONObject().put("id", i.id).put("productId", i.productId)

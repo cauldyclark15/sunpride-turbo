@@ -17,6 +17,8 @@ import org.json.JSONObject
 interface VisitLocation {
     val requiresPermission: Boolean get() = true
     suspend fun fix(): JSONObject?
+    /** F-011 reuse the same provider, but do not stop at a fix too weak for census. */
+    suspend fun fixWithinAccuracy(maximumMeters: Double): JSONObject? = fix()
     /** Fix plus the reason it is missing; fakes that only implement [fix] report NO_FIX. */
     suspend fun capture(): LocationCapture = LocationFix.fromJson(fix())
         ?.let { LocationCapture.Captured(it) } ?: LocationCapture.Unavailable(UnavailableReason.NO_FIX)
@@ -38,7 +40,13 @@ suspend fun VisitLocation.captureOrUnavailable(): LocationCapture = try { captur
 class AndroidVisitLocation(private val context: Context) : VisitLocation {
     override suspend fun fix(): JSONObject? = captureOrUnavailable().wire
 
-    override suspend fun capture(): LocationCapture {
+    override suspend fun fixWithinAccuracy(maximumMeters: Double): JSONObject? = try { captureTarget(maximumMeters).wire }
+        catch (e: CancellationException) { throw e }
+        catch (_: Exception) { null }
+
+    override suspend fun capture(): LocationCapture = captureTarget(null)
+
+    private suspend fun captureTarget(requiredAccuracy: Double?): LocationCapture {
         val precise = granted(Manifest.permission.ACCESS_FINE_LOCATION)
         val approximate = granted(Manifest.permission.ACCESS_COARSE_LOCATION)
         if (!precise && !approximate) return LocationCapture.Unavailable(UnavailableReason.PERMISSION_DENIED)
@@ -61,7 +69,11 @@ class AndroidVisitLocation(private val context: Context) : VisitLocation {
                 providers.forEach { provider ->
                     // A recent cached fix answers indoors at once; the selector still prefers fresh updates.
                     manager.getLastKnownLocation(provider)?.let { updates.trySend(it) }
-                    manager.requestLocationUpdates(provider, 1_000L, 0f, listener, Looper.getMainLooper())
+                    if (requiredAccuracy != null && Build.VERSION.SDK_INT >= 31) {
+                        val request = android.location.LocationRequest.Builder(1_000L)
+                            .setQuality(android.location.LocationRequest.QUALITY_HIGH_ACCURACY).build()
+                        manager.requestLocationUpdates(provider, request, context.mainExecutor, listener)
+                    } else manager.requestLocationUpdates(provider, 1_000L, 0f, listener, Looper.getMainLooper())
                 }
             } catch (_: SecurityException) {
                 // Permission revoked between the check and the request.
@@ -73,7 +85,7 @@ class AndroidVisitLocation(private val context: Context) : VisitLocation {
                     val now = System.currentTimeMillis()
                     val chosen = FixSelector.better(best, candidate, now)
                     best = chosen
-                    if (FixSelector.reliable(chosen, now)) break
+                    if (FixSelector.reliable(chosen, now, requiredAccuracy)) break
                 }
             }
         } finally {

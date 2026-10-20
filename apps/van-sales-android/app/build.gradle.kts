@@ -88,6 +88,11 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     testOptions { unitTests.isReturnDefaultValues = true }
+    // F-616: one catalogue and scanner implementation for both Android products.
+    sourceSets.getByName("main").java.srcDir(rootProject.file("../../packages/native-catalogue/src/main/java"))
+    sourceSets.getByName("main").assets.srcDir(rootProject.file("../api/assets"))
+    sourceSets.getByName("test").java.srcDir(rootProject.file("../../packages/native-catalogue/src/test/java"))
+    sourceSets.getByName("androidTest").java.srcDir(rootProject.file("../../packages/native-catalogue/src/androidTest/java"))
     @Suppress("UnstableApiUsage")
     defaultConfig.javaCompileOptions.annotationProcessorOptions.arguments["room.schemaLocation"] =
         "$projectDir/schemas"

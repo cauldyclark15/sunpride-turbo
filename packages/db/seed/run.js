@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
-import { createDb } from "../src/client.js";
+import { createDb, tx } from "../src/client.js";
+import { seedSpecMasters } from "./spec-masters.js";
+import { seedFieldHierarchy } from "./field-hierarchy.js";
 import { seedDemo, resetDemo } from "./index.js";
 
 const args = process.argv.slice(2);
@@ -28,6 +30,11 @@ if (
   const db = createDb(process.env.DATABASE_URL, { max: 1 });
   try {
     const result = reset ? await resetDemo(db) : await seedDemo(db, options);
+    if (!reset)
+      await tx(db, async (t) => {
+        await seedFieldHierarchy(t);
+        await seedSpecMasters(t);
+      });
     console.log(JSON.stringify(result, null, 2));
   } catch (error) {
     // Do not dump a SQL exception: its query/parameters can contain password hashes.

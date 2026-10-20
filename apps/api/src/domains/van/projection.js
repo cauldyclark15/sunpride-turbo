@@ -3,6 +3,7 @@ import { ApiError } from "../../core/errors.js";
 import { resolvePrice, creditCheck } from "../orders/pricing.js";
 import { currentDeviceActor, tripFor, outletFor } from "./access.js";
 import { productFor } from "./facts.js";
+import { catalogueMetadata } from "../masters/catalogue.js";
 import { approvalKey } from "./approvals.js";
 import {
   date,
@@ -68,7 +69,10 @@ export function vanProjection(env) {
     next: null,
   });
   return {
-    params: (p) => ({ serviceDate: date(p.serviceDate) }),
+    params: (p) => ({
+      serviceDate: date(p.serviceDate),
+      ...(p.catalogue === true ? { catalogue: true } : {}),
+    }),
     snapshot,
     // CORE currently cannot emit snapshot mode for a since-cursor cycle. Refuse rather
     // than mislabel a full replacement as a delta or renew authority over stale data.
@@ -167,7 +171,13 @@ export async function bundle(ctx, env) {
         await db`select b.barcode,u.code from product_barcodes b join units_of_measure u on u.id=b.uom_id where b.product_id=${id} and b.active and b.deleted_at is null limit 501`,
         500,
       );
+      // F-616 is opt-in: older APKs validate frozen v1 product keys strictly.
+      const catalogue =
+        ctx.params.catalogue === true
+          ? await catalogueMetadata(db, id, ctx.now)
+          : null;
       products.push({
+        ...(catalogue ? { catalogue } : {}),
         productId: id,
         code: p.code,
         name: p.name,

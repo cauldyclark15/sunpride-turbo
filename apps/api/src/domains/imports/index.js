@@ -11,8 +11,18 @@ import { HEADERS, ORGANIZATION, checkInput, chunkHashOf } from "./format.js";
 import { validateProducts, writeProducts } from "./products.js";
 import { validateStock, locationAccess } from "./stock.js";
 import { planAccess, validateMcp, writeMcp } from "./mcp.js";
+import {
+  MIGRATION_KINDS,
+  validateMigration,
+  stageMigration,
+  installMigrationReview,
+} from "./migration.js";
 
 const CAPS = {
+  customers: "masterdata.manage",
+  outlet_universe: "masterdata.manage",
+  route_master: "masterdata.manage",
+  open_ar: "masterdata.manage",
   products: "masterdata.manage",
   opening_stock: "inventory.write",
   stock_adjustment: "inventory.adjustment.request",
@@ -24,7 +34,7 @@ async function authorize(ctx, kind) {
   const cap = CAPS[/** @type {keyof typeof CAPS} */ (kind)];
   if (!cap) throw new ApiError("invalid_format", 400, "Choose an import task.");
   const actor = await requireCapability(ctx, cap);
-  if (["products", "opening_stock"].includes(kind))
+  if (["products", "opening_stock", ...MIGRATION_KINDS].includes(kind))
     await requireNationalScope(ctx, ["admin", "operations"]);
   return actor;
 }
@@ -53,6 +63,8 @@ async function authorizeRun(ctx, run) {
 }
 /** @param {any} ctx @param {string} kind @param {any} input */
 async function validate(ctx, kind, input) {
+  if (MIGRATION_KINDS.includes(kind))
+    return validateMigration(ctx, kind, input.rows);
   if (kind === "products") return validateProducts(ctx.db, input.rows);
   if (kind === "mcp") return validateMcp(ctx, input);
   return validateStock(ctx, kind, input);
@@ -73,6 +85,16 @@ function previewResult(result, rowCount, kind) {
           }))
         : [],
     commitAvailable: !["cycle_count", "stock_adjustment"].includes(kind),
+    ...(MIGRATION_KINDS.includes(kind)
+      ? {
+          notice:
+            "Submission stages these rows only. Review mappings and duplicates in Migration review before applying masters or the SAP open-AR projection.",
+          candidates: result.resolved.map((/** @type {any} */ r) => ({
+            rowNumber: r.rowNumber,
+            candidates: r.candidates,
+          })),
+        }
+      : {}),
     ...(["cycle_count", "stock_adjustment"].includes(kind)
       ? {
           notice:
@@ -202,6 +224,14 @@ export async function commitImport(ctx, kind, input, platform) {
     await db`insert into import_runs(id,organization_id,import_type,mcp_plan_id,run_key,chunk_index,file_hash,chunk_hash,idempotency_key,actor_subject,status,source_reference,row_count,file_row_count,created_count,updated_count,skipped_count,failed_count,movement_id,completed_at,result)
       values(${runId},${ORGANIZATION},${kind},${input.planId ?? null},${input.runKey},${input.chunkIndex},${input.fileHash},${digest},${input.idempotencyKey},${actor.userId},${checked.errors.length ? "failed" : "completed"},${input.sourceReference ?? null},${input.rows.length},${input.rowCount},${accepted},0,0,${receipt.failed},${movementId},now(),${receipt})`;
     await db`update import_runs set row_keys=${db.array(rowKeys, "TEXT")} where id=${runId}`;
+    if (MIGRATION_KINDS.includes(kind) && !checked.errors.length)
+      await stageMigration(
+        db,
+        kind,
+        checked.resolved,
+        runId,
+        input.sourceReference,
+      );
     const locations = [
       ...new Set(
         checked.resolved
@@ -237,6 +267,7 @@ export async function commitImport(ctx, kind, input, platform) {
 }
 /** @param {import('../../core/router.js').Router} router @param {any} platform */
 export function install(router, platform) {
+  installMigrationReview(router, platform);
   platform.registerTopic("imports", (/** @type {any} */ actor) =>
     Object.values(CAPS).some((cap) => roleHas(actor.role, cap)),
   );

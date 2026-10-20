@@ -88,6 +88,12 @@ interface FieldBackend {
     fun submitOrderDraft(draftId: String, previousRequestId: String): OrderDraft = error("No local store")
     val cachedDeviceId: String? get() = null
     /** AND-016: configured photo types (empty → provisional defaults). */
+    fun catalogueProducts(): List<com.sunpride.field.storage.CatalogProduct> = emptyList()
+    fun catalogueImage(image:com.sunpride.catalogue.CatalogueImage):ByteArray? = null
+    fun warmCatalogueImages(isActive:()->Boolean = {true}) {}
+    fun censusConfig(): JSONObject? = null
+    fun censusHistory(): List<Pair<String, String>> = emptyList()
+    fun queueCensus(payload: JSONObject) { error("Census unavailable") }
     fun photoTypes(): List<com.sunpride.field.storage.PhotoType> = emptyList()
     fun visitPhotos(clientVisitId: String): List<com.sunpride.field.storage.VisitPhoto> = emptyList()
     /** Seal the JPEG on the phone and record it for the open call; upload follows separately. */
@@ -269,6 +275,45 @@ class LiveFieldBackend(
         val scope = storedScope() ?: return emptyList()
         val store = EncryptedFieldDatabase.store(context, scope)
         return try { runBlocking { store.activityRules() } } finally { store.close() }
+    }
+    override fun catalogueImage(image:com.sunpride.catalogue.CatalogueImage):ByteArray? = functions.api.image(image)
+    override fun warmCatalogueImages(isActive:()->Boolean) {
+        com.sunpride.catalogue.warmCatalogueImages(context,catalogueProducts().mapNotNull { it.catalogue },::catalogueImage,isActive)
+    }
+    override fun catalogueProducts(): List<com.sunpride.field.storage.CatalogProduct> = withStore { store ->
+        val epoch=authorizationEpoch
+        val result=store.catalog()
+        check(epoch==authorizationEpoch) { "Session changed" }
+        result
+    }
+    override fun censusConfig(): JSONObject? = withStore { store ->
+        val cached = com.sunpride.field.census.CensusConfigCache.load(
+            now=System.currentTimeMillis(),epoch={authorizationEpoch},
+            generation={
+                val current=storedScope();val session=sessionKey()
+                if(current==null||session==null)null else runBlocking {
+                    store.censusCacheGrant(current,System.currentTimeMillis())?.let { "$it:$session" }
+                }
+            },
+            read={runBlocking { store.localCache("local.census","config")?.takeUnless { it.tombstone }?.json }},
+            block={runBlocking { store.blockLocalCache("local.census","config","checking",System.currentTimeMillis()) }},
+            write={json->runBlocking { store.putLocalCache("local.census","config",json,JSONObject(json).getLong("savedAt"),"config") }},
+            fetch={functions.api.get("/api/v1/masters/census-config").toString()},
+            isOffline={it is com.sunpride.field.auth.AuthFailure&&it.kind==com.sunpride.field.auth.AuthFailure.Kind.OFFLINE})
+        cached?.let(::JSONObject)
+    }
+    override fun censusHistory(): List<Pair<String, String>> = withStore { store ->
+        store.history().filter { it.first.kind == com.sunpride.field.census.CensusRules.KIND }.map {
+            JSONObject(it.first.serializedOperation).getJSONObject("payload").getString("name") to it.second.state
+        }
+    }
+    override fun queueCensus(payload: JSONObject) {
+        val scope = storedScope() ?: error("No verified local partition")
+        withStore { store ->
+            val at = System.currentTimeMillis()
+            store.enqueue(com.sunpride.field.census.CensusRules.intent(scope, payload, at), at)
+        }
+        runCatching { com.sunpride.field.sync.work.SyncWork.enqueue(context) }
     }
     override fun photoTypes(): List<com.sunpride.field.storage.PhotoType> {
         val scope = storedScope() ?: return emptyList()

@@ -71,9 +71,14 @@ export async function checkDayManifest(ctx) {
         and p.effective_from<=${at} and (p.effective_to is null or p.effective_to>${at}) order by l.id limit 5001`,
       5000,
     );
+    const catalogue = bounded(
+      await db`select id,product_id,revision from product_catalogue_versions where effective_from<=${at} and (effective_to is null or effective_to>${at}) order by id limit 10001`,
+      10000,
+    );
     const stamp = sha256Hex(
       canonicalJson({
         visits,
+        catalogue,
         person,
         assignments,
         routes,

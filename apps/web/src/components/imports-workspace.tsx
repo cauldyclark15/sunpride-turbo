@@ -22,6 +22,12 @@ import {
   TARGET_HEADERS,
 } from "../lib/import-templates";
 import { MCP_HEADERS, type McpFormat } from "../lib/mcp-import-format";
+import {
+  MIGRATION_HEADERS,
+  isMigration,
+  type MigrationKind,
+} from "./spec-masters/migration-model";
+import { MigrationReview } from "./spec-masters/migration-review";
 
 type Kind =
   | "products"
@@ -30,8 +36,29 @@ type Kind =
   | "cycle_count"
   | "stock_adjustment"
   | "mcp"
-  | "targets";
+  | "targets"
+  | MigrationKind;
 const TASKS: { kind: Kind; label: string; description: string }[] = [
+  {
+    kind: "customers",
+    label: "Customer cutover",
+    description: "Stage legacy/SAP accounting customers for duplicate review.",
+  },
+  {
+    kind: "outlet_universe",
+    label: "Outlet universe cutover",
+    description: "Clean physical stores and map accounting customers.",
+  },
+  {
+    kind: "route_master",
+    label: "Route master cutover",
+    description: "Stage route identities, territory mappings and cycle days.",
+  },
+  {
+    kind: "open_ar",
+    label: "Open AR cutover",
+    description: "Stage source invoices for review, never payment posting.",
+  },
   {
     kind: "products",
     label: "Products",
@@ -102,7 +129,9 @@ const headersFor = (kind: Kind, format: McpFormat): string[] =>
           ? TARGET_HEADERS
           : kind === "mcp"
             ? MCP_HEADERS[format].split(",")
-            : OPERATIONAL_HEADERS[kind].split(",");
+            : isMigration(kind)
+              ? MIGRATION_HEADERS[kind].split(",")
+              : OPERATIONAL_HEADERS[kind].split(",");
 
 function Errors({ errors, kind }: { errors: ImportError[]; kind: Kind }) {
   if (!errors.length) return null;
@@ -351,7 +380,9 @@ function Loader({ kind }: { kind: Kind }) {
         setOutcome(
           business
             ? `${saved} rows loaded.`
-            : `${saved} rows confirmed. Repeated file submissions do not add a second copy.`,
+            : isMigration(kind)
+              ? `${saved} rows staged only. Review the cutover queue below before applying a master or AR replica.`
+              : `${saved} rows confirmed. Repeated file submissions do not add a second copy.`,
         );
         setPreview(null);
       }
@@ -691,6 +722,7 @@ export function ImportsWorkspace(_props: { setupMessage: string }) {
           kind={active}
         />
       )}
+      {active && isMigration(active) && <MigrationReview />}
       {!active && (
         <p className="text-sm text-muted">
           Choose a task to download its template and check a file before

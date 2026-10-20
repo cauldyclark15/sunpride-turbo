@@ -64,6 +64,7 @@ import kotlinx.coroutines.delay
                 Page.WALK_IN -> WalkInScreen(controller)
                 Page.CUSTOMER -> CustomerDetailScreen(controller)
                 Page.PRINTER -> PrinterScreen(controller)
+                Page.CATALOGUE -> VanCatalogue(controller)
                 Page.PRODUCTS -> ProductSearchScreen(controller)
                 Page.SALE -> SaleScreen(controller)
                 Page.CHECKOUT -> CheckoutScreen(controller)

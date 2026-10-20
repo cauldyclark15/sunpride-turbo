@@ -1,5 +1,6 @@
 import { tx } from "@sunpride/db/client";
 import { checkDayManifest } from "./manifest.js";
+import { catalogueMetadata } from "../masters/catalogue.js";
 import { inventoryRows, PHOTO_TYPES } from "./reference.js";
 import { requireCapability } from "../../core/capabilities.js";
 import { canonicalJson, sha256Hex } from "../../core/util.js";
@@ -303,7 +304,9 @@ async function bundleData(ctx) {
       where b.product_id=${p.id} and b.active and b.deleted_at is null and u.deleted_at is null order by b.barcode limit 501`,
       500,
     );
+    const catalogue = await catalogueMetadata(db, p.id, ctx.now);
     products.push({
+      ...(catalogue ? { catalogue } : {}),
       id: p.id,
       code: p.code,
       name: p.name,
@@ -538,7 +541,9 @@ async function bundleData(ctx) {
       where assignee_profile_id=${person.id} and service_date>=${date}::date and service_date<${date}::date+3
       and deleted_at is null order by service_date,created_at,id limit 201`,
     200,
-  ).filter((/** @type {any} */ r) => outlets.has(r.outlet_id) || r.planned_visit_id);
+  ).filter(
+    (/** @type {any} */ r) => outlets.has(r.outlet_id) || r.planned_visit_id,
+  );
   const lease = closeAt(date);
   return {
     permissions: [...ctx.actor.capabilities],

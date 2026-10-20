@@ -53,6 +53,11 @@ class VanRepository private constructor(private val context: Context, private va
     val truckStock: Flow<List<TruckStock>> = visible.flatMapLatest { it?.truckStock ?: flowOf(emptyList()) }
     val damageRecords: Flow<List<DamageRecord>> = visible.flatMapLatest { it?.damageRecords ?: flowOf(emptyList()) }
     val products: Flow<List<Product>> = visible.flatMapLatest { it?.products ?: flowOf(emptyList()) }
+    fun catalogueImage(image:com.sunpride.catalogue.CatalogueImage):ByteArray? = if(stubMode!=null)null else api.image(image)
+    init { if(stubMode==null) lifetime.launch { products.collectLatest { rows ->
+        val job=currentCoroutineContext()[Job]
+        runCatching { com.sunpride.catalogue.warmCatalogueImages(context,rows.mapNotNull{it.catalogue},::catalogueImage){job?.isActive!=false} }
+    } } }
     val customers: Flow<List<Customer>> = visible.flatMapLatest { it?.customers ?: flowOf(emptyList()) }
     val priceLines: Flow<List<PriceLine>> = visible.flatMapLatest { it?.priceLines ?: flowOf(emptyList()) }
     val promotions: Flow<List<Promotion>> = visible.flatMapLatest { it?.promotions ?: flowOf(emptyList()) }

@@ -28,6 +28,7 @@ import {
 } from "./people-admin";
 import { TeamsAdmin } from "./teams-admin";
 import { DevicesAdmin } from "./devices-admin";
+import { MastersWorkspace } from "./spec-masters/workspace";
 import { SetupHealth, SetupSearch } from "./master-data/setup-health";
 import { setSetupParam, useSetupParam } from "./master-data/location";
 
@@ -45,6 +46,7 @@ const tabs = [
   ["outlets", "Outlets"],
   ["assignments", "Assignments"],
   ["devices", "Phones"],
+  ["field-masters", "Field masters"],
 ] as const;
 type AdminTab = (typeof tabs)[number][0];
 
@@ -81,6 +83,8 @@ export function AdminWorkspace() {
         <OutletAdmin />
       ) : activeTab === "assignments" ? (
         <OutletAssignments />
+      ) : activeTab === "field-masters" ? (
+        <MastersWorkspace />
       ) : activeTab === "devices" ? (
         <DevicesAdmin />
       ) : (

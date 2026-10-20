@@ -1,8 +1,10 @@
 import { ApiError } from "../../core/errors.js";
 import { createHash } from "node:crypto";
+import { MIGRATION_HEADERS } from "./migration-headers.js";
 
 export const ORGANIZATION = "sunpride";
 export const HEADERS = {
+  ...MIGRATION_HEADERS,
   products:
     "product_code,name,category,base_uom,selling_uoms,barcode,tracking_mode,allocation_policy,shelf_life_days,expiry_required,manufacture_date_required,minimum_remaining_shelf_life_days,external_id",
   opening_stock:

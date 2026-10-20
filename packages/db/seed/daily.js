@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { createDb, tx } from "../src/client.js";
 import { company } from "./company.js";
+import { seedSpecMasters } from "./spec-masters.js";
 import { execution } from "./execution.js";
 import { vans } from "./vans.js";
 import { management } from "./management.js";
@@ -984,6 +985,7 @@ export async function advanceDemo(db, { date = todayManila() } = {}) {
     await db`select a.details from audit_logs a join sample_data_rows m on m.row_id=a.id::text where m.batch=${BATCH} and m.key='audit_logs:manifest'`;
   if (!manifest)
     throw new Error("Demo daily advance requires an existing seeded company");
+  await tx(db, seedSpecMasters);
   const original = JSON.parse(manifest.details);
   const days = [];
   for (
