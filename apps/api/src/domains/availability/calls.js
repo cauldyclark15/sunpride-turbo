@@ -1,4 +1,5 @@
 import { advance, ownedCall } from "../callflow/engine.js";
+import { canonicalModelSuggestion } from "../analytics/order-model.js";
 import { ApiError, forbidden, invalid } from "../../core/errors.js";
 import { requireCapability } from "../../core/capabilities.js";
 import { canonicalJson, sha256Hex } from "../../core/util.js";
@@ -162,7 +163,7 @@ export async function callSnapshot(ctx, outletId, day, persist = true) {
       outlet.is_sample === true,
     );
     const uplift = Math.max(0, ...campaigns.map((r) => r.upliftPct));
-    const recommendation = policy
+    let recommendation = policy
       ? suggest(
           {
             offtake: obs?.offtake ?? null,
@@ -191,6 +192,33 @@ export async function callSnapshot(ctx, outletId, day, persist = true) {
           reasons: ["Availability rules need setup"],
           daysCover: null,
         };
+    if (policy)
+      recommendation = await canonicalModelSuggestion(
+        ctx,
+        {
+          owner,
+          outletId,
+          productId: p.id,
+          day,
+          sample: outlet.is_sample === true,
+          historyDailyBase: h.length
+            ? h.reduce(
+                (/** @type {number} */ n, /** @type {any} */ r) =>
+                  n + Number(r.quantity_base ?? 0),
+                0,
+              ) / 84
+            : null,
+          offtake: obs?.offtake ?? null,
+          stockBase:
+            obs?.shelfBase != null && obs?.backroomBase != null
+              ? obs.shelfBase + obs.backroomBase
+              : null,
+          upliftPct: uplift,
+          coverDays: policy.coverDays,
+          minimumBase: l?.minimumBase ?? 0,
+        },
+        recommendation,
+      );
     lines.push({
       productId: p.id,
       code: p.code,

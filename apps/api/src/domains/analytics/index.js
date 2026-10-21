@@ -13,6 +13,7 @@ import { exceptionsPage } from "./exceptions.js";
 import { listTargets, setTargets } from "./targets.js";
 import { installRefresh } from "./refresh.js";
 import { installAlerts } from "./alerts.js";
+import { installModels } from "./model-workflows.js";
 import { orderedDb } from "./ordered-db.js";
 import { coverageAvailability } from "../availability/metrics.js";
 import { xlsx } from "./xlsx.js";
@@ -30,6 +31,7 @@ export function install(router, installCtx) {
   installPlanning(router, installCtx);
   installPolicies(router, installCtx);
   installAlerts(router, installCtx);
+  installModels(router, installCtx);
   installCtx.registerTopic("analytics", (/** @type {any} */ actor) =>
     roleHas(actor.role, "report.read"),
   );
