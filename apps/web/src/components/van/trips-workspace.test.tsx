@@ -12,7 +12,7 @@ import type { TripSettlement, TripsDay } from "./model";
 
 vi.mock("../../lib/api", () => ({
   apiFetch: vi.fn(),
-  useApi: vi.fn(),
+  useApi: vi.fn(() => ({ data: undefined, error: null, loading: false })),
   useLive: vi.fn(),
 }));
 const permission = vi.hoisted(() => ({ manage: true }));
