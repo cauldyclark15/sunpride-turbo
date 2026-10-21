@@ -10,6 +10,7 @@ import {
 } from "../../core/errors.js";
 import { isUuid, sha256Hex, canonicalJson } from "../../core/util.js";
 import { loadProfile } from "../../core/hooks.js";
+import { consumePairing } from "./pairing.js";
 
 /** F-007/F-024: all lifecycle decisions are persisted and checked before replay. @param {any} db @param {any} device */
 export async function requireDeviceIntegrity(db, device) {
@@ -140,8 +141,10 @@ export async function requestControl(c, d, kind, code) {
 }
 /** F-007: accept a candidate key, but DO NOT activate until old work is reconciled. @param {any} c */
 export async function requestHandover(c) {
-  const b = c.body,
-    d = await scopedDevice(c, b.deviceId);
+  let b = c.body;
+  const d = await scopedDevice(c, b.deviceId);
+  if (b.pairingCode)
+    b = { ...b, ...(await consumePairing(c, d, b.pairingCode)) };
   if (!["field-android", "van-android", "field-ios"].includes(b.app))
     throw invalid("Choose an app");
   const bytes = Buffer.from(b.publicKeySpki ?? "", "base64");

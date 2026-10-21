@@ -276,9 +276,9 @@ export function IntegrityFleet() {
                   const f = new FormData(e.currentTarget);
                   void send("devices/handover", {
                     deviceId: selected.id,
-                    publicKeySpki: f.get("key"),
+                    pairingCode: f.get("pairingCode"),
                     inventoryTag: f.get("tag"),
-                    app: f.get("app"),
+
                     reasonCode: "replacement",
                   });
                 }}
@@ -295,21 +295,22 @@ export function IntegrityFleet() {
                   <input name="tag" className={input} required />
                 </label>
                 <label>
-                  Replacement public key
-                  <textarea
-                    name="key"
+                  Replacement phone code
+                  <input
+                    name="pairingCode"
                     className={input}
                     required
-                    maxLength={512}
+                    placeholder="SP-ABCD-EFGH"
+                    pattern="SP-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}"
+                    maxLength={12}
                   />
                 </label>
-                <label>
-                  App
-                  <select name="app" className={input}>
-                    <option value="field-android">Field app</option>
-                    <option value="van-android">Van POS</option>
-                  </select>
-                </label>
+                <p className="text-sm">
+                  Sign in on the replacement phone and choose Get replacement
+                  code. Codes expire in ten minutes and must belong to this same
+                  person and app. Existing work must still be reconciled before
+                  activation.
+                </p>
                 <div className="flex gap-2">
                   <button className={button} disabled={busy}>
                     Start controlled handover

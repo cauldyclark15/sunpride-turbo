@@ -23,6 +23,8 @@ import {
 import { installOidc, installMockIdp } from "./oidc.js";
 import { detect, policyAt, readQueue } from "./detectors.js";
 import { collectCommercialSignals } from "./commercial.js";
+import { installPairing } from "./pairing.js";
+import { takeOrThrow } from "../../core/rate.js";
 
 /** @param {unknown} value @param {number} max @param {boolean} [trim] */
 const text = (value, max, trim = true) => {
@@ -114,6 +116,7 @@ async function setFleet(c, b) {
 /** @param {any} router @param {any} platform */
 export function install(router, platform) {
   installOidc(router);
+  installPairing(router);
   installMockIdp(router, platform);
   platform.registerTopic(
     "integrity",
@@ -345,8 +348,15 @@ export function install(router, platform) {
       return { controlId: r.id, status: r.status };
     }),
   );
-  router.post("/api/v1/integrity/devices/handover", (/** @type {any} */ c) =>
-    command(c, requestHandover),
+  router.post(
+    "/api/v1/integrity/devices/handover",
+    async (/** @type {any} */ c) => {
+      await takeOrThrow(c.db, `pairing-redeem:${c.actor?.userId}`, {
+        limit: 10,
+        windowMs: 300_000,
+      });
+      return command(c, requestHandover);
+    },
   );
   router.post(
     "/api/v1/integrity/devices/complete-handover",

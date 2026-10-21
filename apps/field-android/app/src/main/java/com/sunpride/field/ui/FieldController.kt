@@ -55,6 +55,7 @@ interface FieldBackend {
     fun loadSigner(): DeviceSigner
     fun signIn(email: String, password: String)
     fun companySignIn(tokens: JSONObject) { error("Company sign-in unavailable") }
+    fun replacementCode(): JSONObject { error("Replacement pairing unavailable") }
     fun signOut()
     fun changePassword(current: String, next: String, confirm: String) { error("Password change unavailable") }
     fun refreshEnrollment(signer: DeviceSigner): EnrollmentState
@@ -876,6 +877,9 @@ class LiveFieldBackend(
     override fun loadSigner() = signerLoader()
     override fun signIn(email: String, password: String) = auth.signIn(email, password)
     override fun companySignIn(tokens: JSONObject) = auth.acceptCompanySession(tokens)
+    override fun replacementCode(): JSONObject = functions.api.post("/api/v1/integrity/devices/pairing/start",
+        signerLoader().let { signer -> com.sunpride.integrity.replacementPairingBody("field-android",
+            JSONObject().put("keyId",com.sunpride.field.device.RequestSigner.bodyDigest(signer.publicKeySpki)).put("publicKeySpki",signer.publicKeyBase64),signer::sign) })
     override fun changePassword(current: String, next: String, confirm: String) = auth.changePassword(current, next, confirm)
     override fun signOut() {
         // SP-0136: sharing stops before anything else (the account key is still readable here).
@@ -1468,6 +1472,7 @@ class FieldController(
     fun updateCompanyWaiting(value: Boolean) { companySignInPending=value }
     fun companyKey(): JSONObject = backend.loadSigner().let { JSONObject().put("keyId", com.sunpride.field.device.RequestSigner.bodyDigest(it.publicKeySpki)).put("publicKeySpki",it.publicKeyBase64) }
     fun signCompanyMessage(message: String): String = backend.loadSigner().sign(message)
+    fun replacementCode(): JSONObject = backend.replacementCode()
     fun companySignIn(tokens: JSONObject) = scope.launch(ui) {
         ++sessionGeneration; busy=true; error=null
         try { withContext(io) { backend.companySignIn(tokens) }; state=EnrollmentState.Unregistered }

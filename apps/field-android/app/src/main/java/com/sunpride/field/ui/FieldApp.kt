@@ -396,7 +396,8 @@ fun FieldApp(
                     } })
                 else -> EnrollmentScreen(controller.state, controller.key, controller.busy, controller.error,
                     onCheck = { controller.checkAgain() }, onSignOut = signOut, modifier = modifier,
-                    unsent = status.queued + status.sending + status.review + status.held)
+                    unsent = status.queued + status.sending + status.review + status.held,
+                    pairingContent = {com.sunpride.integrity.ReplacementPairing(controller::replacementCode)})
             }
         }
         if (biometrics != null && biometrics.offer && controller.state != EnrollmentState.SignedOut) BiometricOffer(
@@ -598,7 +599,8 @@ fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: (
 
 @Composable
 fun EnrollmentScreen(state: EnrollmentState, key: DeviceKeyInfo?, busy: Boolean, error: String?,
-    onCheck: () -> Unit, onSignOut: () -> Unit, modifier: Modifier = Modifier, unsent: Int = 0) {
+    onCheck: () -> Unit, onSignOut: () -> Unit, modifier: Modifier = Modifier, unsent: Int = 0,
+    pairingContent: (@Composable ()->Unit)? = null) {
     val context = LocalContext.current
     var expanded by rememberSaveable { mutableStateOf(false) }
     Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
@@ -607,6 +609,7 @@ fun EnrollmentScreen(state: EnrollmentState, key: DeviceKeyInfo?, busy: Boolean,
             Text(if (state == EnrollmentState.Removed) "Phone removed" else "Register phone",
                 style = MaterialTheme.typography.headlineMedium, modifier = Modifier.testTag("enrollment-title"))
             if (state == EnrollmentState.Unregistered) {
+                pairingContent?.invoke()
                 Text("Send this code to your admin", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (key != null) SectionCard("Phone code") {

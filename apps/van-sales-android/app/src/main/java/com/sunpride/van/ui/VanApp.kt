@@ -130,6 +130,7 @@ import kotlinx.coroutines.delay
         Text(if (removed) "Ask your supervisor to re-add this phone. Your saved work has not been deleted."
             else "This phone is not registered yet. Send this phone code to your supervisor.")
         SectionCard("Phone code") { Text(c.fingerprint, style = MaterialTheme.typography.titleMedium, fontFamily = FontFamily.Monospace, modifier = Modifier.testTag("fingerprint")) }
+        if (!removed) com.sunpride.integrity.ReplacementPairing(c::replacementCode)
         if (!removed) c.publicKey?.let { key ->
             val context = LocalContext.current
             ListRow("Send phone key","Share it with your supervisor to register this phone","share-phone-key",onClick = {

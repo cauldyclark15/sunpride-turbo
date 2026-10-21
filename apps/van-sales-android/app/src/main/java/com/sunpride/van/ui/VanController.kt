@@ -292,6 +292,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         private set
     fun updateCompanyWaiting(value: Boolean) { companySignInPending=value }
     fun companyKey(): org.json.JSONObject = repository.companyKey()
+    fun replacementCode(): org.json.JSONObject = repository.replacementCode()
     fun signCompanyMessage(message: String): String = repository.signCompanyMessage(message)
     fun companySignIn(tokens: org.json.JSONObject) = command {
         repository.companySignIn(tokens)

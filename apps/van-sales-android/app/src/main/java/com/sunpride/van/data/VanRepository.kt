@@ -31,6 +31,8 @@ class VanRepository private constructor(private val context: Context, private va
     })
     private val api = NativeApi(environment,auth)
     private val devices = RestDeviceApi(api)
+    fun replacementCode(): JSONObject = api.request("/api/v1/integrity/devices/pairing/start",
+        com.sunpride.integrity.replacementPairingBody("van-android",companyKey(),loadSigner()::sign))
     private val index = context.getSharedPreferences(if(stubMode != null) "van_stub_identity_index" else "van_identity_index",Context.MODE_PRIVATE)
     private val current = MutableStateFlow<RoomVanStore?>(null)
     // A cached trip is not a grant. Expiry also withdraws already-visible reference data without a network.
