@@ -5,6 +5,7 @@ import { usePermissions } from "../../lib/auth";
 import { TrendChart } from "../cockpit/kit/trend-chart";
 import {
   centavos,
+  signedCentavos,
   day,
   peso,
   words,
@@ -1235,8 +1236,11 @@ export function FinanceClaimsWorkspace() {
               <ul className="text-xs text-muted">
                 {s.result.lines.map((l) => (
                   <li key={l.metric}>
-                    {words(l.metric)}: {l.actual} / {l.target} →{" "}
-                    {peso(l.amountCentavos)}
+                    {words(l.metric)}:{" "}
+                    {l.excluded
+                      ? "Excluded by plan"
+                      : `${l.actual ?? "Unknown"} / ${l.target ?? "Unknown"}`}{" "}
+                    → {peso(l.amountCentavos)}
                   </li>
                 ))}
               </ul>
@@ -1247,6 +1251,56 @@ export function FinanceClaimsWorkspace() {
                   build={() => ({ id: s.id, action: "approve" })}
                 >
                   {null}
+                </CommandForm>
+              ) : null}
+              {incentives.data?.adjustments
+                ?.filter((a) => a.statement_id === s.id)
+                .map((a) => (
+                  <div
+                    key={a.id}
+                    className="mt-3 border-l border-border pl-3 text-sm"
+                  >
+                    <p>
+                      {peso(Number(a.amount_centavos))} adjustment · {a.reason}{" "}
+                      · {words(a.status)}
+                    </p>
+                    {canApprove && a.status === "pending" ? (
+                      <CommandForm
+                        path="/api/v1/tpm/incentives/approve-adjustment"
+                        label="Independently approve adjustment"
+                        build={() => ({ id: a.id })}
+                      >
+                        {null}
+                      </CommandForm>
+                    ) : null}
+                  </div>
+                ))}
+              {canIntake ? (
+                <CommandForm
+                  path="/api/v1/tpm/incentives/adjust"
+                  label="Request documented adjustment"
+                  build={(d) => ({
+                    id: s.id,
+                    amountCentavos: signedCentavos(d.get("amount")),
+                    reason: d.get("reason"),
+                  })}
+                >
+                  <Field label="Adjustment · PHP (negative reduces)">
+                    <input
+                      name="amount"
+                      className={input}
+                      required
+                      placeholder="0.00"
+                    />
+                  </Field>
+                  <Field label="Source correction and reason">
+                    <textarea
+                      name="reason"
+                      className={input}
+                      required
+                      maxLength={1000}
+                    />
+                  </Field>
                 </CommandForm>
               ) : null}
             </article>
@@ -1406,6 +1460,7 @@ function PolicyEditors({
               effectiveFrom: `${d.get("from")}T00:00:00+08:00`,
               effectiveTo: `${d.get("to")}T00:00:00+08:00`,
               baseCentavos: centavos(d.get("base")),
+              source: d.get("source"),
               metrics: [
                 "targets",
                 "coverage",
@@ -1418,6 +1473,9 @@ function PolicyEditors({
                 weightBps: centavos(d.get(metric)),
                 capBps: centavos(d.get(metric + "Cap")),
                 direction: d.get(metric + "Direction"),
+                ...(d.get(metric + "Target")
+                  ? { target: Number(d.get(metric + "Target")) }
+                  : {}),
               })),
             })}
           >
@@ -1429,6 +1487,14 @@ function PolicyEditors({
             </Field>
             <Field label="Base award · ₱">
               <input name="base" required className={input} />
+            </Field>
+            <Field label="Policy source">
+              <select name="source" className={input} defaultValue="sample">
+                <option value="sample">
+                  Sample policy — our provisional defaults
+                </option>
+                <option value="office">Office-approved policy</option>
+              </select>
             </Field>
             <PolicyDates />
             {[
@@ -1468,13 +1534,39 @@ function PolicyEditors({
                     <option value="lower">Lower is better</option>
                   </select>
                 </Field>
+                <Field
+                  label={`${words(metric)} target · canonical units (optional)`}
+                >
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    name={metric + "Target"}
+                    className={input}
+                    defaultValue={
+                      metric === "availability" || metric === "distribution"
+                        ? "10000"
+                        : metric === "collection"
+                          ? "100000"
+                          : metric === "settlementVariance"
+                            ? "100"
+                            : ""
+                    }
+                  />
+                </Field>
               </div>
             ))}
           </CommandForm>
           <p className="text-xs text-muted">
-            Weights must total 100%. Attainment uses the configured cap;
-            settlement variance above tolerance lowers its component. Client
-            compensation policies remain subject to Finance and HR ratification.
+            Weights must total 100%. Attainment uses the configured cap; zero
+            weight explicitly excludes a non-applicable metric. Sales,
+            collections and variance targets use centavos;
+            distribution/availability use basis points; coverage uses calls.
+            Blank sales/coverage targets use canonical target and approved-plan
+            counts. Visible numeric defaults are sample assumptions, not client
+            policy. settlement variance above tolerance lowers its component.
+            Client compensation policies remain subject to Finance and HR
+            ratification.
           </p>
         </Panel>
         <Panel title="Retire a policy prospectively">

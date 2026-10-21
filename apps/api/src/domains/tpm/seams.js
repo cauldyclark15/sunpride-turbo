@@ -5,8 +5,9 @@ import {
   readEligibilityFacts,
   readPartnerEvidence,
 } from "../integration/spec-adapters.js";
-import { fail } from "../orders/validation.js";
 import { authorizeCampaignQuote } from "./authority.js";
+import { fail } from "../orders/validation.js";
+import { readIncentiveMetrics } from "./metric-sources.js";
 
 /** SEAM(SAP): operational instructions await enqueueSapPosting; no synthetic SAP acknowledgement.
  * SEAM(FISCAL): requestOverride must authorize exact transaction facts; no local discount matrix.
@@ -24,9 +25,7 @@ export const seams = {
   /** @param {any} _c @param {string} _kind @param {string} _id @returns {Promise<any>} */
   readEvidence: readPartnerEvidence,
   /** @param {any} _c @param {any} _q @returns {Promise<any>} */
-  async readIncentiveMetrics(_c, _q) {
-    fail("Governed incentive metrics are not connected", "needs_setup");
-  },
+  readIncentiveMetrics,
   /** SEAM(TOWER/SAP): complete benefit spend (invoice/rebate/valued goods), source and completeness
    * accompany baseline, margin and definition-version facts; earnings are not total spend.
    * @param {any} _c @param {any} _q @returns {Promise<any>} */

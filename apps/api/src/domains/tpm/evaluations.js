@@ -1,6 +1,8 @@
 import { canonicalJson, sha256Hex } from "../../core/util.js";
 import { seams } from "./seams.js";
 import { bounded, changed, command, office } from "./common.js";
+import { currentActor } from "../van/access.js";
+import { enforcePartnerSelf } from "../partners/boundary.js";
 import {
   date,
   divide,
@@ -27,6 +29,18 @@ export function computeIncentive(rules, facts, base) {
   integer(base);
   const lines = rules.map((rule) => {
     const fact = facts[rule.metric];
+    if (rule.weightBps === 0)
+      return {
+        metric: rule.metric,
+        actual: fact?.actual ?? null,
+        target: fact?.target ?? null,
+        definitionVersion:
+          fact?.definitionVersion ?? "excluded-by-effective-plan/v1",
+        weightBps: 0,
+        achievementBps: 0,
+        amountCentavos: 0,
+        excluded: true,
+      };
     if (
       !fact ||
       !Number.isSafeInteger(fact.actual) ||
@@ -66,6 +80,7 @@ export function computeIncentive(rules, facts, base) {
       weightBps: rule.weightBps,
       achievementBps: achievement,
       amountCentavos: amount,
+      excluded: false,
     };
   });
   return {
@@ -91,6 +106,8 @@ function validateMetrics(rules) {
       fail("Invalid incentive metric");
     integer(r.weightBps, "Weight", 10000);
     integer(r.capBps, "Attainment cap", 20000);
+    if (r.target != null && (!Number.isSafeInteger(r.target) || r.target <= 0))
+      fail("Explicit metric targets must be positive whole canonical units");
   }
   if (
     rules.reduce(
@@ -141,6 +158,23 @@ export function computeRoi(facts, spend) {
 }
 /** @param {any} router */
 export function installEvaluations(router) {
+  for (const path of [
+    "/api/v1/account/incentives",
+    "/api/v1/partners/incentives/mine",
+  ])
+    router.get(path, async (/** @type {any} */ c) => {
+      const actor = await currentActor(c.db, c.actor);
+      await enforcePartnerSelf(c.db, actor);
+      const rows = bounded(
+        await c.db`select s.id,s.status,s.period_from,s.period_to,s.result,s.amount_centavos,i.name as plan_name,i.source as plan_source from incentive_statements s join incentive_plans i on i.id=s.plan_id where s.profile_id=${actor.profileId} order by s.period_to desc limit 501`,
+      );
+      return {
+        rows: rows.map((/** @type {any} */ r) => ({
+          ...r,
+          amountCentavos: Number(r.amount_centavos),
+        })),
+      };
+    });
   router.get("/api/v1/tpm/roi", async (/** @type {any} */ c) => {
     await office(c);
     const rows = bounded(
@@ -238,8 +272,10 @@ export function installEvaluations(router) {
           to = instant(b.effectiveTo);
         if (to <= from) fail("Plan end must follow start");
         validateMetrics(b.metrics);
+        if (!["sample", "office"].includes(b.source ?? "office"))
+          fail("Choose a sample or office incentive policy source");
         const [r] =
-          await cc.db`insert into incentive_plans(code,name,effective_from,effective_to,base_centavos,metrics,source,created_by) values(${text(b.code, "Plan code", 80)},${text(b.name, "Plan name", 160)},${from},${to},${integer(b.baseCentavos)},${b.metrics},'office',${cc.actor.subject}) returning id`;
+          await cc.db`insert into incentive_plans(code,name,effective_from,effective_to,base_centavos,metrics,source,created_by) values(${text(b.code, "Plan code", 80)},${text(b.name, "Plan name", 160)},${from},${to},${integer(b.baseCentavos)},${b.metrics},${b.source ?? "office"},${cc.actor.subject}) returning id`;
         await changed(cc, "incentive.plan_saved", r.id);
         return { id: r.id };
       },
@@ -271,6 +307,7 @@ export function installEvaluations(router) {
           profileId: profile,
           periodFrom: from,
           periodTo: to,
+          rules: plan.metrics,
         });
         const result = computeIncentive(
           plan.metrics,

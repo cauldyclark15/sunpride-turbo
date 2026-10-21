@@ -96,6 +96,13 @@ export type Policies = {
   }[];
 };
 export type Incentives = {
+  adjustments?: {
+    id: string;
+    statement_id: string;
+    amount_centavos: number | string;
+    reason: string;
+    status: string;
+  }[];
   plans: { id: string; name: string }[];
   statements: {
     id: string;
@@ -108,8 +115,9 @@ export type Incentives = {
     result: {
       lines: {
         metric: string;
-        actual: number;
-        target: number;
+        actual: number | null;
+        target: number | null;
+        excluded?: boolean;
         amountCentavos: number;
       }[];
     };
@@ -135,4 +143,8 @@ export function centavos(v: FormDataEntryValue | null) {
   const n = Number(BigInt(whole!) * 100n + BigInt(part.padEnd(2, "0")));
   if (!Number.isSafeInteger(n)) throw new Error("Amount is too large.");
   return n;
+}
+export function signedCentavos(v: FormDataEntryValue | null) {
+  if (typeof v !== "string") throw new Error("Enter an adjustment amount");
+  return v.startsWith("-") ? -centavos(v.slice(1)) : centavos(v);
 }

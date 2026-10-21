@@ -3,6 +3,7 @@
 import { apiFetch, useApi } from "../../lib/api";
 import { useSession } from "../../lib/auth/session";
 import { ChangePassword } from "./change-password";
+import { EarnedStatements } from "./earned-statements";
 
 const ROLE_NAMES: Record<string, string> = {
   super_admin: "System administrator",
@@ -18,18 +19,24 @@ const ROLE_NAMES: Record<string, string> = {
 type Unit = { id: string; name: string };
 
 export function AccountPage() {
-  const { profile } = useSession();
+  const { profile, me } = useSession();
   const units = useApi<Unit[]>(
-    profile?.orgUnitId ? ["account-area", profile.id, profile.orgUnitId] : null,
+    profile?.orgUnitId && !me?.partner
+      ? ["account-area", profile.id, profile.orgUnitId]
+      : null,
     ({ signal }) => apiFetch<Unit[]>("/api/v1/org/tree", { signal }),
   );
   if (!profile) return null;
-  const area = profile.orgUnitId
-    ? (units.data?.find((unit) => unit.id === profile.orgUnitId)?.name ??
-      (units.error ? "Area unavailable. Try again shortly." : "Loading area…"))
-    : ["super_admin", "analyst"].includes(profile.role)
-      ? "All areas"
-      : "No area assigned yet";
+  const area = me?.partner
+    ? "Assigned partner area"
+    : profile.orgUnitId
+      ? (units.data?.find((unit) => unit.id === profile.orgUnitId)?.name ??
+        (units.error
+          ? "Area unavailable. Try again shortly."
+          : "Loading area…"))
+      : ["super_admin", "analyst"].includes(profile.role)
+        ? "All areas"
+        : "No area assigned yet";
 
   return (
     <main className="mx-auto grid w-full max-w-3xl gap-6 py-4">
@@ -58,6 +65,9 @@ export function AccountPage() {
         </dl>
       </section>
       <ChangePassword />
+      {profile.role === "sales" ? (
+        <EarnedStatements partner={Boolean(me?.partner)} />
+      ) : null}
     </main>
   );
 }
