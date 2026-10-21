@@ -4,6 +4,7 @@ import { installWorkspace } from "./workspace.js";
 import { installClaims } from "./claims.js";
 import { installFinance } from "./finance.js";
 import { installReconciliation } from "./reconciliation.js";
+import { installPerformance } from "./performance.js";
 import { installDeductions } from "./deductions.js";
 import { installEvaluations } from "./evaluations.js";
 import { installClaimantPortals } from "./portal.js";
@@ -20,4 +21,5 @@ export function install(router, ctx) {
   installReconciliation(ctx);
   installDeductions(router);
   installEvaluations(router);
+  installPerformance(router, ctx);
 }

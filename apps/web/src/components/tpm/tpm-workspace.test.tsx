@@ -179,6 +179,44 @@ it("F-509 separates SAP write-off from recovery and exposes independent pending-
     renderToStaticMarkup(createElement(FinanceClaimsWorkspace)),
   ).not.toContain("Request SAP write-off");
 });
+it("F-508 exposes versioned margin sources and weighted account/mechanic summaries", () => {
+  state.values["roi-policies"] = {
+    distributors: [
+      { id: "sample-partner", name: "Sample partner", account_key: "SAMPLE" },
+    ],
+    rows: [],
+  };
+  state.values.roi = {
+    rows: [],
+    aggregates: [
+      {
+        dimension: "mechanic",
+        key: "rebate",
+        label: "Sample rebate",
+        spendCentavos: 100,
+        incrementalVolumeBase: 2,
+        netRoiBps: 0,
+        sample: true,
+      },
+    ],
+  };
+  const html = renderToStaticMarkup(createElement(TradeMarketingWorkspace));
+  for (const label of [
+    "Save margin and cost source",
+    "Sample partner",
+    "Margin per base piece",
+    "automatically after 30 days",
+    "missing feeds remain unknown",
+    "Sample rebate",
+    "net ROI 0.0%",
+    "Clearly marked sample assumptions",
+  ])
+    expect(html).toContain(label);
+  state.edit = false;
+  expect(
+    renderToStaticMarkup(createElement(TradeMarketingWorkspace)),
+  ).not.toContain("Save margin and cost source");
+});
 it("F-501 integer centavos distinguish unknown, zero and exact input values", () => {
   expect(centavos("12.35")).toBe(1235);
   expect(centavos("0")).toBe(0);

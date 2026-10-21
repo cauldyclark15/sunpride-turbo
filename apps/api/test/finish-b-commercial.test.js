@@ -15,6 +15,12 @@ import {
 } from "../src/domains/analytics/trade-planning.js";
 import { canonicalOutletContext } from "../src/domains/analytics/canonical-context.js";
 import { fraudPage } from "../src/domains/analytics/context-adapter.js";
+import {
+  readPromotionPerformance,
+  evaluatePerformance,
+  installPerformance,
+} from "../src/domains/tpm/performance.js";
+import { aggregatePerformance } from "../src/domains/tpm/evaluations.js";
 import { manilaDate } from "../src/domains/visits/shared.js";
 
 /** @type {any} */ let h;
@@ -195,6 +201,94 @@ test("F-607 planning consumes current governed campaign eligibility without mult
   expect((await demandSignalPage(c, period, s)).rows[0].promotionPlans).toEqual(
     [],
   );
+});
+test("F-508 governed margins join complete canonical secondary periods and weighted ROI without inventing missing feeds", async () => {
+  const endpoints = new Map(),
+    jobs = new Map();
+  /** @type {any[][]} */ const schedules = [];
+  installPerformance(
+    {
+      get: (/** @type {string} */ path, /** @type {any} */ fn) =>
+        endpoints.set(path, fn),
+      post: (/** @type {string} */ path, /** @type {any} */ fn) =>
+        endpoints.set(path, fn),
+    },
+    {
+      registerJob: (/** @type {string} */ name, /** @type {any} */ fn) =>
+        jobs.set(name, fn),
+      scheduler: {
+        daily: (/** @type {any[]} */ ...args) => schedules.push(args),
+      },
+      publish: async () => {},
+    },
+  );
+  const input = {
+    campaignVersionId: version,
+    distributorId: d.id,
+    productId: product,
+    unitMarginCentavos: 50,
+    otherCostCentavos: 100,
+    marginReference: "SAMPLE margin per base unit",
+    costReference: "SAMPLE allocated cost",
+    source: "sample",
+    idempotencyKey: id(),
+  };
+  const saved = await endpoints.get("/api/v1/tpm/roi/policy")({
+    ...c,
+    body: input,
+  });
+  expect(saved.accountKey).toBe(d.code);
+  const q = { campaignVersionId: version, accountKey: d.code };
+  await h.db`update campaign_versions set effective_to=${new Date(now)} where id=${version}`;
+  await expect(readPromotionPerformance(c, q)).rejects.toThrow("feeds");
+  const before = manilaDate(now - 3 * 86400000);
+  await h.db`insert into distributor_ingest_runs(distributor_id,source_key,payload_hash,adapter,submitted_by,complete,period_from,period_to) values(${d.id},'SAMPLE-ROI-COVERAGE','roi-fixture','api',${c.actor.profileId},true,${before},${day})`;
+  await h.db`insert into distributor_secondary_lines(distributor_id,invoice_number,line_key,revision,source_key,payload_hash,sale_date,kind,outlet_id,product_id,location_id,batch,uom,quantity_base,amount_centavos,quantity_units,units_per_uom) values(${d.id},'SAMPLE-BASELINE','1',1,'roi-fixture','roi-fixture',${before},'sale',${outlet},${product},${location},'Sample batch','PC',2,400,2,1)`;
+  const facts = await readPromotionPerformance(c, q);
+  expect(facts).toMatchObject({
+    baselineVolumeBase: 2,
+    promotedVolumeBase: 4,
+    incrementalMarginCentavos: 100,
+    otherCostCentavos: 100,
+    sample: true,
+    spendCompleteness: "complete",
+  });
+  const result = await tx(h.db, (db) => evaluatePerformance({ ...c, db }, q));
+  expect(result.result).toMatchObject({
+    incrementalVolumeBase: 2,
+    grossRoiBps: 10000,
+    netRoiBps: 0,
+    spendCentavos: 100,
+  });
+  expect(
+    (await tx(h.db, (db) => evaluatePerformance({ ...c, db }, q))).id,
+  ).toBe(result.id);
+  const row = (
+    await h.db`select e.*,v.name as campaign_name from promotion_evaluations e join campaign_versions v on v.id=e.campaign_version_id where e.id=${result.id}`
+  )[0];
+  expect(
+    aggregatePerformance([row])
+      .map((r) => r.dimension)
+      .sort(),
+  ).toEqual(["account", "campaign", "mechanic"]);
+  expect(schedules[0].slice(0, 3)).toEqual([
+    "04:00",
+    "Asia/Manila",
+    "tpm.roi.closed",
+  ]);
+  await schedules[0][3]({ db: h.db });
+  const queued = (
+    await h.db`select payload from jobs where kind='tpm.roi.queue'`
+  )[0];
+  expect(queued.payload.day).toBe(day);
+  await h.db`update campaign_versions set effective_from=${new Date(now - 33 * 86400000)},effective_to=${new Date(now - 31 * 86400000)} where id=${version}`;
+  await jobs.get("tpm.roi.queue")({ db: h.db, payload: queued.payload });
+  const evaluationJob = (
+    await h.db`select payload from jobs where kind='tpm.roi.evaluate'`
+  )[0];
+  expect(evaluationJob.payload).toEqual(q);
+  await h.db`update distributors set status='suspended' where id=${d.id}`;
+  await expect(readPromotionPerformance(c, q)).rejects.toThrow("access");
 });
 test("F-604 Outlet 360 reads actual retail actions and canonical classification", async () => {
   const context = await canonicalOutletContext(

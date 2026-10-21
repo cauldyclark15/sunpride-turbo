@@ -85,6 +85,7 @@ export type Deduction = {
   status: string;
 };
 export type Roi = {
+  sample?: boolean;
   id: string;
   campaignName: string;
   accountKey: string;

@@ -6,7 +6,7 @@ import {
   readPartnerEvidence,
 } from "../integration/spec-adapters.js";
 import { authorizeCampaignQuote } from "./authority.js";
-import { fail } from "../orders/validation.js";
+import { readPromotionPerformance } from "./performance.js";
 import { readIncentiveMetrics } from "./metric-sources.js";
 
 /** SEAM(SAP): operational instructions await enqueueSapPosting; no synthetic SAP acknowledgement.
@@ -29,12 +29,7 @@ export const seams = {
   /** SEAM(TOWER/SAP): complete benefit spend (invoice/rebate/valued goods), source and completeness
    * accompany baseline, margin and definition-version facts; earnings are not total spend.
    * @param {any} _c @param {any} _q @returns {Promise<any>} */
-  async readPromotionPerformance(_c, _q) {
-    fail(
-      "Promotion baseline, complete SAP spend and margin feeds are not connected",
-      "needs_setup",
-    );
-  },
+  readPromotionPerformance,
 };
 /** Owner adapters are installed once at integration; tests replace only these named seams.
  * @param {Partial<typeof seams>} adapters */

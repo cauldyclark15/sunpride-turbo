@@ -173,7 +173,29 @@ export function TradeMarketingWorkspace() {
     "/api/v1/tpm/campaigns",
   );
   const options = useApi<Options>(["tpm", "options"], "/api/v1/tpm/options");
-  const roi = useApi<{ rows: Roi[] }>(["tpm", "roi"], "/api/v1/tpm/roi");
+  const roi = useApi<{
+    rows: Roi[];
+    aggregates?: {
+      dimension: string;
+      key: string;
+      label: string;
+      spendCentavos: number;
+      incrementalVolumeBase: number;
+      netRoiBps: number | null;
+      sample: boolean;
+    }[];
+  }>(["tpm", "roi"], "/api/v1/tpm/roi");
+  const performance = useApi<{
+    distributors: { id: string; name: string; account_key: string }[];
+    rows: {
+      id: string;
+      campaign_name: string;
+      product_name: string;
+      account_key: string;
+      source: string;
+      revision: number;
+    }[];
+  }>(["tpm", "roi-policies"], "/api/v1/tpm/roi/policies");
   const [selected, setSelected] = useState<Campaign | null>(null);
   useLive(["tpm"], [["tpm"]]);
   return (
@@ -322,6 +344,93 @@ export function TradeMarketingWorkspace() {
         </Panel>
       ) : null}
       <Panel title="Measured promotion uplift and ROI">
+        <p className="text-sm text-muted">
+          Baseline: the immediately preceding equal-length period of complete
+          secondary sales. Margin and other costs use the sources below. Closed
+          campaigns are evaluated automatically after 30 days; missing feeds
+          remain unknown.
+        </p>
+        {roi.data?.aggregates?.map((g) => (
+          <p key={g.dimension + g.key} className="text-sm">
+            {words(g.dimension)} · {g.label}
+            {g.sample ? " · Sample" : ""}: incremental{" "}
+            {g.incrementalVolumeBase.toLocaleString()} pieces · spend{" "}
+            {peso(g.spendCentavos)} · net ROI{" "}
+            {g.netRoiBps == null
+              ? "Unknown"
+              : `${(g.netRoiBps / 100).toFixed(1)}%`}
+          </p>
+        ))}
+        {performance.error ? (
+          <p role="alert">Unable to load measurement sources.</p>
+        ) : null}
+        {performance.data?.rows.map((p) => (
+          <p key={p.id} className="text-xs text-muted">
+            {p.campaign_name} · {p.account_key} · {p.product_name} ·{" "}
+            {words(p.source)} margin source, revision {p.revision}
+          </p>
+        ))}
+        {canEdit && campaigns.data && options.data && performance.data ? (
+          <CommandForm
+            path="/api/v1/tpm/roi/policy"
+            label="Save margin and cost source"
+            reuseCompleted={false}
+            build={(d) => ({
+              campaignVersionId: d.get("campaign"),
+              distributorId: d.get("distributor"),
+              productId: d.get("product"),
+              unitMarginCentavos: centavos(d.get("margin")),
+              otherCostCentavos: centavos(d.get("cost")),
+              marginReference: d.get("marginRef"),
+              costReference: d.get("costRef"),
+              source: d.get("sourceMode"),
+            })}
+          >
+            <Field label="Campaign">
+              <CampaignPicker campaigns={campaigns.data.rows} />
+            </Field>
+            <Field label="Distributor account">
+              <select name="distributor" required className={input}>
+                {performance.data.distributors.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name} · {d.account_key}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Product">
+              <select name="product" required className={input}>
+                {options.data.products.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Margin per base piece · ₱">
+              <input name="margin" required className={input} />
+            </Field>
+            <Field label="Other campaign cost allocated to this SKU · ₱">
+              <input name="cost" required defaultValue="0" className={input} />
+            </Field>
+            <Field label="SAP margin extract or sample reference">
+              <input name="marginRef" required className={input} />
+            </Field>
+            <Field label="Cost evidence reference, including explicit zero">
+              <input name="costRef" required className={input} />
+            </Field>
+            <Field label="Source">
+              <select name="sourceMode" className={input}>
+                <option value="sample">
+                  Clearly marked sample assumptions
+                </option>
+                <option value="operational">
+                  Operational source documents
+                </option>
+              </select>
+            </Field>
+          </CommandForm>
+        ) : null}
         <div className="grid gap-3 md:grid-cols-3">
           {roi.data?.rows.map((r) => (
             <article key={r.id} className="rounded-md border border-border p-4">
@@ -348,7 +457,8 @@ export function TradeMarketingWorkspace() {
                   : `${(r.netRoiBps / 100).toFixed(1)}%`}
               </p>
               <p className="text-xs text-muted">
-                Directional · review baseline and SAP margin source
+                {r.sample ? "Sample · " : ""}Directional · review baseline and
+                SAP margin source
               </p>
             </article>
           ))}

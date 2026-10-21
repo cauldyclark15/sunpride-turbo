@@ -131,8 +131,15 @@ export function computeRoi(facts, spend) {
     !facts.definitionVersion
   )
     fail("Baseline, margin and metric provenance are required");
+  if (
+    facts.incrementalMarginCentavos != null &&
+    !Number.isSafeInteger(facts.incrementalMarginCentavos)
+  )
+    fail("Weighted margin must be exact integer centavos");
   const incremental = promoted - baseline,
-    incrementalMargin = safe(BigInt(incremental) * BigInt(margin));
+    incrementalMargin =
+      facts.incrementalMarginCentavos ??
+      safe(BigInt(incremental) * BigInt(margin));
   const cost = safe(BigInt(integer(spend)) + BigInt(other));
   return {
     baselineVolumeBase: baseline,
@@ -152,9 +159,55 @@ export function computeRoi(facts, spend) {
         )
       : null,
     directional: true,
+    sample: facts.sample === true,
     baselineMethod: facts.baselineMethod,
     marginSource: facts.marginSource,
   };
+}
+/** Aggregate latest account cuts, never average ROI percentages or sum old revisions.
+ * @param {any[]} rows */
+export function aggregatePerformance(rows) {
+  /** @type {Map<string,{dimension:string,key:string,label:string,baseline:bigint,promoted:bigint,margin:bigint,cost:bigint,sample:boolean}>} */
+  const groups = new Map();
+  for (const row of rows)
+    for (const [dimension, key, label] of [
+      ["campaign", row.campaign_version_id, row.campaign_name],
+      ["account", row.account_key, row.account_key],
+      ["mechanic", row.mechanic, row.mechanic],
+    ]) {
+      const id = dimension + ":" + key;
+      if (!groups.has(id))
+        groups.set(id, {
+          dimension,
+          key,
+          label,
+          baseline: 0n,
+          promoted: 0n,
+          margin: 0n,
+          cost: 0n,
+          sample: false,
+        });
+      const group = groups.get(id),
+        result = row.result;
+      if (!group) throw new Error("Missing performance group");
+      group.baseline += BigInt(result.baselineVolumeBase);
+      group.promoted += BigInt(result.promotedVolumeBase);
+      group.margin += BigInt(result.incrementalMarginCentavos);
+      group.cost += BigInt(result.spendCentavos);
+      group.sample ||= result.sample === true;
+    }
+  return [...groups.values()].map((g) => ({
+    dimension: g.dimension,
+    key: g.key,
+    label: g.label,
+    sample: g.sample,
+    baselineVolumeBase: safe(g.baseline),
+    promotedVolumeBase: safe(g.promoted),
+    incrementalVolumeBase: safe(g.promoted - g.baseline),
+    spendCentavos: safe(g.cost),
+    grossRoiBps: g.cost ? safe((g.margin * 10000n) / g.cost) : null,
+    netRoiBps: g.cost ? safe(((g.margin - g.cost) * 10000n) / g.cost) : null,
+  }));
 }
 /** @param {any} router */
 export function installEvaluations(router) {
@@ -178,9 +231,10 @@ export function installEvaluations(router) {
   router.get("/api/v1/tpm/roi", async (/** @type {any} */ c) => {
     await office(c);
     const rows = bounded(
-      await c.db`select e.*,v.name as campaign_name from promotion_evaluations e join campaign_versions v on v.id=e.campaign_version_id order by e.created_at desc limit 501`,
+      await c.db`select e.*,v.name as campaign_name from (select distinct on(campaign_version_id,account_key) * from promotion_evaluations order by campaign_version_id,account_key,created_at desc,id desc) e join campaign_versions v on v.id=e.campaign_version_id order by e.created_at desc limit 501`,
     );
     return {
+      aggregates: aggregatePerformance(rows),
       rows: rows.map((e) => ({
         id: e.id,
         campaignName: e.campaign_name,
