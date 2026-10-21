@@ -1,4 +1,5 @@
-const enc = new TextEncoder();
+/** Lazy so pure scalar/UUID imports also run in the isolated native scheme interpreter. */
+/** @type {TextEncoder|undefined} */ let encoder;
 
 /** @param {string|Uint8Array|ArrayBuffer} data */
 export function sha256Hex(data) {
@@ -46,6 +47,7 @@ export function canonicalJson(value) {
 
 /** Constant-time string compare. @param {string} a @param {string} b */
 export function safeEqual(a, b) {
+  const enc = (encoder ??= new TextEncoder());
   const x = enc.encode(a);
   const y = enc.encode(b);
   if (x.length !== y.length) return false;
