@@ -18,7 +18,7 @@ export const executionExceptionEligible = (policy, reasons) =>
   );
 /** Same value-band authority as ordinary claim approval; never another approval matrix.
  * @param {any} c @param {any} r */
-async function band(c, r) {
+export async function claimApprovalBand(c, r) {
   const rules =
     await c.db`select * from claim_approval_rules where (party_type='all' or party_type=${r.claimant_party_type}) and min_centavos<=${r.amount_centavos} and max_centavos>=${r.amount_centavos} and effective_from<=${new Date(c.now)} and effective_to>${new Date(c.now)}`;
   return rules.length === 1 && rules[0].approver_roles.includes(c.actor.role)
@@ -54,7 +54,7 @@ export async function applyExecutionOverride(c, r, policy, base) {
       return base;
     throw error;
   }
-  const rule = await band(cc, r);
+  const rule = await claimApprovalBand(cc, r);
   if (!rule || rule.id !== override.approval_rule_id) return base;
   return {
     ...base,
@@ -93,7 +93,7 @@ export async function approveExecutionOverride(c, r, policy, base, b) {
     fail(
       "Source ownership, changed evidence, quantities and monetary proof cannot be overridden",
     );
-  const rule = await band(c, r);
+  const rule = await claimApprovalBand(c, r);
   if (!rule) fail("Choose a Finance approver in this claim value band");
   const [row] =
     await c.db`insert into claim_execution_overrides(claim_id,base_hash,waived_reasons,reason,evidence_reference,approved_by,approval_rule_id)values(${r.id},${base.baseHash},${base.reasons},${text(b.reason, "Exception reason", 1000)},${text(b.evidenceReference, "Alternative evidence reference", 500)},${c.actor.subject},${rule.id})returning id`;

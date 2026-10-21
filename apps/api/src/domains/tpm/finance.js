@@ -6,6 +6,7 @@ import { writeAudit } from "../org/audit.js";
 import { changed, bounded, command, office } from "./common.js";
 import { fail, integer, safe, text, uuid } from "../orders/validation.js";
 import { canonicalJson, sha256Hex } from "../../core/util.js";
+import { queueClaimMail } from "./notifications.js";
 
 /** F-504 transactional operational staging, handed to the SAP-owned outbox when available.
  * @param {any} c @param {any} input */
@@ -178,7 +179,9 @@ export async function applySapAcknowledgement(db, ack, env = undefined) {
             : "approved";
       await t`update claims set status=${status},updated_at=now() where id=${claim.id}`;
       await t`insert into claim_events(claim_id,action,actor_subject,details) values(${claim.id},${"sap." + ack.status},'system:sap',${{ settlementId: s.id, document: doc }})`;
-      await t`insert into claim_notifications(claim_id,party_type,party_id,message) values(${claim.id},${claim.claimant_party_type},${claim.claimant_party_id},${ack.status === "acknowledged" ? "SAP confirmed your claim settlement." : "SAP rejected the settlement; Finance will review it."})`;
+      const [notice] =
+        await t`insert into claim_notifications(claim_id,party_type,party_id,message) values(${claim.id},${claim.claimant_party_type},${claim.claimant_party_id},${ack.status === "acknowledged" ? "SAP confirmed your claim settlement." : "SAP rejected the settlement; Finance will review it."}) returning id`;
+      await queueClaimMail(t, notice.id);
       if (ack.status === "acknowledged" && claim.earning_id)
         await posting(
           { db: t, env },

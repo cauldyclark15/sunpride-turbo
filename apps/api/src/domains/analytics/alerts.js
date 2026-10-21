@@ -8,6 +8,10 @@ import { scopeFor, periodFor, dateOf } from "./measures.js";
 import { readVisits, visitSummary } from "./data.js";
 import { availabilityModel } from "./availability-adapter.js";
 import { fraudPage } from "./context-adapter.js";
+import {
+  sendNotificationMail,
+  notificationMailMode,
+} from "../../core/notification-mail.js";
 
 /** F-608 injectable mail adapter. Dev is a durable, idempotent local sink, NEVER a real send.
  * Production adapter must honor alertId as provider idempotency key.
@@ -134,7 +138,7 @@ export async function deliverAlert(
           alertId: id,
           to: user.email,
           subject: breach.title,
-          body: `${breach.scope}: ${breach.value}. Open the office Decide page for current authorized details.`,
+          body: "A subscribed threshold needs attention. Sign in and open Account notifications for current authorized details.",
         });
         await t`update analytics_alert_instances set email_at=now() where id=${id}`;
         await t`insert into analytics_alert_attempts(alert_id,channel,outcome) values(${id},'email','delivered')`;
@@ -156,11 +160,30 @@ export async function deliverAlert(
   }
 }
 /** @param {any} router @param {any} installCtx @param {typeof devMailAdapter} [mail] */
-export function installAlerts(router, installCtx, mail = devMailAdapter) {
+export function installAlerts(router, installCtx, mail) {
+  const send =
+    mail ??
+    (async (/** @type {any} */ db, /** @type {any} */ message) => {
+      if (notificationMailMode(installCtx.env) === "dev_sink")
+        await devMailAdapter(db, message);
+      const [alert] =
+        await db`select created_at from analytics_alert_instances where id=${message.alertId}`;
+      await sendNotificationMail(
+        db,
+        {
+          key: "alert:" + message.alertId,
+          to: message.to,
+          subject: message.subject,
+          body: message.body,
+          createdAt: +new Date(alert.created_at),
+        },
+        installCtx.env,
+      );
+    });
   installCtx.registerJob(
     "analytics.alert-deliver",
     async (/** @type {any} */ ctx) => {
-      await deliverAlert(ctx.db, ctx.payload.id, mail);
+      await deliverAlert(ctx.db, ctx.payload.id, send);
       await installCtx.publish("analytics");
     },
   );
@@ -225,7 +248,10 @@ export function installAlerts(router, installCtx, mail = devMailAdapter) {
     return {
       rows,
       subscriptions,
-      mailMode: "Development mail sink; no external email sent",
+      mailMode:
+        notificationMailMode(ctx.env) === "dev_sink"
+          ? "Development mail sink; no external email sent"
+          : "Configured email provider; acceptance does not prove inbox delivery",
     };
   });
   router.post("/api/v1/alerts/read", async (/** @type {any} */ ctx) => {

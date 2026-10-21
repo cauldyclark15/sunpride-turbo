@@ -1446,11 +1446,30 @@ function PolicyEditors({
               effectiveTo: `${d.get("to")}T00:00:00+08:00`,
               requiredEvidence: d.getAll("required"),
               allowExecutionOverride: d.get("allowExecutionOverride") === "on",
+              escalationHours: Number(d.get("escalationHours")),
+              emailNotifications: d.get("emailNotifications") === "on",
             })}
           >
             <Field label="Type name">
               <input name="code" required className={input} />
             </Field>
+            <Field label="Escalate after inactive hours · our sample starting rule">
+              <input
+                name="escalationHours"
+                type="number"
+                min="1"
+                max="720"
+                defaultValue="48"
+                required
+                className={input}
+              />
+            </Field>
+            <label className="text-sm">
+              <input name="emailNotifications" type="checkbox" defaultChecked />{" "}
+              Email current authorized claimants and independent Finance
+              approvers. Local development records messages without sending
+              email.
+            </label>
             <label className="text-sm">
               <input type="checkbox" name="allowExecutionOverride" /> Permit
               independently approved execution-proof exceptions. Monetary proof,

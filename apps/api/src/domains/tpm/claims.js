@@ -16,6 +16,7 @@ import { claimSourceOptions } from "./claim-source-options.js";
 import { executionEvidenceAccess } from "./evidence-access.js";
 import { filesDir, MAX_MEDIA_BYTES } from "../../core/media.js";
 import { join } from "node:path";
+import { queueClaimMail } from "./notifications.js";
 import {
   choice,
   date,
@@ -99,7 +100,9 @@ async function claim(c, id, lock = false) {
 /** @param {any} c @param {any} r @param {string} action @param {any} [details] */
 async function event(c, r, action, details = {}) {
   await c.db`insert into claim_events(claim_id,action,actor_subject,details) values(${r.id},${action},${c.actor.subject},${details})`;
-  await c.db`insert into claim_notifications(claim_id,party_type,party_id,message) values(${r.id},${r.claimant_party_type},${r.claimant_party_id},${`Your claim is ${action.replaceAll("_", " ")}.`})`;
+  const [notice] =
+    await c.db`insert into claim_notifications(claim_id,party_type,party_id,message) values(${r.id},${r.claimant_party_type},${r.claimant_party_id},${`Your claim is ${action.replaceAll("_", " ")}.`}) returning id`;
+  await queueClaimMail(c.db, notice.id);
   await changed(c, `claim.${action}`, r.id, details);
 }
 /** F-505 shared intake seam; caller identity checked here, including portal adapters.
@@ -692,6 +695,17 @@ export function installClaims(router) {
           to = instant(b.effectiveTo);
         if (to <= from) fail("Policy end must follow start");
         if (b.kind === "claim_type") {
+          const hours = b.escalationHours ?? 48;
+          if (
+            !Number.isInteger(hours) ||
+            hours < 1 ||
+            hours > 720 ||
+            (b.emailNotifications != null &&
+              typeof b.emailNotifications !== "boolean")
+          )
+            fail(
+              "Choose 1–720 inactivity hours and an explicit email preference",
+            );
           const required = b.requiredEvidence;
           if (
             !Array.isArray(required) ||
@@ -701,7 +715,7 @@ export function installClaims(router) {
           )
             fail("Choose required evidence types");
           const [r] =
-            await cc.db`insert into claim_types(code,effective_from,effective_to,required_evidence,source,allow_execution_override) values(${text(b.code, "Type code", 80)},${from},${to},${required},'office',${b.allowExecutionOverride === true}) returning id`;
+            await cc.db`insert into claim_types(code,effective_from,effective_to,required_evidence,source,allow_execution_override,escalation_hours,email_notifications) values(${text(b.code, "Type code", 80)},${from},${to},${required},'office',${b.allowExecutionOverride === true},${hours},${b.emailNotifications !== false}) returning id`;
           await changed(cc, "claim_type.saved", r.id);
           return { id: r.id };
         }

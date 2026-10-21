@@ -4,6 +4,8 @@ import { apiFetch, useApi } from "../../lib/api";
 import { useSession } from "../../lib/auth/session";
 import { ChangePassword } from "./change-password";
 import { EarnedStatements } from "./earned-statements";
+import { AccountNotifications } from "./notifications";
+import { usePermissions } from "../../lib/auth";
 
 const ROLE_NAMES: Record<string, string> = {
   super_admin: "System administrator",
@@ -20,6 +22,7 @@ type Unit = { id: string; name: string };
 
 export function AccountPage() {
   const { profile, me } = useSession();
+  const { can } = usePermissions();
   const units = useApi<Unit[]>(
     profile?.orgUnitId && !me?.partner
       ? ["account-area", profile.id, profile.orgUnitId]
@@ -43,7 +46,7 @@ export function AccountPage() {
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Account</h1>
         <p className="mt-2 text-sm text-muted">
-          Your sign-in details and password.
+          Your details, notices and password.
         </p>
       </header>
       <section
@@ -64,6 +67,11 @@ export function AccountPage() {
           ))}
         </dl>
       </section>
+      <AccountNotifications
+        key={JSON.stringify([profile, me?.partner])}
+        partner={Boolean(me?.partner)}
+        readAlerts={!me?.partner && can("report.read")}
+      />
       <ChangePassword />
       {profile.role === "sales" ? (
         <EarnedStatements partner={Boolean(me?.partner)} />

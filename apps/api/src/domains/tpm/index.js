@@ -6,13 +6,15 @@ import { installFinance } from "./finance.js";
 import { installDeductions } from "./deductions.js";
 import { installEvaluations } from "./evaluations.js";
 import { installClaimantPortals } from "./portal.js";
-/** @param {any} router */
-export function install(router) {
+import { installClaimNotifications } from "./notifications.js";
+/** @param {any} router @param {any} ctx */
+export function install(router, ctx) {
   registerTopic("tpm", (actor) => actor.role !== "sales");
   installCampaigns(router);
   installWorkspace(router);
   installClaims(router);
   installClaimantPortals(router);
+  installClaimNotifications(router, ctx);
   installFinance(router);
   installDeductions(router);
   installEvaluations(router);
