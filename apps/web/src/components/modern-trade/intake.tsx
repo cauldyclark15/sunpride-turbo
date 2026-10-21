@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useApi } from "../../lib/api";
 import { filePayload, downloadDocument } from "./documents";
 import type { Intake, Options } from "./model";
+import { OcrReview } from "./ocr-review";
 import {
   ExportActions,
   Field,
@@ -212,6 +213,7 @@ export function IntakeEditor({
           </button>
         ) : null}
       </div>
+      <OcrReview extraction={row.extraction} />
       {row.exceptions.map((e, i) => (
         <Notice key={i}>{e}</Notice>
       ))}

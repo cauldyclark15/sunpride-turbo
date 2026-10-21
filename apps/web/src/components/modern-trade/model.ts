@@ -41,6 +41,7 @@ export type IntakeLine = {
 };
 export type Intake = {
   id: string;
+  extraction?: { modelVersion?: string; text?: string } | null;
   po_number: string | null;
   service_date: string | null;
   branchLabel: string;
