@@ -7,6 +7,7 @@ import { canonicalJson, sha256Hex } from "../../core/util.js";
 import { audit, command, notify } from "./service.js";
 import { baseQuantity, resolvePrice, validateRule } from "./pricing.js";
 import { schemeUnits, validateScope } from "../tpm/engine.js";
+import { requireCampaignLink } from "../tpm/budget-link.js";
 import {
   ORGANIZATION,
   MAX_CENTAVOS,
@@ -358,11 +359,16 @@ export function installPricingRoutes(router) {
               fail("Exclusions need promotion codes");
             const campaign =
               b.campaignVersionId == null ? null : uuid(b.campaignVersionId);
+            const [previous] = b.id
+              ? await cc.db`select status,campaign_version_id,effective_from,effective_to from promotions where id=${uuid(b.id)} and organization_id=${ORGANIZATION} and deleted_at is null for update`
+              : [];
+            requireCampaignLink(status, campaign, previous, from, to);
             if (campaign) {
               const [v] =
                 await cc.db`select v.* from campaign_versions v join campaigns c on c.id=v.campaign_id where v.id=${campaign} and c.organization_id=${ORGANIZATION}`;
               if (
                 !v ||
+                (status === "active" && v.status !== "active") ||
                 from < new Date(v.effective_from) ||
                 (to && to > new Date(v.effective_to)) ||
                 !to
