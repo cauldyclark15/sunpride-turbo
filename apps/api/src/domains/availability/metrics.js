@@ -324,6 +324,7 @@ async function metrics(db, p, s) {
     }),
   };
 }
+export { metrics as availabilityPeriod };
 /** F-220 extends the existing coverage response, never a second dashboard.
  * @param {any} ctx @param {any} p @param {any} s */
 export async function coverageAvailability(ctx, p, s) {

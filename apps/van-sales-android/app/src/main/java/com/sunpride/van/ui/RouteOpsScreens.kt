@@ -17,6 +17,7 @@ import org.json.JSONObject
     var batches by remember { mutableStateOf(emptyList<BatchPosition>()) }
     var snapshot by remember { mutableStateOf<JSONObject?>(null) }
     var scorecard by remember { mutableStateOf<JSONObject?>(null) }
+    var targets by remember {mutableStateOf(com.sunpride.catalogue.TargetProgressView())}
     var containers by remember { mutableStateOf(emptyList<JSONObject>()) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -29,7 +30,7 @@ import org.json.JSONObject
     var product by remember { mutableStateOf(c.products.firstOrNull()?.productId?:"") }
     var reloadQuantity by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
-    suspend fun refresh() { snapshot=c.repository.routeSnapshot(); saved=c.repository.routeObservations(); batches=c.repository.batchPositions();scorecard=c.repository.routeScorecard();containers=c.repository.routeContainerPosition() }
+    suspend fun refresh() { snapshot=c.repository.routeSnapshot(); saved=c.repository.routeObservations(); batches=c.repository.batchPositions();scorecard=c.repository.routeScorecard();containers=c.repository.routeContainerPosition();targets=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO){c.repository.targetProgress(false)} }
     fun save(block: suspend ()->Unit) { if(busy) return; scope.launch {
         busy=true; message=null
         try { block(); refresh(); message="Saved on this phone. Pending sync." }
@@ -37,7 +38,7 @@ import org.json.JSONObject
         catch(_: Exception) { message="Not saved. Check the reading, selected store, quantities and final stock count." }
         finally { busy=false }
     } }
-    LaunchedEffect(c.trip?.tripId) { refresh() }
+    LaunchedEffect(c.trip?.tripId,c.busy,c.repository.sapMasterLifetime()) { if(!c.busy)refresh() }
     ScreenFrame("Route controls",c::back,message=message) {
         Text("Saved offline on this phone. Warehouse receipt and supervisor sign-off follow after sync.")
         val state=snapshot?.optString("settlementState")?.takeIf { it!="null" && it.isNotEmpty() }
@@ -54,6 +55,10 @@ import org.json.JSONObject
             card.optJSONObject("prior")?.let {prior->Text("Previous trip ${prior.optString("date")} · ${routeMoney(prior.optString("salesCentavos"))}")}
             Text(if(card.optBoolean("localProjection")) "Includes work saved here and not yet reflected by the office." else "From the last authorized office snapshot.",style=MaterialTheme.typography.bodySmall)
         } }
+        if(c.trip!=null){
+            com.sunpride.catalogue.TargetProgressCard(targets)
+            SecondaryButton("Refresh month targets",{scope.launch{busy=true;try{targets=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO){c.repository.targetProgress(true)}}finally{busy=false}}},enabled=!busy&&!c.busy)
+        }
         SectionCard("Actual stop times") {
             Choice("Stop store",customer,c.customers.map {it.outletId to it.name}) {customer=it}
             SecondaryButton("Record arrival",{save {c.repository.recordStop(customer,"arrival")}},enabled=!busy && !c.tripClosed && customer.isNotBlank())

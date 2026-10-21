@@ -7,6 +7,7 @@ import { canonicalJson, sha256Hex } from "../../core/util.js";
 import { requireCapability, roleHas } from "../../core/capabilities.js";
 import { invalid, conflict, notFound, forbidden } from "../../core/errors.js";
 import { currentActor } from "../van/access.js";
+import { productFor } from "../van/facts.js";
 import { scopeFor, monthEnd } from "../analytics/measures.js";
 import { subjects, checkMonth, writeTarget } from "../analytics/targets.js";
 import { enqueueRefresh } from "../analytics/refresh.js";
@@ -15,8 +16,8 @@ import { required } from "../org/model.js";
 /** Metric catalogue: unit, whether children sum to the parent, and how a basis is measured. */
 export const METRICS = {
   sales_value: { label: "Sales value", unit: "centavos", additive: true },
-  // SEAM(MASTERS): order quantity in the ordered UOM until governed base-UOM conversion is published.
-  volume: { label: "Sales volume", unit: "order quantity", additive: true },
+  // F-615: each product target names its governed base unit; never mix selling UOMs.
+  volume: { label: "Sales volume", unit: "base units", additive: true },
   coverage_stores: { label: "Buying stores", unit: "stores", additive: true },
   distribution_points: {
     label: "Distribution points",
@@ -142,28 +143,43 @@ function readIdentity(body) {
 }
 
 /** Prior three complete months, measured with the shared analytics sales facts.
- * @param {any} db @param {string} metric @param {string|null} product @param {string} childLevel @param {string[]} keys @param {string} month */
-async function basisFor(db, metric, product, childLevel, keys, month) {
+ * @param {any} db @param {string} metric @param {string|null} product @param {string} childLevel @param {string[]} keys @param {string} month @param {any} scope */
+async function basisFor(db, metric, product, childLevel, keys, month, scope) {
   const from = shift(month, -3) + "-01",
     to = monthEnd(shift(month, -1));
   if (!Object.hasOwn(BASIS_SQL, metric) || !keys.length)
     return { from: null, to: null, values: new Map() };
   const group =
     childLevel === "channel"
-      ? "channel"
+      ? "f.channel"
       : childLevel === "territory"
-        ? "territory_id::text"
-        : "profile_id::text";
-  // Both fragments come from the fixed maps above, never from request input.
-  const rows =
-    await db`select ${db.unsafe(group)} as key, ${db.unsafe(BASIS_SQL[/** @type {keyof typeof BASIS_SQL} */ (metric)])} as v from analytics_sales_facts
-     where approved and service_date between ${from}::date and ${to}::date and ${db.unsafe(group)} in ${db(keys)} and (${product}::text is null or product_code=${product})
-     group by 1`;
+        ? "f.territory_id::text"
+        : "f.profile_id::text";
+  const expression =
+    metric === "volume"
+      ? "sum(l.quantity_base::numeric/nullif(coalesce(ip.quantity_scale,p.quantity_scale,1),0))"
+      : BASIS_SQL[/** @type {keyof typeof BASIS_SQL} */ (metric)];
+  const source =
+    metric === "volume"
+      ? "analytics_sales_facts f join order_lines l on l.id=f.line_id join products p on p.id=f.product_id left join product_inventory_policies ip on ip.product_id=p.id and ip.active and ip.deleted_at is null"
+      : "analytics_sales_facts f";
+  const unknown =
+    metric === "volume"
+      ? "count(*) filter(where l.quantity_base is null)"
+      : "0";
+  const units = scope.ids.length ? scope.ids : [null];
+  const records =
+    await db`select ${db.unsafe(group)} as key,${db.unsafe(expression)} as v,${db.unsafe(unknown)} as unknown from ${db.unsafe(source)} where f.approved and f.service_date between ${from}::date and ${to}::date and ${db.unsafe(group)} in ${db(keys)} and (${product}::text is null or f.product_code=${product}) and f.agent_unit_id in ${db(units)} and (f.owner_unit_id in ${db(units)} or (f.store_id is null and ${scope.cross})) and (f.source_location_id is null or f.source_unit_id in ${db(units)}) group by 1`;
+  if (records.some((/** @type {any} */ r) => Number(r.unknown) > 0))
+    return { from: null, to: null, values: new Map() };
   return {
     from,
     to,
     values: new Map(
-      rows.map((/** @type {any} */ r) => [r.key, Math.round(Number(r.v))]),
+      records.map((/** @type {any} */ r) => [
+        r.key,
+        metric === "volume" ? Number(r.v) : Math.round(Number(r.v)),
+      ]),
     ),
   };
 }
@@ -180,6 +196,14 @@ async function draft(db, s, id, requested) {
   if (!kids.rows.length)
     throw conflict("This parent has no children in your team to cascade to");
   const def = METRICS[/** @type {keyof typeof METRICS} */ (id.metric)];
+  let unit = def.unit;
+  if (id.metric === "volume") {
+    const [product] =
+      await db`select id from products where code=${id.productCode} and organization_id='sunpride' and active and deleted_at is null`;
+    if (!product)
+      throw invalid("Choose an active governed product for the volume target");
+    unit = (await productFor(db, product.id, Date.now())).base_code;
+  }
   const basis = await basisFor(
     db,
     id.metric,
@@ -187,6 +211,7 @@ async function draft(db, s, id, requested) {
     kids.level,
     kids.rows.map((/** @type {any} */ r) => r.key),
     id.month,
+    s,
   );
   const method = !def.additive
     ? "same_rate"
@@ -221,7 +246,7 @@ async function draft(db, s, id, requested) {
     method,
     basisFrom: method === "prior_actual" ? basis.from : null,
     basisTo: method === "prior_actual" ? basis.to : null,
-    unit: def.unit,
+    unit,
     additive: def.additive,
     lines: rows.map((r, i) => ({ ...r, amount: amounts[i] })),
   };

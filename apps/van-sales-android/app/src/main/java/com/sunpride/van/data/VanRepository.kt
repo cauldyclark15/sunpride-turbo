@@ -52,6 +52,41 @@ class VanRepository private constructor(private val context: Context, private va
             st.db.rows().insertSyncMeta(meta.copy(policyJson=policy.toString()))
         }}},client::masterPull,valid,{e->e !is VanSyncFailure || e.code!="offline"}))
     }
+    /** F-615 signed own-target snapshot, persisted only in the existing scoped encrypted metadata. */
+    fun targetProgress(refresh:Boolean):com.sunpride.catalogue.TargetProgressView {
+        val st=current.value?:return com.sunpride.catalogue.TargetProgressView(message="Sign in and sync to see targets")
+        val sessionId=sessionKey()?:return com.sunpride.catalogue.TargetProgressView(message="Sign in and sync to see targets")
+        val epoch=st.authorizationEpoch();val day=java.time.LocalDate.now(java.time.ZoneId.of("Asia/Manila")).toString()
+        val bound={sessionId==sessionKey()&&st===current.value&&epoch==st.authorizationEpoch()&&auth.isSignedIn}
+        val valid={runCatching{bound()&&runBlocking{st.canSync()}}.getOrDefault(false)}
+        val prefs=context.getSharedPreferences("van_projection_grants",Context.MODE_PRIVATE)
+        val grant=com.sunpride.catalogue.ProjectionGrant("${st.scope}|$sessionId|$epoch","targets",{prefs.getString(it,null)},{k,v->prefs.edit().putString(k,v).commit()}).also{it.begin(day)}
+        val cache=object:com.sunpride.catalogue.TargetProgressCache {
+            override fun current()=grant.current()&&valid()
+            override fun revoke(){if(!grant.deny())try{auth.signOut()}finally{this@VanRepository.session.value=SessionState();this@VanRepository.current.value=null;gateway=null}}
+            override fun read(day:String):Pair<String,Long>? {
+                if(!current())return null
+                val saved=runBlocking{st.db.rows().meta(st.scope.fullAuthSubject,st.scope.deviceId)?.policyJson?.let{JSONObject(it).optJSONObject("targetProgressCache")}}?:return null
+                if(saved.getString("day")!=day)return null
+                return grant.read(saved.getString("wrapped"))?.let{it to saved.getLong("savedAt")}
+            }
+            override fun write(day:String,text:String,at:Long){
+                val wrapped=checkNotNull(grant.wrap(text))
+                runBlocking{com.sunpride.integrity.RemoteErasure.recordingLock.withLock {check(current());st.db.withTransaction{
+                    check(bound()&&grant.current());val meta=checkNotNull(st.db.rows().meta(st.scope.fullAuthSubject,st.scope.deviceId))
+                    val policy=JSONObject(checkNotNull(meta.policyJson)).put("targetProgressCache",JSONObject().put("day",day).put("wrapped",wrapped).put("savedAt",at))
+                    st.db.rows().insertSyncMeta(meta.copy(policyJson=policy.toString()));check(bound()&&grant.current())
+                }}}
+            }
+        }
+        val fetch:(()->String)?=if(!refresh||stubMode!=null)null else ({
+            val identity=JSONObject(checkNotNull(index.getString("$sessionId.identity",null)))
+            val binding=com.sunpride.catalogue.SapMasterMirror.Binding("van-android",st.scope.deviceId,identity.getString("scopeId"),identity.getString("fingerprint"))
+            val client=checkNotNull(gateway as? VanSyncClient)
+            com.sunpride.catalogue.TargetProgressCodec.response(client.masterPull(com.sunpride.catalogue.TargetProgressCodec.request(binding,day)),binding,day)
+        })
+        return com.sunpride.catalogue.TargetProgressRepository.load(day,cache,System.currentTimeMillis(),fetch){e->e !is VanSyncFailure||e.code!="offline"}
+    }
     fun sapMasterLifetime(): String? = if(auth.isSignedIn) current.value?.let {"${sessionKey()}|${it.scope}|${it.authorizationEpoch()}"} else null
     fun appUpdates() = com.sunpride.integrity.AppUpdateClient(context,environment.siteUrl,token={refresh->auth.accessToken(refresh)})
     private val index = context.getSharedPreferences(if(stubMode != null) "van_stub_identity_index" else "van_identity_index",Context.MODE_PRIVATE)
@@ -434,7 +469,7 @@ class VanRepository private constructor(private val context: Context, private va
         val st = store()
         try {
             VanSync(st,checkNotNull(gateway),evidence=st.evidence).syncNow(); session.value = SessionState(true)
-            if(stubMode==null) withContext(Dispatchers.IO) {runCatching {sapMasters(true)}}
+            if(stubMode==null) withContext(Dispatchers.IO) {runCatching {sapMasters(true)};runCatching{targetProgress(true)}}
         }
         catch (e: AuthFailure) {
             if (!auth.isSignedIn) { session.value = SessionState(); enrollment.value = EnrollmentState.SignedOut; current.value = null; gateway = null }

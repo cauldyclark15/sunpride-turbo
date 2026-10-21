@@ -27,6 +27,7 @@ import { installProductivePolicies } from "../visits/productive-policies.js";
 import { installWorkforce } from "./workforce.js";
 import { installDormancy } from "./dormancy.js";
 import { installTargetCascade } from "./target-cascade.js";
+import { installTargetProgress } from "./target-progress.js";
 import { installCollections } from "./collections.js";
 import { installTerritoryScenarios } from "./territory-scenarios.js";
 
@@ -208,6 +209,7 @@ export function install(router, platform) {
   installWorkforce(router, platform);
   installDormancy(router, platform);
   installTargetCascade(router, platform);
+  installTargetProgress(router, platform);
   installCollections(router);
   installTerritoryScenarios(router);
   router.get("/api/v1/coverage/adherence", (c) =>

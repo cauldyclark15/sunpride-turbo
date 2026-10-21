@@ -593,6 +593,7 @@ fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: (
             }
         }
         com.sunpride.field.ui.today.SalesCard(data.sales)
+        com.sunpride.catalogue.TargetProgressCard(data.targets)
         if (diagnosticEnabled && unplannedEnabled && data.unplannedOutlets.isNotEmpty()) SectionCard("Unplanned visit") {
             data.unplannedOutlets.forEach { outlet -> ListRow(outlet.outlet, "", "store",
                 Modifier.testTag("unplanned-open"), onClick = { onVisit(outlet) }) }

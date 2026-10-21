@@ -91,6 +91,14 @@ Approval checks the still-current receipt/count basis and requester authority in
 
 The small native-Postgres case exercised a real partial receipt, canonical movement for the remaining two units, independent rejection of self-approval, retained original cash, a separately verified recount, a rejected-version replacement and final independent sign-off. The new web evidence case, web lint/typecheck and API typecheck passed. No route repetition or phone rebuild was needed for this office-only slice.
 
+## F-615: phone target book and actuals
+
+Field Today and Van day → Route operations show all six own-person monthly measures, office actuals through the service date, month pace, comparable prior-period actuals and the next action for exceptions. Published agent allocations supply non-sales measures; revenue reads the existing canonical sales-target book. Phones never receive a parent/company total as their personal goal. Per-product volume uses the governed base unit, not a mixture of case/each quantities; historical allocation weights now retain fractional base units. Buying stores and store-SKU points count distinct approved positive sources, calls count actual closed field calls/recorded van departures, and an incomplete or stale required-assortment audit is unknown, not zero compliance.
+
+The signed projection rechecks current person/scope and source-location/outlet access, reads a repeatable snapshot, bounds source rows, and keeps unsynced phone work outside office actuals. Both existing encrypted stores retain scoped snapshots with finite leases. Shared request/denial tickets fence old answers and every cached filter; the visible card also stops after expiry. Sample target provenance remains visible. Large SKU lists page six rows at a time.
+
+One native-Postgres case published six independently approved measures, read the actual signed device response, proved case-to-base-unit history, excluded a foreign-source order sharing the local customer, excluded pending orders, and checked the six actuals. That exact runtime response feeds three passing JVM cases covering money/rates/base units, offline reads, newer-denial/old-success ordering and failed denial-marker visibility. Both Android compile/lint checks and API typecheck passed. Physical new-screen checks remain in the final lane pass; this is operational progress, not an assertion of SAP financial posting or payroll.
+
 ## Needs Sunpride
 
 Real IdP/provider configuration, SAP access/mappings, fiscal registration/permit evidence and production signing/distribution ownership remain external inputs. Existing clearly marked sample/mock data keeps the software usable without inventing these outcomes. No sample registration is presented as a BIR filing. These notes describe our implementation choices, not confirmed client operating policy.

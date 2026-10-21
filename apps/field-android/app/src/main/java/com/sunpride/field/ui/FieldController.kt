@@ -201,7 +201,8 @@ data class TodayData(val visits: List<VisitDisplay> = emptyList(), val lastSynce
                      val supervisor: Boolean = false,
                      val routeCode: String? = null,
                      /** Today's sales vs target from the daily sales report (live or saved). */
-                     val sales: com.sunpride.field.ui.today.DaySalesView = com.sunpride.field.ui.today.DaySalesView())
+                     val sales: com.sunpride.field.ui.today.DaySalesView = com.sunpride.field.ui.today.DaySalesView(),
+                      val targets:com.sunpride.catalogue.TargetProgressView=com.sunpride.catalogue.TargetProgressView())
 
 private const val TEAM_CACHE = "local.team"
 private const val SALES_CACHE = "local.daysales"
@@ -724,7 +725,7 @@ class LiveFieldBackend(
                 outlets.map { (id, name) -> VisitDisplay(name, "Unplanned", "Reason required", id) },
                 store.status(), directory, tasks,
                 com.sunpride.field.ui.team.TeamRepository.offered(store.employeeRole()),
-                routeCode = store.routeCode(), sales = daySales(store, day, sync))
+                routeCode = store.routeCode(), sales = daySales(store, day, sync),targets=targetProgress(store,day,sync))
             if (scheduleRemainder && sync && result.syncStatus.queued + result.syncStatus.sending > 0 &&
                 result.syncStatus.held == 0 && result.syncStatus.health != "held_for_review")
                 com.sunpride.field.sync.work.SyncWork.enqueue(context)
@@ -733,6 +734,22 @@ class LiveFieldBackend(
                 runCatching { com.sunpride.field.evidence.EvidenceWork.enqueue(context) }
             result
         }
+    }
+    /** F-615 signed own-person read, encrypted same-partition cache and independent report grant. */
+    private suspend fun targetProgress(store:RoomFieldStore,day:String,live:Boolean):com.sunpride.catalogue.TargetProgressView {
+        val grant=projectionGrant("targets",day)?:return com.sunpride.catalogue.TargetProgressView(message="Sign in and sync to see targets")
+        val cache=object:com.sunpride.catalogue.TargetProgressCache {
+            override fun current()=grant.current()
+            override fun revoke(){if(!grant.deny())auth.signOut()}
+            override fun read(day:String)=runBlocking{store.localCache("local.targets",day)}?.let{r->r.json?.let{grant.read(it)?.let{raw->raw to r.revision}}}
+            override fun write(day:String,text:String,at:Long){val wrapped=checkNotNull(grant.wrap(text));runBlocking{store.putLocalCache("local.targets",day,wrapped,at,day)}}
+        }
+        val personId=store.employeeId()
+        val fetch:(()->String)?=if(!live)null else ({
+            val text=functions.query(com.sunpride.catalogue.TargetProgressCodec.PATH,JSONObject().put("serviceDate",day)).toString()
+            if(JSONObject(text).getString("profileId")!=personId){cache.revoke();error("Targets belong to another verified profile")};text
+        })
+        return com.sunpride.catalogue.TargetProgressRepository.load(day,cache,System.currentTimeMillis(),fetch){e->e is ServerError||e is AuthFailure&&e.kind==AuthFailure.Kind.SESSION_EXPIRED}
     }
     /** Live daily sales report when syncing, else today's saved copy; the server enforces who may read it. */
     private suspend fun daySales(store: RoomFieldStore, day: String, live: Boolean): com.sunpride.field.ui.today.DaySalesView {

@@ -28,6 +28,7 @@ class ServerFunctions(
         }
         val projection = when (path) {
             "dsr/report:day" -> "field.sales"
+            com.sunpride.catalogue.TargetProgressCodec.PATH -> com.sunpride.catalogue.TargetProgressCodec.PROJECTION
             "supervision/mobile:team" -> "team.summary"
             "analytics/suggested_orders:forOutlet" -> "suggested-order"
             else -> throw ServerError("unsupported_projection")
@@ -37,7 +38,9 @@ class ServerFunctions(
         val response = api.signed(com.sunpride.field.sync.V2Wire.PULL, request, requireNotNull(signer).invoke(), device)
         val bundle = com.sunpride.field.sync.V2Wire.bundle(response, me, projection, args)
         check(bundle.getString("mode") == "snapshot" && bundle.getBoolean("complete") && !response.getBoolean("hasMore"))
-        return bundle.getJSONObject("data")
+        val data=bundle.getJSONObject("data")
+        if(projection==com.sunpride.catalogue.TargetProgressCodec.PROJECTION)data.put("expiresAt",minOf(bundle.getJSONObject("authorization").getLong("expiresAt"),bundle.getJSONObject("offlineLease").getLong("expiresAt")))
+        return data
     }
     fun mutation(path: String, args: JSONObject): Any? = when (path) {
         "mobile/devices:challenge" -> api.post("/api/devices/challenge", JSONObject(args.toString()).put("version", 2))
