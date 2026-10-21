@@ -107,6 +107,7 @@ import com.sunpride.van.pos.*
         val now=System.currentTimeMillis()
         val times=approvalTokens.mapNotNull{token->runCatching{org.json.JSONObject(java.util.Base64.getUrlDecoder().decode(token.split('.')[1]).toString(Charsets.UTF_8)).getLong("expiresAt")}.getOrNull()}.toMutableList()
         runCatching{val rules=org.json.JSONObject(checkNotNull(c.policy?.fiscalJson)).getJSONObject("authority").getJSONArray("rules");for(i in 0 until rules.length()){val rule=rules.getJSONObject(i);times.add(rule.getLong("effectiveFrom"));if(!rule.isNull("effectiveTo"))times.add(rule.getLong("effectiveTo"))}}
+        c.sale?.let{com.sunpride.van.pos.SapCreditExceptions.state(it.saleId,c.saleContext(now))}?.takeIf{!it.isNull("expiresAt")}?.let{times.add(it.getLong("expiresAt"))}
         times.filter{it>now}.minOrNull()?.let{kotlinx.coroutines.delay((it-now).coerceAtMost(86_400_000L)+1);approvalExpiryTick++}
     }
     val payment = PaymentInput(method.code,if (method.kind == PaymentKind.CASH) VanRules.parseMoney(cash) else null,

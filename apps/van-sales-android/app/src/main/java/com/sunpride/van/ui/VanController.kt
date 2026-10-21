@@ -495,6 +495,32 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         val problem=SaleAdjustments.authorize(kind,financialRequest(updated,kind),q.lines,saleContext());discountEpoch++
         if(problem!=null){setFinancialInput(kind,input.copy(approval=null,denied=true));financialMessage=VanRules.checkoutMessage(problem,null);return};setFinancialInput(kind,updated);financialMessage="$kind approval matches this cart. SAP and current authority are still checked on sync."
     }
+    var sapCreditMessage by mutableStateOf<String?>(null)
+        private set
+    private fun sapCreditSummary(response:JSONObject)=when(response.getString("phase")){
+        "approved"->"${if(response.optString("source")=="sample")"SAMPLE · " else ""}SAP approved this exact invoice. Its ordinary account limit is unchanged."
+        "rejected"->"Credit control or SAP refused this request. The invoice remains unsaved."
+        "awaiting_sap"->"Finance approved; awaiting SAP. This does not yet permit the invoice."
+        else->"Waiting for a different Finance approver. This does not yet permit the invoice."
+    }
+    /** F-404 report earlier credit first; the provider never approves an unknown phone backlog. */
+    fun requestSapCredit(reason:String)=command{
+        require(reason.trim().length in 3..300){"Enter a credit exception reason"}
+        val draft=checkNotNull(sale);repository.syncNow();refreshPaymentFacts()
+        check(sale?.saleId==draft.saleId&&(paymentFacts.creditUsedMinor[draft.customer.outletId]?:0L)==0L){"Sync or resolve earlier credit invoices before requesting another exception"}
+        val quote=checkNotNull(cartQuote());val snapshot=checkNotNull(CreditExposure.view(draft.customer,saleContext()));val code=checkNotNull(snapshot.customerCode)
+        val epoch=discountEpoch;val valid=repository.fiscalLifetime()
+        val key=UUID.nameUUIDFromBytes(("SAP-credit|${draft.saleId}|${quote.totalMinor}|${reason.trim()}").toByteArray(Charsets.UTF_8)).toString()
+        val body=JSONObject().put("customerCode",code).put("outletId",draft.customer.outletId).put("amountCentavos",quote.totalMinor).put("sourceType","van_sale").put("sourceId",draft.saleId).put("tripId",checkNotNull(trip).tripId).put("idempotencyKey",key).put("reason",reason.trim())
+        val answer=repository.creditException("request-override",body,draft.saleId,quote.totalMinor){valid()&&epoch==discountEpoch&&sale?.saleId==draft.saleId&&cartQuote()?.totalMinor==quote.totalMinor}
+        sapCreditMessage=sapCreditSummary(answer)
+    }
+    fun checkSapCredit()=command{
+        val draft=checkNotNull(sale);val quote=checkNotNull(cartQuote());val row=checkNotNull(SapCreditExceptions.state(draft.saleId,saleContext()))
+        val epoch=discountEpoch;val valid=repository.fiscalLifetime();val code=checkNotNull(CreditExposure.view(draft.customer,saleContext())?.customerCode)
+        val answer=repository.creditException("exception/status",JSONObject().put("id",row.getString("id")).put("customerCode",code),draft.saleId,quote.totalMinor){valid()&&epoch==discountEpoch&&sale?.saleId==draft.saleId&&cartQuote()?.totalMinor==quote.totalMinor}
+        sapCreditMessage=sapCreditSummary(answer)
+    }
     /** F-112: check the current cart through the existing SAP gateway, not a local credit calculator. */
     fun checkSaleCredit()=command{
         val draft=checkNotNull(sale);val quote=checkNotNull(cartQuote());val valid=repository.fiscalLifetime()

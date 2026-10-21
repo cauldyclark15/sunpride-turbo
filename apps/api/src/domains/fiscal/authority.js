@@ -5,7 +5,7 @@ import {
   randomToken,
   safeEqual,
 } from "../../core/util.js";
-import { currentActor } from "../van/access.js";
+import { currentFinancialActor as currentActor } from "./actors.js";
 import { actorFor } from "../../core/context.js";
 import { uuid, text, choice, integer, refuse } from "../van/model.js";
 import { instant } from "./series.js";
@@ -15,6 +15,7 @@ import {
   offlineApprovalKey,
   verifyOfflineApprovalGrant,
 } from "./offline-grants.js";
+import { authorize as distributorAccess } from "../distributors/model.js";
 export const OVERRIDE_KINDS = ["price", "credit", "stock", "discount", "void"];
 /** Hold current profile authority through the financial transaction, including provider awaits.
  * @param {any} db @param {any} actor */
@@ -44,15 +45,28 @@ async function liveRequestRule(db, actor, input) {
     throw error;
   }
 }
+/** F-404/F-511 scoped party permission; distributor roles still get ZERO global core capabilities.
+ * @param {any} db @param {any} actor @param {string} unit @param {string|null} [kind] */
+async function requesterAccess(db, actor, unit, kind = null) {
+  if (actor.role !== "distributor")
+    return requireCapability(
+      { db, actor },
+      roleHas(actor.role, "order.create") ? "order.create" : "order.encode",
+      uuid(unit),
+    );
+  if (kind && !["credit", "price", "discount"].includes(kind))
+    refuse("Partner authority does not permit this transaction kind");
+  const parties =
+    await db`select d.id from distributors d join distributor_users u on u.distributor_id=d.id where d.org_unit_id=${uuid(unit)} and d.device_org_unit_id=${actor.orgUnitId} and d.status='accredited' and d.effective_from<=now() and (d.effective_to is null or d.effective_to>now()) and u.profile_id=${actor.profileId} and u.grants @> ARRAY['order']::text[] and u.effective_from<=now() and (u.effective_to is null or u.effective_to>now()) for share of d,u`;
+  if (!parties.length)
+    refuse("Active distributor order permission is required");
+  await distributorAccess({ db, actor }, parties[0].id, "order");
+}
 /** F-110/F-511: one scoped, effective matrix for native previews; transaction enforcement stays here.
  * @param {any} db @param {any} actor @param {string} orgUnitId @param {Record<string,string|undefined>} env */
 export async function authorityContext(db, actor, orgUnitId, env) {
   actor = await currentActor(db, actor);
-  await requireCapability(
-    { db, actor },
-    roleHas(actor.role, "order.create") ? "order.create" : "order.encode",
-    uuid(orgUnitId),
-  );
+  await requesterAccess(db, actor, orgUnitId);
   const rules =
     await db`select * from fiscal_authority_rules where org_unit_id=${orgUnitId} and role=${actor.role} and effective_from<=now() and (effective_to is null or effective_to>now()) order by kind,channel,min_centavos limit 201`;
   if (rules.length > 200)
@@ -146,11 +160,7 @@ export async function readOverride(db, actor, id, env) {
 }
 /** F-124/F-511. No ambiguous or absent rule can grant authority. @param {any} db @param {any} actor @param {any} p */
 export async function authorityRule(db, actor, p) {
-  await requireCapability(
-    { db, actor },
-    roleHas(actor.role, "order.create") ? "order.create" : "order.encode",
-    uuid(p.orgUnitId),
-  );
+  await requesterAccess(db, actor, p.orgUnitId, p.kind);
   const amount = integer(p.amountCentavos);
   const rules =
     await db`select * from fiscal_authority_rules where org_unit_id=${p.orgUnitId} and kind=${choice(p.kind, OVERRIDE_KINDS)} and role=${actor.role} and channel in (${text(p.channel, 50, true)},'*') and min_centavos<=${String(amount)} and max_centavos>=${String(amount)} and effective_from<=now() and (effective_to is null or effective_to>now()) order by (channel='*') for share`;
@@ -197,7 +207,9 @@ export async function requestOverride(db, actor, p) {
       refuse("Override key was reused with different facts");
     return { id, requiresSecond: prior.requires_second };
   }
-  const second = integer(p.amountCentavos) > BigInt(rule.self_limit_centavos);
+  const second =
+    p.forceSecond === true ||
+    integer(p.amountCentavos) > BigInt(rule.self_limit_centavos);
   await db`insert into fiscal_override_requests(id,rule_id,org_unit_id,requester_id,kind,channel,amount_centavos,facts,facts_hash,reason,requires_second,expires_at)
    values(${id},${rule.id},${p.orgUnitId},${actor.profileId},${p.kind},${p.channel},${p.amountCentavos},${p.facts},${factsHash},${reason},${second},${new Date(Date.now() + 86400000)})`;
   return { id, requiresSecond: second };

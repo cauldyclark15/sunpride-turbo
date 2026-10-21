@@ -2,13 +2,20 @@ import { tx } from "@sunpride/db/client";
 import { requireCapability, roleHas } from "../../core/capabilities.js";
 import { ApiError } from "../../core/errors.js";
 import { actorFor } from "../../core/context.js";
-import { outletContext } from "../orders/access.js";
+import { outletContext, accessibleOrder } from "../orders/access.js";
 import { configureSap } from "./transport.js";
 import { runOutbox } from "./outbox.js";
 import { activateMasters, syncMasters } from "./replicas.js";
 import { installMasterProjection } from "./projection.js";
 import { sapCreditCheck, requestCreditOverride } from "./credit.js";
 import { creditTerms, creditView } from "./credit-view.js";
+import {
+  completeCreditException,
+  exceptionDto,
+  exceptionAccess,
+  advanceCreditExceptions,
+  creditControlData,
+} from "./credit-exceptions.js";
 import { installConsole, consoleAccess } from "./console.js";
 
 /** @param {any} c */
@@ -18,6 +25,15 @@ async function customerAccess(c) {
   if (typeof code !== "string" || !code.length || code.length > 100)
     throw new ApiError("invalid_request", 400, "Choose an accounting customer");
   if (c.actor.role === "super_admin") return;
+  if (c.body.sourceType === "order") {
+    const document = await accessibleOrder(c, c.body.sourceId);
+    if (
+      document.created_by_subject !== c.actor.subject ||
+      document.customer_code !== code
+    )
+      throw new ApiError("out_of_scope", 403, "Choose your own matching order");
+    return;
+  }
   if (!c.body.outletId)
     throw new ApiError("out_of_scope", 403, "Choose an assigned outlet");
   await outletContext(c, c.body.outletId, "order.create");
@@ -57,6 +73,9 @@ export function install(router, ctx) {
     const body = {
       customerCode: c.url.searchParams.get("customerCode"),
       outletId: c.url.searchParams.get("outletId"),
+      ...(c.url.searchParams.get("orderId")
+        ? { sourceType: "order", sourceId: c.url.searchParams.get("orderId") }
+        : {}),
     };
     await customerAccess({ ...c, body });
     const [snapshot] =
@@ -64,7 +83,7 @@ export function install(router, ctx) {
     const items =
       await c.db`select * from (select distinct on(sap_key) * from sap_replicas where kind='ar' and effective_from<=now() order by sap_key,sap_version desc) r where deleted_at is null and (effective_to is null or effective_to>now()) and payload->'data'->>'customerCode'=${body.customerCode} order by sap_key`;
     return {
-      source: "sap",
+      source: snapshot?.source ?? "unknown",
       freshness: !snapshot
         ? "unknown"
         : new Date(snapshot.expires_at).getTime() <= Date.now()
@@ -121,6 +140,36 @@ export function install(router, ctx) {
       });
     },
   );
+  router.get("/api/v1/credit/control", creditControlData);
+  router.post("/api/v1/credit/exception/status", (/** @type {any} */ c) =>
+    completeCreditException({ ...c, env: ctx.env }, c.body.id),
+  );
+  router.get("/api/v1/credit/exceptions", async (/** @type {any} */ c) => {
+    const actor = await actorFor(c.db, c.actor.userId);
+    if (!actor) throw new ApiError("forbidden", 403, "Sign in again");
+    const rows =
+      await c.db`select * from sap_credit_override_requests where requester_profile_id=${actor.profileId} order by created_at desc,id limit 101`;
+    if (rows.length > 100)
+      throw new ApiError(
+        "too_many_records",
+        409,
+        "Narrow the credit request history",
+      );
+    const items = [];
+    for (const r of rows) {
+      try {
+        await exceptionAccess(c.db, actor, r);
+        items.push(await exceptionDto(c.db, r));
+      } catch (e) {
+        if (!(e instanceof ApiError) || e.status !== 403) throw e;
+      }
+    }
+    return { items };
+  });
+  ctx.scheduler.every(10000, "sap.credit-exceptions", async () => {
+    if (await advanceCreditExceptions({ db: ctx.db, env: ctx.env }))
+      await ctx.publish("integration");
+  });
   ctx.scheduler.every(1000, "sap.outbox", async () => {
     if (await runOutbox(ctx.db, { env: ctx.env }))
       await ctx.publish("integration");

@@ -12,6 +12,7 @@ import { ApiError } from "../../core/errors.js";
 import { resolvePrice } from "../orders/pricing.js";
 import { schemeFeed } from "./schemes.js";
 import { cachedCreditView, creditTerms } from "../integration/credit-view.js";
+import { creditRequestsForTrip } from "../integration/credit-exceptions.js";
 import { masterId } from "../integration/replicas.js";
 import { currentDeviceActor, tripFor, outletFor } from "./access.js";
 import { productFor } from "./facts.js";
@@ -389,6 +390,7 @@ export async function bundle(ctx, env) {
           taxQuotes,
           schemeHolds: schemes.holds,
           creditSnapshots,
+          sapCreditRequests: await creditRequestsForTrip(db, actor, trip),
         },
         ...(routeOps ? { operationsVersion: 1 } : {}),
       },

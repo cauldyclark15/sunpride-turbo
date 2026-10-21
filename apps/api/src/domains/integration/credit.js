@@ -1,12 +1,15 @@
 import { tx } from "@sunpride/db/client";
 import { ApiError } from "../../core/errors.js";
-import { requestOverride } from "./fiscal-adapter.js";
+import {
+  createCreditException,
+  creditExceptionReference,
+} from "./credit-exceptions.js";
 import { validate } from "../../../../../packages/integration-contracts/sap/v1/index.js";
 import { sapRequest } from "./transport.js";
 
 /** F-112/F-404 SAP-issued decision plus conservative cache. No local orders/AR sum.
  * @param {any} db @param {string} customer @param {number|null} amount
- * @param {{requestId?:string,reserve?:boolean,env?:Record<string,string|undefined>}} [opts]
+ * @param {{requestId?:string,reserve?:boolean,env?:Record<string,string|undefined>,overrideReference?:string,overrideSourceType?:string,overrideSourceId?:string}} [opts]
  * @returns {Promise<any>}
  */
 export async function sapCreditCheck(db, customer, amount, opts = {}) {
@@ -26,6 +29,13 @@ export async function sapCreditCheck(db, customer, amount, opts = {}) {
     currency: "PHP",
     requestId: opts.requestId ?? crypto.randomUUID(),
     reserve: opts.reserve === true,
+    ...(opts.overrideReference
+      ? {
+          overrideReference: opts.overrideReference,
+          overrideSourceType: opts.overrideSourceType,
+          overrideSourceId: opts.overrideSourceId,
+        }
+      : {}),
   });
   try {
     const r = await sapRequest(db, "/v1/credit/check", {
@@ -38,6 +48,9 @@ export async function sapCreditCheck(db, customer, amount, opts = {}) {
       r.amountCentavos !== amount ||
       r.requestId !== request.requestId ||
       r.reserve !== request.reserve ||
+      r.overrideReference !== request.overrideReference ||
+      r.overrideSourceType !== request.overrideSourceType ||
+      r.overrideSourceId !== request.overrideSourceId ||
       r.expiresAt <= Date.now() ||
       r.checkedAt > Date.now() + 60000
     )
@@ -101,16 +114,20 @@ export async function sapCreditCheck(db, customer, amount, opts = {}) {
 }
 /** F-112 confirm against a live SAP reservation and bind exactly once to a document.
  * Retrying a confirmation uses the same request ID at SAP, including after DB rollback.
- * @param {any} db @param {{customerCode:string,amountCentavos:number,sourceType:string,sourceId:string,env?:Record<string,string|undefined>}} q
+ * @param {any} db @param {{customerCode:string,amountCentavos:number,sourceType:string,sourceId:string,env?:Record<string,string|undefined>,exceptionId?:string,ownerProfileId?:string,exceptionSourceType?:string,exceptionSourceId?:string,orgUnitId?:string,tripId?:string}} q
  */
 export async function bindCreditDecision(db, q) {
   const source = `${q.sourceType}:${q.sourceId}`;
+  const exception = q.exceptionId
+    ? await creditExceptionReference(db, q)
+    : null;
   const [prior] =
     await db`select * from sap_credit_decisions where consumed_by=${source} for update`;
   if (prior) {
     if (
       prior.customer_code !== q.customerCode ||
-      Number(prior.amount_centavos) !== q.amountCentavos
+      Number(prior.amount_centavos) !== q.amountCentavos ||
+      (prior.override_request_id ?? null) !== (q.exceptionId ?? null)
     )
       throw new ApiError("credit_conflict", 409, "Credit facts changed");
     return prior.id;
@@ -119,6 +136,13 @@ export async function bindCreditDecision(db, q) {
     requestId: `confirm:${source}`,
     reserve: true,
     env: q.env,
+    ...(exception
+      ? {
+          overrideReference: exception.reference,
+          overrideSourceType: exception.sourceType,
+          overrideSourceId: exception.sourceId,
+        }
+      : {}),
   });
   if (decision.freshness !== "live" || decision.status === "unknown")
     throw new ApiError(
@@ -134,8 +158,9 @@ export async function bindCreditDecision(db, q) {
       422,
       "SAP refused the credit amount; request a credit exception",
     );
+  if (q.exceptionId) await creditExceptionReference(db, q);
   const [row] =
-    await db`update sap_credit_decisions set consumed_by=${source} where id=${decision.decisionId} and consumed_by is null and expires_at>now() returning id`;
+    await db`update sap_credit_decisions set consumed_by=${source},override_request_id=${q.exceptionId ?? null} where id=${decision.decisionId} and consumed_by is null and expires_at>now() returning id`;
   if (!row)
     throw new ApiError(
       "credit_expired",
@@ -145,7 +170,7 @@ export async function bindCreditDecision(db, q) {
   return row.id;
 }
 /** F-404/FISCAL: local fallback is a request only, never a financial approval.
- * @param {any} c @param {{customerCode:string,amountCentavos:number,reason:string,idempotencyKey:string}} q
+ * @param {any} c @param {{customerCode:string,amountCentavos:number,reason:string,idempotencyKey:string,sourceType?:string,sourceId?:string}} q
  */
 export async function requestCreditOverride(c, q) {
   if (
@@ -159,5 +184,5 @@ export async function requestCreditOverride(c, q) {
     q.reason.length > 500
   )
     throw new ApiError("invalid_request", 400, "Enter amount and a reason");
-  return requestOverride(c, { ...q, kind: "credit", currency: "PHP" });
+  return createCreditException(c, q);
 }

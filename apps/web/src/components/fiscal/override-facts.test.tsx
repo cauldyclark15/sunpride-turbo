@@ -1,6 +1,28 @@
 import { it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { OverrideFacts } from "./override-facts";
+it("F-404 reviewer sees frozen exposure and the separate SAP decision requirement", () => {
+  const html = renderToStaticMarkup(
+    <OverrideFacts
+      value={{
+        version: 1,
+        kind: "sap_credit_exception",
+        customerCode: "SAMPLE-CREDIT",
+        amountCentavos: 2000,
+        limitCentavos: 1000,
+        exposureCentavos: 900,
+        projectedExposureCentavos: 2900,
+        checkedAt: 0,
+        source: "sample",
+        reason: "SAMPLE delivery exception",
+      }}
+    />,
+  );
+  expect(html).toContain("SAMPLE-CREDIT");
+  expect(html).toContain("SAMPLE mock SAP");
+  expect(html).toContain("Finance approval alone does not permit");
+  expect(html).toContain("SAP exposure at request");
+});
 it("F-124 stock override shows original and proposed physical facts without private keys", () => {
   const html = renderToStaticMarkup(
     <OverrideFacts

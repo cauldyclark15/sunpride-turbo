@@ -44,6 +44,7 @@ object SaleAdjustments {
     }.getOrElse{CheckoutProblem.OVERRIDE_INVALID}
     fun creditWithinSap(request:CheckoutRequest,lines:List<QuotedLine>,context:CheckoutContext,needed:Long):Boolean{
         val customer=context.customers.firstOrNull{it.outletId==request.customerId}?:return false
+        if(SapCreditExceptions.credit(request,context,needed)!=null)return authorize("credit",request,lines,context)==null
         val view=CreditExposure.view(customer,context)?:return false
         if(!view.fresh(context.now)||view.status !in listOf("within","no_limit"))return false
         val available=if(view.status=="no_limit"&&view.limitMinor==null)CheckoutRules.MAX_MINOR else {

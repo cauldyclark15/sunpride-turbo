@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { CreditDecision, type CreditException } from "./credit-decision";
 import type {
   Command,
   Health,
@@ -189,6 +190,21 @@ export function Ordering({
     [cart, setCart] = useState<{ productId: string; quantity: number }[]>([]),
     [po, setPo] = useState("");
   const [confirmed, setConfirmed] = useState<Quote | null>(null);
+  const [credit, setCredit] = useState<{
+    binding: string;
+    request: CreditException;
+  } | null>(null);
+  const [previewOwner, setPreviewOwner] = useState(id);
+  const generation = useRef(0);
+  const retire = useCallback(() => {
+    generation.current++;
+  }, []);
+  useEffect(() => {
+    retire();
+    return retire;
+  }, [id, canWrite, retire]);
+  const binding = JSON.stringify([id, po, cart]);
+  const currentCredit = credit?.binding === binding ? credit.request : null;
   return (
     <>
       <p className="text-sm text-muted">
@@ -210,9 +226,20 @@ export function Ordering({
               .filter((l) => l.quantity > 0);
             if (!lines.length)
               throw new Error("Enter a quantity for at least one product.");
+            const version = ++generation.current;
+            setCredit(null);
+            setPreview(null);
             setCart(lines);
-            setPo(value(f, "po"));
-            setPreview((await command("quote", { lines })) as unknown as Quote);
+            const poNumber = value(f, "po");
+            setPo(poNumber);
+            const quote = (await command("quote", {
+              lines,
+              poNumber,
+            })) as unknown as Quote;
+            if (version === generation.current) {
+              setPreviewOwner(id);
+              setPreview(quote);
+            }
           }}
         >
           <Field label="Your purchase order reference">
@@ -250,7 +277,7 @@ export function Ordering({
           </Table>
         </ActionForm>
       ) : null}
-      {preview ? (
+      {canWrite && previewOwner === id && preview ? (
         <Panel
           title="Purchase order preview"
           detail="A quotation is not an order. Confirmation refreshes stock and SAP credit."
@@ -297,12 +324,81 @@ export function Ordering({
                 .join("")}
             </p>
           ))}
+          {!["within", "no_limit"].includes(preview.credit.status) && (
+            <ActionForm
+              title="Ask for a credit exception"
+              submitLabel="Send to Finance"
+              onSubmit={async (f) => {
+                const version = generation.current;
+                const response = (await command("credit/exception", {
+                  poNumber: po,
+                  lines: cart,
+                  reason: value(f, "creditReason"),
+                })) as unknown as CreditException;
+                if (version === generation.current)
+                  setCredit({ binding, request: response });
+              }}
+            >
+              <Field label="Why this purchase order needs credit">
+                <textarea
+                  name="creditReason"
+                  required
+                  minLength={3}
+                  maxLength={300}
+                  className={fieldClass}
+                />
+              </Field>
+              <p className="text-sm">
+                A different Finance approver must review this exact quotation.
+                SAP still decides; the account limit is not raised locally.
+              </p>
+            </ActionForm>
+          )}
+          {currentCredit && (
+            <>
+              <CreditDecision request={currentCredit} />
+              <ActionForm
+                title="Refresh the credit decision"
+                submitLabel="Check Finance and SAP"
+                onSubmit={async () => {
+                  const version = generation.current;
+                  const response = (await command("credit/refresh", {
+                    id: currentCredit.id,
+                  })) as unknown as CreditException;
+                  if (version !== generation.current) return;
+                  setCredit({ binding, request: response });
+                  if (response.phase === "approved") {
+                    const quote = (await command("quote", {
+                      poNumber: po,
+                      lines: cart,
+                      sapCreditExceptionId: response.id,
+                    })) as unknown as Quote;
+                    if (version === generation.current) {
+                      setPreviewOwner(id);
+                      setPreview(quote);
+                    }
+                  }
+                }}
+              >
+                <p className="text-sm">
+                  Confirmation is enabled only after the provider approves and
+                  stock is still available.
+                </p>
+              </ActionForm>
+            </>
+          )}
           {preview.canConfirm ? (
             <ActionForm
               title="Confirm this purchase order"
               submitLabel="Submit purchase order"
               onSubmit={async () => {
-                await command("orders", { poNumber: po, lines: cart });
+                await command("orders", {
+                  poNumber: po,
+                  lines: cart,
+                  ...(currentCredit?.phase === "approved"
+                    ? { sapCreditExceptionId: currentCredit.id }
+                    : {}),
+                });
                 setConfirmed(preview);
                 setPreview(null);
               }}

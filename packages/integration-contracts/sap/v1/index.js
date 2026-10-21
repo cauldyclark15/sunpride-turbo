@@ -14,6 +14,8 @@ import settlement from "./settlement.schema.json" with { type: "json" };
 import postingResult from "./posting-result.schema.json" with { type: "json" };
 import creditRequest from "./credit-request.schema.json" with { type: "json" };
 import creditResult from "./credit-result.schema.json" with { type: "json" };
+import creditExceptionRequest from "./credit-exception-request.schema.json" with { type: "json" };
+import creditExceptionResult from "./credit-exception-result.schema.json" with { type: "json" };
 import masterPage from "./master-page.schema.json" with { type: "json" };
 import error from "./error.schema.json" with { type: "json" };
 
@@ -65,6 +67,8 @@ export const schemas = {
   postingResult,
   creditRequest,
   creditResult,
+  creditExceptionRequest,
+  creditExceptionResult,
   masterPage,
   error,
 };

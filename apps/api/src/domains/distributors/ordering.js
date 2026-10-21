@@ -12,6 +12,11 @@ import {
   uuid,
 } from "./model.js";
 import { sapCreditCheck, enqueueSapPosting } from "./seams.js";
+import {
+  sapCreditCheck as liveCredit,
+  bindCreditDecision,
+} from "../integration/credit.js";
+import { creditExceptionReference } from "../integration/credit-exceptions.js";
 
 /** F-403/F-410: eligible existing promotion rules, one governed quotation. TPM replaces
  * only the evaluator seam at integration, never a second distributor scheme engine.
@@ -102,7 +107,45 @@ export async function quote(c, d, b) {
         availableBase,
       });
     }
-  const credit = await sapCreditCheck(c, d, Number(benefit.totalCentavos));
+  let credit = await sapCreditCheck(c, d, Number(benefit.totalCentavos));
+  let creditException = null;
+  if (b.sapCreditExceptionId) {
+    const approved = await creditExceptionReference(c.db, {
+      exceptionId: uuid(b.sapCreditExceptionId),
+      customerCode: d.sap_customer_code,
+      amountCentavos: benefit.totalCentavos,
+      sourceType: "distributor_order",
+      sourceId: text(b.poNumber, "Purchase order reference"),
+      ownerProfileId: c.actor.profileId,
+      orgUnitId: d.org_unit_id,
+      env: c.env,
+    });
+    const checked = await liveCredit(
+      c.db,
+      d.sap_customer_code,
+      Number(benefit.totalCentavos),
+      {
+        requestId: "exception-quote:" + b.sapCreditExceptionId,
+        env: c.env,
+        overrideReference: approved.reference,
+        overrideSourceType: approved.sourceType,
+        overrideSourceId: approved.sourceId,
+      },
+    );
+    credit = {
+      ...credit,
+      status: checked.status,
+      limitCentavos: checked.limit,
+      exposureCentavos: checked.exposure,
+      source: checked.source,
+      checkedAt: checked.checkedAt,
+    };
+    creditException = {
+      id: b.sapCreditExceptionId,
+      reference: approved.reference,
+      source: checked.source,
+    };
+  }
   return {
     lines,
     freeGoods,
@@ -117,6 +160,7 @@ export async function quote(c, d, b) {
     })),
     benefits: benefit.promotionsApplied,
     credit,
+    creditException,
     canConfirm:
       d.status === "accredited" &&
       lines.every((l) => l.inStock) &&
@@ -158,10 +202,17 @@ export async function placeOrder(c, d, b) {
     totalCentavos: q.totalCentavos,
     lines: q.lines,
     freeGoods: q.freeGoods,
+    ...(b.sapCreditExceptionId
+      ? { sapCreditExceptionId: uuid(b.sapCreditExceptionId) }
+      : {}),
   });
+  const [creditDecision] =
+    await c.db`select id from sap_credit_decisions where consumed_by=${"distributor_request:" + req.id}`;
+  const creditDecisionId = creditDecision?.id ?? null;
   const ack = req.acknowledgement;
   const [row] =
     await c.db`insert into orders(id,organization_id,client_request_id,order_number,order_type,customer_code,salesperson_subject,created_by_subject,purchasing_distributor_id,customer_po_number,channel_key,service_date,status,subtotal,total,subtotal_centavos,total_centavos,amount_known,credit_status,credit_limit_centavos,credit_exposure_centavos,pricing_snapshot,request_payload_hash,acknowledged_at,promised_delivery_date,sap_acknowledgement) values(${id},'sunpride',${`distributor:${id}`},${number},'distributor_primary',${d.sap_customer_code},${c.actor.subject},${c.actor.subject},${d.id},${po},'distributor',${today(c.now)},'submitted',${(q.subtotalCentavos ?? 0) / 100},${(q.totalCentavos ?? 0) / 100},${q.subtotalCentavos},${q.totalCentavos},true,'within',${q.credit.limitCentavos},${q.credit.exposureCentavos},${q},${digest(b)},${ack ? new Date(c.now) : null},${ack?.deliveryDate ?? null},${ack}) returning id,order_number,status,acknowledged_at,promised_delivery_date`;
+  await c.db`update orders set sap_credit_decision_id=${creditDecisionId},org_unit_id=${d.org_unit_id} where id=${id}`;
   for (const [i, l] of [...q.lines, ...q.freeGoods].entries())
     await c.db`insert into order_lines(order_id,ordinal,product_id,product_code,description,uom,quantity,quantity_base,unit_price,line_total,unit_price_centavos,line_total_centavos) values(${id},${i},${l.productId},${l.productCode},${l.description},${l.uom},${l.quantity},${l.quantityBase},${l.unitPriceCentavos / 100},${l.lineTotalCentavos / 100},${l.unitPriceCentavos},${l.lineTotalCentavos})`;
   await c.db`insert into order_history(order_id,actor_subject,action,to_status) values(${id},${c.actor.subject},'F-403.distributor_created','submitted')`;

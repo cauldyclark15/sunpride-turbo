@@ -20,6 +20,7 @@ export function startMock(opts) {
     create table if not exists receipts(effect text primary key, hash text not null, body text not null, result text not null);
     create table if not exists credit_accounts(customer text primary key, credit_limit integer, exposure integer not null);
     create table if not exists decisions(request text primary key, hash text not null, result text not null);
+    create table if not exists credit_exceptions(request text primary key,hash text not null,reference text unique,customer text not null,amount integer not null,source_type text not null,source_id text not null,expires_at integer not null,result text not null,claimed_request text);
     create table if not exists reservations(request text primary key,customer text not null,amount integer not null,expires integer not null);
     create table if not exists controls(target text primary key, mode text not null, remaining integer not null, delay integer not null);`);
   /** @param {any} v @param {number} [status] */
@@ -176,6 +177,67 @@ export function startMock(opts) {
             }),
           );
         }
+        // F-404 SAMPLE provider policy: Finance may ask, but only this provider grants an exception.
+        if (req.method === "POST" && u.pathname === "/v1/credit/exception") {
+          const b = validate("creditExceptionRequest", await req.json()),
+            hash = payloadHash(b);
+          const result = db.transaction(() => {
+            const previous = db
+              .query("select * from credit_exceptions where request=?")
+              .get(b.requestId);
+            if (previous) {
+              if (previous.hash !== hash) throw new Error("payload_conflict");
+              return JSON.parse(previous.result);
+            }
+            const account = db
+                .query("select * from credit_accounts where customer=?")
+                .get(b.customerCode),
+              now = Date.now();
+            // Explicit invented beta allowance, not a change to the base account limit.
+            const approved =
+              !!account &&
+              b.expiresAt > now &&
+              b.expiresAt <= now + 86460000 &&
+              Number.isSafeInteger(account.exposure + b.amountCentavos) &&
+              (account.credit_limit === null ||
+                account.exposure + b.amountCentavos <=
+                  account.credit_limit + 100000);
+            const r = validate("creditExceptionResult", {
+              schemaVersion: 1,
+              requestId: b.requestId,
+              customerCode: b.customerCode,
+              amountCentavos: b.amountCentavos,
+              currency: b.currency,
+              sourceType: b.sourceType,
+              sourceId: b.sourceId,
+              status: approved ? "approved" : "rejected",
+              reference: approved
+                ? "SAMPLE-CREDIT-" + crypto.randomUUID()
+                : null,
+              expiresAt: b.expiresAt,
+              checkedAt: now,
+              source: "sample",
+              reason: approved
+                ? "SAMPLE Finance request accepted by mock SAP"
+                : "SAMPLE SAP exception policy refused this exposure",
+            });
+            db.query(
+              "insert into credit_exceptions values(?,?,?,?,?,?,?,?,?,null)",
+            ).run(
+              b.requestId,
+              hash,
+              r.reference,
+              b.customerCode,
+              b.amountCentavos,
+              b.sourceType,
+              b.sourceId,
+              r.expiresAt,
+              JSON.stringify(r),
+            );
+            return r;
+          })();
+          return json(result);
+        }
         if (req.method === "POST" && u.pathname === "/v1/credit/check") {
           const b = validate("creditRequest", await req.json()),
             hash = payloadHash(b);
@@ -193,9 +255,25 @@ export function startMock(opts) {
               .query("select * from decisions where request=?")
               .get(b.requestId);
             if (previous) {
-              if (previous.hash !== hash) throw new Error("payload_conflict");
               const decision = JSON.parse(previous.result);
-              if (decision.expiresAt > Date.now()) return decision;
+              if (previous.hash !== hash) {
+                // Upgrade only a negative decision, with identical accounting facts; never reserve twice.
+                if (
+                  !b.overrideReference ||
+                  !["over", "unknown"].includes(decision.status) ||
+                  [
+                    "customerCode",
+                    "amountCentavos",
+                    "currency",
+                    "requestId",
+                    "reserve",
+                  ].some((k) => decision[k] !== b[k])
+                )
+                  throw new Error("payload_conflict");
+                db.query("delete from decisions where request=?").run(
+                  b.requestId,
+                );
+              } else if (decision.expiresAt > Date.now()) return decision;
               db.query("delete from decisions where request=?").run(
                 b.requestId,
               );
@@ -208,19 +286,44 @@ export function startMock(opts) {
               : null;
             const now = Date.now(),
               total = account ? exposureBefore + b.amountCentavos : null;
+            const grant = b.overrideReference
+              ? db
+                  .query("select * from credit_exceptions where reference=?")
+                  .get(b.overrideReference)
+              : null;
+            const exception =
+              !!grant &&
+              JSON.parse(grant.result).status === "approved" &&
+              grant.expires_at > now &&
+              grant.customer === b.customerCode &&
+              grant.amount === b.amountCentavos &&
+              !!account &&
+              Number.isSafeInteger(total) &&
+              (account.credit_limit === null ||
+                total <= account.credit_limit + 100000) &&
+              grant.source_type === b.overrideSourceType &&
+              grant.source_id === b.overrideSourceId &&
+              (!grant.claimed_request || grant.claimed_request === b.requestId);
             const status =
-              !account || !Number.isSafeInteger(total)
-                ? "unknown"
-                : account.credit_limit === null
-                  ? "no_limit"
-                  : total > account.credit_limit
-                    ? "over"
-                    : "within";
+              b.overrideReference && !exception
+                ? "over"
+                : !account || !Number.isSafeInteger(total)
+                  ? "unknown"
+                  : account.credit_limit === null
+                    ? "no_limit"
+                    : total > account.credit_limit
+                      ? exception
+                        ? "within"
+                        : "over"
+                      : "within";
             const r = validate("creditResult", {
               schemaVersion: 1,
               ...b,
               decisionToken: `sample-${crypto.randomUUID()}`,
-              expiresAt: now + 120000,
+              expiresAt: Math.min(
+                now + 120000,
+                exception ? grant.expires_at : Number.MAX_SAFE_INTEGER,
+              ),
               checkedAt: now,
               status,
               limitCentavos: account?.credit_limit ?? null,
@@ -237,6 +340,10 @@ export function startMock(opts) {
             );
             // SAP-issued commitment: competing channels see the reservation, not a local sum.
             if (b.reserve && ["within", "no_limit"].includes(status)) {
+              if (exception)
+                db.query(
+                  "update credit_exceptions set claimed_request=? where reference=?",
+                ).run(b.requestId, b.overrideReference);
               if (!held)
                 db.query(
                   "update credit_accounts set exposure=exposure+? where customer=?",

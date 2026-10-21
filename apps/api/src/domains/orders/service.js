@@ -409,11 +409,19 @@ export async function transition(ctx, id, status, reason, input = {}) {
     );
   const before = row.status;
   if (status === "approved") {
+    const [latest] =
+      await ctx.db`select id,status from sap_credit_override_requests where customer_code=${row.customer_code} and request_facts->>'sourceType'='order' and request_facts->>'sourceId'=${row.id} order by created_at desc,id desc limit 1`;
+    const exceptionId =
+      input.sapCreditExceptionId ??
+      (latest?.status === "approved" ? latest.id : null);
     const decisionId = await bindCreditDecision(ctx.db, {
       customerCode: row.customer_code,
       amountCentavos: Number(row.total_centavos),
       sourceType: "order",
       sourceId: row.id,
+      ...(exceptionId
+        ? { exceptionId: uuid(exceptionId), orgUnitId: row.org_unit_id }
+        : {}),
       env: ctx.env,
     });
     await ctx.db`update orders set sap_credit_decision_id=${decisionId} where id=${row.id}`;

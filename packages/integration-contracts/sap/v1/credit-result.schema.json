@@ -3,6 +3,13 @@
   "$id": "https://sunpride.local/contracts/sap/v1/credit-result.schema.json",
   "type": "object",
   "properties": {
+    "overrideSourceType": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "overrideSourceId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "overrideReference": { "type": "string", "minLength": 1, "maxLength": 200 },
     "schemaVersion": {
       "const": 1
     },

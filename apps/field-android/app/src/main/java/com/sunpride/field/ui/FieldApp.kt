@@ -304,6 +304,7 @@ fun FieldApp(
                     onChangePassword = { controller.resetPasswordForm(); page = "change-password" },
                     onBatteryGuide = if (batteryGuide != null) ({ page = "location-battery" }) else null,
                     sapContent = {
+                        FieldCreditControlPanel(controller::creditControl,controller::sapMasterLifetime)
                         com.sunpride.catalogue.SapMasterCopy(controller::sapMasters,controller::sapMasterLifetime)
                         com.sunpride.integrity.AppUpdatePanel(controller::appUpdates,controller::sapMasterLifetime)
                     })

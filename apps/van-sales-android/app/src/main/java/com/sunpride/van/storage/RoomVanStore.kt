@@ -328,6 +328,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
                 .apply { pay.reference?.let { put("reference",it) } }
                 .apply { pay.dueDate?.let { put("dueDate",it) } })
             .put("deviceTime",context.now)
+            .apply{if(pay.method.kind==PaymentKind.CREDIT&&com.sunpride.van.pos.SapCreditExceptions.credit(request,context,quote.totalMinor)!=null)put("sapCreditExceptionId",checkNotNull(com.sunpride.van.pos.SapCreditExceptions.approved(request,context,quote.totalMinor)).getString("id"))}
             .apply{request.priceOverride?.let{put("priceOverride",com.sunpride.van.pos.SaleAdjustments.json(it.authorization))};if(pay.method.kind==PaymentKind.CREDIT)request.creditOverride?.let{put("creditOverride",com.sunpride.van.pos.SaleAdjustments.json(it))}}
             .apply { if(s.startsWith("v2|")&&com.sunpride.van.pos.ManualDiscounts.amount(quote.lines)>0L){
                 put("authorityVersion",2).put("overrideId",request.manualDiscount?.requestId?:request.saleId)

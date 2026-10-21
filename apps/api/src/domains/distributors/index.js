@@ -29,6 +29,12 @@ import {
 } from "./setup.js";
 import { placeOrder, quote } from "./ordering.js";
 import {
+  createCreditException,
+  completeCreditException,
+  exceptionDto,
+  exceptionAccess,
+} from "../integration/credit-exceptions.js";
+import {
   declareStock,
   processSecondary,
   setMap,
@@ -208,6 +214,45 @@ export function install(router, platform) {
   get("workspace", "read", workspace);
   post("quote", "order", quote);
   post("orders", "order", placeOrder);
+  post("credit/exception", "order", async (c, d, b) => {
+    const priced = await quote(c, d, { ...b, sapCreditExceptionId: undefined });
+    if (
+      priced.totalCentavos === null ||
+      !Number.isSafeInteger(priced.totalCentavos) ||
+      priced.totalCentavos < 1
+    )
+      fail("A complete governed quotation is required");
+    return createCreditException(c, {
+      customerCode: d.sap_customer_code,
+      amountCentavos: priced.totalCentavos,
+      sourceType: "distributor_order",
+      sourceId: text(b.poNumber, "Purchase order reference"),
+      distributorId: d.id,
+      idempotencyKey: b.requestKey,
+      reason: b.reason,
+    });
+  });
+  post("credit/refresh", "order", async (c, d, b) => {
+    const [row] =
+      await c.db`select * from sap_credit_override_requests where id=${uuid(b.id)} and request_facts->>'distributorId'=${d.id}`;
+    if (!row) fail("Credit request does not belong to this distributor");
+    return completeCreditException(c, row.id);
+  });
+  get("credit/requests", "order", async (c, d) => {
+    const rows =
+      await c.db`select * from sap_credit_override_requests where request_facts->>'distributorId'=${d.id} order by created_at desc,id limit 101`;
+    if (rows.length > 100) fail("Narrow the credit request history");
+    const items = [];
+    for (const row of rows) {
+      try {
+        await exceptionAccess(c.db, c.actor, row);
+        items.push(await exceptionDto(c.db, row));
+      } catch (e) {
+        if (/** @type {any} */ (e).status !== 403) throw e;
+      }
+    }
+    return { items };
+  });
   get(
     "orders",
     "order",

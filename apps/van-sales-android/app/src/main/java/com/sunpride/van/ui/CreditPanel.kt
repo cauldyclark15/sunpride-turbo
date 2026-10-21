@@ -1,6 +1,7 @@
 package com.sunpride.van.ui
 
 import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -32,4 +33,13 @@ import kotlinx.coroutines.delay
     Text("Phone awaiting acknowledgement: ${money(pending)}. These intents may already appear in SAP; this phone reserves them conservatively.")
     SecondaryButton("Check credit online",c::checkSaleCredit,Modifier.testTag("credit-check"),enabled=!c.busy&&!v?.customerCode.isNullOrBlank()&&c.cartQuote()!=null)
     Text("A cached check is not SAP confirmation of this sale. The office receives it for a fresh SAP decision on sync.",style=MaterialTheme.typography.bodyMedium)
+    var reason by remember(c.sale?.saleId){mutableStateOf("")}
+    val request=c.sale?.let{SapCreditExceptions.state(it.saleId,c.saleContext(now))}
+    Text("SAP credit exception",style=MaterialTheme.typography.titleMedium)
+    Text("A different Finance approver and SAP must both agree. Earlier phone invoices must sync first.")
+    request?.let{r->Text("${if(r.optString("source")=="sample")"SAMPLE · " else ""}"+when(r.optString("phase")){"approved"->if(!r.isNull("expiresAt")&&r.getLong("expiresAt")>System.currentTimeMillis())"SAP approved ${money(r.getLong("amountCentavos"))} for this invoice"else"SAP exception expired · request a fresh decision";"rejected"->"Request refused";"awaiting_sap"->"Finance approved · awaiting SAP";else->"Waiting for Finance"})}
+    OutlinedTextField(reason,{reason=it},label={Text("Credit exception reason")},modifier=Modifier.fillMaxWidth().testTag("sap-credit-reason"),enabled=!c.busy,minLines=2)
+    SecondaryButton("Ask credit control",{c.requestSapCredit(reason)},Modifier.testTag("sap-credit-request"),enabled=!c.busy&&reason.trim().length in 3..300&&c.cartQuote()!=null)
+    if(request!=null)SecondaryButton("Refresh credit decision",c::checkSapCredit,Modifier.testTag("sap-credit-refresh"),enabled=!c.busy)
+    c.sapCreditMessage?.takeIf{request?.optString("phase")!="approved"||request?.optLong("expiresAt")?.let{it>System.currentTimeMillis()}==true}?.let{Text(it)}
 }

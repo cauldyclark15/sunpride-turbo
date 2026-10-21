@@ -759,6 +759,14 @@ async function sale(db, trip, actor, p, opId, env) {
       amountCentavos: safeNumber(total),
       sourceType: "van_sale",
       sourceId: saleId,
+      ...(p.sapCreditExceptionId
+        ? {
+            exceptionId: uuid(p.sapCreditExceptionId),
+            ownerProfileId: actor.profileId,
+            orgUnitId: trip.org_unit_id,
+            tripId: trip.id,
+          }
+        : {}),
       env,
     });
     if (creditAuthority)

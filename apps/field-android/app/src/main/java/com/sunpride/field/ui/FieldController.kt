@@ -58,6 +58,7 @@ interface FieldBackend {
     fun replacementCode(): JSONObject { error("Replacement pairing unavailable") }
     fun sapMasters(refresh: Boolean): JSONObject? = null
     fun sapMasterLifetime(): String? = null
+    fun creditControl(action:String,args:JSONObject):JSONObject {error("Connect to check credit control")}
     fun appUpdates(): com.sunpride.integrity.AppUpdateClient? = null
     fun queueMockRefusal(outletId: String) { error("Integrity attempt storage unavailable") }
     fun signOut()
@@ -925,6 +926,17 @@ class LiveFieldBackend(
                 {e->e !is AuthFailure || e.kind!=AuthFailure.Kind.OFFLINE}))
         }finally{store.close()}
     }
+    override fun creditControl(action:String,args:JSONObject):JSONObject {
+        val before=sapMasterLifetime();check(before!=null){"Sign in and sync before checking credit"}
+        val result=when(action){
+            "list"->functions.api.get("/api/v1/credit/control")
+            "exposure"->functions.api.get("/api/v1/credit/exposure?customerCode="+java.net.URLEncoder.encode(args.getString("customerCode"),"UTF-8")+"&outletId="+java.net.URLEncoder.encode(args.optString("outletId"),"UTF-8")+"&orderId="+java.net.URLEncoder.encode(args.getString("orderId"),"UTF-8"))
+            "request"->functions.api.post("/api/v1/credit/request-override",args)
+            "status"->functions.api.post("/api/v1/credit/exception/status",args)
+            else->error("Unsupported credit action")
+        }
+        check(before==sapMasterLifetime()){"The account changed"};return result
+    }
     override fun sapMasterLifetime(): String? = if(auth.isSignedIn) "${sessionKey()}|${storedScope()}|$authorizationEpoch" else null
     override fun appUpdates() = com.sunpride.integrity.AppUpdateClient(context,environmentOrigin,token={refresh->auth.accessToken(refresh)})
     override fun signIn(email: String, password: String) = auth.signIn(email, password)
@@ -1530,6 +1542,7 @@ class FieldController(
     fun companyKey(): JSONObject = backend.loadSigner().let { JSONObject().put("keyId", com.sunpride.field.device.RequestSigner.bodyDigest(it.publicKeySpki)).put("publicKeySpki",it.publicKeyBase64) }
     fun signCompanyMessage(message: String): String = backend.loadSigner().sign(message)
     fun replacementCode(): JSONObject = backend.replacementCode()
+    fun creditControl(action:String,args:JSONObject):JSONObject=backend.creditControl(action,args)
     fun sapMasters(refresh: Boolean): JSONObject? = backend.sapMasters(refresh)
     fun sapMasterLifetime(): String? = backend.sapMasterLifetime()
     fun appUpdates(): com.sunpride.integrity.AppUpdateClient? = backend.appUpdates()

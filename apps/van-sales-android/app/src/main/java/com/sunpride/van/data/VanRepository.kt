@@ -382,6 +382,30 @@ class VanRepository private constructor(private val context: Context, private va
             throw error
         }
     }
+    /** F-404 the first-party SAP acknowledgement stays encrypted, exact-cart and lifetime-fenced. */
+    suspend fun creditException(path:String,body:JSONObject,saleId:String,amount:Long,stillCurrent:()->Boolean):JSONObject=withContext(Dispatchers.IO){
+        require(path in listOf("request-override","exception/status"))
+        val st=store();val lifetime=fiscalLifetime();val generation=creditRequestEpoch.incrementAndGet()
+        val valid={lifetime()&&generation==creditRequestEpoch.get()&&st===current.value&&stillCurrent()}
+        check(valid()&&st.canSync()){"Sync this trip before asking for credit approval"}
+        try{
+            val answer=api.request("/api/v1/credit/$path",body);currentCoroutineContext().ensureActive()
+            require(answer.getString("sourceId")==saleId&&answer.getString("sourceType")=="van_sale"&&answer.getLong("amountCentavos")==amount)
+            require(answer.getString("customerCode")==body.getString("customerCode"))
+            com.sunpride.integrity.RemoteErasure.recordingLock.withLock{
+                check(valid()&&st.canSync()){"The credit request changed"}
+                st.db.withTransaction{
+                    val meta=checkNotNull(st.db.rows().meta(st.scope.fullAuthSubject,st.scope.deviceId));val policy=JSONObject(checkNotNull(meta.policyJson));val fiscal=policy.getJSONObject("fiscal")
+                    val requests=fiscal.optJSONObject("sapCreditRequests")?:JSONObject();requests.put(saleId,answer);fiscal.put("sapCreditRequests",requests)
+                    currentCoroutineContext().ensureActive();check(valid()){"The credit request changed"};st.db.rows().insertSyncMeta(meta.copy(policyJson=policy.toString()))
+                }
+            };answer
+        }catch(error:Exception){
+            if(valid()&&(error is NativeApiFailure&&error.status in 400..499||error is AuthFailure&&error.kind in listOf(AuthFailure.Kind.REFUSED,AuthFailure.Kind.SESSION_EXPIRED))){
+                try{st.hold()}catch(_:Exception){try{auth.signOut()}finally{current.value=null;gateway=null;session.value=SessionState()}}
+            };throw error
+        }
+    }
     /** F-110: retire answers independently of a same-account/scope renewal. */
     fun fiscalLifetime():()->Boolean {
         val st=current.value;val epoch=st?.authorizationEpoch();val session=sessionKey()

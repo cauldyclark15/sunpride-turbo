@@ -204,7 +204,7 @@ object CheckoutRules {
             // Credit: only for a customer with office terms, within the credit still available on this phone.
             PaymentKind.CREDIT -> {
                 val buyer=customer?:return null.also { issues+=CheckoutIssue(CheckoutProblem.CREDIT_TERMS_UNAVAILABLE) }
-                val credit=CreditExposure.credit(buyer,context)
+                val credit=SapCreditExceptions.credit(request,context,total)?:CreditExposure.credit(buyer,context)
                     ?:return null.also { issues+=CheckoutIssue(CreditExposure.problem(buyer,context)) }
                 val used = context.creditUsedMinor[buyer.outletId] ?: 0L
                 if(request.creditOverride!=null)SaleAdjustments.authorize("credit",request,lines,context)?.let{problem->return null.also{issues+=CheckoutIssue(problem)}}

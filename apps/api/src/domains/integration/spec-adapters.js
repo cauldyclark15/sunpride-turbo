@@ -99,6 +99,15 @@ export async function enqueueDistributorPosting(c, d, kind, key, payload) {
       sourceType: "distributor_request",
       sourceId: request.id,
       env: c.env,
+      ...(payload.sapCreditExceptionId
+        ? {
+            exceptionId: payload.sapCreditExceptionId,
+            ownerProfileId: c.actor.profileId,
+            orgUnitId: d.org_unit_id,
+            exceptionSourceType: "distributor_order",
+            exceptionSourceId: payload.poNumber,
+          }
+        : {}),
     });
     const [decision] =
       await c.db`select decision_token from sap_credit_decisions where id=${id}`;

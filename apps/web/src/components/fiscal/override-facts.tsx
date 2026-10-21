@@ -32,6 +32,37 @@ function units(q: unknown, s: unknown) {
 /** F-110/F-124: the reviewer sees the exact proposed line reductions, not opaque identifiers. */
 export function OverrideFacts({ value }: { value: unknown }) {
   const f = object(value);
+  if (f.version === 1 && f.kind === "sap_credit_exception")
+    return (
+      <section className="grid gap-2 text-sm">
+        <p>
+          One-document SAP credit exception ·{" "}
+          {String(f.customerName ?? f.customerCode)}
+        </p>
+        <p>
+          Requested amount {money(f.amountCentavos)} · account limit{" "}
+          {money(f.limitCentavos)}
+        </p>
+        <p>
+          SAP exposure at request {money(f.exposureCentavos)} · projected{" "}
+          {money(f.projectedExposureCentavos)}
+        </p>
+        <p>
+          Source {f.source === "sample" ? "SAMPLE mock SAP" : "SAP"} ·{" "}
+          {Number.isFinite(Number(f.checkedAt))
+            ? new Date(Number(f.checkedAt)).toLocaleString("en-PH", {
+                timeZone: "Asia/Manila",
+              })
+            : "Check time unavailable"}
+        </p>
+        <p>Reason: {String(f.reason)}</p>
+        <p>
+          Finance approval alone does not permit this document. SAP must
+          separately acknowledge the exception; its ordinary account limit
+          remains unchanged.
+        </p>
+      </section>
+    );
   if (f.version === 4 && f.kind === "stock" && Array.isArray(f.lines))
     return (
       <section className="overflow-x-auto">
