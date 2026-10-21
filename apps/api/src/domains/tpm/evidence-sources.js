@@ -1,6 +1,6 @@
 import { sha256Hex, canonicalJson } from "../../core/util.js";
 import { authorize } from "../distributors/model.js";
-import { accessVisit } from "../visits/shared.js";
+import { executionEvidenceAccess } from "./evidence-access.js";
 
 /** F-506: canonical immutable execution and current secondary revisions, not uploaded assertions.
  * Current grants are rechecked on every validation, including after a claim was approved.
@@ -11,14 +11,17 @@ export async function executionEvidence(c, kind, id) {
       await c.db`select a.*,v.assignee_profile_id from retail_execution_audits a join visit_executions v on v.id=a.visit_id and v.deleted_at is null
       where a.id=${id} and a.kind=${kind === "posm" ? "posm" : "promotion"} and a.component_score=100`;
     if (!r) return null;
-    const [visit] =
-      await c.db`select * from visit_executions where id=${r.visit_id}`;
-    await accessVisit(c, visit);
+    const scope = await executionEvidenceAccess(c, {
+      outletId: r.outlet_id,
+      occurredAt: +new Date(r.captured_at),
+    });
+    if (!scope) return null;
     return {
       kind,
       sourceId: r.id,
       outletId: r.outlet_id,
       occurredAt: +new Date(r.captured_at),
+      ...scope,
       ...(r.facts.campaignVersionId
         ? { campaignVersionId: r.facts.campaignVersionId }
         : {}),
@@ -28,7 +31,10 @@ export async function executionEvidence(c, kind, id) {
   }
   if (kind === "secondary_sale") {
     const [r] =
-      await c.db`select * from distributor_secondary_current where id=${id} and kind='sale'`;
+      await c.db`select f.*,anchor.id as evidence_source_id from distributor_secondary_lines original
+      join distributor_secondary_current f on f.distributor_id=original.distributor_id and f.invoice_number=original.invoice_number and f.line_key=original.line_key and f.kind='sale'
+      join lateral(select id from distributor_secondary_lines where distributor_id=original.distributor_id and invoice_number=original.invoice_number and line_key=original.line_key order by revision limit 1)anchor on true
+      where original.id=${id}`;
     if (!r) return null;
     await authorize(c, r.distributor_id, "claim");
     // A return reduces the value/quantity available to support a claim. Later corrections invalidate its snapshot.
@@ -46,7 +52,7 @@ export async function executionEvidence(c, kind, id) {
       (BigInt(r.amount_centavos) * remaining) / BigInt(r.quantity_base);
     return {
       kind,
-      sourceId: r.id,
+      sourceId: r.evidence_source_id,
       outletId: r.outlet_id,
       occurredAt: +new Date(
         String(
@@ -59,8 +65,10 @@ export async function executionEvidence(c, kind, id) {
       partyId: r.distributor_id,
       amountCentavos: Number(amount),
       quantityBase: String(remaining),
+      productId: r.product_id,
+      evidenceVersion: 2,
       uom: r.uom,
-      unitsPerUom: r.units_per_uom,
+      unitsPerUom: r.units_per_uom == null ? null : Number(r.units_per_uom),
       fingerprint: `secondary:${r.id}:${sha256Hex(canonicalJson({ hash: r.payload_hash, returns }))}`,
       verified: true,
     };

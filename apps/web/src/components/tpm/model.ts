@@ -1,3 +1,4 @@
+import type { EvidenceSnapshot } from "./claim-evidence-preview";
 export type Campaign = {
   id: string;
   versionId: string;
@@ -17,6 +18,9 @@ export type Campaign = {
   source: string;
 };
 export type Claim = {
+  productId?: string;
+  quantityUnits?: number;
+  uom?: string;
   id: string;
   reference: string;
   partyType: string;
@@ -40,11 +44,18 @@ export type Summary = {
   trend: { date: string; amountCentavos: number }[];
 };
 export type Options = {
+  parties?: { id: string; name: string; type: string }[];
   territories?: { id: string; code: string; name: string }[];
   products: { id: string; code: string; name: string; uom: string }[];
   outlets: { id: string; code: string; name: string }[];
   people: { id: string; name: string }[];
-  evidence: { id: string; label: string; kind: string }[];
+  evidence: {
+    id: string;
+    label: string;
+    kind: string;
+    snapshot?: EvidenceSnapshot;
+    photoUrl?: string;
+  }[];
   evidenceTruncated?: boolean;
 };
 export type Liability = {

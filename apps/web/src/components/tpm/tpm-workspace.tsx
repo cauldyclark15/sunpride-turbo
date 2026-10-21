@@ -4,6 +4,10 @@ import { mutate, useApi, useLive } from "../../lib/api";
 import { usePermissions } from "../../lib/auth";
 import { TrendChart } from "../cockpit/kit/trend-chart";
 import {
+  ClaimEvidencePreview,
+  type EvidencePreview,
+} from "./claim-evidence-preview";
+import {
   centavos,
   signedCentavos,
   day,
@@ -1013,35 +1017,65 @@ export function FinanceClaimsWorkspace() {
               <CommandForm
                 path="/api/v1/tpm/claims/submit"
                 label="Submit claim"
-                build={(d) => ({
-                  reference: d.get("reference"),
-                  partyType: d.get("partyType"),
-                  partyId: d.get("party"),
-                  partyName: d.get("name"),
-                  typeId: d.get("type"),
-                  earningId: d.get("earning") || undefined,
-                  campaignVersionId: liabilities.data?.rows.find(
-                    (e) => e.id === d.get("earning"),
-                  )?.campaignVersionId,
-                  outletId: d.get("outlet") || undefined,
-                  periodFrom: d.get("from"),
-                  periodTo: d.get("to"),
-                  amountCentavos: centavos(d.get("amount")),
-                })}
+                build={(d) => {
+                  const party = options.data?.parties?.find(
+                    (p) => `${p.type}:${p.id}` === d.get("party"),
+                  );
+                  return {
+                    reference: d.get("reference"),
+                    partyType: party?.type ?? d.get("partyType"),
+                    partyId: party?.id ?? d.get("party"),
+                    partyName: party?.name ?? d.get("name"),
+                    typeId: d.get("type"),
+                    earningId: d.get("earning") || undefined,
+                    campaignVersionId: liabilities.data?.rows.find(
+                      (e) => e.id === d.get("earning"),
+                    )?.campaignVersionId,
+                    outletId: d.get("outlet") || undefined,
+                    periodFrom: d.get("from"),
+                    periodTo: d.get("to"),
+                    amountCentavos: centavos(d.get("amount")),
+                    ...(d.get("sourceQuantity")
+                      ? {
+                          quantityUnits: Number(d.get("sourceQuantity")),
+                          productId: d.get("sourceProduct"),
+                          uom: d.get("sourceUom"),
+                        }
+                      : {}),
+                  };
+                }}
               >
-                <Field label="Claimant type">
-                  <select name="partyType" className={input}>
-                    <option value="distributor">Distributor</option>
-                    <option value="modern_trade">Modern trade</option>
-                    <option value="agency">Agency</option>
-                  </select>
-                </Field>
-                <Field label="Account / party code">
-                  <input name="party" required className={input} />
-                </Field>
-                <Field label="Claimant name">
-                  <input name="name" required className={input} />
-                </Field>
+                {options.data?.parties?.length ? (
+                  <Field label="Claimant · governed organization or customer branch">
+                    <select name="party" required className={input}>
+                      <option value="">Choose claimant</option>
+                      {options.data.parties.map((p) => (
+                        <option
+                          key={`${p.type}:${p.id}`}
+                          value={`${p.type}:${p.id}`}
+                        >
+                          {p.name} · {words(p.type)}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                ) : (
+                  <>
+                    <Field label="Claimant type">
+                      <select name="partyType" className={input}>
+                        <option value="distributor">Distributor</option>
+                        <option value="modern_trade">Modern trade</option>
+                        <option value="agency">Agency</option>
+                      </select>
+                    </Field>
+                    <Field label="Account / party code">
+                      <input name="party" required className={input} />
+                    </Field>
+                    <Field label="Claimant name">
+                      <input name="name" required className={input} />
+                    </Field>
+                  </>
+                )}
                 <Field label="Claim reference">
                   <input name="reference" required className={input} />
                 </Field>
@@ -1079,6 +1113,43 @@ export function FinanceClaimsWorkspace() {
                 <Field label="Claimed value · ₱">
                   <input name="amount" required className={input} />
                 </Field>
+                <details>
+                  <summary className="cursor-pointer text-sm">
+                    Match one source SKU line · optional, not for earned rebates
+                  </summary>
+                  <div className="mt-3 grid gap-3">
+                    <Field label="Source product">
+                      <select name="sourceProduct" className={input}>
+                        <option value="">Choose source product</option>
+                        {options.data?.products.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.code} · {p.name}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Source selling UOM">
+                      <input
+                        name="sourceUom"
+                        className={input}
+                        placeholder="Exact unit on the source invoice"
+                      />
+                    </Field>
+                    <Field label="Claimed quantity · source selling units">
+                      <input
+                        name="sourceQuantity"
+                        type="number"
+                        min="1"
+                        step="1"
+                        className={input}
+                      />
+                    </Field>
+                    <p className="text-xs text-muted">
+                      Finance matches one SKU and the captured unit conversion;
+                      its prorated source value caps the claim.
+                    </p>
+                  </div>
+                </details>
                 <Field label="Period from">
                   <input name="from" type="date" required className={input} />
                 </Field>
@@ -1374,11 +1445,17 @@ function PolicyEditors({
               effectiveFrom: `${d.get("from")}T00:00:00+08:00`,
               effectiveTo: `${d.get("to")}T00:00:00+08:00`,
               requiredEvidence: d.getAll("required"),
+              allowExecutionOverride: d.get("allowExecutionOverride") === "on",
             })}
           >
             <Field label="Type name">
               <input name="code" required className={input} />
             </Field>
+            <label className="text-sm">
+              <input type="checkbox" name="allowExecutionOverride" /> Permit
+              independently approved execution-proof exceptions. Monetary proof,
+              quantities, ownership and changed sources can never be waived.
+            </label>
             <PolicyDates />
             <fieldset className="grid gap-2">
               <legend className="text-xs text-muted">
@@ -1619,7 +1696,7 @@ function PolicyDates() {
   );
 }
 
-function ClaimReview({
+export function ClaimReview({
   claim,
   canIntake,
   canApprove,
@@ -1632,13 +1709,29 @@ function ClaimReview({
 }) {
   const detail = useApi<{
     events: { action: string; created_at: string }[];
-    evidence: { kind: string }[];
+    evidence: EvidencePreview[];
+    validation?: {
+      passed: boolean;
+      reasons: string[];
+      waivedReasons?: string[];
+      baseHash: string;
+      exceptionEligible: boolean;
+    };
+    overrides?: {
+      reason: string;
+      evidence_reference: string;
+      waived_reasons: string[];
+    }[];
     settlements: { method: string; status: string; amount_centavos: string }[];
   }>(["tpm", "claim", claim.id], `/api/v1/tpm/claims/detail?id=${claim.id}`);
   const sources = useApi<{ rows: Options["evidence"]; truncated: boolean }>(
     ["tpm", "evidence-options", claim.id],
     `/api/v1/tpm/claims/evidence-options?id=${claim.id}`,
   );
+  const [previewId, setPreviewId] = useState("");
+  if (detail.error || sources.error)
+    return <QueryState error={detail.error ?? sources.error} loading={false} />;
+  const preview = sources.data?.rows.find((s) => s.id === previewId);
   return (
     <div className="grid gap-4">
       <QueryState
@@ -1647,8 +1740,8 @@ function ClaimReview({
       />
       {sources.data?.truncated ? (
         <p className="text-sm text-muted">
-          Showing the latest 100 matching evidence records. Narrow the claim
-          period to find an older record.
+          Showing up to 100 inspected source records. Narrow the claim period if
+          a required source is outside this page.
         </p>
       ) : null}
       <p className="text-sm">
@@ -1656,6 +1749,168 @@ function ClaimReview({
         {detail.data?.evidence.map((e) => words(e.kind)).join(", ") ||
           "None linked"}
       </p>
+      {claim.quantityUnits != null ? (
+        <p className="text-sm">
+          Claimed source quantity: {claim.quantityUnits} {claim.uom}. The
+          captured conversion and prorated value are checked before approval.
+        </p>
+      ) : null}
+      {detail.data?.validation ? (
+        <div className="rounded-lg border border-border p-3 text-sm">
+          <p>
+            {detail.data.validation.passed
+              ? "Current source facts match."
+              : "Source checks need attention."}
+          </p>
+          {detail.data.validation.reasons.map((reason) => (
+            <p key={reason}>{reason}</p>
+          ))}
+          {detail.data.validation.waivedReasons?.map((reason) => (
+            <p key={reason}>Approved execution exception: {reason}</p>
+          ))}
+        </div>
+      ) : null}
+      {detail.data?.evidence.length ? (
+        <ClaimEvidencePreview
+          claimId={claim.id}
+          evidence={detail.data.evidence}
+        />
+      ) : null}
+      <Field label="Preview source before linking">
+        <select
+          className={input}
+          value={previewId}
+          onChange={(e) => setPreviewId(e.target.value)}
+        >
+          <option value="">Choose source to inspect</option>
+          {sources.data?.rows.map((e) => (
+            <option key={`${e.kind}:${e.id}`} value={e.id}>
+              {e.label}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {preview ? (
+        <ClaimEvidencePreview
+          claimId={claim.id}
+          evidence={[
+            {
+              kind: preview.kind,
+              source_id: preview.id,
+              snapshot: preview.snapshot,
+            },
+          ]}
+        />
+      ) : null}
+      {canApprove &&
+      detail.data?.validation?.exceptionEligible &&
+      !detail.data.validation.passed ? (
+        <CommandForm
+          path="/api/v1/tpm/claims/execution-override"
+          label="Independently approve execution exception"
+          build={(d) => ({
+            id: claim.id,
+            baseHash: detail.data?.validation?.baseHash,
+            reason: d.get("reason"),
+            evidenceReference: d.get("evidenceReference"),
+          })}
+        >
+          <Field label="Exception reason">
+            <textarea
+              name="reason"
+              required
+              maxLength={1000}
+              className={input}
+            />
+          </Field>
+          <Field label="Alternative evidence reference">
+            <input
+              name="evidenceReference"
+              required
+              maxLength={500}
+              className={input}
+            />
+          </Field>
+          <p className="text-xs text-muted">
+            Only the effective policy's missing execution proof may be excepted.
+            Value, source ownership, quantities and changed records remain
+            mandatory.
+          </p>
+        </CommandForm>
+      ) : null}
+      {detail.data?.overrides?.map((o, i) => (
+        <p key={i} className="text-xs text-muted">
+          Execution exception: {o.reason} · reference {o.evidence_reference}
+        </p>
+      ))}
+      {canIntake &&
+      [
+        "submitted",
+        "needs_evidence",
+        "validated",
+        "rejected",
+        "approved",
+      ].includes(claim.status) ? (
+        <details>
+          <summary className="cursor-pointer text-sm">
+            Correct an unpaid claim or refresh its source version
+          </summary>
+          <CommandForm
+            path="/api/v1/tpm/claims/amend"
+            label="Save correction and require revalidation"
+            build={(d) => ({
+              id: claim.id,
+              amountCentavos: centavos(d.get("amount")),
+              reason: d.get("reason"),
+              ...(claim.quantityUnits != null
+                ? { quantityUnits: Number(d.get("quantity")) }
+                : {}),
+            })}
+          >
+            <Field label="Correct claimed value · PHP">
+              <input name="amount" required className={input} />
+            </Field>
+            {claim.quantityUnits != null ? (
+              <Field label={`Correct quantity · ${claim.uom}`}>
+                <input
+                  name="quantity"
+                  type="number"
+                  min="1"
+                  step="1"
+                  required
+                  defaultValue={claim.quantityUnits}
+                  className={input}
+                />
+              </Field>
+            ) : null}
+            <Field label="Correction reason">
+              <input name="reason" required className={input} />
+            </Field>
+          </CommandForm>
+          {detail.data?.evidence.map((e) => (
+            <CommandForm
+              key={`${e.kind}:${e.source_id}`}
+              path="/api/v1/tpm/claims/refresh-evidence"
+              label={`Refresh ${words(e.kind)} source version`}
+              build={(d) => ({
+                id: claim.id,
+                kind: e.kind,
+                sourceId: e.source_id,
+                reason: d.get("reason"),
+              })}
+            >
+              <Field label="Why the authoritative source changed">
+                <input name="reason" required className={input} />
+              </Field>
+              <p className="text-xs text-muted">
+                Appends a new version without rewriting the original proof;
+                independent approval is required again. SAP-pending or paid
+                cases cannot be revised.
+              </p>
+            </CommandForm>
+          ))}
+        </details>
+      ) : null}
       {canIntake &&
       ["submitted", "needs_evidence"].includes(claim.status) &&
       options ? (
