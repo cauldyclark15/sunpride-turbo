@@ -910,7 +910,7 @@ async function voidSale(db, trip, actor, env, p, opId) {
     opId,
   );
   const [v] =
-    await db`insert into van_sale_voids(sale_id,trip_id,reason,approval_id) values(${id},${trip.id},${facts.reasonCode},${approvalId}) returning id`;
+    await db`insert into van_sale_voids(sale_id,trip_id,reason,approval_id,note) values(${id},${trip.id},${facts.reasonCode},${approvalId},${text(p.note, 300)}) returning id`;
   /** @type {any[]} */ const lines = s.receipt.lines;
   const movementId = await movement(
     db,
@@ -943,7 +943,7 @@ async function voidSale(db, trip, actor, env, p, opId) {
   const [fiscal] =
     await db`select id from fiscal_documents where source_type='van_sale' and source_id=${id}`;
   if (fiscal)
-    await db`insert into fiscal_document_events(document_id,kind,request_key,reason,actor_profile_id,facts) values(${fiscal.id},'void',${opId},${facts.reasonCode},${actor.profileId},${{ approvalId }})`;
+    await db`insert into fiscal_document_events(document_id,kind,request_key,reason,actor_profile_id,facts) values(${fiscal.id},'void',${opId},${facts.reasonCode},${actor.profileId},${{ approvalId, note: text(p.note, 300) }})`;
   return { entityId: v.id, movementId };
 }
 /** @param {any} db @param {any} trip @param {any} actor @param {any} p @param {string} opId */

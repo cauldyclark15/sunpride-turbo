@@ -8,7 +8,58 @@ import {
   VOID_REASONS,
   CASH_VARIANCE_REASONS,
 } from "./model.js";
-import { tripFor, notSelf } from "./access.js";
+import { tripFor, notSelf, currentActor, outletFor } from "./access.js";
+import { actorFor } from "../../core/context.js";
+import { requireCapability } from "../../core/capabilities.js";
+import {
+  requestOverride,
+  decideOverride,
+  authorityRule,
+} from "../fiscal/authority.js";
+import {
+  enforceFinancialOverride,
+  saleOverrideFacts,
+} from "../fiscal/discounts.js";
+/** F-124 source facts are the retained invoice, not the office form's claimed amount.
+ * @param {any} db @param {any} trip @param {any} facts */
+async function voidAuthority(db, trip, facts) {
+  const [person] =
+    await db`select user_id from profiles where id=${trip.salesperson_profile_id}`;
+  const requester = await currentActor(
+    db,
+    person ? await actorFor(db, person.user_id) : null,
+  );
+  const [sale] =
+    await db`select * from van_sales where trip_id=${trip.id} and receipt_number=${facts.receiptNumber}`;
+  if (!sale || BigInt(sale.total_centavos) !== integer(facts.totalMinor))
+    throw invalid("The original invoice amount does not match");
+  const outlet = await outletFor(db, requester, sale.outlet_id);
+  const input = {
+    orgUnitId: trip.org_unit_id,
+    kind: "void",
+    channel: outlet.channel,
+    amountCentavos: String(sale.total_centavos),
+    reason: facts.reasonCode,
+    facts: {
+      ...saleOverrideFacts(
+        "void",
+        sale.id,
+        sale.outlet_id,
+        sale.receipt.lines,
+        String(sale.total_centavos),
+      ),
+      tripId: trip.id,
+      receiptNumber: sale.receipt_number,
+      reasonCode: facts.reasonCode,
+    },
+  };
+  const rule = await authorityRule(db, requester, input);
+  if (!rule.offline_allowed)
+    throw invalid(
+      "This authority policy does not permit handheld supervisor codes",
+    );
+  return { requester, input };
+}
 import { audit } from "./facts.js";
 
 /** v1 algorithms deliberately retained so existing offline handheld codes still agree. @param {any} env @param {string} tripId @param {string} kind */
@@ -108,6 +159,24 @@ export async function issueApproval(db, actor, env, kind, input) {
   );
   await db`insert into van_approval_codes(trip_id,kind,facts_hash,facts,issuer_profile_id,issuer_name)
     values(${trip.id},${kind},${hash},${facts},${actor.profileId},${actor.name}) on conflict(trip_id,kind,facts_hash) do nothing`;
+  if (kind === "void") {
+    const source = await voidAuthority(db, trip, facts),
+      id = crypto.randomUUID();
+    const [codeRow] =
+      await db`select id,consumed_by from van_approval_codes where trip_id=${trip.id} and kind=${kind} and facts_hash=${hash} for update`;
+    if (codeRow.consumed_by)
+      throw invalid(
+        "This code was already used; reconcile the original invoice",
+      );
+    await requestOverride(db, source.requester, { ...source.input, id });
+    await decideOverride(
+      db,
+      actor,
+      { id, decision: "approved", reason: facts.reasonCode, offline: true },
+      env,
+    );
+    await db`update van_approval_codes set fiscal_request_id=${id},issuer_profile_id=${actor.profileId},issuer_name=${actor.name},updated_at=now() where id=${codeRow.id}`;
+  }
   await audit(db, trip, actor, `van.${kind}.approval_issued`, trip.id, facts);
   return {
     ...facts,
@@ -154,6 +223,30 @@ export async function consumeApproval(
     (row.consumed_by && row.consumed_by !== opId)
   )
     throw invalid("The office has not approved these exact facts");
+  const [issuerProfile] =
+    await db`select user_id from profiles where id=${row.issuer_profile_id}`;
+  const issuer = await currentActor(
+    db,
+    issuerProfile ? await actorFor(db, issuerProfile.user_id) : null,
+  );
+  await requireCapability(
+    { db, actor: issuer },
+    `van.${kind}.approve`,
+    trip.org_unit_id,
+  );
+  if (kind === "void") {
+    if (!row.fiscal_request_id)
+      throw invalid(
+        "Ask the office to reissue this code through the current authority matrix",
+      );
+    const source = await voidAuthority(db, trip, facts);
+    await enforceFinancialOverride(
+      db,
+      source.requester,
+      { ...source.input, overrideId: row.fiscal_request_id, operationId: opId },
+      env,
+    );
+  }
   await db`update van_approval_codes set consumed_by=${opId},updated_at=now() where id=${row.id}`;
   return row.id;
 }

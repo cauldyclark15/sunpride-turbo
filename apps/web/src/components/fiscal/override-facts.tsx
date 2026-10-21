@@ -32,6 +32,48 @@ function units(q: unknown, s: unknown) {
 /** F-110/F-124: the reviewer sees the exact proposed line reductions, not opaque identifiers. */
 export function OverrideFacts({ value }: { value: unknown }) {
   const f = object(value);
+  if (f.version === 4 && f.kind === "stock" && Array.isArray(f.lines))
+    return (
+      <section className="overflow-x-auto">
+        <p>
+          {String(f.sourceNumber ?? "Stock correction")} · conservative current
+          stock valuation for authority only
+        </p>
+        <table className="w-full text-left text-xs">
+          <thead>
+            <tr>
+              <th>Product / stock location</th>
+              <th>Before</th>
+              <th>Proposed</th>
+              <th>Value for approval</th>
+            </tr>
+          </thead>
+          <tbody>
+            {f.lines.slice(0, 100).map((value, i) => {
+              const l = object(value);
+              return (
+                <tr key={i}>
+                  <td>
+                    {String(l.productName)} · {String(l.locationName)}
+                  </td>
+                  <td>
+                    {units(l.expectedBase, l.quantityScale)} {String(l.uomCode)}
+                  </td>
+                  <td>
+                    {units(l.countedBase, l.quantityScale)} {String(l.uomCode)}
+                  </td>
+                  <td>{money(l.valueMinor)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <p>
+          Total value for authority: {money(f.totalMinor)}. Actual inventory
+          posting remains the canonical stock document.
+        </p>
+      </section>
+    );
   if (![2, 3].includes(Number(f.version)) || !Array.isArray(f.lines))
     return (
       <p className="text-xs text-muted-foreground">

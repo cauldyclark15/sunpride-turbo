@@ -29,6 +29,7 @@ import {
   text,
 } from "./common.js";
 import { postMovement } from "./posting.js";
+import { enforceInventoryAuthority } from "./fiscal.js";
 
 /** @typedef {import('./posting.js').MovementLine} MovementLine */
 /** @typedef {{cap:string, prepare:(c:any,b:any)=>Promise<any>, run:(c:any,b:any,prepared:any)=>Promise<any>}} Command */
@@ -472,6 +473,7 @@ commands["adjustments/decide"] = {
       await c.db`update inventory_adjustments set status='rejected',approved_by=${c.actor.userId} where id=${row.id}`;
       return { id: row.id };
     }
+    await enforceInventoryAuthority(c, row, rows);
     const movement = await post(
       c,
       b,
@@ -649,6 +651,18 @@ for (const action of ["submit", "approve", "cancel"])
       await c.db`insert into inventory_adjustments (id,organization_id,adjustment_number,adjustment_type,reason_code,source_count_id,status,requested_by,approved_by) values (${adjustmentId},${ORGANIZATION},${`ADJ-${adjustmentId.slice(0, 8).toUpperCase()}`},'stock_count',${reason},${row.id},'approved',${row.created_by},${c.actor.userId})`;
       const variance = rows.filter(
         (/** @type {any} */ l) => Number(l.variance_base) !== 0,
+      );
+      await enforceInventoryAuthority(
+        c,
+        {
+          ...row,
+          id: adjustmentId,
+          source_count_id: row.id,
+          reason_code: reason,
+          adjustment_number: `ADJ-${adjustmentId.slice(0, 8).toUpperCase()}`,
+        },
+        variance,
+        "inventory.count.submit",
       );
       for (const l of variance)
         await c.db`insert into inventory_adjustment_lines (organization_id,adjustment_id,product_id,lot_id,location_id,stock_status,variance_base,reason_code) values (${ORGANIZATION},${adjustmentId},${l.product_id},${l.lot_id},${row.location_id},${l.stock_status},${l.variance_base},${reason})`;

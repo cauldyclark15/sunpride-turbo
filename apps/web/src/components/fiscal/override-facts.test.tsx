@@ -1,6 +1,37 @@
 import { it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { OverrideFacts } from "./override-facts";
+it("F-124 stock override shows original and proposed physical facts without private keys", () => {
+  const html = renderToStaticMarkup(
+    <OverrideFacts
+      value={{
+        version: 4,
+        kind: "stock",
+        sourceId: "private-stock",
+        sourceNumber: "ADJ-SAMPLE",
+        totalMinor: "200",
+        lines: [
+          {
+            productName: "SAMPLE stock item",
+            locationName: "SAMPLE depot",
+            uomCode: "EA",
+            quantityScale: "1",
+            expectedBase: "10",
+            countedBase: "8",
+            valueMinor: "200",
+            productId: "private-product",
+          },
+        ],
+      }}
+    />,
+  );
+  expect(html).toContain("SAMPLE stock item");
+  expect(html).toContain("SAMPLE depot");
+  expect(html).toContain("Before");
+  expect(html).toContain("Proposed");
+  expect(html).not.toContain("private-stock");
+  expect(html).not.toContain("private-product");
+});
 it("F-124 price exception shows its governed before-price and preserves the SAP credit boundary", () => {
   const html = renderToStaticMarkup(
     <OverrideFacts
