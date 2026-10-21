@@ -28,6 +28,7 @@ import {
   decimalMoney,
   divide,
   fail,
+  integer,
   manilaDate,
   quantityMilli,
   safe,
@@ -192,6 +193,29 @@ export async function quote(ctx, input) {
   if (promo.knownSubtotalCentavos > MAX_CENTAVOS)
     fail("Order amount exceeds the supported accounting range");
   const governed = promo.promotionsApplied.filter((p) => p.campaignVersionId);
+  for (const promotion of governed) {
+    promotion.freeGoodsValueCentavos = 0;
+    for (const gift of promotion.freeGoods) {
+      const price = await resolvePrice(ctx.db, {
+        organizationId: ORGANIZATION,
+        productId: gift.productId,
+        uom: gift.uom,
+        channelKey: input.channelKey ?? null,
+        customerCode: input.customerCode ?? null,
+        outletId: input.outletId ?? null,
+        at: input.at ?? ctx.now,
+      });
+      if (price.unitPriceCentavos == null)
+        fail("A free product needs a governed reference price before approval");
+      gift.referenceValueCentavos = safe(
+        BigInt(integer(price.unitPriceCentavos)) * BigInt(gift.quantity),
+      );
+      promotion.freeGoodsValueCentavos = safe(
+        BigInt(promotion.freeGoodsValueCentavos) +
+          BigInt(gift.referenceValueCentavos),
+      );
+    }
+  }
   if (governed.length) {
     const authority = await tpmSeams.requestOverride(ctx, {
       kind: "discount",
