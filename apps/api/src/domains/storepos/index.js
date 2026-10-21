@@ -1,3 +1,6 @@
+import { installExtended } from "./extended.js";
+import { expectedCash } from "./operations.js";
+import { pinSettings } from "./security.js";
 import { tx } from "@sunpride/db/client";
 import { requireCapability, roleHas } from "../../core/capabilities.js";
 import { canonicalJson, sha256Hex } from "../../core/util.js";
@@ -16,6 +19,7 @@ import {
 /** F-R01 commands are transactional and reauthorize before replay.
  * @param {any} router @param {any} platform */
 export function install(router, platform) {
+  installExtended(router, platform);
   platform.registerTopic("storepos", (/** @type {any} */ a) =>
     roleHas(a.role, "van.read"),
   );
@@ -149,10 +153,24 @@ async function savePolicy(db, actor, p) {
   const r = await registerFor(db, actor, uuid(p.registerId), "admin.manage");
   await noOpenShift(db, r.id);
   const tolerance = integer(p.toleranceCentavos);
+  const [prior] =
+    await db`select * from store_register_policies where register_id=${r.id} and effective_to is null`;
+  const pin = p.pin
+    ? pinSettings(p.pin)
+    : {
+        salt: prior?.pin_salt ?? null,
+        hash: prior?.pin_hash ?? null,
+        key: prior?.pin_key ?? null,
+      };
+  const bps = Number(
+    p.employeeDiscountBps ?? prior?.employee_discount_bps ?? 1000,
+  );
+  if (!Number.isSafeInteger(bps) || bps < 0 || bps > 10000)
+    refuse("Set employee discount from 0 to 10000 basis points");
   const [stamp] = await db`select clock_timestamp() as at`;
   await db`update store_register_policies set effective_to=${stamp.at},updated_at=now() where register_id=${r.id} and effective_to is null`;
   const [row] =
-    await db`insert into store_register_policies(register_id,tolerance_centavos,effective_from) values(${r.id},${String(tolerance)},${stamp.at}) returning id`;
+    await db`insert into store_register_policies(register_id,tolerance_centavos,effective_from,loyalty_enabled,earn_per_centavos,point_value_centavos,employee_discount_bps,pin_salt,pin_hash,pin_key) values(${r.id},${String(tolerance)},${stamp.at},${p.loyaltyEnabled ?? prior?.loyalty_enabled ?? false},${String(integer(p.earnPerCentavos ?? prior?.earn_per_centavos ?? 10000, true))},${String(integer(p.pointValueCentavos ?? prior?.point_value_centavos ?? 100, true))},${bps},${pin.salt},${pin.hash},${pin.key}) returning id`;
   return { id: row.id };
 }
 /** F-R01. @param {any} db @param {any} actor @param {any} p */
@@ -185,8 +203,13 @@ async function saveCashier(db, actor, p) {
  * @param {any} db @param {any} actor @param {any} p */
 async function setMode(db, actor, p) {
   const mode = choice(p.mode, ["van", "store"]);
-  if (p.allowLocalSwitch !== false)
-    refuse("Manager PIN switching is not enabled in this foundation release");
+  if (typeof p.allowLocalSwitch !== "boolean")
+    refuse("Choose whether manager switching is allowed");
+  if (p.allowLocalSwitch) {
+    const [pin] =
+      await db`select pin_hash from store_register_policies where register_id=${uuid(p.registerId)} and effective_from<=now() and (effective_to is null or effective_to>now())`;
+    if (!pin?.pin_hash) refuse("Set the register supervisor PIN first");
+  }
   const registerId = p.registerId ? uuid(p.registerId) : null;
   if (mode === "store" && !registerId) refuse("Choose a store register");
   if (registerId) {
@@ -202,7 +225,7 @@ async function setMode(db, actor, p) {
   const [stamp] = await db`select clock_timestamp() as at`;
   await db`update pos_device_modes set effective_to=${stamp.at},updated_at=now() where device_id=${p.deviceId} and effective_to is null`;
   const [row] =
-    await db`insert into pos_device_modes(device_id,register_id,mode,effective_from,actor_profile_id) values(${p.deviceId},${registerId},${mode},${stamp.at},${actor.profileId}) returning id`;
+    await db`insert into pos_device_modes(device_id,register_id,mode,effective_from,actor_profile_id,allow_local_switch) values(${p.deviceId},${registerId},${mode},${stamp.at},${actor.profileId},${p.allowLocalSwitch}) returning id`;
   return { id: row.id };
 }
 /** F-R01: no second stock or commercial ledger. Sales stay unavailable until the shared POS adapter is delivered.
@@ -222,6 +245,9 @@ export async function shiftOperation(c) {
   const shiftId = uuid(p.shiftId);
   if (c.op.opType === "store.shift.open") {
     await noOpenShift(db, r.id);
+    const [closedDay] =
+      await db`select 1 from store_reads where register_id=${r.id} and kind='z' and snapshot->>'date'=${today(at)}`;
+    if (closedDay) refuse("This register has already closed its sales day");
     const [deviceOpen] =
       await db`select 1 from store_shifts s left join store_shift_closures x on x.shift_id=s.id where s.device_id=${device.id} and x.id is null`;
     if (deviceOpen) refuse("This handheld already has an open cashier session");
@@ -253,9 +279,10 @@ export async function shiftOperation(c) {
       refuse("Submit only the blind counted amount");
     const [policy] =
       await db`select tolerance_centavos from store_register_policies where id=${s.policy_id}`;
-    // SEAM(ORDERS): transactionsEnabled=false. There can be no retail sales or refunds yet;
-    // the only supported cash in this foundation release is the captured opening float.
-    const expected = BigInt(s.opening_centavos),
+    const [pending] =
+      await db`select 1 from store_reversals where shift_id=${s.id} and status='pending'`;
+    if (pending) refuse("Decide pending voids/refunds before the blind count");
+    const expected = await expectedCash(db, s.id),
       declared = integer(p.declaredCentavos),
       variance = declared - expected;
     const review =
@@ -313,7 +340,7 @@ async function workspace(c) {
       truncated: [locations, registers, devices, people, shifts].some(
         (a) => a.length > 500,
       ),
-      transactionsEnabled: false,
+      transactionsEnabled: true,
     };
   });
 }

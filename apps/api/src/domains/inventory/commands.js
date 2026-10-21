@@ -85,6 +85,9 @@ export const post = (c, b, kind, sourceType, sourceId, postingLines) =>
     actor: { profileId: c.actor.profileId, userId: c.actor.userId },
     organizationId: ORGANIZATION,
     lines: postingLines,
+    ...(c.authorizedLocations
+      ? { authorizedLocations: c.authorizedLocations }
+      : {}),
     ...(b.note ? { note: b.note } : {}),
   });
 /** @param {any} c @param {any} b */
@@ -492,8 +495,19 @@ commands["counts/start"] = {
     locationGate(c, "inventory.count.submit", id(b.locationId)),
   run: async (c, b, loc) => {
     const sessionId = crypto.randomUUID();
+    const selected =
+      b.productIds === undefined
+        ? null
+        : [
+            ...new Set(
+              lines(b.productIds).map((/** @type {any} */ v) => id(v)),
+            ),
+          ];
+    if (selected && b.countType !== "cycle")
+      invalid("A product subset is only allowed for a cycle count");
+    const selectedJson = selected ? JSON.stringify(selected) : null;
     const rows =
-      await c.db`select * from inventory_balances where organization_id=${ORGANIZATION} and location_id=${loc.id} order by product_id for update`;
+      await c.db`select * from inventory_balances where organization_id=${ORGANIZATION} and location_id=${loc.id} and (${selectedJson}::text::jsonb is null or product_id::text in (select jsonb_array_elements_text(${selectedJson}::text::jsonb))) order by product_id for update`;
     /** @type {any[]} */ const snapshot = [];
     for (const row of rows) {
       const pp = await productPolicy(c.db, row.product_id);
@@ -529,7 +543,7 @@ commands["counts/start"] = {
         "This location exceeds 100 count lines; split the location before counting",
         "session_too_large",
       );
-    await c.db`insert into stock_count_sessions (id,organization_id,count_number,count_type,location_id,status,blind_count,snapshot_at,created_by) values (${sessionId},${ORGANIZATION},${`SC-${sessionId.slice(0, 8).toUpperCase()}`},${choice(b.countType, ["cycle", "full", "spot", "route_close"], "cycle")},${loc.id},'counting',${b.blindCount !== false},${new Date(c.now)},${c.actor.userId})`;
+    await c.db`insert into stock_count_sessions (id,organization_id,count_number,count_type,location_id,status,blind_count,snapshot_at,created_by,cycle_product_ids) values (${sessionId},${ORGANIZATION},${`SC-${sessionId.slice(0, 8).toUpperCase()}`},${choice(b.countType, ["cycle", "full", "spot", "route_close"], "cycle")},${loc.id},'counting',${b.blindCount !== false},${new Date(c.now)},${c.actor.userId},${selectedJson}::text::jsonb)`;
     for (const l of snapshot)
       await c.db`insert into stock_count_lines (organization_id,session_id,product_id,lot_id,stock_status,system_base,snapshot_balance_version,snapshot_movement_id) values (${ORGANIZATION},${sessionId},${l.productId},${l.lotId},${l.status},${l.system},${l.version},${l.movement})`;
     return { id: sessionId };
@@ -537,8 +551,11 @@ commands["counts/start"] = {
 };
 /** @param {any} t @param {any} session @param {any[]} rows */
 export async function freshSnapshot(t, session, rows) {
+  const subset = session.cycle_product_ids
+    ? JSON.stringify(session.cycle_product_ids)
+    : null;
   const liveProducts =
-    await t`select product_id from inventory_balances where organization_id=${ORGANIZATION} and location_id=${session.location_id}`;
+    await t`select product_id from inventory_balances where organization_id=${ORGANIZATION} and location_id=${session.location_id} and (${subset}::text::jsonb is null or product_id::text in (select jsonb_array_elements_text(${subset}::text::jsonb)))`;
   const frozenProducts = new Set(rows.map((l) => l.product_id));
   if (
     liveProducts.length !== frozenProducts.size ||
@@ -552,7 +569,7 @@ export async function freshSnapshot(t, session, rows) {
       "The product roster changed. Start a new count.",
     );
   const lotRows =
-    await t`select product_id,lot_id,stock_status from inventory_lot_balances where organization_id=${ORGANIZATION} and location_id=${session.location_id}`;
+    await t`select product_id,lot_id,stock_status from inventory_lot_balances where organization_id=${ORGANIZATION} and location_id=${session.location_id} and (${subset}::text::jsonb is null or product_id::text in (select jsonb_array_elements_text(${subset}::text::jsonb)))`;
   const frozenLots = new Set(
     rows
       .filter((l) => l.lot_id)

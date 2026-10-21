@@ -25,6 +25,7 @@ export const MEDIA_PURPOSES = Object.freeze([
   "truck-damage",
   "prospect-photo",
   "attendance-photo",
+  "bank-deposit",
 ]);
 export const MEDIA_MIMES = Object.freeze(["image/jpeg"]);
 export const MAX_MEDIA_BYTES = 10 * 1024 * 1024;

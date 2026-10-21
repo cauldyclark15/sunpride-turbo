@@ -1,3 +1,4 @@
+import { completeStorePosSamples } from "./storepos-selling.js";
 import { tx } from "../src/client.js";
 import { BATCH, Dataset, persist, todayManila } from "./store.js";
 
@@ -44,6 +45,7 @@ export async function ensureStorePosSamples(db) {
       });
     }
     await persist(t, data);
+    await completeStorePosSamples(t);
     return { added: data.markers.length };
   });
 }

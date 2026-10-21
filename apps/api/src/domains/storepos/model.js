@@ -1,4 +1,6 @@
 import { requireCapability, roleHas } from "../../core/capabilities.js";
+import { outletOwnerUnit } from "../org/scope.js";
+import { sellingBundle } from "./bundle.js";
 import { forbidden } from "../../core/errors.js";
 import { currentActor, currentDeviceActor } from "../van/access.js";
 import { uuid, refuse, integer, today, dayString } from "../van/model.js";
@@ -31,6 +33,13 @@ export async function cashierContext(db, actor, device, at) {
   const mode = await modeAt(db, device.id);
   if (mode?.mode !== "store") refuse("This handheld is not in Store mode");
   const r = await registerFor(db, fresh.actor, mode.register_id, "van.operate");
+  if (
+    r.outlet_id &&
+    (await outletOwnerUnit(db, r.outlet_id, Date.now())) !== r.org_unit_id
+  )
+    throw forbidden(
+      "Commercial store ownership changed; the office must relink this register",
+    );
   if (r.org_unit_id !== fresh.device.org_unit_id)
     throw forbidden("Register and handheld must share their assigned unit");
   if (
@@ -68,15 +77,23 @@ export function captureTime(c) {
  * @param {any} db @param {any} actor @param {any} device @param {any} mode */
 export async function modeBundle(db, actor, device, mode) {
   if (!mode) return null;
+  if (mode.mode === "store")
+    await cashierContext(db, actor, device, Date.now());
   const r = mode.register_id
     ? await registerFor(db, actor, mode.register_id)
     : null;
-  const [policy] = r
-    ? await db`select id,tolerance_centavos from store_register_policies where register_id=${r.id} and effective_from<=now() and (effective_to is null or effective_to>now())`
+  let [policy] = r
+    ? await db`select * from store_register_policies where register_id=${r.id} and effective_from<=now() and (effective_to is null or effective_to>now())`
     : [];
   const [open] =
     await db`select s.id,s.opened_at,s.service_date,s.mode_version_id,s.policy_id from store_shifts s left join store_shift_closures c on c.shift_id=s.id where s.device_id=${device.id} and s.cashier_id=${actor.profileId} and c.id is null`;
+  if (open)
+    [policy] =
+      await db`select * from store_register_policies where id=${open.policy_id}`;
+  const [closed] =
+    await db`select max(c.closed_at) as at from store_shift_closures c join store_shifts s on s.id=c.shift_id where s.device_id=${device.id} and s.cashier_id=${actor.profileId}`;
   return {
+    closedThrough: closed.at ? +new Date(closed.at) : 0,
     version: 1,
     mode: mode.mode,
     modeVersionId: mode.id,
@@ -86,9 +103,25 @@ export async function modeBundle(db, actor, device, mode) {
     terminalCode: r?.terminal_code ?? null,
     policyId: policy?.id ?? null,
     toleranceCentavos: policy ? String(policy.tolerance_centavos) : null,
-    allowLocalSwitch: false,
-    // SEAM(ORDERS): no pretend trip, local price list or parallel commercial ledger.
-    transactionsEnabled: false,
+    allowLocalSwitch: mode.allow_local_switch,
+    transactionsEnabled: Boolean(r?.outlet_id),
+    ...(r && mode.mode === "store"
+      ? await sellingBundle(db, actor, device, r)
+      : {}),
+    loyalty: policy
+      ? {
+          enabled: policy.loyalty_enabled,
+          earnPerCentavos: String(policy.earn_per_centavos),
+          pointValueCentavos: String(policy.point_value_centavos),
+        }
+      : null,
+    supervisor: policy?.pin_hash
+      ? {
+          salt: policy.pin_salt,
+          hash: policy.pin_hash,
+          employeeDiscountBps: policy.employee_discount_bps,
+        }
+      : null,
     shift: open
       ? {
           shiftId: open.id,
