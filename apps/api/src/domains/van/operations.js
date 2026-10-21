@@ -19,6 +19,7 @@ import { postMovement } from "../inventory/posting.js";
 import { resolvePrice } from "../orders/pricing.js";
 import { quoteVanSchemes, enforceVanSchemeAuthority } from "./commercial.js";
 import { accrueOrder, reverseOrder } from "../tpm/finance.js";
+import { reverseReturnedVanBenefits } from "../tpm/returns.js";
 import { requestOverride as consumeApproval } from "./seams.js";
 import { currentDeviceActor, tripFor, outletFor } from "./access.js";
 import { damagePhoto } from "./media.js";
@@ -404,7 +405,7 @@ async function dispatchOperation(ctx, env) {
         result = await voidSale(db, trip, actor, env, p, op.clientOpId);
         break;
       case "return.record":
-        result = await customerReturn(db, trip, actor, p, op.clientOpId);
+        result = await customerReturn(db, trip, actor, env, p, op.clientOpId);
         break;
       case "payment.record": {
         await assertNotCounted(db, trip.id);
@@ -861,8 +862,8 @@ async function voidSale(db, trip, actor, env, p, opId) {
     await db`insert into fiscal_document_events(document_id,kind,request_key,reason,actor_profile_id,facts) values(${fiscal.id},'void',${opId},${facts.reasonCode},${actor.profileId},${{ approvalId }})`;
   return { entityId: v.id, movementId };
 }
-/** @param {any} db @param {any} trip @param {any} actor @param {any} p @param {string} opId */
-async function customerReturn(db, trip, actor, p, opId) {
+/** @param {any} db @param {any} trip @param {any} actor @param {any} env @param {any} p @param {string} opId */
+async function customerReturn(db, trip, actor, env, p, opId) {
   await assertNotCounted(db, trip.id);
   if (trip.status !== "active") refuse("Trip is not on the road");
   const id = uuid(p.returnId);
@@ -1011,6 +1012,7 @@ async function customerReturn(db, trip, actor, p, opId) {
   await db`insert into van_returns(id,trip_id,sale_id,return_number,captured_request) values(${id},${trip.id},${saleId},${text(p.returnNumber, 100, true)},${captured})`;
   for (const [i, l] of input.entries())
     await db`insert into van_return_lines(return_id,ordinal,product_id,quantity_base,stock_status,facts) values(${id},${i + 1},${l.productId},${l.quantityBase},${l.stockEffect},${{ ...l, product: l.frozen }})`;
+  await reverseReturnedVanBenefits({ db, actor, env, now: Date.now() }, s, id);
   const posting = input.filter((l) => l.stockEffect !== "none");
   const movementId = await movement(
     db,
