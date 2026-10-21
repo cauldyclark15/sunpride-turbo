@@ -58,6 +58,7 @@ interface FieldBackend {
     fun replacementCode(): JSONObject { error("Replacement pairing unavailable") }
     fun sapMasters(refresh: Boolean): JSONObject? = null
     fun sapMasterLifetime(): String? = null
+    fun appUpdates(): com.sunpride.integrity.AppUpdateClient? = null
     fun queueMockRefusal(outletId: String) { error("Integrity attempt storage unavailable") }
     fun signOut()
     fun changePassword(current: String, next: String, confirm: String) { error("Password change unavailable") }
@@ -908,6 +909,7 @@ class LiveFieldBackend(
         }finally{store.close()}
     }
     override fun sapMasterLifetime(): String? = if(auth.isSignedIn) "${sessionKey()}|${storedScope()}|$authorizationEpoch" else null
+    override fun appUpdates() = com.sunpride.integrity.AppUpdateClient(context,environmentOrigin,token={refresh->auth.accessToken(refresh)})
     override fun signIn(email: String, password: String) = auth.signIn(email, password)
     override fun companySignIn(tokens: JSONObject) = auth.acceptCompanySession(tokens)
     override fun replacementCode(): JSONObject = functions.api.post("/api/v1/integrity/devices/pairing/start",
@@ -1513,6 +1515,7 @@ class FieldController(
     fun replacementCode(): JSONObject = backend.replacementCode()
     fun sapMasters(refresh: Boolean): JSONObject? = backend.sapMasters(refresh)
     fun sapMasterLifetime(): String? = backend.sapMasterLifetime()
+    fun appUpdates(): com.sunpride.integrity.AppUpdateClient? = backend.appUpdates()
     fun companySignIn(tokens: JSONObject) = scope.launch(ui) {
         ++sessionGeneration; busy=true; error=null
         try { withContext(io) { backend.companySignIn(tokens) }; state=EnrollmentState.Unregistered }

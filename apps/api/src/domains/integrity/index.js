@@ -26,6 +26,7 @@ import { collectCommercialSignals } from "./commercial.js";
 import { installPairing } from "./pairing.js";
 import { takeOrThrow } from "../../core/rate.js";
 import { refusedCheckIn } from "./refused-attempt.js";
+import { installAppReleases } from "./app-releases.js";
 
 /** @param {unknown} value @param {number} max @param {boolean} [trim] */
 const text = (value, max, trim = true) => {
@@ -118,6 +119,7 @@ async function setFleet(c, b) {
 export function install(router, platform) {
   installOidc(router);
   installPairing(router);
+  installAppReleases(router, platform);
   platform.registerOp("integrity.checkInRefused", refusedCheckIn);
   installMockIdp(router, platform);
   platform.registerTopic(

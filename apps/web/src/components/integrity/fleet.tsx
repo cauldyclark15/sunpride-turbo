@@ -3,6 +3,7 @@ import { useState, type FormEvent } from "react";
 import { mutate, useApi, useLive } from "../../lib/api";
 import { usePermissions } from "../../lib/auth";
 import { CompanyIdentity } from "./identity";
+import { AppReleases } from "./app-releases";
 
 type Device = {
   id: string;
@@ -475,6 +476,7 @@ export function IntegrityFleet() {
       </section>
       <DeviceAssessment devices={result.data?.devices ?? []} />
       <CompanyIdentity />
+      <AppReleases />
       <IntegrityPolicy />
     </div>
   );

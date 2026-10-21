@@ -303,7 +303,10 @@ fun FieldApp(
                     biometrics = biometrics,
                     onChangePassword = { controller.resetPasswordForm(); page = "change-password" },
                     onBatteryGuide = if (batteryGuide != null) ({ page = "location-battery" }) else null,
-                    sapContent = {com.sunpride.catalogue.SapMasterCopy(controller::sapMasters,controller::sapMasterLifetime)})
+                    sapContent = {
+                        com.sunpride.catalogue.SapMasterCopy(controller::sapMasters,controller::sapMasterLifetime)
+                        com.sunpride.integrity.AppUpdatePanel(controller::appUpdates,controller::sapMasterLifetime)
+                    })
                 page == "change-password" -> ChangePasswordScreen(controller.passwordBusy, controller.passwordMessage,
                     controller.passwordChanged, onChange = { current, next, confirm ->
                         controller.changePassword(current, next, confirm) { biometrics?.passwordChanged() }

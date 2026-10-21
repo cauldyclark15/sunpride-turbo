@@ -53,6 +53,7 @@ class VanRepository private constructor(private val context: Context, private va
         }}},client::masterPull,valid,{e->e !is VanSyncFailure || e.code!="offline"}))
     }
     fun sapMasterLifetime(): String? = if(auth.isSignedIn) current.value?.let {"${sessionKey()}|${it.scope}|${it.authorizationEpoch()}"} else null
+    fun appUpdates() = com.sunpride.integrity.AppUpdateClient(context,environment.siteUrl,token={refresh->auth.accessToken(refresh)})
     private val index = context.getSharedPreferences(if(stubMode != null) "van_stub_identity_index" else "van_identity_index",Context.MODE_PRIVATE)
     private val current = MutableStateFlow<RoomVanStore?>(null)
     // A cached trip is not a grant. Expiry also withdraws already-visible reference data without a network.
