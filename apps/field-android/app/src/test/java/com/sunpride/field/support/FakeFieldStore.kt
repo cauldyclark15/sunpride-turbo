@@ -100,8 +100,9 @@ class FakeFieldStore(val identity: StoreScope) : FieldStore {
     override suspend fun enqueue(intent: IntentRow, now: Long) {
         require(intent.account == identity.account && intent.deviceId == identity.deviceId && intent.scope == identity.fingerprint)
         require(intent.requestId.isNotBlank() && intent.clientVisitId.isNotBlank() &&
-            intent.kind in setOf("visit.checkIn", "visit.activity", "visit.checkOut", RetailCaptureQueue.KIND) && intent.serializedOperation.isNotBlank())
+            intent.kind in setOf("visit.checkIn", "visit.activity", "visit.checkOut", RetailCaptureQueue.KIND, MockAttempts.KIND) && intent.serializedOperation.isNotBlank())
         check(isLeaseValid(now))
+        MockAttempts.validate(intent)
         VisitCompletion.requireOpenForActivity(intent, rows.map { it.first to it.second.state })
         CallSheetQueueRules.validate(this, intent)
         ActivityQueueRules.validate(this, intent)

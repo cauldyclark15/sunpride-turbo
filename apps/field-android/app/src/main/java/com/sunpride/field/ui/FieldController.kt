@@ -56,6 +56,7 @@ interface FieldBackend {
     fun signIn(email: String, password: String)
     fun companySignIn(tokens: JSONObject) { error("Company sign-in unavailable") }
     fun replacementCode(): JSONObject { error("Replacement pairing unavailable") }
+    fun queueMockRefusal(outletId: String) { error("Integrity attempt storage unavailable") }
     fun signOut()
     fun changePassword(current: String, next: String, confirm: String) { error("Password change unavailable") }
     fun refreshEnrollment(signer: DeviceSigner): EnrollmentState
@@ -875,6 +876,15 @@ class LiveFieldBackend(
     override val cachedDeviceId get() = vault.deviceId
     override val isSignedIn get() = auth.isSignedIn
     override fun loadSigner() = signerLoader()
+    override fun queueMockRefusal(outletId: String) {
+        val identity=storedScope() ?: error("No verified local partition")
+        val at=System.currentTimeMillis()
+        withStore {store ->
+            check(store.outlets().any {it.id==outletId}) {"Outlet is not in the authorized snapshot"}
+            store.enqueue(com.sunpride.field.storage.MockAttempts.create(identity,outletId,at),at)
+        }
+        schedulePendingWork()
+    }
     override fun signIn(email: String, password: String) = auth.signIn(email, password)
     override fun companySignIn(tokens: JSONObject) = auth.acceptCompanySession(tokens)
     override fun replacementCode(): JSONObject = functions.api.post("/api/v1/integrity/devices/pairing/start",
@@ -1352,6 +1362,11 @@ class FieldController(
         catch(e: com.sunpride.callflow.CallFlowRefused) { diagnosticError=e.message }
         catch(_: Exception) { diagnosticError="Could not save the audit. Check the fields, take a photo, and complete earlier required steps." }
         finally { busy=false }
+    }
+    fun queueMockRefusal(outletId: String) = scope.launch(ui) {
+        try { withContext(io) { backend.queueMockRefusal(outletId) }; refreshDiagnostic() }
+        catch(e: kotlinx.coroutines.CancellationException) { throw e }
+        catch(_: Exception) { diagnosticError="Check-in refused. The integrity report could not be saved; reconnect and refresh today's access." }
     }
     fun queueDiagnostic(kind: String, reason: String?, note: String?, outcome: String?, location: JSONObject?, flowOptions: JSONObject? = null) = scope.launch(ui) {
         val visit = diagnostic ?: return@launch

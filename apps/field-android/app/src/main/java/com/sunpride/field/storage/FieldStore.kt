@@ -451,10 +451,11 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
     internal suspend fun enqueueWithCheckpoint(intent: IntentRow, now: Long, checkpoint: () -> Unit) {
         require(intent.account == a && intent.deviceId == d && intent.scope == s)
         require(intent.requestId.isNotBlank() && intent.clientVisitId.isNotBlank() &&
-            intent.kind in setOf("visit.checkIn", "visit.activity", "visit.checkOut", com.sunpride.field.census.CensusRules.KIND, "availability.record", "availability.proposal", RetailCaptureQueue.KIND) &&
+            intent.kind in setOf("visit.checkIn", "visit.activity", "visit.checkOut", com.sunpride.field.census.CensusRules.KIND, "availability.record", "availability.proposal", RetailCaptureQueue.KIND, MockAttempts.KIND) &&
             intent.serializedOperation.isNotBlank())
         db.withTransaction {
             check(isLeaseValid(now)) { "Offline lease expired or held" }
+            MockAttempts.validate(intent)
             val prepared = ConfiguredFieldCalls.prepare(this@RoomFieldStore,intent)
             val payload = JSONObject(prepared.serializedOperation).optJSONObject("payload")
             if (intent.kind == "visit.checkIn") {

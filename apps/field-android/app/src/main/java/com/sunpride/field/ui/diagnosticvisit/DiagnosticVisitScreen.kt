@@ -64,6 +64,7 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
             // F-024: the client spec supersedes the legacy mock-fix exception. No check-in is queued.
             if (kind == "visit.checkIn" && (capture as? LocationCapture.Captured)?.fix?.mockSignal == true) {
                 locationNotice = LocationNotice("Check-in refused. Turn off mock location and try again.", true)
+                controller.queueMockRefusal(visit.outletId).join()
                 return
             }
             locationNotice = LocationAssessment.notice(capture, System.currentTimeMillis())

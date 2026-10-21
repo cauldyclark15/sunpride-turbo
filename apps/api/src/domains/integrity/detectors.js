@@ -134,6 +134,16 @@ export async function detect(db, opts = {}) {
     let n = 0;
     for (const o of rows) {
       const f = o.facts;
+      // F-221: phone refusals enter the mock denominator, never travel/visit/batch facts.
+      if (o.kind === "refused_check_in" && f.mockSignal === true)
+        n += await finding(
+          t,
+          o,
+          p,
+          "mock_location",
+          { mock: true, refusedOnPhone: true },
+          run.id,
+        );
       if (o.kind === "check_in") {
         if (f.mockSignal === true)
           n += await finding(
@@ -339,7 +349,7 @@ export async function readQueue(c) {
     count(*) filter(where occurred_at>=now()-interval '7 days' and facts->>'mockSignal'='true')::int as mock,
     count(*) filter(where occurred_at<now()-interval '7 days')::int as prior_total,
     count(*) filter(where occurred_at<now()-interval '7 days' and facts->>'mockSignal'='true')::int as prior_mock
-    from integrity_observations i where kind='check_in' and occurred_at>=now()-interval '14 days' and org_unit_id in ${c.db(ids.length ? ids : [null])}
+    from integrity_observations i where kind in ('check_in','refused_check_in') and occurred_at>=now()-interval '14 days' and org_unit_id in ${c.db(ids.length ? ids : [null])}
     and exists (select 1 from profiles p where p.id=i.profile_id and p.deleted_at is null and p.org_unit_id in ${c.db(ids.length ? ids : [null])})
     and (i.outlet_id is null or exists (
       select 1 from outlets o
@@ -361,7 +371,7 @@ export async function readQueue(c) {
       targetBelowPct: p.settings.mockExitRatePct,
       priorPct: prior_total ? (100 * prior_mock) / prior_total : null,
       definition:
-        "Accepted or mock-refused signed check-in attempts received by the server in the last 7 days. Malformed requests are excluded. On-phone refusals not uploaded are outside this denominator; OS signals are not hardware attestation.",
+        "Accepted or mock-refused signed check-in attempts, including uploaded on-phone refusals, received by the server in the last 7 days. Malformed requests and not-yet-uploaded attempts are excluded; OS signals are not hardware attestation.",
     },
     policySource: p.source_ref,
   };
