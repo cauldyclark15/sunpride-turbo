@@ -12,11 +12,21 @@ import { instant } from "./series.js";
 export const OVERRIDE_KINDS = ["price", "credit", "stock", "discount", "void"];
 /** F-124/F-511. No ambiguous or absent rule can grant authority. @param {any} db @param {any} actor @param {any} p */
 export async function authorityRule(db, actor, p) {
-  await requireCapability(
-    { db, actor },
-    roleHas(actor.role, "order.create") ? "order.create" : "order.encode",
-    uuid(p.orgUnitId),
-  );
+  if (actor.role === "distributor") {
+    const { authorize } = await import("../distributors/model.js");
+    const distributor = await authorize(
+      { db, actor },
+      uuid(p.distributorId),
+      "order",
+    );
+    if (distributor.org_unit_id !== uuid(p.orgUnitId))
+      refuse("Distributor authority belongs to another supervising area");
+  } else
+    await requireCapability(
+      { db, actor },
+      roleHas(actor.role, "order.create") ? "order.create" : "order.encode",
+      uuid(p.orgUnitId),
+    );
   const amount = integer(p.amountCentavos);
   const rules =
     await db`select * from fiscal_authority_rules where org_unit_id=${p.orgUnitId} and kind=${choice(p.kind, OVERRIDE_KINDS)} and role=${actor.role} and channel in (${text(p.channel, 50, true)},'*') and min_centavos<=${String(amount)} and max_centavos>=${String(amount)} and effective_from<=now() and (effective_to is null or effective_to>now()) order by (channel='*')`;
@@ -95,8 +105,8 @@ export async function decideOverride(db, actor, p) {
   return { id: r.id, decision: kind, offlineCode: code };
 }
 /** F-511 point-of-transaction enforcement. Only exact approved facts may be consumed, once.
- * @param {any} db @param {any} actor @param {any} p */
-export async function enforceAuthority(db, actor, p) {
+ * @param {any} db @param {any} actor @param {any} p @param {{consume?:boolean}} [options] */
+export async function enforceAuthority(db, actor, p, options = {}) {
   actor = await currentActor(db, actor);
   const rule = await authorityRule(db, actor, p);
   const [r] =
@@ -149,7 +159,8 @@ export async function enforceAuthority(db, actor, p) {
     )
       refuse("Offline authorization code is invalid");
   }
-  await db`insert into fiscal_override_events(request_id,kind,actor_profile_id,reason,operation_id) values(${r.id},'consumed',${actor.profileId},${r.reason},${uuid(p.operationId)})`;
+  if (options.consume !== false)
+    await db`insert into fiscal_override_events(request_id,kind,actor_profile_id,reason,operation_id) values(${r.id},'consumed',${actor.profileId},${r.reason},${uuid(p.operationId)})`;
   return { overrideId: r.id };
 }
 /** F-511 effective-dated policy editor. @param {any} db @param {any} actor @param {any} p */

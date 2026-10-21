@@ -6,6 +6,7 @@ import {
   readPartnerEvidence,
 } from "../integration/spec-adapters.js";
 import { fail } from "../orders/validation.js";
+import { authorizeCampaignQuote } from "./authority.js";
 
 /** SEAM(SAP): operational instructions await enqueueSapPosting; no synthetic SAP acknowledgement.
  * SEAM(FISCAL): requestOverride must authorize exact transaction facts; no local discount matrix.
@@ -17,9 +18,7 @@ export const seams = {
   /** @param {any} _db @param {any} _instruction @returns {Promise<{postingId:string}|null>} */
   enqueueSapPosting: enqueueTpmPosting,
   /** @param {any} _c @param {any} _facts @returns {Promise<{status:string,reference?:string}>} */
-  async requestOverride(_c, _facts) {
-    return { status: "needs_setup" };
-  },
+  requestOverride: authorizeCampaignQuote,
   /** @param {any} c @param {string} _type @param {string} _id */
   authorizeClaimant,
   /** @param {any} _c @param {string} _kind @param {string} _id @returns {Promise<any>} */

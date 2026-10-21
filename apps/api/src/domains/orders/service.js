@@ -199,6 +199,10 @@ export async function quote(ctx, input) {
       subtotalCentavos: promo.subtotalCentavos,
       totalCentavos: promo.totalCentavos,
       promotions: governed,
+      lines: priced,
+      customerCode: input.customerCode ?? null,
+      serviceDate: manilaDate(input.at ?? ctx.now),
+      discountOverrideId: input.discountOverrideId ?? null,
     });
     if (authority.status !== "authorized")
       fail(
@@ -312,13 +316,16 @@ export async function createOrder(ctx, input, options = {}) {
     ? date(input.serviceDate)
     : manilaDate(ctx.now);
   const at = input.at ?? ctx.now;
-  const pricing = await quote(ctx, {
-    ...input,
-    customerCode,
-    channelKey: sellingChannel,
-    at,
-  });
   const id = crypto.randomUUID();
+  const pricing = await quote(
+    { ...ctx, orderAuthorityOperationId: id },
+    {
+      ...input,
+      customerCode,
+      channelKey: sellingChannel,
+      at,
+    },
+  );
   const [{ sequence }] =
     await ctx.db`select nextval('orders_document_seq')::text as sequence`;
   const orderNumber = `SP-${serviceDate.replaceAll("-", "")}-${String(sequence).padStart(6, "0")}`;
