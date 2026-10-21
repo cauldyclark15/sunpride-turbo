@@ -1,7 +1,8 @@
 import { enqueueSapPosting } from "./outbox.js";
 import { bindCreditDecision, sapCreditCheck } from "./credit.js";
 import { sapConfig } from "./transport.js";
-import { applySapAcknowledgement } from "../tpm/finance.js";
+import { applySapAcknowledgement, accrueOrder } from "../tpm/finance.js";
+import { publish } from "../../core/realtime.js";
 import {
   authorize,
   fail,
@@ -169,8 +170,17 @@ export async function acknowledgeSpecPosting(db, row, result, env = undefined) {
     ...(result.customerCode ? { customerCode: result.customerCode } : {}),
   };
   await db`update distributor_sap_requests set status='acknowledged',acknowledgement=${ack} where id=${r.id}`;
-  if (r.kind === "primary_order")
-    await db`update orders set sap_document_number=${result.documentNumber},acknowledged_at=now(),sap_acknowledgement=${ack} where id=${r.request_key}::uuid and purchasing_distributor_id=${r.distributor_id}`;
+  if (r.kind === "primary_order") {
+    const [order] =
+      await db`update orders set sap_document_number=${result.documentNumber},acknowledged_at=now(),sap_acknowledgement=${ack},status=case when status='submitted' then 'approved' else status end where id=${r.request_key}::uuid and purchasing_distributor_id=${r.distributor_id} returning *`;
+    if (order?.status === "approved") {
+      await accrueOrder(
+        { db, env, actor: { subject: "system:sap" }, now: Date.now() },
+        order,
+      );
+      await publish(db, "tpm");
+    }
+  }
   if (r.kind === "remittance")
     await db`update distributor_remittances set status='acknowledged',updated_at=now() where id=${r.request_key}::uuid and distributor_id=${r.distributor_id}`;
   if (r.kind === "business_partner" && result.customerCode) {

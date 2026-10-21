@@ -171,6 +171,50 @@ export function Overview({
     </>
   );
 }
+export function PartnerDiscountApproval({
+  authority,
+  onRequest,
+  onRefresh,
+}: {
+  authority: Quote["authority"];
+  onRequest: (reason: string) => Promise<void>;
+  onRefresh: () => Promise<void>;
+}) {
+  if (authority?.status !== "approval_required") return null;
+  return (
+    <>
+      <p className="text-sm">
+        Finance approval is required before this exact quotation can be ordered.
+        Approvers use the existing price and discount authority queue.
+      </p>
+      {!authority.pendingId ? (
+        <ActionForm
+          title="Escalate this quotation"
+          submitLabel="Request independent Finance approval"
+          onSubmit={async (f) => onRequest(value(f, "reason"))}
+        >
+          <Field label="Reason">
+            <input
+              name="reason"
+              required
+              maxLength={160}
+              className={fieldClass}
+            />
+          </Field>
+        </ActionForm>
+      ) : (
+        <p className="text-sm">Your request is waiting for Finance.</p>
+      )}
+      <ActionForm
+        title="Check Finance decision"
+        submitLabel="Refresh this quotation"
+        onSubmit={onRefresh}
+      >
+        <p>Stock, credit and exact approval facts are checked again.</p>
+      </ActionForm>
+    </>
+  );
+}
 export function Ordering({
   workspace,
   command,
@@ -278,9 +322,11 @@ export function Ordering({
             preview.schemes.map((s) => (
               <p key={s.id} className="text-sm">
                 {s.name} ·{" "}
-                {s.applied
-                  ? "Benefit applied"
-                  : "Eligible; minimums not met or another benefit selected"}{" "}
+                {!s.eligible
+                  ? "Not eligible"
+                  : s.applied
+                    ? "Benefit applied"
+                    : "Eligible; minimums not met or another benefit selected"}{" "}
                 · {s.reason}
               </p>
             ))
@@ -292,11 +338,31 @@ export function Ordering({
           {preview.benefits.map((b) => (
             <p key={b.name} className="text-sm">
               {b.name}: {money(b.discountCentavos)} discount
+              {b.earnedCentavos
+                ? ` · ${money(b.earnedCentavos)} deferred rebate (not an invoice discount)`
+                : null}
               {b.freeGoods
-                .map((g) => ` · ${g.quantity} ${g.uom} free`)
+                .map(
+                  (g) =>
+                    ` · ${g.quantity} ${g.uom} ${g.productName ?? ""} free`,
+                )
                 .join("")}
             </p>
           ))}
+          <PartnerDiscountApproval
+            authority={preview.authority}
+            onRequest={async (reason) => {
+              await command("quote/approval", { lines: cart, reason });
+              setPreview(
+                (await command("quote", { lines: cart })) as unknown as Quote,
+              );
+            }}
+            onRefresh={async () =>
+              setPreview(
+                (await command("quote", { lines: cart })) as unknown as Quote,
+              )
+            }
+          />
           {preview.canConfirm ? (
             <ActionForm
               title="Confirm this purchase order"
@@ -313,8 +379,8 @@ export function Ordering({
             </ActionForm>
           ) : (
             <Empty>
-              Confirmation is blocked. Resolve accreditation, stock or SAP
-              credit before ordering.
+              Confirmation is blocked. Resolve accreditation, stock, SAP credit
+              or Finance discount authority before ordering.
             </Empty>
           )}
         </Panel>

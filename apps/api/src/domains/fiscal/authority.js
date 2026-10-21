@@ -10,6 +10,18 @@ import { actorFor } from "../../core/context.js";
 import { uuid, text, choice, integer, refuse } from "../van/model.js";
 import { instant } from "./series.js";
 export const OVERRIDE_KINDS = ["price", "credit", "stock", "discount", "void"];
+/** F-410: a portal principal is governed by its effective partner membership, not employee history.
+ * Native employees retain the stricter assignment guard. @param {any} db @param {any} actor @param {any} p */
+export async function currentFiscalActor(db, actor, p) {
+  if (actor?.role !== "distributor") return currentActor(db, actor);
+  const [valid] =
+    await db`select p.id from profiles p join users u on u.id=p.user_id where p.id=${actor.profileId} and p.user_id=${actor.userId} and p.role='distributor' and p.org_unit_id=${actor.orgUnitId} and p.status='active' and p.deleted_at is null and u.disabled_at is null for share of p,u`;
+  if (!valid) refuse("Your distributor access changed");
+  const { authorize } = await import("../distributors/model.js");
+  await db`select id from distributors where id=${uuid(p.distributorId)} for share`;
+  await authorize({ db, actor }, p.distributorId, "order");
+  return actor;
+}
 /** F-124/F-511. No ambiguous or absent rule can grant authority. @param {any} db @param {any} actor @param {any} p */
 export async function authorityRule(db, actor, p) {
   if (actor.role === "distributor") {
@@ -41,7 +53,7 @@ export async function authorityRule(db, actor, p) {
 /** F-124 public seam. Caller owns transaction; facts must include original/proposed document facts.
  * @param {any} db @param {any} actor @param {any} p */
 export async function requestOverride(db, actor, p) {
-  actor = await currentActor(db, actor);
+  actor = await currentFiscalActor(db, actor, p);
   const rule = await authorityRule(db, actor, p),
     id = uuid(p.id);
   const reason = text(p.reason, 300, true);
@@ -107,7 +119,7 @@ export async function decideOverride(db, actor, p) {
 /** F-511 point-of-transaction enforcement. Only exact approved facts may be consumed, once.
  * @param {any} db @param {any} actor @param {any} p @param {{consume?:boolean}} [options] */
 export async function enforceAuthority(db, actor, p, options = {}) {
-  actor = await currentActor(db, actor);
+  actor = await currentFiscalActor(db, actor, p);
   const rule = await authorityRule(db, actor, p);
   const [r] =
     await db`select * from fiscal_override_requests where id=${uuid(p.overrideId)} for update`;

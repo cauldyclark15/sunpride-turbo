@@ -12,9 +12,13 @@ import {
   uuid,
 } from "./model.js";
 import { sapCreditCheck, enqueueSapPosting } from "./seams.js";
+import { eligibility } from "../tpm/engine.js";
+import { authorizeCampaignQuote } from "../tpm/authority.js";
+import { reserveOrder } from "../tpm/finance.js";
+import { requestOverride } from "../fiscal/authority.js";
 
-/** F-403/F-410: eligible existing promotion rules, one governed quotation. TPM replaces
- * only the evaluator seam at integration, never a second distributor scheme engine.
+/** F-403/F-410: the shared versioned scheme evaluator and Fiscal authority govern every quote.
+ * No partner-specific promotion engine or approval matrix.
  * @param {any} c @param {any} d @param {any} b */
 export async function quote(c, d, b) {
   const m = await master(c, d.id),
@@ -62,7 +66,9 @@ export async function quote(c, d, b) {
     .map((s) => uuid(s.promotionId));
   const promotions = schemeIds.length
     ? (await activePromotions(c.db, "sunpride", c.now)).filter(
-        (/** @type {any} */ p) => schemeIds.includes(p.id),
+        (/** @type {any} */ p) =>
+          schemeIds.includes(p.id) &&
+          (d.source === "sample" || !p.planning_sample),
       )
     : [];
   const benefit = applyPromotions(lines, promotions, {
@@ -80,6 +86,13 @@ export async function quote(c, d, b) {
         quantityBase = integer(free.quantity * integer(p.unitsPerUom, 1));
       if (free.uom !== p.uom)
         fail("Scheme free-unit master mismatch", "needs_setup");
+      free.referenceValueCentavos = integer(
+        free.quantity * integer(p.priceCentavos),
+      );
+      free.productName = p.name;
+      promotion.freeGoodsValueCentavos = integer(
+        (promotion.freeGoodsValueCentavos ?? 0) + free.referenceValueCentavos,
+      );
       const paidLine = lines.find((l) => l.productId === p.productId);
       const paid = paidLine?.quantityBase ?? 0;
       const [reserved] =
@@ -102,23 +115,53 @@ export async function quote(c, d, b) {
         availableBase,
       });
     }
+  const governed = benefit.promotionsApplied.filter((p) => p.campaignVersionId);
+  let authority = { status: "authorized" };
+  if (governed.length) {
+    authority = await authorizeCampaignQuote(c, {
+      kind: "discount",
+      channelKey: "distributor",
+      outletId: null,
+      distributorId: d.id,
+      customerCode: d.sap_customer_code,
+      serviceDate: today(c.now),
+      subtotalCentavos: benefit.subtotalCentavos,
+      totalCentavos: benefit.totalCentavos,
+      promotions: governed,
+      lines,
+      freeGoods,
+      discountOverrideId: b.discountOverrideId ?? null,
+    });
+  }
   const credit = await sapCreditCheck(c, d, Number(benefit.totalCentavos));
   return {
     lines,
     freeGoods,
     totalCentavos: benefit.totalCentavos,
     subtotalCentavos: benefit.subtotalCentavos,
-    schemes: promotions.map((/** @type {any} */ p) => ({
-      id: p.id,
-      name: p.name,
-      eligible: true,
-      reason: "Assigned partner, channel, dates and catalog",
-      applied: benefit.promotionsApplied.some((x) => x.id === p.id),
-    })),
+    schemes: promotions.map((/** @type {any} */ p) => {
+      const facts = { distributorId: d.id, channelKey: "distributor" },
+        a = eligibility(p.eligibility ?? {}, facts),
+        b = eligibility(p.campaign_scope ?? {}, facts);
+      return {
+        id: p.id,
+        name: p.name,
+        eligible: a.eligible && b.eligible,
+        reason:
+          a.eligible && b.eligible
+            ? "Assigned partner, channel, dates and catalog"
+            : "Outside the governed eligibility dimensions",
+        applied: benefit.promotionsApplied.some((x) => x.id === p.id),
+      };
+    }),
     benefits: benefit.promotionsApplied,
+    promotionsApplied: benefit.promotionsApplied,
+    pricedAt: c.now,
+    authority,
     credit,
     canConfirm:
       d.status === "accredited" &&
+      authority.status === "authorized" &&
       lines.every((l) => l.inStock) &&
       freeGoods.every((l) => l.inStock) &&
       ["within", "no_limit"].includes(credit.status),
@@ -131,6 +174,21 @@ export async function quote(c, d, b) {
     terms: m.payload.terms,
   };
 }
+/** F-410/F-511 escalation carries server-recomputed exact facts into the shared fiscal queue.
+ * @param {any} c @param {any} d @param {any} b */
+export async function requestQuoteApproval(c, d, b) {
+  const q = await quote(c, d, b),
+    authority = /** @type {any} */ (q.authority);
+  if (authority.status === "authorized")
+    fail("This quote is already within its authority");
+  if (authority.pendingId)
+    return { id: authority.pendingId, requiresSecond: true };
+  return requestOverride(c.db, c.actor, {
+    ...authority.request,
+    id: crypto.randomUUID(),
+    reason: text(b.reason, "Approval reason"),
+  });
+}
 /** F-403: SAME orders/order_lines object with partner PO, frozen pricing and SAP acknowledgement.
  * SEAM(ORDERS): commercial writer adapter. Consolidate with createOrder's authorization
  * strategy at integration; no separate order workflow or posting ledger is introduced.
@@ -142,7 +200,13 @@ export async function placeOrder(c, d, b) {
   const [old] =
     await c.db`select id from orders where purchasing_distributor_id=${d.id} and customer_po_number=${po}`;
   if (old) fail("Purchase order reference already submitted", "conflict", 409);
-  const q = await quote(c, d, b);
+  const id = crypto.randomUUID();
+  const q = await quote({ ...c, orderAuthorityOperationId: id }, d, b);
+  if (q.authority.status !== "authorized")
+    fail(
+      "Finance discount authority must approve this exact partner quote",
+      "authority_required",
+    );
   if (!q.canConfirm)
     fail(
       !["within", "no_limit"].includes(q.credit.status)
@@ -150,8 +214,8 @@ export async function placeOrder(c, d, b) {
         : "Requested stock is not available",
       "order_blocked",
     );
-  const id = crypto.randomUUID(),
-    number = `DP-${id.slice(0, 8).toUpperCase()}`;
+  const number = `DP-${id.slice(0, 8).toUpperCase()}`;
+  await reserveOrder(c, { id, pricing_snapshot: q });
   const req = await enqueueSapPosting(c, d, "primary_order", id, {
     orderId: id,
     poNumber: po,

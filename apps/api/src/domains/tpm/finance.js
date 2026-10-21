@@ -39,12 +39,38 @@ export async function posting(c, input) {
     await c.db`update tpm_posting_instructions set status='queued',updated_at=now() where id=${p.id}`;
   return p;
 }
+/** F-410/F-501 reserve partner orders before the durable SAP handoff, using the same accrual key.
+ * @param {any} c @param {any} order */
+export async function reserveOrder(c, order) {
+  for (const p of order.pricing_snapshot?.promotionsApplied ?? []) {
+    const amount = integer(
+      Number(p.discountCentavos ?? 0) +
+        Number(p.earnedCentavos ?? 0) +
+        Number(p.freeGoodsValueCentavos ?? 0),
+    );
+    if (!p.campaignVersionId || !amount) continue;
+    await commitBudget(
+      {
+        ...c,
+        now:
+          order.pricing_snapshot.pricedAt ??
+          new Date(order.offline_created_at ?? order.created_at).getTime(),
+      },
+      {
+        campaignVersionId: p.campaignVersionId,
+        amountCentavos: amount,
+        sourceKey: `earned:order:${order.id}:promotion:${p.id}`,
+      },
+    );
+  }
+}
 /** F-504 server-earned facts come only from the frozen canonical order snapshot, never caller money.
  * Invoke within the source order transaction after approval; replay is by source order+scheme.
  * @param {any} c @param {any} order */
 export async function accrueOrder(c, order) {
   if (!["approved", "posted", "fulfilled"].includes(order.status))
     fail("Only accepted orders earn promotion liability");
+  await reserveOrder(c, order);
   for (const p of order.pricing_snapshot?.promotionsApplied ?? []) {
     const benefit =
       p.benefitTiming === "claimable" ? p.earnedCentavos : p.discountCentavos;
@@ -65,17 +91,7 @@ export async function accrueOrder(c, order) {
       if (old.source_hash !== hash) fail("Earning source conflicts");
       continue;
     }
-    await commitBudget(
-      {
-        ...c,
-        now: new Date(order.offline_created_at ?? order.created_at).getTime(),
-      },
-      {
-        campaignVersionId: p.campaignVersionId,
-        amountCentavos: benefit,
-        sourceKey: `earned:${key}`,
-      },
-    );
+
     if (p.benefitTiming !== "claimable") continue;
     const [earning] =
       await c.db`insert into promotion_earnings(campaign_version_id,promotion_id,source_key,source_hash,outlet_id,account_key,earned_at,amount_centavos) values(${uuid(p.campaignVersionId)},${uuid(p.id)},${key},${hash},${order.outlet_id},${order.customer_code},${new Date(order.offline_created_at ?? order.created_at)},${integer(p.earnedCentavos)}) returning *`;
