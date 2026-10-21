@@ -456,6 +456,15 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     fun quote(payment: PaymentInput): CheckoutResult? = sale?.let { CheckoutRules.evaluate(CheckoutRequest(it.saleId,it.customer.outletId,it.lines,payment,it.manualDiscount),saleContext()) }
     /** Lines and total of the cart alone, before a payment is entered. */
     fun cartQuote(ignoreManual:Boolean=false): CheckoutQuote? = sale?.let { CheckoutRules.cartQuote(CheckoutRequest(it.saleId,it.customer.outletId,it.lines,PaymentInput(PaymentMethod.CASH.code),if(ignoreManual)null else it.manualDiscount),saleContext()) }
+    /** F-112: check the current cart through the existing SAP gateway, not a local credit calculator. */
+    fun checkSaleCredit()=command{
+        val draft=checkNotNull(sale);val quote=checkNotNull(cartQuote());val valid=repository.fiscalLifetime()
+        val view=checkNotNull(CreditExposure.view(draft.customer,saleContext()))
+        val code=checkNotNull(view.customerCode)
+        repository.checkCredit(JSONObject().put("outletId",draft.customer.outletId).put("customerCode",code).put("amountCentavos",quote.totalMinor))
+        check(valid()&&sale?.saleId==draft.saleId){"The sale changed while credit was checked"}
+        message="Credit refreshed. Complete sale still checks the current snapshot; SAP confirms the saved invoice on sync."
+    }
     var discountMessage by mutableStateOf<String?>(null)
         private set
     private var discountEpoch=0L

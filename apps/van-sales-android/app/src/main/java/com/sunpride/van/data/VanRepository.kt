@@ -318,6 +318,35 @@ class VanRepository private constructor(private val context: Context, private va
     }
     suspend fun completeSale(request: com.sunpride.van.pos.CheckoutRequest, expectedTotalMinor: Long): SaleReceipt =
         withContext(Dispatchers.IO) { store().commitSale(request,expectedTotalMinor).also { schedule() } }
+    private val creditRequestEpoch=java.util.concurrent.atomic.AtomicLong()
+    /** F-112: store an account snapshot only in the current authorization/request lifetime. */
+    suspend fun checkCredit(body:JSONObject):JSONObject=withContext(Dispatchers.IO){
+        val st=store();val lifetime=fiscalLifetime();val generation=creditRequestEpoch.incrementAndGet()
+        val valid={lifetime()&&generation==creditRequestEpoch.get()&&st===current.value}
+        check(valid()&&st.canSync()){"Sync the current account before checking credit"}
+        try{
+            val response=api.request("/api/v1/credit/check",body);currentCoroutineContext().ensureActive()
+            val snapshot=response.getJSONObject("creditSnapshot")
+            require(snapshot.getInt("version")==1&&snapshot.getString("customerCode")==body.getString("customerCode"))
+            com.sunpride.integrity.RemoteErasure.recordingLock.withLock{
+                check(valid()&&st.canSync()){"Credit session changed"}
+                st.db.withTransaction{
+                    val meta=checkNotNull(st.db.rows().meta(st.scope.fullAuthSubject,st.scope.deviceId))
+                    val policy=JSONObject(checkNotNull(meta.policyJson));val fiscal=policy.getJSONObject("fiscal")
+                    val views=fiscal.optJSONObject("creditSnapshots")?:JSONObject()
+                    views.put(body.getString("outletId"),snapshot);fiscal.put("creditSnapshots",views)
+                    currentCoroutineContext().ensureActive();check(valid()){"Credit session changed"}
+                    st.db.rows().insertSyncMeta(meta.copy(policyJson=policy.toString()))
+                }
+            }
+            response
+        }catch(error:Exception){
+            if(valid()&&error is AuthFailure&&error.kind in listOf(AuthFailure.Kind.REFUSED,AuthFailure.Kind.SESSION_EXPIRED)){
+                com.sunpride.integrity.RemoteErasure.recordingLock.withLock{if(valid())runCatching{st.hold()}}
+            }
+            throw error
+        }
+    }
     /** F-110: retire answers independently of a same-account/scope renewal. */
     fun fiscalLifetime():()->Boolean {
         val st=current.value;val epoch=st?.authorizationEpoch();val session=sessionKey()

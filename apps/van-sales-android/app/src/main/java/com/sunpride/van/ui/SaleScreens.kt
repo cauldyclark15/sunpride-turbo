@@ -159,11 +159,7 @@ import com.sunpride.van.pos.*
                     Text("The office confirms this payment later. The sale is saved now.",style = MaterialTheme.typography.bodyMedium)
                 }
                 PaymentKind.CREDIT -> {
-                    val credit = draft.customer.credit?.takeIf { !draft.customer.localOnly }
-                    val left = CheckoutRules.creditLeft(draft.customer,c.saleContext())
-                    Text(if (credit == null || left == null) "No credit terms for this customer."
-                        else "Terms ${credit.termsDays} days · Credit left ${PosMoney.format(left,due?.currency ?: "PHP")}",
-                        style = MaterialTheme.typography.bodyLarge,modifier = Modifier.testTag("credit-terms"))
+                    SaleCreditPanel(c){approvalExpiryTick++}
                     quote?.payment?.dueDate?.let { Text("Due $it",style = MaterialTheme.typography.titleMedium,modifier = Modifier.testTag("credit-due")) }
                 }
             }

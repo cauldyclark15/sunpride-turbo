@@ -88,6 +88,8 @@ object VanRules {
             com.sunpride.van.pos.CheckoutProblem.PROMOTION_NEEDS_OFFICE -> "A promotion on $p needs the office. Remove it, or sync and try again."
             com.sunpride.van.pos.CheckoutProblem.MIXED_CURRENCY -> "Prices are in different currencies. Ask the office."
             com.sunpride.van.pos.CheckoutProblem.TOTAL_TOO_LARGE -> "The total is too large for one sale. Split the sale."
+            com.sunpride.van.pos.CheckoutProblem.CREDIT_EXPOSURE_STALE -> "The SAP credit check expired. Check credit online before completing this sale."
+            com.sunpride.van.pos.CheckoutProblem.CREDIT_EXPOSURE_UNKNOWN -> "SAP credit is not confirmed. Check online or take another payment; unknown is not available credit."
             com.sunpride.van.pos.CheckoutProblem.CREDIT_TERMS_UNAVAILABLE -> "This customer has no credit terms from the office. Take cash or another payment."
             com.sunpride.van.pos.CheckoutProblem.CASH_MISSING -> "Enter the cash received."
             com.sunpride.van.pos.CheckoutProblem.CASH_SHORT -> "Cash received is less than the total."

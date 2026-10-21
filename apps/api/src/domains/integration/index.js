@@ -8,6 +8,7 @@ import { runOutbox } from "./outbox.js";
 import { activateMasters, syncMasters } from "./replicas.js";
 import { installMasterProjection } from "./projection.js";
 import { sapCreditCheck, requestCreditOverride } from "./credit.js";
+import { creditTerms, creditView } from "./credit-view.js";
 import { installConsole, consoleAccess } from "./console.js";
 
 /** @param {any} c */
@@ -89,9 +90,24 @@ export function install(router, ctx) {
   });
   router.post("/api/v1/credit/check", async (/** @type {any} */ c) => {
     await customerAccess(c);
-    return sapCreditCheck(c.db, c.body.customerCode, c.body.amountCentavos, {
-      env: ctx.env,
-    });
+    const decision = await sapCreditCheck(
+      c.db,
+      c.body.customerCode,
+      c.body.amountCentavos,
+      {
+        env: ctx.env,
+      },
+    );
+    const at = Date.now();
+    return {
+      ...decision,
+      creditSnapshot: creditView(
+        decision,
+        await creditTerms(c.db, c.body.outletId ?? null, at),
+        c.body.customerCode,
+        at,
+      ),
+    };
   });
   router.post(
     "/api/v1/credit/request-override",

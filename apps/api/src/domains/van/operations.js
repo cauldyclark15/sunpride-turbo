@@ -696,6 +696,7 @@ async function sale(db, trip, actor, p, opId, env) {
       amountCentavos: safeNumber(total),
       sourceType: "van_sale",
       sourceId: saleId,
+      env,
     });
     const due = new Date(at + terms.terms_days * 86400000);
     const dueDate = today(due.getTime());

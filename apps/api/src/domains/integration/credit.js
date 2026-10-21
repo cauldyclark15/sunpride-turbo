@@ -63,7 +63,9 @@ export async function sapCreditCheck(db, customer, amount, opts = {}) {
     return {
       status: r.status,
       limit: r.limitCentavos,
-      exposure: r.projectedExposureCentavos,
+      exposure: r.exposureCentavos,
+      projectedExposure: r.projectedExposureCentavos,
+      checkedAt: r.checkedAt,
       decisionId: row.id,
       expiresAt: r.expiresAt,
       freshness: "live",

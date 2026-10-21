@@ -11,6 +11,7 @@ import { routeBundle } from "./route-read.js";
 import { ApiError } from "../../core/errors.js";
 import { resolvePrice } from "../orders/pricing.js";
 import { schemeFeed } from "./schemes.js";
+import { cachedCreditView, creditTerms } from "../integration/credit-view.js";
 import { masterId } from "../integration/replicas.js";
 import { currentDeviceActor, tripFor, outletFor } from "./access.js";
 import { productFor } from "./facts.js";
@@ -223,6 +224,7 @@ export async function bundle(ctx, env) {
       priceLines = [],
       taxQuotes = [];
     const priceKeys = new Set();
+    /** @type {Record<string,any>} */ const creditSnapshots = {};
     /** @type {Map<string,Map<string,string|null>>} */ const sourceLists =
       new Map();
     for (const candidate of candidates) {
@@ -233,41 +235,22 @@ export async function bundle(ctx, env) {
         if (e instanceof ApiError && e.status === 403) continue;
         throw e;
       }
-      const [terms] =
-        await db`select * from outlet_credit_terms where outlet_id=${o.id} and effective_from<=now() and (effective_to is null or effective_to>now()) and deleted_at is null`;
-      let credit = null;
-      if (terms && o.customerCode) {
-        // F-112 bootstrap is a cached exposure snapshot, not 600 synchronous SAP calls.
-        const [snapshot] =
-          await db`select * from sap_credit_decisions where customer_code=${o.customerCode} order by checked_at desc limit 1`;
-        const c =
-          snapshot && new Date(snapshot.expires_at).getTime() > Date.now()
-            ? {
-                status: snapshot.status,
-                limit:
-                  snapshot.limit_centavos === null
-                    ? null
-                    : Number(snapshot.limit_centavos),
-                exposure:
-                  snapshot.exposure_centavos === null
-                    ? null
-                    : Number(snapshot.exposure_centavos),
-              }
-            : { status: "unknown", limit: null, exposure: null };
-        if (c.status === "within" && c.limit !== null && c.exposure !== null)
-          credit = {
-            termsDays: terms.terms_days,
-            availableMinor: String(
-              Math.max(
-                0,
-                Math.min(
-                  c.limit - c.exposure,
-                  Number(terms.credit_limit_minor),
-                ),
-              ),
-            ),
-          };
-      }
+      // F-112: one cached SAP read, never hundreds of synchronous provider checks during bootstrap.
+      const creditSnapshot = await cachedCreditView(
+        db,
+        o.customerCode,
+        await creditTerms(db, o.id, ctx.now),
+        ctx.now,
+      );
+      creditSnapshots[o.id] = creditSnapshot;
+      const credit =
+        creditSnapshot.availableMinor === null ||
+        creditSnapshot.termsDays === null
+          ? null
+          : {
+              termsDays: creditSnapshot.termsDays,
+              availableMinor: creditSnapshot.availableMinor,
+            };
       let priceListId = null;
       const sourceList = new Map();
       sourceLists.set(o.id, sourceList);
@@ -405,6 +388,7 @@ export async function bundle(ctx, env) {
           taxVersion: 1,
           taxQuotes,
           schemeHolds: schemes.holds,
+          creditSnapshots,
         },
         ...(routeOps ? { operationsVersion: 1 } : {}),
       },

@@ -47,7 +47,7 @@ enum class CheckoutProblem {
     UNKNOWN_PAYMENT_METHOD, REFERENCE_MISSING, REFERENCE_INVALID, REFERENCE_ALREADY_USED, CREDIT_LIMIT_EXCEEDED,
     PROMOTION_CONFLICT, PROMOTION_NEEDS_OFFICE,
     DISCOUNT_INVALID,DISCOUNT_REASON_REQUIRED,DISCOUNT_POLICY_NOT_READY,DISCOUNT_APPROVAL_REQUIRED,DISCOUNT_APPROVAL_INVALID,
-    TAX_NOT_READY,
+    TAX_NOT_READY, CREDIT_EXPOSURE_STALE, CREDIT_EXPOSURE_UNKNOWN,
     /** VAN-022: the trip's cash is already counted, so it sells nothing more. */
     CASH_COUNTED,
     /** VAN-023: the approved physical stock count freezes every stock-changing action. */
@@ -200,9 +200,10 @@ object CheckoutRules {
             }
             // Credit: only for a customer with office terms, within the credit still available on this phone.
             PaymentKind.CREDIT -> {
-                val credit = customer?.credit?.takeIf { !customer.localOnly }
-                    ?: return null.also { issues += CheckoutIssue(CheckoutProblem.CREDIT_TERMS_UNAVAILABLE) }
-                val used = context.creditUsedMinor[customer.outletId] ?: 0L
+                val buyer=customer?:return null.also { issues+=CheckoutIssue(CheckoutProblem.CREDIT_TERMS_UNAVAILABLE) }
+                val credit=CreditExposure.credit(buyer,context)
+                    ?:return null.also { issues+=CheckoutIssue(CreditExposure.problem(buyer,context)) }
+                val used = context.creditUsedMinor[buyer.outletId] ?: 0L
                 if (Math.addExact(used,total) > credit.availableMinor) return null.also { issues += CheckoutIssue(CheckoutProblem.CREDIT_LIMIT_EXCEEDED) }
                 val due = context.serviceDate?.let { runCatching { java.time.LocalDate.parse(it).plusDays(credit.termsDays.toLong()).toString() }.getOrNull() }
                 QuotedPayment(method,total,null,0,null,PaymentState.ON_ACCOUNT,due)
@@ -216,7 +217,7 @@ object CheckoutRules {
             context.copy(policy = context.policy?.copy(paymentMethods = PaymentMethod.CASH_ONLY),previewOnly=true)).quote
 
     /** Credit the customer can still take on this phone (office-available minus unacknowledged credit sold here); null without terms. */
-    fun creditLeft(customer: Customer, context: CheckoutContext): Long? = customer.credit?.takeIf { !customer.localOnly }?.let {
+    fun creditLeft(customer: Customer, context: CheckoutContext): Long? = CreditExposure.credit(customer,context)?.let {
         maxOf(0L,it.availableMinor - (context.creditUsedMinor[customer.outletId] ?: 0L))
     }
 
