@@ -10,6 +10,7 @@ import { sha256Hex } from "../../core/util.js";
 import { dateOf, addDays, kpi, pct, scopeFor, periodFor } from "./measures.js";
 import { availabilityModel } from "./availability-adapter.js";
 import { feedCoverage } from "../distributors/analytics.js";
+import { campaignDemandPlans } from "./campaign-plans.js";
 
 /** F-603 SEAM(DISTRIBUTOR/SAP): source-line commercial replica reader, never a transaction writer.
  * Current outlet ownership is checked independently of historical source dimensions.
@@ -310,24 +311,28 @@ export async function demandSignalPage(ctx, p, s) {
     availabilityModel(ctx.db, p, s),
   ]);
   const trade = tradeRows(facts, p.days);
+  const campaignPlans = await campaignDemandPlans(ctx, p, s, trade);
   const rows = trade.map((r) => ({
     ...r,
     numericDistributionPct:
       av.distribution.find(
         (/** @type {any} */ d) => d.productId === r.productId,
       )?.numericDistributionPct ?? null,
-    promotionPlans: facts
-      .filter(
-        (/** @type {any} */ f) =>
-          f.kind === "promotion_plan" &&
-          f.product_id === r.productId &&
-          f.distributor_key === r.distributorKey,
-      )
-      .map((/** @type {any} */ f) => ({
-        campaign: f.campaign_ref,
-        plannedBase: Number(f.quantity_base),
-        sourceId: f.id,
-      })),
+    promotionPlans: [
+      ...(campaignPlans.get(r.key) ?? []),
+      ...facts
+        .filter(
+          (/** @type {any} */ f) =>
+            f.kind === "promotion_plan" &&
+            f.product_id === r.productId &&
+            f.distributor_key === r.distributorKey,
+        )
+        .map((/** @type {any} */ f) => ({
+          campaign: f.campaign_ref,
+          plannedBase: Number(f.quantity_base),
+          sourceId: f.id,
+        })),
+    ],
     completeness:
       r.stockBase === null
         ? "Missing trade stock"
@@ -349,9 +354,7 @@ export async function demandSignalPage(ctx, p, s) {
         av.distribution.every(
           (/** @type {any} */ d) => d.numericDistributionPct !== null,
         ),
-      promotionPlans: facts.some(
-        (/** @type {any} */ f) => f.kind === "promotion_plan",
-      ),
+      promotionPlans: rows.some((r) => r.promotionPlans.length > 0),
     },
     notice:
       "Planning input only. Supply Chain must acknowledge this version; sample facts are not a production forecast.",
@@ -426,7 +429,7 @@ export function installPlanning(router, installCtx) {
             "This planning cut is outside your team.",
           );
         // Re-check every source line against current authorization before publication/ack.
-        await authorizedSnapshot(db, row, s);
+        await authorizedSnapshot({ ...ctx, db }, row, s);
         if (b.action === "publish" && row.status === "prepared") {
           if (
             typeof b.destination !== "string" ||
@@ -479,7 +482,7 @@ export function installPlanning(router, installCtx) {
       const rows = [];
       for (const row of candidates) {
         try {
-          await authorizedSnapshot(ctx.db, row, s);
+          await authorizedSnapshot(ctx, row, s);
           rows.push({
             id: row.id,
             label: `${dateOf(row.period_from)} – ${dateOf(row.period_to)} · ${row.status}`,
@@ -504,7 +507,7 @@ export function installPlanning(router, installCtx) {
           403,
           "This planning cut is outside your team.",
         );
-      await authorizedSnapshot(ctx.db, row, s);
+      await authorizedSnapshot(ctx, row, s);
       if (ctx.url.searchParams.get("format") === "xlsx")
         return xlsx(
           { ...row.payload, status: row.status, contentHash: row.content_hash },
@@ -520,14 +523,48 @@ export function installPlanning(router, installCtx) {
     },
   );
 }
-/** @param {any} db @param {any} row @param {any} s */
-async function authorizedSnapshot(db, row, s) {
+/** @param {any} ctx @param {any} row @param {any} s */
+async function authorizedSnapshot(ctx, row, s) {
+  const db = ctx.db;
   const sourceIds = row.payload.lineage.map((/** @type {any} */ r) => r.id);
   const authorized = await readTradeInputs(
     db,
     { from: dateOf(row.period_from), to: dateOf(row.period_to), channel: null },
     s,
   );
+  const frozenRows = row.payload.rows ?? [];
+  if (
+    frozenRows.some((/** @type {any} */ r) =>
+      r.promotionPlans?.some(
+        (/** @type {any} */ plan) => plan.source === "campaign_versions",
+      ),
+    )
+  ) {
+    const plans = await campaignDemandPlans(
+      ctx,
+      {
+        from: dateOf(row.period_from),
+        to: dateOf(row.period_to),
+        channel: null,
+      },
+      s,
+      frozenRows,
+    );
+    for (const frozen of frozenRows)
+      for (const plan of frozen.promotionPlans ?? []) {
+        if (
+          plan.source === "campaign_versions" &&
+          !(plans.get(frozen.key) ?? []).some(
+            (/** @type {any} */ p) => p.sourceId === plan.sourceId,
+          )
+        )
+          throw new ApiError(
+            "scope_changed",
+            403,
+            "Campaign access changed. Prepare a new planning cut.",
+          );
+      }
+  }
   const ids = new Set(authorized.map((/** @type {any} */ r) => r.id));
   if (sourceIds.some((/** @type {string} */ id) => !ids.has(id)))
     throw new ApiError(

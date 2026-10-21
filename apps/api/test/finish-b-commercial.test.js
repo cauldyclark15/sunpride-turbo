@@ -9,6 +9,8 @@ import { reverseOrder } from "../src/domains/tpm/finance.js";
 import { readEvidence } from "../src/domains/tpm/claims.js";
 import {
   readTradeInputs,
+  demandSignalPage,
+  installPlanning,
   tradeRows,
 } from "../src/domains/analytics/trade-planning.js";
 import { canonicalOutletContext } from "../src/domains/analytics/canonical-context.js";
@@ -151,6 +153,48 @@ test("F-603 F-607 canonical shipments declarations and secondary invoices feed t
       { ids: [id()], ownProfileId: null },
     ),
   ).toEqual([]);
+});
+test("F-607 planning consumes current governed campaign eligibility without multiplying its volume target", async () => {
+  const [scheme] =
+    await h.db`insert into promotions(organization_id,code,name,rule_kind,rule,status,source,effective_from,effective_to,campaign_version_id,eligibility) values('sunpride','SAMPLE-PLAN','Sample planned offer','value_off',${{ kind: "value_off", item: { productId: product, uom: "PC", quantity: 1 }, valueCentavos: 1 }},'active','sample',${early},${new Date(now + 86400000)},${version},${{ outletId: { include: [outlet] } }}) returning id`;
+  const period = { from: day, to: day, channel: null, days: 1 };
+  const page = await demandSignalPage(c, period, s);
+  expect(page.rows[0].promotionPlans).toHaveLength(1);
+  expect(page.rows[0].promotionPlans[0]).toMatchObject({
+    sourceId: version,
+    campaignExpectedBase: 10,
+    plannedBase: null,
+    source: "campaign_versions",
+    sample: true,
+  });
+  expect(page.completeness.promotionPlans).toBe(true);
+  const [snapshot] =
+    await h.db`insert into demand_signal_snapshots(org_unit_id,created_by,period_from,period_to,cutoff_at,definition_version,request_key,request_hash,content_hash,payload,status) values(${s.ids[0]},${c.actor.profileId},${day},${day},now(),'commercial/v1','sample-plan','sample','sample',${page},'prepared') returning id`;
+  const handlers = new Map();
+  installPlanning(
+    {
+      get: (/** @type {string} */ path, /** @type {any} */ fn) =>
+        handlers.set(path, fn),
+      post: () => {},
+    },
+    {},
+  );
+  const read = () =>
+    handlers.get("/api/v1/planning/demand-signals/snapshot")({
+      ...c,
+      url: new URL("http://127.0.0.1/snapshot?id=" + snapshot.id),
+    });
+  expect((await read()).payload.rows[0].promotionPlans).toHaveLength(1);
+  await h.db`update promotions set eligibility=${{ outletId: { exclude: [outlet] } }} where id=${scheme.id}`;
+  await expect(read()).rejects.toThrow("Campaign access changed");
+  expect((await demandSignalPage(c, period, s)).rows[0].promotionPlans).toEqual(
+    [],
+  );
+  await h.db`update promotions set eligibility=${{}} where id=${scheme.id}`;
+  await h.db`update distributor_outlets set effective_to=now() where distributor_id=${d.id}`;
+  expect((await demandSignalPage(c, period, s)).rows[0].promotionPlans).toEqual(
+    [],
+  );
 });
 test("F-604 Outlet 360 reads actual retail actions and canonical classification", async () => {
   const context = await canonicalOutletContext(
