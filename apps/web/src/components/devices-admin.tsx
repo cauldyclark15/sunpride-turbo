@@ -320,7 +320,10 @@ export function DevicesAdmin() {
           <Card label="Phone">Loading phone…</Card>
         ) : (
           <Card label={`Phone ${device.inventoryTag}`}>
-            <aside aria-label="Phone detail" className="grid gap-4">
+            <aside
+              aria-label="Phone detail"
+              className="grid min-w-0 grid-cols-1 gap-4"
+            >
               <p className="text-[13px] text-muted">
                 {device.employeeName ?? "Unassigned"} · {device.platform}{" "}
                 {device.osVersion} · app {device.appVersion}

@@ -142,7 +142,7 @@ export function StorePosAdmin({ deviceId }: { deviceId: string }) {
   return (
     <section
       aria-label="POS configuration"
-      className="grid min-w-0 max-w-full gap-3 break-words border-t border-separator pt-4"
+      className="grid min-w-0 max-w-full gap-3 px-3 whitespace-normal break-words border-t border-separator pt-4"
     >
       <h4 className="text-sm font-medium">POS configuration</h4>
       <p className="text-sm text-muted">
