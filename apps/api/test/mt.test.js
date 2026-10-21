@@ -134,7 +134,7 @@ test("F-306 F-309 field sales cannot bypass office queues through direct HTTP ca
     expect((await api(seller, path)).status).toBe(403);
 });
 
-test("F-306 sample PDF retains its actual bytes and requires manual OCR review without invented facts", async () => {
+test("F-306 sample PDF uses actual local OCR and still requires source review without invented facts", async () => {
   const bytes = new Uint8Array(
     await Bun.file(
       new URL("./fixtures/mt/sample-po.pdf", import.meta.url),
@@ -143,7 +143,8 @@ test("F-306 sample PDF retains its actual bytes and requires manual OCR review w
   const parsed = await parsePurchaseOrder("ocr", bytes);
   expect(parsed.lines).toEqual([]);
   expect(parsed.poNumber).toBe("");
-  expect(parsed.exceptions[0]).toContain("not connected");
+  expect(parsed.exceptions[0]).toContain("OCR-assisted draft");
+  expect(parsed.extraction.modelVersion).toBe("apple-vision-text/v1");
 });
 
 test("F-307 immutable contract original is captured with a proposed version, replayed once and scoped on download", async () => {
