@@ -17,6 +17,8 @@ import { configuredTender } from "../fiscal/tenders.js";
 import { requireAvailability } from "../availability/callflow.js";
 import { postMovement } from "../inventory/posting.js";
 import { resolvePrice } from "../orders/pricing.js";
+import { quoteVanSchemes, enforceVanSchemeAuthority } from "./commercial.js";
+import { accrueOrder, reverseOrder } from "../tpm/finance.js";
 import { requestOverride as consumeApproval } from "./seams.js";
 import { currentDeviceActor, tripFor, outletFor } from "./access.js";
 import { damagePhoto } from "./media.js";
@@ -396,7 +398,7 @@ async function dispatchOperation(ctx, env) {
         break;
       }
       case "sale.record":
-        result = await sale(db, trip, actor, p, op.clientOpId);
+        result = await sale(db, trip, actor, env, p, op.clientOpId);
         break;
       case "sale.void":
         result = await voidSale(db, trip, actor, env, p, op.clientOpId);
@@ -509,8 +511,8 @@ async function dispatchOperation(ctx, env) {
   ctx.publish("van");
   return result;
 }
-/** @param {any} db @param {any} trip @param {any} actor @param {any} p @param {string} opId */
-async function sale(db, trip, actor, p, opId) {
+/** @param {any} db @param {any} trip @param {any} actor @param {any} env @param {any} p @param {string} opId */
+async function sale(db, trip, actor, env, p, opId) {
   await assertNotCounted(db, trip.id);
   if (trip.status !== "active") refuse("Start the trip before selling");
   const saleId = uuid(p.saleId);
@@ -550,6 +552,7 @@ async function sale(db, trip, actor, p, opId) {
     saleId,
     Number(p.deviceTime),
   );
+  const commercial = await quoteVanSchemes(db, trip, actor, env, p, customer);
   const at = Number(p.deviceTime),
     quoted = [];
   let total = 0n,
@@ -563,7 +566,7 @@ async function sale(db, trip, actor, p, opId) {
     const qty = integer(l.quantityBase, true);
     const paid = l.paidBase === undefined ? qty : integer(l.paidBase),
       free = l.freeBase === undefined ? 0n : integer(l.freeBase);
-    if (paid + free !== qty || free !== 0n)
+    if (paid + free !== qty || (!commercial && free !== 0n))
       refuse(
         "Promotion approval is not supported by the pricing seam",
         "invalid_request",
@@ -584,11 +587,16 @@ async function sale(db, trip, actor, p, opId) {
       refuse("The selling price changed", "stock_conflict");
     const gross = extend(unitPrice, paid, product.quantityScale),
       discount = integer(l.discountMinor ?? "0");
-    if (discount > gross || l.promotion)
+    if (discount > gross || (!commercial && l.promotion))
       refuse(
         "Discount exceeds the gross or promotion needs the programme seam",
         "invalid_request",
       );
+    if (
+      commercial &&
+      discount !== BigInt(commercial.captured.get(product.id).discount)
+    )
+      refuse("Discount does not match the governed scheme", "invalid_request");
     const lineTotal = gross - discount;
     if (
       integer(l.totalMinor) !== lineTotal ||
@@ -604,6 +612,13 @@ async function sale(db, trip, actor, p, opId) {
       unitPriceMinor: String(unitPrice),
       totalMinor: String(lineTotal),
       discountMinor: String(discount),
+      ...(commercial
+        ? {
+            paidBase: String(paid),
+            freeBase: String(free),
+            grossMinor: String(gross),
+          }
+        : {}),
       priceListId: price.priceListId,
       priceSource: price.source,
       taxCode: price.taxCode ?? null,
@@ -619,22 +634,27 @@ async function sale(db, trip, actor, p, opId) {
   safeNumber(total);
   if (integer(p.totalMinor) !== total)
     refuse("Sale total does not reconcile", "invalid_request");
-  if (discounts > 0n)
-    await enforceAuthority(db, actor, {
-      orgUnitId: trip.org_unit_id,
-      kind: "discount",
-      channel: customer.channel,
-      amountCentavos: String(discounts),
-      overrideId: p.overrideId,
-      operationId: opId,
-      facts: {
-        saleId,
-        customerId: customer.id,
-        lines: p.lines,
-        totalMinor: p.totalMinor,
+  const authorityAmount = commercial ? commercial.benefitCentavos : discounts;
+  if (authorityAmount > 0n)
+    await (commercial ? enforceVanSchemeAuthority : enforceAuthority)(
+      db,
+      actor,
+      {
+        orgUnitId: trip.org_unit_id,
+        kind: "discount",
+        channel: customer.channel,
+        amountCentavos: String(authorityAmount),
+        overrideId: p.overrideId,
+        operationId: opId,
+        facts: {
+          saleId,
+          customerId: customer.id,
+          lines: p.lines,
+          totalMinor: p.totalMinor,
+        },
+        offlineCode: p.offlineCode,
       },
-      offlineCode: p.offlineCode,
-    });
+    );
   const pay = p.payment;
   if (!pay || integer(pay.amountMinor) !== total)
     refuse("Payment must match the sale total", "invalid_request");
@@ -695,6 +715,12 @@ async function sale(db, trip, actor, p, opId) {
     lines: quoted,
     payment: { ...pay, label: method.label },
     soldAt: at,
+    ...(commercial
+      ? {
+          schemeEngineVersion: 1,
+          promotionsApplied: commercial.quote.promotionsApplied,
+        }
+      : {}),
   };
   const fiscal = await invoiceForSale(
     db,
@@ -716,6 +742,19 @@ async function sale(db, trip, actor, p, opId) {
   await db`insert into van_sales(id,trip_id,receipt_number,outlet_id,customer_code,total_centavos,discount_centavos,receipt,captured_request) values(${saleId},${trip.id},${receiptNumber},${customer.id},${customer.customerCode},${String(total)},${String(discounts)},${receipt},${p})`;
   if (creditDecisionId)
     await db`update van_sales set sap_credit_decision_id=${creditDecisionId} where id=${saleId}`;
+  if (commercial)
+    await accrueOrder(
+      { db, actor, env, now: at },
+      {
+        id: saleId,
+        source_type: "van_sale",
+        status: "approved",
+        pricing_snapshot: commercial.quote,
+        customer_code: customer.customerCode,
+        outlet_id: customer.id,
+        offline_created_at: new Date(at),
+      },
+    );
   await enqueueVanInvoice(db, trip, saleId);
   for (const l of quoted)
     await db`insert into van_sale_lines(sale_id,ordinal,product_id,quantity_base,total_centavos,facts) values(${saleId},${l.lineNumber},${l.productId},${l.quantityBase},${l.totalMinor},${l})`;
@@ -783,6 +822,8 @@ async function voidSale(db, trip, actor, env, p, opId) {
     p.approval,
     opId,
   );
+  if (s.receipt.schemeEngineVersion === 1)
+    await reverseOrder({ db, actor, env, now: Date.now() }, id, "van_sale");
   const [v] =
     await db`insert into van_sale_voids(sale_id,trip_id,reason,approval_id) values(${id},${trip.id},${facts.reasonCode},${approvalId}) returning id`;
   /** @type {any[]} */ const lines = s.receipt.lines;

@@ -328,6 +328,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
                 .apply { pay.reference?.let { put("reference",it) } }
                 .apply { pay.dueDate?.let { put("dueDate",it) } })
             .put("deviceTime",context.now)
+            .apply { if(context.policy?.schemesJson != null) put("schemeEngineVersion",1) }
             .apply { fiscal?.let { put("fiscal",JSONObject().put("allocationId",it.allocationId).put("serial",it.serial.toString())) } }
         VanCallStore(this@RoomVanStore).bindAdapter(payload,customer.outletId,listOf("order_build","discount","invoice","payment"))
         RouteOpsStore(this).prepare(payload)

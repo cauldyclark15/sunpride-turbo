@@ -27,16 +27,22 @@ object V2Wire {
         val asked=params.keys().asSequence().toSet();val echoed=returned.keys().asSequence().toSet()
         // F-209/F-222 optional negotiation: an older server may omit ONLY this new opt-in.
         // It must not issue workforce authority in that case; all original parameters remain exact.
-        val legacy=params.opt("includeWorkforce")==true && echoed==asked-setOf("includeWorkforce")
-        check((echoed==asked||legacy) && echoed.all { returned.get(it)==params.get(it) })
-        if(legacy)check(b.optJSONObject("data")?.optJSONObject("employee")?.has("workforce")!=true)
+        val omitted=buildSet {
+            if(params.opt("includeWorkforce")==true && !returned.has("includeWorkforce")) add("includeWorkforce")
+            if(params.opt("schemeEngine")==1 && !returned.has("schemeEngine")) add("schemeEngine")
+        }
+        check(echoed==asked-omitted && echoed.all { returned.get(it)==params.get(it) })
+        if("includeWorkforce" in omitted) check(b.optJSONObject("data")?.optJSONObject("employee")?.has("workforce")!=true)
+        if("schemeEngine" in omitted) b.optJSONObject("data")?.optJSONArray("orderTerms")?.let { terms ->
+            check((0 until terms.length()).none { terms.getJSONObject(it).has("schemes") })
+        }
         val grant = b.getJSONObject("authorization")
         check(grant.getString("epoch") == scope.getString("epoch"))
         check(grant.getLong("expiresAt") > o.getLong("serverTime"))
         return b
     }
     fun bootstrap(legacy: ByteArray, page: Int, me: JSONObject): WireRequest {
-        val old = JSONObject(legacy.toString(Charsets.UTF_8)); val params = JSONObject().put("dayFrom", old.getString("dayFrom")).put("includeWorkforce",true)
+        val old = JSONObject(legacy.toString(Charsets.UTF_8)); val params = JSONObject().put("dayFrom", old.getString("dayFrom")).put("includeWorkforce",true).put("schemeEngine",1)
         val device = me.getJSONObject("device").getString("id")
         val request = pull(device, me.getJSONObject("scope").getString("id"), "field.bundle", params,
             page = old.optString("pageCursor").takeIf { it.isNotBlank() })
@@ -81,7 +87,7 @@ object V2Wire {
         val old = JSONObject(legacy.toString(Charsets.UTF_8)); val scope = me.getJSONObject("scope").getString("id")
         val device = old.getString("deviceId")
         if (path.endsWith("/pull")) {
-            val params = JSONObject().put("dayFrom", java.time.LocalDate.now(java.time.ZoneId.of("Asia/Manila")).toString()).put("includeWorkforce",true)
+            val params = JSONObject().put("dayFrom", java.time.LocalDate.now(java.time.ZoneId.of("Asia/Manila")).toString()).put("includeWorkforce",true).put("schemeEngine",1)
             val request = pull(device, scope, "field.bundle", params, since = old.getString("cursor"), limit = 50)
             return WireRequest(PULL, request.toString().toByteArray()) { text ->
                 val o = JSONObject(text); val b = bundle(o, me, "field.bundle", params)

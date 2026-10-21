@@ -1,4 +1,5 @@
 import { tx } from "@sunpride/db/client";
+import { activePromotions } from "../tpm/active.js";
 import { retailManifest } from "../retail/index.js";
 import { releasesAt } from "../availability/masters.js";
 import { workforceContext } from "../coverage/workforce-policies.js";
@@ -111,6 +112,16 @@ export async function checkDayManifest(ctx) {
       ctx.params.includeWorkforce === true
         ? await workforceContext(db, ctx.actor.profileId, ctx.now)
         : null;
+    const schemes =
+      ctx.params.schemeEngine === 1
+        ? {
+            promotions: await activePromotions(db, "sunpride", ctx.now),
+            authority: bounded(
+              await db`select * from fiscal_authority_rules where role=${ctx.actor.role} and kind='discount' and effective_from<=${at} and (effective_to is null or effective_to>${at}) order by id limit 501`,
+              500,
+            ),
+          }
+        : null;
     const stamp = sha256Hex(
       canonicalJson({
         callflow,
@@ -132,6 +143,7 @@ export async function checkDayManifest(ctx) {
         prices,
         day: date,
         ...(ctx.params.includeWorkforce === true ? { workforce } : {}),
+        ...(ctx.params.schemeEngine === 1 ? { schemes } : {}),
       }),
     );
     const [prior] =

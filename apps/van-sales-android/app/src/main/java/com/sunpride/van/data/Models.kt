@@ -10,7 +10,7 @@ data class VanPolicy(val allowNegativeStock: Boolean = false,
     val voidReasons: List<String> = emptyList(), val voidApproval: VoidApproval? = null,
     val cashReconciliation: CashReconciliationPolicy? = null,
     val stockReconciliation: StockReconciliationPolicy? = null,
-    val tripClose: TripClosePolicy? = null, val operationsVersion: Int = 0)
+    val tripClose: TripClosePolicy? = null, val operationsVersion: Int = 0, val schemesJson: String? = null)
 /**
  * VAN-024 what must be done before the seller closes the trip on this phone. A policy cached before VAN-024 has
  * none and then [STRICT] applies: every check on.

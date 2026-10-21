@@ -2,7 +2,9 @@
 
 The Android products execute the existing API `domains/tpm/engine.js`, bundled by `apps/api/scripts/build-native-schemes.js`. TypeScript lowers syntax for Rhino; it does not translate or replace the pricing algorithm, BigInt arithmetic, eligibility, precedence or allocation rules. Generated Java resources include a digest-checked engine manifest. Product adapters must supply only their authorized cached prices, schemes and facts; server acceptance still reauthorizes the transaction.
 
-The lazy interpreter has no Java host access or network bindings, serializes evaluations, and bounds request size and execution time. The shared JVM fixtures exercise the compiled authority rather than a Kotlin approximation. They are not device or financial-posting proof.
+The lazy interpreter has no Java host access or network bindings, serializes evaluations, and bounds request size and execution time. Native scheme contexts are negotiated rather than changing the frozen v1 DTO. Both products use the canonical result for net-line allocations, stacking, free units and separately disclosed deferred benefits. Cached eligibility never grants new outlet/SKU access. Van checkout refuses missing/ambiguous/out-of-band fiscal authority, missing accounting links for rebates, stale contexts and changed prices; server capture reconstructs the same basket and reauthorizes before spending. Field orders remain quantity-only intents and are repriced by the office. Exact decimal-to-Long conversion supports API 29 without the API-31-only BigInteger method.
+
+The shared JVM fixtures and actual field/van quote adapters exercise the compiled authority rather than a Kotlin approximation. They are not physical-device, printer or end-to-end SAP-posting proof. Existing frozen-v1 van compatibility does not admit the new advanced schemes.
 
 ## F-502 — third-party runtime
 

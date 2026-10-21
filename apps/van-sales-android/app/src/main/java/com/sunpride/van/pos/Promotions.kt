@@ -25,7 +25,7 @@ internal data class PromotionLine(
     val grossMinor: Long get() = if (paidBase == 0L) 0L else price?.let { CheckoutRules.lineTotal(it.unitPriceMinor,paidBase,product.quantityScale) } ?: 0L
 }
 
-internal data class PromotionResult(val lines: List<PromotionLine>, val issues: List<CheckoutIssue>)
+internal data class PromotionResult(val lines: List<PromotionLine>, val issues: List<CheckoutIssue>, val earnedMinor: Long = 0)
 
 /**
  * Pure offline promotion evaluation. The bootstrap is authoritative: this engine never invents a price and never

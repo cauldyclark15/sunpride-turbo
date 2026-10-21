@@ -66,7 +66,7 @@ data class QuotedLine(val lineNumber: Int, val product: Product, val quantityBas
 
 /** [tenderedMinor]/[changeMinor] are the cash handed over and change (non-cash: the amount and zero). */
 data class CheckoutQuote(val lines: List<QuotedLine>, val currency: String, val totalMinor: Long,
-    val tenderedMinor: Long, val changeMinor: Long, val payment: QuotedPayment)
+    val tenderedMinor: Long, val changeMinor: Long, val payment: QuotedPayment, val earnedMinor: Long = 0)
 
 /** [quote] is non-null only when there are no [issues]. */
 data class CheckoutResult(val quote: CheckoutQuote?, val issues: List<CheckoutIssue>) {
@@ -112,7 +112,9 @@ object CheckoutRules {
         val products = context.products.associateBy { it.productId }
         val available = context.stock.associate { it.productId to it.availableBase }
         val customer = context.customers.firstOrNull { it.outletId == request.customerId }
-        val promotionResult = customer?.let { PromotionEngine.apply(request.lines,it,products,context.prices,context.promotions,context.now) }
+        val promotionResult = customer?.let { customer -> context.policy?.schemesJson?.let { snapshot ->
+            CanonicalPromotions.apply(request.lines,customer,products,context.prices,org.json.JSONObject(snapshot),context.now)
+        } ?: PromotionEngine.apply(request.lines,customer,products,context.prices,context.promotions,context.now) }
             ?: PromotionResult(emptyList(),emptyList())
         issues += promotionResult.issues
         val needsOfficeProducts = promotionResult.issues.filter { it.problem == CheckoutProblem.PROMOTION_NEEDS_OFFICE }
@@ -157,7 +159,7 @@ object CheckoutRules {
 
         val payment = payment(request.payment,total,customer,context,issues)
         if (issues.isNotEmpty() || payment == null) return CheckoutResult(null,issues.distinct())
-        return CheckoutResult(CheckoutQuote(quoted,currencies.single(),total,payment.tenderedMinor ?: total,payment.changeMinor,payment),emptyList())
+        return CheckoutResult(CheckoutQuote(quoted,currencies.single(),total,payment.tenderedMinor ?: total,payment.changeMinor,payment,promotionResult.earnedMinor),emptyList())
     }
 
     /** VAN-012 payment rules; adds problems to [issues] and returns null when the payment cannot be recorded. */

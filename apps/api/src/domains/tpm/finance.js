@@ -43,6 +43,7 @@ export async function posting(c, input) {
 /** F-410/F-501 reserve partner orders before the durable SAP handoff, using the same accrual key.
  * @param {any} c @param {any} order */
 export async function reserveOrder(c, order) {
+  const sourceType = order.source_type === "van_sale" ? "van_sale" : "order";
   for (const p of order.pricing_snapshot?.promotionsApplied ?? []) {
     const amount = integer(
       Number(p.discountCentavos ?? 0) +
@@ -60,7 +61,7 @@ export async function reserveOrder(c, order) {
       {
         campaignVersionId: p.campaignVersionId,
         amountCentavos: amount,
-        sourceKey: `earned:order:${order.id}:promotion:${p.id}`,
+        sourceKey: `earned:${sourceType}:${order.id}:promotion:${p.id}`,
       },
     );
   }
@@ -76,7 +77,7 @@ export async function accrueOrder(c, order) {
     const benefit =
       p.benefitTiming === "claimable" ? p.earnedCentavos : p.discountCentavos;
     if (!p.campaignVersionId || !benefit) continue;
-    const key = `order:${order.id}:promotion:${p.id}`;
+    const key = `${order.source_type === "van_sale" ? "van_sale" : "order"}:${order.id}:promotion:${p.id}`;
     const facts = {
       key,
       version: p.campaignVersionId,
@@ -109,10 +110,10 @@ export async function accrueOrder(c, order) {
   }
 }
 /** F-504 source void reversal. Block a void after settlement allocation until Finance reconciles.
- * @param {any} c @param {string} orderId */
-export async function reverseOrder(c, orderId) {
+ * @param {any} c @param {string} orderId @param {"order"|"van_sale"} [sourceType] */
+export async function reverseOrder(c, orderId, sourceType = "order") {
   const rows =
-    await c.db`select * from promotion_earnings where source_key like ${"order:" + orderId + ":promotion:%"} for update`;
+    await c.db`select * from promotion_earnings where source_key like ${sourceType + ":" + orderId + ":promotion:%"} for update`;
   for (const e of rows) {
     if (Number(e.reversed_centavos) === Number(e.amount_centavos)) continue;
     const [used] =
@@ -123,7 +124,9 @@ export async function reverseOrder(c, orderId) {
       sourceKey: `reverse:${e.id}`,
       kind: "reversal",
       earningId: e.id,
-      amountCentavos: Number(e.amount_centavos),
+      amountCentavos: Number(
+        BigInt(e.amount_centavos) - BigInt(e.reversed_centavos),
+      ),
       currency: "PHP",
     });
     await changed(c, "earning.reversed", e.id);
@@ -131,7 +134,7 @@ export async function reverseOrder(c, orderId) {
   // F-501: both immediate discounts and deferred rebates reserved campaign spend.
   // Voiding releases the remaining commitment without erasing the original reservation.
   const commitments =
-    await c.db`select b.* from campaign_commitment_balances b where source_key like ${"earned:order:" + orderId + ":promotion:%"} and amount_centavos>0 order by campaign_id,id`;
+    await c.db`select b.* from campaign_commitment_balances b where source_key like ${"earned:" + sourceType + ":" + orderId + ":promotion:%"} and amount_centavos>0 order by campaign_id,id`;
   for (const b of commitments) {
     await c.db`select id from campaigns where id=${b.campaign_id} for update`;
     const [remaining] =

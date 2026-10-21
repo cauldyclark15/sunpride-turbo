@@ -10,6 +10,7 @@ import { fiscalBundle } from "../fiscal/transactions.js";
 import { routeBundle } from "./route-read.js";
 import { ApiError } from "../../core/errors.js";
 import { resolvePrice } from "../orders/pricing.js";
+import { nativeSchemeContext } from "../tpm/native-context.js";
 import { masterId } from "../integration/replicas.js";
 import { currentDeviceActor, tripFor, outletFor } from "./access.js";
 import { productFor } from "./facts.js";
@@ -79,10 +80,21 @@ export function vanProjection(env) {
     next: null,
   });
   return {
-    params: (p) => ({
-      serviceDate: date(p.serviceDate),
-      ...(p.catalogue === true ? { catalogue: true } : {}),
-    }),
+    params: (p) => {
+      if (p.schemeEngine !== undefined && p.schemeEngine !== 1)
+        throw new ApiError(
+          "version_unsupported",
+          426,
+          "Update the native promotion engine",
+          false,
+          { action: "update" },
+        );
+      return {
+        serviceDate: date(p.serviceDate),
+        ...(p.catalogue === true ? { catalogue: true } : {}),
+        ...(p.schemeEngine === 1 ? { schemeEngine: 1 } : {}),
+      };
+    },
     snapshot,
     // CORE currently cannot emit snapshot mode for a since-cursor cycle. Refuse rather
     // than mislabel a full replacement as a delta or renew authority over stale data.
@@ -223,7 +235,8 @@ export async function bundle(ctx, env) {
       600,
     );
     /** @type {any[]} */ const customers = [],
-      priceLines = [];
+      priceLines = [],
+      schemeContexts = [];
     const priceKeys = new Set();
     for (const candidate of candidates) {
       let o;
@@ -269,6 +282,7 @@ export async function bundle(ctx, env) {
           };
       }
       let priceListId = null;
+      const nativePrices = [];
       for (const p of products) {
         const price = await resolvePrice(db, {
           organizationId: trip.organization_id,
@@ -280,6 +294,7 @@ export async function bundle(ctx, env) {
           at: Date.now(),
         });
         if (price.unitPriceCentavos === null || !price.priceListId) continue;
+        nativePrices.push({ productId: p.productId, uom: p.uomCode, ...price });
         // F-016 a customer quote may combine base, channel and customer conditions.
         // The offline grouping is a quote identity, not a second authoritative price list.
         priceListId = masterId("van.priceQuote", o.id);
@@ -299,6 +314,24 @@ export async function bundle(ctx, env) {
           complete(priceLines, 600);
         }
       }
+      if (ctx.params.schemeEngine === 1)
+        schemeContexts.push(
+          await nativeSchemeContext(
+            { ...ctx, db, actor },
+            {
+              outletId: o.id,
+              channelKey: o.channel,
+              orgUnitId: trip.org_unit_id,
+              products: products.map((p) => ({
+                productId: p.productId,
+                uom: p.uomCode,
+                name: p.name,
+                code: p.code,
+              })),
+              prices: nativePrices,
+            },
+          ),
+        );
       customers.push({
         outletId: o.id,
         code: o.code,
@@ -366,6 +399,9 @@ export async function bundle(ctx, env) {
         ...tripPolicy,
         paymentMethods: await tenderPolicy(db, trip.org_unit_id),
         fiscal: await fiscalBundle(db, actor, trip, device.id),
+        ...(ctx.params.schemeEngine === 1
+          ? { schemes: { engineVersion: 1, outlets: schemeContexts } }
+          : {}),
         ...(routeOps ? { operationsVersion: 1 } : {}),
       },
       ...(routeOps ? { vanOps: routeOps } : {}),

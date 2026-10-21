@@ -19,8 +19,10 @@ import java.util.UUID
  * server visit ID filled in only after the check-in ack. The draft and the queued request are
  * written in one transaction; after that the draft is read-only and shows the outbox state.
  */
-data class OrderTotals(val products: Int, val units: List<Pair<String, Int>>, val totalMinor: Long?, val unpricedLines: Int) {
-    val amountText: String get() = totalMinor?.let(OrderSubmission::money) ?: "Amount too large to preview"
+data class OrderTotals(val products: Int, val units: List<Pair<String, Int>>, val totalMinor: Long?, val unpricedLines: Int,
+    val discountMinor: Long = 0, val earnedMinor: Long = 0, val schemeBenefits: List<String> = emptyList(),
+    val approvalRequired: Boolean = false, val lineTotals: List<Long?> = emptyList(), val schemeProblem: String? = null) {
+    val amountText: String get() = schemeProblem ?: totalMinor?.let(OrderSubmission::money) ?: "Amount too large to preview"
     val officeText: String? get() = if (unpricedLines > 0)
         "+ $unpricedLines ${if (unpricedLines == 1) "line" else "lines"} priced by the office" else null
     /** "3 products · 24 PC · 12 CAN" */
@@ -63,7 +65,7 @@ object OrderSubmission {
     fun unitPrice(price: Long?, uom: String): String = price?.let { "${money(it)} / $uom" } ?: "Priced by the office"
 
     /** Units summed per UOM in line order; nil total means arithmetic overflow. */
-    fun totals(draft: OrderDraft): OrderTotals {
+    fun totals(draft: OrderDraft, now: Long = draft.updatedAt): OrderTotals {
         val units = LinkedHashMap<String, Int>()
         var total: Long? = 0
         var unpriced = 0
@@ -76,7 +78,7 @@ object OrderSubmission {
                 total = if (amount == null || sum == null) null else runCatching { Math.addExact(sum, amount) }.getOrNull()
             }
         }
-        return OrderTotals(draft.lines.size, units.toList(), total, unpriced)
+        return OrderSchemes.apply(draft,OrderTotals(draft.lines.size, units.toList(), total, unpriced),now)
     }
 
     /** Advisory only: office open orders plus OTHER submitted orders on this phone/day/outlet. */
@@ -181,7 +183,9 @@ object OrderSubmission {
             else list
         } + (if(draft.requestedDeliveryDate!=null || deliveryFlow?.getJSONObject("definition")?.optString("channelProfile")=="pre_sell") listOf(OrderCheck("Requested delivery day meets cutoff",deliveryProblem)) else emptyList()) + listOf(OrderCheck("Prices", null, blocking = false,
             note = if (draft.priceList == null) "Prices: set by the office" else "The office confirms these prices when the order arrives."),
-            creditCheck(draft, store.accountSummary(draft.outletId), store.orderDrafts()))
+            creditCheck(draft, store.accountSummary(draft.outletId), store.orderDrafts())) +
+            (if(draft.schemesJson!=null) listOf(OrderCheck("Promotions",totals(draft,now).schemeProblem,
+                note=if(totals(draft,now).approvalRequired) "Office discount approval is required; this phone does not authorize it." else "The office rechecks the governed promotion on receipt.")) else emptyList())
     }
 
     /** Outbox state of the draft's request (`pending`/`sending`/`done`/`review`) → what the person sees. */
@@ -222,6 +226,7 @@ object OrderQueueRules {
             payload.getString("visitId") == "@checkin:${draft.checkInRequestId}") { "Order does not match its call" }
         require(OrderSubmission.sameActivity(OrderSubmission.activity(draft), activity)) { "Order lines changed" }
         OrderDraftRules.validate(store, draft, null)
+        if(draft.schemesJson!=null && OrderSubmission.totals(draft,payload.getLong("deviceTime")).schemeProblem!=null) throw OrderDraftFailure(OrderDraftFailure.Code.PRICES_CHANGED)
         val flow=store.outlets().firstOrNull { it.id==draft.outletId }?.let { JSONObject(it.json).optJSONObject("callFlow") }
         PresellDates.validate(flow,draft.requestedDeliveryDate,payload.getLong("deviceTime"))
     }
