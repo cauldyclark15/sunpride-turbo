@@ -23,6 +23,9 @@ object SaleReceiptDocuments {
     fun build(receipt: SaleReceipt, header: ReceiptHeader, attempt: PrintAttempt, printedAt: Long, zone: ZoneId = MANILA, void: SaleVoidInfo? = null): ReceiptDocument {
         val fiscal = receipt.fiscalJson?.let { JSONObject(it) }
         val registration = fiscal?.getJSONObject("registration")
+        val tax=fiscal?.optJSONObject("tax")
+        require(fiscal==null||fiscal.optString("documentType")=="official_receipt"||tax!=null){"Invoice tax snapshot is missing"}
+        val taxLines=tax?.optJSONArray("lines")?.let{rows->(0 until rows.length()).map{rows.getJSONObject(it)}.associate{it.getInt("lineNumber") to it.getString("treatment")}}.orEmpty()
         val voidSlip = attempt.kind == PrintKind.VOID
         if (voidSlip) requireNotNull(void) { "Void slip needs cancellation evidence" }
         val reprint = attempt.kind == PrintKind.REPRINT
@@ -50,6 +53,7 @@ object SaleReceiptDocuments {
             add(ReceiptElement.Divider())
             receipt.lines.forEach { line ->
                 add(ReceiptElement.Text(line.name))
+                when(taxLines[line.lineNumber]){"exempt"->add(ReceiptElement.Text("  VAT EXEMPT"));"zero_rated"->add(ReceiptElement.Text("  ZERO RATED"))}
                 add(ReceiptElement.Columns("  ${line.quantityLabel} ${line.uomCode} x ${money(line.unitPriceMinor, receipt.currency)}",
                     money(line.totalMinor, receipt.currency)))
                 line.promotionCode?.let { code ->
@@ -61,12 +65,13 @@ object SaleReceiptDocuments {
             receipt.lines.mapNotNull { it.priceListCode }.distinct().takeIf { it.isNotEmpty() }?.let { codes ->
                 add(ReceiptElement.Text("Prices: ${codes.joinToString(", ")}"))
             }
-            fiscal?.getJSONObject("tax")?.let { tax ->
+            tax?.let { tax ->
                 add(ReceiptElement.Columns("VATable sales",money(tax.getString("vatableSalesMinor").toLong(),receipt.currency)))
                 add(ReceiptElement.Columns("VAT",money(tax.getString("vatMinor").toLong(),receipt.currency)))
                 add(ReceiptElement.Columns("VAT exempt",money(tax.getString("vatExemptMinor").toLong(),receipt.currency)))
                 add(ReceiptElement.Columns("Zero rated",money(tax.getString("zeroRatedMinor").toLong(),receipt.currency)))
             }
+            if(fiscal?.optString("taxRecognition")=="payment_application_only")add(ReceiptElement.Text("Payment against invoice - no new invoice tax"))
             add(ReceiptElement.Columns("TOTAL", money(receipt.totalMinor, receipt.currency), bold = true))
             when (receipt.paymentKind) {
                 PaymentKind.CASH -> {

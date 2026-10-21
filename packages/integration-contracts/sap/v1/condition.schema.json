@@ -110,6 +110,9 @@
           "minimum": 0,
           "maximum": 10000
         },
+        "taxTreatment": {
+          "enum": ["vatable", "exempt", "zero_rated"]
+        },
         "taxInclusive": {
           "type": "boolean"
         },

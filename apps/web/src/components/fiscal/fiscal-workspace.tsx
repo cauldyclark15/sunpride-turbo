@@ -6,6 +6,7 @@ import { Panel } from "../cockpit/kit";
 import { FiscalAudit } from "./audit";
 import { FiscalPosting, type FiscalSapPosting } from "./posting";
 import { ApprovalGrant, OverrideFacts } from "./override-facts";
+import { FiscalTaxSummary } from "./tax-summary";
 import {
   authorityMinor,
   authorityPeso,
@@ -853,7 +854,10 @@ export function FiscalWorkspace({
                     ? "Sample, not filed — not a tax document"
                     : "Registered document"}
                 </p>
-                <p>VAT: {formatPhp(doc.snapshot.tax?.vatMinor)}</p>
+                <FiscalTaxSummary
+                  documentType={doc.document_type}
+                  tax={doc.snapshot.tax}
+                />
                 <p>
                   <FiscalPosting posting={doc.sap_posting} />
                 </p>

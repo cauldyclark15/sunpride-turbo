@@ -334,13 +334,15 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
                 request.manualDiscount?.approval?.let{put("offlineCode",it)}
             } }
             .apply { fiscal?.let { put("fiscal",JSONObject().put("allocationId",it.allocationId).put("serial",it.serial.toString())) } }
+        val sellingTax=fiscal?.let{com.sunpride.van.fiscal.FiscalTax.snapshot(quote.lines,JSONObject(checkNotNull(context.policy?.fiscalJson)),customer.priceListId,context.now)}
+        sellingTax?.let{payload.getJSONObject("fiscal").put("tax",it)}
         VanCallStore(this@RoomVanStore).bindAdapter(payload,customer.outletId,listOf("order_build","discount","invoice","payment"))
         RouteOpsStore(this).prepare(payload)
         val op = JSONObject().put("kind",SALE_KIND).put("clientRequestId",id.idempotencyKey).put("payload",payload).toString()
         dao.insertOutbox(OutboxRow(s,d,id.idempotencyKey,t.tripId,SALE_KIND,op,at,null,capturedStatus))
         val receipt = SaleReceipt(request.saleId,id.receiptNumber,customer.name,quote.lines.map { receiptLine(it) },
             quote.currency,quote.totalMinor,quote.tenderedMinor,quote.changeMinor,at,false,pay.method.code,pay.method.label,pay.method.kind,
-            pay.state.wire,pay.reference,pay.dueDate,fiscal?.let { com.sunpride.van.fiscal.FiscalNumbers.snapshot(it,quote.totalMinor) })
+            pay.state.wire,pay.reference,pay.dueDate,fiscal?.let { com.sunpride.van.fiscal.FiscalNumbers.snapshot(it,quote.totalMinor,providedTax=sellingTax) })
         // VAN-017: freeze what this receipt says (and seller/trip/truck) in the same transaction as the sale.
         db.receiptPrints().insertSaleReceipt(SaleReceiptRow(s,d,request.saleId,FrozenReceipts.encode(receipt,currentReceiptHeader(dao,s,d,dao.trip(s,d)))))
         receipt

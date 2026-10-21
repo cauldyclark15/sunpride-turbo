@@ -6,14 +6,11 @@ import {
   enqueueVanCreditMemo,
   enqueueVanSettlement,
 } from "../integration/posting.js";
-import {
-  invoiceForSale,
-  taxSnapshot,
-  enqueueSapPosting,
-} from "../fiscal/transactions.js";
+import { invoiceForSale, enqueueSapPosting } from "../fiscal/transactions.js";
 import { issueDocument } from "../fiscal/series.js";
 import { enforceAuthority } from "../fiscal/authority.js";
 import { enforceDiscount, saleDiscountFacts } from "../fiscal/discounts.js";
+import { collectionTaxReference } from "../fiscal/taxes.js";
 import { configuredTender } from "../fiscal/tenders.js";
 import { requireAvailability } from "../availability/callflow.js";
 import { postMovement } from "../inventory/posting.js";
@@ -471,10 +468,7 @@ async function dispatchOperation(ctx, env) {
               status: method === "cash" ? "recorded" : "awaiting_confirmation",
             },
             totalMinor: String(amount),
-            tax: taxSnapshot(
-              String(amount),
-              registration.registration_snapshot?.taxBasisPoints,
-            ),
+            ...collectionTaxReference(s.receipt?.tax),
           },
         });
         await enqueueSapPosting(db, document);
@@ -611,6 +605,13 @@ async function sale(db, trip, actor, p, opId, env) {
       priceSource: price.source,
       taxCode: price.taxCode ?? null,
       taxBasisPoints: price.taxBasisPoints ?? null,
+      taxTreatment: price.taxTreatment ?? null,
+      sourceTaxInclusive: price.sourceTaxInclusive ?? null,
+      sourceNetUnitMinor:
+        price.sourceUnitPriceCentavos == null
+          ? null
+          : String(price.sourceUnitPriceCentavos),
+      sourceSellingUnitMinor: String(price.unitPriceCentavos),
       taxInclusive: price.taxInclusive ?? null,
       sapConditionKey: price.sapKey ?? null,
       sapConditionVersion: price.sapVersion ?? null,

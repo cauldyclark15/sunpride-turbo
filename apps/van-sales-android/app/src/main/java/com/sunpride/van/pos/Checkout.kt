@@ -47,6 +47,7 @@ enum class CheckoutProblem {
     UNKNOWN_PAYMENT_METHOD, REFERENCE_MISSING, REFERENCE_INVALID, REFERENCE_ALREADY_USED, CREDIT_LIMIT_EXCEEDED,
     PROMOTION_CONFLICT, PROMOTION_NEEDS_OFFICE,
     DISCOUNT_INVALID,DISCOUNT_REASON_REQUIRED,DISCOUNT_POLICY_NOT_READY,DISCOUNT_APPROVAL_REQUIRED,DISCOUNT_APPROVAL_INVALID,
+    TAX_NOT_READY,
     /** VAN-022: the trip's cash is already counted, so it sells nothing more. */
     CASH_COUNTED,
     /** VAN-023: the approved physical stock count freezes every stock-changing action. */
@@ -155,6 +156,9 @@ object CheckoutRules {
             .onFailure { issues+=CheckoutIssue(CheckoutProblem.DISCOUNT_INVALID) }
         if(!runCatching{ManualDiscounts.amount(quoted)<=MAX_MINOR}.getOrDefault(false))issues+=CheckoutIssue(CheckoutProblem.TOTAL_TOO_LARGE)
         if(!context.previewOnly)ManualDiscounts.authorize(request,quoted,context)?.let{issues+=CheckoutIssue(it)}
+        if(!context.previewOnly&&context.policy?.fiscalJson!=null)runCatching{
+            com.sunpride.van.fiscal.FiscalTax.snapshot(quoted,org.json.JSONObject(context.policy.fiscalJson),customer?.priceListId,context.now)
+        }.onFailure{issues+=CheckoutIssue(CheckoutProblem.TAX_NOT_READY)}
         if (currencies.size > 1) issues += CheckoutIssue(CheckoutProblem.MIXED_CURRENCY)
         val total = runCatching { quoted.fold(0L) { sum, line -> Math.addExact(sum,line.totalMinor) } }.getOrElse {
             issues += CheckoutIssue(CheckoutProblem.TOTAL_TOO_LARGE); 0L

@@ -104,6 +104,7 @@ object VanRules {
             com.sunpride.van.pos.CheckoutProblem.DISCOUNT_POLICY_NOT_READY -> "Download an effective discount authority rule for this customer and amount. Ask the office if none is set."
             com.sunpride.van.pos.CheckoutProblem.DISCOUNT_APPROVAL_REQUIRED -> "This discount needs a second person. Request approval before completing the sale."
             com.sunpride.van.pos.CheckoutProblem.DISCOUNT_APPROVAL_INVALID -> "Approval no longer matches this sale or has expired. Check the cart and request approval again."
+            com.sunpride.van.pos.CheckoutProblem.TAX_NOT_READY -> "Download the current selling tax treatment before issuing an invoice. Ask the office if a product's tax class is not set."
         }
     }
     /** Payment state in plain words (VAN-012); [dueDate] only for credit. */

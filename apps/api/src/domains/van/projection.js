@@ -219,7 +219,8 @@ export async function bundle(ctx, env) {
       600,
     );
     /** @type {any[]} */ const customers = [],
-      priceLines = [];
+      priceLines = [],
+      taxQuotes = [];
     const priceKeys = new Set();
     for (const candidate of candidates) {
       let o;
@@ -292,6 +293,25 @@ export async function bundle(ctx, env) {
             priceListCode: "SAP replicated conditions",
           });
           complete(priceLines, 600);
+          taxQuotes.push({
+            priceListId,
+            productId: p.productId,
+            uomCode: p.uomCode,
+            sourcePriceListId: price.priceListId,
+            treatment: price.taxTreatment ?? null,
+            taxCode: price.taxCode ?? null,
+            taxBasisPoints: price.taxBasisPoints ?? null,
+            sourceTaxInclusive: price.sourceTaxInclusive ?? null,
+            sourceNetUnitMinor:
+              price.sourceUnitPriceCentavos == null
+                ? null
+                : String(price.sourceUnitPriceCentavos),
+            sourceSellingUnitMinor: String(price.unitPriceCentavos),
+            sourceKey: price.sapKey ?? null,
+            sourceVersion: price.sapVersion ?? null,
+            effectiveFrom: price.effectiveFrom ?? ctx.now,
+            effectiveTo: price.effectiveTo ?? null,
+          });
         }
       }
       customers.push({
@@ -368,6 +388,8 @@ export async function bundle(ctx, env) {
           customerChannels: Object.fromEntries(
             customerChannels.map((/** @type {any} */ c) => [c.id, c.channel]),
           ),
+          taxVersion: 1,
+          taxQuotes,
         },
         ...(routeOps ? { operationsVersion: 1 } : {}),
       },

@@ -36,15 +36,19 @@ object FiscalNumbers {
         dao.insertSequenceCounter(SequenceCounterRow(scope.fullAuthSubject,scope.deviceId,counterKey,serial))
         return Issued("${range.getString("prefix")}-${serial.toString().padStart(9,'0')}",id,serial,range.getJSONObject("registration"))
     }
-    fun snapshot(issued: Issued, total: Long, documentType: String = "sales_invoice"): String {
+    fun snapshot(issued: Issued, total: Long, documentType: String = "sales_invoice",providedTax:JSONObject? = null): String {
+        require(total>=0)
+        val base=JSONObject().put("documentType",documentType).put("documentNumber",issued.number)
+            .put("registration",issued.registration).put("allocationId",issued.allocationId).put("serial",issued.serial.toString())
+        if(documentType=="official_receipt")return base.put("tax",JSONObject.NULL).put("taxRecognition","payment_application_only").toString()
+        if(providedTax!=null){require(providedTax.getString("totalMinor")==total.toString());return base.put("tax",providedTax).toString()}
         val bps = issued.registration.getInt("taxBasisPoints")
         val denominator = BigInteger.valueOf(10000L+bps)
         require(total >= 0)
         val netExact = BigInteger.valueOf(total).multiply(BigInteger.valueOf(10000)).add(denominator.divide(BigInteger.valueOf(2))).divide(denominator)
         check(netExact.bitLength() < 63)
         val net = netExact.toLong()
-        return JSONObject().put("documentType",documentType).put("documentNumber",issued.number)
-            .put("registration",issued.registration).put("allocationId",issued.allocationId).put("serial",issued.serial.toString())
+        return base
             .put("tax",JSONObject().put("rateBasisPoints",bps).put("vatableSalesMinor",if(bps>0) net.toString() else "0")
                 .put("vatMinor",if(bps>0) Math.subtractExact(total,net).toString() else "0")
                 .put("vatExemptMinor",if(bps==0) total.toString() else "0").put("zeroRatedMinor","0")).toString()

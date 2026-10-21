@@ -321,9 +321,28 @@ export async function resolveSapPrice(db, q) {
 /** F-016 F-307: one quote validator for SAP replicas and approved marked mock conditions.
  * Account hierarchy selects the condition; it cannot implement a second pricing engine.
  * @param {any} first
- * @returns {{unitPriceCentavos:number|null,priceListId:any,source:string,taxCode?:string,taxBasisPoints?:number,taxInclusive?:boolean,sourceTaxInclusive?:boolean,sourceUnitPriceCentavos?:number,sapKey?:string,sapVersion?:number,effectiveFrom?:number,effectiveTo?:number|null}} */
+ * @returns {{unitPriceCentavos:number|null,priceListId:any,source:string,taxCode?:string,taxBasisPoints?:number,taxTreatment?:string|null,taxInclusive?:boolean,sourceTaxInclusive?:boolean,sourceUnitPriceCentavos?:number,sapKey?:string,sapVersion?:number,effectiveFrom?:number,effectiveTo?:number|null}} */
 export function quoteSapCondition(first) {
   const d = first.payload.data;
+  const treatment =
+    d.taxTreatment ??
+    (d.taxBasisPoints > 0
+      ? "vatable"
+      : first.source === "sample" && d.taxCode === "SAMPLE-EXEMPT"
+        ? "exempt"
+        : first.source === "sample" && d.taxCode === "SAMPLE-ZERO"
+          ? "zero_rated"
+          : null);
+  if (
+    treatment !== null &&
+    (!["vatable", "exempt", "zero_rated"].includes(treatment) ||
+      (treatment === "vatable") !== d.taxBasisPoints > 0)
+  )
+    return {
+      unitPriceCentavos: null,
+      priceListId: null,
+      source: "invalid_tax_treatment",
+    };
   if (!Number.isSafeInteger(d.unitPriceCentavos) || d.unitPriceCentavos < 0)
     return {
       unitPriceCentavos: null,
@@ -357,6 +376,7 @@ export function quoteSapCondition(first) {
     source: first.source === "sample" ? "sap_sample" : "sap",
     taxCode: d.taxCode,
     taxBasisPoints: d.taxBasisPoints,
+    taxTreatment: treatment,
     taxInclusive: true,
     sourceTaxInclusive: d.taxInclusive,
     sourceUnitPriceCentavos: d.unitPriceCentavos,

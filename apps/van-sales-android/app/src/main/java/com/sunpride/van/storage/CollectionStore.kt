@@ -54,6 +54,7 @@ class CollectionStore(private val store: RoomVanStore) {
         val now=store.now(); val at=maxOf(now,Math.addExact(dao.latestCreatedAt(s,d)?:0L,1L))
         val issued=FiscalNumbers.issue(db,store.scope,policy,"official_receipt",now)
         val fiscal=JSONObject(FiscalNumbers.snapshot(issued,amount,"official_receipt")).put("invoiceNumber",invoice.receiptNumber)
+            .put("invoiceTax",invoice.fiscalJson?.let{JSONObject(it).optJSONObject("tax")}?:JSONObject.NULL)
         val key=UUID.randomUUID().toString()
         val status=if(method.kind==PaymentKind.CASH) "paid" else "awaiting_confirmation"
         val receipt=SaleReceipt(paymentId,issued.number,invoice.customerName,emptyList(),invoice.currency,amount,amount,0,at,false,method.code,method.label,method.kind,status,normalized,null,fiscal.toString())

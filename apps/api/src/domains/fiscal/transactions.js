@@ -7,6 +7,8 @@ import {
 import { integer, refuse, safeNumber, uuid } from "../van/model.js";
 import { authorityContext } from "./authority.js";
 import { roleHas } from "../../core/capabilities.js";
+import { invoiceTaxSnapshot } from "./taxes.js";
+import { canonicalJson } from "../../core/util.js";
 /** F-108/F-109: inclusive VAT, exact half-up centavos; the frozen registration owns the rate.
  * @param {string} total @param {number} bps */
 export function taxSnapshot(total, bps) {
@@ -39,6 +41,26 @@ export async function invoiceForSale(db, actor, trip, p, receipt, deviceId) {
     await db`select r.*,a.registration_snapshot from fiscal_allocations a join fiscal_series s on s.id=a.series_id join fiscal_registrations r on r.id=s.registration_id where a.id=${uuid(p.fiscal.allocationId)}`;
   if (!r || r.org_unit_id !== trip.org_unit_id)
     refuse("Fiscal range belongs to another branch");
+  /** @type {ReturnType<typeof invoiceTaxSnapshot>|ReturnType<typeof taxSnapshot>} */
+  let tax = invoiceTaxSnapshot(receipt.lines, receipt.totalMinor);
+  if (p.fiscal.tax) {
+    if (canonicalJson(p.fiscal.tax) !== canonicalJson(tax))
+      refuse(
+        "Selling tax changed; keep the invoice for office review rather than rewriting its printed facts",
+      );
+  } else {
+    const rate = r.registration_snapshot?.taxBasisPoints;
+    if (
+      !receipt.lines.every(
+        (/** @type {any} */ l) =>
+          l.taxTreatment === "vatable" &&
+          l.taxBasisPoints === rate &&
+          l.sourceTaxInclusive === true,
+      )
+    )
+      refuse("Update the handheld before issuing this tax treatment");
+    tax = taxSnapshot(receipt.totalMinor, rate);
+  }
   const document = await issueDocument(db, {
     actor,
     deviceId,
@@ -52,10 +74,7 @@ export async function invoiceForSale(db, actor, trip, p, receipt, deviceId) {
     at: p.deviceTime,
     snapshot: {
       ...receipt,
-      tax: taxSnapshot(
-        receipt.totalMinor,
-        r.registration_snapshot?.taxBasisPoints,
-      ),
+      tax,
     },
   });
   await enqueueSapPosting(db, document);

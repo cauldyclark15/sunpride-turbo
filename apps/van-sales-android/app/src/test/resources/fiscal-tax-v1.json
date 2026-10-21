@@ -1,0 +1,363 @@
+{
+  "at": 1792550528926,
+  "priceListId": "2c9a4c33-964d-4bd3-96df-302356a06e60",
+  "lines": [
+    {
+      "productId": "2be88f47-18e7-453c-bac4-8390108d6e23",
+      "code": "SAMPLE-0",
+      "name": "SAMPLE vatable",
+      "uomCode": "EA",
+      "quantityScale": "1",
+      "quantityBase": "1",
+      "unitPriceMinor": "11200",
+      "grossMinor": "11200",
+      "discountMinor": "0",
+      "totalMinor": "11200",
+      "priceListId": "2c9a4c33-964d-4bd3-96df-302356a06e60",
+      "taxCode": "SAMPLE-vatable",
+      "taxBasisPoints": 1200,
+      "taxTreatment": "vatable",
+      "sourceTaxInclusive": true,
+      "sourceNetUnitMinor": "11200",
+      "sourceSellingUnitMinor": "11200",
+      "sapConditionKey": "SAMPLE-TAX-0",
+      "sapConditionVersion": 1
+    },
+    {
+      "productId": "453872b9-5912-469c-a83d-5a85a125a23e",
+      "code": "SAMPLE-1",
+      "name": "SAMPLE exempt",
+      "uomCode": "EA",
+      "quantityScale": "1",
+      "quantityBase": "1",
+      "unitPriceMinor": "3000",
+      "grossMinor": "3000",
+      "discountMinor": "0",
+      "totalMinor": "3000",
+      "priceListId": "2c9a4c33-964d-4bd3-96df-302356a06e60",
+      "taxCode": "SAMPLE-exempt",
+      "taxBasisPoints": 0,
+      "taxTreatment": "exempt",
+      "sourceTaxInclusive": true,
+      "sourceNetUnitMinor": "3000",
+      "sourceSellingUnitMinor": "3000",
+      "sapConditionKey": "SAMPLE-TAX-1",
+      "sapConditionVersion": 1
+    },
+    {
+      "productId": "ad3e56b1-86ee-4de2-93b7-8c6ba7e7e13e",
+      "code": "SAMPLE-2",
+      "name": "SAMPLE zero_rated",
+      "uomCode": "EA",
+      "quantityScale": "1",
+      "quantityBase": "1",
+      "unitPriceMinor": "5000",
+      "grossMinor": "5000",
+      "discountMinor": "0",
+      "totalMinor": "5000",
+      "priceListId": "2c9a4c33-964d-4bd3-96df-302356a06e60",
+      "taxCode": "SAMPLE-zero_rated",
+      "taxBasisPoints": 0,
+      "taxTreatment": "zero_rated",
+      "sourceTaxInclusive": true,
+      "sourceNetUnitMinor": "5000",
+      "sourceSellingUnitMinor": "5000",
+      "sapConditionKey": "SAMPLE-TAX-2",
+      "sapConditionVersion": 1
+    },
+    {
+      "productId": "ac34ab3a-339a-4739-8254-4e5cd132b553",
+      "code": "SAMPLE-3",
+      "name": "SAMPLE vatable",
+      "uomCode": "EA",
+      "quantityScale": "1",
+      "quantityBase": "100",
+      "unitPriceMinor": "1",
+      "grossMinor": "100",
+      "discountMinor": "0",
+      "totalMinor": "100",
+      "priceListId": "2c9a4c33-964d-4bd3-96df-302356a06e60",
+      "taxCode": "SAMPLE-vatable",
+      "taxBasisPoints": 1200,
+      "taxTreatment": "vatable",
+      "sourceTaxInclusive": false,
+      "sourceNetUnitMinor": "1",
+      "sourceSellingUnitMinor": "1",
+      "sapConditionKey": "SAMPLE-TAX-3",
+      "sapConditionVersion": 1
+    }
+  ],
+  "policy": {
+    "taxVersion": 1,
+    "taxQuotes": [
+      {
+        "priceListId": "2c9a4c33-964d-4bd3-96df-302356a06e60",
+        "productId": "2be88f47-18e7-453c-bac4-8390108d6e23",
+        "uomCode": "EA",
+        "treatment": "vatable",
+        "taxCode": "SAMPLE-vatable",
+        "taxBasisPoints": 1200,
+        "sourceTaxInclusive": true,
+        "sourceNetUnitMinor": "11200",
+        "sourceSellingUnitMinor": "11200",
+        "sourceKey": "SAMPLE-TAX-0",
+        "sourceVersion": 1,
+        "effectiveFrom": 1792550468728,
+        "effectiveTo": null
+      },
+      {
+        "priceListId": "2c9a4c33-964d-4bd3-96df-302356a06e60",
+        "productId": "453872b9-5912-469c-a83d-5a85a125a23e",
+        "uomCode": "EA",
+        "treatment": "exempt",
+        "taxCode": "SAMPLE-exempt",
+        "taxBasisPoints": 0,
+        "sourceTaxInclusive": true,
+        "sourceNetUnitMinor": "3000",
+        "sourceSellingUnitMinor": "3000",
+        "sourceKey": "SAMPLE-TAX-1",
+        "sourceVersion": 1,
+        "effectiveFrom": 1792550468728,
+        "effectiveTo": null
+      },
+      {
+        "priceListId": "2c9a4c33-964d-4bd3-96df-302356a06e60",
+        "productId": "ad3e56b1-86ee-4de2-93b7-8c6ba7e7e13e",
+        "uomCode": "EA",
+        "treatment": "zero_rated",
+        "taxCode": "SAMPLE-zero_rated",
+        "taxBasisPoints": 0,
+        "sourceTaxInclusive": true,
+        "sourceNetUnitMinor": "5000",
+        "sourceSellingUnitMinor": "5000",
+        "sourceKey": "SAMPLE-TAX-2",
+        "sourceVersion": 1,
+        "effectiveFrom": 1792550468728,
+        "effectiveTo": null
+      },
+      {
+        "priceListId": "2c9a4c33-964d-4bd3-96df-302356a06e60",
+        "productId": "ac34ab3a-339a-4739-8254-4e5cd132b553",
+        "uomCode": "EA",
+        "treatment": "vatable",
+        "taxCode": "SAMPLE-vatable",
+        "taxBasisPoints": 1200,
+        "sourceTaxInclusive": false,
+        "sourceNetUnitMinor": "1",
+        "sourceSellingUnitMinor": "1",
+        "sourceKey": "SAMPLE-TAX-3",
+        "sourceVersion": 1,
+        "effectiveFrom": 1792550468728,
+        "effectiveTo": null
+      }
+    ]
+  },
+  "expected": {
+    "inclusive": true,
+    "rateBasisPoints": 1200,
+    "vatableSalesMinor": "10100",
+    "vatMinor": "1200",
+    "vatExemptMinor": "3000",
+    "zeroRatedMinor": "5000",
+    "totalMinor": "19300",
+    "lines": [
+      {
+        "lineNumber": 1,
+        "treatment": "vatable",
+        "taxCode": "SAMPLE-vatable",
+        "rateBasisPoints": 1200,
+        "netMinor": "10000",
+        "vatMinor": "1200",
+        "totalMinor": "11200",
+        "sourceKey": "SAMPLE-TAX-0",
+        "sourceVersion": 1
+      },
+      {
+        "lineNumber": 2,
+        "treatment": "exempt",
+        "taxCode": "SAMPLE-exempt",
+        "rateBasisPoints": 0,
+        "netMinor": "3000",
+        "vatMinor": "0",
+        "totalMinor": "3000",
+        "sourceKey": "SAMPLE-TAX-1",
+        "sourceVersion": 1
+      },
+      {
+        "lineNumber": 3,
+        "treatment": "zero_rated",
+        "taxCode": "SAMPLE-zero_rated",
+        "rateBasisPoints": 0,
+        "netMinor": "5000",
+        "vatMinor": "0",
+        "totalMinor": "5000",
+        "sourceKey": "SAMPLE-TAX-2",
+        "sourceVersion": 1
+      },
+      {
+        "lineNumber": 4,
+        "treatment": "vatable",
+        "taxCode": "SAMPLE-vatable",
+        "rateBasisPoints": 1200,
+        "netMinor": "100",
+        "vatMinor": "0",
+        "totalMinor": "100",
+        "sourceKey": "SAMPLE-TAX-3",
+        "sourceVersion": 1
+      }
+    ]
+  },
+  "invoice": {
+    "number": "SAMPLE-0575-TAX-000000570",
+    "allocationId": "3ced472c-2eaf-4172-837a-a250a79d998c",
+    "serial": "570",
+    "snapshot": {
+      "tax": {
+        "lines": [
+          {
+            "taxCode": "SAMPLE-vatable",
+            "netMinor": "10000",
+            "vatMinor": "1200",
+            "sourceKey": "SAMPLE-TAX-0",
+            "treatment": "vatable",
+            "lineNumber": 1,
+            "totalMinor": "11200",
+            "sourceVersion": 1,
+            "rateBasisPoints": 1200
+          },
+          {
+            "taxCode": "SAMPLE-exempt",
+            "netMinor": "3000",
+            "vatMinor": "0",
+            "sourceKey": "SAMPLE-TAX-1",
+            "treatment": "exempt",
+            "lineNumber": 2,
+            "totalMinor": "3000",
+            "sourceVersion": 1,
+            "rateBasisPoints": 0
+          },
+          {
+            "taxCode": "SAMPLE-zero_rated",
+            "netMinor": "5000",
+            "vatMinor": "0",
+            "sourceKey": "SAMPLE-TAX-2",
+            "treatment": "zero_rated",
+            "lineNumber": 3,
+            "totalMinor": "5000",
+            "sourceVersion": 1,
+            "rateBasisPoints": 0
+          },
+          {
+            "taxCode": "SAMPLE-vatable",
+            "netMinor": "100",
+            "vatMinor": "0",
+            "sourceKey": "SAMPLE-TAX-3",
+            "treatment": "vatable",
+            "lineNumber": 4,
+            "totalMinor": "100",
+            "sourceVersion": 1,
+            "rateBasisPoints": 1200
+          }
+        ],
+        "vatMinor": "1200",
+        "inclusive": true,
+        "totalMinor": "19300",
+        "vatExemptMinor": "3000",
+        "zeroRatedMinor": "5000",
+        "rateBasisPoints": 1200,
+        "vatableSalesMinor": "10100"
+      },
+      "totalMinor": "19300",
+      "documentType": "sales_invoice",
+      "registration": {
+        "tin": "SAMPLE",
+        "sample": true,
+        "status": "sample_not_filed",
+        "address": "SAMPLE",
+        "branchName": "SAMPLE",
+        "entityName": "SAMPLE",
+        "taxBasisPoints": 1200,
+        "permitReference": null
+      },
+      "documentNumber": "SAMPLE-0575-TAX-000000570"
+    }
+  },
+  "collection": {
+    "number": "SAMPLE-0575-OR-000000572",
+    "allocationId": "308b3cbe-2f3f-41ee-88ec-0de38b985d22",
+    "serial": "572",
+    "snapshot": {
+      "tax": null,
+      "invoiceTax": {
+        "lines": [
+          {
+            "taxCode": "SAMPLE-vatable",
+            "netMinor": "10000",
+            "vatMinor": "1200",
+            "sourceKey": "SAMPLE-TAX-0",
+            "treatment": "vatable",
+            "lineNumber": 1,
+            "totalMinor": "11200",
+            "sourceVersion": 1,
+            "rateBasisPoints": 1200
+          },
+          {
+            "taxCode": "SAMPLE-exempt",
+            "netMinor": "3000",
+            "vatMinor": "0",
+            "sourceKey": "SAMPLE-TAX-1",
+            "treatment": "exempt",
+            "lineNumber": 2,
+            "totalMinor": "3000",
+            "sourceVersion": 1,
+            "rateBasisPoints": 0
+          },
+          {
+            "taxCode": "SAMPLE-zero_rated",
+            "netMinor": "5000",
+            "vatMinor": "0",
+            "sourceKey": "SAMPLE-TAX-2",
+            "treatment": "zero_rated",
+            "lineNumber": 3,
+            "totalMinor": "5000",
+            "sourceVersion": 1,
+            "rateBasisPoints": 0
+          },
+          {
+            "taxCode": "SAMPLE-vatable",
+            "netMinor": "100",
+            "vatMinor": "0",
+            "sourceKey": "SAMPLE-TAX-3",
+            "treatment": "vatable",
+            "lineNumber": 4,
+            "totalMinor": "100",
+            "sourceVersion": 1,
+            "rateBasisPoints": 1200
+          }
+        ],
+        "vatMinor": "1200",
+        "inclusive": true,
+        "totalMinor": "19300",
+        "vatExemptMinor": "3000",
+        "zeroRatedMinor": "5000",
+        "rateBasisPoints": 1200,
+        "vatableSalesMinor": "10100"
+      },
+      "totalMinor": "9650",
+      "documentType": "official_receipt",
+      "registration": {
+        "tin": "SAMPLE",
+        "sample": true,
+        "status": "sample_not_filed",
+        "address": "SAMPLE",
+        "branchName": "SAMPLE",
+        "entityName": "SAMPLE",
+        "taxBasisPoints": 1200,
+        "permitReference": null
+      },
+      "invoiceNumber": "SAMPLE-0575-TAX-000000570",
+      "documentNumber": "SAMPLE-0575-OR-000000572",
+      "taxRecognition": "payment_application_only"
+    }
+  }
+}

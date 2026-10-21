@@ -13,7 +13,7 @@ import {
 /** F-016 SAP condition replica is authoritative. Signature is the shared ORDERS seam.
  * @param {any} db
  * @param {{organizationId:string,productId:string,uom:string,channelKey:string|null,customerCode:string|null,outletId?:string|null,at:number}} q
- * @returns {Promise<{unitPriceCentavos:number|null,priceListId:string|null,source:string,taxCode?:string,taxBasisPoints?:number,taxInclusive?:boolean,sapKey?:string,sapVersion?:number,effectiveFrom?:number,effectiveTo?:number|null}>}
+ * @returns {Promise<{unitPriceCentavos:number|null,priceListId:string|null,source:string,taxCode?:string,taxBasisPoints?:number,taxTreatment?:string|null,taxInclusive?:boolean,sourceTaxInclusive?:boolean,sourceUnitPriceCentavos?:number,sapKey?:string,sapVersion?:number,effectiveFrom?:number,effectiveTo?:number|null}>}
  */
 export async function resolvePrice(db, q) {
   const accountPrice = await resolveAccountPrice(db, q);
