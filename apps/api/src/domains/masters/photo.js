@@ -15,6 +15,11 @@ export function validateCatalogueJpeg(bytes) {
   if (bytes.length > 512 * 1024) rule("Choose a catalogue JPEG up to 512 KiB.");
   return validateJpeg(bytes);
 }
+/** F-613: bounded cheque evidence uses the same real decoder, not MIME/magic bytes alone. @param {Uint8Array} bytes */
+export function validateCollectionJpeg(bytes) {
+  if (bytes.length > 64 * 1024) rule("Take a clear cheque JPEG up to 64 KiB.");
+  return validateJpeg(bytes);
+}
 /** @param {Uint8Array} bytes */
 function validateJpeg(bytes) {
   try {

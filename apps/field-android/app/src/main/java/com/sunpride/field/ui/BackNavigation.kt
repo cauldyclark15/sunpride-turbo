@@ -37,7 +37,7 @@ object BackNavigation {
         s.locked || !s.signedIn -> BackStep.Exit
         s.page == "account" || s.page == "sync" -> BackStep.ToPage("home")
         s.page == "support" || s.page == "change-password" -> BackStep.ToPage("account")
-        s.ready && (s.page == "location-consent" || s.page == "location-background" || s.page == "location-battery" || s.page == "workforce") -> BackStep.ToPage("home")
+        s.ready && (s.page == "location-consent" || s.page == "location-background" || s.page == "location-battery" || s.page == "workforce" || s.page == "jointcall" || s.page == "collections") -> BackStep.ToPage("home")
         s.visitOpen && s.visitsEnabled && s.ready -> when {
             s.photoCaptureOpen -> BackStep.ClosePhoto
             s.activityFormOpen -> BackStep.CloseActivityForm

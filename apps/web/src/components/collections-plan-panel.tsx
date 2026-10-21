@@ -2,6 +2,7 @@
 import { useRef, useState } from "react";
 import { useApi, useLive, useMutate } from "../lib/api";
 import { formatPhp } from "./cockpit/format";
+import { CollectionEvidence } from "./collection-evidence";
 
 type Item = {
   ref: string;
@@ -60,8 +61,8 @@ export type Collections = {
   routeDate: string;
   canPlan: boolean;
   summary: {
-    arMinor: number;
-    overdueMinor: number;
+    arMinor: number | null;
+    overdueMinor: number | null;
     openPromisesMinor: number;
     dueThisWeekMinor: number;
     overduePromises: number;
@@ -289,7 +290,10 @@ export function CollectionsPlanPanel() {
           <tbody>
             {d.promises.map((p) => (
               <tr key={p.id}>
-                <td>{p.name}</td>
+                <td>
+                  {p.name}
+                  {d.canPlan && <CollectionEvidence kind="promise" id={p.id} />}
+                </td>
                 <td>{p.openItemLabel ?? "Whole balance"}</td>
                 <td className="text-right tabular-nums">
                   {formatPhp(p.amountMinor)}
@@ -461,7 +465,10 @@ export function CollectionsPlanPanel() {
           <tbody>
             {d.cheques.map((q) => (
               <tr key={q.id}>
-                <td>{q.name}</td>
+                <td>
+                  {q.name}
+                  {d.canPlan && <CollectionEvidence kind="cheque" id={q.id} />}
+                </td>
                 <td>
                   {q.bank} {q.chequeNumber}
                 </td>

@@ -1,16 +1,27 @@
 // F-613: collections plan in Money. Promise-to-pay, a collector's route and post-dated / bounced cheque
-// tracking, on AR open items. SEAM(SAP): open items come from the labelled sample office AR snapshot
-// (admin_pack_records ar_balance, source 'sample') until the SAP open-item replica exists. Nothing here is
+// tracking on SAP replicated open items. The labelled sample office AR snapshot is used only before
+// this gateway has any AR feed; it is never resurrected after a withdrawal. Nothing here is
 // an AR ledger: balances are never posted or reduced by these records.
 import { tx } from "@sunpride/db/client";
 import { canonicalJson, sha256Hex } from "../../core/util.js";
-import { requireCapability, roleHas } from "../../core/capabilities.js";
+import {
+  requireCapability as coreCapability,
+  roleHas,
+} from "../../core/capabilities.js";
+import { COLLECTOR_ACCESS } from "./collector-context.js";
+import { sapCollectionItems } from "./collection-ar.js";
 import { invalid, conflict, notFound } from "../../core/errors.js";
 import { currentActor } from "../van/access.js";
 import { scopeFor } from "../analytics/measures.js";
 import { manilaDate, DAY } from "./model.js";
 import { required } from "../org/model.js";
 
+/** Narrow server-minted adapter, never a new global planner role. @param {any} c @param {string} cap @param {string|null} [unit] */
+async function requireCapability(c, cap, unit) {
+  if (cap === "collections.plan" && c[COLLECTOR_ACCESS])
+    return c[COLLECTOR_ACCESS].authorize(c, unit);
+  return coreCapability(c, cap, unit);
+}
 const hash = (/** @type {any} */ v) => sha256Hex(canonicalJson(v));
 const SOURCE = "Sample office AR snapshot — not live SAP";
 const REASONS = [
@@ -56,16 +67,27 @@ function isoDay(v, label) {
 
 /** The customer, its current owning unit and its latest sample AR snapshot, gated for the caller.
  * @param {any} c @param {string} code @param {string} today @param {string} [cap] */
-async function customerFor(c, code, today, cap = "collections.plan") {
-  const [store] =
-    await c.db`select s.customer_code,s.name,s.owner_unit_id,s.territory_name from analytics_store_scope s where s.customer_code=${required(code, "Customer", 60)} order by s.id limit 1`;
-  if (!store?.owner_unit_id) throw notFound("Customer not found");
-  await requireCapability(c, cap, store.owner_unit_id);
-  return { store, ar: await latestAr(c.db, [store.customer_code], today) };
+export async function customerFor(c, code, today, cap = "collections.plan") {
+  const rows =
+    await c.db`select s.customer_code,s.name,s.owner_unit_id,s.territory_name from analytics_store_scope s where s.customer_code=${required(code, "Customer", 60)} and s.status='active' order by s.id limit 501`;
+  if (rows.length > 500)
+    throw conflict("Narrow this shared accounting customer's store scope");
+  for (const store of rows) {
+    if (!store.owner_unit_id) continue;
+    try {
+      await requireCapability(c, cap, store.owner_unit_id);
+    } catch {
+      continue;
+    }
+    return { store, ar: await latestAr(c.db, [store.customer_code], today) };
+  }
+  throw notFound("Customer not found in the current collection scope");
 }
 /** @param {any} db @param {string[]} codes @param {string} today */
-async function latestAr(db, codes, today) {
+export async function latestAr(db, codes, today) {
   if (!codes.length) return new Map();
+  const sap = await sapCollectionItems(db, codes);
+  if (sap !== null) return sap;
   const rows =
     await db`select distinct on (details->>'customerCode') id,details from admin_pack_records where kind='ar_balance' and source='sample'
       and details->>'customerCode' in ${db(codes)} and details->>'asOfDate'<=${today}
@@ -92,6 +114,10 @@ async function latestAr(db, codes, today) {
         d.customerCode,
         {
           snapshotId: r.id,
+          source: SOURCE,
+          freshness: "sample",
+          sourceReference: { kind: "sample_office", snapshotId: r.id },
+          sourceHash: hash({ kind: "sample_office", snapshotId: r.id }),
           asOfDate: d.asOfDate,
           totalMinor: total,
           overdueMinor: total - Number(d.currentMinor ?? 0),
@@ -122,9 +148,11 @@ export async function createPromise(ctx) {
     const actor = await currentActor(db, ctx.actor),
       c = { ...ctx, db, actor };
     await requireCapability(c, "collections.plan");
+    await customerFor(c, b.customerCode, manilaDate(ctx.now));
     const [old] =
-      await db`select id,request_hash from collection_promises where created_by=${actor.profileId} and client_key=${key}`;
+      await db`select id,request_hash,org_unit_id from collection_promises where created_by=${actor.profileId} and client_key=${key}`;
     if (old) {
+      await requireCapability(c, "collections.plan", old.org_unit_id);
       if (old.request_hash !== request)
         throw conflict(
           "This key was already used for a different promise",
@@ -137,6 +165,9 @@ export async function createPromise(ctx) {
       throw invalid("A promise is for today or a day within the next 60 days");
     const { store, ar } = await customerFor(c, b.customerCode, today);
     const snap = ar.get(store.customer_code);
+    if (b.sourceHash && b.sourceHash !== snap?.sourceHash)
+      throw conflict("AR open items changed; reconcile the retained promise");
+    await db`select pg_advisory_xact_lock(hashtextextended(${"collection-promise:" + store.customer_code},0))`;
     if (!snap || snap.totalMinor <= 0)
       throw conflict("This customer has no open balance in the AR snapshot");
     let ref = null;
@@ -153,9 +184,18 @@ export async function createPromise(ctx) {
       await db`select coalesce(sum(amount_minor),0)::bigint promised from collection_promises where customer_code=${store.customer_code} and status='open'`;
     if (Number(promised) + amount > snap.totalMinor)
       throw invalid("Open promises would exceed the customer's open balance");
+    if (ref) {
+      const [used] =
+        await db`select coalesce(sum(amount_minor),0)::bigint n from collection_promises where customer_code=${store.customer_code} and open_item_ref=${ref} and status='open'`;
+      const item = snap.items.find((/** @type {any} */ i) => i.ref === ref);
+      if (Number(used.n) + amount > item.remainingMinor)
+        throw invalid(
+          "Open promises exceed that replicated open item's remaining amount",
+        );
+    }
     const [p] =
-      await db`insert into collection_promises(org_unit_id,customer_code,open_item_ref,ar_snapshot_id,amount_minor,promised_on,note,created_by,client_key,request_hash)
-      values(${store.owner_unit_id},${store.customer_code},${ref},${snap.snapshotId},${amount},${on},${note},${actor.profileId},${key},${request}) returning id`;
+      await db`insert into collection_promises(org_unit_id,customer_code,open_item_ref,ar_snapshot_id,amount_minor,promised_on,note,created_by,client_key,request_hash,ar_source)
+      values(${store.owner_unit_id},${store.customer_code},${ref},${snap.snapshotId},${amount},${on},${note},${actor.profileId},${key},${request},${snap.sourceReference ?? {}}) returning id`;
     ctx.platform?.publish?.("analytics");
     return { id: p.id };
   });
@@ -174,6 +214,7 @@ export async function settlePromise(ctx) {
       await db`select * from collection_promises where id=${required(b.promiseId, "Promise", 64)}::uuid for update`;
     if (!p) throw notFound("Promise not found");
     await requireCapability(c, "collections.plan", p.org_unit_id);
+    await customerFor(c, p.customer_code, manilaDate(ctx.now));
     if (p.status !== "open") {
       if (p.status === b.outcome && p.outcome_note === note)
         return { status: p.status };
@@ -208,9 +249,11 @@ export async function receiveCheque(ctx) {
     const actor = await currentActor(db, ctx.actor),
       c = { ...ctx, db, actor };
     await requireCapability(c, "collections.plan");
+    await customerFor(c, b.customerCode, manilaDate(ctx.now));
     const [old] =
-      await db`select id,request_hash from cheque_instruments where created_by=${actor.profileId} and client_key=${key}`;
+      await db`select id,request_hash,org_unit_id from cheque_instruments where created_by=${actor.profileId} and client_key=${key}`;
     if (old) {
+      await requireCapability(c, "collections.plan", old.org_unit_id);
       if (old.request_hash !== request)
         throw conflict(
           "This key was already used for a different cheque",
@@ -224,9 +267,10 @@ export async function receiveCheque(ctx) {
     const { store } = await customerFor(c, b.customerCode, today);
     if (b.promiseId) {
       const [p] =
-        await db`select customer_code,status from collection_promises where id=${b.promiseId}::uuid`;
+        await db`select customer_code,status,org_unit_id from collection_promises where id=${b.promiseId}::uuid`;
       if (!p || p.customer_code !== store.customer_code || p.status !== "open")
         throw invalid("Link an open promise of the same customer");
+      await requireCapability(c, "collections.plan", p.org_unit_id);
     }
     let replaces = null;
     if (b.replacesId) {
@@ -240,6 +284,7 @@ export async function receiveCheque(ctx) {
         throw invalid(
           "Only a bounced cheque of the same customer can be replaced",
         );
+      await requireCapability(c, "collections.plan", old.org_unit_id);
       replaces = old.id;
     }
     const [dupe] =
@@ -270,6 +315,7 @@ export async function chequeEvent(ctx) {
       await db`select * from cheque_instruments where id=${required(b.chequeId, "Cheque", 64)}::uuid for update`;
     if (!q) throw notFound("Cheque not found");
     await requireCapability(c, "collections.plan", q.org_unit_id);
+    await customerFor(c, q.customer_code, manilaDate(ctx.now));
     if (q.status === b.kind) return { status: q.status };
     if (!NEXT[q.status]?.includes(b.kind))
       throw conflict(`A ${q.status} cheque cannot be marked ${b.kind}`);
@@ -336,7 +382,7 @@ function itemLabel(items, ref) {
   if (!ref) return null;
   const i = items?.find((x) => x.ref === ref);
   return i
-    ? `Invoice ${i.invoiceDate}, due ${i.dueDate}`
+    ? `${i.documentNumber ? "Invoice " + i.documentNumber : i.invoiceDate ? "Invoice " + i.invoiceDate : "Open item"}, due ${i.dueDate}`
     : "Open item (since settled in the snapshot)";
 }
 
@@ -358,10 +404,10 @@ export async function readCollections(ctx) {
   const codes = stores.map((/** @type {any} */ r) => r.customer_code);
   const ar = await latestAr(db, codes, today);
   const promises = codes.length
-    ? await db`select p.*,pr.name created_name from collection_promises p join profiles pr on pr.id=p.created_by where p.customer_code in ${db(codes)} and (p.status='open' or p.updated_at>now()-interval '56 days') order by p.promised_on,p.id limit 5000`
+    ? await db`select p.*,pr.name created_name from collection_promises p join profiles pr on pr.id=p.created_by where p.customer_code in ${db(codes)} and p.org_unit_id in ${db(ids)} and (p.status='open' or p.updated_at>now()-interval '56 days') order by p.promised_on,p.id limit 5000`
     : [];
   const cheques = codes.length
-    ? await db`select * from cheque_instruments where customer_code in ${db(codes)} and (status in ('received','deposited','bounced') or updated_at>now()-interval '56 days') order by cheque_date,id limit 5000`
+    ? await db`select * from cheque_instruments where customer_code in ${db(codes)} and org_unit_id in ${db(ids)} and (status in ('received','deposited','bounced') or updated_at>now()-interval '56 days') order by cheque_date,id limit 5000`
     : [];
   const routes =
     await db`select r.*,p.name collector_name from collection_route_stops r join profiles p on p.id=r.collector_profile_id where r.route_date=${routeDate} and r.org_unit_id in ${db(ids)} order by p.name,r.sequence`;
@@ -453,6 +499,8 @@ export async function readCollections(ctx) {
       overdueMinor: a.overdueMinor,
       asOfDate: a.asOfDate,
       openItems: a.items,
+      source: a.source ?? SOURCE,
+      freshness: a.freshness ?? "sample",
       promisedMinor: open
         .filter((/** @type {any} */ p) => p.customer_code === code)
         .reduce(
@@ -471,12 +519,19 @@ export async function readCollections(ctx) {
   const role = ctx.actor?.role;
   return {
     asOf: today,
-    source: SOURCE,
+    source:
+      (await sapCollectionItems(db, [], Date.now())) === null
+        ? SOURCE
+        : "SAP replicated open items (SAMPLE if labelled). Cached, not a live balance; missing items are not zero.",
     routeDate,
     canPlan: !!role && roleHas(role, "collections.plan"),
     summary: {
-      arMinor: total(customers, "arMinor"),
-      overdueMinor: total(customers, "overdueMinor"),
+      arMinor: codes.some((/** @type {string} */ code) => !ar.has(code))
+        ? null
+        : total(customers, "arMinor"),
+      overdueMinor: codes.some((/** @type {string} */ code) => !ar.has(code))
+        ? null
+        : total(customers, "overdueMinor"),
       openPromisesMinor: total(open, "amount_minor"),
       dueThisWeekMinor: total(
         open.filter(

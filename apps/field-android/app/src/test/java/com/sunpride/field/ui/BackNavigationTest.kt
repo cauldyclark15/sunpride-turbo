@@ -6,6 +6,7 @@ import org.junit.Test
 /** SP-0141: the phone's Back key follows the on-screen ‹ one step at a time; only Today leaves the app. */
 class BackNavigationTest {
     private val visit = BackState(page = "customer", visitOpen = true)
+    @Test fun F223_F613_newFieldFormsReturnToToday(){for(page in listOf("jointcall","collections"))assertEquals(BackStep.ToPage("home"),BackNavigation.step(BackState(page=page)))}
 
     @Test fun visitStackUnwindsOneStepAtATime() {
         assertEquals(BackStep.ClosePhoto, BackNavigation.step(visit.copy(photoCaptureOpen = true, callSheetOpen = true)))

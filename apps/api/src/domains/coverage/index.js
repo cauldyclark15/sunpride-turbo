@@ -29,6 +29,7 @@ import { installDormancy } from "./dormancy.js";
 import { installTargetCascade } from "./target-cascade.js";
 import { installTargetProgress } from "./target-progress.js";
 import { installCollections } from "./collections.js";
+import { installCollectorCapture } from "./collector-native.js";
 import { installTerritoryScenarios } from "./territory-scenarios.js";
 
 const reads = [
@@ -211,6 +212,7 @@ export function install(router, platform) {
   installTargetCascade(router, platform);
   installTargetProgress(router, platform);
   installCollections(router);
+  installCollectorCapture(router, platform);
   installTerritoryScenarios(router, platform);
   router.get("/api/v1/coverage/adherence", (c) =>
     tx(c.db, (db) =>

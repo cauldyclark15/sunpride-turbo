@@ -90,6 +90,7 @@ export const CAPABILITIES = Object.freeze({
   "target.approve": ["super_admin", "manager", "approver"],
   // F-613: plan collections (promises, cheques, collector routes) on SAP AR open items.
   "collections.plan": ["super_admin", "admin", "manager"],
+  "collections.capture": ["super_admin", "manager", "sales"],
   "visit.locationException.approve": ["super_admin", "manager"],
   "visit.read": ALL,
   "order.create": ["super_admin", "manager", "sales"],
